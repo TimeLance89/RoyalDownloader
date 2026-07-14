@@ -1,0 +1,8 @@
+curl_cffi
+nodriver==0.50.3
+beautifulsoup4
+lxml
+yt-dlp
+fastapi
+uvicorn[standard]
+requests>=2.32,<3

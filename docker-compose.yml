@@ -1,0 +1,96 @@
+services:
+  seriendownloader:
+    build: .
+    image: seriendownloader:latest
+    container_name: seriendownloader
+    ports:
+      # Web-Oberfläche: http://<NAS-IP>:8765
+      - "8765:8765"
+    # Einheitliche DNS-Auflösung für Python, Chromium, ffmpeg und yt-dlp.
+    # Der lokale Resolver kann upstream DNS-over-TLS (z.B. dnsforge) nutzen.
+    dns:
+      - ${DNS_PRIMARY:-1.1.1.1}
+      - ${DNS_SECONDARY:-9.9.9.9}
+    volumes:
+      # Persistenter App-State (Cookies/CF-Clearance, Hoster-Intel,
+      # Einstellungen + Watchlist) – bleibt über Container-Neustarts erhalten.
+      - ./data:/app/data
+      # Fertige Medien direkt in Jellyfins Bibliotheksordner schreiben.
+      # Auf dem NAS in .env auf absolute Host-Pfade setzen.
+      - ${MOVIES_HOST_DIR:-./downloads/Filme}:/movies
+      - ${SERIES_HOST_DIR:-./downloads/Serien}:/serien
+    environment:
+      SERIENDL_DATA_DIR: /app/data
+      DOWNLOAD_DIR: /movies
+      SERIES_DIR: /serien
+      HOST: 0.0.0.0
+      PORT: 8765
+      OPEN_BROWSER: "0"
+      APP_USERNAME: ${APP_USERNAME:-}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      JELLYFIN_URL: ${JELLYFIN_URL:-}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      JELLYFIN_USER_ID: ${JELLYFIN_USER_ID:-}
+      JELLYFIN_USER_NAME: ${JELLYFIN_USER_NAME:-}
+      # Recommender läuft im Server; JELLYFIN_* kommt bevorzugt aus settings.ini.
+      COLLECTION_NAME: ${COLLECTION_NAME:-Für dich empfohlen}
+      TOP_N: ${TOP_N:-20}
+      RECENCY_HALF_LIFE_DAYS: ${RECENCY_HALF_LIFE_DAYS:-180}
+      RECOMMENDER_INTERVAL_SECONDS: ${RECOMMENDER_INTERVAL_SECONDS:-86400}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-120}
+      PAGE_SIZE: ${PAGE_SIZE:-100}
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_LANGUAGE: ${TMDB_LANGUAGE:-de-DE}
+      SEERR_ENABLED: ${SEERR_ENABLED:-false}
+      SEERR_URL: ${SEERR_URL:-http://seerr:5055}
+      SEERR_API_KEY: ${SEERR_API_KEY:-}
+      SEERR_POLL_INTERVAL_SECONDS: ${SEERR_POLL_INTERVAL_SECONDS:-60}
+      AUTO_DOWNLOAD: ${AUTO_DOWNLOAD:-false}
+      CHECK_INTERVAL_MIN: ${CHECK_INTERVAL_MIN:-30}
+      DL_WINDOW_START: ${DL_WINDOW_START:-}
+      DL_WINDOW_END: ${DL_WINDOW_END:-}
+      # Medien-Transfer: HLS parallel, gedrosselte MP4-CDNs in Range-Bloecken;
+      # dauerhaft langsamere Quellen werden nach Puffer/Fenster gewechselt.
+      HLS_CONCURRENT_FRAGMENTS: ${HLS_CONCURRENT_FRAGMENTS:-4}
+      MP4_HTTP_CHUNK_SIZE: ${MP4_HTTP_CHUNK_SIZE:-4M}
+      SLOW_DOWNLOAD_MIN_KIBPS: ${SLOW_DOWNLOAD_MIN_KIBPS:-384}
+      SLOW_DOWNLOAD_GRACE_SECONDS: ${SLOW_DOWNLOAD_GRACE_SECONDS:-45}
+      SLOW_DOWNLOAD_WINDOW_SECONDS: ${SLOW_DOWNLOAD_WINDOW_SECONDS:-90}
+      DNS_PRIMARY: ${DNS_PRIMARY:-1.1.1.1}
+      DNS_SECONDARY: ${DNS_SECONDARY:-9.9.9.9}
+      # Zeitzone für korrekte Log-/Zeitstempel (in .env überschreibbar).
+      TZ: ${TZ:-Europe/Berlin}
+    # Chromium headless braucht mehr als die Docker-Default-64MB /dev/shm,
+    # sonst stürzt der Browser bei der VOE-Extraktion ab.
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:${SEERR_IMAGE_TAG:-latest}
+    init: true
+    container_name: seerr
+    environment:
+      LOG_LEVEL: ${SEERR_LOG_LEVEL:-info}
+      TZ: ${TZ:-Europe/Berlin}
+      PORT: 5055
+    ports:
+      - "5055:5055"
+    volumes:
+      # SQLite/App-Konfiguration. Beim NAS-Umzug nur im gestoppten Zustand kopieren.
+      - ./data/seerr:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5055/api/v1/settings/public || exit 1"]
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    restart: unless-stopped

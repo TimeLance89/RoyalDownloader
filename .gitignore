@@ -1,0 +1,76 @@
+# Sensible Konfiguration und persistente Laufzeitdaten
+/data/
+/Data/
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+/settings.ini
+*.pem
+*.key
+*.p12
+*.pfx
+*cookies*.txt
+*.sqlite
+*.sqlite3
+*.db
+
+# Downloads und Medien
+/downloads/
+/Filme/
+/Serien/
+*.part
+*.crdownload
+*.ytdl
+
+# Lokale Entwicklungsdaten
+/.claude/
+/.codex/
+/.codex-remote-attachments/
+/debug/
+/.vscode/
+/.idea/
+/.vs/
+*.code-workspace
+
+# Python und Tests
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Logs und temporäre Dateien
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.pid
+
+# Lokale Transferarchive
+/*.zip
+/*.7z
+/*.rar
+/*.tar
+/*.tar.gz
+/*.tgz
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Royal Downloader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="bg-decor" aria-hidden="true">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+  <div class="bg-grain"></div>
+</div>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-title">ROYAL</span>
+      <span class="brand-sub">Downloader</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
+      <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+      <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
+      <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
+    </nav>
+    <div class="bell-wrap">
+      <button id="notif-bell" class="inbox-trigger" type="button" aria-label="Abo-Postfach öffnen" aria-expanded="false" aria-controls="notif-dropdown">
+        <span class="inbox-trigger-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+        </span>
+        <span class="inbox-trigger-copy">
+          <small>ABO-INBOX</small>
+          <strong id="notif-trigger-label">Alles aktuell</strong>
+        </span>
+        <span id="notif-badge" class="notif-badge hidden">0</span>
+      </button>
+      <div id="notif-dropdown" class="notif-dropdown hidden" role="dialog" aria-label="Fehlende Episoden">
+        <header class="notif-head">
+          <div>
+            <span class="notif-kicker">ABONNEMENTS</span>
+            <strong>Fehlende Episoden</strong>
+            <small id="notif-summary">Alles vollständig</small>
+          </div>
+          <button id="notif-refresh" class="notif-refresh" type="button" aria-label="Abonnements jetzt prüfen" title="Jetzt prüfen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+          </button>
+        </header>
+        <div id="notif-list" class="notif-list"></div>
+        <footer class="notif-footer">
+          <span id="notif-subscription-count">0 Abos</span>
+          <button id="notif-library" type="button">Bibliothek öffnen <span aria-hidden="true">→</span></button>
+        </footer>
+      </div>
+    </div>
+    <button id="mobile-queue-btn" class="btn btn-ghost mobile-only" title="Warteschlange" aria-label="Warteschlange öffnen">
+      <span aria-hidden="true">↓</span><span id="mobile-queue-count">0</span>
+    </button>
+    <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
+    <button id="session-btn" class="btn btn-ghost">Sitzung</button>
+  </header>
+
+  <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
+    <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
+    <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+    <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
+    <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
+  </nav>
+
+  <main class="layout">
+    <section class="tab-content active" id="tab-filme">
+      <div class="bar">
+        <input id="fp-search" type="text" placeholder="Filmtitel eingeben und Enter drücken">
+        <button id="fp-search-btn" class="btn btn-accent">Suchen</button>
+        <button id="fp-new-btn" class="btn btn-ghost">Neu</button>
+        <button id="fp-top-btn" class="btn btn-ghost">Top</button>
+      </div>
+      <div class="genre-bar">
+        <label>Genre</label>
+        <select id="genre-filter"><option value="Alle Genres">Alle Genres</option></select>
+        <span id="genre-count" class="dim">0 Genres</span>
+      </div>
+
+      <div class="split">
+        <div class="panel results-panel">
+          <div class="panel-head">
+            <span class="panel-title">Suchergebnisse</span>
+            <span id="fp-status" class="dim">Bereit zum Suchen …</span>
+          </div>
+          <div class="list-head movie-row">
+            <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
+          </div>
+          <div id="fp-results" class="list"></div>
+          <div id="fp-pager" class="pager hidden">
+            <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
+            <span id="fp-pager-label" class="accent"></span>
+            <button id="fp-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
+          </div>
+        </div>
+
+        <div id="fp-detail-panel" class="panel detail-panel is-empty">
+          <div class="panel-head detail-panel-head">
+            <div class="detail-head-primary">
+              <span class="panel-title">FILMAKTE</span>
+              <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
+            </div>
+            <span id="fp-detail-availability" class="detail-availability is-idle" aria-live="polite">Keine Auswahl</span>
+          </div>
+          <div class="detail-body">
+            <div class="detail-visual">
+              <div class="poster-shell">
+                <img id="fp-detail-cover" class="cover cover-lg" alt="">
+              </div>
+              <span class="detail-visual-caption">Royal Downloader · Film</span>
+            </div>
+            <article class="detail-text">
+              <header class="detail-title-block">
+                <div id="fp-detail-genres" class="detail-genres"></div>
+                <h2 id="fp-detail-title">Kein Film ausgewählt</h2>
+                <div id="fp-detail-meta" class="detail-meta"></div>
+              </header>
+              <div class="mission" aria-label="Filmdaten und Downloadroute">
+                <div><label id="fp-detail-route-label">Originaltitel</label><span id="fp-detail-route">—</span></div>
+                <div><label id="fp-detail-score-label">Bewertung</label><span id="fp-detail-score">—</span></div>
+                <div><label id="fp-detail-fallback-label">Veröffentlichung</label><span id="fp-detail-fallback">—</span></div>
+              </div>
+              <section class="detail-synopsis">
+                <span class="detail-section-title">Handlung</span>
+                <p id="fp-detail-desc">Film auswählen, um Handlung und Verfügbarkeit anzuzeigen.</p>
+              </section>
+              <div class="detail-queue-note">
+                <span>Startet automatisch · maximal 2 Downloads gleichzeitig</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-content" id="tab-serien">
+      <div class="bar">
+        <input id="series-search" type="text" placeholder="Serientitel oder serienstream.to-URL (z.B. https://serienstream.to/serie/the-last-of-us)">
+        <button id="series-search-btn" class="btn btn-accent">Suchen</button>
+        <button id="series-new-btn" class="btn btn-ghost">Neu</button>
+        <button id="series-trending-btn" class="btn btn-ghost">Angesagt</button>
+        <button id="series-az-btn" class="btn btn-ghost">A-Z  ⌄</button>
+      </div>
+      <div id="series-alpha-bar" class="alpha-bar hidden"></div>
+
+      <section class="series-subscriptions" aria-labelledby="series-subscriptions-title">
+        <div class="subscriptions-head">
+          <div>
+            <span id="series-subscriptions-title" class="subscriptions-title">Abonniert</span>
+            <span id="series-subscriptions-count" class="subscriptions-count">0 Serien</span>
+          </div>
+          <button id="series-subscriptions-manage" class="btn btn-ghost btn-sm">Verwalten</button>
+        </div>
+        <div id="series-subscriptions-list" class="subscriptions-list"></div>
+      </section>
+
+      <div class="split">
+        <div class="panel results-panel">
+          <div class="panel-head">
+            <span class="panel-title">Serien-Ergebnisse</span>
+            <span id="series-status" class="dim">Serientitel suchen oder Episode-URL einfügen …</span>
+          </div>
+          <div id="series-results" class="list"></div>
+          <div id="series-pager" class="pager hidden">
+            <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
+            <span id="series-pager-label" class="accent"></span>
+            <button id="series-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
+          </div>
+        </div>
+
+        <div class="panel series-detail-panel">
+          <div class="panel-head">
+            <span id="series-detail-title" class="panel-title">(keine Serie ausgewählt)</span>
+            <span id="series-pick-count" class="dim">0 ausgewählt</span>
+          </div>
+          <div class="series-cover-card">
+            <img id="series-cover" class="cover cover-sm" alt="">
+            <div class="series-cover-text">
+              <div id="series-genres" class="italic dim"></div>
+              <button id="series-watch-btn" class="btn btn-ghost btn-sm">+ Abonnieren</button>
+            </div>
+            <p id="series-desc" class="series-desc"></p>
+          </div>
+          <div class="toolbar">
+            <button id="series-select-all" class="btn btn-ghost btn-sm">Alle Staffeln</button>
+            <button id="series-select-none" class="btn btn-ghost btn-sm">Keine</button>
+            <span class="dim legend">grau = verfügbar · gold = in Warteschlange · grün = geladen · pink = ausgewählt · blauer Punkt = in Jellyfin</span>
+          </div>
+          <div id="series-tiles" class="tiles-scroll"></div>
+          <button id="series-add-btn" class="btn btn-accent" disabled>Auswahl herunterladen</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-content" id="tab-bibliothek">
+      <div class="bar">
+        <span class="brand-title small">BIBLIOTHEK</span>
+        <span class="dim">Gemerkte Serien – auf neue Episoden prüfen</span>
+      </div>
+      <div class="panel">
+        <div class="toolbar">
+          <button id="wl-check-all" class="btn btn-accent btn-sm">Alle prüfen</button>
+          <button id="wl-check-selected" class="btn btn-ghost btn-sm">Ausgewählte prüfen</button>
+          <button id="wl-open" class="btn btn-ghost btn-sm">Im Serien-Tab öffnen</button>
+          <button id="wl-remove" class="btn btn-ghost btn-sm">Entfernen</button>
+          <span id="wl-status" class="dim"></span>
+        </div>
+        <div class="list-head watchlist-row">
+          <span></span><span>Serie</span><span>Abo-Regel / Status</span>
+        </div>
+        <div id="wl-list" class="list"></div>
+      </div>
+    </section>
+
+    <section class="tab-content" id="tab-einstellungen">
+      <div class="bar">
+        <span class="brand-title small">EINSTELLUNGEN</span>
+        <span class="dim">Speicherorte, Metadaten &amp; Automatik</span>
+      </div>
+      <div class="panel settings-panel">
+        <div class="settings-group">
+          <h3>Speicherorte</h3>
+          <p class="dim settings-hint">Getrennte Zielordner für Filme und Serien.</p>
+          <label class="dim auto-lbl">Filme</label>
+          <div class="path-input-row">
+            <input id="save-path" type="text" placeholder="/Deluxe/downloads/Filme">
+            <button id="browse-dir-btn" class="btn btn-ghost btn-sm">…</button>
+          </div>
+          <label class="dim auto-lbl">Serien</label>
+          <div class="path-input-row">
+            <input id="series-path" type="text" placeholder="/Deluxe/downloads/Serien">
+            <button id="browse-series-btn" class="btn btn-ghost btn-sm">…</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Jellyfin (NAS)</h3>
+          <p class="dim settings-hint">Vorhandene Folgen werden übersprungen. Ein Wiedergabeprofil steuert Abos nach Gesehen-Status.</p>
+          <div class="path-input-row">
+            <input id="jellyfin-url" type="text" placeholder="http://192.168.178.47:8096">
+          </div>
+          <div class="path-input-row">
+            <input id="jellyfin-api-key" type="password" autocomplete="new-password" placeholder="API-Schlüssel (Dashboard → API-Schlüssel)">
+          </div>
+          <label class="dim auto-lbl" for="jellyfin-user-id">Gesehen-Status von</label>
+          <div class="jellyfin-user-row">
+            <span class="jellyfin-profile-mark" aria-hidden="true">▶</span>
+            <select id="jellyfin-user-id" aria-label="Jellyfin-Benutzer"><option value="">Benutzer laden …</option></select>
+            <button id="jellyfin-users-load" class="btn btn-ghost btn-sm" type="button">Benutzer laden</button>
+          </div>
+          <div id="jellyfin-user-status" class="dim small-status">Für „Nächste Staffel“ erforderlich.</div>
+        </div>
+
+        <div class="settings-group seerr-settings">
+          <div class="seerr-heading">
+            <div>
+              <h3>Seerr · Wünsche aus Moonfin</h3>
+              <p class="dim settings-hint">Anfragen am Fire TV werden geprüft, geladen und anschließend von Jellyfin eingelesen.</p>
+            </div>
+            <span class="seerr-badge">FIRE TV</span>
+          </div>
+          <div class="seerr-flow" aria-label="Ablauf einer Medienanfrage">
+            <span>Moonfin</span><i aria-hidden="true">→</i>
+            <span>Seerr</span><i aria-hidden="true">→</i>
+            <span>Downloader</span><i aria-hidden="true">→</i>
+            <span>Jellyfin</span>
+          </div>
+          <label class="auto-toggle-row">
+            <input id="seerr-enabled" type="checkbox">
+            <span>Genehmigte Seerr-Anfragen automatisch laden</span>
+          </label>
+          <label class="dim auto-lbl" for="seerr-url">Seerr-Adresse</label>
+          <div class="path-input-row">
+            <input id="seerr-url" type="url" autocomplete="off" placeholder="http://192.168.178.47:5055">
+          </div>
+          <label class="dim auto-lbl" for="seerr-api-key">API-Schlüssel aus Seerr</label>
+          <div class="path-input-row">
+            <input id="seerr-api-key" type="password" autocomplete="new-password" placeholder="Seerr → Einstellungen → Allgemein">
+          </div>
+          <div class="auto-grid seerr-controls">
+            <label class="auto-lbl">Prüfen alle
+              <input id="seerr-poll-interval" class="auto-num" type="number" min="15" max="3600" value="60">
+              <span class="dim">Sekunden</span>
+            </label>
+            <button id="seerr-sync" class="btn btn-ghost btn-sm" type="button">Jetzt prüfen</button>
+          </div>
+          <div id="seerr-status" class="dim small-status" role="status">—</div>
+        </div>
+
+        <div class="settings-group tmdb-settings">
+          <h3>TMDB-Metadaten</h3>
+          <p class="dim settings-hint">Deutsche Cover, Beschreibungen, Genres, Jahr und Laufzeit. Ohne Schlüssel bleiben die Anbieterdaten aktiv.</p>
+          <label class="dim auto-lbl" for="tmdb-api-key">API-Key oder Read Access Token</label>
+          <div class="path-input-row">
+            <input id="tmdb-api-key" type="password" autocomplete="off" placeholder="TMDB API-Key (v3) oder Read Access Token">
+          </div>
+          <div id="tmdb-status" class="dim small-status">—</div>
+          <a class="tmdb-credit" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
+            <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB">
+            <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
+          </a>
+        </div>
+
+        <div class="settings-group">
+          <h3>Automatik (24/7)</h3>
+          <p class="dim settings-hint">Neue Folgen abonnierter Serien im Hintergrund automatisch laden.</p>
+          <label class="auto-toggle-row">
+            <input id="auto-download" type="checkbox">
+            <span>Neue Folgen abonnierter Serien automatisch laden</span>
+          </label>
+          <div class="path-input-row auto-fields">
+            <label class="dim auto-lbl">Prüfen alle</label>
+            <input id="check-interval" type="number" min="5" step="5" value="30" class="auto-num">
+            <span class="dim">Min.</span>
+          </div>
+          <div class="path-input-row auto-fields">
+            <label class="dim auto-lbl">Zeitfenster</label>
+            <input id="dl-window-start" type="number" min="0" max="23" placeholder="–" class="auto-num">
+            <span class="dim">bis</span>
+            <input id="dl-window-end" type="number" min="0" max="23" placeholder="–" class="auto-num">
+            <span class="dim">Uhr (leer = jederzeit)</span>
+          </div>
+          <div id="auto-status" class="dim small-status">—</div>
+        </div>
+
+        <div class="settings-group telegram-settings">
+          <h3>Telegram</h3>
+          <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
+          <label class="auto-toggle-row">
+            <input id="telegram-enabled" type="checkbox">
+            <span>Telegram-Bot aktivieren</span>
+          </label>
+          <label class="dim auto-lbl" for="telegram-token">Bot-Token von @BotFather</label>
+          <div class="path-input-row">
+            <input id="telegram-token" type="password" autocomplete="off" placeholder="123456789:AA…">
+          </div>
+          <label class="dim auto-lbl" for="telegram-chat-id">Erlaubte Chat-ID</label>
+          <div class="path-input-row">
+            <input id="telegram-chat-id" type="text" placeholder="Token speichern, dann dem Bot /start senden">
+          </div>
+          <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
+          <div id="telegram-status" class="dim small-status">—</div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="settings-save" class="btn btn-accent btn-lg">Einstellungen speichern</button>
+          <span id="settings-saved-status" class="dim"></span>
+        </div>
+      </div>
+    </section>
+
+    <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
+    <aside class="sidebar" aria-label="Warteschlange">
+      <div class="panel queue-panel">
+        <div class="panel-head">
+          <span class="panel-title pink">WARTESCHLANGE</span>
+          <span id="queue-count" class="dim">0 markiert</span>
+          <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
+        </div>
+        <div id="queue-list" class="queue-list"></div>
+        <button id="queue-clear" class="btn btn-ghost">Alle entfernen</button>
+        <div id="download-stage" class="download-stage" data-state="idle">
+          <div class="download-state-row">
+            <span id="dl-state-icon" class="download-state-icon" aria-hidden="true">↓</span>
+            <div class="download-state-copy">
+              <span class="download-kicker">Download</span>
+              <strong id="dl-state-title">Bereit</strong>
+              <span id="dl-status" class="dim small-status">Neue Inhalte starten automatisch</span>
+            </div>
+            <strong id="dl-percent" class="download-percent">0%</strong>
+          </div>
+          <div class="progress-bar" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+        </div>
+        <div class="download-actions">
+          <button id="cancel-btn" class="btn btn-ghost" disabled>Abbrechen</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="log-console" id="log-console"></footer>
+</div>
+
+<div id="setup-wizard" class="setup-wizard hidden" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+  <div class="setup-shell">
+    <aside class="setup-rail" aria-label="Einrichtungsfortschritt">
+      <div class="setup-brand">
+        <span class="setup-brand-kicker">ROYAL DOWNLOAD</span>
+        <strong>ERSTEINRICHTUNG</strong>
+      </div>
+      <ol class="setup-progress">
+        <li class="active" data-setup-marker="1" aria-current="step">
+          <span class="setup-marker-number">01</span>
+          <span><strong>Speicher</strong><small>Filme &amp; Serien</small></span>
+        </li>
+        <li data-setup-marker="2">
+          <span class="setup-marker-number">02</span>
+          <span><strong>Bibliothek</strong><small>Jellyfin &amp; TMDB</small></span>
+        </li>
+        <li data-setup-marker="3">
+          <span class="setup-marker-number">03</span>
+          <span><strong>Automatik</strong><small>Downloads &amp; Telegram</small></span>
+        </li>
+      </ol>
+      <div class="setup-data-note">
+        <span>Konfiguration</span>
+        <code id="setup-config-path">wird ermittelt …</code>
+      </div>
+    </aside>
+
+    <section class="setup-stage">
+      <header class="setup-stage-head">
+        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 3</span>
+        <h1 id="setup-title">Wohin sollen deine Medien?</h1>
+        <p id="setup-intro">Die Ordner werden bei Bedarf angelegt. Beide müssen für den Downloader beschreibbar sein.</p>
+      </header>
+
+      <div class="setup-panels">
+        <div class="setup-panel" data-setup-step="1">
+          <label class="setup-field" for="setup-save-path">
+            <span>Filmordner <em>Pflicht</em></span>
+            <div class="setup-path-row">
+              <input id="setup-save-path" type="text" autocomplete="off" placeholder="/downloads/Filme">
+              <button id="setup-browse-movies" class="btn btn-ghost" type="button" aria-label="Filmordner auswählen">Ordner</button>
+            </div>
+          </label>
+          <label class="setup-field" for="setup-series-path">
+            <span>Serienordner <em>Pflicht</em></span>
+            <div class="setup-path-row">
+              <input id="setup-series-path" type="text" autocomplete="off" placeholder="/downloads/Serien">
+              <button id="setup-browse-series" class="btn btn-ghost" type="button" aria-label="Serienordner auswählen">Ordner</button>
+            </div>
+          </label>
+          <div class="setup-callout">
+            <span class="setup-callout-icon">2</span>
+            <div><strong>Zwei parallele Downloads</strong><p>Neue Inhalte starten automatisch und warten bei voller Auslastung in der Queue.</p></div>
+          </div>
+        </div>
+
+        <div class="setup-panel hidden" data-setup-step="2">
+          <div class="setup-section-title"><strong>Jellyfin</strong><span>optional</span></div>
+          <p class="setup-copy">Verhindert doppelte Downloads und stößt nach Abschluss den Bibliotheksscan an.</p>
+          <div class="setup-field-grid">
+            <label class="setup-field" for="setup-jellyfin-url">
+              <span>Server-Adresse</span>
+              <input id="setup-jellyfin-url" type="url" autocomplete="off" placeholder="http://192.168.178.47:8096">
+            </label>
+            <label class="setup-field" for="setup-jellyfin-key">
+              <span>API-Schlüssel</span>
+              <input id="setup-jellyfin-key" type="password" autocomplete="new-password" placeholder="Jellyfin API-Key">
+            </label>
+          </div>
+          <label class="setup-field setup-jellyfin-user-field" for="setup-jellyfin-user">
+            <span>Gesehen-Status von</span>
+            <div class="setup-user-row">
+              <select id="setup-jellyfin-user"><option value="">Benutzer laden …</option></select>
+              <button id="setup-jellyfin-users-load" class="btn btn-ghost" type="button">Benutzer laden</button>
+            </div>
+            <small>Erforderlich, damit die nächste Staffel erst nach einer vollständig gesehenen Staffel geladen wird.</small>
+          </label>
+          <div class="setup-divider"></div>
+          <div class="setup-section-title"><strong>TMDB</strong><span>optional</span></div>
+          <p class="setup-copy">Lädt deutsche Cover, Beschreibungen, Genres und Laufzeiten.</p>
+          <label class="setup-field" for="setup-tmdb-key">
+            <span>API-Key oder Read Access Token</span>
+            <input id="setup-tmdb-key" type="password" autocomplete="new-password" placeholder="TMDB-Zugang">
+          </label>
+        </div>
+
+        <div class="setup-panel hidden" data-setup-step="3">
+          <label class="setup-switch-card" for="setup-auto-download">
+            <input id="setup-auto-download" type="checkbox">
+            <span class="setup-switch" aria-hidden="true"></span>
+            <span><strong>Neue Serienfolgen automatisch laden</strong><small>Abonnierte Serien regelmäßig prüfen</small></span>
+          </label>
+          <div class="setup-inline-fields">
+            <label class="setup-field" for="setup-check-interval">
+              <span>Prüfintervall</span>
+              <div class="setup-number-row"><input id="setup-check-interval" type="number" min="5" step="5" value="30"><small>Minuten</small></div>
+            </label>
+            <label class="setup-field" for="setup-window-start">
+              <span>Download ab</span>
+              <div class="setup-number-row"><input id="setup-window-start" type="number" min="0" max="23" placeholder="–"><small>Uhr</small></div>
+            </label>
+            <label class="setup-field" for="setup-window-end">
+              <span>Download bis</span>
+              <div class="setup-number-row"><input id="setup-window-end" type="number" min="0" max="23" placeholder="–"><small>Uhr</small></div>
+            </label>
+          </div>
+          <div class="setup-divider"></div>
+          <label class="setup-switch-card" for="setup-telegram-enabled">
+            <input id="setup-telegram-enabled" type="checkbox">
+            <span class="setup-switch" aria-hidden="true"></span>
+            <span><strong>Telegram-Bot aktivieren</strong><small>Filme anfragen und Status erhalten</small></span>
+          </label>
+          <div class="setup-field-grid setup-telegram-fields">
+            <label class="setup-field" for="setup-telegram-token">
+              <span>Bot-Token</span>
+              <input id="setup-telegram-token" type="password" autocomplete="new-password" placeholder="123456789:AA…">
+            </label>
+            <label class="setup-field" for="setup-telegram-chat">
+              <span>Erlaubte Chat-ID</span>
+              <input id="setup-telegram-chat" type="text" autocomplete="off" placeholder="optional, später per /start">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div id="setup-status" class="setup-status" role="status" aria-live="polite"></div>
+      <footer class="setup-actions">
+        <button id="setup-back" class="btn btn-ghost hidden" type="button">Zurück</button>
+        <span class="setup-actions-spacer"></span>
+        <button id="setup-next" class="btn btn-accent" type="button">Weiter</button>
+        <button id="setup-finish" class="btn btn-accent hidden" type="button">Einrichtung abschließen</button>
+      </footer>
+    </section>
+  </div>
+</div>
+
+<div id="watch-mode-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="watch-mode-title">
+  <div class="modal-box watch-mode-box">
+    <div class="modal-head">
+      <span>ABO-EINSTELLUNG</span>
+      <button id="watch-mode-close" class="btn btn-ghost btn-sm" type="button" aria-label="Schließen">✕</button>
+    </div>
+    <div class="watch-mode-intro">
+      <span class="watch-mode-kicker">DOWNLOADUMFANG</span>
+      <h2 id="watch-mode-title">Serie abonnieren</h2>
+      <p>Geladen wird nur, was weder in Jellyfin noch im Serienordner vorhanden ist.</p>
+    </div>
+    <div class="watch-mode-options" role="radiogroup" aria-label="Abo-Regel">
+      <label class="watch-mode-option">
+        <input type="radio" name="watch-mode" value="all">
+        <span class="watch-mode-track" aria-hidden="true"><b>S1</b><i></i><b>S2</b><i></i><b>…</b></span>
+        <span class="watch-mode-copy"><strong>Alles Fehlende</strong><small>Alle verfügbaren Staffeln vollständig nachladen.</small></span>
+        <span class="watch-mode-check" aria-hidden="true">✓</span>
+      </label>
+      <label class="watch-mode-option">
+        <input type="radio" name="watch-mode" value="latest_season">
+        <span class="watch-mode-track" aria-hidden="true"><b>—</b><i></i><b>—</b><i></i><b>MAX</b></span>
+        <span class="watch-mode-copy"><strong>Nur neueste Staffel</strong><small>Alle fehlenden Episoden der höchsten verfügbaren Staffel.</small></span>
+        <span class="watch-mode-check" aria-hidden="true">✓</span>
+      </label>
+      <label class="watch-mode-option">
+        <input type="radio" name="watch-mode" value="next_season">
+        <span class="watch-mode-track" aria-hidden="true"><b>✓</b><i class="arrow">→</i><b>+1</b></span>
+        <span class="watch-mode-copy"><strong>Nächste Staffel nach Gesehen-Status</strong><small>Erst weiterladen, wenn die aktuelle Staffel beim gewählten Jellyfin-Benutzer vollständig gesehen wurde.</small></span>
+        <span class="watch-mode-check" aria-hidden="true">✓</span>
+      </label>
+    </div>
+    <div id="watch-mode-status" class="watch-mode-status" role="status" aria-live="polite"></div>
+    <div class="modal-actions watch-mode-actions">
+      <button id="watch-mode-remove" class="btn btn-ghost btn-sm hidden" type="button">Abo entfernen</button>
+      <span></span>
+      <button id="watch-mode-cancel" class="btn btn-ghost btn-sm" type="button">Abbrechen</button>
+      <button id="watch-mode-save" class="btn btn-accent btn-sm" type="button">Abo speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="dir-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span>Ordner auswählen</span>
+      <button id="dir-modal-close" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+    <div id="dir-modal-path" class="dim"></div>
+    <div id="dir-modal-list" class="dir-list"></div>
+    <div class="modal-actions">
+      <button id="dir-modal-up" class="btn btn-ghost btn-sm">.. Übergeordnet</button>
+      <button id="dir-modal-select" class="btn btn-accent btn-sm">Diesen Ordner wählen</button>
+    </div>
+  </div>
+</div>
+
+<script src="/api.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
