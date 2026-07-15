@@ -1,10 +1,10 @@
-# Repository auf `RoyalDownloader` umbenennen
+# Migration auf `RoyalDownloader`
 
 [← Zur Projektübersicht](../README.md)
 
-Der sichtbare Produktname lautet **Royal Downloader**. GitHub-Repository-Namen
-können keine Leerzeichen enthalten; als technischer Slug wird deshalb
-`RoyalDownloader` empfohlen.
+Das Repository wurde am 15. Juli 2026 von `TimeLance89/SerienDownloader` in
+`TimeLance89/RoyalDownloader` umbenannt. Der sichtbare Produktname lautet
+**Royal Downloader**; der technische GitHub-Slug enthält keine Leerzeichen.
 
 ## Ziel
 
@@ -14,31 +14,7 @@ können keine Leerzeichen enthalten; als technischer Slug wird deshalb
 | Repository | `TimeLance89/SerienDownloader` | `TimeLance89/RoyalDownloader` |
 | Clone-Link | `https://github.com/TimeLance89/SerienDownloader.git` | `https://github.com/TimeLance89/RoyalDownloader.git` |
 
-## 1. Vorbereiten
-
-Vor der Umbenennung sicherstellen, dass `main` vollständig gepusht ist:
-
-```bash
-git status
-git fetch origin
-git rev-list --left-right --count main...origin/main
-```
-
-Erwartet werden ein sauberer Arbeitsbaum und `0  0` beim Branchvergleich.
-
-## 2. Repository auf GitHub umbenennen
-
-1. Repository auf GitHub öffnen.
-2. **Settings → General → Repository name** wählen.
-3. `RoyalDownloader` eintragen.
-4. **Rename** bestätigen.
-
-GitHub richtet Weiterleitungen für alte Web-, Clone- und API-URLs ein. Diese
-Weiterleitung sollte nur als Übergang dienen. Unter dem alten Namen darf später
-kein neues Repository angelegt werden, weil dadurch Weiterleitungen ungültig
-werden können.
-
-## 3. Lokales Git-Remote aktualisieren
+## 1. Lokales Git-Remote aktualisieren
 
 ```bash
 git remote set-url origin https://github.com/TimeLance89/RoyalDownloader.git
@@ -52,62 +28,45 @@ Bei GitHub CLI zusätzlich prüfen:
 gh repo view TimeLance89/RoyalDownloader
 ```
 
-## 4. Updater und Dokumentation umstellen
+GitHub leitet alte Web- und Clone-URLs derzeit weiter. Das Remote sollte
+trotzdem aktualisiert werden, damit die Installation nicht dauerhaft von der
+Weiterleitung abhängt.
 
-Nach erfolgreicher GitHub-Umbenennung alle fest hinterlegten Repository-Werte
-von `TimeLance89/SerienDownloader` auf `TimeLance89/RoyalDownloader` ändern.
-Betroffen sind derzeit insbesondere:
+## 2. Updater einer vorhandenen Installation umstellen
 
-- `server.py`
-- `update_checker.py`
-- `docker-compose.yml`
-- `.env.example`
-- `DOCKER.md`
-- `web/index.html`
-- `README.md` und `CONTRIBUTING.md`
-
-Fundstellen kontrollieren:
-
-```bash
-rg -n "TimeLance89/SerienDownloader|github.com/TimeLance89/SerienDownloader"
-```
-
-In einer vorhandenen NAS-Installation außerdem `.env` anpassen:
+In der `.env` auf dem NAS den Repository-Wert anpassen:
 
 ```dotenv
 UPDATE_GITHUB_REPOSITORY=TimeLance89/RoyalDownloader
 UPDATE_GITHUB_BRANCH=main
 ```
 
-Danach den Container neu erstellen:
+Danach den Container neu erstellen, damit die Umgebung neu eingelesen wird:
 
 ```bash
 docker compose up -d --build
 docker compose logs -f seriendownloader
 ```
 
-## 5. GitHub-Auftritt aktualisieren
+Ohne eigenen `UPDATE_GITHUB_REPOSITORY`-Eintrag verwendet ein aktueller Build
+automatisch `TimeLance89/RoyalDownloader`.
 
-Empfohlene Beschreibung:
+## 3. Externe Verweise aktualisieren
 
-> Self-hosted media automation for Jellyfin, Telegram and Seerr — optimized for Docker and NAS.
-
-Empfohlene Topics:
+Lesezeichen, API-Integrationen, Deployment-Skripte und eigene Dokumentation auf
+folgende Adressen umstellen:
 
 ```text
-self-hosted  jellyfin  docker  nas  telegram-bot
-fastapi  python  media-automation  seerr
+https://github.com/TimeLance89/RoyalDownloader
+https://github.com/TimeLance89/RoyalDownloader.git
 ```
 
-Optional danach unter **Settings → General** folgende Funktionen aktivieren:
+Unter dem alten Namen sollte kein neues Repository angelegt werden, weil dies
+GitHubs Weiterleitung ungültig machen kann.
 
-- Issues
-- Private vulnerability reporting
-- Discussions, falls Supportfragen getrennt von Fehlern geführt werden sollen
+## 4. Abschluss prüfen
 
-## 6. Abschluss prüfen
-
-- Neue Repository-URL öffnet ohne Weiterleitung.
+- Die neue Repository-URL öffnet ohne Weiterleitung.
 - `git push origin main` funktioniert.
 - Der Updater zeigt `TimeLance89/RoyalDownloader · main` als erreichbar.
 - Eine Updateprüfung liefert die aktuelle `main`-Revision.
@@ -115,6 +74,6 @@ Optional danach unter **Settings → General** folgende Funktionen aktivieren:
 - Docker startet mit vorhandenen `data`- und `runtime`-Ordnern unverändert.
 
 Die internen Namen `FilmeDownloader` für den persistenten Konfigurationsordner
-und `seriendownloader` für den Compose-Service sollten zunächst bestehen bleiben.
-Eine Änderung würde Migrationen für vorhandene NAS-Installationen erfordern und
-ist für das öffentliche Branding nicht notwendig.
+und `seriendownloader` für den Compose-Service bleiben aus Gründen der
+Abwärtskompatibilität bestehen. Ihre Umbenennung würde vorhandene NAS-Volumes
+und Startskripte unnötig brechen.

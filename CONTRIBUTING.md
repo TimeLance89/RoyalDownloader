@@ -15,7 +15,7 @@ stabiler, nachvollziehbarer oder einfacher machen.
 ## Lokale Einrichtung
 
 ```bash
-git clone https://github.com/TimeLance89/SerienDownloader.git RoyalDownloader
+git clone https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python -m venv .venv
 ```
@@ -68,4 +68,3 @@ Die vollständige Regression wird intern vor einem Release ausgeführt.
 - JavaScript: keine Framework-Abhängigkeit ohne vorherige Abstimmung.
 - UI: bestehende Dark-/Gold-Gestaltung und mobile Darstellung beibehalten.
 - Dokumentation: Deutsch, kurze Abschnitte, ausführbare Beispiele.
-

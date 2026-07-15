@@ -46,7 +46,7 @@ Voraussetzungen: Docker Engine, Docker Compose v2 und Schreibzugriff auf die
 Jellyfin-Medienordner.
 
 ```bash
-git clone https://github.com/TimeLance89/SerienDownloader.git RoyalDownloader
+git clone https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```
@@ -104,7 +104,7 @@ Downloads beendet sein.
 |---|---|
 | Installation auf Docker/NAS, Volumes und Umgebungsvariablen | [DOCKER.md](DOCKER.md) |
 | Jellyfin-Empfehlungscollection | [JELLYFIN_RECOMMENDER.md](JELLYFIN_RECOMMENDER.md) |
-| Repository von `SerienDownloader` auf `RoyalDownloader` umbenennen | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
+| Migration bestehender Installationen auf `RoyalDownloader` | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Fehler melden und Änderungen beitragen | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Sicherheitslücken vertraulich melden | [SECURITY.md](SECURITY.md) |
 
@@ -130,10 +130,10 @@ RoyalDownloader/
 - Feature-Ideen sollten den Anwendungsfall und das gewünschte Verhalten nennen.
 - Änderungen folgen dem Ablauf in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Repository-Name
+## Repository
 
-Der Produktname lautet bereits **Royal Downloader**. Der aktuelle technische
-Repository-Slug `SerienDownloader` kann kontrolliert auf `RoyalDownloader`
-umgestellt werden. Die vollständige Reihenfolge inklusive Updater-, Docker- und
-Git-Remote-Anpassung steht in der
-**[Rename-Checkliste](docs/REPOSITORY_RENAME.md)**.
+Das Projekt liegt unter
+**[TimeLance89/RoyalDownloader](https://github.com/TimeLance89/RoyalDownloader)**.
+Bestehende Installationen und lokale Klone können mit der
+**[Migrationsanleitung](docs/REPOSITORY_RENAME.md)** auf die neue Adresse
+umgestellt werden.

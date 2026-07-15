@@ -98,7 +98,7 @@ APP_USERNAME = os.environ.get("APP_USERNAME", "").strip()
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 AUTH_ENABLED = bool(APP_USERNAME and APP_PASSWORD)
 UPDATE_CHECKER = UpdateChecker(
-    repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/SerienDownloader"),
+    repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
     branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
     app_dir=APP_DIR,
 )

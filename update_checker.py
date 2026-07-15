@@ -13,7 +13,7 @@ from urllib.parse import quote
 import requests
 
 
-DEFAULT_REPOSITORY = "TimeLance89/SerienDownloader"
+DEFAULT_REPOSITORY = "TimeLance89/RoyalDownloader"
 DEFAULT_BRANCH = "main"
 RECENT_COMMIT_SCAN_LIMIT = 5
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)

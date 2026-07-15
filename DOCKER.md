@@ -155,7 +155,7 @@ Bei **Weg A** liegen beide direkt im gemounteten Ordner. Bei **Weg B** werden si
 | `APP_USERNAME`      | leer             | HTTP-Basic-Benutzer für die Weboberfläche. Im LAN setzen. |
 | `APP_PASSWORD`      | leer             | HTTP-Basic-Passwort. Im LAN setzen. |
 | `APP_COMMIT_SHA`    | leer             | Optionaler CI-Override; normale Docker-Builds erkennen und speichern die Git-Revision automatisch. |
-| `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/SerienDownloader` | Repository für die Updateprüfung. |
+| `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/RoyalDownloader` | Repository für die Updateprüfung. |
 | `UPDATE_GITHUB_BRANCH` | `main` | Verglichener Branch. |
 
 ### DNS / Provider-Sperren
