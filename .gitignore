@@ -18,6 +18,7 @@
 
 # Downloads und Medien
 /downloads/
+/runtime/
 /Filme/
 /Serien/
 *.part

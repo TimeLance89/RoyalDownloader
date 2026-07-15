@@ -237,6 +237,65 @@ class ServerQueueStateTests(unittest.TestCase):
         cancel.assert_called_once()
         self.assertEqual(cancel.call_args.args[0], {slug})
 
+    def test_automatic_watchlist_check_forces_fresh_jellyfin_data(self):
+        entry = {"base_slug": "show", "last_error": ""}
+        server.state.watchlist = [entry]
+
+        with (
+            patch("server.check_watchlist_entries", return_value=1) as check,
+            patch("server._auto_download_new_episodes") as auto_download,
+        ):
+            checked, total = server._watchlist_auto_check_once()
+
+        self.assertEqual((checked, total), (1, 1))
+        check.assert_called_once_with([entry], refresh_jellyfin=True)
+        auto_download.assert_called_once_with()
+
+    def test_automatic_watchlist_check_retries_jellyfin_failure_quickly(self):
+        server.state.watchlist = [{
+            "base_slug": "show",
+            "last_error": "Jellyfin nicht erreichbar – Auto-Download pausiert",
+        }]
+
+        delay = server._watchlist_auto_check_delay(0, 1, 30)
+
+        self.assertEqual(delay, server.WATCHLIST_JELLYFIN_RETRY_SECONDS)
+
+    def test_automatic_watchlist_check_keeps_interval_for_provider_failure(self):
+        server.state.watchlist = [{
+            "base_slug": "show",
+            "last_error": "Serie beim Anbieter nicht abrufbar",
+        }]
+
+        delay = server._watchlist_auto_check_delay(0, 1, 30)
+
+        self.assertEqual(delay, 30 * 60)
+
+    def test_updater_installs_only_the_freshly_verified_revision(self):
+        target = "a" * 40
+        body = server.UpdateInstallBody(target_sha=target)
+        with (
+            patch("server.UPDATE_CHECKER.check", return_value={
+                "latest_sha": target,
+                "update_available": True,
+            }) as check,
+            patch("server.UPDATE_INSTALLER.start", return_value={"state": "downloading"}) as start,
+        ):
+            response = asyncio.run(server.api_updater_install(body))
+
+        check.assert_called_once_with(True)
+        start.assert_called_once_with(target)
+        self.assertEqual(response["installer"]["state"], "downloading")
+
+    def test_updater_rejects_install_while_download_is_active(self):
+        server.state.dl_queue = _FakeQueue(active=[object()])
+        body = server.UpdateInstallBody(target_sha="b" * 40)
+
+        with self.assertRaises(server.HTTPException) as raised:
+            asyncio.run(server.api_updater_install(body))
+
+        self.assertEqual(raised.exception.status_code, 409)
+
     def test_withdrawn_cancel_preserves_slug_required_by_newer_check(self):
         slug = "show-s01e01"
         server.state.watchlist_new_slugs = {"show": {slug}}

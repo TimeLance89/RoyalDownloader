@@ -389,7 +389,7 @@
             <div>
               <span class="updater-kicker">SYSTEM · GITHUB</span>
               <h3>Updates</h3>
-              <p class="dim settings-hint">Vergleicht diesen Build mit dem neuesten Stand auf dem Main-Branch.</p>
+              <p class="dim settings-hint">Prüft den Main-Branch und installiert verfügbare Updates direkt.</p>
             </div>
             <span id="updater-badge" class="updater-badge" aria-hidden="true">GH</span>
           </div>
@@ -409,7 +409,10 @@
               <strong id="updater-status" role="status" aria-live="polite">Noch nicht geprüft</strong>
               <span id="updater-detail" class="dim">Die Prüfung verändert keine Dateien.</span>
             </div>
-            <button id="updater-check" class="btn btn-ghost btn-sm" type="button">Auf Updates prüfen</button>
+            <div class="updater-buttons">
+              <button id="updater-check" class="btn btn-ghost btn-sm" type="button">Auf Updates prüfen</button>
+              <button id="updater-install" class="btn btn-accent btn-sm hidden" type="button">Jetzt updaten</button>
+            </div>
           </div>
           <a id="updater-repository" class="updater-repository" href="https://github.com/TimeLance89/SerienDownloader" target="_blank" rel="noopener noreferrer">
             Repository öffnen <span aria-hidden="true">↗</span>

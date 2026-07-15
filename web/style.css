@@ -1841,6 +1841,7 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
 .updater-actions strong { font-size: 12px; font-weight: 600; }
 .updater-actions .dim { overflow-wrap: anywhere; font-size: 10.5px; }
 .updater-actions .btn { flex: 0 0 auto; }
+.updater-buttons { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .updater-repository {
   width: fit-content;
   color: var(--text-dim);
@@ -2714,6 +2715,7 @@ body.setup-open #dir-modal { z-index: 120; }
   .updater-settings { margin-bottom: 56px; padding: 14px 12px; }
   .updater-actions { align-items: stretch; flex-direction: column; }
   .updater-actions .btn { min-height: 42px; width: 100%; }
+  .updater-buttons { align-items: stretch; flex-direction: column; width: 100%; }
   .path-input-row .btn { min-width: 46px; min-height: 45px; }
   .jellyfin-user-row { grid-template-columns: 38px minmax(0, 1fr); }
   .jellyfin-user-row .btn { grid-column: 2; min-height: 42px; }

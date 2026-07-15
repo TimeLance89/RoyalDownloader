@@ -108,6 +108,7 @@ Web-Oberfläche: `http://<NAS-IP>:8765`
 
 | Im Container | Zweck |
 |--------------|-------|
+| `/runtime`    | Persistenter Programmstand für Updates aus der Weboberfläche (Compose: `./runtime`). |
 | `…/data`      | Persistenter State: Cloudflare-Cookies, gelernte Hoster-Rankings, Einstellungen + Serien-Watchlist. |
 | `/movies`      | Ziel für Filme (Bind-Mount auf Jellyfins Filmordner). |
 | `/serien`      | Ziel für Serien (Bind-Mount auf Jellyfins Serienordner). |
@@ -140,7 +141,7 @@ Bei **Weg A** liegen beide direkt im gemounteten Ordner. Bei **Weg B** werden si
 | `DNS_OVERRIDE`      | `1`              | Nur `start.sh`: `0` behält Dockers DNS-Konfiguration unverändert. |
 | `APP_USERNAME`      | leer             | HTTP-Basic-Benutzer für die Weboberfläche. Im LAN setzen. |
 | `APP_PASSWORD`      | leer             | HTTP-Basic-Passwort. Im LAN setzen. |
-| `APP_COMMIT_SHA`    | leer             | Optionale Build-Revision; Git-Checkout und NAS-Kopien werden normalerweise automatisch erkannt. |
+| `APP_COMMIT_SHA`    | leer             | Optionaler CI-Override; normale Docker-Builds erkennen und speichern die Git-Revision automatisch. |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/SerienDownloader` | Repository für die Updateprüfung. |
 | `UPDATE_GITHUB_BRANCH` | `main` | Verglichener Branch. |
 
@@ -194,9 +195,25 @@ Unter *Einstellungen → Anbieter-Priorität* lässt sich die Reihenfolge getren
 für Filme und Serien festlegen. Die erste Quelle wird bevorzugt; Suche,
 automatische Anfragen und Download-Fallbacks verwenden dieselbe Reihenfolge.
 
-Die Updateprüfung erkennt den installierten Stand aus Git-Metadaten oder – bei
-einem als ZIP/Ordner kopierten NAS-Deployment – durch Vergleich der lokalen
-Dateien mit dem GitHub-Dateibaum. Ein manuelles `APP_COMMIT_SHA` ist nicht nötig.
+### Updates
+
+Der Docker-Build schreibt die Revision direkt ins Image und entfernt anschließend
+die Git-Metadaten. Bei einem als ZIP/Ordner kopierten NAS-Deployment prüft der
+Updater zusätzlich die jüngsten Main-Revisionen. Ein fehlender Data-Ordner wird
+für den erkannten Marker automatisch angelegt; ein manuelles `APP_COMMIT_SHA` ist
+nicht nötig.
+
+Bei einem verfügbaren Stand erscheint unter *Einstellungen → Updates* die
+Schaltfläche **Jetzt updaten**. Sie lädt exakt die angezeigte GitHub-Revision,
+prüft und entpackt das Archiv, aktualisiert bei Bedarf Python-Abhängigkeiten,
+schreibt die neue Build-ID und startet den Server neu. `data`, Medienordner,
+`settings.ini` und `.env` werden nicht verändert. Laufende oder wartende
+Downloads müssen vorher beendet werden.
+
+Compose hält den aktiven Programmstand automatisch unter `./runtime`. Beim
+gemounteten `/Deluxe`-Betrieb wird direkt dieser persistente Quellordner
+aktualisiert. Ohne persistent gemounteten Programmordner bleibt die
+Installationsschaltfläche aus Sicherheitsgründen deaktiviert.
 
 ### Telegram-Filmwünsche
 

@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 _config_lock = threading.RLock()
 
 APP_NAME = "FilmeDownloader"
-MOVIE_PROVIDER_DEFAULTS = ("filmpalast", "moflix", "einschalten", "kinox")
-SERIES_PROVIDER_DEFAULTS = ("serienstream", "filmpalast", "moflix")
+MOVIE_PROVIDER_DEFAULTS = ("filmpalast", "moflix", "einschalten", "kinox", "kinoger")
+SERIES_PROVIDER_DEFAULTS = ("serienstream", "filmpalast", "moflix", "kinoger")
 
 
 def _config_dir() -> Path:

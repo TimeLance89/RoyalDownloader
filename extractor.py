@@ -181,6 +181,35 @@ def _unpack_packer_scripts(html: str) -> List[str]:
     return unpacked
 
 
+def _best_direct_media_url(text: str, extension: str) -> Optional[str]:
+    """Findet direkte Medien-URLs, auch in JWPlayer-Qualitaetslisten.
+
+    Einige Player liefern alle Varianten in einem String wie
+    ``[360p]https://...mp4/,[1080p]https://...mp4/``. Die alte, sehr breite
+    Regex hat daraus eine einzige ungueltige URL gemacht. Hier werden die
+    Varianten getrennt und die hoechste deklarierte Aufloesung gewaehlt.
+    """
+    pattern = re.compile(
+        rf"(?:\[(?P<quality>\d{{3,4}})p\])?\s*"
+        rf"(?P<url>https?://[^\s\"'<> ,\]]+\.{re.escape(extension)}"
+        rf"(?:[/?][^\s\"'<> ,\]]*)?)",
+        re.I,
+    )
+    candidates = []
+    for index, match in enumerate(pattern.finditer(text or "")):
+        url = match.group("url")
+        if _is_test_url(url):
+            continue
+        quality = int(match.group("quality") or 0)
+        if not quality:
+            hinted = re.search(r"(?:^|[_-])(2160|1440|1080|720|480|360)p?(?:[_./?-]|$)", url, re.I)
+            quality = int(hinted.group(1)) if hinted else 0
+        candidates.append((quality, index, url))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
 # ---------------------------------------------------------------------------
 # Regex-Extraktion
 # ---------------------------------------------------------------------------
@@ -270,10 +299,11 @@ def _extract_regex(html: str) -> Optional[Tuple[str, str]]:
             except Exception:
                 pass
 
-    # 7. Direkte MP4 URL (echter Inhalt, kein Test)
-    for m in re.finditer(r"https?://[^\s\"'<>]+\.mp4[^\s\"'<>]*", html):
-        if not _is_test_url(m.group(0)):
-            return m.group(0), "mp4"
+    # 7. Direkte MP4 URL (echter Inhalt, kein Test). Qualitaetslisten werden
+    # in einzelne URLs zerlegt und nach Aufloesung priorisiert.
+    direct_mp4 = _best_direct_media_url(html, "mp4")
+    if direct_mp4:
+        return direct_mp4, "mp4"
 
     return None
 

@@ -64,6 +64,8 @@ const api = {
   updaterStatus(force = false) {
     return this.get("/api/updater/status?" + new URLSearchParams({ force: String(force) }));
   },
+  updaterInstall(targetSha) { return this.post("/api/updater/install", { target_sha: targetSha }); },
+  updaterInstallStatus() { return this.get("/api/updater/install/status"); },
   browseDir(path) { return this.get("/api/browse-dir?" + new URLSearchParams({ path: path || "" })); },
 
   clearCookies() { return this.post("/api/session/clear-cookies"); },

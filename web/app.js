@@ -144,6 +144,8 @@ function connectWs() {
       const position = state.download.total
         ? `Datei ${Math.min(state.download.completed + 1, state.download.total)}/${state.download.total} · ` : "";
       setDownloadState("active", data.label || "Download läuft", `${position}${(data.msg || "").slice(0, 70)}`, overallPercent);
+    } else if (data.type === "updater_install") {
+      applyUpdaterInstallStatus(data.installer || {});
     } else if (data.type === "job_done") {
       state.download.completed = data.done_jobs;
       state.download.total = data.total_jobs;
@@ -342,7 +344,7 @@ async function refreshFpJellyfinStatus() {
         result.in_jellyfin = !!response.matches[result.slug];
       }
     }
-    renderFpResults();
+    updateFpJellyfinBadges();
   } catch (e) { /* JF bleibt optional. */ }
 }
 
@@ -384,6 +386,29 @@ async function refreshSeriesJellyfinStatus(force = false) {
   }
 }
 
+function setFpJellyfinBadge(badge, owned) {
+  badge.className = `jellyfin-badge ${owned ? "owned" : "dim"}`;
+  badge.textContent = owned ? "✓ da" : "—";
+  badge.title = owned
+    ? "Bereits in der Jellyfin-Bibliothek gefunden"
+    : "Nicht in der Jellyfin-Bibliothek gefunden";
+}
+
+function updateFpJellyfinBadges() {
+  const resultsBySlug = new Map(state.fp.results.map((result) => [result.slug, result]));
+  for (const row of document.querySelectorAll("#fp-results .row")) {
+    const result = resultsBySlug.get(row.dataset.slug);
+    const badge = row.querySelector(".jellyfin-badge");
+    if (result && badge) setFpJellyfinBadge(badge, !!result.in_jellyfin);
+  }
+}
+
+function updateFpResultSelection() {
+  for (const row of document.querySelectorAll("#fp-results .row")) {
+    row.classList.toggle("selected", row.dataset.slug === state.fp.selectedSlug);
+  }
+}
+
 function renderFpResults() {
   const container = document.getElementById("fp-results");
   container.innerHTML = "";
@@ -400,6 +425,7 @@ function renderFpResults() {
     if (picked) tag = "picked";
     const row = document.createElement("div");
     row.className = "row" + (r.slug === state.fp.selectedSlug ? " selected" : "");
+    row.dataset.slug = r.slug;
 
     const pickFlag = document.createElement("span");
     pickFlag.className = `pick-flag status-${tag}`;
@@ -419,15 +445,7 @@ function renderFpResults() {
     st.textContent = status;
 
     const jf = document.createElement("span");
-    if (r.in_jellyfin) {
-      jf.className = "jellyfin-badge owned";
-      jf.textContent = "✓ da";
-      jf.title = "Bereits in der Jellyfin-Bibliothek gefunden";
-    } else {
-      jf.className = "jellyfin-badge dim";
-      jf.textContent = "—";
-      jf.title = "Nicht in der Jellyfin-Bibliothek gefunden";
-    }
+    setFpJellyfinBadge(jf, !!r.in_jellyfin);
 
     row.append(pickFlag, title, year, st, jf);
     row.addEventListener("click", () => selectFpRow(r.slug));
@@ -577,7 +595,7 @@ async function toggleFpPick(slug) {
 
 async function selectFpRow(slug) {
   state.fp.selectedSlug = slug;
-  renderFpResults();
+  updateFpResultSelection();
   const movie = state.fp.moviesCache[slug];
   if (movie) return showFpDetail(slug, movie);
   const item = state.fp.results.find((r) => r.slug === slug);
@@ -631,8 +649,12 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   const cover = document.getElementById("fp-detail-cover");
   detailPanel.classList.remove("is-empty");
   detailPanel.classList.toggle("has-no-cover", !movie.cover_url);
-  if (movie.cover_url) cover.src = api.coverUrl(movie.cover_url);
-  else cover.removeAttribute("src");
+  if (movie.cover_url) {
+    const coverUrl = api.coverUrl(movie.cover_url);
+    if (cover.getAttribute("src") !== coverUrl) cover.src = coverUrl;
+  } else if (cover.hasAttribute("src")) {
+    cover.removeAttribute("src");
+  }
   cover.alt = movie.title ? `Poster zu ${movie.title}` : "Filmplakat";
   document.getElementById("fp-detail-title").textContent = movie.title;
   const metaParts = [];
@@ -1577,12 +1599,23 @@ function applyUpdaterStatus(data) {
   const detail = document.getElementById("updater-detail");
   const badge = document.getElementById("updater-badge");
   const repository = document.getElementById("updater-repository");
+  const installButton = document.getElementById("updater-install");
   document.getElementById("updater-current").textContent = shortRevision(data.current_sha);
   document.getElementById("updater-latest").textContent = shortRevision(data.latest_sha);
+  installButton.dataset.sha = String(data.latest_sha || "");
   document.getElementById("updater-branch-label").textContent = `GitHub · ${data.branch || "main"}`;
   if (String(data.repository_url || "").startsWith("https://github.com/")) {
     repository.href = data.repository_url;
   }
+  const installer = data.installer || {};
+  if (installer.active || installer.state === "error") {
+    installButton.classList.toggle("hidden", installer.state !== "error");
+    applyUpdaterInstallStatus(installer);
+    return;
+  }
+  installButton.disabled = installer.supported === false;
+  installButton.title = installer.supported === false ? (installer.reason || "Automatisches Update nicht möglich") : "";
+  installButton.classList.add("hidden");
 
   if (data.error) {
     card.dataset.state = "error";
@@ -1599,6 +1632,10 @@ function applyUpdaterStatus(data) {
     detail.textContent = commits
       ? `${commits} ${commits === 1 ? "neuer Commit" : "neue Commits"} auf ${data.branch || "main"}`
       : `Neuer Stand auf ${data.branch || "main"}`;
+    installButton.classList.remove("hidden");
+    if (installer.supported === false) {
+      detail.textContent += ` · ${installer.reason || "Automatische Installation nicht möglich"}`;
+    }
     return;
   }
   if (data.comparison === "identical") {
@@ -1623,6 +1660,83 @@ function applyUpdaterStatus(data) {
     : "Der lokale Quellstand konnte weder Git-Metadaten noch einem GitHub-Dateibaum zugeordnet werden.";
 }
 
+let updaterInstallPollTimer = null;
+
+function applyUpdaterInstallStatus(installer) {
+  const card = document.getElementById("updater-card");
+  const status = document.getElementById("updater-status");
+  const detail = document.getElementById("updater-detail");
+  const badge = document.getElementById("updater-badge");
+  const checkButton = document.getElementById("updater-check");
+  const installButton = document.getElementById("updater-install");
+  const active = !!installer.active;
+  card.dataset.installing = active ? "true" : "false";
+  checkButton.disabled = active;
+  installButton.disabled = active || installer.supported === false;
+  if (installer.target_sha) installButton.dataset.sha = installer.target_sha;
+
+  if (installer.state === "error") {
+    card.dataset.state = "error";
+    badge.textContent = "!";
+    status.textContent = "Update fehlgeschlagen";
+    detail.textContent = installer.error || installer.message || "Unbekannter Fehler";
+    installButton.textContent = "Erneut versuchen";
+    installButton.classList.remove("hidden");
+    return;
+  }
+  if (!active) return;
+  card.dataset.state = "checking";
+  badge.textContent = installer.state === "restarting" ? "↻" : "↓";
+  status.textContent = installer.message || "Update läuft";
+  detail.textContent = installer.state === "restarting"
+    ? "Die Oberfläche verbindet sich nach dem Neustart automatisch neu."
+    : "Einstellungen, Abos und Downloads bleiben erhalten.";
+  installButton.textContent = "Update läuft …";
+  installButton.classList.remove("hidden");
+  if (installer.state === "restarting") waitForUpdatedServer();
+}
+
+function scheduleUpdaterInstallPoll() {
+  if (updaterInstallPollTimer) clearTimeout(updaterInstallPollTimer);
+  updaterInstallPollTimer = setTimeout(async () => {
+    try {
+      const response = await api.updaterInstallStatus();
+      const installer = response.installer || {};
+      applyUpdaterInstallStatus(installer);
+      if (installer.active && installer.state !== "restarting") scheduleUpdaterInstallPoll();
+    } catch (error) {
+      scheduleUpdaterInstallPoll();
+    }
+  }, 900);
+}
+
+async function waitForUpdatedServer() {
+  if (updaterInstallPollTimer) clearTimeout(updaterInstallPollTimer);
+  updaterInstallPollTimer = setTimeout(async () => {
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      location.reload();
+    } catch (error) {
+      waitForUpdatedServer();
+    }
+  }, 3000);
+}
+
+async function installUpdate() {
+  const button = document.getElementById("updater-install");
+  const targetSha = button.dataset.sha || "";
+  if (!targetSha) return;
+  button.disabled = true;
+  try {
+    const response = await api.updaterInstall(targetSha);
+    applyUpdaterInstallStatus(response.installer || {});
+    scheduleUpdaterInstallPoll();
+  } catch (error) {
+    applyUpdaterInstallStatus({ state: "error", error: error.message, supported: true });
+  }
+}
+
 async function checkForUpdates(force = false) {
   const button = document.getElementById("updater-check");
   const card = document.getElementById("updater-card");
@@ -1637,7 +1751,7 @@ async function checkForUpdates(force = false) {
   } catch (error) {
     applyUpdaterStatus({ error: error.message });
   } finally {
-    button.disabled = false;
+    button.disabled = card.dataset.installing === "true";
   }
 }
 
@@ -2025,6 +2139,7 @@ async function initApp() {
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
   document.getElementById("updater-check").addEventListener("click", () => checkForUpdates(true));
+  document.getElementById("updater-install").addEventListener("click", installUpdate);
   document.getElementById("seerr-sync").addEventListener("click", async () => {
     const button = document.getElementById("seerr-sync");
     const status = document.getElementById("seerr-status");

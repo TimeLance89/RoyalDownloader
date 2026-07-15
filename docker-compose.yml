@@ -3,9 +3,11 @@ services:
     build:
       context: .
       args:
+        # Optionaler CI-Override; lokale Git-Builds erkennen die Revision selbst.
         APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
     image: seriendownloader:latest
     container_name: seriendownloader
+    restart: unless-stopped
     ports:
       # Web-Oberfläche: http://<NAS-IP>:8765
       - "8765:8765"
@@ -15,6 +17,8 @@ services:
       - ${DNS_PRIMARY:-1.1.1.1}
       - ${DNS_SECONDARY:-9.9.9.9}
     volumes:
+      # Persistenter Programmstand für Updates direkt aus der Weboberfläche.
+      - ./runtime:/runtime
       # Persistenter App-State (Cookies/CF-Clearance, Hoster-Intel,
       # Einstellungen + Watchlist) – bleibt über Container-Neustarts erhalten.
       - ./data:/app/data
@@ -23,6 +27,7 @@ services:
       - ${MOVIES_HOST_DIR:-./downloads/Filme}:/movies
       - ${SERIES_HOST_DIR:-./downloads/Serien}:/serien
     environment:
+      APP_RUNTIME_DIR: /runtime
       SERIENDL_DATA_DIR: /app/data
       DOWNLOAD_DIR: /movies
       SERIES_DIR: /serien

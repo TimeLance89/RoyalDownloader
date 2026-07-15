@@ -25,7 +25,7 @@ class ProviderPriorityTests(unittest.TestCase):
 
     def test_movie_search_uses_configured_provider_order(self):
         server.state.provider_priorities = {
-            "movies": ["kinox", "moflix", "einschalten", "filmpalast"],
+            "movies": ["kinox", "kinoger", "moflix", "einschalten", "filmpalast"],
             "series": list(server.appconfig.SERIES_PROVIDER_DEFAULTS),
         }
         fp = _MovieProvider("filmpalast")
@@ -34,15 +34,16 @@ class ProviderPriorityTests(unittest.TestCase):
             patch("server.MoflixScraper", return_value=_MovieProvider("moflix")),
             patch("server.EinschaltenScraper", return_value=_MovieProvider("einschalten")),
             patch("server.KinoxScraper", return_value=_MovieProvider("kinox")),
+            patch("server.KinogerScraper", return_value=_MovieProvider("kinoger")),
         ):
             results = server.search_movie_candidates("Dune")
 
-        self.assertEqual(results, ["kinox", "moflix", "einschalten", "filmpalast"])
+        self.assertEqual(results, ["kinox", "kinoger", "moflix", "einschalten", "filmpalast"])
 
     def test_series_search_uses_configured_provider_order(self):
         server.state.provider_priorities = {
             "movies": list(server.appconfig.MOVIE_PROVIDER_DEFAULTS),
-            "series": ["moflix", "filmpalast", "serienstream"],
+            "series": ["moflix", "kinoger", "filmpalast", "serienstream"],
         }
 
         def search(provider, _query):
@@ -51,12 +52,12 @@ class ProviderPriorityTests(unittest.TestCase):
         with patch("server._search_series_for_provider", side_effect=search):
             results = server.search_series_candidates("Dark")
 
-        self.assertEqual(results, ["moflix", "filmpalast", "serienstream"])
+        self.assertEqual(results, ["moflix", "kinoger", "filmpalast", "serienstream"])
 
     def test_episode_fallback_skips_primary_source_and_keeps_priority(self):
         server.state.provider_priorities = {
             "movies": list(server.appconfig.MOVIE_PROVIDER_DEFAULTS),
-            "series": ["moflix", "serienstream", "filmpalast"],
+            "series": ["moflix", "serienstream", "kinoger", "filmpalast"],
         }
         calls = []
 
@@ -71,13 +72,14 @@ class ProviderPriorityTests(unittest.TestCase):
 
         self.assertEqual(calls, [
             ("serienstream", "Dark"),
+            ("kinoger", "Dark"),
             ("filmpalast", "Dark"),
         ])
 
     def test_episode_sources_are_reordered_for_existing_watchlist_slugs(self):
         server.state.provider_priorities = {
             "movies": list(server.appconfig.MOVIE_PROVIDER_DEFAULTS),
-            "series": ["filmpalast", "moflix", "serienstream"],
+            "series": ["filmpalast", "moflix", "kinoger", "serienstream"],
         }
         sto = SimpleNamespace(url="https://serienstream.to/serie/dark/staffel-1/episode-1")
         fp = SimpleNamespace(url="https://filmpalast.to/stream/dark-s01e01")
@@ -86,6 +88,27 @@ class ProviderPriorityTests(unittest.TestCase):
         ordered = server._ordered_episode_sources([sto, moflix, fp])
 
         self.assertEqual(ordered, [fp, moflix, sto])
+
+    def test_kinoger_values_are_recognized_as_provider(self):
+        self.assertEqual(server.provider_for_value("kinoger:42-dark"), "kinoger")
+        self.assertEqual(
+            server.provider_for_value("https://kinoger.com/stream/42-dark.html"),
+            "kinoger",
+        )
+
+    def test_kinoger_mirrors_use_the_matching_extractor_branch(self):
+        self.assertEqual(
+            server._canonical_hoster_name("FSST", "https://fsst.online/embed/42/"),
+            "kinoger",
+        )
+        self.assertEqual(
+            server._canonical_hoster_name("Vidara", "https://kinoger.pw/e/42"),
+            "vidara",
+        )
+        self.assertEqual(
+            server._canonical_hoster_name("VOE", "https://kinoger.ru/e/42"),
+            "voe",
+        )
 
     def test_telegram_movie_ties_keep_provider_search_order(self):
         first = SimpleNamespace(title="Titanic [Moflix]")

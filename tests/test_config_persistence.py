@@ -67,12 +67,12 @@ class ConfigPersistenceTests(unittest.TestCase):
 
     def test_provider_priorities_survive_restart_roundtrip(self):
         self.assertTrue(config.save_provider_priorities(
-            ["kinox", "moflix", "filmpalast", "einschalten"],
-            ["moflix", "filmpalast", "serienstream"],
+            ["kinox", "kinoger", "moflix", "filmpalast", "einschalten"],
+            ["kinoger", "moflix", "filmpalast", "serienstream"],
         ))
         self.assertEqual(config.load_provider_priorities(), {
-            "movies": ["kinox", "moflix", "filmpalast", "einschalten"],
-            "series": ["moflix", "filmpalast", "serienstream"],
+            "movies": ["kinox", "kinoger", "moflix", "filmpalast", "einschalten"],
+            "series": ["kinoger", "moflix", "filmpalast", "serienstream"],
         })
 
     def test_provider_priorities_repair_unknown_duplicates_and_missing_values(self):
@@ -81,8 +81,8 @@ class ConfigPersistenceTests(unittest.TestCase):
             ["filmpalast"],
         ))
         self.assertEqual(config.load_provider_priorities(), {
-            "movies": ["moflix", "filmpalast", "einschalten", "kinox"],
-            "series": ["filmpalast", "serienstream", "moflix"],
+            "movies": ["moflix", "filmpalast", "einschalten", "kinox", "kinoger"],
+            "series": ["filmpalast", "serienstream", "moflix", "kinoger"],
         })
 
 

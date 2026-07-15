@@ -15,6 +15,7 @@ import requests
 
 DEFAULT_REPOSITORY = "TimeLance89/SerienDownloader"
 DEFAULT_BRANCH = "main"
+RECENT_COMMIT_SCAN_LIMIT = 5
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
 
@@ -23,21 +24,7 @@ def _valid_commit(value: str) -> str:
     return value if _COMMIT_RE.fullmatch(value) else ""
 
 
-def detect_local_commit(app_dir: Optional[Path] = None) -> str:
-    """Liest die Build-Revision aus der Umgebung oder aus einem Git-Checkout."""
-    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
-        commit = _valid_commit(os.environ.get(key, ""))
-        if commit:
-            return commit
-
-    root = Path(app_dir or Path(__file__).resolve().parent)
-    for filename in (".app_commit_sha", "BUILD_COMMIT"):
-        try:
-            commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
-        except OSError:
-            commit = ""
-        if commit:
-            return commit
+def _detect_git_commit(root: Path) -> str:
     marker = root / ".git"
     if marker.is_file():
         try:
@@ -48,7 +35,6 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
             return ""
     if not marker.is_dir():
         return ""
-
     try:
         head = (marker / "HEAD").read_text(encoding="utf-8").strip()
     except OSError:
@@ -75,6 +61,41 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
     except OSError:
         pass
     return ""
+
+
+def detect_local_commit(app_dir: Optional[Path] = None) -> str:
+    """Liest die Build-Revision aus Marker, Umgebung oder Git-Checkout."""
+    root = Path(app_dir or Path(__file__).resolve().parent)
+    for filename in (".app_commit_sha", "BUILD_COMMIT"):
+        try:
+            commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
+        except OSError:
+            commit = ""
+        if commit:
+            return commit
+    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
+        commit = _valid_commit(os.environ.get(key, ""))
+        if commit:
+            return commit
+    return _detect_git_commit(root)
+
+
+def write_build_commit_marker(app_dir: Optional[Path] = None) -> str:
+    """Schreibt die beim Image-Build erkannte Revision in den Anwendungsordner."""
+    root = Path(app_dir or Path(__file__).resolve().parent)
+    commit = next((
+        value
+        for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT")
+        if (value := _valid_commit(os.environ.get(key, "")))
+    ), "")
+    commit = commit or _detect_git_commit(root) or detect_local_commit(root)
+    if not commit:
+        return ""
+    try:
+        (root / ".app_commit_sha").write_text(commit + "\n", encoding="utf-8")
+    except OSError:
+        return ""
+    return commit
 
 
 def _git_blob_sha(content: bytes) -> str:
@@ -192,13 +213,24 @@ class UpdateChecker:
             if self._source_matches_commit(stored_payload):
                 self._inferred_verified = True
                 return self._inferred_commit
+        recent = self._get_list(
+            f"commits?sha={quote(self.branch, safe='')}&per_page={RECENT_COMMIT_SCAN_LIMIT}",
+        )
+        ignored = {latest_sha, self._inferred_commit}
+        for candidate in recent:
+            candidate_sha = _valid_commit(candidate.get("sha", ""))
+            if not candidate_sha or candidate_sha in ignored:
+                continue
+            if self._source_matches_commit(candidate):
+                self._remember_inferred_commit(candidate_sha)
+                return candidate_sha
         return ""
 
     @property
     def repository_url(self) -> str:
         return f"https://github.com/{self.repository}"
 
-    def _get_json(self, path: str) -> dict:
+    def _request_json(self, path: str):
         response = requests.get(
             f"https://api.github.com/repos/{self.repository}/{path}",
             headers={
@@ -209,10 +241,19 @@ class UpdateChecker:
             timeout=10,
         )
         response.raise_for_status()
-        payload = response.json()
+        return response.json()
+
+    def _get_json(self, path: str) -> dict:
+        payload = self._request_json(path)
         if not isinstance(payload, dict):
             raise RuntimeError("GitHub hat eine ungültige Antwort geliefert")
         return payload
+
+    def _get_list(self, path: str) -> list[dict]:
+        payload = self._request_json(path)
+        if not isinstance(payload, list):
+            raise RuntimeError("GitHub hat eine ungültige Commitliste geliefert")
+        return [item for item in payload if isinstance(item, dict)]
 
     def _check_uncached(self) -> dict:
         current = detect_local_commit(self.app_dir)
