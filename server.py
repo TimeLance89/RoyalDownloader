@@ -25,7 +25,7 @@ import socket
 import sys
 import requests
 from contextlib import asynccontextmanager
-from collections import OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -110,6 +110,14 @@ PROVIDER_LABELS = {
     "kinoger": "KinoGer",
     "serienstream": "Serienstream",
 }
+MOVIE_BROWSE_PAGE_SIZE = 32
+MOVIE_PAGINATED_PROVIDERS = frozenset({"filmpalast", "kinoger"})
+MOVIE_LIST_CACHE_TTL = 300
+MOVIE_LIST_FAILURE_CACHE_TTL = 30
+MOVIE_LIST_CACHE_MAX_ENTRIES = 1000
+MOVIE_MAX_GLOBAL_PAGE = 50
+MOVIE_MAX_SOURCE_PAGE = 50
+MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
 
 
 def _authorized_header(value: str) -> bool:
@@ -697,39 +705,303 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
     return results
 
 
-def list_movie_candidates(mode: str, page: int = 1) -> List[FilmpalastSearchResult]:
-    """Neu/Top parallel laden und kurz cachen – beschleunigt den App-Start."""
-    priority = provider_priority("movies")
-    cache_key = (mode, int(page), tuple(priority))
+class MovieCatalogColdLoadLimit(RuntimeError):
+    """Verhindert teure Sprünge über viele noch ungecachte Quellseiten."""
+
+
+def _cached_movie_provider_page(cache_key: tuple) -> Optional[List[FilmpalastSearchResult]]:
     with state.movie_list_cache_lock:
         cached = state.movie_list_cache.get(cache_key)
-        if cached and time.time() - cached[0] < 300:
+        ttl = cached[2] if cached and len(cached) > 2 else MOVIE_LIST_CACHE_TTL
+        if cached and time.time() - cached[0] < ttl:
             return list(cached[1])
+        if cached:
+            state.movie_list_cache.pop(cache_key, None)
+    return None
 
-    def _fp():
-        with state.fp_lock:
-            return list(get_fp_scraper().list_movies(mode, page))
 
-    listings = {
-        "filmpalast": _fp,
-        "moflix": lambda: MoflixScraper(progress_cb=log).list_movies(mode, page),
-        "einschalten": lambda: EinschaltenScraper(progress_cb=log).list_movies(mode, page),
-        "kinox": lambda: KinoxScraper(progress_cb=log).list_movies(mode, page),
-        "kinoger": lambda: KinogerScraper(progress_cb=log).list_movies(mode, page),
-    }
-    included = priority if page == 1 else ["filmpalast"]
-    tasks = [(PROVIDER_LABELS[key], listings[key]) for key in included]
-    results: List[FilmpalastSearchResult] = []
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = [(name, pool.submit(fn)) for name, fn in tasks]
-        for name, future in futures:
-            try:
-                results.extend(future.result())
-            except Exception as exc:
-                log(f"{name} Liste übersprungen: {exc}", "warn")
+def _cache_movie_provider_page(
+    cache_key: tuple,
+    results: List[FilmpalastSearchResult],
+    ttl: int = MOVIE_LIST_CACHE_TTL,
+) -> None:
+    now = time.time()
     with state.movie_list_cache_lock:
-        state.movie_list_cache[cache_key] = (time.time(), list(results))
-    return results
+        expired = [
+            key for key, cached in state.movie_list_cache.items()
+            if now - cached[0] >= (
+                cached[2] if len(cached) > 2 else MOVIE_LIST_CACHE_TTL
+            )
+        ]
+        for key in expired:
+            state.movie_list_cache.pop(key, None)
+        while len(state.movie_list_cache) >= MOVIE_LIST_CACHE_MAX_ENTRIES:
+            oldest = min(state.movie_list_cache, key=lambda key: state.movie_list_cache[key][0])
+            state.movie_list_cache.pop(oldest, None)
+        state.movie_list_cache[cache_key] = (now, list(results), ttl)
+
+
+def _fetch_movie_provider_page(
+    provider: str,
+    mode: str,
+    genre: str,
+    source_page: int,
+) -> List[FilmpalastSearchResult]:
+    """Lädt genau eine Quellseite. Nur Filmpalast und KinoGer paginieren."""
+    if provider not in MOVIE_PAGINATED_PROVIDERS and source_page != 1:
+        return []
+
+    if provider == "filmpalast":
+        with state.fp_lock:
+            scraper = get_fp_scraper()
+            if mode == "genre":
+                return list(scraper.list_by_genre(genre, source_page))
+            return list(scraper.list_movies(mode, source_page))
+
+    scraper_classes = {
+        "moflix": MoflixScraper,
+        "einschalten": EinschaltenScraper,
+        "kinox": KinoxScraper,
+        "kinoger": KinogerScraper,
+    }
+    scraper_class = scraper_classes.get(provider)
+    if scraper_class is None:
+        return []
+    scraper = scraper_class(progress_cb=log)
+    if mode == "genre":
+        return list(scraper.list_by_genre(genre, source_page))
+    return list(scraper.list_movies(mode, source_page))
+
+
+def _load_movie_provider_pages(
+    mode: str,
+    genre: str,
+    requests_to_load: List[tuple[str, int]],
+    cold_wave_budget: Optional[List[int]] = None,
+) -> Dict[tuple[str, int], List[FilmpalastSearchResult]]:
+    """Lädt mehrere Quellseiten parallel und cached sie unabhängig voneinander."""
+    loaded: Dict[tuple[str, int], List[FilmpalastSearchResult]] = {}
+    missing: List[tuple[str, int, tuple]] = []
+    genre_key = clean_genre(genre).casefold()
+
+    for provider, source_page in dict.fromkeys(requests_to_load):
+        cache_key = ("provider", mode, genre_key, provider, int(source_page))
+        cached = _cached_movie_provider_page(cache_key)
+        if cached is None:
+            missing.append((provider, source_page, cache_key))
+        else:
+            loaded[(provider, source_page)] = cached
+
+    if not missing:
+        return loaded
+    if cold_wave_budget is not None:
+        if cold_wave_budget[0] <= 0:
+            raise MovieCatalogColdLoadLimit(
+                "Diese Seite ist noch nicht vorbereitet. Bitte über ‚Weiter‘ schrittweise öffnen."
+            )
+        cold_wave_budget[0] -= 1
+
+    with ThreadPoolExecutor(max_workers=min(len(missing), len(PROVIDER_LABELS))) as pool:
+        futures = [
+            (
+                provider,
+                source_page,
+                cache_key,
+                pool.submit(_fetch_movie_provider_page, provider, mode, genre, source_page),
+            )
+            for provider, source_page, cache_key in missing
+        ]
+        for provider, source_page, cache_key, future in futures:
+            try:
+                results = list(future.result())
+            except Exception as exc:
+                label = PROVIDER_LABELS.get(provider, provider)
+                log(f"{label} Liste (Quellseite {source_page}) übersprungen: {exc}", "warn")
+                results = []
+                _cache_movie_provider_page(
+                    cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
+                )
+            else:
+                _cache_movie_provider_page(cache_key, results)
+            loaded[(provider, source_page)] = results
+    return loaded
+
+
+def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
+    known_genres = {
+        "filmpalast": state.fp_provider_genres,
+        "moflix": state.moflix_provider_genres,
+        "einschalten": state.einschalten_provider_genres,
+        "kinox": state.kinox_provider_genres,
+        "kinoger": state.kinoger_provider_genres,
+    }.get(provider, set())
+    # Vor dem ersten Genre-Abruf sind die Mengen leer. Dann optimistisch laden;
+    # der jeweilige Scraper kann ein unbekanntes Genre günstig mit [] ablehnen.
+    return not known_genres or genre in known_genres
+
+
+def _movie_result_identity(
+    result: FilmpalastSearchResult,
+    provider: str,
+    years_by_title: Dict[str, set[str]],
+) -> tuple:
+    title_key = _norm_title(strip_source_suffix(result.title))
+    if not title_key:
+        return ("source", provider, str(result.slug or result.url))
+    year = str(result.year or "").strip()
+    known_years = years_by_title.get(title_key, set())
+    # Fehlt bei nur einer Quelle das Jahr, kann sie sicher dem einzigen bekannten
+    # Jahr zugeordnet werden. Bei Remakes bleiben jahrlose Treffer separat.
+    if not year and len(known_years) == 1:
+        year = next(iter(known_years))
+    return ("movie", title_key, year)
+
+
+def _mix_movie_provider_results(
+    provider_results: Dict[str, List[FilmpalastSearchResult]],
+    priority: List[str],
+    claimed_identities: Optional[set[tuple]] = None,
+) -> List[tuple[str, FilmpalastSearchResult]]:
+    """Dedupliziert eine Quellwelle und mischt sie fair im Round-Robin."""
+    years_by_title: Dict[str, set[str]] = defaultdict(set)
+    for results in provider_results.values():
+        for result in results:
+            title_key = _norm_title(strip_source_suffix(result.title))
+            year = str(result.year or "").strip()
+            if title_key and year:
+                years_by_title[title_key].add(year)
+
+    filtered: Dict[str, List[FilmpalastSearchResult]] = {provider: [] for provider in priority}
+    seen_identities = claimed_identities if claimed_identities is not None else set()
+    for provider in priority:
+        for result in provider_results.get(provider, []):
+            identity = _movie_result_identity(result, provider, years_by_title)
+            if identity in seen_identities:
+                continue
+            seen_identities.add(identity)
+            filtered[provider].append(result)
+
+    mixed: List[tuple[str, FilmpalastSearchResult]] = []
+    longest = max((len(results) for results in filtered.values()), default=0)
+    for index in range(longest):
+        for provider in priority:
+            results = filtered[provider]
+            if index < len(results):
+                mixed.append((provider, results[index]))
+    return mixed
+
+
+def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
+    """Erzeugt eine stabile globale 32er-Seite aus allen Filmkatalogen.
+
+    Einseitige Anbieter speisen ihren gesamten Startbestand in die globalen
+    Seiten ein. Weitere Quellseiten werden jeweils als abgeschlossene Welle
+    gemischt und nur hinten angehängt, damit frühere Seitengrenzen stabil bleiben.
+    """
+    page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
+    mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
+    genre = clean_genre(genre)
+    priority = provider_priority("movies")
+    active = [
+        provider for provider in priority
+        if mode != "genre" or _provider_supports_movie_genre(provider, genre)
+    ]
+    provider_seen: Dict[str, set[str]] = {provider: set() for provider in priority}
+
+    def unique_page(
+        provider: str,
+        results: List[FilmpalastSearchResult],
+    ) -> List[FilmpalastSearchResult]:
+        unique: List[FilmpalastSearchResult] = []
+        for result in results:
+            source_key = str(result.slug or result.url or result.title or "").strip()
+            key = f"{source_key}\0{str(result.year or '').strip()}"
+            if key in provider_seen[provider]:
+                continue
+            provider_seen[provider].add(key)
+            unique.append(result)
+        return unique
+
+    cold_wave_budget = [MOVIE_MAX_COLD_WAVES_PER_REQUEST]
+    first_pages = _load_movie_provider_pages(
+        mode, genre, [(provider, 1) for provider in active], cold_wave_budget,
+    )
+    first_wave = {
+        provider: unique_page(provider, first_pages.get((provider, 1), []))
+        for provider in active
+    }
+    # Priorität entscheidet innerhalb derselben Quellwelle. Bereits katalogisierte
+    # Filme werden von späteren Wellen nicht ersetzt; sonst würden Seiten springen.
+    claimed_identities: set[tuple] = set()
+    catalog_entries = _mix_movie_provider_results(
+        first_wave, priority, claimed_identities,
+    )
+
+    paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
+    exhausted = {provider for provider in paginated if not first_wave[provider]}
+    duplicate_only_pages = {provider: 0 for provider in paginated}
+    target_end = page * MOVIE_BROWSE_PAGE_SIZE
+    next_source_page = 2
+    has_more_unverified = False
+
+    while len(catalog_entries) <= target_end and next_source_page <= MOVIE_MAX_SOURCE_PAGE:
+        pending = [provider for provider in paginated if provider not in exhausted]
+        if not pending:
+            break
+        try:
+            next_pages = _load_movie_provider_pages(
+                mode, genre, [(provider, next_source_page) for provider in pending],
+                cold_wave_budget,
+            )
+        except MovieCatalogColdLoadLimit:
+            if len(catalog_entries) < target_end:
+                raise
+            # Die angeforderte Seite ist vollständig. Der nächste Klick darf die
+            # preiswerte Folgeseiten-Prüfung in einem neuen Request fortsetzen.
+            has_more_unverified = True
+            break
+        wave: Dict[str, List[FilmpalastSearchResult]] = {}
+        for provider in pending:
+            results = next_pages.get((provider, next_source_page), [])
+            wave[provider] = unique_page(provider, results)
+            if not results:
+                exhausted.add(provider)
+            elif not wave[provider]:
+                duplicate_only_pages[provider] += 1
+                if duplicate_only_pages[provider] >= 2:
+                    exhausted.add(provider)
+            else:
+                duplicate_only_pages[provider] = 0
+        catalog_entries.extend(_mix_movie_provider_results(
+            wave, priority, claimed_identities,
+        ))
+        next_source_page += 1
+
+    start = (page - 1) * MOVIE_BROWSE_PAGE_SIZE
+    page_entries = catalog_entries[start:target_end]
+    source_counts = Counter(provider for provider, _result in page_entries)
+    sources = [
+        {
+            "key": provider,
+            "label": PROVIDER_LABELS[provider],
+            "count": source_counts[provider],
+        }
+        for provider in priority
+        if source_counts[provider]
+    ]
+    return {
+        "results": [result for _provider, result in page_entries],
+        "page": page,
+        "has_more": page < MOVIE_MAX_GLOBAL_PAGE and (
+            len(catalog_entries) > target_end or has_more_unverified
+        ),
+        "sources": sources,
+    }
+
+
+def list_movie_candidates(mode: str, page: int = 1) -> List[FilmpalastSearchResult]:
+    """Kompatibler Listen-Zugriff auf die globale, gemischte Katalogseite."""
+    return list(movie_catalog_page(mode, page)["results"])
 
 
 def warm_home_movie_cache():
@@ -5262,53 +5534,29 @@ async def api_genres():
 # ── Filme: Suche / Listen / Genre ───────────────────────────────────────────
 @app.get("/api/movies")
 async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):
+    if page < 1 or page > MOVIE_MAX_GLOBAL_PAGE:
+        raise HTTPException(400, f"Seite muss zwischen 1 und {MOVIE_MAX_GLOBAL_PAGE} liegen.")
+
     def _work():
         if mode == "search":
             q = query.strip()
             if not q:
-                return {"results": [], "category": None, "page": 1, "last_page_full": False}
+                return {
+                    "results": [], "category": None, "page": 1,
+                    "has_more": False, "sources": [],
+                }
             results = search_movie_candidates(q)
-            return {"results": results, "category": None, "page": 1, "last_page_full": False}
-        elif mode == "genre":
-            genre_clean = clean_genre(genre)
-            provider_results: Dict[str, List[FilmpalastSearchResult]] = {
-                provider: [] for provider in appconfig.MOVIE_PROVIDER_DEFAULTS
+            return {
+                "results": results, "category": None, "page": 1,
+                "has_more": False, "sources": [],
             }
-            if not state.fp_provider_genres or genre_clean in state.fp_provider_genres:
-                scraper = get_fp_scraper()
-                with state.fp_lock:
-                    provider_results["filmpalast"] = scraper.list_by_genre(genre_clean, page)
-            if page == 1 and genre_clean in state.moflix_provider_genres:
-                try:
-                    provider_results["moflix"] = MoflixScraper(progress_cb=log).list_by_genre(genre_clean, page)
-                except Exception as exc:
-                    log(f"Moflix Genre übersprungen: {exc}", "warn")
-            if page == 1 and genre_clean in state.einschalten_provider_genres:
-                try:
-                    provider_results["einschalten"] = EinschaltenScraper(progress_cb=log).list_by_genre(genre_clean, page)
-                except Exception as exc:
-                    log(f"Einschalten Genre übersprungen: {exc}", "warn")
-            if page == 1 and genre_clean in state.kinox_provider_genres:
-                try:
-                    provider_results["kinox"] = KinoxScraper(progress_cb=log).list_by_genre(genre_clean, page)
-                except Exception as exc:
-                    log(f"Kinox Genre übersprungen: {exc}", "warn")
-            if page == 1 and genre_clean in state.kinoger_provider_genres:
-                try:
-                    provider_results["kinoger"] = KinogerScraper(progress_cb=log).list_by_genre(genre_clean, page)
-                except Exception as exc:
-                    log(f"KinoGer Genre übersprungen: {exc}", "warn")
-            combined = [
-                result
-                for provider in provider_priority("movies")
-                for result in provider_results[provider]
-            ]
-            return {"results": combined, "category": "genre", "page": page,
-                    "last_page_full": len(provider_results["filmpalast"]) >= 32}
-        else:  # "new" / "top"
-            results = list_movie_candidates(mode, page)
-            return {"results": results, "category": mode, "page": page,
-                    "last_page_full": len(results) >= 32}
+
+        category = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
+        try:
+            catalog = movie_catalog_page(category, page, genre if category == "genre" else "")
+        except MovieCatalogColdLoadLimit as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**catalog, "category": category}
 
     data = await run_in_threadpool(_work)
     result_dicts = [asdict(r) for r in data["results"]]
@@ -5321,7 +5569,11 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         "results": result_dicts,
         "category": data["category"],
         "page": data["page"],
-        "last_page_full": data["last_page_full"],
+        "has_more": data["has_more"],
+        # Rückwärtskompatibel für ältere Web-Builds. Semantisch ist dies jetzt
+        # korrekt: Eine weitere globale Seite ist tatsächlich vorhanden.
+        "last_page_full": data["has_more"],
+        "sources": data["sources"],
     }
 
 

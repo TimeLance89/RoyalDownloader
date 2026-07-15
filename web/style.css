@@ -894,6 +894,25 @@ body {
   font-weight: 700;
   letter-spacing: 0.1em;
 }
+.fp-pager-copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-inline: 10px;
+  text-align: center;
+}
+.fp-pager-sources {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Detail-Panel ───────────────────────────────────────────────────── */
 .detail-panel {
@@ -2637,6 +2656,7 @@ body.setup-open #dir-modal { z-index: 120; }
   .pager { gap: 8px; padding: 7px; }
   .pager .btn { min-height: 40px; padding: 8px 10px; }
   .pager .accent { font-size: 11px; }
+  .fp-pager-copy { padding-inline: 2px; }
 
   .detail-body {
     display: grid;

@@ -3,7 +3,7 @@ const state = {
   fp: {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
-    metadataCache: {}, requestSeq: 0,
+    metadataCache: {}, requestSeq: 0, sources: [],
   },
   series: {
     results: [], browseMode: null, page: 1, lastPageFull: false,
@@ -457,16 +457,30 @@ function renderFpResults() {
 function applyFpResults(data) {
   state.fp.results = data.results;
   state.fp.page = data.page;
-  state.fp.lastPageFull = data.last_page_full;
+  state.fp.category = data.category;
+  state.fp.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
+  state.fp.sources = Array.isArray(data.sources)
+    ? data.sources.filter((source) => Number(source.count) > 0)
+    : [];
   state.fp.selectedSlug = data.results[0]?.slug || null;
   state.fp.pendingPreload = null;
   renderFpResults();
   const pager = document.getElementById("fp-pager");
   if (data.category) {
     pager.classList.remove("hidden");
-    document.getElementById("fp-pager-label").textContent = `Seite ${data.page}`;
+    const sourceCount = state.fp.sources.length;
+    const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
+    document.getElementById("fp-pager-label").textContent = sourceCount
+      ? `Seite ${data.page} · ${sourceCount} ${sourceWord}`
+      : `Seite ${data.page}`;
+    const sourceSummary = state.fp.sources
+      .map((source) => `${source.label} ${source.count}`)
+      .join(" · ");
+    const sourceElement = document.getElementById("fp-pager-sources");
+    sourceElement.textContent = sourceSummary;
+    sourceElement.title = sourceSummary;
     document.getElementById("fp-pager-prev").disabled = data.page <= 1;
-    document.getElementById("fp-pager-next").disabled = !data.last_page_full;
+    document.getElementById("fp-pager-next").disabled = !state.fp.lastPageFull;
   } else {
     pager.classList.add("hidden");
   }
@@ -575,9 +589,28 @@ async function fpPagerChange(delta) {
     ? { mode: "genre", genre: state.fp.activeGenre, page: newPage }
     : { mode: state.fp.category, page: newPage };
   const requestId = ++state.fp.requestSeq;
-  const data = await api.movies(params);
-  if (requestId !== state.fp.requestSeq) return;
-  applyFpResults(data);
+  const pager = document.getElementById("fp-pager");
+  const previousButton = document.getElementById("fp-pager-prev");
+  const nextButton = document.getElementById("fp-pager-next");
+  pager.setAttribute("aria-busy", "true");
+  previousButton.disabled = true;
+  nextButton.disabled = true;
+  document.getElementById("fp-status").textContent = `Lade Seite ${newPage} …`;
+  try {
+    const data = await api.movies(params);
+    if (requestId !== state.fp.requestSeq) return;
+    applyFpResults(data);
+  } catch (error) {
+    if (requestId !== state.fp.requestSeq) return;
+    document.getElementById("fp-status").textContent =
+      `Seite ${newPage} konnte nicht geladen werden: ${error.message}`;
+  } finally {
+    if (requestId === state.fp.requestSeq) {
+      pager.removeAttribute("aria-busy");
+      previousButton.disabled = state.fp.page <= 1;
+      nextButton.disabled = !state.fp.lastPageFull;
+    }
+  }
 }
 
 async function toggleFpPick(slug) {

@@ -57,6 +57,8 @@ class MoflixScraper:
 
     def list_movies(self, category: str = "new", page: int = 1) -> List[FilmpalastSearchResult]:
         # Moflix nutzt Infinite-Scroll; die erste Seite reicht als Startliste.
+        if page != 1:
+            return []
         url = f"{BASE_URL}/movies" if category != "top" else f"{BASE_URL}/movies"
         self._log(f"Moflix Liste: {url}")
         data = self._bootstrap(url)
