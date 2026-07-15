@@ -24,7 +24,7 @@ import threading
 import time
 import warnings
 from typing import Callable, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -812,6 +812,85 @@ def extract_vidsonic_url(
 
     _log("Vidsonic: keine dekodierbare Stream-URL gefunden.")
     return None
+
+
+def extract_firestream_url(
+    embed_url: str,
+    session=None,
+    log_cb: Optional[Callable[[str], None]] = None,
+) -> Optional[Tuple[str, str]]:
+    """Loest FireStreams einmaligen Player-Token auf.
+
+    Die Embed-Seite enthaelt einen ``token-blob``. Dieser wird einmalig an
+    ``POST /api/videos/<slug>/resolve`` gesendet und liefert eine signierte
+    MP4- oder HLS-URL. ``/v/``-Freigabelinks werden auf die technisch
+    identische ``/e/``-Playerroute abgebildet.
+    """
+    _log = log_cb or logger.info
+    if session is None:
+        session = _make_session()
+
+    parsed = urlparse(embed_url)
+    if not parsed.scheme or not parsed.netloc:
+        _log("FireStream: ungueltige Player-URL.")
+        return None
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    slug = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+    if not slug:
+        _log("FireStream: kein Video-Slug in der Player-URL.")
+        return None
+    player_url = f"{base}/e/{quote(slug, safe='-_')}"
+
+    try:
+        html = _fetch_html(session, player_url, referer="https://megakino.org/")
+    except Exception as exc:
+        _log(f"FireStream-Embed nicht ladbar: {exc}")
+        return None
+
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "lxml")
+    video_data = {}
+    data_node = soup.find(id="video-data")
+    if data_node:
+        try:
+            video_data = json.loads(data_node.get_text(strip=True))
+        except (TypeError, json.JSONDecodeError):
+            video_data = {}
+    video = video_data.get("video") if isinstance(video_data, dict) else {}
+    video = video if isinstance(video, dict) else {}
+    direct = str(video.get("signedVideoUrl") or "").strip()
+
+    if not direct:
+        blob_node = soup.find(id="token-blob")
+        blob = blob_node.get_text(strip=True) if blob_node else ""
+        if not blob:
+            _log("FireStream: token-blob fehlt.")
+            return None
+        try:
+            response = session.post(
+                f"{base}/api/videos/{quote(slug, safe='-_')}/resolve",
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Origin": base,
+                    "Referer": player_url,
+                },
+                data=json.dumps({"blob": blob}),
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            direct = str(payload.get("signedVideoUrl") or "").strip()
+        except Exception as exc:
+            _log(f"FireStream Token-Aufloesung fehlgeschlagen: {exc}")
+            return None
+
+    if not direct.startswith("http"):
+        _log("FireStream: keine signierte Video-URL in der Antwort.")
+        return None
+    encoded_path = str(video.get("encodedPath") or "").casefold()
+    stream_type = "hls" if ".m3u8" in direct.casefold() or encoded_path.endswith(".m3u8") else "mp4"
+    return direct, stream_type
 
 
 # ---------------------------------------------------------------------------

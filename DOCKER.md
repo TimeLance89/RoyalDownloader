@@ -157,6 +157,8 @@ Bei **Weg A** liegen beide direkt im gemounteten Ordner. Bei **Weg B** werden si
 | `APP_COMMIT_SHA`    | leer             | Optionaler CI-Override; normale Docker-Builds erkennen und speichern die Git-Revision automatisch. |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/RoyalDownloader` | Repository für die Updateprüfung. |
 | `UPDATE_GITHUB_BRANCH` | `main` | Verglichener Branch. |
+| `UPDATE_MODE` | `manual` | Update-Modus: `manual` oder `automatic`; eine im UI gespeicherte Auswahl hat Vorrang. |
+| `AUTO_UPDATE_INTERVAL_HOURS` | `6` | Prüfintervall automatischer Updates, begrenzt auf 1–168 Stunden. |
 
 ### DNS / Provider-Sperren
 
@@ -216,12 +218,18 @@ Updater zusätzlich die jüngsten Main-Revisionen. Ein fehlender Data-Ordner wir
 für den erkannten Marker automatisch angelegt; ein manuelles `APP_COMMIT_SHA` ist
 nicht nötig.
 
-Bei einem verfügbaren Stand erscheint unter *Einstellungen → Updates* die
-Schaltfläche **Jetzt updaten**. Sie lädt exakt die angezeigte GitHub-Revision,
-prüft und entpackt das Archiv, aktualisiert bei Bedarf Python-Abhängigkeiten,
-schreibt die neue Build-ID und startet den Server neu. `data`, Medienordner,
-`settings.ini` und `.env` werden nicht verändert. Laufende oder wartende
-Downloads müssen vorher beendet werden.
+Unter *Einstellungen → Updates* stehen zwei Modi bereit. **Manuell** zeigt bei
+einem verfügbaren Stand die Schaltfläche **Jetzt updaten**. **Automatisch** prüft
+GitHub im gewählten Stundenintervall und installiert den neuen Stand selbständig,
+sobald weder Downloads noch Downloadvorbereitungen laufen. Eine belegte Queue
+stellt das Update zurück und löst die Prüfung nach Queue-Ende erneut aus.
+Weicht ein lokaler Entwicklungsstand vom `main`-Branch ab, verlangt der Updater
+weiterhin eine manuelle Bestätigung und überschreibt ihn nicht automatisch.
+
+Die Installation lädt exakt die angebotene GitHub-Revision, prüft und entpackt
+das Archiv, aktualisiert bei Bedarf Python-Abhängigkeiten, schreibt die neue
+Build-ID und startet den Server neu. `data`, Medienordner, `settings.ini` und
+`.env` werden nicht verändert.
 
 Compose hält den aktiven Programmstand automatisch unter `./runtime`. Beim
 gemounteten `/Deluxe`-Betrieb wird direkt dieser persistente Quellordner

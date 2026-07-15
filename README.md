@@ -38,7 +38,7 @@ die gemounteten Medienordner geschrieben werden.
 - **TMDB-Metadaten** für Cover, Beschreibungen, Laufzeiten und Genres.
 - **Jellyfin-Empfehlungen** als automatisch gepflegte Collection.
 - **Persistente Queue** mit Hoster-Fallbacks, Wiederaufnahme und Integritätsprüfung.
-- **In-App-Updater** gegen einen konfigurierbaren GitHub-Branch.
+- **In-App-Updater** mit manuellem oder sicherem automatischem Betrieb.
 
 ## Schnellstart mit Docker Compose
 
@@ -95,8 +95,8 @@ flowchart LR
 | Film-/Serienmounts | fertige Mediendateien | nach eigener Strategie |
 
 Der Updater ersetzt ausschließlich Programmdateien. `data`, `.env`, Medien und
-persistente Einstellungen bleiben erhalten. Vor einem Update sollten laufende
-Downloads beendet sein.
+persistente Einstellungen bleiben erhalten. Im automatischen Modus wartet er,
+bis die Download-Queue vollständig frei ist.
 
 ## Dokumentation
 

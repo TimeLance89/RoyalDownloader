@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 _config_lock = threading.RLock()
 
 APP_NAME = "FilmeDownloader"
-MOVIE_PROVIDER_DEFAULTS = ("filmpalast", "moflix", "einschalten", "kinox", "kinoger")
-SERIES_PROVIDER_DEFAULTS = ("serienstream", "filmpalast", "moflix", "kinoger")
+MOVIE_PROVIDER_DEFAULTS = ("filmpalast", "megakino", "moflix", "einschalten", "kinox", "kinoger", "xcine")
+SERIES_PROVIDER_DEFAULTS = ("serienstream", "megakino", "filmpalast", "moflix", "kinoger", "xcine")
+UPDATE_MODE_MANUAL = "manual"
+UPDATE_MODE_AUTOMATIC = "automatic"
+UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
 
 
 def _config_dir() -> Path:
@@ -413,6 +416,40 @@ def save_automation(auto_download: bool, check_interval_min: int,
         "check_interval_min": str(max(5, int(check_interval_min or 30))),
         "dl_window_start": "" if dl_window_start is None else str(int(dl_window_start)),
         "dl_window_end": "" if dl_window_end is None else str(int(dl_window_end)),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Update-Einstellungen: manuelle oder automatische Installation. Gespeicherte
+# Werte haben Vorrang vor der Container-Vorbelegung.
+def load_updater() -> dict:
+    values = _read_all()
+    mode = values.get("update_mode", "").strip().lower()
+    if mode not in UPDATE_MODES:
+        mode = os.environ.get("UPDATE_MODE", "").strip().lower()
+    if mode not in UPDATE_MODES:
+        legacy_auto = _env_bool("AUTO_UPDATE")
+        mode = UPDATE_MODE_AUTOMATIC if legacy_auto else UPDATE_MODE_MANUAL
+
+    interval = _opt_int(values.get("auto_update_interval_hours", ""))
+    if interval is None:
+        interval = _env_int("AUTO_UPDATE_INTERVAL_HOURS")
+    interval = max(1, min(168, interval or 6))
+    return {
+        "update_mode": mode,
+        "auto_update": mode == UPDATE_MODE_AUTOMATIC,
+        "auto_update_interval_hours": interval,
+    }
+
+
+def save_updater(update_mode: str, auto_update_interval_hours: int = 6) -> bool:
+    mode = str(update_mode or "").strip().lower()
+    if mode not in UPDATE_MODES:
+        mode = UPDATE_MODE_MANUAL
+    interval = max(1, min(168, int(auto_update_interval_hours or 6)))
+    return _update_all({
+        "update_mode": mode,
+        "auto_update_interval_hours": str(interval),
     })
 
 

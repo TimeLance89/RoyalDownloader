@@ -392,10 +392,27 @@
             <div>
               <span class="updater-kicker">SYSTEM · GITHUB</span>
               <h3>Updates</h3>
-              <p class="dim settings-hint">Prüft den Main-Branch und installiert verfügbare Updates direkt.</p>
+              <p class="dim settings-hint">Manuell installieren oder bei leerer Download-Queue automatisch aktualisieren.</p>
             </div>
             <span id="updater-badge" class="updater-badge" aria-hidden="true">GH</span>
           </div>
+          <div class="updater-mode-grid">
+            <label for="updater-mode">
+              <span>Installationsmodus</span>
+              <select id="updater-mode">
+                <option value="manual">Manuell</option>
+                <option value="automatic">Automatisch</option>
+              </select>
+            </label>
+            <label for="updater-interval">
+              <span>Prüfintervall</span>
+              <span class="updater-interval-input">
+                <input id="updater-interval" type="number" min="1" max="168" step="1" value="6">
+                <span>Std.</span>
+              </span>
+            </label>
+          </div>
+          <div id="updater-mode-status" class="dim updater-mode-status">Manuelle Installation</div>
           <div class="updater-track" aria-label="Installierter und neuester Build">
             <div class="updater-revision">
               <span>Installiert</span>

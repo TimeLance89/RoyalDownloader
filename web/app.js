@@ -146,6 +146,8 @@ function connectWs() {
       setDownloadState("active", data.label || "Download läuft", `${position}${(data.msg || "").slice(0, 70)}`, overallPercent);
     } else if (data.type === "updater_install") {
       applyUpdaterInstallStatus(data.installer || {});
+    } else if (data.type === "updater_config") {
+      applyUpdaterConfig(data.config || {});
     } else if (data.type === "job_done") {
       state.download.completed = data.done_jobs;
       state.download.total = data.total_jobs;
@@ -1553,6 +1555,7 @@ async function initSettings() {
   applyTmdbCfg(tmdb);
   const auto = await api.automationConfigGet();
   applyAutomationCfg(auto);
+  applyUpdaterConfig(await api.updaterConfigGet());
   const seerr = await api.seerrConfigGet();
   applySeerrCfg(seerr);
   const telegram = await api.telegramConfigGet();
@@ -1626,6 +1629,39 @@ function shortRevision(value) {
   return revision ? revision.slice(0, 8) : "unbekannt";
 }
 
+function applyUpdaterConfig(cfg) {
+  const mode = cfg.update_mode === "automatic" ? "automatic" : "manual";
+  const interval = Math.max(1, Math.min(168, Number(cfg.auto_update_interval_hours) || 6));
+  const modeSelect = document.getElementById("updater-mode");
+  const intervalInput = document.getElementById("updater-interval");
+  const status = document.getElementById("updater-mode-status");
+  modeSelect.value = mode;
+  intervalInput.value = String(interval);
+  intervalInput.disabled = mode !== "automatic";
+
+  if (mode !== "automatic") {
+    status.textContent = "Manuell · Updates werden nur nach Klick installiert.";
+    return;
+  }
+  if (cfg.auto_update_state === "deferred") {
+    status.textContent = `Automatisch zurückgestellt · ${cfg.auto_update_message || "Download-Queue ist belegt."}`;
+    return;
+  }
+  if (cfg.auto_update_state === "error") {
+    status.textContent = `Automatische Prüfung fehlgeschlagen · ${cfg.auto_update_message || "Neuer Versuch folgt."}`;
+    return;
+  }
+  if (["unavailable", "manual_required"].includes(cfg.auto_update_state)) {
+    status.textContent = `Automatische Installation pausiert · ${cfg.auto_update_message || "Manuelle Prüfung erforderlich."}`;
+    return;
+  }
+  if (cfg.auto_update_state === "installing") {
+    status.textContent = "Automatisch · Update wird installiert.";
+    return;
+  }
+  status.textContent = `Automatisch · alle ${interval} Std. · Installation nur bei leerer Queue.`;
+}
+
 function applyUpdaterStatus(data) {
   const card = document.getElementById("updater-card");
   const status = document.getElementById("updater-status");
@@ -1633,6 +1669,7 @@ function applyUpdaterStatus(data) {
   const badge = document.getElementById("updater-badge");
   const repository = document.getElementById("updater-repository");
   const installButton = document.getElementById("updater-install");
+  if (data.config) applyUpdaterConfig(data.config);
   document.getElementById("updater-current").textContent = shortRevision(data.current_sha);
   document.getElementById("updater-latest").textContent = shortRevision(data.latest_sha);
   installButton.dataset.sha = String(data.latest_sha || "");
@@ -1830,6 +1867,13 @@ async function saveAllSettings() {
       dl_window_end: parseHour("dl-window-end"),
     });
     applyAutomationCfg(auto);
+    applyUpdaterConfig(await api.updaterConfigSet({
+      update_mode: document.getElementById("updater-mode").value,
+      auto_update_interval_hours: Math.max(
+        1,
+        Math.min(168, parseInt(document.getElementById("updater-interval").value, 10) || 6),
+      ),
+    }));
     const seerr = await api.seerrConfigSet({
       enabled: document.getElementById("seerr-enabled").checked,
       url: document.getElementById("seerr-url").value.trim(),
@@ -2173,6 +2217,12 @@ async function initApp() {
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
   document.getElementById("updater-check").addEventListener("click", () => checkForUpdates(true));
   document.getElementById("updater-install").addEventListener("click", installUpdate);
+  document.getElementById("updater-mode").addEventListener("change", (event) => {
+    document.getElementById("updater-interval").disabled = event.target.value !== "automatic";
+    document.getElementById("updater-mode-status").textContent = event.target.value === "automatic"
+      ? "Automatisch · wird nach dem Speichern aktiviert."
+      : "Manuell · wird nach dem Speichern aktiviert.";
+  });
   document.getElementById("seerr-sync").addEventListener("click", async () => {
     const button = document.getElementById("seerr-sync");
     const status = document.getElementById("seerr-status");

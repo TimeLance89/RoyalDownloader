@@ -45,7 +45,7 @@ from filmpalast_scraper import (
 )
 from extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
-    extract_vidara_url, extract_vidsonic_url,
+    extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
 )
 from downloader import (
     DownloadJob, DownloadQueue, build_filename, build_movie_filename,
@@ -58,6 +58,8 @@ from moflix_scraper import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
 from einschalten_scraper import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
 from kinox_scraper import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
 from kinoger_scraper import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
+from megakino_scraper import MegaKinoScraper, SOURCE_PREFIX as MEGAKINO_PREFIX
+from xcine_scraper import XcineScraper, SOURCE_PREFIX as XCINE_PREFIX
 from serienstream_scraper import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from jellyfin_client import JellyfinClient
 from jellyfin_recommender import (
@@ -108,10 +110,12 @@ PROVIDER_LABELS = {
     "einschalten": "Einschalten",
     "kinox": "Kinox",
     "kinoger": "KinoGer",
+    "megakino": "MegaKino",
+    "xcine": "XCine",
     "serienstream": "Serienstream",
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
-MOVIE_PAGINATED_PROVIDERS = frozenset({"filmpalast", "kinoger"})
+MOVIE_PAGINATED_PROVIDERS = frozenset({"filmpalast", "megakino", "kinoger", "xcine"})
 MOVIE_LIST_CACHE_TTL = 300
 MOVIE_LIST_FAILURE_CACHE_TTL = 30
 MOVIE_LIST_CACHE_MAX_ENTRIES = 1000
@@ -165,6 +169,14 @@ class AppState:
         self.seerr_moonfin_error: str = ""
         # Automatik (24/7): Auto-Download abonnierter Serien + Zeitsteuerung.
         self.automation: dict = appconfig.load_automation()
+        self.updater_cfg: dict = appconfig.load_updater()
+        self.updater_config_lock = threading.RLock()
+        self.updater_runtime_lock = threading.RLock()
+        self.updater_runtime: dict = {
+            "last_auto_check": None,
+            "auto_update_state": "idle",
+            "auto_update_message": "",
+        }
         self.provider_priorities: dict = appconfig.load_provider_priorities()
         self.provider_priority_lock = threading.RLock()
         self.jellyfin_library: Optional[List[dict]] = None
@@ -217,6 +229,8 @@ class AppState:
         self.einschalten_provider_genres: set = set()
         self.kinox_provider_genres: set = set()
         self.kinoger_provider_genres: set = set()
+        self.megakino_provider_genres: set = set()
+        self.xcine_provider_genres: set = set()
 
         self.series_cache: Dict[str, FilmpalastSeries] = {}
         self.series_dir_cache: Dict[tuple, Path] = {}
@@ -306,6 +320,9 @@ _recommender_thread: Optional[threading.Thread] = None
 _seerr_stop_event = threading.Event()
 _seerr_wake_event = threading.Event()
 _seerr_thread: Optional[threading.Thread] = None
+_updater_stop_event = threading.Event()
+_updater_wake_event = threading.Event()
+_updater_thread: Optional[threading.Thread] = None
 
 
 def broadcast(data: dict):
@@ -342,6 +359,130 @@ UPDATE_INSTALLER = SelfUpdater(
     on_state=lambda payload: broadcast({"type": "updater_install", "installer": payload}),
     restart_callback=_restart_after_update,
 )
+
+AUTO_UPDATE_START_DELAY_SECONDS = 30
+AUTO_UPDATE_DEFER_SECONDS = 5 * 60
+AUTO_UPDATE_ERROR_RETRY_SECONDS = 15 * 60
+
+
+def _updater_config_payload() -> dict:
+    with state.updater_config_lock:
+        config = dict(state.updater_cfg)
+    with state.updater_runtime_lock:
+        runtime = dict(state.updater_runtime)
+    return {**config, **runtime}
+
+
+def _set_updater_runtime(result: str, message: str, *, checked: bool = False) -> None:
+    with state.updater_runtime_lock:
+        state.updater_runtime["auto_update_state"] = result
+        state.updater_runtime["auto_update_message"] = str(message or "")[:500]
+        if checked:
+            state.updater_runtime["last_auto_check"] = time.time()
+    broadcast({"type": "updater_config", "config": _updater_config_payload()})
+
+
+def _update_block_reason_locked() -> str:
+    if state.dl_queue.active_count() or state.dl_queue.pending_count():
+        return "Laufende oder wartende Downloads"
+    if state.gated_retry_pending or state.queue_prepare_lock.locked():
+        return "Downloadvorbereitung oder Wiederholungsversuch läuft"
+    return ""
+
+
+def _start_update_when_idle(target_sha: str) -> dict:
+    with state.queue_lifecycle_lock:
+        reason = _update_block_reason_locked()
+        if reason:
+            raise RuntimeError(f"{reason}; Update wird zurückgestellt.")
+        return UPDATE_INSTALLER.start(target_sha)
+
+
+def _attempt_automatic_update() -> str:
+    with state.updater_config_lock:
+        if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
+            return "manual"
+
+    with state.queue_lifecycle_lock:
+        blocked = _update_block_reason_locked()
+    if blocked:
+        _set_updater_runtime("deferred", f"{blocked}; automatische Prüfung wird nachgeholt.")
+        return "deferred"
+
+    try:
+        update = UPDATE_CHECKER.check(True)
+    except Exception as exc:
+        message = f"GitHub-Prüfung fehlgeschlagen: {exc}"
+        _set_updater_runtime("error", message, checked=True)
+        log(f"Automatische Updateprüfung fehlgeschlagen: {exc}", "warn")
+        return "error"
+
+    if update.get("error"):
+        message = str(update.get("error"))
+        _set_updater_runtime("error", message, checked=True)
+        log(f"Automatische Updateprüfung fehlgeschlagen: {message}", "warn")
+        return "error"
+    if update.get("update_available") is not True:
+        if update.get("comparison") in {"identical", "behind"}:
+            _set_updater_runtime("current", "Kein Update verfügbar.", checked=True)
+            return "current"
+        _set_updater_runtime(
+            "unavailable",
+            "Lokaler Build konnte nicht sicher mit GitHub verglichen werden.",
+            checked=True,
+        )
+        return "unavailable"
+    if update.get("comparison") != "ahead":
+        _set_updater_runtime(
+            "manual_required",
+            "Lokaler und GitHub-Stand sind verzweigt; manuelle Bestätigung erforderlich.",
+            checked=True,
+        )
+        return "manual_required"
+
+    target_sha = str(update.get("latest_sha") or "").strip()
+    if not target_sha:
+        _set_updater_runtime("error", "GitHub lieferte keine installierbare Revision.", checked=True)
+        return "error"
+
+    try:
+        with state.updater_config_lock:
+            if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
+                _set_updater_runtime("manual", "Automatische Installation wurde deaktiviert.", checked=True)
+                return "manual"
+        _start_update_when_idle(target_sha)
+    except (RuntimeError, ValueError) as exc:
+        message = str(exc)
+        result = "deferred" if "zurückgestellt" in message else "error"
+        _set_updater_runtime(result, message, checked=True)
+        if result == "error":
+            log(f"Automatisches Update konnte nicht gestartet werden: {message}", "warn")
+        return result
+
+    _set_updater_runtime("installing", "Update wird automatisch installiert.", checked=True)
+    log(f"Automatisches Update auf Build {target_sha[:8]} gestartet.")
+    return "installing"
+
+
+def automatic_update_loop() -> None:
+    if _updater_stop_event.wait(AUTO_UPDATE_START_DELAY_SECONDS):
+        return
+    _updater_wake_event.clear()
+    while not _updater_stop_event.is_set():
+        with state.updater_config_lock:
+            config = dict(state.updater_cfg)
+        if config.get("update_mode") == appconfig.UPDATE_MODE_AUTOMATIC:
+            result = _attempt_automatic_update()
+            if result == "deferred":
+                delay = AUTO_UPDATE_DEFER_SECONDS
+            elif result == "error":
+                delay = AUTO_UPDATE_ERROR_RETRY_SECONDS
+            else:
+                delay = int(config.get("auto_update_interval_hours") or 6) * 60 * 60
+        else:
+            delay = 60 * 60
+        _updater_wake_event.wait(max(1, delay))
+        _updater_wake_event.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +778,10 @@ def provider_for_value(value: str) -> str:
         return "kinox"
     if source.startswith(KINOGER_PREFIX) or "kinoger.com" in source:
         return "kinoger"
+    if source.startswith(MEGAKINO_PREFIX) or "megakino.org" in source:
+        return "megakino"
+    if source.startswith(XCINE_PREFIX) or "xcine.ru" in source:
+        return "xcine"
     return "filmpalast"
 
 
@@ -668,6 +813,10 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         return KinoxScraper(progress_cb=log).get_movie(slug)
     if slug.startswith(KINOGER_PREFIX):
         return KinogerScraper(progress_cb=log).get_movie(slug)
+    if slug.startswith(MEGAKINO_PREFIX):
+        return MegaKinoScraper(progress_cb=log).get_movie(slug)
+    if slug.startswith(XCINE_PREFIX):
+        return XcineScraper(progress_cb=log).get_movie(slug)
     if slug.lower().startswith(("http://", "https://")):
         host = (urlparse(slug).hostname or "").casefold()
         if host != "filmpalast.to" and not host.endswith(".filmpalast.to"):
@@ -692,6 +841,8 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
         "einschalten": lambda: EinschaltenScraper(progress_cb=log).search(q),
         "kinox": lambda: KinoxScraper(progress_cb=log).search(q),
         "kinoger": lambda: KinogerScraper(progress_cb=log).search(q),
+        "megakino": lambda: MegaKinoScraper(progress_cb=log).search(q),
+        "xcine": lambda: XcineScraper(progress_cb=log).search(q),
     }
     tasks = [(PROVIDER_LABELS[key], searches[key]) for key in provider_priority("movies")]
     results: List[FilmpalastSearchResult] = []
@@ -747,7 +898,7 @@ def _fetch_movie_provider_page(
     genre: str,
     source_page: int,
 ) -> List[FilmpalastSearchResult]:
-    """Lädt genau eine Quellseite. Nur Filmpalast und KinoGer paginieren."""
+    """Lädt genau eine Quellseite; nur markierte Anbieter paginieren."""
     if provider not in MOVIE_PAGINATED_PROVIDERS and source_page != 1:
         return []
 
@@ -763,6 +914,8 @@ def _fetch_movie_provider_page(
         "einschalten": EinschaltenScraper,
         "kinox": KinoxScraper,
         "kinoger": KinogerScraper,
+        "megakino": MegaKinoScraper,
+        "xcine": XcineScraper,
     }
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
@@ -834,6 +987,8 @@ def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
         "einschalten": state.einschalten_provider_genres,
         "kinox": state.kinox_provider_genres,
         "kinoger": state.kinoger_provider_genres,
+        "megakino": state.megakino_provider_genres,
+        "xcine": state.xcine_provider_genres,
     }.get(provider, set())
     # Vor dem ersten Genre-Abruf sind die Mengen leer. Dann optimistisch laden;
     # der jeweilige Scraper kann ein unbekanntes Genre günstig mit [] ablehnen.
@@ -1055,6 +1210,10 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return MoflixScraper(progress_cb=log).search_series(query)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).search_series(query)
+    if provider == "megakino":
+        return MegaKinoScraper(progress_cb=log).search_series(query)
+    if provider == "xcine":
+        return XcineScraper(progress_cb=log).search_series(query)
     return []
 
 
@@ -1068,6 +1227,10 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return MoflixScraper(progress_cb=log).get_series(value)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).get_series(value)
+    if provider == "megakino":
+        return MegaKinoScraper(progress_cb=log).get_series(value)
+    if provider == "xcine":
+        return XcineScraper(progress_cb=log).get_series(value)
     return None
 
 
@@ -1104,18 +1267,27 @@ def _series_search_title(value: str) -> str:
     serienstream.to gematcht werden können."""
     v = value or ""
     is_kinoger = v.startswith(KINOGER_PREFIX) or "kinoger.com" in v.casefold()
-    for pfx in (SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX, KINOGER_PREFIX):
+    is_megakino = v.startswith(MEGAKINO_PREFIX) or "megakino.org" in v.casefold()
+    is_xcine = v.startswith(XCINE_PREFIX) or "xcine.ru" in v.casefold()
+    for pfx in (
+        SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
+        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
+    ):
         if v.startswith(pfx):
             v = v[len(pfx):]
             break
     if ":" in v and v.split(":", 1)[0].isdigit():   # moflix "123:the-bear"
         v = v.split(":", 1)[1]
+    if is_megakino:
+        v = re.sub(r"^[0-9a-f]{24}:", "", v, flags=re.I)
     if v.startswith("http"):
-        m = re.search(r"/(?:serie|stream|titles)/(?:stream/|\d+/)?([^/?#]+)", v)
+        m = re.search(r"/(?:serie|stream|titles|watch)/(?:stream/|\d+/)?([^/?#]+)", v)
         v = m.group(1) if m else v
     if is_kinoger:
         v = re.sub(r"^\d+-", "", v)
         v = re.sub(r"\.html$", "", v, flags=re.I)
+    if is_xcine and ":" in v:
+        v = v.split(":", 1)[1]
     parsed = parse_episode_slug(v)
     if parsed:
         v = parsed[0]
@@ -1879,6 +2051,7 @@ def _on_queue_done_locked():
         "successful_jobs": successful_jobs,
         "failed_jobs": failed_jobs,
     })
+    _updater_wake_event.set()
 
 
 state.dl_queue.on_queue_done = on_queue_done
@@ -1894,10 +2067,15 @@ def _canonical_hoster_name(provider_name: str, resolved_url: str) -> str:
         return "voe"
     if "dood" in p or any(k in dom for k in ("dood", "vide0", "d000d", "d0o0d", "dooood", "ds2play")):
         return "doodstream"
-    if "vidara" in p or "vidmatrix" in dom or "vidmatrixa" in dom:
+    if "vidara" in p or any(key in dom for key in (
+        "vidara", "vidmatrix", "vidchamp", "vidachamp", "vidavaca",
+        "viewdara", "thebesthost",
+    )):
         return "vidara"
     if "vidsonic" in p or "vidsonic" in dom:
         return "vidsonic"
+    if "firestream" in p or "firestream" in dom:
+        return "firestream"
     if (
         "fsst" in p or "vidhide" in p or "embed4me" in p or "seekplays" in p
         or any(key in dom for key in (
@@ -2255,10 +2433,14 @@ def _extract_from_movie(
             res.referer = play_url
             res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "https://voe.sx"
         elif name in ("moflix", "veev"):
+            embed_referer = (
+                movie.url if provider_for_value(movie.url) == "megakino"
+                else "https://moflix-stream.xyz/"
+            )
             try:
                 res.stream_info = extract_stream_url(
                     play_url, session=session, log_cb=log, pool=None,
-                    referer="https://moflix-stream.xyz/",
+                    referer=embed_referer,
                 )
                 if res.stream_info is None:
                     if state.embed_pool is None:
@@ -2271,7 +2453,7 @@ def _extract_from_movie(
                             continue
                     res.stream_info = extract_stream_url(
                         play_url, session=session, log_cb=log, pool=state.embed_pool,
-                        referer="https://moflix-stream.xyz/",
+                        referer=embed_referer,
                     )
             except Exception as exc:
                 log(f"  Embed-Extraktion fehlgeschlagen: {exc}", "warn")
@@ -2336,6 +2518,47 @@ def _extract_from_movie(
             parsed = urlparse(play_url)
             res.referer = f"{parsed.scheme}://{parsed.netloc}/"
             res.origin = f"{parsed.scheme}://{parsed.netloc}"
+        elif name == "firestream":
+            try:
+                res.stream_info = extract_firestream_url(play_url, session=session, log_cb=log)
+            except Exception as exc:
+                log(f"  FireStream-Extraktion fehlgeschlagen: {exc}", "warn")
+                res.stream_info = None
+            parsed = urlparse(play_url)
+            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
+            res.origin = f"{parsed.scheme}://{parsed.netloc}"
+        elif provider_for_value(movie.url) == "megakino":
+            # MegaKino nimmt regelmaessig neue Player-Domains auf. Erst wird
+            # ohne Browser nach direkten HLS-/MP4-Quellen gesucht, danach faengt
+            # der gemeinsame Embed-Pool Medienrequests ab. Als letzter Weg darf
+            # yt-dlp die unveraenderte Player-URL versuchen.
+            referer = movie.url or "https://megakino.org/"
+            try:
+                res.stream_info = extract_stream_url(
+                    play_url, session=session, log_cb=log, pool=None,
+                    referer=referer,
+                )
+                if res.stream_info is None:
+                    if state.embed_pool is None:
+                        log("Starte Browser-Pool für MegaKino-Hoster …")
+                        try:
+                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
+                        except Exception as exc:
+                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
+                            state.embed_pool = None
+                    if state.embed_pool is not None:
+                        res.stream_info = extract_stream_url(
+                            play_url, session=session, log_cb=log, pool=state.embed_pool,
+                            referer=referer,
+                        )
+            except Exception as exc:
+                log(f"  MegaKino-Hoster fehlgeschlagen: {exc}", "warn")
+                res.stream_info = None
+            if res.stream_info is None:
+                res.stream_info = (play_url, "web")
+            parsed = urlparse(play_url)
+            res.referer = play_url
+            res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
         else:
             # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/…):
             # yt-dlp probieren lassen. Referer = eigene Hoster-Domain
@@ -4783,7 +5006,7 @@ def _handle_telegram_series_request(chat_id: str, request: dict):
     if (
         title.startswith((
             SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX,
-            KINOX_PREFIX, KINOGER_PREFIX,
+            KINOX_PREFIX, KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
         ))
         or title.startswith("http://")
         or title.startswith("https://")
@@ -5381,7 +5604,7 @@ def watchlist_auto_check_loop():
 # ---------------------------------------------------------------------------
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
-    global _background_services_started, _recommender_thread, _seerr_thread
+    global _background_services_started, _recommender_thread, _seerr_thread, _updater_thread
     with _background_services_lock:
         if _background_services_started:
             return
@@ -5405,6 +5628,14 @@ def start_background_services():
         daemon=True,
     )
     _seerr_thread.start()
+    _updater_stop_event.clear()
+    _updater_wake_event.clear()
+    _updater_thread = threading.Thread(
+        target=automatic_update_loop,
+        name="automatic-updater",
+        daemon=True,
+    )
+    _updater_thread.start()
 
 
 @asynccontextmanager
@@ -5435,6 +5666,8 @@ async def lifespan(app: FastAPI):
     yield
     _seerr_stop_event.set()
     _seerr_wake_event.set()
+    _updater_stop_event.set()
+    _updater_wake_event.set()
     stop_jellyfin_recommender()
     if _telegram_bot is not None:
         _telegram_bot.stop()
@@ -5494,6 +5727,8 @@ async def api_genres():
         es = set()
         kx = set()
         kg = set()
+        mk = set()
+        xc = set()
         try:
             fp.update(get_fp_scraper().list_genres())
         except Exception as exc:
@@ -5514,20 +5749,32 @@ async def api_genres():
             kg.update(KinogerScraper(progress_cb=log).list_genres())
         except Exception as exc:
             log(f"KinoGer Genres übersprungen: {exc}", "warn")
+        try:
+            mk.update(MegaKinoScraper(progress_cb=log).list_genres())
+        except Exception as exc:
+            log(f"MegaKino Genres übersprungen: {exc}", "warn")
+        try:
+            xc.update(XcineScraper(progress_cb=log).list_genres())
+        except Exception as exc:
+            log(f"XCine Genres übersprungen: {exc}", "warn")
         fp_c = {clean_genre(g) for g in fp if clean_genre(g)}
         mx_c = {clean_genre(g) for g in mx if clean_genre(g)}
         es_c = {clean_genre(g) for g in es if clean_genre(g)}
         kx_c = {clean_genre(g) for g in kx if clean_genre(g)}
         kg_c = {clean_genre(g) for g in kg if clean_genre(g)}
-        return fp_c, mx_c, es_c, kx_c, kg_c
+        mk_c = {clean_genre(g) for g in mk if clean_genre(g)}
+        xc_c = {clean_genre(g) for g in xc if clean_genre(g)}
+        return fp_c, mx_c, es_c, kx_c, kg_c, mk_c, xc_c
 
-    fp_c, mx_c, es_c, kx_c, kg_c = await run_in_threadpool(_work)
+    fp_c, mx_c, es_c, kx_c, kg_c, mk_c, xc_c = await run_in_threadpool(_work)
     state.fp_provider_genres = fp_c
     state.moflix_provider_genres = mx_c
     state.einschalten_provider_genres = es_c
     state.kinox_provider_genres = kx_c
     state.kinoger_provider_genres = kg_c
-    genres = sorted(fp_c | mx_c | es_c | kx_c | kg_c, key=str.casefold)
+    state.megakino_provider_genres = mk_c
+    state.xcine_provider_genres = xc_c
+    genres = sorted(fp_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c, key=str.casefold)
     return {"genres": genres}
 
 
@@ -5841,6 +6088,11 @@ def _enqueue_automatic_downloads(
         for slug in slugs if slug in state.fp_movies
     }
     with state.queue_lifecycle_lock:
+        # Zweite Prüfung unter demselben Lock, den auch der Updater beim Start
+        # hält. So kann zwischen Vorprüfung und Queue-Aufbau kein Update starten.
+        if UPDATE_INSTALLER.is_active():
+            log("Downloadstart pausiert: Ein Systemupdate läuft.", "warn")
+            return set()
         queue_idle = (
             state.dl_queue.active_count() == 0
             and state.dl_queue.pending_count() == 0
@@ -6259,6 +6511,7 @@ async def api_download_cancel():
 async def api_updater_status(force: bool = False):
     payload = await run_in_threadpool(UPDATE_CHECKER.check, force)
     payload["installer"] = UPDATE_INSTALLER.status()
+    payload["config"] = _updater_config_payload()
     return payload
 
 
@@ -6268,8 +6521,10 @@ class UpdateInstallBody(BaseModel):
 
 @app.post("/api/updater/install")
 async def api_updater_install(body: UpdateInstallBody):
-    if state.dl_queue.active_count() or state.dl_queue.pending_count():
-        raise HTTPException(409, "Vor dem Update müssen laufende und wartende Downloads beendet werden.")
+    with state.queue_lifecycle_lock:
+        blocked = _update_block_reason_locked()
+    if blocked:
+        raise HTTPException(409, f"{blocked}; Update wird zurückgestellt.")
     update = await run_in_threadpool(UPDATE_CHECKER.check, True)
     target_sha = str(update.get("latest_sha") or "")
     if not target_sha or target_sha != body.target_sha.strip():
@@ -6277,7 +6532,7 @@ async def api_updater_install(body: UpdateInstallBody):
     if update.get("update_available") is not True:
         raise HTTPException(409, "Für diesen Build ist kein installierbares Update verfügbar.")
     try:
-        installer = UPDATE_INSTALLER.start(target_sha)
+        installer = _start_update_when_idle(target_sha)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"installer": installer}
@@ -6286,6 +6541,34 @@ async def api_updater_install(body: UpdateInstallBody):
 @app.get("/api/updater/install/status")
 async def api_updater_install_status():
     return {"installer": UPDATE_INSTALLER.status()}
+
+
+class UpdaterConfigBody(BaseModel):
+    update_mode: str = appconfig.UPDATE_MODE_MANUAL
+    auto_update_interval_hours: int = 6
+
+
+@app.get("/api/updater/config")
+async def api_updater_config_get():
+    return _updater_config_payload()
+
+
+@app.post("/api/updater/config")
+async def api_updater_config_set(body: UpdaterConfigBody):
+    mode = str(body.update_mode or "").strip().lower()
+    if mode not in appconfig.UPDATE_MODES:
+        raise HTTPException(400, "Update-Modus muss 'manual' oder 'automatic' sein.")
+    interval = max(1, min(168, int(body.auto_update_interval_hours or 6)))
+    if not appconfig.save_updater(mode, interval):
+        raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
+    with state.updater_config_lock:
+        state.updater_cfg = appconfig.load_updater()
+    if mode == appconfig.UPDATE_MODE_AUTOMATIC:
+        _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
+    else:
+        _set_updater_runtime("manual", "Updates werden nur manuell installiert.")
+    _updater_wake_event.set()
+    return {**_updater_config_payload(), "saved": True}
 
 
 class SetupCompleteBody(BaseModel):

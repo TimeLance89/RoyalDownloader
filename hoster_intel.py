@@ -21,6 +21,7 @@ STATE_FILE = data_dir() / ".hoster_intel.json"
 
 BASE_SCORE = {
     "vidara": 120,
+    "firestream": 115,
     "voe": 90,
     "moflix": 86,
     "veev": 72,
