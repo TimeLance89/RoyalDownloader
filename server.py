@@ -2,10 +2,8 @@
 Royal Downloader – lokaler Webserver.
 
 Ersetzt die frühere customtkinter-GUI (main.py) durch eine HTML/CSS/JS-
-Oberfläche, die im Standardbrowser läuft. Die Scraper-/Downloader-Module
-(filmpalast_scraper, moflix_scraper, extractor, downloader, session_manager,
-hoster_intel, config) bleiben unverändert – dieser Server bildet nur eine
-REST/WebSocket-Schicht darüber.
+Oberfläche, die im Standardbrowser läuft. Anbieteradapter liegen gebündelt im
+Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht darüber.
 
 Start: python server.py  (öffnet automatisch den Browser)
 """
@@ -38,8 +36,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from filmpalast_scraper import (
-    FilmpalastMovie, FilmpalastSearchResult, FilmpalastScraper,
+from providers.filmpalast import FilmpalastScraper
+from providers.models import (
+    FilmpalastMovie, FilmpalastSearchResult,
     FilmpalastSeries, FilmpalastSeriesResult,
     parse_episode_slug, strip_episode_suffix,
 )
@@ -54,13 +53,13 @@ from downloader import (
 )
 from session_manager import _cookie_file_for
 from hoster_intel import HosterIntel
-from moflix_scraper import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
-from einschalten_scraper import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
-from kinox_scraper import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
-from kinoger_scraper import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
-from megakino_scraper import MegaKinoScraper, SOURCE_PREFIX as MEGAKINO_PREFIX
-from xcine_scraper import XcineScraper, SOURCE_PREFIX as XCINE_PREFIX
-from serienstream_scraper import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
+from providers.moflix import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
+from providers.einschalten import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
+from providers.kinox import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
+from providers.kinoger import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
+from providers.megakino import MegaKinoScraper, SOURCE_PREFIX as MEGAKINO_PREFIX
+from providers.xcine import XcineScraper, SOURCE_PREFIX as XCINE_PREFIX
+from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from jellyfin_client import JellyfinClient
 from jellyfin_recommender import (
     Config as JellyfinRecommenderConfig,

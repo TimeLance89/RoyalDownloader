@@ -34,7 +34,7 @@ from urllib.parse import quote, urlparse
 
 from bs4 import BeautifulSoup
 
-from filmpalast_scraper import (
+from providers.models import (
     FilmpalastMovie,
     FilmpalastSeries,
     FilmpalastSeriesResult,

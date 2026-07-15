@@ -18,7 +18,7 @@ Rendering noetig):
 
 Serien laufen auf kinox.camp pro Staffel (nicht pro Episode) als eigene
 Artikel ohne konsistente Verlinkung zwischen den Staffeln -> hier bewusst
-nicht unterstuetzt, nur Filme (analog zu einschalten_scraper.py).
+nicht unterstuetzt, nur Filme (analog zum Einschalten-Adapter).
 """
 
 import logging
@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cr
 
-from filmpalast_scraper import FilmpalastMovie, FilmpalastSearchResult, HosterInfo
+from providers.models import FilmpalastMovie, FilmpalastSearchResult, HosterInfo
 
 logger = logging.getLogger(__name__)
 

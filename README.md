@@ -68,7 +68,7 @@ Automatik und Telegram.
 > `APP_PASSWORD`. Veröffentliche Port `8765` nicht ungeschützt im Internet.
 
 Die vollständige NAS-, Volume-, Seerr-, DNS- und Update-Konfiguration steht in
-der **[Docker-/NAS-Anleitung](DOCKER.md)**.
+der **[Docker-/NAS-Anleitung](docs/DOCKER.md)**.
 
 ## Architektur
 
@@ -102,8 +102,8 @@ bis die Download-Queue vollständig frei ist.
 
 | Thema | Dokument |
 |---|---|
-| Installation auf Docker/NAS, Volumes und Umgebungsvariablen | [DOCKER.md](DOCKER.md) |
-| Jellyfin-Empfehlungscollection | [JELLYFIN_RECOMMENDER.md](JELLYFIN_RECOMMENDER.md) |
+| Installation auf Docker/NAS, Volumes und Umgebungsvariablen | [docs/DOCKER.md](docs/DOCKER.md) |
+| Jellyfin-Empfehlungscollection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
 | Migration bestehender Installationen auf `RoyalDownloader` | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Fehler melden und Änderungen beitragen | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Sicherheitslücken vertraulich melden | [SECURITY.md](SECURITY.md) |
@@ -112,15 +112,16 @@ bis die Download-Queue vollständig frei ist.
 
 ```text
 RoyalDownloader/
+├─ providers/                 gebündelte Film- und Serienanbieter
+├─ web/                       Weboberfläche
+├─ docs/                      Installation, Betrieb und Migration
 ├─ server.py                  FastAPI, WebSocket und Automatisierung
-├─ *_scraper.py               Katalog- und Serienintegrationen
 ├─ downloader.py              Queue, Transfer und Integritätsprüfung
 ├─ jellyfin_client.py         Bibliotheks- und Duplikatabgleich
 ├─ self_updater.py            verifizierter GitHub-Updater
-├─ web/                       Weboberfläche
 ├─ docker-compose.yml         NAS-/Compose-Betrieb
 ├─ Dockerfile                 reproduzierbares Laufzeit-Image
-└─ DOCKER.md                  vollständiges Betriebshandbuch
+└─ start.sh                   direkter NAS-Start mit Runtime-Bootstrap
 ```
 
 ## Support und Beiträge

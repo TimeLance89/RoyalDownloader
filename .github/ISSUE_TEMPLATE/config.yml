@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Installation und Betrieb
-    url: https://github.com/TimeLance89/RoyalDownloader/blob/main/DOCKER.md
+    url: https://github.com/TimeLance89/RoyalDownloader/blob/main/docs/DOCKER.md
     about: Vor einer Supportanfrage die Docker-/NAS-Anleitung prüfen.

@@ -1,5 +1,5 @@
 """
-Scraper für filmpalast.to – Filme (keine Staffeln).
+Anbieteradapter für filmpalast.to – Filme (keine Staffeln).
 
 Die Hoster-Links sind DIREKT im HTML sichtbar
 (kein Button-Klick, kein Redirect, kein JavaScript nötig).
@@ -15,33 +15,25 @@ und sortieren nach Sprache (Deutsch zuerst) + Qualität.
 import logging
 import re
 from collections import OrderedDict
-from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from bs4 import BeautifulSoup
+from providers.models import (
+    FilmpalastMovie,
+    FilmpalastSearchResult,
+    FilmpalastSeries,
+    FilmpalastSeriesResult,
+    HosterInfo,
+    SeriesEpisode,
+    parse_episode_slug,
+    strip_episode_suffix,
+)
 from session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://filmpalast.to"
-
-# Episode-Slugs sehen aus wie "the-bear-s05e01" -> Serie "the-bear", Staffel 5, Episode 1
-EPISODE_SLUG_RE = re.compile(r"^(?P<base>.+)-s(?P<season>\d{1,2})e(?P<episode>\d{1,3})$", re.IGNORECASE)
-
-
-def parse_episode_slug(slug: str) -> Optional[Tuple[str, int, int]]:
-    """Zerlegt 'the-bear-s05e01' in ('the-bear', 5, 1). None wenn kein Episode-Slug."""
-    m = EPISODE_SLUG_RE.match(slug or "")
-    if not m:
-        return None
-    return m.group("base"), int(m.group("season")), int(m.group("episode"))
-
-
-def strip_episode_suffix(title: str) -> str:
-    """Entfernt ' S05E01' vom Ende eines Episoden-Titels -> reiner Serientitel."""
-    return re.sub(r"\s*S\d{1,2}E\d{1,3}\s*$", "", title or "", flags=re.IGNORECASE).strip()
-
 
 # Priorisierte Hoster-Liste – erstgenannter = bevorzugt
 # Wer hier steht wird bei VOE-Ausfall automatisch versucht
@@ -66,123 +58,6 @@ HOSTER_PRIORITY = [
 HOSTER_BLACKLIST = [
     "linkdee",  # meist Werbe-Redirects
 ]
-
-
-@dataclass
-class FilmpalastSearchResult:
-    """Ein Treffer in der Suche (oft auch Serien-Episoden, wird gefiltert)."""
-    title: str
-    slug: str        # z.B. "undertone"
-    url: str
-    year: str = ""
-    is_movie: bool = True  # Filmpalast mixt Filme + Serien-Episoden in der Suche
-
-
-@dataclass
-class HosterInfo:
-    """Ein einzelner Hoster-Eintrag auf einer filmpalast-Filmseite."""
-    name: str          # z.B. "VOE", "Streamtape", "Doodstream"
-    url: str           # direkter Link zum Hoster
-    language: str = "" # "Deutsch", "Englisch", "Original" etc.
-    quality: str = ""  # "HD", "SD", "1080p", "720p" – wird aus dem Namen geparst
-
-    @property
-    def is_de(self) -> bool:
-        return self.language.lower().startswith("deutsch") or self.language.lower() == "de"
-
-    @property
-    def is_hd(self) -> bool:
-        q = (self.quality or "").upper()
-        return "HD" in q or "1080" in q or "720" in q
-
-    def __repr__(self):
-        lang = f"[{self.language}]" if self.language else ""
-        qual = f"({self.quality})" if self.quality else ""
-        return f"HosterInfo({self.name}{lang}{qual})"
-
-
-@dataclass
-class FilmpalastMovie:
-    """Ein einzelner Film mit allen verfügbaren Hostern."""
-    title: str
-    url: str
-    year: str = ""
-    runtime: str = ""      # z.B. "94 min"
-    cover_url: str = ""    # URL zum Cover-Bild (filmpalast)
-    description: str = ""  # Plot-Beschreibung (itemprop="description")
-    genres: List[str] = field(default_factory=list)
-    hosters: List[HosterInfo] = field(default_factory=list)
-
-    # Backward-Compat: voe_url ist der erste VOE-Hoster
-    @property
-    def voe_url(self) -> Optional[str]:
-        for h in self.hosters:
-            if h.name.lower() == "voe":
-                return h.url
-        return None
-
-    def has_hoster(self, name: str) -> bool:
-        nl = name.lower()
-        return any(h.name.lower() == nl for h in self.hosters)
-
-    def get_hoster(self, name: str) -> Optional[HosterInfo]:
-        nl = name.lower()
-        for h in self.hosters:
-            if h.name.lower() == nl:
-                return h
-        return None
-
-
-@dataclass
-class SeriesEpisode:
-    """Eine einzelne Episode innerhalb einer Serie (noch ohne Hoster geladen)."""
-    season: int
-    episode: int
-    slug: str
-    url: str
-    release_name: str = ""
-
-    @property
-    def label(self) -> str:
-        return f"S{self.season:02d}E{self.episode:02d}"
-
-
-@dataclass
-class FilmpalastSeries:
-    """Eine komplette Serie mit allen Staffeln/Episoden (Metadaten, keine Hoster)."""
-    title: str
-    base_slug: str
-    url: str
-    cover_url: str = ""
-    description: str = ""
-    genres: List[str] = field(default_factory=list)
-    seasons: Dict[int, List[SeriesEpisode]] = field(default_factory=dict)
-
-    @property
-    def season_numbers(self) -> List[int]:
-        return sorted(self.seasons.keys())
-
-    @property
-    def all_episodes(self) -> List[SeriesEpisode]:
-        eps: List[SeriesEpisode] = []
-        for s in self.season_numbers:
-            eps.extend(self.seasons[s])
-        return eps
-
-    def episodes_in_seasons(self, seasons: List[int]) -> List[SeriesEpisode]:
-        wanted = set(seasons)
-        return [e for e in self.all_episodes if e.season in wanted]
-
-
-@dataclass
-class FilmpalastSeriesResult:
-    """Ein gruppierter Serien-Treffer aus der Suche (viele Episoden-Treffer -> 1 Serie)."""
-    title: str
-    base_slug: str
-    sample_slug: str  # Slug einer beliebigen Episode dieser Serie (fuer get_series())
-    sample_url: str
-    year: str = ""
-    cover_url: str = ""
 
 
 class FilmpalastScraper:

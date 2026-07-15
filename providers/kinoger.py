@@ -17,7 +17,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cr
 
-from filmpalast_scraper import (
+from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,
     FilmpalastSeries,

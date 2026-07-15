@@ -1,6 +1,6 @@
 # Docker / NAS-Betrieb (24/7)
 
-[← Projektübersicht](README.md) · [Jellyfin-Empfehlungen](JELLYFIN_RECOMMENDER.md) · [Repository umbenennen](docs/REPOSITORY_RENAME.md)
+[← Projektübersicht](../README.md) · [Jellyfin-Empfehlungen](JELLYFIN_RECOMMENDER.md) · [Repository-Migration](REPOSITORY_RENAME.md)
 
 ## Inhalt
 

@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from curl_cffi import requests as cr
 
-from filmpalast_scraper import (
+from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,
     FilmpalastSeries,

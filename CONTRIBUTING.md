@@ -47,6 +47,7 @@ Vor einem Pull Request mindestens ausführen:
 
 ```bash
 python -m py_compile *.py
+python -m compileall -q providers
 docker compose config
 node --check web/app.js
 ```
@@ -59,12 +60,14 @@ Die vollständige Regression wird intern vor einem Release ausgeführt.
 - Titel kurz und im Imperativ formulieren.
 - Ursache, Änderung und Auswirkung im Beschreibungstext nennen.
 - UI-Änderungen mit einem Screenshot dokumentieren.
-- Neue Konfigurationswerte in `.env.example` und `DOCKER.md` ergänzen.
+- Neue Konfigurationswerte in `.env.example` und `docs/DOCKER.md` ergänzen.
 - Persistente Daten und bestehende `settings.ini` müssen kompatibel bleiben.
 
 ## Stil
 
 - Python: bestehende Typen, Locks und Fehlerpfade respektieren.
+- Anbieter: gemeinsame Datenmodelle aus `providers.models` verwenden und neue
+  Adapter ausschließlich unter `providers/` registrieren.
 - JavaScript: keine Framework-Abhängigkeit ohne vorherige Abstimmung.
 - UI: bestehende Dark-/Gold-Gestaltung und mobile Darstellung beibehalten.
 - Dokumentation: Deutsch, kurze Abschnitte, ausführbare Beispiele.

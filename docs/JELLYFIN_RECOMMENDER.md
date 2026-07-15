@@ -1,6 +1,6 @@
 # Jellyfin-Empfehlungen
 
-[← Projektübersicht](README.md) · [Docker-/NAS-Anleitung](DOCKER.md)
+[← Projektübersicht](../README.md) · [Docker-/NAS-Anleitung](DOCKER.md)
 
 Der bestehende `seriendownloader`-Server erstellt die globale Collection
 „Für dich empfohlen“. Der erste Lauf startet direkt mit dem Server, weitere

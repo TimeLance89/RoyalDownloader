@@ -207,7 +207,23 @@ class SelfUpdater:
         if len(roots) != 1:
             raise RuntimeError("GitHub-Archiv besitzt keine eindeutige Projektwurzel")
         root = roots[0]
-        for required in ("server.py", "requirements.txt", "web/app.js", "update_checker.py"):
+        required_files = (
+            "server.py",
+            "requirements.txt",
+            "web/app.js",
+            "update_checker.py",
+            "providers/__init__.py",
+            "providers/models.py",
+            "providers/filmpalast.py",
+            "providers/moflix.py",
+            "providers/einschalten.py",
+            "providers/kinox.py",
+            "providers/kinoger.py",
+            "providers/megakino.py",
+            "providers/xcine.py",
+            "providers/serienstream.py",
+        )
+        for required in required_files:
             if not (root / required).is_file():
                 raise RuntimeError(f"Update ist unvollständig: {required} fehlt")
         return root
