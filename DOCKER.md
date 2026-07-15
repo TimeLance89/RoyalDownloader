@@ -140,7 +140,7 @@ Bei **Weg A** liegen beide direkt im gemounteten Ordner. Bei **Weg B** werden si
 | `DNS_OVERRIDE`      | `1`              | Nur `start.sh`: `0` behält Dockers DNS-Konfiguration unverändert. |
 | `APP_USERNAME`      | leer             | HTTP-Basic-Benutzer für die Weboberfläche. Im LAN setzen. |
 | `APP_PASSWORD`      | leer             | HTTP-Basic-Passwort. Im LAN setzen. |
-| `APP_COMMIT_SHA`    | leer             | Build-Revision für den Updatevergleich; bei einem Git-Checkout wird sie automatisch erkannt. |
+| `APP_COMMIT_SHA`    | leer             | Optionale Build-Revision; Git-Checkout und NAS-Kopien werden normalerweise automatisch erkannt. |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/SerienDownloader` | Repository für die Updateprüfung. |
 | `UPDATE_GITHUB_BRANCH` | `main` | Verglichener Branch. |
 
@@ -193,6 +193,10 @@ verwendet. Antworten werden pro Film/Serie im Arbeitsspeicher gecacht.
 Unter *Einstellungen → Anbieter-Priorität* lässt sich die Reihenfolge getrennt
 für Filme und Serien festlegen. Die erste Quelle wird bevorzugt; Suche,
 automatische Anfragen und Download-Fallbacks verwenden dieselbe Reihenfolge.
+
+Die Updateprüfung erkennt den installierten Stand aus Git-Metadaten oder – bei
+einem als ZIP/Ordner kopierten NAS-Deployment – durch Vergleich der lokalen
+Dateien mit dem GitHub-Dateibaum. Ein manuelles `APP_COMMIT_SHA` ist nicht nötig.
 
 ### Telegram-Filmwünsche
 

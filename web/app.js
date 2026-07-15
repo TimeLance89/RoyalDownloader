@@ -1620,7 +1620,7 @@ function applyUpdaterStatus(data) {
   status.textContent = "Repository erreichbar";
   detail.textContent = data.current_sha
     ? "Der lokale Stand konnte nicht eindeutig mit main verglichen werden."
-    : "Lokale Build-ID fehlt; APP_COMMIT_SHA kann sie beim Containerstart setzen.";
+    : "Der lokale Quellstand konnte weder Git-Metadaten noch einem GitHub-Dateibaum zugeordnet werden.";
 }
 
 async function checkForUpdates(force = false) {

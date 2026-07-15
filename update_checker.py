@@ -1,5 +1,6 @@
 """Vergleicht den lokalen Build mit dem neuesten Stand des GitHub-Repositories."""
 
+import hashlib
 import os
 import re
 import threading
@@ -30,6 +31,13 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
             return commit
 
     root = Path(app_dir or Path(__file__).resolve().parent)
+    for filename in (".app_commit_sha", "BUILD_COMMIT"):
+        try:
+            commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
+        except OSError:
+            commit = ""
+        if commit:
+            return commit
     marker = root / ".git"
     if marker.is_file():
         try:
@@ -69,6 +77,11 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
     return ""
 
 
+def _git_blob_sha(content: bytes) -> str:
+    header = f"blob {len(content)}\0".encode("ascii")
+    return hashlib.sha1(header + content).hexdigest()
+
+
 class UpdateChecker:
     def __init__(
         self,
@@ -88,6 +101,98 @@ class UpdateChecker:
         self._cache: Optional[dict] = None
         self._cache_time = 0.0
         self._lock = threading.Lock()
+        self._inferred_commit = self._read_inferred_commit()
+        self._inferred_verified = False
+
+    def _inferred_marker_path(self) -> Optional[Path]:
+        explicit = os.environ.get("UPDATE_INSTALLED_COMMIT_FILE", "").strip()
+        if explicit:
+            return Path(explicit)
+        data_root = os.environ.get("SERIENDL_DATA_DIR", "").strip()
+        if data_root:
+            return Path(data_root) / "FilmeDownloader" / "installed_commit"
+        return None
+
+    def _read_inferred_commit(self) -> str:
+        marker = self._inferred_marker_path()
+        if marker is None:
+            return ""
+        try:
+            return _valid_commit(marker.read_text(encoding="utf-8"))
+        except OSError:
+            return ""
+
+    def _remember_inferred_commit(self, commit: str) -> None:
+        commit = _valid_commit(commit)
+        if not commit:
+            return
+        self._inferred_commit = commit
+        self._inferred_verified = True
+        marker = self._inferred_marker_path()
+        if marker is None:
+            return
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(commit + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    @staticmethod
+    def _commit_tree_sha(commit_payload: dict) -> str:
+        commit_data = commit_payload.get("commit") or {}
+        tree_data = commit_data.get("tree") or {}
+        return _valid_commit(tree_data.get("sha", ""))
+
+    def _source_matches_tree(self, tree_payload: dict) -> bool:
+        """Vergleicht Git-Blobs ohne lokale .git-Metadaten (NAS/ZIP-Deployment)."""
+        if tree_payload.get("truncated"):
+            return False
+        entries = [
+            item for item in tree_payload.get("tree", [])
+            if isinstance(item, dict) and item.get("type") == "blob"
+        ]
+        if not entries:
+            return False
+        root = self.app_dir.resolve()
+        for item in entries:
+            relative = str(item.get("path") or "").replace("\\", "/")
+            expected = _valid_commit(item.get("sha", ""))
+            parts = tuple(part for part in relative.split("/") if part)
+            if not expected or not parts or any(part in (".", "..") for part in parts):
+                return False
+            local_path = root.joinpath(*parts)
+            try:
+                if not local_path.is_file() or not local_path.resolve().is_relative_to(root):
+                    return False
+                content = local_path.read_bytes()
+            except OSError:
+                return False
+            if _git_blob_sha(content) != expected:
+                return False
+        return True
+
+    def _source_matches_commit(self, commit_payload: dict) -> bool:
+        tree_sha = self._commit_tree_sha(commit_payload)
+        if not tree_sha:
+            return False
+        return self._source_matches_tree(
+            self._get_json(f"git/trees/{quote(tree_sha, safe='')}?recursive=1"),
+        )
+
+    def _infer_local_commit(self, latest_sha: str, latest_payload: dict) -> str:
+        if self._inferred_commit and self._inferred_verified:
+            return self._inferred_commit
+        if self._source_matches_commit(latest_payload):
+            self._remember_inferred_commit(latest_sha)
+            return latest_sha
+        if self._inferred_commit:
+            stored_payload = self._get_json(
+                f"commits/{quote(self._inferred_commit, safe='')}",
+            )
+            if self._source_matches_commit(stored_payload):
+                self._inferred_verified = True
+                return self._inferred_commit
+        return ""
 
     @property
     def repository_url(self) -> str:
@@ -137,6 +242,12 @@ class UpdateChecker:
                 "latest_url": latest.get("html_url") or self.repository_url,
                 "latest_message": str(commit_data.get("message") or "").splitlines()[0],
             })
+            if not current:
+                try:
+                    current = self._infer_local_commit(latest_sha, latest)
+                except (requests.RequestException, RuntimeError, TypeError, ValueError):
+                    current = ""
+                base["current_sha"] = current
             if not current:
                 return base
             if current == latest_sha:

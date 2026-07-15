@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from update_checker import UpdateChecker, detect_local_commit
+from update_checker import UpdateChecker, _git_blob_sha, detect_local_commit
 
 
 class UpdateCheckerTests(unittest.TestCase):
@@ -88,6 +88,114 @@ class UpdateCheckerTests(unittest.TestCase):
         self.assertIsNone(result["update_available"])
         self.assertEqual(result["latest_sha"], latest)
         self.assertEqual(result["comparison"], "unknown")
+
+    def test_source_tree_identifies_nas_copy_without_git_metadata(self):
+        latest = "f" * 40
+        tree_sha = "1" * 40
+        content = b"print('Royal Downloader')\n"
+        latest_response = Mock()
+        latest_response.raise_for_status.return_value = None
+        latest_response.json.return_value = {
+            "sha": latest,
+            "commit": {
+                "message": "Main",
+                "tree": {"sha": tree_sha},
+            },
+        }
+        tree_response = Mock()
+        tree_response.raise_for_status.return_value = None
+        tree_response.json.return_value = {
+            "truncated": False,
+            "tree": [{
+                "path": "server.py",
+                "type": "blob",
+                "sha": _git_blob_sha(content),
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "server.py").write_bytes(content)
+            data_dir = root / "data"
+            with (
+                patch.dict(os.environ, {
+                    "SERIENDL_DATA_DIR": str(data_dir),
+                    "APP_COMMIT_SHA": "",
+                    "GIT_COMMIT": "",
+                    "SOURCE_COMMIT": "",
+                }),
+                patch(
+                    "update_checker.requests.get",
+                    side_effect=[latest_response, tree_response],
+                ),
+            ):
+                checker = UpdateChecker(app_dir=root, cache_seconds=0)
+                result = checker.check(force=True)
+
+            self.assertEqual(result["current_sha"], latest)
+            self.assertEqual(result["comparison"], "identical")
+            self.assertFalse(result["update_available"])
+            self.assertEqual(
+                (data_dir / "FilmeDownloader" / "installed_commit").read_text(
+                    encoding="utf-8",
+                ).strip(),
+                latest,
+            )
+
+    def test_persisted_nas_revision_detects_later_update(self):
+        installed = "a" * 40
+        latest = "b" * 40
+        latest_tree = "2" * 40
+        installed_tree = "3" * 40
+        old_content = b"old source\n"
+        new_content = b"new source\n"
+
+        def response(payload):
+            item = Mock()
+            item.raise_for_status.return_value = None
+            item.json.return_value = payload
+            return item
+
+        responses = [
+            response({
+                "sha": latest,
+                "commit": {"message": "Update", "tree": {"sha": latest_tree}},
+            }),
+            response({
+                "truncated": False,
+                "tree": [{"path": "server.py", "type": "blob", "sha": _git_blob_sha(new_content)}],
+            }),
+            response({
+                "sha": installed,
+                "commit": {"message": "Alt", "tree": {"sha": installed_tree}},
+            }),
+            response({
+                "truncated": False,
+                "tree": [{"path": "server.py", "type": "blob", "sha": _git_blob_sha(old_content)}],
+            }),
+            response({"status": "ahead", "ahead_by": 2, "behind_by": 0}),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "server.py").write_bytes(old_content)
+            data_dir = root / "data"
+            marker = data_dir / "FilmeDownloader" / "installed_commit"
+            marker.parent.mkdir(parents=True)
+            marker.write_text(installed + "\n", encoding="utf-8")
+            with (
+                patch.dict(os.environ, {
+                    "SERIENDL_DATA_DIR": str(data_dir),
+                    "APP_COMMIT_SHA": "",
+                    "GIT_COMMIT": "",
+                    "SOURCE_COMMIT": "",
+                }),
+                patch("update_checker.requests.get", side_effect=responses),
+            ):
+                result = UpdateChecker(app_dir=root, cache_seconds=0).check(force=True)
+
+        self.assertEqual(result["current_sha"], installed)
+        self.assertEqual(result["latest_sha"], latest)
+        self.assertTrue(result["update_available"])
+        self.assertEqual(result["ahead_by"], 2)
 
 if __name__ == "__main__":
     unittest.main()
