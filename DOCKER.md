@@ -1,5 +1,18 @@
 # Docker / NAS-Betrieb (24/7)
 
+[← Projektübersicht](README.md) · [Jellyfin-Empfehlungen](JELLYFIN_RECOMMENDER.md) · [Repository umbenennen](docs/REPOSITORY_RENAME.md)
+
+## Inhalt
+
+- [Moonfin + Seerr](#moonfin--seerr-fire-tv)
+- [Empfohlener NAS-Betrieb mit `start.sh`](#weg-a--ordner-mounten--startsh-wie-beim-game-projekt--empfohlen)
+- [Docker Compose](#weg-b--fertiges-image-bauen-docker-compose)
+- [Volumes und Datenablage](#volumes--datenablage)
+- [Umgebungsvariablen](#umgebungsvariablen-alle-optional-sinnvolle-defaults)
+- [Jellyfin und Automatik](#jellyfin--247-automatik-optional-per-env-vorbelegen)
+- [Updates](#updates)
+- [Telegram](#telegram-filmwünsche)
+
 ## Moonfin + Seerr (Fire TV)
 
 Für Wünsche aus Moonfin läuft ein **echter Seerr-Container**. Royal Downloader

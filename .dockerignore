@@ -25,6 +25,7 @@ venv/
 .claude/
 .codex/
 .codex-remote-attachments/
+tests/
 .idea/
 .vscode/
 .update_files.json

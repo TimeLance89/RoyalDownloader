@@ -1,0 +1,62 @@
+name: Bug melden
+description: Reproduzierbaren Fehler in Royal Downloader melden
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Meldung. Entferne vorher API-Keys, Tokens, Cookies, private IPs und Medienpfade aus Logs und Screenshots.
+  - type: input
+    id: build
+    attributes:
+      label: Build-ID
+      description: Unter Einstellungen → Updates angezeigte lokale Build-ID.
+      placeholder: 646bdb3…
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Installation
+      options:
+        - Docker Compose
+        - NAS-Container mit start.sh
+        - Lokaler Windows-Start
+        - Andere
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Fehlerbild
+      description: Was passiert, und was wurde stattdessen erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Schritte zur Reproduktion
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Bereinigte Logs
+      description: Nur den relevanten Ausschnitt einfügen; Geheimnisse und private Daten entfernen.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vor dem Absenden
+      options:
+        - label: Ich nutze den aktuellen Stand von `main` oder habe geprüft, dass der Fehler dort weiterhin besteht.
+          required: true
+        - label: Ich habe Zugangsdaten, Tokens, Cookies und private Pfade entfernt.
+          required: true
+

@@ -1,0 +1,42 @@
+name: Funktion vorschlagen
+description: Eine konkrete Verbesserung für Royal Downloader vorschlagen
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Anwendungsfall
+      description: Welches Problem soll gelöst werden?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Gewünschtes Verhalten
+      description: Wie sollte Royal Downloader sich verhalten?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen
+      description: Welche Umgehung oder andere Lösung nutzt du aktuell?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Bereich
+      options:
+        - Weboberfläche
+        - Filme
+        - Serien / Abos
+        - Jellyfin
+        - Telegram
+        - Seerr / Moonfin
+        - Docker / NAS
+        - Updates
+        - Andere
+    validations:
+      required: true
+
