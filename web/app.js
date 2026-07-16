@@ -443,6 +443,18 @@ function fpStatusMessage() {
   return msg;
 }
 
+function setActiveGenreFilter(genre) {
+  const activeGenre = genre || "Alle Genres";
+  state.fp.activeGenre = activeGenre;
+  const activeLabel = document.getElementById("genre-active");
+  if (activeLabel) activeLabel.textContent = activeGenre === "Alle Genres" ? "Alle Filme" : activeGenre;
+  document.querySelectorAll("#genre-filter [data-genre]").forEach((button) => {
+    const selected = button.dataset.genre === activeGenre;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
 async function refreshFpJellyfinStatus() {
   const items = state.fp.results.map((r) => ({
     slug: r.slug,
@@ -897,8 +909,7 @@ async function fpSearch() {
   if (!q) return;
   state.fp.category = null;
   document.getElementById("fp-status").textContent = `Suche nach «${q}» …`;
-  document.getElementById("genre-filter").value = "Alle Genres";
-  state.fp.activeGenre = "Alle Genres";
+  setActiveGenreFilter("Alle Genres");
   const requestId = ++state.fp.requestSeq;
   const data = await api.movies({ mode: "search", query: q });
   if (requestId !== state.fp.requestSeq) return;
@@ -907,8 +918,7 @@ async function fpSearch() {
 
 async function fpShowList(category) {
   state.fp.category = category;
-  state.fp.activeGenre = "Alle Genres";
-  document.getElementById("genre-filter").value = "Alle Genres";
+  setActiveGenreFilter("Alle Genres");
   document.getElementById("fp-status").textContent = `Lade ${category === "new" ? "Neu" : "Top"}-Filme …`;
   const requestId = ++state.fp.requestSeq;
   const data = await api.movies({ mode: category, page: 1 });
@@ -917,8 +927,12 @@ async function fpShowList(category) {
 }
 
 async function fpGenreChange(genre) {
+  if (genre === "Alle Genres") {
+    await fpShowList("new");
+    return;
+  }
   state.fp.category = "genre";
-  state.fp.activeGenre = genre;
+  setActiveGenreFilter(genre);
   document.getElementById("fp-status").textContent = `Lade Genre ${genre} …`;
   const requestId = ++state.fp.requestSeq;
   const data = await api.movies({ mode: "genre", genre, page: 1 });
@@ -2691,15 +2705,25 @@ function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
   api.genres().then((data) => {
-    const sel = document.getElementById("genre-filter");
+    const filter = document.getElementById("genre-filter");
     for (const g of data.genres) {
-      const opt = document.createElement("option");
-      opt.value = g;
-      opt.textContent = g;
-      sel.appendChild(opt);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "genre-chip";
+      button.dataset.genre = g;
+      button.setAttribute("aria-pressed", "false");
+      button.textContent = g;
+      filter.appendChild(button);
     }
-    document.getElementById("genre-count").textContent = `${data.genres.length} Genres`;
-  }).catch((e) => console.error("Genres konnten nicht geladen werden:", e));
+    document.getElementById("genre-count").textContent = `${data.genres.length} Genres verfügbar`;
+    const genresAvailable = data.genres.length > 0;
+    document.getElementById("genre-random").disabled = !genresAvailable;
+    document.getElementById("genre-toggle").disabled = !genresAvailable;
+    setActiveGenreFilter(state.fp.activeGenre);
+  }).catch((e) => {
+    document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
+    console.error("Genres konnten nicht geladen werden:", e);
+  });
   syncQueueSnapshot("Initiale Queue-Synchronisierung");
   refreshWatchlist();
   fpShowList("new").catch((e) => {
@@ -2729,7 +2753,23 @@ async function initApp() {
   document.getElementById("fp-search").addEventListener("keydown", (e) => { if (e.key === "Enter") fpSearch(); });
   document.getElementById("fp-new-btn").addEventListener("click", () => fpShowList("new"));
   document.getElementById("fp-top-btn").addEventListener("click", () => fpShowList("top"));
-  document.getElementById("genre-filter").addEventListener("change", (e) => fpGenreChange(e.target.value));
+  document.getElementById("genre-filter").addEventListener("click", (e) => {
+    const button = e.target.closest("[data-genre]");
+    if (button) fpGenreChange(button.dataset.genre);
+  });
+  document.getElementById("genre-toggle").addEventListener("click", (e) => {
+    const filter = document.getElementById("genre-filter");
+    const expanded = filter.classList.toggle("is-expanded");
+    e.currentTarget.setAttribute("aria-expanded", String(expanded));
+    e.currentTarget.querySelector(".genre-toggle-label").textContent = expanded ? "Weniger zeigen" : "Alle zeigen";
+  });
+  document.getElementById("genre-random").addEventListener("click", () => {
+    const genres = [...document.querySelectorAll("#genre-filter [data-genre]")]
+      .map((button) => button.dataset.genre)
+      .filter((genre) => genre !== "Alle Genres" && genre !== state.fp.activeGenre);
+    if (!genres.length) return;
+    fpGenreChange(genres[Math.floor(Math.random() * genres.length)]);
+  });
   document.getElementById("fp-pager-prev").addEventListener("click", () => fpPagerChange(-1));
   document.getElementById("fp-pager-next").addEventListener("click", () => fpPagerChange(1));
 

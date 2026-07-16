@@ -541,41 +541,164 @@ body {
   box-shadow: 0 0 0 4px rgba(216, 183, 102, 0.10), var(--glow-gold);
 }
 
-.genre-bar {
+.genre-browser {
+  position: relative;
+  display: grid;
+  gap: 11px;
+  overflow: hidden;
+  padding: 13px 15px 12px 19px;
+  background:
+    linear-gradient(110deg, rgba(216, 183, 102, 0.09), transparent 34%),
+    rgba(15, 10, 22, 0.76);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+.genre-browser::before {
+  content: "";
+  position: absolute;
+  inset: 13px auto 13px 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent-hov), var(--accent-dim));
+  border-radius: 0 3px 3px 0;
+  box-shadow: 0 0 18px rgba(216, 183, 102, 0.35);
+}
+.genre-browser-summary {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+.genre-browser-heading {
+  min-width: 0;
+}
+.genre-browser-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-dim);
+  font: 600 8px/1.2 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.genre-browser-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.genre-browser-title-row strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+#genre-active {
+  overflow: hidden;
+  color: var(--accent-hov);
+  font: 700 10px/1.2 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#genre-active::before {
+  content: "//";
+  margin-right: 7px;
+  color: var(--accent-dim);
+}
+.genre-browser-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: var(--glass-soft);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  padding: 8px 14px;
+  gap: 7px;
+  flex: 0 0 auto;
 }
-.genre-bar label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: var(--accent);
+#genre-count {
+  margin-right: 2px;
+  color: var(--text-dim);
+  font: 500 9px/1.2 "JetBrains Mono", Consolas, monospace;
 }
-.genre-bar select {
-  flex: 1;
-  appearance: none;
-  background: rgba(8, 6, 13, 0.75) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d8b766' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 12px center;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 8px 32px 8px 12px;
-  font-family: inherit;
-  font-size: 12.5px;
+.genre-action {
+  display: inline-flex;
+  min-height: 29px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 9px;
+  color: var(--text-dim);
+  background: rgba(8, 6, 13, 0.46);
+  border: 1px solid rgba(216, 183, 102, 0.13);
+  border-radius: 8px;
+  font: 600 9px/1 "Outfit", "Segoe UI", sans-serif;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.2s var(--ease-out);
 }
-.genre-bar select:hover, .genre-bar select:focus {
+.genre-action:hover:not(:disabled),
+.genre-action:focus-visible {
   outline: none;
+  color: var(--accent-hov);
+  background: rgba(216, 183, 102, 0.09);
   border-color: var(--border-strong);
-  box-shadow: var(--glow-gold);
+  transform: translateY(-1px);
+}
+.genre-action:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+.genre-toggle-icon {
+  color: var(--accent);
+  font-size: 13px;
+  transition: transform 0.25s var(--ease-out);
+}
+#genre-toggle[aria-expanded="true"] .genre-toggle-icon {
+  transform: rotate(180deg);
+}
+.genre-options {
+  display: flex;
+  max-height: 34px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: hidden;
+  transition: max-height 0.42s var(--ease-out);
+}
+.genre-options.is-expanded {
+  max-height: 260px;
+}
+.genre-chip {
+  position: relative;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  color: var(--text-dim);
+  background: rgba(29, 21, 39, 0.58);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: 500 10.5px/1 "Outfit", "Segoe UI", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.2s var(--ease-out);
+}
+.genre-chip:hover,
+.genre-chip:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(216, 183, 102, 0.09);
+  border-color: rgba(216, 183, 102, 0.2);
+  transform: translateY(-1px);
+}
+.genre-chip.is-active {
+  color: #100c16;
+  background: var(--gold-grad);
+  border-color: rgba(245, 226, 168, 0.72);
+  box-shadow: 0 7px 20px -10px rgba(216, 183, 102, 0.82);
+  font-weight: 700;
+}
+.genre-chip-mark {
+  font-size: 7px;
 }
 
 .alpha-bar {
@@ -2898,12 +3021,35 @@ body.setup-open #dir-modal { z-index: 120; }
   #tab-bibliothek > .bar,
   #tab-einstellungen > .bar { align-items: flex-start; flex-direction: column; }
 
-  .genre-bar {
-    gap: 8px;
-    padding: 8px 10px;
+  .genre-browser {
+    gap: 9px;
+    padding: 11px 10px 10px 15px;
+    border-radius: 14px;
   }
-  .genre-bar select { min-width: 0; min-height: 42px; }
+  .genre-browser-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .genre-browser-title-row {
+    display: grid;
+    gap: 2px;
+  }
+  .genre-browser-title-row strong { font-size: 13px; }
+  #genre-active { font-size: 8.5px; }
+  #genre-active::before { margin-right: 5px; }
   #genre-count { display: none; }
+  .genre-browser-actions { gap: 5px; }
+  .genre-action {
+    min-height: 34px;
+    padding: 7px 8px;
+  }
+  #genre-random { font-size: 0; }
+  #genre-random span { font-size: 14px; }
+  .genre-options { max-height: 36px; gap: 5px; }
+  .genre-options.is-expanded { max-height: 420px; }
+  .genre-chip { min-height: 34px; padding: 7px 10px; }
 
   .alpha-bar {
     flex-wrap: nowrap;

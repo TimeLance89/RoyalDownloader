@@ -129,6 +129,20 @@ MOVIE_MAX_GLOBAL_PAGE = 50
 MOVIE_MAX_SOURCE_PAGE = 50
 MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
 TMDB_MOVIE_BATCH_MAX_WORKERS = 8
+MOVIE_GENRE_GROUPS = {
+    "Animation": ("Animation", "Zeichentrick"),
+    "Biografie": ("Biografie", "Biographie"),
+    "Dokumentation": ("Dokumentation", "Dokumentarfilm"),
+    "Geschichte": ("Geschichte", "Historie"),
+    "Krieg": ("Krieg", "Kriegsfilm"),
+    "Romantik": ("Romantik", "Romance", "Liebesfilm"),
+    "Science-Fiction": ("Science-Fiction", "Science Fiction", "Sci-Fi"),
+}
+MOVIE_GENRE_CANONICAL_BY_KEY = {
+    alias.casefold(): canonical
+    for canonical, aliases in MOVIE_GENRE_GROUPS.items()
+    for alias in aliases
+}
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({"filmpalast", "megakino", "kinoger", "xcine"})
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
@@ -823,6 +837,16 @@ def clean_genre(value: str) -> str:
     return " ".join(str(value or "").split())
 
 
+def canonical_movie_genre(value: str) -> str:
+    genre = clean_genre(value)
+    return MOVIE_GENRE_CANONICAL_BY_KEY.get(genre.casefold(), genre)
+
+
+def movie_genre_aliases(value: str) -> tuple[str, ...]:
+    canonical = canonical_movie_genre(value)
+    return MOVIE_GENRE_GROUPS.get(canonical, (canonical,))
+
+
 def watchlist_lookup(base_slug: str) -> Optional[dict]:
     return next((w for w in state.watchlist if w["base_slug"] == base_slug), None)
 
@@ -927,12 +951,13 @@ def _fetch_movie_provider_page(
     """Lädt genau eine Quellseite; nur markierte Anbieter paginieren."""
     if provider not in MOVIE_PAGINATED_PROVIDERS and source_page != 1:
         return []
+    provider_genre = _movie_genre_for_provider(provider, genre) if mode == "genre" else genre
 
     if provider == "filmpalast":
         with state.fp_lock:
             scraper = get_fp_scraper()
             if mode == "genre":
-                return list(scraper.list_by_genre(genre, source_page))
+                return list(scraper.list_by_genre(provider_genre, source_page))
             return list(scraper.list_movies(mode, source_page))
 
     scraper_classes = {
@@ -948,7 +973,7 @@ def _fetch_movie_provider_page(
         return []
     scraper = scraper_class(progress_cb=log)
     if mode == "genre":
-        return list(scraper.list_by_genre(genre, source_page))
+        return list(scraper.list_by_genre(provider_genre, source_page))
     return list(scraper.list_movies(mode, source_page))
 
 
@@ -1006,8 +1031,8 @@ def _load_movie_provider_pages(
     return loaded
 
 
-def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
-    known_genres = {
+def _movie_provider_genres(provider: str) -> set:
+    return {
         "filmpalast": state.fp_provider_genres,
         "moflix": state.moflix_provider_genres,
         "einschalten": state.einschalten_provider_genres,
@@ -1016,9 +1041,28 @@ def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
         "megakino": state.megakino_provider_genres,
         "xcine": state.xcine_provider_genres,
     }.get(provider, set())
+
+
+def _movie_genre_for_provider(provider: str, genre: str) -> str:
+    known_by_key = {
+        clean_genre(item).casefold(): clean_genre(item)
+        for item in _movie_provider_genres(provider)
+    }
+    for alias in movie_genre_aliases(genre):
+        match = known_by_key.get(alias.casefold())
+        if match:
+            return match
+    return clean_genre(genre)
+
+
+def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
+    known_genres = _movie_provider_genres(provider)
     # Vor dem ersten Genre-Abruf sind die Mengen leer. Dann optimistisch laden;
     # der jeweilige Scraper kann ein unbekanntes Genre günstig mit [] ablehnen.
-    return not known_genres or genre in known_genres
+    if not known_genres:
+        return True
+    known_keys = {clean_genre(item).casefold() for item in known_genres}
+    return any(alias.casefold() in known_keys for alias in movie_genre_aliases(genre))
 
 
 def _movie_result_identity(
@@ -1081,7 +1125,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     """
     page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
     mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
-    genre = clean_genre(genre)
+    genre = canonical_movie_genre(genre)
     priority = provider_priority("movies")
     active = [
         provider for provider in priority
@@ -6357,7 +6401,10 @@ async def api_genres():
     state.kinoger_provider_genres = kg_c
     state.megakino_provider_genres = mk_c
     state.xcine_provider_genres = xc_c
-    genres = sorted(fp_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c, key=str.casefold)
+    genres = sorted(
+        {canonical_movie_genre(genre) for genre in fp_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c},
+        key=str.casefold,
+    )
     return {"genres": genres}
 
 

@@ -80,11 +80,33 @@
         <button id="fp-new-btn" class="btn btn-ghost">Neu</button>
         <button id="fp-top-btn" class="btn btn-ghost">Top</button>
       </div>
-      <div class="genre-bar">
-        <label>Genre</label>
-        <select id="genre-filter"><option value="Alle Genres">Alle Genres</option></select>
-        <span id="genre-count" class="dim">0 Genres</span>
-      </div>
+      <section class="genre-browser" aria-labelledby="genre-browser-title">
+        <div class="genre-browser-summary">
+          <div class="genre-browser-heading">
+            <span class="genre-browser-kicker">Genre-Navigation</span>
+            <div class="genre-browser-title-row">
+              <strong id="genre-browser-title">Was soll heute laufen?</strong>
+              <span id="genre-active">Alle Filme</span>
+            </div>
+          </div>
+          <div class="genre-browser-actions">
+            <span id="genre-count">Genres werden geladen …</span>
+            <button id="genre-random" class="genre-action" type="button" disabled>
+              <span aria-hidden="true">↝</span> Zufallsgenre
+            </button>
+            <button id="genre-toggle" class="genre-action" type="button" aria-expanded="false" disabled>
+              <span class="genre-toggle-label">Alle zeigen</span>
+              <span class="genre-toggle-icon" aria-hidden="true">⌄</span>
+            </button>
+          </div>
+        </div>
+        <div id="genre-filter" class="genre-options" aria-label="Filmgenre auswählen">
+          <button class="genre-chip is-active" type="button" data-genre="Alle Genres" aria-pressed="true">
+            <span class="genre-chip-mark" aria-hidden="true">◆</span>
+            Alle Filme
+          </button>
+        </div>
+      </section>
 
       <div class="split">
         <div class="panel results-panel" aria-label="Filme">
