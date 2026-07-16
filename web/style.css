@@ -3823,3 +3823,321 @@ body.setup-open #dir-modal { z-index: 120; }
   }
   .queue-dock-bar .download-stage { margin-top: 7px; }
 }
+
+/* ── Posterarchiv & fokussierte Detaildialoge ───────────────────────── */
+.media-modal[hidden] { display: none; }
+.media-modal {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(18px, 4vw, 54px);
+  isolation: isolate;
+}
+.media-modal-backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: rgba(4, 3, 7, 0.78);
+  border: 0;
+  backdrop-filter: blur(18px) saturate(0.72);
+  -webkit-backdrop-filter: blur(18px) saturate(0.72);
+  cursor: default;
+}
+.media-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1080px, 100%);
+  max-height: calc(100dvh - clamp(36px, 8vw, 108px));
+  border-color: rgba(216, 183, 102, 0.28);
+  box-shadow: 0 42px 110px -32px rgba(0, 0, 0, 0.98), 0 0 42px rgba(216, 183, 102, 0.08);
+  animation: media-modal-in 0.3s var(--ease-out) both;
+}
+.media-modal .detail-panel { height: min(540px, calc(100dvh - 72px)); }
+.media-modal .series-detail-panel { height: min(650px, calc(100dvh - 72px)); }
+.media-modal-panel > .panel-head { padding-right: 48px; }
+.media-modal-close {
+  position: absolute;
+  z-index: 12;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0 0 2px;
+  color: var(--text);
+  background: rgba(8, 6, 13, 0.86);
+  border: 1px solid rgba(216, 183, 102, 0.24);
+  border-radius: 50%;
+  font: 300 24px/1 "Outfit", "Segoe UI", sans-serif;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.2s var(--ease-out);
+}
+.media-modal-close:hover,
+.media-modal-close:focus-visible {
+  outline: none;
+  color: #140e08;
+  background: var(--accent-hov);
+  border-color: var(--accent-hov);
+  transform: rotate(4deg) scale(1.04);
+}
+.media-modal .detail-body { min-height: 0; overflow-y: auto; }
+.media-modal .series-detail-panel .tiles-scroll { min-height: 150px; }
+.media-modal-open { overflow: hidden; }
+@keyframes media-modal-in {
+  from { opacity: 0; transform: translateY(22px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.result-card-open {
+  position: absolute;
+  z-index: 4;
+  left: 11px;
+  bottom: 11px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #09070d;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.92);
+  font: 700 15px/1 "Outfit", "Segoe UI", sans-serif;
+  transition: transform 0.22s var(--ease-spring), background 0.2s;
+}
+
+@media (min-width: 821px) {
+  .tab-content.active {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  #tab-filme > .split,
+  #tab-serien > .split {
+    display: block;
+  }
+  .results-panel {
+    min-height: 100%;
+    overflow: visible;
+    padding: clamp(16px, 2vw, 24px);
+  }
+  .results-panel > .panel-head {
+    align-items: flex-end;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(216, 183, 102, 0.12);
+  }
+  .results-panel > .panel-head .panel-title {
+    font-size: clamp(22px, 2.2vw, 30px);
+    letter-spacing: 0.08em;
+  }
+  .results-panel .result-shelf {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 14vw, 190px), 1fr));
+    align-items: start;
+    gap: clamp(24px, 3vw, 34px) clamp(14px, 2vw, 24px);
+    min-height: 0;
+    overflow: visible;
+    padding: 2px 3px 12px;
+    scroll-snap-type: none;
+  }
+  .results-panel .pager {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(216, 183, 102, 0.12);
+  }
+  #fp-results .result-card,
+  #series-results .result-card {
+    position: relative;
+    display: flex;
+    height: auto;
+    min-height: 0;
+    flex: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 12px;
+    box-shadow: none;
+    scroll-snap-align: none;
+  }
+  #fp-results .result-card { padding-right: 0; }
+  #fp-results .result-card:hover,
+  #series-results .result-card:hover {
+    background: transparent;
+    border-color: transparent;
+    transform: none;
+  }
+  #fp-results .result-card .result-card-visual,
+  #series-results .result-card .result-card-visual {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    border-radius: 12px;
+    transition: transform 0.28s var(--ease-out), border-color 0.24s, box-shadow 0.24s;
+  }
+  #fp-results .result-card:hover .result-card-visual,
+  #series-results .result-card:hover .result-card-visual,
+  #fp-results .result-card:focus-visible .result-card-visual,
+  #series-results .result-card:focus-visible .result-card-visual {
+    border-color: rgba(216, 183, 102, 0.62);
+    box-shadow: 0 24px 46px -24px rgba(0, 0, 0, 0.98), var(--glow-gold);
+    transform: translateY(-5px);
+  }
+  #fp-results .result-card:hover .result-card-open,
+  #series-results .result-card:hover .result-card-open,
+  #fp-results .result-card:focus-visible .result-card-open,
+  #series-results .result-card:focus-visible .result-card-open { transform: scale(1.09) rotate(4deg); }
+  #fp-results .result-card:focus-visible,
+  #series-results .result-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 5px;
+  }
+  #fp-results .result-card.selected,
+  #series-results .result-card.selected {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+  #fp-results .result-card.selected .result-card-visual,
+  #series-results .result-card.selected .result-card-visual {
+    border-color: rgba(216, 183, 102, 0.72);
+    box-shadow: 0 0 0 2px rgba(216, 183, 102, 0.18), 0 24px 48px -26px rgba(0, 0, 0, 0.98);
+  }
+  #fp-results .result-card .result-card-copy,
+  #series-results .result-card .result-card-copy {
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 0 2px;
+  }
+  .result-card-title {
+    font-size: 14px;
+    line-height: 1.28;
+  }
+  .result-card-subtitle { font-size: 10px; }
+  .result-card-meta { gap: 5px 8px; font-size: 9px; }
+  .result-card-rating { color: var(--accent); }
+  .result-card-kind { display: none; }
+  #fp-results .result-queue-toggle {
+    top: 10px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    border-width: 2px;
+  }
+}
+
+@media (max-width: 820px) {
+  #fp-results.result-shelf,
+  #series-results.result-shelf {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 22px 12px;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+    padding: 2px;
+  }
+  #fp-results .result-card,
+  #series-results .result-card {
+    position: relative;
+    display: flex;
+    height: auto;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  #fp-results .result-card .result-card-visual,
+  #series-results .result-card .result-card-visual {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+  }
+  #fp-results .result-card-copy,
+  #series-results .result-card-copy {
+    display: flex;
+    padding: 0 2px;
+  }
+  #fp-results .result-queue-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 34px;
+    height: 34px;
+  }
+  #fp-results .result-card.selected,
+  #series-results .result-card.selected {
+    box-shadow: none;
+  }
+  #fp-results .result-card.selected .result-card-visual,
+  #series-results .result-card.selected .result-card-visual {
+    border-color: rgba(216, 183, 102, 0.68);
+    box-shadow: 0 0 0 2px rgba(216, 183, 102, 0.16);
+  }
+  .result-card-kind { display: none; }
+  .result-card-open {
+    left: 9px;
+    bottom: 9px;
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+  }
+  .result-card-title { font-size: 12.5px; }
+  .result-card-subtitle { font-size: 8.5px; }
+  .result-card-meta { gap: 4px 6px; font-size: 8px; }
+  .result-card-rating { color: var(--accent); }
+
+  .media-modal {
+    place-items: end center;
+    padding: 0;
+  }
+  .media-modal-backdrop { background: rgba(4, 3, 7, 0.84); }
+  .media-modal-panel {
+    width: 100%;
+    max-height: 92dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -30px 80px -28px rgba(0, 0, 0, 0.98);
+  }
+  .media-modal .detail-panel,
+  .media-modal .series-detail-panel {
+    height: 92dvh;
+    overflow: hidden;
+  }
+  .media-modal .detail-panel { padding: 12px; }
+  .media-modal .detail-panel-head { position: relative; top: auto; padding-right: 44px; }
+  .media-modal .detail-body {
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 18px;
+  }
+  .media-modal .series-detail-panel .tiles-scroll {
+    min-height: 150px;
+    max-height: none;
+    flex: 1;
+  }
+  .media-modal-close { top: 10px; right: 10px; }
+}
+
+@media (max-width: 380px) {
+  #fp-results.result-shelf,
+  #series-results.result-shelf { gap-inline: 9px; }
+  .result-card-meta .result-card-state { display: none; }
+}

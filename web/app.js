@@ -57,6 +57,7 @@ function escapeHtml(s) {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
 function switchTab(name, { autoLoad = true } = {}) {
+  closeAllMediaModals(false);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach((s) => s.classList.toggle("active", s.id === `tab-${name}`));
   // Im Einstellungen-Bereich die Download-Sidebar ausblenden (eigener Vollbereich).
@@ -347,11 +348,66 @@ function setDownloadState(kind, title, detail, percent = state.download.percent)
   document.getElementById("cancel-btn").disabled = !state.download.active;
 }
 
-function scrollToMobileDetail(selector) {
-  if (!window.matchMedia("(max-width: 820px)").matches) return;
-  requestAnimationFrame(() => {
-    document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
+function activeMediaModal() {
+  return document.querySelector(".media-modal.is-open:not([hidden])");
+}
+
+function openMediaModal(modalId, trigger = null) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  const current = activeMediaModal();
+  if (current && current !== modal) closeMediaModal(current.id, false);
+  if (!modal.hidden && modal.classList.contains("is-open")) return;
+  modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
+  modal.hidden = false;
+  modal.classList.add("is-open");
+  document.body.classList.add("media-modal-open");
+  requestAnimationFrame(() => modal.querySelector(".media-modal-close")?.focus());
+}
+
+function closeMediaModal(modalId, restoreFocus = true) {
+  const modal = document.getElementById(modalId);
+  if (!modal || modal.hidden) return;
+  const returnFocus = modal._returnFocus;
+  modal.classList.remove("is-open");
+  modal.hidden = true;
+  if (!activeMediaModal()) document.body.classList.remove("media-modal-open");
+  if (restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
+}
+
+function closeAllMediaModals(restoreFocus = true) {
+  document.querySelectorAll(".media-modal:not([hidden])").forEach((modal) => {
+    closeMediaModal(modal.id, restoreFocus);
   });
+}
+
+function handleMediaModalKeydown(event) {
+  const modal = activeMediaModal();
+  if (!modal) return false;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMediaModal(modal.id);
+    return true;
+  }
+  if (event.key !== "Tab") return false;
+  const focusable = [...modal.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => !element.hidden && element.getClientRects().length);
+  if (!focusable.length) {
+    event.preventDefault();
+    modal.querySelector(".media-modal-panel")?.focus();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+  return true;
 }
 
 function refreshQueueUiAfterChange(resp) {
@@ -520,13 +576,18 @@ function createResultCardVisual(media, title, kind) {
   const kindMark = document.createElement("span");
   kindMark.className = "result-card-kind";
   kindMark.textContent = kind === "series" ? "S" : "F";
-  visual.appendChild(kindMark);
+  const openMark = document.createElement("span");
+  openMark.className = "result-card-open";
+  openMark.textContent = "↗";
+  openMark.setAttribute("aria-hidden", "true");
+  visual.append(kindMark, openMark);
   return visual;
 }
 
 function activateResultCard(row, callback) {
   row.tabIndex = 0;
   row.setAttribute("role", "button");
+  row.setAttribute("aria-haspopup", "dialog");
   row.addEventListener("click", callback);
   row.addEventListener("keydown", (event) => {
     if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
@@ -568,6 +629,10 @@ function updateFpResultCard(slug) {
     stateLabel.className = `result-card-state status-${availability.tag}`;
     stateLabel.textContent = availability.label;
   }
+  const subtitle = row.querySelector(".result-card-subtitle");
+  if (subtitle) subtitle.textContent = (fpResultMedia(result).genres || []).slice(0, 2).join(" · ") || "Film";
+  const rating = row.querySelector(".result-card-rating");
+  if (rating) rating.textContent = fpResultMedia(result).rating ? `★ ${fpResultMedia(result).rating}` : "★ —";
 }
 
 function syncFpDetailQueueAction() {
@@ -617,7 +682,6 @@ function updateFpResultSelection() {
 
 function renderFpResults() {
   const container = document.getElementById("fp-results");
-  const previousScroll = container.scrollLeft;
   container.innerHTML = "";
 
   for (const result of state.fp.results) {
@@ -644,14 +708,18 @@ function renderFpResults() {
     subtitle.textContent = (media.genres || []).slice(0, 2).join(" · ") || "Film";
     const meta = document.createElement("span");
     meta.className = "result-card-meta";
+    const rating = document.createElement("span");
+    rating.className = "result-card-rating";
+    rating.textContent = media.rating ? `★ ${media.rating}` : "★ —";
     const year = document.createElement("span");
+    year.className = "result-card-year";
     year.textContent = result.year || "Jahr offen";
     const status = document.createElement("span");
     status.className = `result-card-state status-${availability.tag}`;
     status.textContent = availability.label;
     const jellyfin = document.createElement("span");
     setFpJellyfinBadge(jellyfin, !!result.in_jellyfin);
-    meta.append(year, status, jellyfin);
+    meta.append(rating, year, status, jellyfin);
     copy.append(title, subtitle, meta);
 
     const queueToggle = document.createElement("button");
@@ -671,7 +739,6 @@ function renderFpResults() {
     container.appendChild(row);
   }
 
-  container.scrollLeft = previousScroll;
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
@@ -683,7 +750,7 @@ function applyFpResults(data) {
   state.fp.sources = Array.isArray(data.sources)
     ? data.sources.filter((source) => Number(source.count) > 0)
     : [];
-  state.fp.selectedSlug = data.results[0]?.slug || null;
+  state.fp.selectedSlug = null;
   state.fp.pendingPreload = null;
   renderFpResults();
   const pager = document.getElementById("fp-pager");
@@ -861,18 +928,20 @@ async function selectFpRow(slug) {
   state.fp.selectedSlug = slug;
   updateFpResultSelection();
   const movie = state.fp.moviesCache[slug];
-  if (movie) return showFpDetail(slug, movie);
   const item = state.fp.results.find((r) => r.slug === slug);
   if (!item) return;
   const metadata = state.fp.metadataCache[slug];
-  if (metadata) showFpDetail(slug, metadataPreviewMovie(metadata), true);
-  if (!metadata) {
+  if (movie) showFpDetail(slug, movie);
+  else if (metadata) showFpDetail(slug, metadataPreviewMovie(metadata), true);
+  else {
     document.getElementById("fp-detail-panel").classList.remove("is-empty");
     document.getElementById("fp-detail-panel").classList.add("has-no-cover");
     document.getElementById("fp-detail-cover").removeAttribute("src");
     document.getElementById("fp-detail-title").textContent = "Lade Cover und Beschreibung …";
     setFpDetailAvailability("Metadaten werden geladen", "loading");
   }
+  openMediaModal("fp-detail-modal", findFpResultCard(slug));
+  if (movie) return;
   await loadFpMetadata(item);
 }
 
@@ -973,7 +1042,6 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   document.getElementById("fp-detail-desc").textContent = movie.description || "(keine Beschreibung)";
 
   configureFpDetailAction(slug, movie, metadataOnly);
-  scrollToMobileDetail("#tab-filme .detail-panel");
 }
 
 // ── Serien-Tab ─────────────────────────────────────────────────────────────
@@ -1068,7 +1136,6 @@ function updateSeriesPager() {
 
 function renderSeriesResults() {
   const container = document.getElementById("series-results");
-  const previousScroll = container.scrollLeft;
   container.innerHTML = "";
 
   for (const result of state.series.results) {
@@ -1112,7 +1179,11 @@ function renderSeriesResults() {
     activateResultCard(row, () => loadSeries(result));
     container.appendChild(row);
   }
-  container.scrollLeft = previousScroll;
+}
+
+function findSeriesResultCard(baseSlug) {
+  return [...document.querySelectorAll("#series-results .series-row")]
+    .find((row) => row.dataset.baseSlug === baseSlug) || null;
 }
 
 function updateSeriesResultSelection() {
@@ -1225,6 +1296,7 @@ async function loadSeries(result) {
   state.series.pendingBaseSlug = cacheKey;
   updateSeriesResultSelection();
   showSeriesLoading(result);
+  openMediaModal("series-detail-modal", findSeriesResultCard(result.base_slug));
 
   const cached = state.series.cache[cacheKey];
   if (cached) {
@@ -1279,7 +1351,6 @@ function showSeriesLoading(result) {
   document.getElementById("series-select-all").disabled = true;
   document.getElementById("series-select-none").disabled = true;
   document.getElementById("series-add-btn").disabled = true;
-  scrollToMobileDetail("#tab-serien .series-detail-panel");
 }
 
 function updateWatchBtn() {
@@ -1319,7 +1390,7 @@ function showSeriesDetail(series, sampleSlug) {
   document.getElementById("series-select-none").disabled = false;
   updateWatchBtn();
   renderSeriesTiles();
-  scrollToMobileDetail("#tab-serien .series-detail-panel");
+  openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
 }
 
 function tileClass(ep) {
@@ -2482,6 +2553,7 @@ function startInitialData() {
 
 // ── Init ─────────────────────────────────────────────────────────────────
 async function initApp() {
+  document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
 
@@ -2492,6 +2564,9 @@ async function initApp() {
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
   document.getElementById("mobile-queue-backdrop").addEventListener("click", closeMobileQueue);
   document.getElementById("queue-dock-toggle").addEventListener("click", toggleDesktopQueue);
+  document.querySelectorAll("[data-modal-close]").forEach((button) => {
+    button.addEventListener("click", () => closeMediaModal(button.dataset.modalClose));
+  });
 
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
@@ -2582,6 +2657,7 @@ async function initApp() {
     switchTab("bibliothek");
   });
   document.addEventListener("keydown", (event) => {
+    if (handleMediaModalKeydown(event)) return;
     if (event.key !== "Escape") return;
     closeNotifDropdown();
     setQueueDockExpanded(false);

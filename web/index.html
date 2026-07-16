@@ -87,9 +87,9 @@
       </div>
 
       <div class="split">
-        <div class="panel results-panel" aria-label="Filmregal">
+        <div class="panel results-panel" aria-label="Filme">
           <div class="panel-head">
-            <span class="panel-title">Filmregal</span>
+            <span class="panel-title">Filme</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div class="list-head movie-row">
@@ -106,7 +106,10 @@
           </div>
         </div>
 
-        <div id="fp-detail-panel" class="panel detail-panel is-empty">
+        <div id="fp-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="fp-detail-title" hidden>
+          <div class="media-modal-backdrop" data-modal-close="fp-detail-modal" aria-hidden="true"></div>
+          <div id="fp-detail-panel" class="panel detail-panel media-modal-panel is-empty" tabindex="-1">
+            <button id="fp-detail-close" class="media-modal-close" type="button" data-modal-close="fp-detail-modal" aria-label="Filmdetails schließen">×</button>
           <div class="panel-head detail-panel-head">
             <div class="detail-head-primary">
               <span class="panel-title">FILMAKTE</span>
@@ -124,7 +127,7 @@
             <article class="detail-text">
               <header class="detail-title-block">
                 <div id="fp-detail-genres" class="detail-genres"></div>
-                <h2 id="fp-detail-title">Wähle einen Film aus dem Regal</h2>
+                <h2 id="fp-detail-title">Wähle einen Film aus</h2>
                 <div id="fp-detail-meta" class="detail-meta"></div>
               </header>
               <div class="mission" aria-label="Filmdaten und Downloadroute">
@@ -140,6 +143,7 @@
                 <span>Startet automatisch · maximal 2 Downloads gleichzeitig</span>
               </div>
             </article>
+          </div>
           </div>
         </div>
       </div>
@@ -168,9 +172,9 @@
       </section>
 
       <div class="split">
-        <div class="panel results-panel" aria-label="Serienregal">
+        <div class="panel results-panel" aria-label="Serien">
           <div class="panel-head">
-            <span class="panel-title">Serienregal</span>
+            <span class="panel-title">Serien</span>
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
           <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
@@ -184,7 +188,10 @@
           </div>
         </div>
 
-        <div class="panel series-detail-panel">
+        <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
+          <div class="media-modal-backdrop" data-modal-close="series-detail-modal" aria-hidden="true"></div>
+          <div class="panel series-detail-panel media-modal-panel" tabindex="-1">
+          <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen">×</button>
           <div class="panel-head">
             <span id="series-detail-title" class="panel-title">(keine Serie ausgewählt)</span>
             <span id="series-pick-count" class="dim">0 ausgewählt</span>
@@ -204,6 +211,7 @@
           </div>
           <div id="series-tiles" class="tiles-scroll"></div>
           <button id="series-add-btn" class="btn btn-accent" disabled>Auswahl herunterladen</button>
+          </div>
         </div>
       </div>
     </section>
