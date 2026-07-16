@@ -576,7 +576,10 @@ function createResultCardVisual(media, title, kind, inJellyfin = false) {
     const image = document.createElement("img");
     image.className = "result-card-poster";
     image.alt = "";
-    image.loading = "lazy";
+    // Die Posterwand ist bereits seitenweise begrenzt. Eager Loading verhindert,
+    // dass Browser Bilder im internen Scrollbereich erst nach einem Klick anfordern.
+    image.loading = kind === "movie" ? "eager" : "lazy";
+    if (kind === "movie") image.fetchPriority = "auto";
     image.decoding = "async";
     image.src = api.coverUrl(media.cover_url);
     image.addEventListener("error", () => image.remove(), { once: true });
@@ -959,8 +962,10 @@ async function selectFpRow(slug) {
   if (movie) showFpDetail(slug, movie);
   else if (metadata) showFpDetail(slug, metadataPreviewMovie(metadata), true);
   else {
-    document.getElementById("fp-detail-panel").classList.remove("is-empty");
-    document.getElementById("fp-detail-panel").classList.add("has-no-cover");
+    const detailPanel = document.getElementById("fp-detail-panel");
+    detailPanel.classList.remove("is-empty");
+    detailPanel.classList.add("has-no-cover");
+    detailPanel.style.removeProperty("--detail-backdrop-image");
     document.getElementById("fp-detail-cover").removeAttribute("src");
     document.getElementById("fp-detail-title").textContent = "Lade Cover und Beschreibung …";
     setFpDetailAvailability("Metadaten werden geladen", "loading");
@@ -1038,8 +1043,12 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   if (movie.cover_url) {
     const coverUrl = api.coverUrl(movie.cover_url);
     if (cover.getAttribute("src") !== coverUrl) cover.src = coverUrl;
+    detailPanel.style.setProperty("--detail-backdrop-image", `url("${coverUrl}")`);
   } else if (cover.hasAttribute("src")) {
     cover.removeAttribute("src");
+    detailPanel.style.removeProperty("--detail-backdrop-image");
+  } else {
+    detailPanel.style.removeProperty("--detail-backdrop-image");
   }
   cover.alt = movie.title ? `Poster zu ${movie.title}` : "Filmplakat";
   document.getElementById("fp-detail-title").textContent = movie.title;
@@ -1846,19 +1855,103 @@ async function refreshNotifications() {
 function renderWatchlist() {
   const container = document.getElementById("wl-list");
   container.innerHTML = "";
-  for (const entry of state.wl.items) {
+  const knownSlugs = new Set(state.wl.items.map((entry) => entry.base_slug));
+  for (const slug of state.wl.selected) {
+    if (!knownSlugs.has(slug)) state.wl.selected.delete(slug);
+  }
+
+  const attentionCount = state.wl.items.reduce((sum, entry) => {
+    if (entry.new_count) return sum + entry.new_count;
+    return sum + (entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed" ? 1 : 0);
+  }, 0);
+  document.getElementById("wl-total-count").textContent = String(state.wl.items.length);
+  document.getElementById("wl-attention-count").textContent = String(attentionCount);
+  document.getElementById("wl-selected-count").textContent = String(state.wl.selected.size);
+  document.getElementById("wl-check-all").disabled = state.wl.items.length === 0;
+  for (const id of ["wl-check-selected", "wl-open", "wl-remove"]) {
+    document.getElementById(id).disabled = state.wl.selected.size === 0;
+  }
+
+  if (!state.wl.items.length) {
+    const empty = document.createElement("div");
+    empty.className = "library-empty";
+    empty.innerHTML = `
+      <span class="library-empty-mark" aria-hidden="true">◇</span>
+      <strong>Dein Serienarchiv ist noch leer</strong>
+      <span>Öffne eine Serie und wähle „Abonnieren“, um sie hier zu verwalten.</span>
+    `;
+    container.appendChild(empty);
+    return;
+  }
+
+  state.wl.items.forEach((entry, index) => {
+    const isSelected = state.wl.selected.has(entry.base_slug);
+    const needsAttention = Boolean(
+      entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed"
+    );
     const row = document.createElement("div");
-    row.className = "wl-row"
-      + (state.wl.selected.has(entry.base_slug) ? " selected" : "")
-      + (entry.new_count || entry.status === "blocked" || entry.status === "failed" ? " has-new" : "");
+    row.className = "wl-row library-card"
+      + (isSelected ? " selected" : "")
+      + (needsAttention ? " has-new" : "");
+    row.tabIndex = 0;
+    row.setAttribute("role", "checkbox");
+    row.setAttribute("aria-checked", String(isSelected));
+
+    const top = document.createElement("div");
+    top.className = "library-card-top";
+    const select = document.createElement("label");
+    select.className = "library-card-select";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = state.wl.selected.has(entry.base_slug);
+    cb.checked = isSelected;
+    cb.setAttribute("aria-label", `${entry.title} auswählen`);
     cb.addEventListener("click", (e) => { e.stopPropagation(); toggleWlSelect(entry.base_slug); });
-    const title = document.createElement("span");
+    const archiveNumber = document.createElement("span");
+    archiveNumber.textContent = `ABO ${String(index + 1).padStart(2, "0")}`;
+    select.append(cb, archiveNumber);
+
+    const stateBadge = document.createElement("span");
+    stateBadge.className = `library-state is-${entry.status || "current"}`;
+    stateBadge.textContent = ({
+      blocked: "Blockiert",
+      failed: "Fehler",
+      queued: "In Queue",
+      waiting_window: "Zeitfenster",
+      missing: "Offen",
+      current: "Aktuell",
+    })[entry.status] || "Aktuell";
+    top.append(select, stateBadge);
+
+    const identity = document.createElement("div");
+    identity.className = "library-card-identity";
+    const monogram = document.createElement("span");
+    monogram.className = "library-card-monogram";
+    monogram.textContent = subscriptionMonogram(entry.title);
+    const copy = document.createElement("span");
+    copy.className = "library-card-copy";
+    const title = document.createElement("strong");
+    title.className = "library-card-title";
     title.textContent = entry.title;
-    const status = document.createElement("span");
-    status.className = "wl-rule-cell";
+    const statusText = document.createElement("span");
+    statusText.className = "library-card-status";
+    statusText.textContent = watchlistStatusText(entry);
+    copy.append(title, statusText);
+    identity.append(monogram, copy);
+
+    const episodeStatus = document.createElement("div");
+    episodeStatus.className = "library-episode-status";
+    const episodeValue = document.createElement("strong");
+    episodeValue.textContent = needsAttention
+      ? (entry.status === "blocked" || entry.cleanup_last_error ? "!" : String(entry.failed_count || entry.new_count || "!"))
+      : "✓";
+    const episodeLabel = document.createElement("span");
+    episodeLabel.textContent = needsAttention
+      ? (entry.new_count === 1 ? "Episode offen" : (entry.new_count ? "Episoden offen" : "Prüfung nötig"))
+      : "Vollständig";
+    episodeStatus.append(episodeValue, episodeLabel);
+
+    const footer = document.createElement("div");
+    footer.className = "library-card-footer";
     const rule = document.createElement("button");
     rule.type = "button";
     rule.className = "wl-rule-btn";
@@ -1870,15 +1963,26 @@ function renderWatchlist() {
       event.stopPropagation();
       openWatchModeModal(entry);
     });
-    const missing = document.createElement("span");
-    missing.className = "wl-missing";
-    missing.textContent = watchlistStatusText(entry);
-    status.append(rule, missing);
-    row.append(cb, title, status);
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "library-card-open";
+    open.textContent = "Öffnen  →";
+    open.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openWatchlistEntry(entry.base_slug);
+    });
+    footer.append(rule, open);
+
+    row.append(top, identity, episodeStatus, footer);
     row.addEventListener("click", () => toggleWlSelect(entry.base_slug));
     row.addEventListener("dblclick", () => openWatchlistEntry(entry.base_slug));
+    row.addEventListener("keydown", (event) => {
+      if (event.target !== row || (event.key !== " " && event.key !== "Enter")) return;
+      event.preventDefault();
+      toggleWlSelect(entry.base_slug);
+    });
     container.appendChild(row);
-  }
+  });
 }
 
 function toggleWlSelect(baseSlug) {
