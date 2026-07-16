@@ -626,13 +626,14 @@
       <span>ABO-EINSTELLUNG</span>
       <button id="watch-mode-close" class="btn btn-ghost btn-sm" type="button" aria-label="Schließen">✕</button>
     </div>
-    <div class="watch-mode-intro">
+    <div class="watch-mode-scroll">
+      <div class="watch-mode-intro">
       <span class="watch-mode-kicker">DOWNLOADUMFANG</span>
       <h2 id="watch-mode-title">Serie abonnieren</h2>
       <p id="watch-mode-description">Lege fest, welche fehlenden Folgen zu diesem Abo gehören. Die Regel gilt jetzt und bei jeder späteren Prüfung.</p>
       <p class="watch-mode-safety"><span aria-hidden="true">✓</span> Bereits in Jellyfin oder im Serienordner vorhandene Folgen werden übersprungen.</p>
-    </div>
-    <div class="watch-mode-options" role="radiogroup" aria-label="Abo-Regel">
+      </div>
+      <div class="watch-mode-options" role="radiogroup" aria-label="Abo-Regel">
       <label class="watch-mode-option">
         <input type="radio" name="watch-mode" value="all">
         <span class="watch-mode-track" aria-hidden="true"><b>S1</b><i></i><b>S2</b><i></i><b>…</b></span>
@@ -663,16 +664,45 @@
         </span>
         <span class="watch-mode-check" aria-hidden="true">✓</span>
       </label>
-    </div>
-    <div class="watch-mode-outcome">
-      <span class="watch-mode-outcome-mark" aria-hidden="true">i</span>
-      <div>
-        <span class="watch-mode-outcome-label">WAS DANACH PASSIERT</span>
-        <strong id="watch-mode-outcome-title">Die neueste Staffel bleibt im Fokus</strong>
-        <p id="watch-mode-outcome-copy">Royal prüft die Serie sofort und danach regelmäßig. Bei aktivem Auto-Download landen Treffer in der Queue, sonst in der Abo-Inbox.</p>
       </div>
+      <div class="watch-mode-outcome">
+        <span class="watch-mode-outcome-mark" aria-hidden="true">i</span>
+        <div>
+          <span class="watch-mode-outcome-label">WAS DANACH PASSIERT</span>
+          <strong id="watch-mode-outcome-title">Die neueste Staffel bleibt im Fokus</strong>
+          <p id="watch-mode-outcome-copy">Royal prüft die Serie sofort und danach regelmäßig. Bei aktivem Auto-Download landen Treffer in der Queue, sonst in der Abo-Inbox.</p>
+        </div>
+      </div>
+      <section class="watch-cleanup" aria-labelledby="watch-cleanup-title">
+        <div class="watch-cleanup-head">
+          <span class="watch-mode-kicker">NACH DEM ANSEHEN</span>
+          <h3 id="watch-cleanup-title">Speicher automatisch freigeben</h3>
+          <p>Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils.</p>
+        </div>
+        <div class="watch-cleanup-options" role="radiogroup" aria-label="Löschregel">
+          <label class="watch-cleanup-option">
+            <input type="radio" name="watch-cleanup" value="keep">
+            <span class="watch-cleanup-symbol" aria-hidden="true">◆</span>
+            <span><strong>Behalten</strong><small>Gesehene Episoden und Staffeln bleiben in Jellyfin.</small></span>
+            <i aria-hidden="true">✓</i>
+          </label>
+          <label class="watch-cleanup-option">
+            <input type="radio" name="watch-cleanup" value="watched_seasons">
+            <span class="watch-cleanup-symbol" aria-hidden="true">S✓</span>
+            <span><strong>Staffel komplett gesehen → löschen</strong><small>Erst wenn jede reguläre Folge der Staffel als gesehen markiert ist.</small></span>
+            <i aria-hidden="true">✓</i>
+          </label>
+          <label class="watch-cleanup-option">
+            <input type="radio" name="watch-cleanup" value="watched_episodes">
+            <span class="watch-cleanup-symbol" aria-hidden="true">E✓</span>
+            <span><strong>Episode gesehen → löschen</strong><small>Jede gesehene Episode wird beim nächsten Abo-Check entfernt.</small></span>
+            <i aria-hidden="true">✓</i>
+          </label>
+        </div>
+        <p class="watch-cleanup-warning"><span aria-hidden="true">!</span><span><strong>Dauerhafte Aktion:</strong> Jellyfin kann dabei die zugehörige Mediendatei löschen. Das gewählte Profil und eine Jellyfin-Löschberechtigung sind erforderlich.</span></p>
+      </section>
+      <div id="watch-mode-status" class="watch-mode-status" role="status" aria-live="polite"></div>
     </div>
-    <div id="watch-mode-status" class="watch-mode-status" role="status" aria-live="polite"></div>
     <div class="modal-actions watch-mode-actions">
       <button id="watch-mode-remove" class="btn btn-ghost btn-sm hidden" type="button">Abo entfernen</button>
       <span></span>

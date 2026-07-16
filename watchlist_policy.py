@@ -5,16 +5,116 @@ WATCH_MODE_LATEST_SEASON = "latest_season"
 WATCH_MODE_NEXT_SEASON = "next_season"
 WATCH_MODE_DEFAULT = WATCH_MODE_LATEST_SEASON
 
+CLEANUP_MODE_KEEP = "keep"
+CLEANUP_MODE_WATCHED_SEASONS = "watched_seasons"
+CLEANUP_MODE_WATCHED_EPISODES = "watched_episodes"
+CLEANUP_MODE_DEFAULT = CLEANUP_MODE_KEEP
+
 WATCH_MODE_LABELS = {
     WATCH_MODE_ALL: "Alles Fehlende",
     WATCH_MODE_LATEST_SEASON: "Neueste Staffel",
     WATCH_MODE_NEXT_SEASON: "Nächste Staffel nach Gesehen-Status",
 }
 
+CLEANUP_MODE_LABELS = {
+    CLEANUP_MODE_KEEP: "Gesehene Folgen behalten",
+    CLEANUP_MODE_WATCHED_SEASONS: "Gesehene Staffeln löschen",
+    CLEANUP_MODE_WATCHED_EPISODES: "Gesehene Episoden löschen",
+}
+
 
 def normalize_watch_mode(value: str | None) -> str:
     """Gibt immer einen bekannten, rueckwaertskompatiblen Modus zurueck."""
     return value if value in WATCH_MODE_LABELS else WATCH_MODE_DEFAULT
+
+
+def normalize_cleanup_mode(value: str | None) -> str:
+    """Gibt immer eine bekannte, standardmäßig nicht löschende Regel zurück."""
+    return value if value in CLEANUP_MODE_LABELS else CLEANUP_MODE_DEFAULT
+
+
+def normalize_episode_history(values) -> set[tuple[int, int]]:
+    """Liest persistierte ``Staffel:Episode``-Paare fehlertolerant ein."""
+    result: set[tuple[int, int]] = set()
+    for value in values or []:
+        try:
+            if isinstance(value, (tuple, list)) and len(value) == 2:
+                season, episode = value
+            else:
+                season, episode = str(value).split(":", 1)
+            pair = (int(season), int(episode))
+        except (TypeError, ValueError):
+            continue
+        if pair[0] >= 0 and pair[1] > 0:
+            result.add(pair)
+    return result
+
+
+def serialize_episode_history(values) -> list[str]:
+    """Schreibt Episodenpaare stabil und JSON-kompatibel."""
+    return [f"{season}:{episode}" for season, episode in sorted(set(values or []))]
+
+
+def select_cleanup_items(
+    items, mode: str, season_episode_counts=None, cleanup_history=None,
+) -> list[dict]:
+    """Wählt gesehene Jellyfin-Episoden für die konfigurierte Löschregel.
+
+    Eine Staffel wird nur dann vollständig gelöscht, wenn ihr verifizierter
+    Episodenumfang exakt bekannt ist und jede erwartete Folge in Jellyfin als
+    gesehen markiert oder bereits durch diese Regel gelöscht wurde. So gilt eine
+    nur teilweise vorhandene Staffel nie irrtümlich als vollständig und ein
+    fehlgeschlagener Teillauf kann die übrigen Folgen später erneut versuchen.
+    """
+    mode = normalize_cleanup_mode(mode)
+    candidates = []
+    for item in items or []:
+        try:
+            season = int(item.get("season"))
+            episode = int(item.get("episode"))
+        except (TypeError, ValueError):
+            continue
+        item_id = str(item.get("id") or "").strip()
+        if not item_id or season < 0 or episode <= 0:
+            continue
+        candidates.append({**item, "id": item_id, "season": season, "episode": episode})
+
+    if mode == CLEANUP_MODE_KEEP:
+        return []
+    if mode == CLEANUP_MODE_WATCHED_EPISODES:
+        return [item for item in candidates if item.get("played")]
+
+    raw_counts = season_episode_counts if isinstance(season_episode_counts, dict) else {}
+    expected_counts = {
+        int(season): int(count)
+        for season, count in raw_counts.items()
+        if str(season).lstrip("-").isdigit()
+        and str(count).isdigit()
+        and int(season) > 0
+        and int(count) > 0
+    }
+    cleaned_pairs = normalize_episode_history(cleanup_history)
+    watched_pairs = cleaned_pairs | {
+        (item["season"], item["episode"])
+        for item in candidates if item.get("played")
+    }
+    known_pairs = cleaned_pairs | {
+        (item["season"], item["episode"])
+        for item in candidates
+    }
+    completed_seasons = {
+        season
+        for season, count in expected_counts.items()
+        if (
+            (expected := {(season, episode) for episode in range(1, count + 1)})
+            == {pair for pair in known_pairs if pair[0] == season}
+            and expected.issubset(watched_pairs)
+        )
+    }
+    return [
+        item for item in candidates
+        if item.get("played") and item["season"] in completed_seasons
+    ]
 
 
 def select_missing_episode_slugs(

@@ -73,11 +73,18 @@ from seerr_client import SeerrClient, SeerrRequest
 from update_checker import UpdateChecker
 from self_updater import SelfUpdater
 from watchlist_policy import (
+    CLEANUP_MODE_DEFAULT,
+    CLEANUP_MODE_KEEP,
+    CLEANUP_MODE_LABELS,
     WATCH_MODE_DEFAULT,
     WATCH_MODE_LABELS,
     WATCH_MODE_NEXT_SEASON,
+    normalize_cleanup_mode,
+    normalize_episode_history,
     normalize_watch_mode,
+    select_cleanup_items,
     select_missing_episode_slugs,
+    serialize_episode_history,
 )
 import config as appconfig
 
@@ -2134,6 +2141,9 @@ def series_to_dict(
         "watch_mode": normalize_watch_mode(
             watchlist_entry.get("download_mode") if watchlist_entry else None
         ),
+        "cleanup_mode": normalize_cleanup_mode(
+            watchlist_entry.get("cleanup_mode") if watchlist_entry else None
+        ),
         "metadata_source": "Anbieter",
     }
     if tmdb:
@@ -2240,6 +2250,7 @@ def watchlist_payload() -> dict:
             failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
             failed_count = len(set(failures) & pending)
             mode = normalize_watch_mode(w.get("download_mode"))
+            cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
             error = str(w.get("last_error") or "")
             if error:
                 status = "blocked"
@@ -2257,6 +2268,18 @@ def watchlist_payload() -> dict:
                 **w,
                 "download_mode": mode,
                 "download_mode_label": WATCH_MODE_LABELS[mode],
+                "cleanup_mode": cleanup_mode,
+                "cleanup_mode_label": CLEANUP_MODE_LABELS[cleanup_mode],
+                "cleanup_mode_ready": (
+                    cleanup_mode == CLEANUP_MODE_KEEP
+                    or bool(
+                        state.jellyfin_cfg.get("url", "").strip()
+                        and state.jellyfin_cfg.get("api_key", "").strip()
+                        and state.jellyfin_cfg.get("user_id", "").strip()
+                        and state.jellyfin_user_episodes_available
+                        and not str(w.get("cleanup_last_error") or "")
+                    )
+                ),
                 "download_mode_ready": (
                     mode != WATCH_MODE_NEXT_SEASON
                     or bool(
@@ -7678,6 +7701,7 @@ class WatchlistAddBody(BaseModel):
     sample_url: str
     known_slugs: List[str]
     download_mode: str = WATCH_MODE_DEFAULT
+    cleanup_mode: str = CLEANUP_MODE_DEFAULT
     tmdb_id: Optional[int] = None
     aliases: Optional[List[str]] = None
     season_episode_counts: Optional[Dict[str, int]] = None
@@ -7688,6 +7712,8 @@ class WatchlistAddBody(BaseModel):
 async def api_watchlist_add(body: WatchlistAddBody):
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
+    if body.cleanup_mode not in CLEANUP_MODE_LABELS:
+        raise HTTPException(400, "Unbekannte Löschregel.")
     incoming_id = str(body.tmdb_id or "").strip()
     incoming_tmdb = None
     if incoming_id:
@@ -7766,6 +7792,10 @@ async def api_watchlist_add(body: WatchlistAddBody):
             }
             entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
             entry["download_mode"] = normalize_watch_mode(body.download_mode)
+            entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
+            entry["cleanup_history"] = []
+            entry["cleanup_deleted_count"] = 0
+            entry["cleanup_last_error"] = ""
             entry["failed_downloads"] = {}
             entry["last_error"] = ""
             entry["mode_generation"] = 0
@@ -7796,24 +7826,38 @@ async def api_watchlist_add(body: WatchlistAddBody):
 class WatchlistModeBody(BaseModel):
     base_slug: str
     download_mode: str
+    cleanup_mode: Optional[str] = None
 
 
 @app.post("/api/watchlist/mode")
 async def api_watchlist_mode(body: WatchlistModeBody):
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
+    if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
+        raise HTTPException(400, "Unbekannte Löschregel.")
     with state.watchlist_lock:
         entry = watchlist_lookup(body.base_slug)
         if entry is None:
             raise HTTPException(404, "Nicht in der Bibliothek.")
-        previous_pending = set(state.watchlist_new_slugs.get(body.base_slug, set()))
+        previous_mode = normalize_watch_mode(entry.get("download_mode"))
+        mode_changed = previous_mode != body.download_mode
+        previous_pending = (
+            set(state.watchlist_new_slugs.get(body.base_slug, set()))
+            if mode_changed else set()
+        )
         entry["download_mode"] = body.download_mode
-        entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
+        if body.cleanup_mode is not None:
+            entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
+            if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
+                entry["cleanup_last_error"] = ""
+        if mode_changed:
+            entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
         entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
         entry["last_error"] = "Abo-Regel wird geprüft – Auto-Download pausiert"
         appconfig.save_watchlist(state.watchlist)
 
-    _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
+    if previous_pending:
+        _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
 
     def _mode_watchlist_check():
         try:
@@ -7917,12 +7961,30 @@ def _calculate_watchlist_entry_state(
         )
         if jf_episodes is not None else set()
     )
+    cleanup_history = normalize_episode_history(entry.get("cleanup_history"))
+    jf_existing.update(cleanup_history)
     jf_watched = (
         jf_client.watched_episodes_for_series(
             series.title, jf_user_episodes, aliases=aliases, series_ids=series_ids,
         )
         if jf_user_episodes is not None else None
     )
+    if jf_watched is not None:
+        jf_watched.update(cleanup_history)
+    cleanup_mode = normalize_cleanup_mode(entry.get("cleanup_mode"))
+    cleanup_items = []
+    if cleanup_mode != CLEANUP_MODE_KEEP and jf_user_episodes is not None:
+        cleanup_items = select_cleanup_items(
+            jf_client.episode_items_for_series(
+                series.title,
+                jf_user_episodes,
+                aliases=aliases,
+                series_ids=series_ids,
+            ),
+            cleanup_mode,
+            entry.get("season_episode_counts") or {},
+            cleanup_history,
+        )
     mode = normalize_watch_mode(entry.get("download_mode"))
     if mode == WATCH_MODE_NEXT_SEASON:
         counts_checked_at = float(entry.get("season_counts_checked_at") or 0)
@@ -7951,14 +8013,17 @@ def _calculate_watchlist_entry_state(
     )
     return {
         "mode": mode,
+        "cleanup_mode": cleanup_mode,
         "known_slugs": [episode.slug for episode in series.all_episodes],
         "missing_slugs": missing_slugs,
+        "cleanup_items": cleanup_items,
     }
 
 
 def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     """Übernimmt ein Ergebnis und meldet nicht mehr benötigte Queue-Slugs."""
     entry["download_mode"] = calculated["mode"]
+    entry["cleanup_mode"] = calculated["cleanup_mode"]
     entry["known_slugs"] = calculated["known_slugs"]
     previous_slugs = set(state.watchlist_new_slugs.get(entry["base_slug"], set()))
     missing_slugs = set(calculated["missing_slugs"])
@@ -7989,6 +8054,93 @@ def _update_watchlist_entry_state(
         entry, series, jf_client, jf_episodes, jf_user_episodes, jf_series,
     )
     return _apply_watchlist_entry_state(entry, calculated)
+
+
+def _execute_watchlist_cleanup(
+    jobs: List[dict], jf_client: JellyfinClient, jellyfin_generation: int,
+) -> int:
+    """Löscht freigegebene Jellyfin-Episoden und merkt ihren Abo-Fortschritt.
+
+    Die Historie verhindert, dass absichtlich gelöschte Folgen beim nächsten
+    Abo-Lauf wieder als fehlend erkannt werden. Vor jedem externen DELETE wird
+    geprüft, ob die Löschregel noch unverändert aktiv ist.
+    """
+    deleted_total = 0
+    deleted_ids: set[str] = set()
+    changed = False
+    for job in jobs:
+        entry = job["entry"]
+        revision = int(job["revision"])
+        cleanup_mode = normalize_cleanup_mode(job["cleanup_mode"])
+        successful_pairs: set[tuple[int, int]] = set()
+        failed = 0
+        seen_ids: set[str] = set()
+
+        for item in job.get("items") or []:
+            item_id = str(item.get("id") or "").strip()
+            if not item_id or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            with state.jellyfin_cache_lock:
+                config_is_current = jellyfin_generation == state.jellyfin_config_generation
+                with state.watchlist_lock:
+                    rule_is_current = bool(
+                        any(current is entry for current in state.watchlist)
+                        and int(entry.get("check_generation", 0)) == revision
+                        and normalize_cleanup_mode(entry.get("cleanup_mode")) == cleanup_mode
+                        and cleanup_mode != CLEANUP_MODE_KEEP
+                    )
+            if not config_is_current or not rule_is_current:
+                break
+            if jf_client.delete_item(item_id):
+                successful_pairs.add((int(item["season"]), int(item["episode"])))
+                deleted_ids.add(item_id)
+                deleted_total += 1
+            else:
+                failed += 1
+
+        with state.watchlist_lock:
+            if not any(current is entry for current in state.watchlist):
+                continue
+            if successful_pairs:
+                history = normalize_episode_history(entry.get("cleanup_history"))
+                history.update(successful_pairs)
+                entry["cleanup_history"] = serialize_episode_history(history)
+                entry["cleanup_deleted_count"] = int(entry.get("cleanup_deleted_count", 0)) + len(
+                    successful_pairs
+                )
+                changed = True
+            if (
+                int(entry.get("check_generation", 0)) == revision
+                and normalize_cleanup_mode(entry.get("cleanup_mode")) == cleanup_mode
+            ):
+                entry["cleanup_last_run"] = time.time()
+                entry["cleanup_last_error"] = (
+                    f"{failed} Jellyfin-Element(e) konnten nicht gelöscht werden"
+                    if failed else ""
+                )
+                changed = True
+
+    if changed:
+        with state.watchlist_lock:
+            appconfig.save_watchlist(state.watchlist)
+    if deleted_ids:
+        with state.jellyfin_cache_lock:
+            if state.jellyfin_episodes is not None:
+                state.jellyfin_episodes = [
+                    item for item in state.jellyfin_episodes
+                    if str(item.get("id") or "") not in deleted_ids
+                ]
+            if state.jellyfin_user_episodes is not None:
+                state.jellyfin_user_episodes = [
+                    item for item in state.jellyfin_user_episodes
+                    if str(item.get("id") or "") not in deleted_ids
+                ]
+            state.jellyfin_episodes_time = 0.0
+            state.jellyfin_user_episodes_time = 0.0
+            state.jellyfin_episode_data_generation += 1
+        log(f"Jellyfin-Aufräumen: {deleted_total} gesehene Episode(n) gelöscht.")
+    return deleted_total
 
 
 def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False) -> int:
@@ -8058,6 +8210,7 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
 
     needs_watched_status = any(
         normalize_watch_mode(entry.get("download_mode")) == WATCH_MODE_NEXT_SEASON
+        or normalize_cleanup_mode(entry.get("cleanup_mode")) != CLEANUP_MODE_KEEP
         for entry, _revision in tracked
     )
     jf_user_episodes = get_jellyfin_user_episodes(force=refresh_jellyfin) if needs_watched_status else None
@@ -8069,6 +8222,7 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
 
     checked = 0
     withdrawn_slugs: set[str] = set()
+    cleanup_jobs: List[dict] = []
     for entry, revision in tracked:
         with state.jellyfin_cache_lock:
             if (
@@ -8084,6 +8238,11 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
                     continue
                 entry_snapshot = dict(entry)
         mode = normalize_watch_mode(entry_snapshot.get("download_mode"))
+        cleanup_mode = normalize_cleanup_mode(entry_snapshot.get("cleanup_mode"))
+        cleanup_status_missing = bool(
+            cleanup_mode != CLEANUP_MODE_KEEP
+            and (jf_user_episodes is None or not user_available)
+        )
         if mode == WATCH_MODE_NEXT_SEASON and (jf_user_episodes is None or not user_available):
             _set_error(entry, revision, "Jellyfin-Benutzerstatus nicht verfügbar")
             continue
@@ -8131,10 +8290,22 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
                         entry["season_counts_checked_at"] = entry_snapshot.get(
                             "season_counts_checked_at", 0,
                         )
+                    entry["cleanup_mode"] = cleanup_mode
+                    entry["cleanup_last_error"] = (
+                        "Jellyfin-Benutzerstatus nicht verfügbar"
+                        if cleanup_status_missing else ""
+                    )
                     state.series_cache[entry["base_slug"]] = series
                     withdrawn_slugs.update(
                         _apply_watchlist_entry_state(entry, calculated)
                     )
+                    if not cleanup_status_missing and calculated.get("cleanup_items"):
+                        cleanup_jobs.append({
+                            "entry": entry,
+                            "revision": revision,
+                            "cleanup_mode": cleanup_mode,
+                            "items": calculated["cleanup_items"],
+                        })
                     checked += 1
         except Exception as exc:
             _set_error(entry, revision, str(exc))
@@ -8152,6 +8323,8 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
             withdrawn_slugs,
             "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
         )
+    if data_is_current and cleanup_jobs:
+        _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
     return checked
 
 
@@ -8224,6 +8397,7 @@ async def api_watchlist_open(body: WatchlistOpenBody):
 
     def _sync_entry_from_loaded_series():
         withdrawn_slugs: set[str] = set()
+        cleanup_jobs: List[dict] = []
         with state.jellyfin_cache_lock:
             jellyfin_generation = state.jellyfin_config_generation
         jf_client = get_jellyfin_client()
@@ -8237,7 +8411,11 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                 return
             snapshot = dict(entry)
         mode = normalize_watch_mode(snapshot.get("download_mode"))
-        user_episodes = get_jellyfin_user_episodes() if mode == WATCH_MODE_NEXT_SEASON else None
+        cleanup_mode = normalize_cleanup_mode(snapshot.get("cleanup_mode"))
+        needs_user_status = (
+            mode == WATCH_MODE_NEXT_SEASON or cleanup_mode != CLEANUP_MODE_KEEP
+        )
+        user_episodes = get_jellyfin_user_episodes() if needs_user_status else None
         with state.jellyfin_cache_lock:
             jellyfin_data_generation = state.jellyfin_episode_data_generation
             episodes_available = state.jellyfin_episodes_available
@@ -8287,12 +8465,27 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                     withdrawn_slugs.update(
                         _apply_watchlist_entry_state(entry, calculated)
                     )
+                    entry["cleanup_last_error"] = (
+                        "Jellyfin-Benutzerstatus nicht verfügbar"
+                        if cleanup_mode != CLEANUP_MODE_KEEP
+                        and (user_episodes is None or not user_available)
+                        else ""
+                    )
+                    if not entry["cleanup_last_error"] and calculated.get("cleanup_items"):
+                        cleanup_jobs.append({
+                            "entry": entry,
+                            "revision": open_revision,
+                            "cleanup_mode": cleanup_mode,
+                            "items": calculated["cleanup_items"],
+                        })
                 appconfig.save_watchlist(state.watchlist)
         if withdrawn_slugs:
             _cancel_withdrawn_watchlist_slugs(
                 withdrawn_slugs,
                 "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
             )
+        if cleanup_jobs:
+            _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
 
     await run_in_threadpool(_sync_entry_from_loaded_series)
     with state.watchlist_lock:

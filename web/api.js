@@ -75,8 +75,12 @@ const api = {
 
   watchlistGet() { return this.get("/api/watchlist"); },
   watchlistAdd(entry) { return this.post("/api/watchlist/add", entry); },
-  watchlistMode(baseSlug, downloadMode) {
-    return this.post("/api/watchlist/mode", { base_slug: baseSlug, download_mode: downloadMode });
+  watchlistMode(baseSlug, downloadMode, cleanupMode) {
+    return this.post("/api/watchlist/mode", {
+      base_slug: baseSlug,
+      download_mode: downloadMode,
+      cleanup_mode: cleanupMode,
+    });
   },
   watchlistRemove(baseSlugs) { return this.post("/api/watchlist/remove", { base_slugs: baseSlugs }); },
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },

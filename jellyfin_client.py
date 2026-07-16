@@ -12,9 +12,10 @@ import json
 import logging
 import re
 import unicodedata
+from urllib.error import HTTPError
 import urllib.request
 from typing import List, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +225,7 @@ class JellyfinClient:
             if season is None or episode is None or not series:
                 continue
             result.append({
+                "id": str(it.get("Id") or ""),
                 "series": series,
                 "series_id": str(it.get("SeriesId") or ""),
                 "season": season,
@@ -281,6 +283,7 @@ class JellyfinClient:
             if season is None or episode is None or not series:
                 continue
             result.append({
+                "id": str(item.get("Id") or ""),
                 "series": series,
                 "series_id": str(item.get("SeriesId") or ""),
                 "season": int(season),
@@ -367,6 +370,52 @@ class JellyfinClient:
                 else _normalize(item.get("series", "")) in normalized_titles
             )
         }
+
+    def episode_items_for_series(
+        self, series_title: str, items: Optional[List[dict]], aliases=(), series_ids=None,
+    ) -> List[dict]:
+        """Liefert die vollständigen Episodenobjekte einer eindeutig erkannten Serie."""
+        if items is None:
+            return []
+        normalized_titles = {
+            _normalize(title) for title in (series_title, *aliases) if _normalize(title)
+        }
+        wanted_ids = (
+            {str(series_id) for series_id in series_ids if series_id}
+            if series_ids is not None else None
+        )
+        if not normalized_titles and wanted_ids is None:
+            return []
+        return [
+            item for item in items
+            if (
+                (str(item.get("series_id") or "") in wanted_ids)
+                if wanted_ids is not None
+                else _normalize(item.get("series", "")) in normalized_titles
+            )
+        ]
+
+    def delete_item(self, item_id: str) -> bool:
+        """Löscht ein Medienelement über Jellyfin; 404 gilt idempotent als erledigt."""
+        item_id = str(item_id or "").strip()
+        if not self.configured or not item_id:
+            return False
+        req = urllib.request.Request(
+            f"{self.base_url}/Items/{quote(item_id, safe='')}",
+            method="DELETE",
+            headers={"X-Emby-Token": self.api_key},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout):
+                return True
+        except HTTPError as exc:
+            if exc.code == 404:
+                return True
+            logger.warning("Jellyfin-Element %s konnte nicht gelöscht werden: HTTP %s", item_id, exc.code)
+            return False
+        except Exception as exc:
+            logger.warning("Jellyfin-Element %s konnte nicht gelöscht werden: %s", item_id, exc)
+            return False
 
     def series_ids_for(
         self, series_title: str, tmdb_id="", aliases=(), items: Optional[List[dict]] = None,

@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir
-from watchlist_policy import normalize_watch_mode
+from watchlist_policy import (
+    normalize_cleanup_mode,
+    normalize_episode_history,
+    normalize_watch_mode,
+    serialize_episode_history,
+)
 
 logger = logging.getLogger(__name__)
 _config_lock = threading.RLock()
@@ -456,7 +461,8 @@ def save_updater(update_mode: str, auto_update_interval_hours: int = 6) -> bool:
 # ---------------------------------------------------------------------------
 # Serien-Bibliothek (Watchlist): welche Serien werden auf neue Episoden geprüft.
 # Eintrag-Format: {"base_slug", "title", "sample_url", "known_slugs": [...],
-#                  "download_mode": "all|latest_season|next_season"}
+#                  "download_mode": "all|latest_season|next_season",
+#                  "cleanup_mode": "keep|watched_seasons|watched_episodes"}
 def load_watchlist() -> List[dict]:
     path = _watchlist_file()
     if not path.exists():
@@ -473,6 +479,10 @@ def load_watchlist() -> List[dict]:
                 logger.warning("Ungültiger Watchlist-Eintrag übersprungen: %r", entry)
                 continue
             entry["download_mode"] = normalize_watch_mode(entry.get("download_mode"))
+            entry["cleanup_mode"] = normalize_cleanup_mode(entry.get("cleanup_mode"))
+            entry["cleanup_history"] = serialize_episode_history(
+                normalize_episode_history(entry.get("cleanup_history"))
+            )
             entry["known_slugs"] = [
                 str(slug) for slug in entry.get("known_slugs", []) if isinstance(slug, str)
             ]

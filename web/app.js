@@ -40,6 +40,12 @@ const WATCH_MODE_EXPLANATIONS = {
     copy: "Royal prüft den gewählten Jellyfin-Benutzer regelmäßig. Eine weitere Staffel wird erst freigegeben, wenn die vorherige vollständig als gesehen markiert ist.",
   },
 };
+const WATCH_CLEANUP_DEFAULT = "keep";
+const WATCH_CLEANUP_LABELS = {
+  keep: "Behalten",
+  watched_seasons: "Staffel-Löschung",
+  watched_episodes: "Episoden-Löschung",
+};
 let watchModeContext = null;
 
 function escapeHtml(s) {
@@ -1250,6 +1256,7 @@ function openWatchModeModal(entry = null) {
   const stored = entry || state.wl.items.find((item) => item.base_slug === baseSlug);
   const tracked = Boolean(stored || series?.watchlisted);
   const mode = stored?.download_mode || series?.watch_mode || WATCH_MODE_DEFAULT;
+  const cleanupMode = stored?.cleanup_mode || series?.cleanup_mode || WATCH_CLEANUP_DEFAULT;
   const knownSlugs = series?.base_slug === baseSlug
     ? series.seasons.flatMap((season) => season.episodes.map((episode) => episode.slug))
     : (stored?.known_slugs || []);
@@ -1269,6 +1276,9 @@ function openWatchModeModal(entry = null) {
   document.querySelectorAll('input[name="watch-mode"]').forEach((radio) => {
     radio.checked = radio.value === mode;
   });
+  document.querySelectorAll('input[name="watch-cleanup"]').forEach((radio) => {
+    radio.checked = radio.value === cleanupMode;
+  });
   document.getElementById("watch-mode-remove").classList.toggle("hidden", !tracked);
   document.getElementById("watch-mode-save").textContent = tracked ? "Regel übernehmen" : "Abo speichern";
   document.getElementById("watch-mode-status").textContent = "";
@@ -1279,12 +1289,17 @@ function openWatchModeModal(entry = null) {
 
 function updateWatchModeRequirement() {
   const selected = document.querySelector('input[name="watch-mode"]:checked')?.value;
+  const cleanupSelected = document.querySelector('input[name="watch-cleanup"]:checked')?.value
+    || WATCH_CLEANUP_DEFAULT;
   const status = document.getElementById("watch-mode-status");
   const explanation = WATCH_MODE_EXPLANATIONS[selected] || WATCH_MODE_EXPLANATIONS[WATCH_MODE_DEFAULT];
   document.getElementById("watch-mode-outcome-title").textContent = explanation.title;
   document.getElementById("watch-mode-outcome-copy").textContent = explanation.copy;
-  if (selected === "next_season" && !state.jellyfinUserConfigured) {
-    status.textContent = "Voraussetzung fehlt: Wähle unter Einstellungen → Jellyfin ein Wiedergabeprofil. Bis dahin wartet dieses Abo.";
+  if (!state.jellyfinUserConfigured && (selected === "next_season" || cleanupSelected !== WATCH_CLEANUP_DEFAULT)) {
+    const affected = selected === "next_season" && cleanupSelected !== WATCH_CLEANUP_DEFAULT
+      ? "Download- und Löschregel warten"
+      : (selected === "next_season" ? "Die Downloadregel wartet" : "Die Löschregel wartet");
+    status.textContent = `Voraussetzung fehlt: Wähle unter Einstellungen → Jellyfin ein Wiedergabeprofil. ${affected}.`;
   } else if (status.textContent.startsWith("Diese Regel wartet")) {
     status.textContent = "";
   } else if (status.textContent.startsWith("Voraussetzung fehlt")) {
@@ -1295,18 +1310,21 @@ function updateWatchModeRequirement() {
 async function saveWatchMode() {
   if (!watchModeContext) return;
   const selected = document.querySelector('input[name="watch-mode"]:checked')?.value;
+  const cleanupSelected = document.querySelector('input[name="watch-cleanup"]:checked')?.value
+    || WATCH_CLEANUP_DEFAULT;
   if (!selected) return;
   const saveBtn = document.getElementById("watch-mode-save");
   saveBtn.disabled = true;
   try {
     const data = watchModeContext.tracked
-      ? await api.watchlistMode(watchModeContext.baseSlug, selected)
+      ? await api.watchlistMode(watchModeContext.baseSlug, selected, cleanupSelected)
       : await api.watchlistAdd({
         base_slug: watchModeContext.baseSlug,
         title: watchModeContext.title,
         sample_url: watchModeContext.sampleUrl,
         known_slugs: watchModeContext.knownSlugs,
         download_mode: selected,
+        cleanup_mode: cleanupSelected,
         tmdb_id: watchModeContext.tmdbId,
         aliases: watchModeContext.aliases,
         season_episode_counts: watchModeContext.seasonEpisodeCounts,
@@ -1315,6 +1333,7 @@ async function saveWatchMode() {
     if (state.series.current?.base_slug === watchModeContext.baseSlug) {
       state.series.current.watchlisted = true;
       state.series.current.watch_mode = selected;
+      state.series.current.cleanup_mode = cleanupSelected;
     }
     applyWatchlist(data.watchlist);
     closeWatchModeModal();
@@ -1342,6 +1361,7 @@ function applyWatchlist(items) {
     const entry = items.find((item) => item.base_slug === series.base_slug);
     series.watchlisted = Boolean(entry);
     series.watch_mode = entry?.download_mode || WATCH_MODE_DEFAULT;
+    series.cleanup_mode = entry?.cleanup_mode || WATCH_CLEANUP_DEFAULT;
   }
   if (state.series.current) updateWatchBtn();
   renderWatchlist();
@@ -1357,6 +1377,7 @@ function subscriptionMonogram(title) {
 function watchlistStatusText(entry) {
   if (entry.status === "blocked") return entry.last_error || "Prüfung blockiert";
   if (entry.status === "failed") return `${entry.failed_count || 1} fehlgeschlagen · Retry geplant`;
+  if (entry.cleanup_last_error) return `Löschen pausiert · ${entry.cleanup_last_error}`;
   if (entry.status === "queued") return `${entry.queued_count || entry.new_count} in der Queue`;
   if (entry.status === "waiting_window") return `${entry.new_count} warten auf Zeitfenster`;
   if (entry.new_count) return `${entry.new_count} fehlen`;
@@ -1382,7 +1403,7 @@ function renderSeriesSubscriptions() {
   for (const entry of items) {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "subscription-card" + (entry.new_count || entry.status === "blocked" || entry.status === "failed" ? " has-new" : "");
+    card.className = "subscription-card" + (entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed" ? " has-new" : "");
     card.title = `${entry.title} öffnen`;
 
     const monogram = document.createElement("span");
@@ -1397,7 +1418,8 @@ function renderSeriesSubscriptions() {
     const meta = document.createElement("span");
     meta.className = "subscription-meta";
     const modeLabel = entry.download_mode_label || WATCH_MODE_LABELS[entry.download_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
-    meta.textContent = `${modeLabel} · ${watchlistStatusText(entry)}`;
+    const cleanupLabel = WATCH_CLEANUP_LABELS[entry.cleanup_mode] || WATCH_CLEANUP_LABELS[WATCH_CLEANUP_DEFAULT];
+    meta.textContent = `${modeLabel}${entry.cleanup_mode !== WATCH_CLEANUP_DEFAULT ? ` · ${cleanupLabel}` : ""} · ${watchlistStatusText(entry)}`;
     text.append(title, meta);
     card.append(monogram, text);
 
@@ -1418,9 +1440,9 @@ async function refreshWatchlist() {
 
 // ── Benachrichtigungs-Glocke ─────────────────────────────────────────────
 function renderNotifBell() {
-  const withNotice = state.wl.items.filter((e) => e.new_count || e.status === "blocked" || e.status === "failed");
+  const withNotice = state.wl.items.filter((e) => e.new_count || e.cleanup_last_error || e.status === "blocked" || e.status === "failed");
   const total = withNotice.reduce((sum, e) => sum + e.new_count, 0);
-  const issueCount = withNotice.filter((entry) => entry.status === "blocked" || entry.status === "failed").length;
+  const issueCount = withNotice.filter((entry) => entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed").length;
   const bell = document.getElementById("notif-bell");
   const badge = document.getElementById("notif-badge");
   const triggerLabel = document.getElementById("notif-trigger-label");
@@ -1466,11 +1488,13 @@ function renderNotifBell() {
     const count = document.createElement("span");
     count.className = "notif-count";
     const countValue = document.createElement("strong");
-    countValue.textContent = entry.status === "blocked" ? "!" : String(entry.failed_count || entry.new_count);
+    countValue.textContent = entry.status === "blocked" || entry.cleanup_last_error ? "!" : String(entry.failed_count || entry.new_count);
     const countLabel = document.createElement("small");
     countLabel.textContent = entry.status === "blocked"
       ? "Blockiert"
-      : (entry.status === "failed" ? "Fehler" : (entry.new_count === 1 ? "Episode" : "Episoden"));
+      : (entry.status === "failed"
+        ? "Fehler"
+        : (entry.cleanup_last_error ? "Löschen" : (entry.new_count === 1 ? "Episode" : "Episoden")));
     count.append(countValue, countLabel);
     const arrow = document.createElement("span");
     arrow.className = "notif-item-arrow";
@@ -1531,8 +1555,10 @@ function renderWatchlist() {
     const rule = document.createElement("button");
     rule.type = "button";
     rule.className = "wl-rule-btn";
-    rule.textContent = entry.download_mode_label || WATCH_MODE_LABELS[entry.download_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
-    rule.title = "Abo-Regel ändern";
+    const downloadLabel = entry.download_mode_label || WATCH_MODE_LABELS[entry.download_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
+    const cleanupLabel = WATCH_CLEANUP_LABELS[entry.cleanup_mode] || WATCH_CLEANUP_LABELS[WATCH_CLEANUP_DEFAULT];
+    rule.textContent = `${downloadLabel}${entry.cleanup_mode !== WATCH_CLEANUP_DEFAULT ? ` · ${cleanupLabel}` : ""}`;
+    rule.title = "Abo- und Löschregel ändern";
     rule.addEventListener("click", (event) => {
       event.stopPropagation();
       openWatchModeModal(entry);
@@ -2287,6 +2313,9 @@ async function initApp() {
   document.getElementById("watch-mode-save").addEventListener("click", saveWatchMode);
   document.getElementById("watch-mode-remove").addEventListener("click", removeWatchModeSubscription);
   document.querySelectorAll('input[name="watch-mode"]').forEach((radio) => {
+    radio.addEventListener("change", updateWatchModeRequirement);
+  });
+  document.querySelectorAll('input[name="watch-cleanup"]').forEach((radio) => {
     radio.addEventListener("change", updateWatchModeRequirement);
   });
   document.getElementById("watch-mode-modal").addEventListener("click", (event) => {
