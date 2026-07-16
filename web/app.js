@@ -48,6 +48,7 @@ const WATCH_CLEANUP_LABELS = {
   watched_episodes: "Episoden-Löschung",
 };
 let watchModeContext = null;
+let watchModeReturnFocus = null;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -531,10 +532,17 @@ async function refreshSeriesJellyfinStatus(force = false) {
 
 function setFpJellyfinBadge(badge, owned) {
   badge.className = `jellyfin-badge ${owned ? "owned" : "dim"}`;
-  badge.textContent = owned ? "✓ da" : "—";
+  badge.textContent = owned ? "JF · DA" : "—";
   badge.title = owned
     ? "Bereits in der Jellyfin-Bibliothek gefunden"
     : "Nicht in der Jellyfin-Bibliothek gefunden";
+}
+
+function setFpPosterJellyfinBadge(badge, owned) {
+  badge.hidden = !owned;
+  badge.textContent = "JF · DA";
+  badge.title = "Bereits in der Jellyfin-Bibliothek gefunden";
+  badge.setAttribute("aria-label", "In Jellyfin vorhanden");
 }
 
 function updateFpJellyfinBadges() {
@@ -543,6 +551,8 @@ function updateFpJellyfinBadges() {
     const result = resultsBySlug.get(row.dataset.slug);
     const badge = row.querySelector(".jellyfin-badge");
     if (result && badge) setFpJellyfinBadge(badge, !!result.in_jellyfin);
+    const posterBadge = row.querySelector(".result-card-library-badge");
+    if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, !!result.in_jellyfin);
   }
 }
 
@@ -553,7 +563,7 @@ function mediaCardInitials(title) {
     .toUpperCase();
 }
 
-function createResultCardVisual(media, title, kind) {
+function createResultCardVisual(media, title, kind, inJellyfin = false) {
   const visual = document.createElement("span");
   visual.className = "result-card-visual";
 
@@ -581,6 +591,12 @@ function createResultCardVisual(media, title, kind) {
   openMark.textContent = "↗";
   openMark.setAttribute("aria-hidden", "true");
   visual.append(kindMark, openMark);
+  if (kind === "movie") {
+    const libraryBadge = document.createElement("span");
+    libraryBadge.className = "result-card-library-badge";
+    setFpPosterJellyfinBadge(libraryBadge, inJellyfin);
+    visual.appendChild(libraryBadge);
+  }
   return visual;
 }
 
@@ -622,7 +638,9 @@ function updateFpResultCard(slug) {
   const row = findFpResultCard(slug);
   if (!result || !row) return;
   const oldVisual = row.querySelector(".result-card-visual");
-  oldVisual?.replaceWith(createResultCardVisual(fpResultMedia(result), result.title, "movie"));
+  oldVisual?.replaceWith(createResultCardVisual(
+    fpResultMedia(result), result.title, "movie", !!result.in_jellyfin,
+  ));
   const availability = fpResultAvailability(result);
   const stateLabel = row.querySelector(".result-card-state");
   if (stateLabel) {
@@ -696,7 +714,7 @@ function renderFpResults() {
     row.setAttribute("aria-current", String(selected));
     row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
 
-    const visual = createResultCardVisual(media, result.title, "movie");
+    const visual = createResultCardVisual(media, result.title, "movie", !!result.in_jellyfin);
 
     const copy = document.createElement("span");
     copy.className = "result-card-copy";
@@ -751,7 +769,12 @@ function applyFpResults(data) {
     ? data.sources.filter((source) => Number(source.count) > 0)
     : [];
   state.fp.selectedSlug = null;
-  state.fp.pendingPreload = null;
+  const pendingSlugs = new Set(
+    data.results
+      .filter((result) => !state.fp.metadataCache[result.slug])
+      .map((result) => result.slug),
+  );
+  state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
   renderFpResults();
   const pager = document.getElementById("fp-pager");
   if (data.category) {
@@ -772,13 +795,7 @@ function applyFpResults(data) {
   } else {
     pager.classList.add("hidden");
   }
-  const requestId = state.fp.requestSeq;
-  const first = data.results[0];
-  if (first) {
-    document.getElementById("fp-detail-cover").removeAttribute("src");
-    document.getElementById("fp-detail-title").textContent = "Lade Cover und Beschreibung …";
-    loadFpMetadata(first, requestId).finally(() => preloadTmdbMetadata(requestId, first.slug));
-  }
+  if (data.results.length) void preloadTmdbMetadata(state.fp.requestSeq);
 }
 
 async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
@@ -819,11 +836,14 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
   }
 }
 
-async function preloadTmdbMetadata(requestId, excludeSlug = "") {
+async function preloadTmdbMetadata(requestId) {
   const items = state.fp.results
-    .filter((r) => r.slug !== excludeSlug && !state.fp.metadataCache[r.slug])
+    .filter((r) => !state.fp.metadataCache[r.slug])
     .map((r) => ({ slug: r.slug, title: r.title, year: r.year || "" }));
-  if (!items.length) return;
+  if (!items.length) {
+    state.fp.pendingPreload = null;
+    return;
+  }
   const visibleSlugs = new Set(items.map((item) => item.slug));
   try {
     const response = await api.tmdbMovies(items);
@@ -840,6 +860,11 @@ async function preloadTmdbMetadata(requestId, excludeSlug = "") {
       showFpDetail(selected, metadataPreviewMovie(state.fp.metadataCache[selected]), true);
     }
   } catch (e) { /* Anbieter-Metadaten bleiben als Fallback sichtbar. */ }
+  finally {
+    if (requestId !== state.fp.requestSeq) return;
+    state.fp.pendingPreload = null;
+    for (const slug of visibleSlugs) updateFpResultCard(slug);
+  }
 }
 
 async function fpSearch() {
@@ -1519,6 +1544,10 @@ function closeWatchModeModal() {
   document.getElementById("watch-mode-modal").classList.add("hidden");
   document.getElementById("watch-mode-status").textContent = "";
   watchModeContext = null;
+  if (watchModeReturnFocus instanceof HTMLElement && watchModeReturnFocus.isConnected) {
+    watchModeReturnFocus.focus();
+  }
+  watchModeReturnFocus = null;
 }
 
 function openWatchModeModal(entry = null) {
@@ -1531,6 +1560,7 @@ function openWatchModeModal(entry = null) {
   const cleanupMode = tracked
     ? (stored?.cleanup_mode || series?.cleanup_mode || WATCH_CLEANUP_DEFAULT)
     : state.watchlistCleanupDefault;
+  watchModeReturnFocus = document.activeElement;
   const knownSlugs = series?.base_slug === baseSlug
     ? series.seasons.flatMap((season) => season.episodes.map((episode) => episode.slug))
     : (stored?.known_slugs || []);
@@ -2657,6 +2687,11 @@ async function initApp() {
     switchTab("bibliothek");
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !document.getElementById("watch-mode-modal").classList.contains("hidden")) {
+      event.preventDefault();
+      closeWatchModeModal();
+      return;
+    }
     if (handleMediaModalKeydown(event)) return;
     if (event.key !== "Escape") return;
     closeNotifDropdown();

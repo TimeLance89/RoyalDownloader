@@ -2381,6 +2381,17 @@ body.setup-open #dir-modal { z-index: 120; }
   z-index: 50;
   animation: backdrop-in 0.3s ease both;
 }
+#watch-mode-modal {
+  z-index: 180;
+  background: rgba(4, 3, 8, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+#watch-mode-modal .modal-box {
+  background: rgba(18, 12, 27, 0.98);
+  border-color: rgba(216, 183, 102, 0.34);
+  box-shadow: 0 34px 90px -24px rgba(0, 0, 0, 0.98), var(--glow-gold);
+}
 @keyframes backdrop-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -3910,6 +3921,37 @@ body.setup-open #dir-modal { z-index: 120; }
   font: 700 15px/1 "Outfit", "Segoe UI", sans-serif;
   transition: transform 0.22s var(--ease-spring), background 0.2s;
 }
+.result-card-library-badge {
+  position: absolute;
+  z-index: 4;
+  top: 11px;
+  left: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  color: #effff1;
+  background: rgba(23, 81, 45, 0.94);
+  border: 1px solid rgba(113, 225, 137, 0.82);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px -9px rgba(0, 0, 0, 0.95), 0 0 18px rgba(93, 214, 123, 0.22);
+  font: 800 8.5px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.result-card-library-badge::before {
+  content: "✓";
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: #15381e;
+  background: #8aeba0;
+  border-radius: 50%;
+  font-size: 9px;
+  letter-spacing: 0;
+}
+.result-card-meta .jellyfin-badge { display: none; }
 
 @media (min-width: 821px) {
   .tab-content.active {
@@ -4096,6 +4138,17 @@ body.setup-open #dir-modal { z-index: 120; }
     width: 32px;
     height: 32px;
     font-size: 13px;
+  }
+  .result-card-library-badge {
+    top: 8px;
+    left: 8px;
+    padding: 5px 7px;
+    font-size: 7.5px;
+  }
+  .result-card-library-badge::before {
+    width: 13px;
+    height: 13px;
+    font-size: 8px;
   }
   .result-card-title { font-size: 12.5px; }
   .result-card-subtitle { font-size: 8.5px; }
