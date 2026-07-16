@@ -530,9 +530,63 @@ class VOEBrowserPool:
             await browser.start()
             return browser
         except Exception as exc:
+            # nodriver wartet beim Start nur rund drei Sekunden auf Chromiums
+            # Debug-Port. Auf kleinen NAS-Systemen ist das beim Kaltstart oft
+            # zu kurz: Chromium läuft bereits, nodriver meldet aber trotzdem
+            # "Failed to connect to browser". Den laufenden Prozess deshalb
+            # noch eine Weile weiterverwenden, statt ihn sofort zu beenden und
+            # mehrfach neu zu starten.
+            if await self._recover_delayed_browser_start(browser):
+                self._log("Chrome ist nach verzögertem Start bereit.")
+                return browser
             diagnostic = await self._failed_browser_diagnostic(browser)
             detail = diagnostic or "Chromium beendete sich ohne Fehlerausgabe"
             raise RuntimeError(f"Chromium-Start fehlgeschlagen: {detail}") from exc
+
+    @staticmethod
+    async def _recover_delayed_browser_start(browser, timeout: float = 20.0) -> bool:
+        """Wartet bei nodrivers zu kurzem Start-Timeout weiter auf CDP."""
+        process = getattr(browser, "_process", None)
+        http = getattr(browser, "_http", None)
+        if (
+            process is None
+            or process.returncode is not None
+            or http is None
+            or getattr(browser, "info", None)
+        ):
+            return False
+
+        from nodriver.core._contradict import ContraDict
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout)
+        info = None
+        while process.returncode is None:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return False
+            try:
+                raw_info = await asyncio.wait_for(
+                    http.get("version"), timeout=min(2.0, remaining)
+                )
+                info = ContraDict(raw_info, silent=True)
+                if info:
+                    break
+                await asyncio.sleep(min(0.5, max(0.0, remaining)))
+            except Exception:
+                await asyncio.sleep(min(0.5, max(0.0, remaining)))
+
+        if not info or process.returncode is not None:
+            return False
+
+        try:
+            browser.info = info
+            browser.websocket_url = info.webSocketDebuggerUrl
+            await browser.attach()
+            await browser.update_targets()
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     async def _failed_browser_diagnostic(browser) -> str:

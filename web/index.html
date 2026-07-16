@@ -620,7 +620,7 @@
   </div>
 </div>
 
-<div id="watch-mode-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="watch-mode-title">
+<div id="watch-mode-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="watch-mode-title" aria-describedby="watch-mode-description">
   <div class="modal-box watch-mode-box">
     <div class="modal-head">
       <span>ABO-EINSTELLUNG</span>
@@ -629,27 +629,48 @@
     <div class="watch-mode-intro">
       <span class="watch-mode-kicker">DOWNLOADUMFANG</span>
       <h2 id="watch-mode-title">Serie abonnieren</h2>
-      <p>Geladen wird nur, was weder in Jellyfin noch im Serienordner vorhanden ist.</p>
+      <p id="watch-mode-description">Lege fest, welche fehlenden Folgen zu diesem Abo gehören. Die Regel gilt jetzt und bei jeder späteren Prüfung.</p>
+      <p class="watch-mode-safety"><span aria-hidden="true">✓</span> Bereits in Jellyfin oder im Serienordner vorhandene Folgen werden übersprungen.</p>
     </div>
     <div class="watch-mode-options" role="radiogroup" aria-label="Abo-Regel">
       <label class="watch-mode-option">
         <input type="radio" name="watch-mode" value="all">
         <span class="watch-mode-track" aria-hidden="true"><b>S1</b><i></i><b>S2</b><i></i><b>…</b></span>
-        <span class="watch-mode-copy"><strong>Alles Fehlende</strong><small>Alle verfügbaren Staffeln vollständig nachladen.</small></span>
+        <span class="watch-mode-copy">
+          <span class="watch-mode-title-row"><strong>Alles Fehlende</strong><em>Komplett</em></span>
+          <small>Berücksichtigt Lücken in allen verfügbaren Staffeln.</small>
+          <span class="watch-mode-example">Beispiel: Bei S1–S4 werden fehlende Folgen aus jeder Staffel geladen.</span>
+        </span>
         <span class="watch-mode-check" aria-hidden="true">✓</span>
       </label>
       <label class="watch-mode-option">
         <input type="radio" name="watch-mode" value="latest_season">
         <span class="watch-mode-track" aria-hidden="true"><b>—</b><i></i><b>—</b><i></i><b>MAX</b></span>
-        <span class="watch-mode-copy"><strong>Nur neueste Staffel</strong><small>Alle fehlenden Episoden der höchsten verfügbaren Staffel.</small></span>
+        <span class="watch-mode-copy">
+          <span class="watch-mode-title-row"><strong>Nur neueste Staffel</strong><em>Aktuell</em></span>
+          <small>Berücksichtigt nur Lücken in der aktuell höchsten Staffel.</small>
+          <span class="watch-mode-example">Beispiel: Bei S1–S4 wird nur S4 vervollständigt. Später rückt S5 nach.</span>
+        </span>
         <span class="watch-mode-check" aria-hidden="true">✓</span>
       </label>
       <label class="watch-mode-option">
         <input type="radio" name="watch-mode" value="next_season">
         <span class="watch-mode-track" aria-hidden="true"><b>✓</b><i class="arrow">→</i><b>+1</b></span>
-        <span class="watch-mode-copy"><strong>Nächste Staffel nach Gesehen-Status</strong><small>Erst weiterladen, wenn die aktuelle Staffel beim gewählten Jellyfin-Benutzer vollständig gesehen wurde.</small></span>
+        <span class="watch-mode-copy">
+          <span class="watch-mode-title-row"><strong>Nach Gesehen-Status</strong><em>Jellyfin</em></span>
+          <small>Gibt immer nur die nächste noch nicht vollständig gesehene Staffel frei.</small>
+          <span class="watch-mode-example">Beispiel: S1 vollständig gesehen → S2 laden. Danach wartet das Abo.</span>
+        </span>
         <span class="watch-mode-check" aria-hidden="true">✓</span>
       </label>
+    </div>
+    <div class="watch-mode-outcome">
+      <span class="watch-mode-outcome-mark" aria-hidden="true">i</span>
+      <div>
+        <span class="watch-mode-outcome-label">WAS DANACH PASSIERT</span>
+        <strong id="watch-mode-outcome-title">Die neueste Staffel bleibt im Fokus</strong>
+        <p id="watch-mode-outcome-copy">Royal prüft die Serie sofort und danach regelmäßig. Bei aktivem Auto-Download landen Treffer in der Queue, sonst in der Abo-Inbox.</p>
+      </div>
     </div>
     <div id="watch-mode-status" class="watch-mode-status" role="status" aria-live="polite"></div>
     <div class="modal-actions watch-mode-actions">

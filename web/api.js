@@ -26,9 +26,10 @@ const api = {
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
-  seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false) {
+  seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
     return this.post("/api/series/load", {
-      sample_slug: sampleSlug, base_slug: baseSlug, refresh_jellyfin: refreshJellyfin,
+      sample_slug: sampleSlug, base_slug: baseSlug,
+      refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
     });
   },
 

@@ -2040,13 +2040,24 @@ def compute_downloaded_episodes(series: FilmpalastSeries) -> set:
     }
 
 
-def series_to_dict(series: FilmpalastSeries, refresh_jellyfin: bool = False) -> dict:
-    downloaded = compute_downloaded_episodes(series)
+def series_to_dict(
+    series: FilmpalastSeries,
+    refresh_jellyfin: bool = False,
+    defer_checks: bool = False,
+) -> dict:
+    """Serialisiert eine Serie, optional ohne blockierende Verfügbarkeitschecks.
+
+    Beim ersten Öffnen werden damit Staffel- und Episodenstruktur sofort nach
+    dem Anbieterabruf ausgeliefert. Lokaler Bestand, TMDB und Jellyfin dürfen
+    anschließend in einem getrennten Request nachziehen.
+    """
+    downloaded = set() if defer_checks else compute_downloaded_episodes(series)
     with state.watchlist_lock:
         stored_entry = watchlist_lookup(series.base_slug)
         watchlist_entry = dict(stored_entry) if stored_entry else None
     stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
-    tmdb = get_tmdb_series(series.title, stored_tmdb_id)
+    tmdb_client = get_tmdb_client()
+    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id)
     aliases = list(dict.fromkeys(filter(None, (
         watchlist_entry.get("title", "") if watchlist_entry else "",
         *(watchlist_entry.get("aliases", []) if watchlist_entry else []),
@@ -2061,38 +2072,39 @@ def series_to_dict(series: FilmpalastSeries, refresh_jellyfin: bool = False) -> 
         watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
     )
     jf_client = get_jellyfin_client()
-    with state.jellyfin_cache_lock:
-        jf_config_generation = state.jellyfin_config_generation
-    jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin) if jf_client.configured else None
-    jf_series = get_jellyfin_series(force=refresh_jellyfin) if jf_client.configured else None
-    with state.jellyfin_cache_lock:
-        jf_data_generation = state.jellyfin_episode_data_generation
-    jf_series_ids = jf_client.series_ids_for(
-        series.title, tmdb_id=tmdb_id, aliases=aliases, items=jf_series,
-    ) if jf_series is not None else set()
-    jf_identity_available = (
-        (not jf_client.configured)
-        or (
+    jellyfin_pending = bool(defer_checks and jf_client.configured)
+    jf_identity_available: Optional[bool] = None if jellyfin_pending else True
+    jf_existing: set[tuple[int, int]] = set()
+    if jf_client.configured and not jellyfin_pending:
+        with state.jellyfin_cache_lock:
+            jf_config_generation = state.jellyfin_config_generation
+        jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin)
+        jf_series = get_jellyfin_series(force=refresh_jellyfin)
+        with state.jellyfin_cache_lock:
+            jf_data_generation = state.jellyfin_episode_data_generation
+        jf_series_ids = jf_client.series_ids_for(
+            series.title, tmdb_id=tmdb_id, aliases=aliases, items=jf_series,
+        ) if jf_series is not None else set()
+        jf_identity_available = bool(
             jf_episodes is not None
             and state.jellyfin_episodes_available
             and jf_series is not None
             and state.jellyfin_series_available
             and jf_series_ids is not None
         )
-    )
-    jf_existing = (
-        jf_client.episodes_for_series(
-            series.title, items=jf_episodes, aliases=aliases, series_ids=jf_series_ids,
+        jf_existing = (
+            jf_client.episodes_for_series(
+                series.title, items=jf_episodes, aliases=aliases, series_ids=jf_series_ids,
+            )
+            if jf_identity_available and jf_episodes is not None else set()
         )
-        if jf_identity_available and jf_episodes is not None else set()
-    )
-    with state.jellyfin_cache_lock:
-        if (
-            jf_config_generation != state.jellyfin_config_generation
-            or jf_data_generation != state.jellyfin_episode_data_generation
-        ):
-            jf_identity_available = False
-            jf_existing = set()
+        with state.jellyfin_cache_lock:
+            if (
+                jf_config_generation != state.jellyfin_config_generation
+                or jf_data_generation != state.jellyfin_episode_data_generation
+            ):
+                jf_identity_available = False
+                jf_existing = set()
     seasons = []
     for s in series.season_numbers:
         episodes = []
@@ -2112,6 +2124,12 @@ def series_to_dict(series: FilmpalastSeries, refresh_jellyfin: bool = False) -> 
         "genres": series.genres, "seasons": seasons,
         "episode_count": len(series.all_episodes),
         "watchlisted": watchlist_entry is not None,
+        "availability_pending": defer_checks,
+        "enrichment_pending": bool(
+            defer_checks and (tmdb_client.configured or jf_client.configured)
+        ),
+        "jellyfin_configured": jf_client.configured,
+        "jellyfin_pending": jellyfin_pending,
         "jellyfin_available": jf_identity_available,
         "watch_mode": normalize_watch_mode(
             watchlist_entry.get("download_mode") if watchlist_entry else None
@@ -6454,7 +6472,8 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
                 provider = provider_for_value(stub.sample_slug or stub.base_slug or stub.sample_url)
                 entry = _SeriesCatalogEntry(provider, stub, (provider,))
                 return {
-                    "entries": [entry], "direct_series": series_to_dict(series),
+                    "entries": [entry],
+                    "direct_series": series_to_dict(series, defer_checks=True),
                     "mode": "search", "page": 1, "has_more": False,
                     "sources": _series_catalog_sources(
                         [entry], provider_priority("series"),
@@ -6492,6 +6511,7 @@ class SeriesLoadBody(BaseModel):
     sample_slug: str
     base_slug: str = ""
     refresh_jellyfin: bool = False
+    defer_checks: bool = False
 
 
 @app.post("/api/series/load")
@@ -6503,7 +6523,11 @@ async def api_series_load(body: SeriesLoadBody):
         if series is None:
             return None, None
         state.series_cache[series.base_slug] = series
-        return series, series_to_dict(series, refresh_jellyfin=body.refresh_jellyfin)
+        return series, series_to_dict(
+            series,
+            refresh_jellyfin=body.refresh_jellyfin,
+            defer_checks=body.defer_checks,
+        )
 
     series, payload = await run_in_threadpool(_work)
     if series is None:

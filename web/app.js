@@ -26,6 +26,20 @@ const WATCH_MODE_LABELS = {
   latest_season: "Neueste Staffel",
   next_season: "Nächste Staffel nach Gesehen-Status",
 };
+const WATCH_MODE_EXPLANATIONS = {
+  all: {
+    title: "Das Abo hält die komplette Serie vollständig",
+    copy: "Royal prüft sofort alle Staffeln und danach regelmäßig weiter. Bei aktivem Auto-Download landen Treffer in der Queue, sonst in der Abo-Inbox.",
+  },
+  latest_season: {
+    title: "Die neueste Staffel bleibt im Fokus",
+    copy: "Royal prüft sofort die höchste Staffel. Sobald eine neue Staffel erscheint, wird diese zum neuen Ziel. Treffer landen je nach Automatik in der Queue oder Abo-Inbox.",
+  },
+  next_season: {
+    title: "Das Abo folgt deinem Sehfortschritt",
+    copy: "Royal prüft den gewählten Jellyfin-Benutzer regelmäßig. Eine weitere Staffel wird erst freigegeben, wenn die vorherige vollständig als gesehen markiert ist.",
+  },
+};
 let watchModeContext = null;
 
 function escapeHtml(s) {
@@ -352,6 +366,32 @@ async function refreshFpJellyfinStatus() {
   } catch (e) { /* JF bleibt optional. */ }
 }
 
+function updateSeriesStatus(series) {
+  if (!series) return;
+  const status = document.getElementById("series-status");
+  if (series.availability_error) {
+    status.textContent = `${series.episode_count} Episoden · Verfügbarkeitsprüfung fehlgeschlagen`;
+    return;
+  }
+  if (series.availability_pending) {
+    status.textContent = `${series.episode_count} Episoden · Verfügbarkeit wird geprüft …`;
+    return;
+  }
+  if (series.jellyfin_available === false) {
+    status.textContent = `${series.episode_count} Episoden · Jellyfin-Abgleich nicht verfügbar`;
+    return;
+  }
+  if (series.jellyfin_configured) {
+    const jellyfinCount = (series.seasons || []).reduce(
+      (sum, season) => sum + season.episodes.filter((episode) => episode.in_jellyfin).length,
+      0,
+    );
+    status.textContent = `${series.episode_count} Episoden · ${jellyfinCount} in Jellyfin`;
+    return;
+  }
+  status.textContent = `${series.episode_count} Episoden`;
+}
+
 async function refreshSeriesJellyfinStatus(force = false) {
   const current = state.series.current;
   if (!current) return false;
@@ -371,17 +411,23 @@ async function refreshSeriesJellyfinStatus(force = false) {
     pruneSeriesEpisodeSelection();
     updateWatchBtn();
     renderSeriesTiles();
-    const jellyfinCount = refreshed.seasons.reduce(
-      (sum, season) => sum + season.episodes.filter((episode) => episode.in_jellyfin).length,
-      0,
-    );
-    document.getElementById("series-status").textContent =
-      refreshed.jellyfin_available === false
-        ? `${refreshed.episode_count} Episoden · Jellyfin-Abgleich nicht verfügbar`
-        : `${refreshed.episode_count} Episoden · ${jellyfinCount} in Jellyfin`;
+    updateSeriesStatus(refreshed);
     return true;
   } catch (error) {
     console.warn("Serienstatus konnte nicht live aktualisiert werden:", error);
+    const isLatestForSeries = state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration;
+    const isSameView = state.series.viewGeneration === viewGeneration;
+    if (
+      isLatestForSeries
+      && isSameView
+      && state.series.current?.base_slug === baseSlug
+      && state.series.current.availability_pending
+    ) {
+      state.series.current.availability_error = true;
+      state.series.cache[baseSlug] = state.series.current;
+      renderSeriesTiles();
+      updateSeriesStatus(state.series.current);
+    }
     return false;
   } finally {
     if (state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration) {
@@ -772,6 +818,8 @@ function isEpisodeQueued(episode) {
 function isEpisodeSelectable(episode) {
   return Boolean(
     episode
+    && state.series.current?.availability_pending !== true
+    && state.series.current?.jellyfin_pending !== true
     && state.series.current?.jellyfin_available !== false
     && !episode.downloaded
     && !episode.in_jellyfin
@@ -906,6 +954,8 @@ async function seriesSearch() {
     applySeriesResults(data);
     if (data.direct_series) {
       showSeriesDetail(data.direct_series, firstEpisodeSlug(data.direct_series));
+      updateSeriesStatus(data.direct_series);
+      refreshSeriesJellyfinStatus();
     }
   } catch (error) {
     if (requestId !== state.series.browseRequestSeq) return;
@@ -972,20 +1022,18 @@ async function loadSeries(result) {
   const cached = state.series.cache[cacheKey];
   if (cached) {
     showSeriesDetail(cached, result.sample_slug);
-    document.getElementById("series-status").textContent =
-      `${cached.episode_count} Episoden · Jellyfin wird aktualisiert …`;
-    refreshSeriesJellyfinStatus(true);
+    updateSeriesStatus(cached);
+    refreshSeriesJellyfinStatus();
     return;
   }
 
-  document.getElementById("series-status").textContent = `Lade Staffeln für «${result.title}» …`;
+  document.getElementById("series-status").textContent = `Öffne Staffeln für «${result.title}» …`;
   try {
-    const series = await api.seriesLoad(result.sample_slug, result.base_slug || "", true);
+    const series = await api.seriesLoad(result.sample_slug, result.base_slug || "", false, true);
     if (requestId !== state.series.requestSeq) return;
     showSeriesDetail(series, result.sample_slug);
-    document.getElementById("series-status").textContent = series.jellyfin_available === false
-      ? `${series.episode_count} Episoden · Jellyfin-Abgleich nicht verfügbar`
-      : `${series.episode_count} Episoden`;
+    updateSeriesStatus(series);
+    refreshSeriesJellyfinStatus();
   } catch (e) {
     if (requestId !== state.series.requestSeq) return;
     state.series.pendingBaseSlug = "";
@@ -1001,10 +1049,18 @@ async function loadSeries(result) {
 function showSeriesLoading(result) {
   state.series.viewGeneration += 1;
   state.series.current = null;
-  document.getElementById("series-detail-title").textContent = `${result.title} · Staffeln werden geladen …`;
-  document.getElementById("series-cover").removeAttribute("src");
-  document.getElementById("series-genres").textContent = result.year || "";
-  document.getElementById("series-desc").textContent = "Die Serienakte ist bereits geöffnet. Episoden folgen sofort nach.";
+  document.getElementById("series-detail-title").textContent = result.title;
+  const cover = document.getElementById("series-cover");
+  if (result.cover_url) cover.src = api.coverUrl(result.cover_url);
+  else cover.removeAttribute("src");
+  const sourceLabels = (Array.isArray(result.sources) ? result.sources : [])
+    .map((source) => source.label)
+    .filter(Boolean);
+  const previewMeta = [result.year, ...sourceLabels].filter(Boolean);
+  if (!sourceLabels.length && result.provider_label) previewMeta.push(result.provider_label);
+  document.getElementById("series-genres").textContent = previewMeta.join(" · ");
+  document.getElementById("series-desc").textContent =
+    "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
   const tiles = document.getElementById("series-tiles");
   tiles.replaceChildren();
   const loading = document.createElement("div");
@@ -1041,7 +1097,9 @@ function showSeriesDetail(series, sampleSlug) {
   updateSeriesResultSelection();
   document.getElementById("series-detail-title").textContent =
     `${series.title}  ·  ${series.seasons.length} Staffel(n)  ·  ${series.episode_count} Episoden`;
-  document.getElementById("series-cover").src = api.coverUrl(series.cover_url);
+  const cover = document.getElementById("series-cover");
+  if (series.cover_url) cover.src = api.coverUrl(series.cover_url);
+  else cover.removeAttribute("src");
   const seriesMeta = [];
   if (series.year) seriesMeta.push(series.year);
   if (series.runtime) seriesMeta.push(series.runtime);
@@ -1070,7 +1128,14 @@ function renderSeriesTiles() {
   const series = state.series.current;
   if (!series) { document.getElementById("series-pick-count").textContent = "0 ausgewählt"; return; }
   pruneSeriesEpisodeSelection();
-  if (series.jellyfin_available === false) {
+  if (series.availability_pending) {
+    const warning = document.createElement("div");
+    warning.className = "series-loading";
+    warning.textContent = series.availability_error
+      ? "Auswahl pausiert: Die Verfügbarkeit konnte noch nicht geprüft werden."
+      : "Staffeln sind da · Bestand und Metadaten werden im Hintergrund geprüft …";
+    container.appendChild(warning);
+  } else if (series.jellyfin_available === false) {
     const warning = document.createElement("div");
     warning.className = "series-loading";
     warning.textContent = "Auswahl pausiert: Jellyfin konnte nicht eindeutig abgeglichen werden.";
@@ -1094,7 +1159,9 @@ function renderSeriesTiles() {
       tile.className = "ep-tile " + tileClass(ep) + (ep.in_jellyfin ? " in-jellyfin" : "");
       tile.textContent = String(ep.episode).padStart(2, "0");
       tile.disabled = !isEpisodeSelectable(ep);
-      if (ep.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
+      if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
+      else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
+      else if (ep.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
       else if (ep.downloaded) tile.title = "Bereits heruntergeladen";
       else if (isEpisodeQueued(ep)) tile.title = "Bereits in der Warteschlange";
       tile.addEventListener("click", () => toggleEpisodeTile(ep.slug));
@@ -1213,9 +1280,14 @@ function openWatchModeModal(entry = null) {
 function updateWatchModeRequirement() {
   const selected = document.querySelector('input[name="watch-mode"]:checked')?.value;
   const status = document.getElementById("watch-mode-status");
+  const explanation = WATCH_MODE_EXPLANATIONS[selected] || WATCH_MODE_EXPLANATIONS[WATCH_MODE_DEFAULT];
+  document.getElementById("watch-mode-outcome-title").textContent = explanation.title;
+  document.getElementById("watch-mode-outcome-copy").textContent = explanation.copy;
   if (selected === "next_season" && !state.jellyfinUserConfigured) {
-    status.textContent = "Diese Regel wartet, bis unter Einstellungen ein Jellyfin-Benutzer gewählt wurde.";
+    status.textContent = "Voraussetzung fehlt: Wähle unter Einstellungen → Jellyfin ein Wiedergabeprofil. Bis dahin wartet dieses Abo.";
   } else if (status.textContent.startsWith("Diese Regel wartet")) {
+    status.textContent = "";
+  } else if (status.textContent.startsWith("Voraussetzung fehlt")) {
     status.textContent = "";
   }
 }
