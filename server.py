@@ -403,7 +403,10 @@ def _set_updater_runtime(result: str, message: str, *, checked: bool = False) ->
 def _update_block_reason_locked() -> str:
     if state.dl_queue.active_count() or state.dl_queue.pending_count():
         return "Laufende oder wartende Downloads"
-    if state.gated_retry_pending or state.queue_prepare_lock.locked():
+    if state.queue_prepare_lock.locked():
+        return "Downloadvorbereitung oder Wiederholungsversuch läuft"
+    _reconcile_idle_queue_state_locked()
+    if state.gated_retry_pending:
         return "Downloadvorbereitung oder Wiederholungsversuch läuft"
     return ""
 
@@ -2548,12 +2551,55 @@ def on_queue_done():
         _on_queue_done_locked()
 
 
+def _reconcile_idle_queue_state_locked() -> int:
+    """Beendet verwaiste Zaehltoken und entfernt alte Gate-Sperrmarker."""
+    if (
+        state.dl_queue.active_count()
+        or state.dl_queue.pending_count()
+        or state.queue_prepare_lock.locked()
+    ):
+        return 0
+
+    with state.queue_claim_lock:
+        with state.download_state_lock:
+            counted = set(state.counted_queue_slugs)
+        claimed = set(state.picked)
+        queued_retries = set(state.gated_retry_jobs) & counted & claimed
+        running_retries = set()
+        if state.gated_retry_worker_running:
+            running_retries = set(state.gated_retry_slugs) & counted & claimed
+        valid_retries = queued_retries | running_retries
+
+        for slug in set(state.gated_retry_jobs) - valid_retries:
+            state.gated_retry_jobs.pop(slug, None)
+        state.gated_retry_slugs.intersection_update(valid_retries)
+        state.gated_retry_pending = bool(valid_retries)
+        orphaned = counted - valid_retries
+        restart_retry_worker = bool(queued_retries) and not state.gated_retry_worker_running
+
+    if restart_retry_worker:
+        _ensure_gated_retry_worker()
+
+    for slug in sorted(orphaned):
+        movie = state.fp_movies.get(slug)
+        label = movie.title if movie is not None else slug
+        on_job_done(
+            False,
+            "Downloadvorbereitung ohne Abschluss beendet",
+            label,
+            Path(""),
+            slug=slug,
+        )
+    return len(orphaned)
+
+
 def _on_queue_done_locked():
     # Ein alter Scheduler kann auslaufen, während bereits ein neuer
     # Vorbereitungsjob eingereiht wurde. Dann gehört dieses Done-Ereignis noch
     # nicht zum tatsächlichen Ende der gemeinsamen Auto-Queue.
     if state.dl_queue.active_count() or state.dl_queue.pending_count():
         return
+    _reconcile_idle_queue_state_locked()
     # Zwischen Captcha-Wellen: noch nicht „fertig" melden und Browser-Pools offen
     # lassen (die nächste Welle zieht die verzögerten Episoden gleich nach).
     if state.gated_retry_pending:
@@ -6590,17 +6636,18 @@ class _QueuePreparationJob:
         self._cancelled.set()
 
     def _run(self):
+        queued_slugs: set[str] = set()
         try:
             with state.queue_prepare_lock:
                 if self._cancelled.is_set():
                     return
-                run_download_queue(
+                queued_slugs = run_download_queue(
                     self.jobs,
                     self.out_root,
                     start_queue=False,
                     cancelled=self._cancelled.is_set,
                     movie_fallbacks=self.movie_fallbacks,
-                )
+                ) or set()
         except Exception as exc:
             log(f"Automatische Downloadvorbereitung fehlgeschlagen: {exc}", "err")
             for movie, slug in self.jobs:
@@ -6609,6 +6656,16 @@ class _QueuePreparationJob:
                     movie.title, Path(""), slug=slug,
                 )
         finally:
+            if not self._cancelled.is_set():
+                for movie, slug in self.jobs:
+                    if slug not in queued_slugs and _queue_slug_claimed(slug):
+                        on_job_done(
+                            False,
+                            "Downloadvorbereitung ohne Abschluss beendet",
+                            movie.title,
+                            Path(""),
+                            slug=slug,
+                        )
             # Falls während einer laufenden Extraktion abgebrochen wurde, dürfen
             # danach erzeugte echte DownloadJobs nicht liegenbleiben/anlaufen.
             if self._cancelled.is_set():
