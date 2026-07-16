@@ -87,15 +87,15 @@
       </div>
 
       <div class="split">
-        <div class="panel results-panel">
+        <div class="panel results-panel" aria-label="Filmregal">
           <div class="panel-head">
-            <span class="panel-title">Suchergebnisse</span>
+            <span class="panel-title">Filmregal</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div class="list-head movie-row">
             <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
           </div>
-          <div id="fp-results" class="list"></div>
+          <div id="fp-results" class="list result-shelf" aria-label="Filmergebnisse"></div>
           <div id="fp-pager" class="pager hidden">
             <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
@@ -124,7 +124,7 @@
             <article class="detail-text">
               <header class="detail-title-block">
                 <div id="fp-detail-genres" class="detail-genres"></div>
-                <h2 id="fp-detail-title">Kein Film ausgewählt</h2>
+                <h2 id="fp-detail-title">Wähle einen Film aus dem Regal</h2>
                 <div id="fp-detail-meta" class="detail-meta"></div>
               </header>
               <div class="mission" aria-label="Filmdaten und Downloadroute">
@@ -134,7 +134,7 @@
               </div>
               <section class="detail-synopsis">
                 <span class="detail-section-title">Handlung</span>
-                <p id="fp-detail-desc">Film auswählen, um Handlung und Verfügbarkeit anzuzeigen.</p>
+                <p id="fp-detail-desc">Poster auswählen, um Handlung, Verfügbarkeit und Downloadroute anzuzeigen.</p>
               </section>
               <div class="detail-queue-note">
                 <span>Startet automatisch · maximal 2 Downloads gleichzeitig</span>
@@ -168,12 +168,12 @@
       </section>
 
       <div class="split">
-        <div class="panel results-panel">
+        <div class="panel results-panel" aria-label="Serienregal">
           <div class="panel-head">
-            <span class="panel-title">Serien-Ergebnisse</span>
+            <span class="panel-title">Serienregal</span>
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
-          <div id="series-results" class="list"></div>
+          <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
           <div id="series-pager" class="pager hidden">
             <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
@@ -479,37 +479,58 @@
     </section>
 
     <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
-    <aside class="sidebar" aria-label="Warteschlange">
+    <aside id="queue-dock" class="sidebar" aria-label="Downloadplan">
       <div class="panel queue-panel">
-        <div class="panel-head">
-          <span class="panel-title pink">WARTESCHLANGE</span>
-          <span id="queue-count" class="dim">0 markiert</span>
-          <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
-        </div>
-        <div id="queue-list" class="queue-list"></div>
-        <button id="queue-clear" class="btn btn-ghost">Alle entfernen</button>
-        <div id="download-stage" class="download-stage" data-state="idle">
-          <div class="download-state-row">
-            <span id="dl-state-icon" class="download-state-icon" aria-hidden="true">↓</span>
-            <div class="download-state-copy">
-              <span class="download-kicker">Download</span>
-              <strong id="dl-state-title">Bereit</strong>
-              <span id="dl-status" class="dim small-status">Neue Inhalte starten automatisch</span>
+        <div id="queue-drawer" class="queue-drawer" aria-hidden="true">
+          <section class="queue-drawer-main" aria-labelledby="queue-drawer-title">
+            <div class="panel-head">
+              <div class="queue-drawer-heading">
+                <span class="queue-drawer-kicker">ALS NÄCHSTES</span>
+                <span id="queue-drawer-title" class="panel-title pink">DOWNLOADPLAN</span>
+              </div>
+              <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
             </div>
-            <strong id="dl-percent" class="download-percent">0%</strong>
-          </div>
-          <div class="progress-bar" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <div id="progress-fill" class="progress-fill"></div>
-          </div>
+            <div id="queue-list" class="queue-list"></div>
+            <div class="download-actions queue-drawer-actions">
+              <button id="queue-clear" class="btn btn-ghost">Queue leeren</button>
+              <button id="cancel-btn" class="btn btn-ghost" disabled>Aktiven Download abbrechen</button>
+            </div>
+          </section>
+          <section class="queue-activity" aria-labelledby="queue-activity-title">
+            <div class="queue-activity-head">
+              <span class="queue-drawer-kicker">LIVE</span>
+              <strong id="queue-activity-title">Aktivität</strong>
+            </div>
+            <footer class="log-console" id="log-console" role="log" aria-live="polite"></footer>
+          </section>
         </div>
-        <div class="download-actions">
-          <button id="cancel-btn" class="btn btn-ghost" disabled>Abbrechen</button>
+        <div class="queue-dock-bar">
+          <div id="download-stage" class="download-stage" data-state="idle">
+            <div class="download-state-row">
+              <span id="dl-state-icon" class="download-state-icon" aria-hidden="true">↓</span>
+              <div class="download-state-copy">
+                <span class="download-kicker">Download</span>
+                <strong id="dl-state-title">Bereit</strong>
+                <span id="dl-status" class="dim small-status">Neue Inhalte starten automatisch</span>
+              </div>
+              <strong id="dl-percent" class="download-percent">0%</strong>
+            </div>
+            <div class="progress-bar" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+          </div>
+          <div class="queue-dock-meta">
+            <span>DOWNLOADPLAN</span>
+            <strong id="queue-count">0 Einträge</strong>
+          </div>
+          <button id="queue-dock-toggle" class="queue-dock-toggle" type="button" aria-expanded="false" aria-controls="queue-drawer">
+            <span class="queue-toggle-label">Queue öffnen</span>
+            <span class="queue-toggle-chevron" aria-hidden="true">⌃</span>
+          </button>
         </div>
       </div>
     </aside>
   </main>
-
-  <footer class="log-console" id="log-console"></footer>
 </div>
 
 <div id="setup-wizard" class="setup-wizard hidden" role="dialog" aria-modal="true" aria-labelledby="setup-title">

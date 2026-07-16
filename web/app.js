@@ -62,6 +62,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   // Im Einstellungen-Bereich die Download-Sidebar ausblenden (eigener Vollbereich).
   document.body.classList.toggle("settings-active", name === "einstellungen");
   closeMobileQueue();
+  if (name === "einstellungen") setQueueDockExpanded(false);
   state.tab = name;
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
   if (name === "serien" && autoLoad) ensureSeriesResults();
@@ -236,14 +237,21 @@ function renderQueue(payload) {
   state.queuedSlugs = new Set();
   for (const g of payload.groups) for (const it of g.items) state.queuedSlugs.add(it.slug);
   syncSeriesQueueFlags();
-  document.getElementById("queue-count").textContent = `${payload.count} markiert`;
-  document.getElementById("mobile-queue-count").textContent = String(payload.count);
+
+  const count = Number(payload.count) || 0;
+  document.getElementById("queue-count").textContent =
+    `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;
+  document.getElementById("mobile-queue-count").textContent = String(count);
+  document.getElementById("queue-dock").classList.toggle("has-items", count > 0);
+
   const list = document.getElementById("queue-list");
   list.innerHTML = "";
   if (!payload.groups.length) {
-    list.innerHTML = `<div class="queue-empty">Keine Downloads markiert</div>`;
+    list.innerHTML = `<div class="queue-empty"><strong>Der Downloadplan ist leer</strong><span>Filme oder Episoden erscheinen hier, sobald du sie hinzufügst.</span></div>`;
+    syncFpQueueIndicators();
     return;
   }
+
   let queuePosition = 0;
   for (const g of payload.groups) {
     const gEl = document.createElement("div");
@@ -268,16 +276,17 @@ function renderQueue(payload) {
       content.append(label, route);
       const status = document.createElement("span");
       status.className = "queue-item-status";
-      status.textContent = it.done ? "Fertig" : "Bereit";
+      status.textContent = it.done ? "Fertig" : "Wartet";
       const removeBtn = document.createElement("button");
       removeBtn.className = "remove-btn";
+      removeBtn.type = "button";
       removeBtn.textContent = "✕";
+      removeBtn.setAttribute("aria-label", `${it.title} aus der Queue entfernen`);
       removeBtn.addEventListener("click", async () => {
         removeBtn.disabled = true;
         try {
           const resp = await api.queueRemove(it.slug);
           renderQueue(resp.queue);
-          renderFpResults();
         } catch (error) {
           console.warn("Queue-Eintrag konnte nicht entfernt werden:", error);
           removeBtn.disabled = false;
@@ -287,17 +296,38 @@ function renderQueue(payload) {
       list.appendChild(row);
     }
   }
+  syncFpQueueIndicators();
+}
+
+function setQueueDockExpanded(expanded) {
+  if (window.matchMedia("(max-width: 820px)").matches) return;
+  const dock = document.getElementById("queue-dock");
+  const drawer = document.getElementById("queue-drawer");
+  const toggle = document.getElementById("queue-dock-toggle");
+  dock.classList.toggle("queue-expanded", expanded);
+  drawer.setAttribute("aria-hidden", String(!expanded));
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.querySelector(".queue-toggle-label").textContent = expanded ? "Queue schließen" : "Queue öffnen";
+}
+
+function toggleDesktopQueue() {
+  const dock = document.getElementById("queue-dock");
+  setQueueDockExpanded(!dock.classList.contains("queue-expanded"));
 }
 
 function openMobileQueue() {
   document.body.classList.add("queue-open");
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "false");
+  document.getElementById("queue-drawer").setAttribute("aria-hidden", "false");
   document.getElementById("mobile-queue-close").focus();
 }
 
 function closeMobileQueue() {
   document.body.classList.remove("queue-open");
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "true");
+  if (window.matchMedia("(max-width: 820px)").matches) {
+    document.getElementById("queue-drawer").setAttribute("aria-hidden", "true");
+  }
 }
 
 function setDownloadState(kind, title, detail, percent = state.download.percent) {
@@ -460,54 +490,188 @@ function updateFpJellyfinBadges() {
   }
 }
 
+function mediaCardInitials(title) {
+  const words = String(title || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "RD";
+  return (words.length === 1 ? words[0].slice(0, 2) : words.slice(0, 2).map((word) => word[0]).join(""))
+    .toUpperCase();
+}
+
+function createResultCardVisual(media, title, kind) {
+  const visual = document.createElement("span");
+  visual.className = "result-card-visual";
+
+  const fallback = document.createElement("span");
+  fallback.className = "result-card-fallback";
+  fallback.textContent = mediaCardInitials(title);
+  visual.appendChild(fallback);
+
+  if (media?.cover_url) {
+    const image = document.createElement("img");
+    image.className = "result-card-poster";
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.src = api.coverUrl(media.cover_url);
+    image.addEventListener("error", () => image.remove(), { once: true });
+    visual.appendChild(image);
+  }
+
+  const kindMark = document.createElement("span");
+  kindMark.className = "result-card-kind";
+  kindMark.textContent = kind === "series" ? "S" : "F";
+  visual.appendChild(kindMark);
+  return visual;
+}
+
+function activateResultCard(row, callback) {
+  row.tabIndex = 0;
+  row.setAttribute("role", "button");
+  row.addEventListener("click", callback);
+  row.addEventListener("keydown", (event) => {
+    if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    callback();
+  });
+}
+
+function fpResultMedia(result) {
+  return state.fp.moviesCache[result.slug] || state.fp.metadataCache[result.slug] || result;
+}
+
+function fpResultAvailability(result) {
+  const movie = state.fp.moviesCache[result.slug];
+  const queued = state.queuedSlugs.has(result.slug);
+  if (queued) return { label: "In Queue", tag: "picked" };
+  if (movie) {
+    if (!movie.hosters || movie.hosters.length === 0) return { label: "Kein Hoster", tag: "novoe" };
+    return { label: movie.hoster_label || "Bereit", tag: "ready" };
+  }
+  if (state.fp.pendingPreload?.has(result.slug)) return { label: "Lädt …", tag: "pending" };
+  return { label: "Wird geprüft", tag: "idle" };
+}
+
+function findFpResultCard(slug) {
+  return [...document.querySelectorAll("#fp-results .result-card")]
+    .find((row) => row.dataset.slug === slug) || null;
+}
+
+function updateFpResultCard(slug) {
+  const result = state.fp.results.find((item) => item.slug === slug);
+  const row = findFpResultCard(slug);
+  if (!result || !row) return;
+  const oldVisual = row.querySelector(".result-card-visual");
+  oldVisual?.replaceWith(createResultCardVisual(fpResultMedia(result), result.title, "movie"));
+  const availability = fpResultAvailability(result);
+  const stateLabel = row.querySelector(".result-card-state");
+  if (stateLabel) {
+    stateLabel.className = `result-card-state status-${availability.tag}`;
+    stateLabel.textContent = availability.label;
+  }
+}
+
+function syncFpDetailQueueAction() {
+  const slug = state.fp.selectedSlug;
+  const detailPanel = document.getElementById("fp-detail-panel");
+  if (!slug || detailPanel.classList.contains("is-empty")) return;
+  const movie = state.fp.moviesCache[slug];
+  const metadata = state.fp.metadataCache[slug];
+  if (movie) configureFpDetailAction(slug, movie, false);
+  else if (metadata) configureFpDetailAction(slug, metadataPreviewMovie(metadata), true);
+}
+
+function syncFpQueueIndicators() {
+  for (const result of state.fp.results) {
+    const row = findFpResultCard(result.slug);
+    if (!row) continue;
+    const queued = state.queuedSlugs.has(result.slug);
+    row.classList.toggle("queued", queued);
+    const toggle = row.querySelector(".result-queue-toggle");
+    if (toggle) {
+      toggle.classList.toggle("is-queued", queued);
+      toggle.textContent = queued ? "✓" : "+";
+      toggle.setAttribute("aria-label", queued
+        ? `${result.title} aus der Queue entfernen`
+        : `${result.title} zur Queue hinzufügen`);
+    }
+    const availability = fpResultAvailability(result);
+    const stateLabel = row.querySelector(".result-card-state");
+    if (stateLabel) {
+      stateLabel.className = `result-card-state status-${availability.tag}`;
+      stateLabel.textContent = availability.label;
+    }
+  }
+  if (state.fp.results.length) {
+    document.getElementById("fp-status").textContent = fpStatusMessage();
+  }
+  syncFpDetailQueueAction();
+}
+
 function updateFpResultSelection() {
   for (const row of document.querySelectorAll("#fp-results .row")) {
-    row.classList.toggle("selected", row.dataset.slug === state.fp.selectedSlug);
+    const selected = row.dataset.slug === state.fp.selectedSlug;
+    row.classList.toggle("selected", selected);
+    row.setAttribute("aria-current", String(selected));
   }
 }
 
 function renderFpResults() {
   const container = document.getElementById("fp-results");
+  const previousScroll = container.scrollLeft;
   container.innerHTML = "";
-  for (const r of state.fp.results) {
-    const movie = state.fp.moviesCache[r.slug];
-    const picked = state.queuedSlugs.has(r.slug);
-    let status = "—", tag = "idle";
-    if (movie) {
-      if (!movie.hosters || movie.hosters.length === 0) { status = "kein Hoster"; tag = "novoe"; }
-      else { status = movie.hoster_label; tag = "ready"; }
-    } else if (state.fp.pendingPreload && state.fp.pendingPreload.has(r.slug)) {
-      status = "lade …"; tag = "pending";
-    }
-    if (picked) tag = "picked";
+
+  for (const result of state.fp.results) {
+    const selected = result.slug === state.fp.selectedSlug;
+    const queued = state.queuedSlugs.has(result.slug);
+    const availability = fpResultAvailability(result);
+    const media = fpResultMedia(result);
+
     const row = document.createElement("div");
-    row.className = "row" + (r.slug === state.fp.selectedSlug ? " selected" : "");
-    row.dataset.slug = r.slug;
+    row.className = "row result-card" + (selected ? " selected" : "") + (queued ? " queued" : "");
+    row.dataset.slug = result.slug;
+    row.setAttribute("aria-current", String(selected));
+    row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
 
-    const pickFlag = document.createElement("span");
-    pickFlag.className = `pick-flag status-${tag}`;
-    pickFlag.textContent = picked ? "In" : "";
-    pickFlag.addEventListener("click", (e) => { e.stopPropagation(); toggleFpPick(r.slug); });
+    const visual = createResultCardVisual(media, result.title, "movie");
 
-    const title = document.createElement("span");
-    title.className = `status-${tag}`;
-    title.textContent = r.title;
-
+    const copy = document.createElement("span");
+    copy.className = "result-card-copy";
+    const title = document.createElement("strong");
+    title.className = "result-card-title";
+    title.textContent = result.title;
+    const subtitle = document.createElement("span");
+    subtitle.className = "result-card-subtitle";
+    subtitle.textContent = (media.genres || []).slice(0, 2).join(" · ") || "Film";
+    const meta = document.createElement("span");
+    meta.className = "result-card-meta";
     const year = document.createElement("span");
-    year.className = "dim";
-    year.textContent = r.year || "";
+    year.textContent = result.year || "Jahr offen";
+    const status = document.createElement("span");
+    status.className = `result-card-state status-${availability.tag}`;
+    status.textContent = availability.label;
+    const jellyfin = document.createElement("span");
+    setFpJellyfinBadge(jellyfin, !!result.in_jellyfin);
+    meta.append(year, status, jellyfin);
+    copy.append(title, subtitle, meta);
 
-    const st = document.createElement("span");
-    st.className = `status-${tag}`;
-    st.textContent = status;
+    const queueToggle = document.createElement("button");
+    queueToggle.type = "button";
+    queueToggle.className = "pick-flag result-queue-toggle" + (queued ? " is-queued" : "");
+    queueToggle.textContent = queued ? "✓" : "+";
+    queueToggle.setAttribute("aria-label", queued
+      ? `${result.title} aus der Queue entfernen`
+      : `${result.title} zur Queue hinzufügen`);
+    queueToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleFpPick(result.slug);
+    });
 
-    const jf = document.createElement("span");
-    setFpJellyfinBadge(jf, !!r.in_jellyfin);
-
-    row.append(pickFlag, title, year, st, jf);
-    row.addEventListener("click", () => selectFpRow(r.slug));
+    row.append(visual, copy, queueToggle);
+    activateResultCard(row, () => selectFpRow(result.slug));
     container.appendChild(row);
   }
+
+  container.scrollLeft = previousScroll;
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
@@ -560,7 +724,10 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
       const response = await api.tmdbMovies([{ slug: item.slug, title: item.title, year: item.year || "" }]);
       if (requestId !== state.fp.requestSeq) return null;
       metadata = response.movies?.[item.slug] || null;
-      if (metadata) state.fp.metadataCache[item.slug] = metadata;
+      if (metadata) {
+        state.fp.metadataCache[item.slug] = metadata;
+        updateFpResultCard(item.slug);
+      }
       if (state.fp.selectedSlug === item.slug) {
         showFpDetail(item.slug, metadataPreviewMovie(metadata || basicMovieMetadata(item)), true);
       }
@@ -571,6 +738,7 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
       if (detailResponse.movie) {
         metadata = detailResponse.movie;
         state.fp.metadataCache[item.slug] = metadata;
+        updateFpResultCard(item.slug);
         if (state.fp.selectedSlug === item.slug) showFpDetail(item.slug, metadataPreviewMovie(metadata), true);
       }
     }
@@ -594,7 +762,10 @@ async function preloadTmdbMetadata(requestId, excludeSlug = "") {
     const response = await api.tmdbMovies(items);
     if (requestId !== state.fp.requestSeq) return;
     for (const [slug, metadata] of Object.entries(response.movies || {})) {
-      if (visibleSlugs.has(slug)) state.fp.metadataCache[slug] = metadata;
+      if (visibleSlugs.has(slug)) {
+        state.fp.metadataCache[slug] = metadata;
+        updateFpResultCard(slug);
+      }
     }
     refreshFpJellyfinStatus();
     const selected = state.fp.selectedSlug;
@@ -678,7 +849,10 @@ async function toggleFpPick(slug) {
   }
   const resp = await api.queueAdd([slug]);
   if (!state.fp.moviesCache[slug]) {
-    try { state.fp.moviesCache[slug] = await api.movie(slug); } catch (e) { /* server logs */ }
+    try {
+      state.fp.moviesCache[slug] = await api.movie(slug);
+      updateFpResultCard(slug);
+    } catch (e) { /* server logs */ }
   }
   refreshQueueUiAfterChange(resp);
 }
@@ -734,6 +908,34 @@ function setFpDetailAvailability(text, state = "ready") {
   badge.className = `detail-availability is-${state}`;
 }
 
+function configureFpDetailAction(slug, movie, metadataOnly = false) {
+  const addBtn = document.getElementById("fp-detail-add");
+  const queued = state.queuedSlugs.has(slug);
+  const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
+  addBtn.disabled = !queued && !metadataOnly && !hasHosters;
+  addBtn.textContent = queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen";
+
+  addBtn.onclick = async () => {
+    const shouldRemove = state.queuedSlugs.has(slug);
+    addBtn.disabled = true;
+    addBtn.textContent = shouldRemove ? "Entferne …" : metadataOnly ? "Prüfe …" : "Füge hinzu …";
+    try {
+      if (metadataOnly) {
+        await toggleFpPick(slug);
+        const loaded = state.fp.moviesCache[slug];
+        if (loaded && state.fp.selectedSlug === slug) showFpDetail(slug, loaded);
+        else if (state.fp.selectedSlug === slug) showFpDetail(slug, movie, true);
+        return;
+      }
+      const resp = shouldRemove ? await api.queueRemove(slug) : await api.queueAdd([slug]);
+      refreshQueueUiAfterChange(resp);
+      if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
+    } catch (error) {
+      console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
+      configureFpDetailAction(slug, movie, metadataOnly);
+    }
+  };
+}
 function showFpDetail(slug, movie, metadataOnly = false) {
   const detailPanel = document.getElementById("fp-detail-panel");
   const cover = document.getElementById("fp-detail-cover");
@@ -770,30 +972,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
     : (movie.hosters.length ? `${movie.hoster_fallback_count} Alternativen` : "—");
   document.getElementById("fp-detail-desc").textContent = movie.description || "(keine Beschreibung)";
 
-  const addBtn = document.getElementById("fp-detail-add");
-  if (metadataOnly) {
-    const queued = state.queuedSlugs.has(slug);
-    addBtn.disabled = false;
-    addBtn.textContent = queued ? "✕ Entfernen" : "↓ Herunterladen";
-    addBtn.onclick = async () => {
-      addBtn.disabled = true;
-      addBtn.textContent = queued ? "Entferne …" : "Prüfe …";
-      await toggleFpPick(slug);
-      const loaded = state.fp.moviesCache[slug];
-      if (loaded) showFpDetail(slug, loaded);
-      else if (state.fp.selectedSlug === slug) showFpDetail(slug, movie, true);
-    };
-    scrollToMobileDetail("#tab-filme .detail-panel");
-    return;
-  }
-  const queued = state.queuedSlugs.has(slug);
-  addBtn.disabled = !movie.hosters.length;
-  addBtn.textContent = queued ? "✕ Entfernen" : "↓ Herunterladen";
-  addBtn.onclick = async () => {
-    const resp = queued ? await api.queueRemove(slug) : await api.queueAdd([slug]);
-    refreshQueueUiAfterChange(resp);
-    showFpDetail(slug, movie);
-  };
+  configureFpDetailAction(slug, movie, metadataOnly);
   scrollToMobileDetail("#tab-filme .detail-panel");
 }
 
@@ -889,40 +1068,61 @@ function updateSeriesPager() {
 
 function renderSeriesResults() {
   const container = document.getElementById("series-results");
+  const previousScroll = container.scrollLeft;
   container.innerHTML = "";
-  for (const r of state.series.results) {
-    const row = document.createElement("div");
+
+  for (const result of state.series.results) {
     const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
-    const selected = selectedBase === r.base_slug;
-    const loading = state.series.pendingBaseSlug === r.base_slug;
-    row.className = "series-row" + (selected ? " selected" : "") + (loading ? " loading" : "");
-    row.dataset.baseSlug = r.base_slug;
-    if (loading) row.setAttribute("aria-busy", "true");
-    const title = document.createElement("span");
-    title.textContent = r.title;
-    const year = document.createElement("span");
-    year.className = "dim";
-    year.textContent = r.year || "";
-    const info = document.createElement("span");
-    info.className = "dim";
-    const resultSources = Array.isArray(r.sources) ? r.sources : [];
+    const selected = selectedBase === result.base_slug;
+    const loading = state.series.pendingBaseSlug === result.base_slug;
+    const resultSources = Array.isArray(result.sources) ? result.sources : [];
     const sourceLabels = resultSources.map((source) => source.label).filter(Boolean);
-    info.textContent = sourceLabels.length > 1
+    const sourceSummary = sourceLabels.length > 1
       ? `${sourceLabels.length} Quellen`
-      : (sourceLabels[0] || r.provider_label || "—");
-    info.title = sourceLabels.join(" · ");
-    row.append(title, year, info);
-    row.addEventListener("click", () => loadSeries(r));
+      : (sourceLabels[0] || result.provider_label || "Quelle offen");
+
+    const row = document.createElement("div");
+    row.className = "series-row result-card" + (selected ? " selected" : "") + (loading ? " loading" : "");
+    row.dataset.baseSlug = result.base_slug;
+    row.setAttribute("aria-current", String(selected));
+    row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
+    if (loading) row.setAttribute("aria-busy", "true");
+
+    const visual = createResultCardVisual(result, result.title, "series");
+    const copy = document.createElement("span");
+    copy.className = "result-card-copy";
+    const title = document.createElement("strong");
+    title.className = "result-card-title";
+    title.textContent = result.title;
+    const subtitle = document.createElement("span");
+    subtitle.className = "result-card-subtitle";
+    subtitle.textContent = sourceSummary;
+    subtitle.title = sourceLabels.join(" · ");
+    const meta = document.createElement("span");
+    meta.className = "result-card-meta";
+    const year = document.createElement("span");
+    year.textContent = result.year || "Jahr offen";
+    const stateLabel = document.createElement("span");
+    stateLabel.className = "result-card-state status-ready";
+    stateLabel.textContent = loading ? "Öffnet …" : "Staffeln öffnen";
+    meta.append(year, stateLabel);
+    copy.append(title, subtitle, meta);
+
+    row.append(visual, copy);
+    activateResultCard(row, () => loadSeries(result));
     container.appendChild(row);
   }
+  container.scrollLeft = previousScroll;
 }
 
 function updateSeriesResultSelection() {
   const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
   document.querySelectorAll("#series-results .series-row").forEach((row) => {
     const loading = state.series.pendingBaseSlug === row.dataset.baseSlug;
-    row.classList.toggle("selected", selectedBase === row.dataset.baseSlug);
+    const selected = selectedBase === row.dataset.baseSlug;
+    row.classList.toggle("selected", selected);
     row.classList.toggle("loading", loading);
+    row.setAttribute("aria-current", String(selected));
     if (loading) row.setAttribute("aria-busy", "true");
     else row.removeAttribute("aria-busy");
   });
@@ -2291,6 +2491,7 @@ async function initApp() {
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
   document.getElementById("mobile-queue-backdrop").addEventListener("click", closeMobileQueue);
+  document.getElementById("queue-dock-toggle").addEventListener("click", toggleDesktopQueue);
 
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
@@ -2381,7 +2582,10 @@ async function initApp() {
     switchTab("bibliothek");
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeNotifDropdown();
+    if (event.key !== "Escape") return;
+    closeNotifDropdown();
+    setQueueDockExpanded(false);
+    closeMobileQueue();
   });
 
   // Warteschlange / Downloads / Einstellungen
