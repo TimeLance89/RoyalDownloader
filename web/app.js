@@ -780,24 +780,21 @@ function applyFpResults(data) {
   state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
   renderFpResults();
   const pager = document.getElementById("fp-pager");
-  if (data.category) {
-    pager.classList.remove("hidden");
-    const sourceCount = state.fp.sources.length;
-    const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
-    document.getElementById("fp-pager-label").textContent = sourceCount
-      ? `Seite ${data.page} · ${sourceCount} ${sourceWord}`
-      : `Seite ${data.page}`;
-    const sourceSummary = state.fp.sources
-      .map((source) => `${source.label} ${source.count}`)
-      .join(" · ");
-    const sourceElement = document.getElementById("fp-pager-sources");
-    sourceElement.textContent = sourceSummary;
-    sourceElement.title = sourceSummary;
-    document.getElementById("fp-pager-prev").disabled = data.page <= 1;
-    document.getElementById("fp-pager-next").disabled = !state.fp.lastPageFull;
-  } else {
-    pager.classList.add("hidden");
-  }
+  pager.classList.remove("hidden");
+  const sourceCount = state.fp.sources.length;
+  const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
+  document.getElementById("fp-pager-label").textContent = sourceCount
+    ? `Seite ${data.page} · ${sourceCount} ${sourceWord}`
+    : `Seite ${data.page || 1}`;
+  const sourceSummary = state.fp.sources
+    .map((source) => `${source.label} ${source.count}`)
+    .join(" · ");
+  const sourceElement = document.getElementById("fp-pager-sources");
+  sourceElement.textContent = sourceSummary;
+  sourceElement.title = sourceSummary;
+  const canPaginate = Boolean(data.category);
+  document.getElementById("fp-pager-prev").disabled = !canPaginate || data.page <= 1;
+  document.getElementById("fp-pager-next").disabled = !canPaginate || !state.fp.lastPageFull;
   if (data.results.length) void preloadTmdbMetadata(state.fp.requestSeq);
 }
 
@@ -1151,21 +1148,21 @@ function findCurrentEpisode(slug) {
 function updateSeriesPager() {
   const pager = document.getElementById("series-pager");
   const mode = state.series.browseMode;
-  if (!mode || mode === "search") { pager.classList.add("hidden"); return; }
   pager.classList.remove("hidden");
+  const canPaginate = Boolean(mode && mode !== "search");
   const sourceCount = state.series.sources.length;
   const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
   document.getElementById("series-pager-label").textContent = sourceCount
     ? `Seite ${state.series.page} · ${sourceCount} ${sourceWord}`
-    : `Seite ${state.series.page}`;
+    : `Seite ${state.series.page || 1}`;
   const sourceSummary = state.series.sources
     .map((source) => `${source.label} ${source.count}`)
     .join(" · ");
   const sourceElement = document.getElementById("series-pager-sources");
   sourceElement.textContent = sourceSummary;
   sourceElement.title = sourceSummary;
-  document.getElementById("series-pager-prev").disabled = state.series.page <= 1;
-  document.getElementById("series-pager-next").disabled = !state.series.lastPageFull;
+  document.getElementById("series-pager-prev").disabled = !canPaginate || state.series.page <= 1;
+  document.getElementById("series-pager-next").disabled = !canPaginate || !state.series.lastPageFull;
 }
 
 function renderSeriesResults() {

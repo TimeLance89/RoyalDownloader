@@ -92,18 +92,18 @@
             <span class="panel-title">Filme</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
-          <div class="list-head movie-row">
-            <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
-          </div>
-          <div id="fp-results" class="list result-shelf" aria-label="Filmergebnisse"></div>
-          <div id="fp-pager" class="pager hidden">
+          <div id="fp-pager" class="pager" aria-label="Filmseiten">
             <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
-              <span id="fp-pager-label" class="accent"></span>
+              <span id="fp-pager-label" class="accent">Seite 1</span>
               <span id="fp-pager-sources" class="fp-pager-sources dim"></span>
             </div>
             <button id="fp-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
           </div>
+          <div class="list-head movie-row">
+            <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
+          </div>
+          <div id="fp-results" class="list result-shelf" aria-label="Filmergebnisse"></div>
         </div>
 
         <div id="fp-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="fp-detail-title" hidden>
@@ -185,15 +185,15 @@
             <span class="panel-title">Serien</span>
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
-          <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
-          <div id="series-pager" class="pager hidden">
+          <div id="series-pager" class="pager" aria-label="Serienseiten">
             <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
-              <span id="series-pager-label" class="accent"></span>
+              <span id="series-pager-label" class="accent">Seite 1</span>
               <span id="series-pager-sources" class="fp-pager-sources dim"></span>
             </div>
             <button id="series-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
           </div>
+          <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
         </div>
 
         <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
