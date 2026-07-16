@@ -1454,6 +1454,74 @@ body {
 }
 .jellyfin-user-row select:focus,
 .setup-user-row select:focus { outline: none; border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(216, 183, 102, 0.09); }
+.cleanup-default-card {
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background:
+    linear-gradient(145deg, rgba(216, 183, 102, 0.055), rgba(8, 6, 13, 0.50)),
+    rgba(8, 6, 13, 0.34);
+  border: 1px solid rgba(216, 183, 102, 0.22);
+  border-radius: 13px;
+}
+.cleanup-default-card legend { padding: 0 7px; }
+.cleanup-default-card legend span,
+.cleanup-default-card legend strong { display: block; }
+.cleanup-default-card legend span {
+  margin-bottom: 3px;
+  color: var(--accent-soft);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+.cleanup-default-card legend strong {
+  color: var(--text);
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 18px;
+  line-height: 1.1;
+}
+.cleanup-default-copy {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.cleanup-default-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.cleanup-default-card .cleanup-default-option { min-height: 96px; }
+.cleanup-default-warning {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  color: rgba(240, 234, 218, 0.68);
+  background: rgba(232, 111, 111, 0.05);
+  border: 1px solid rgba(232, 111, 111, 0.18);
+  border-radius: 8px;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+.cleanup-default-warning > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  color: #e86f6f;
+  border: 1px solid rgba(232, 111, 111, 0.42);
+  border-radius: 50%;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 800;
+}
 .setup-jellyfin-user-field { margin-top: 12px; }
 .setup-user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
 .setup-jellyfin-user-field > small { color: var(--text-dim); font-size: 10px; line-height: 1.4; }
@@ -2951,6 +3019,8 @@ body.setup-open #dir-modal { z-index: 120; }
   .path-input-row .btn { min-width: 46px; min-height: 45px; }
   .jellyfin-user-row { grid-template-columns: 38px minmax(0, 1fr); }
   .jellyfin-user-row .btn { grid-column: 2; min-height: 42px; }
+  .cleanup-default-options { grid-template-columns: 1fr; }
+  .cleanup-default-card .cleanup-default-option { min-height: 72px; }
   .setup-user-row { grid-template-columns: 1fr; }
   .auto-toggle-row { align-items: flex-start; line-height: 1.4; }
   .auto-toggle-row input { flex: 0 0 auto; width: 20px; height: 20px; }

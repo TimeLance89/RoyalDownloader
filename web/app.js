@@ -18,6 +18,7 @@ const state = {
   providers: { movies: [], series: [], labels: {} },
   queuedSlugs: new Set(),
   jellyfinUserConfigured: false,
+  watchlistCleanupDefault: "keep",
 };
 
 const WATCH_MODE_DEFAULT = "latest_season";
@@ -1256,7 +1257,9 @@ function openWatchModeModal(entry = null) {
   const stored = entry || state.wl.items.find((item) => item.base_slug === baseSlug);
   const tracked = Boolean(stored || series?.watchlisted);
   const mode = stored?.download_mode || series?.watch_mode || WATCH_MODE_DEFAULT;
-  const cleanupMode = stored?.cleanup_mode || series?.cleanup_mode || WATCH_CLEANUP_DEFAULT;
+  const cleanupMode = tracked
+    ? (stored?.cleanup_mode || series?.cleanup_mode || WATCH_CLEANUP_DEFAULT)
+    : state.watchlistCleanupDefault;
   const knownSlugs = series?.base_slug === baseSlug
     ? series.seasons.flatMap((season) => season.episodes.map((episode) => episode.slug))
     : (stored?.known_slugs || []);
@@ -1279,6 +1282,9 @@ function openWatchModeModal(entry = null) {
   document.querySelectorAll('input[name="watch-cleanup"]').forEach((radio) => {
     radio.checked = radio.value === cleanupMode;
   });
+  document.getElementById("watch-cleanup-description").textContent = tracked
+    ? "Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils."
+    : `Vorausgewählt aus den Einstellungen: ${WATCH_CLEANUP_LABELS[cleanupMode] || WATCH_CLEANUP_LABELS[WATCH_CLEANUP_DEFAULT]}. Du kannst für diese Serie abweichen.`;
   document.getElementById("watch-mode-remove").classList.toggle("hidden", !tracked);
   document.getElementById("watch-mode-save").textContent = tracked ? "Regel übernehmen" : "Abo speichern";
   document.getElementById("watch-mode-status").textContent = "";
@@ -1706,10 +1712,16 @@ async function initSettings() {
   jfKey.value = "";
   jfKey.placeholder = jf.has_api_key ? "Gespeichert · leer lassen zum Beibehalten" : "API-Schlüssel";
   fillJellyfinUserSelect("jellyfin-user-id", [], jf.user_id || "", jf.user_name || "");
+  state.watchlistCleanupDefault = WATCH_CLEANUP_LABELS[jf.cleanup_default]
+    ? jf.cleanup_default
+    : WATCH_CLEANUP_DEFAULT;
+  document.querySelectorAll('input[name="jellyfin-cleanup-default"]').forEach((radio) => {
+    radio.checked = radio.value === state.watchlistCleanupDefault;
+  });
   state.jellyfinUserConfigured = !!(jf.url && jf.has_api_key && jf.user_id);
   document.getElementById("jellyfin-user-status").textContent = jf.user_id
     ? `Gesehen-Status: ${jf.user_name || "Benutzer gewählt"}`
-    : "Für „Nächste Staffel“ erforderlich.";
+    : "Für „Nächste Staffel“ und automatische Löschregeln erforderlich.";
   const tmdb = await api.tmdbConfigGet();
   applyTmdbCfg(tmdb);
   const auto = await api.automationConfigGet();
@@ -2003,6 +2015,8 @@ async function saveAllSettings() {
       series: state.providers.series,
     }));
     const jfUserSelect = document.getElementById("jellyfin-user-id");
+    const cleanupDefault = document.querySelector('input[name="jellyfin-cleanup-default"]:checked')?.value
+      || WATCH_CLEANUP_DEFAULT;
     const jfConfig = await api.jellyfinConfigSet(
       document.getElementById("jellyfin-url").value.trim(),
       document.getElementById("jellyfin-api-key").value.trim(),
@@ -2010,11 +2024,15 @@ async function saveAllSettings() {
       jfUserSelect.value
         ? (jfUserSelect.selectedOptions[0]?.dataset.name || jfUserSelect.selectedOptions[0]?.textContent || "")
         : "",
+      cleanupDefault,
     );
+    state.watchlistCleanupDefault = WATCH_CLEANUP_LABELS[jfConfig.cleanup_default]
+      ? jfConfig.cleanup_default
+      : WATCH_CLEANUP_DEFAULT;
     state.jellyfinUserConfigured = !!(jfConfig.url && jfConfig.has_api_key && jfConfig.user_id);
     document.getElementById("jellyfin-user-status").textContent = jfConfig.user_id
       ? `Gesehen-Status: ${jfConfig.user_name || "Benutzer gewählt"}`
-      : "Für „Nächste Staffel“ erforderlich.";
+      : "Für „Nächste Staffel“ und automatische Löschregeln erforderlich.";
     const tmdb = await api.tmdbConfigSet(
       document.getElementById("tmdb-api-key").value.trim(),
     );

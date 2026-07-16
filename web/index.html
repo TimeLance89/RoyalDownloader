@@ -297,7 +297,35 @@
             <select id="jellyfin-user-id" aria-label="Jellyfin-Benutzer"><option value="">Benutzer laden …</option></select>
             <button id="jellyfin-users-load" class="btn btn-ghost btn-sm" type="button">Benutzer laden</button>
           </div>
-          <div id="jellyfin-user-status" class="dim small-status">Für „Nächste Staffel“ erforderlich.</div>
+          <div id="jellyfin-user-status" class="dim small-status">Für „Nächste Staffel“ und automatische Löschregeln erforderlich.</div>
+          <fieldset class="cleanup-default-card">
+            <legend>
+              <span>STANDARD · NEUE ABOS</span>
+              <strong>Speicherregel nach dem Ansehen</strong>
+            </legend>
+            <p class="cleanup-default-copy">Wird beim Anlegen eines Serien-Abos vorausgewählt. Bestehende Abos bleiben unverändert und jede Serie kann abweichen.</p>
+            <div class="cleanup-default-options">
+              <label class="watch-cleanup-option cleanup-default-option">
+                <input type="radio" name="jellyfin-cleanup-default" value="keep" checked>
+                <span class="watch-cleanup-symbol" aria-hidden="true">◆</span>
+                <span><strong>Behalten</strong><small>Nichts wird automatisch entfernt.</small></span>
+                <i aria-hidden="true">✓</i>
+              </label>
+              <label class="watch-cleanup-option cleanup-default-option">
+                <input type="radio" name="jellyfin-cleanup-default" value="watched_seasons">
+                <span class="watch-cleanup-symbol" aria-hidden="true">S✓</span>
+                <span><strong>Staffel komplett gesehen → löschen</strong><small>Erst nach der letzten regulären Folge.</small></span>
+                <i aria-hidden="true">✓</i>
+              </label>
+              <label class="watch-cleanup-option cleanup-default-option">
+                <input type="radio" name="jellyfin-cleanup-default" value="watched_episodes">
+                <span class="watch-cleanup-symbol" aria-hidden="true">E✓</span>
+                <span><strong>Episode gesehen → löschen</strong><small>Beim nächsten Abo-Check entfernen.</small></span>
+                <i aria-hidden="true">✓</i>
+              </label>
+            </div>
+            <p class="cleanup-default-warning"><span aria-hidden="true">!</span><span>Löschregeln können die zugehörigen Mediendateien in Jellyfin dauerhaft entfernen.</span></p>
+          </fieldset>
         </div>
 
         <div class="settings-group seerr-settings">
@@ -677,7 +705,7 @@
         <div class="watch-cleanup-head">
           <span class="watch-mode-kicker">NACH DEM ANSEHEN</span>
           <h3 id="watch-cleanup-title">Speicher automatisch freigeben</h3>
-          <p>Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils.</p>
+          <p id="watch-cleanup-description">Diese Löschregel gilt nur für diese Serie und nutzt den Gesehen-Status des gewählten Jellyfin-Profils.</p>
         </div>
         <div class="watch-cleanup-options" role="radiogroup" aria-label="Löschregel">
           <label class="watch-cleanup-option">

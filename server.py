@@ -600,8 +600,12 @@ def stop_jellyfin_recommender() -> None:
 
 def _set_runtime_jellyfin_config(cfg: dict) -> None:
     """Wechselt Konfiguration und Cache als eine atomare Generation."""
+    normalized_cfg = dict(cfg)
+    normalized_cfg["cleanup_default"] = normalize_cleanup_mode(
+        normalized_cfg.get("cleanup_default")
+    )
     with state.jellyfin_cache_lock:
-        state.jellyfin_cfg = dict(cfg)
+        state.jellyfin_cfg = normalized_cfg
         state.jellyfin_config_generation += 1
         state.jellyfin_movie_data_generation += 1
         state.jellyfin_episode_data_generation += 1
@@ -7160,6 +7164,9 @@ async def api_setup_status():
                 "has_api_key": bool(state.jellyfin_cfg.get("api_key")),
                 "user_id": state.jellyfin_cfg.get("user_id", ""),
                 "user_name": state.jellyfin_cfg.get("user_name", ""),
+                "cleanup_default": normalize_cleanup_mode(
+                    state.jellyfin_cfg.get("cleanup_default")
+                ),
             },
             "tmdb": {
                 "api_key": "",
@@ -7320,6 +7327,7 @@ class JellyfinConfigBody(BaseModel):
     api_key: str
     user_id: str = ""
     user_name: str = ""
+    cleanup_default: Optional[str] = None
 
 
 @app.get("/api/jellyfin/config")
@@ -7330,6 +7338,9 @@ async def api_jellyfin_config_get():
         "has_api_key": bool(state.jellyfin_cfg.get("api_key")),
         "user_id": state.jellyfin_cfg.get("user_id", ""),
         "user_name": state.jellyfin_cfg.get("user_name", ""),
+        "cleanup_default": normalize_cleanup_mode(
+            state.jellyfin_cfg.get("cleanup_default")
+        ),
     }
 
 
@@ -7342,6 +7353,13 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
     api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
     user_id = body.user_id.strip()
     user_name = body.user_name.strip()
+    if body.cleanup_default is not None and body.cleanup_default not in CLEANUP_MODE_LABELS:
+        raise HTTPException(400, "Unbekannte Standard-Löschregel.")
+    cleanup_default = normalize_cleanup_mode(
+        body.cleanup_default
+        if body.cleanup_default is not None
+        else previous.get("cleanup_default")
+    )
     if url and not api_key:
         raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
     if url and api_key:
@@ -7354,7 +7372,9 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
                 raise HTTPException(400, "Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
             user_name = selected["name"]
     with state.jellyfin_config_update_lock:
-        ok = appconfig.save_jellyfin(url, api_key, user_id, user_name)
+        ok = appconfig.save_jellyfin(
+            url, api_key, user_id, user_name, cleanup_default,
+        )
         if not ok:
             raise HTTPException(500, "Jellyfin-Einstellungen konnten nicht gespeichert werden.")
         _set_runtime_jellyfin_config({
@@ -7362,6 +7382,7 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
             "api_key": api_key,
             "user_id": user_id,
             "user_name": user_name,
+            "cleanup_default": cleanup_default,
         })
         _recommender_wake_event.set()
 
@@ -7379,6 +7400,7 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
         "has_api_key": bool(api_key),
         "user_id": user_id,
         "user_name": user_name,
+        "cleanup_default": cleanup_default,
         "saved": True,
     }
 
@@ -7701,7 +7723,7 @@ class WatchlistAddBody(BaseModel):
     sample_url: str
     known_slugs: List[str]
     download_mode: str = WATCH_MODE_DEFAULT
-    cleanup_mode: str = CLEANUP_MODE_DEFAULT
+    cleanup_mode: Optional[str] = None
     tmdb_id: Optional[int] = None
     aliases: Optional[List[str]] = None
     season_episode_counts: Optional[Dict[str, int]] = None
@@ -7712,7 +7734,7 @@ class WatchlistAddBody(BaseModel):
 async def api_watchlist_add(body: WatchlistAddBody):
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
-    if body.cleanup_mode not in CLEANUP_MODE_LABELS:
+    if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Löschregel.")
     incoming_id = str(body.tmdb_id or "").strip()
     incoming_tmdb = None
@@ -7792,7 +7814,11 @@ async def api_watchlist_add(body: WatchlistAddBody):
             }
             entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
             entry["download_mode"] = normalize_watch_mode(body.download_mode)
-            entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
+            entry["cleanup_mode"] = normalize_cleanup_mode(
+                body.cleanup_mode
+                if body.cleanup_mode is not None
+                else state.jellyfin_cfg.get("cleanup_default")
+            )
             entry["cleanup_history"] = []
             entry["cleanup_deleted_count"] = 0
             entry["cleanup_last_error"] = ""

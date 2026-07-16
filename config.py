@@ -17,6 +17,7 @@ from typing import List, Optional
 
 from runtime_paths import data_dir
 from watchlist_policy import (
+    CLEANUP_MODE_DEFAULT,
     normalize_cleanup_mode,
     normalize_episode_history,
     normalize_watch_mode,
@@ -206,23 +207,35 @@ def save_provider_priorities(movies, series) -> bool:
 def load_jellyfin() -> dict:
     """Lädt die Jellyfin-Verbindungsdaten (URL + API-Key) für den
     Duplikat-Check. Im Container kann statt der UI auch per Umgebungsvariable
-    (JELLYFIN_URL / JELLYFIN_API_KEY / JELLYFIN_USER_ID) vorbelegt werden – praktisch, weil die
-    settings.ini bei einem frischen Container leer startet."""
+    (JELLYFIN_URL / JELLYFIN_API_KEY / JELLYFIN_USER_ID /
+    JELLYFIN_CLEANUP_DEFAULT) vorbelegt werden – praktisch, weil die settings.ini
+    bei einem frischen Container leer startet."""
     values = _read_all()
     return {
         "url": values.get("jellyfin_url") or os.environ.get("JELLYFIN_URL", "").strip(),
         "api_key": values.get("jellyfin_api_key") or os.environ.get("JELLYFIN_API_KEY", "").strip(),
         "user_id": values.get("jellyfin_user_id") or os.environ.get("JELLYFIN_USER_ID", "").strip(),
         "user_name": values.get("jellyfin_user_name") or os.environ.get("JELLYFIN_USER_NAME", "").strip(),
+        "cleanup_default": normalize_cleanup_mode(
+            values.get("jellyfin_cleanup_default")
+            or os.environ.get("JELLYFIN_CLEANUP_DEFAULT", "").strip()
+        ),
     }
 
 
-def save_jellyfin(url: str, api_key: str, user_id: str = "", user_name: str = "") -> bool:
+def save_jellyfin(
+    url: str,
+    api_key: str,
+    user_id: str = "",
+    user_name: str = "",
+    cleanup_default: str = CLEANUP_MODE_DEFAULT,
+) -> bool:
     return _update_all({
         "jellyfin_url": url,
         "jellyfin_api_key": api_key,
         "jellyfin_user_id": user_id.strip(),
         "jellyfin_user_name": user_name.strip(),
+        "jellyfin_cleanup_default": normalize_cleanup_mode(cleanup_default),
     })
 
 

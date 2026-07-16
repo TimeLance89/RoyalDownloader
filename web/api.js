@@ -49,8 +49,14 @@ const api = {
   providerPrioritySet(cfg) { return this.post("/api/providers/config", cfg); },
 
   jellyfinConfigGet() { return this.get("/api/jellyfin/config"); },
-  jellyfinConfigSet(url, apiKey, userId = "", userName = "") {
-    return this.post("/api/jellyfin/config", { url, api_key: apiKey, user_id: userId, user_name: userName });
+  jellyfinConfigSet(url, apiKey, userId = "", userName = "", cleanupDefault = "keep") {
+    return this.post("/api/jellyfin/config", {
+      url,
+      api_key: apiKey,
+      user_id: userId,
+      user_name: userName,
+      cleanup_default: cleanupDefault,
+    });
   },
   jellyfinUsers(url, apiKey) { return this.post("/api/jellyfin/users", { url, api_key: apiKey }); },
   tmdbConfigGet() { return this.get("/api/tmdb/config"); },
