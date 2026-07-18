@@ -251,38 +251,43 @@
     <section class="tab-content anime-tab-content" id="tab-anime">
       <header class="anime-hero">
         <div class="anime-hero-copy">
-          <span class="anime-kicker">MKISSA · ENGLISH CATALOG</span>
-          <h1>Anime Broadcast</h1>
-          <p>Englische Dubs und Untertitel als eigene Sendeschiene – getrennt von klassischen Serien.</p>
-        </div>
-        <div class="anime-signal-card" aria-label="Anime-Sprachspuren">
-          <span class="anime-live-dot" aria-hidden="true"></span>
-          <div>
-            <small>SIGNALSPUREN</small>
-            <strong>DUB <i></i> SUB</strong>
+          <span class="anime-kicker">ROYAL ANIME ARCHIV · ENGLISH</span>
+          <h1>Anime</h1>
+          <p>Englische Dubs und Untertitel in einer eigenen Sammlung.</p>
+          <div class="anime-hero-tracks" aria-label="Verfügbare Sprachspuren">
+            <span><b>DUB</b> English Audio</span>
+            <span><b>SUB</b> English Subtitles</span>
           </div>
-          <span class="anime-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         </div>
+        <button id="anime-featured" class="anime-featured" type="button" hidden>
+          <span id="anime-featured-art" class="anime-featured-art" aria-hidden="true"></span>
+          <span class="anime-featured-copy">
+            <small>HERVORGEHOBEN</small>
+            <strong id="anime-featured-title">Anime entdecken</strong>
+            <span id="anime-featured-meta">MKissa · EN</span>
+          </span>
+          <span class="anime-featured-open" aria-hidden="true">↗</span>
+        </button>
       </header>
 
       <div class="anime-command-bar">
         <label class="anime-search-field" for="anime-search">
           <span class="anime-search-mark" aria-hidden="true">⌕</span>
-          <input id="anime-search" type="text" placeholder="Anime title in English">
+          <input id="anime-search" type="text" placeholder="Englischen Anime-Titel suchen">
         </label>
         <button id="anime-search-btn" class="btn btn-accent">Suchen</button>
         <div class="anime-mode-switch" role="group" aria-label="Anime-Katalog">
           <button id="anime-latest-btn" class="is-active" type="button">Neu</button>
           <button id="anime-trending-btn" type="button">Trending</button>
-          <button id="anime-popular-btn" type="button">Popular</button>
+          <button id="anime-popular-btn" type="button">Beliebt</button>
         </div>
       </div>
 
       <section class="anime-catalog-panel" aria-labelledby="anime-catalog-title">
         <header class="anime-catalog-head">
           <div>
-            <span class="anime-catalog-index">ANIME · 01</span>
-            <h2 id="anime-catalog-title">Aktuelle Ausstrahlungen</h2>
+            <span class="anime-catalog-index">MKISSA KATALOG</span>
+            <h2 id="anime-catalog-title">Neu im Archiv</h2>
           </div>
           <span id="anime-status" class="dim" role="status">Wird beim Öffnen geladen …</span>
         </header>

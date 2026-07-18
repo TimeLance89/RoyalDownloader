@@ -708,99 +708,159 @@ body {
   font-size: 7px;
 }
 
-/* ── Anime Broadcast ───────────────────────────────────────────────── */
+/* ── Royal Anime Archiv ────────────────────────────────────────────── */
 .anime-tab-content {
-  --anime: #79d9e8;
-  --anime-soft: rgba(121, 217, 232, 0.12);
-  --anime-violet: #c99af2;
-  overflow: hidden;
+  --anime-violet: #b88be0;
+  --anime-violet-soft: rgba(184, 139, 224, 0.14);
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
 }
 .anime-hero {
   position: relative;
-  display: flex;
-  min-height: 106px;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  min-height: 136px;
+  grid-template-columns: minmax(300px, 1fr) minmax(290px, 390px);
+  align-items: stretch;
   gap: 28px;
   overflow: hidden;
-  padding: 17px 20px 16px 24px;
-  border: 1px solid rgba(121, 217, 232, 0.2);
+  flex: 0 0 auto;
+  padding: 17px 18px 17px 24px;
+  border: 1px solid var(--border);
   border-radius: 17px;
   background:
-    repeating-linear-gradient(90deg, transparent 0 39px, rgba(121, 217, 232, 0.025) 40px),
-    radial-gradient(circle at 78% 20%, rgba(201, 154, 242, 0.13), transparent 34%),
-    rgba(10, 9, 18, 0.86);
+    radial-gradient(circle at 82% 5%, rgba(201, 154, 242, 0.14), transparent 33%),
+    linear-gradient(115deg, rgba(216, 183, 102, 0.085), transparent 40%),
+    rgba(13, 9, 19, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 .anime-hero::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(180deg, var(--anime), var(--anime-violet));
-  box-shadow: 0 0 24px rgba(121, 217, 232, 0.42);
+  width: 3px;
+  background: var(--gold-grad);
+  box-shadow: var(--glow-gold);
+}
+.anime-hero-copy {
+  position: relative;
+  z-index: 1;
+  align-self: center;
 }
 .anime-kicker,
 .anime-catalog-index {
-  color: var(--anime);
+  color: var(--accent);
   font: 650 8px/1 "JetBrains Mono", Consolas, monospace;
   letter-spacing: 0.19em;
 }
 .anime-hero h1 {
-  margin: 4px 0 2px;
-  color: #f5f2fb;
-  font: 700 clamp(26px, 3vw, 38px)/0.95 "Cormorant Garamond", Georgia, serif;
-  letter-spacing: 0.015em;
+  margin: 5px 0 2px;
+  color: var(--text);
+  font: 700 clamp(34px, 4vw, 46px)/0.9 "Cormorant Garamond", Georgia, serif;
+  letter-spacing: 0.02em;
 }
 .anime-hero p {
-  max-width: 610px;
+  max-width: 570px;
   margin: 0;
   color: var(--text-dim);
   font-size: 11px;
 }
-.anime-signal-card {
-  display: grid;
-  grid-template-columns: auto auto auto;
-  align-items: center;
-  gap: 11px;
-  min-width: 232px;
-  padding: 11px 12px;
-  border: 1px solid rgba(121, 217, 232, 0.22);
-  border-radius: 11px;
-  background: rgba(5, 10, 17, 0.64);
-}
-.anime-live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--anime);
-  box-shadow: 0 0 0 5px rgba(121, 217, 232, 0.07), 0 0 13px var(--anime);
-}
-.anime-signal-card small {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text-dim);
-  font: 600 7px/1 "JetBrains Mono", Consolas, monospace;
-  letter-spacing: 0.16em;
-}
-.anime-signal-card strong {
+.anime-hero-tracks {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
-  color: #dffbff;
-  font: 700 10px/1 "JetBrains Mono", Consolas, monospace;
+  margin-top: 13px;
 }
-.anime-signal-card strong i { width: 14px; height: 1px; background: rgba(121, 217, 232, 0.35); }
-.anime-wave { display: flex; height: 26px; align-items: center; gap: 2px; }
-.anime-wave i { width: 2px; height: 8px; background: var(--anime); opacity: 0.42; }
-.anime-wave i:nth-child(2) { height: 21px; }
-.anime-wave i:nth-child(3) { height: 13px; }
-.anime-wave i:nth-child(4) { height: 25px; }
-.anime-wave i:nth-child(5) { height: 16px; }
+.anime-hero-tracks span {
+  padding: 5px 8px;
+  color: var(--text-dim);
+  border: 1px solid rgba(216, 183, 102, 0.13);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 8.5px;
+}
+.anime-hero-tracks b {
+  margin-right: 5px;
+  color: var(--accent-hov);
+  font: 750 8px/1 "JetBrains Mono", Consolas, monospace;
+}
+.anime-featured {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 116px minmax(0, 1fr) 30px;
+  align-items: stretch;
+  gap: 13px;
+  overflow: hidden;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  border: 1px solid rgba(216, 183, 102, 0.24);
+  border-radius: 13px;
+  background:
+    linear-gradient(90deg, rgba(8, 5, 12, 0.2), rgba(8, 5, 12, 0.94)),
+    rgba(8, 5, 12, 0.8);
+  cursor: pointer;
+  transition: transform 0.25s var(--ease-out), border-color 0.25s, box-shadow 0.25s;
+}
+.anime-featured[hidden] { display: none; }
+.anime-featured:hover,
+.anime-featured:focus-visible {
+  outline: none;
+  transform: translateY(-2px);
+  border-color: rgba(240, 216, 144, 0.58);
+  box-shadow: 0 17px 34px -22px rgba(216, 183, 102, 0.78);
+}
+.anime-featured-art {
+  min-height: 100%;
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset -22px 0 30px -22px #08060d;
+}
+.anime-featured-copy {
+  min-width: 0;
+  align-self: center;
+}
+.anime-featured-copy small {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font: 650 7px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.15em;
+}
+.anime-featured-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #f7f1e6;
+  font: 650 17px/1.06 "Cormorant Garamond", Georgia, serif;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.anime-featured-copy > span {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font: 7.5px/1 "JetBrains Mono", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.anime-featured-open {
+  align-self: center;
+  color: var(--accent);
+  font-size: 17px;
+  transition: transform 0.25s var(--ease-spring);
+}
+.anime-featured:hover .anime-featured-open { transform: translate(2px, -2px); }
 .anime-command-bar {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
   padding: 9px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -808,14 +868,14 @@ body {
 }
 .anime-search-field {
   display: grid;
-  grid-template-columns: 31px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
   min-height: 39px;
-  border: 1px solid rgba(121, 217, 232, 0.15);
+  border: 1px solid rgba(216, 183, 102, 0.15);
   border-radius: 10px;
   background: rgba(8, 6, 13, 0.7);
 }
-.anime-search-mark { color: var(--anime); font-size: 18px; text-align: center; }
+.anime-search-mark { color: var(--accent); font-size: 18px; text-align: center; }
 .anime-search-field input {
   min-width: 0;
   height: 38px;
@@ -827,20 +887,20 @@ body {
   font: 11px "Outfit", "Segoe UI", sans-serif;
 }
 .anime-search-field:focus-within {
-  border-color: rgba(121, 217, 232, 0.48);
-  box-shadow: 0 0 0 3px rgba(121, 217, 232, 0.07);
+  border-color: rgba(216, 183, 102, 0.46);
+  box-shadow: 0 0 0 3px rgba(216, 183, 102, 0.07);
 }
 .anime-mode-switch {
   display: flex;
   gap: 3px;
   padding: 3px;
-  border: 1px solid rgba(121, 217, 232, 0.13);
+  border: 1px solid rgba(216, 183, 102, 0.13);
   border-radius: 9px;
   background: rgba(8, 6, 13, 0.45);
 }
 .anime-mode-switch button {
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
   color: var(--text-dim);
   border: 0;
   border-radius: 7px;
@@ -848,18 +908,18 @@ body {
   font: 600 8px "JetBrains Mono", Consolas, monospace;
   cursor: pointer;
 }
+.anime-mode-switch button:hover { color: var(--text); }
 .anime-mode-switch button.is-active {
-  color: #071317;
-  background: var(--anime);
+  color: #100c16;
+  background: var(--gold-grad);
+  box-shadow: 0 7px 18px -11px rgba(216, 183, 102, 0.9);
 }
 .anime-catalog-panel {
-  min-height: 0;
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
-  overflow: hidden;
-  padding: 12px;
-  border: 1px solid rgba(121, 217, 232, 0.13);
+  padding: 15px;
+  border: 1px solid var(--border);
   border-radius: 16px;
   background: rgba(10, 7, 16, 0.66);
 }
@@ -868,21 +928,18 @@ body {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 9px;
+  margin-bottom: 13px;
 }
 .anime-catalog-head h2 {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 550;
+  font: 650 22px/1 "Cormorant Garamond", Georgia, serif;
 }
 .anime-grid {
-  min-height: 140px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
-  gap: 10px;
-  overflow-y: auto;
-  padding: 2px 3px 8px;
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 14px;
+  padding: 1px 1px 8px;
 }
 .anime-card {
   position: relative;
@@ -891,77 +948,148 @@ body {
   overflow: hidden;
   color: var(--text);
   text-align: left;
-  border: 1px solid rgba(121, 217, 232, 0.13);
-  border-radius: 12px;
-  background: #100c17;
+  border: 1px solid rgba(216, 183, 102, 0.13);
+  border-radius: 13px;
+  background: linear-gradient(165deg, rgba(24, 17, 33, 0.98), rgba(12, 8, 17, 0.98));
+  box-shadow: 0 14px 30px -24px rgba(0, 0, 0, 0.92);
   cursor: pointer;
-  transition: transform 0.22s var(--ease-out), border-color 0.22s, box-shadow 0.22s;
+  transition: transform 0.25s var(--ease-out), border-color 0.25s, box-shadow 0.25s;
 }
 .anime-card:hover,
 .anime-card:focus-visible {
   outline: none;
-  transform: translateY(-3px);
-  border-color: rgba(121, 217, 232, 0.48);
-  box-shadow: 0 13px 26px -18px rgba(121, 217, 232, 0.8);
+  transform: translateY(-5px);
+  border-color: rgba(216, 183, 102, 0.48);
+  box-shadow: 0 21px 38px -24px rgba(216, 183, 102, 0.52);
 }
-.anime-card-poster { position: relative; aspect-ratio: 0.72; overflow: hidden; background: #171120; }
-.anime-card-poster img { width: 100%; height: 100%; object-fit: cover; }
+.anime-card-poster {
+  position: relative;
+  display: grid;
+  aspect-ratio: 2 / 3;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(201, 154, 242, 0.18), transparent 48%),
+    #171120;
+}
+.anime-card-poster img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.45s var(--ease-out), filter 0.3s;
+}
+.anime-card:hover .anime-card-poster img { transform: scale(1.035); filter: saturate(1.08); }
 .anime-card-poster::after {
   content: "";
   position: absolute;
-  inset: 55% 0 0;
-  background: linear-gradient(transparent, #100c17);
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(180deg, rgba(5, 3, 9, 0.05) 50%, rgba(5, 3, 9, 0.72)),
+    linear-gradient(90deg, rgba(216, 183, 102, 0.07), transparent 28%);
+  pointer-events: none;
+}
+.anime-card-fallback {
+  color: rgba(216, 183, 102, 0.36);
+  font: 700 34px/1 "Cormorant Garamond", Georgia, serif;
+  letter-spacing: 0.08em;
 }
 .anime-card-type {
   position: absolute;
-  top: 7px;
-  left: 7px;
-  z-index: 1;
-  padding: 4px 5px;
-  color: #061216;
-  border-radius: 5px;
-  background: var(--anime);
+  top: 9px;
+  left: 9px;
+  z-index: 3;
+  padding: 5px 6px;
+  color: #100c16;
+  border: 1px solid rgba(245, 226, 168, 0.62);
+  border-radius: 6px;
+  background: var(--gold-grad);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.8);
   font: 750 7px/1 "JetBrains Mono", Consolas, monospace;
 }
-.anime-card-copy { display: block; min-height: 61px; padding: 8px 9px 9px; }
-.anime-card-copy strong {
+.anime-card-open {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  z-index: 3;
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  color: var(--accent-hov);
+  border: 1px solid rgba(216, 183, 102, 0.3);
+  border-radius: 50%;
+  background: rgba(8, 6, 13, 0.78);
+  backdrop-filter: blur(7px);
+  transition: transform 0.25s var(--ease-spring), background 0.25s;
+}
+.anime-card:hover .anime-card-open { transform: scale(1.1) rotate(4deg); background: rgba(45, 32, 58, 0.9); }
+.anime-card-copy {
+  display: block;
+  min-height: 96px;
+  padding: 10px 11px 11px;
+}
+.anime-card-copy > strong {
   display: -webkit-box;
-  min-height: 29px;
+  min-height: 34px;
   overflow: hidden;
-  font-size: 10.5px;
-  line-height: 1.35;
+  color: #f5efe5;
+  font-size: 12px;
+  line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.anime-card-meta { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
+.anime-card-subtitle {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.anime-card-meta { display: flex; align-items: center; gap: 5px; margin-top: 9px; }
 .anime-card-meta span {
-  padding: 2px 4px;
-  color: var(--anime);
-  border: 1px solid rgba(121, 217, 232, 0.2);
-  border-radius: 4px;
+  padding: 3px 5px;
+  border: 1px solid rgba(216, 183, 102, 0.18);
+  border-radius: 5px;
+  background: rgba(216, 183, 102, 0.045);
   font: 650 7px/1 "JetBrains Mono", Consolas, monospace;
 }
-.anime-card-meta small { color: var(--text-dim); font: 8px/1 "JetBrains Mono", Consolas, monospace; }
+.anime-card-meta span.is-dub { color: #dfc4f6; border-color: rgba(201, 154, 242, 0.23); }
+.anime-card-meta span.is-sub { color: var(--accent-hov); }
+.anime-card-meta b { margin-left: 2px; color: var(--text); font-weight: 750; }
 .anime-empty {
   grid-column: 1 / -1;
   display: grid;
-  min-height: 180px;
+  min-height: 220px;
   place-items: center;
   padding: 26px;
   color: var(--text-dim);
-  border: 1px dashed rgba(121, 217, 232, 0.18);
+  border: 1px dashed rgba(216, 183, 102, 0.2);
   border-radius: 12px;
   text-align: center;
   font-size: 11px;
 }
-.anime-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 9px; }
-.anime-pager > span { color: var(--anime); font: 650 8px/1 "JetBrains Mono", Consolas, monospace; }
+.anime-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 15px;
+}
+.anime-pager > span {
+  color: var(--accent);
+  font: 650 8px/1 "JetBrains Mono", Consolas, monospace;
+}
 .anime-detail-panel {
   position: relative;
   width: min(1040px, calc(100vw - 44px));
   height: min(690px, calc(100dvh - 54px));
   overflow: hidden;
-  border: 1px solid rgba(121, 217, 232, 0.28);
+  border: 1px solid rgba(216, 183, 102, 0.28);
   border-radius: 18px;
   background: #0c0912;
   box-shadow: 0 35px 90px rgba(0, 0, 0, 0.72);
@@ -969,7 +1097,7 @@ body {
 .anime-detail-banner {
   position: absolute;
   inset: 0 0 auto;
-  height: 210px;
+  height: 220px;
   opacity: 0.2;
   background-position: center 28%;
   background-size: cover;
@@ -989,9 +1117,9 @@ body {
 .anime-detail-visual { position: relative; }
 .anime-detail-visual img {
   width: 100%;
-  aspect-ratio: 0.7;
+  aspect-ratio: 2 / 3;
   object-fit: cover;
-  border: 1px solid rgba(121, 217, 232, 0.25);
+  border: 1px solid rgba(216, 183, 102, 0.28);
   border-radius: 11px;
   background: #171120;
   box-shadow: 0 20px 45px -24px rgba(0, 0, 0, 0.9);
@@ -1001,14 +1129,14 @@ body {
   right: 7px;
   bottom: 8px;
   padding: 4px 6px;
-  color: #061216;
+  color: #100c16;
   border-radius: 5px;
-  background: var(--anime);
+  background: var(--gold-grad);
   font: 750 7px/1 "JetBrains Mono", Consolas, monospace;
 }
 .anime-detail-copy h2 {
   margin: 7px 0 8px;
-  color: #f7f3fb;
+  color: #f7f3ed;
   font: 700 clamp(24px, 3vw, 36px)/0.98 "Cormorant Garamond", Georgia, serif;
 }
 .anime-detail-copy > p {
@@ -1025,28 +1153,28 @@ body {
 .anime-detail-meta { display: flex; flex-wrap: wrap; gap: 5px; }
 .anime-detail-meta span {
   padding: 4px 6px;
-  color: #c8dce0;
-  border: 1px solid rgba(121, 217, 232, 0.17);
+  color: #dacfbf;
+  border: 1px solid rgba(216, 183, 102, 0.17);
   border-radius: 5px;
-  background: rgba(121, 217, 232, 0.045);
+  background: rgba(216, 183, 102, 0.045);
   font: 600 7.5px/1 "JetBrains Mono", Consolas, monospace;
 }
 .anime-track-console {
   min-width: 0;
   padding: 13px;
-  border: 1px solid rgba(121, 217, 232, 0.16);
+  border: 1px solid rgba(216, 183, 102, 0.16);
   border-radius: 13px;
-  background: rgba(5, 9, 15, 0.7);
+  background: rgba(7, 5, 11, 0.74);
 }
 .anime-track-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .anime-track-head h3 { margin: 3px 0 0; color: var(--text); font-size: 13px; }
-.anime-track-head > strong { color: var(--anime); font: 600 8px/1 "JetBrains Mono", Consolas, monospace; }
+.anime-track-head > strong { color: var(--accent); font: 600 8px/1 "JetBrains Mono", Consolas, monospace; }
 .anime-track-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 11px 0; }
 .anime-track-option {
   min-height: 42px;
   padding: 6px;
   color: var(--text-dim);
-  border: 1px solid rgba(121, 217, 232, 0.13);
+  border: 1px solid rgba(216, 183, 102, 0.13);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.018);
   cursor: pointer;
@@ -1054,9 +1182,9 @@ body {
 .anime-track-option strong { display: block; font: 750 9px/1 "JetBrains Mono", Consolas, monospace; }
 .anime-track-option small { display: block; margin-top: 4px; font-size: 8px; }
 .anime-track-option.is-active {
-  color: #071317;
-  border-color: var(--anime);
-  background: var(--anime);
+  color: #100c16;
+  border-color: var(--accent);
+  background: var(--gold-grad);
 }
 .anime-episode-toolbar { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
 .anime-episode-toolbar > span {
@@ -1078,15 +1206,15 @@ body {
   aspect-ratio: 1;
   padding: 0;
   color: var(--text-dim);
-  border: 1px solid rgba(121, 217, 232, 0.13);
+  border: 1px solid rgba(216, 183, 102, 0.13);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.018);
   font: 650 7.5px/1 "JetBrains Mono", Consolas, monospace;
   cursor: pointer;
 }
 .anime-episode:hover:not(:disabled),
-.anime-episode:focus-visible { outline: none; color: #fff; border-color: rgba(121, 217, 232, 0.55); }
-.anime-episode.is-selected { color: #071317; border-color: var(--anime); background: var(--anime); }
+.anime-episode:focus-visible { outline: none; color: #fff; border-color: rgba(216, 183, 102, 0.55); }
+.anime-episode.is-selected { color: #160f1d; border-color: #c99af2; background: #c99af2; }
 .anime-episode.is-queued { color: var(--accent-hov); border-color: rgba(216, 183, 102, 0.5); }
 .anime-episode.is-downloaded { color: #82d5a6; border-color: rgba(77, 190, 125, 0.45); }
 .anime-episode:disabled { opacity: 0.42; cursor: default; }
@@ -4469,15 +4597,22 @@ body.setup-open #dir-modal { z-index: 120; }
 }
 
 @media (max-width: 820px) {
-  .anime-tab-content { overflow: hidden; }
-  .anime-hero { min-height: auto; padding: 14px 14px 13px 18px; }
-  .anime-hero h1 { font-size: 27px; }
+  .anime-tab-content { overflow-x: hidden; overflow-y: auto; }
+  .anime-hero {
+    min-height: 124px;
+    grid-template-columns: minmax(250px, 1fr) minmax(230px, 300px);
+    gap: 16px;
+    padding: 14px 14px 13px 18px;
+  }
+  .anime-hero h1 { font-size: 34px; }
   .anime-hero p { max-width: 420px; font-size: 10px; }
-  .anime-signal-card { min-width: 190px; }
+  .anime-hero-tracks { margin-top: 10px; }
+  .anime-featured { grid-template-columns: 86px minmax(0, 1fr) 23px; gap: 9px; }
+  .anime-featured-copy strong { font-size: 14px; }
   .anime-command-bar { grid-template-columns: minmax(0, 1fr) auto; }
   .anime-mode-switch { grid-column: 1 / -1; }
   .anime-mode-switch button { flex: 1; }
-  .anime-grid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
+  .anime-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 11px; }
   .anime-detail-panel {
     width: calc(100vw - 16px);
     height: calc(100dvh - 24px);
@@ -4495,13 +4630,24 @@ body.setup-open #dir-modal { z-index: 120; }
 }
 
 @media (max-width: 560px) {
-  .anime-hero { display: block; }
-  .anime-signal-card { display: none; }
+  .anime-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 17px 13px 13px 18px;
+  }
+  .anime-hero h1 { font-size: 38px; }
+  .anime-hero-tracks { gap: 5px; }
+  .anime-featured {
+    min-height: 92px;
+    grid-template-columns: 94px minmax(0, 1fr) 26px;
+  }
   .anime-command-bar { grid-template-columns: minmax(0, 1fr) auto; padding: 7px; }
   .anime-command-bar > .btn { padding-inline: 12px; }
   .anime-catalog-panel { padding: 9px; }
   .anime-catalog-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .anime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .anime-card-copy { min-height: 91px; padding: 9px; }
+  .anime-card-copy > strong { font-size: 11px; }
   .anime-pager { gap: 7px; }
   .anime-pager .btn { padding-inline: 10px; }
   .anime-detail-content { grid-template-columns: 92px minmax(0, 1fr); }

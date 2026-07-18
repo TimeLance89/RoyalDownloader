@@ -7192,7 +7192,7 @@ async def api_anime(
                 mode=browse_mode,
                 query=query,
                 page=page,
-                limit=24,
+                limit=50,
             )
 
     try:

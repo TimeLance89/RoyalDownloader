@@ -1639,8 +1639,8 @@ async function seriesAddSelected() {
 // ── Anime ─────────────────────────────────────────────────────────────────
 function animeModeTitle(mode) {
   return {
-    latest: "Aktuelle Ausstrahlungen",
-    trending: "Trending Activity",
+    latest: "Neu im Archiv",
+    trending: "Aktuell im Trend",
     popular: "Beliebte Anime",
     search: "Suchergebnisse",
   }[mode] || "Anime";
@@ -1657,6 +1657,32 @@ function setAnimeMode(mode) {
   document.getElementById("anime-catalog-title").textContent = animeModeTitle(mode);
 }
 
+function renderAnimeFeature() {
+  const feature = document.getElementById("anime-featured");
+  const anime = state.anime.results[0];
+  if (!anime) {
+    feature.hidden = true;
+    feature.onclick = null;
+    return;
+  }
+  const artwork = anime.banner_url || anime.cover_url || "";
+  document.getElementById("anime-featured-art").style.backgroundImage =
+    artwork ? `url("${artwork.replace(/"/g, "%22")}")` : "";
+  document.getElementById("anime-featured-title").textContent = anime.title;
+  const tracks = [
+    anime.translations?.dub ? "DUB" : "",
+    anime.translations?.sub ? "SUB" : "",
+  ].filter(Boolean).join(" + ");
+  document.getElementById("anime-featured-meta").textContent = [
+    anime.year,
+    anime.media_type || "Anime",
+    tracks,
+  ].filter(Boolean).join(" · ");
+  feature.setAttribute("aria-label", `${anime.title} öffnen`);
+  feature.onclick = () => openAnimeDetail(anime, feature);
+  feature.hidden = false;
+}
+
 function renderAnimeResults() {
   const container = document.getElementById("anime-results");
   container.innerHTML = "";
@@ -1668,19 +1694,24 @@ function renderAnimeResults() {
     const dubCount = Number(anime.translations?.dub || 0);
     const subCount = Number(anime.translations?.sub || 0);
     const count = Math.max(dubCount, subCount, Number(anime.episode_count || 0));
+    card.setAttribute("aria-label", `${anime.title}, ${count} Episoden`);
     card.innerHTML = `
       <span class="anime-card-poster">
         ${anime.cover_url
     ? `<img src="${escapeHtml(anime.cover_url)}" alt="" loading="lazy">`
     : ""}
+        <span class="anime-card-fallback">${escapeHtml(mediaCardInitials(anime.title))}</span>
         <span class="anime-card-type" translate="no">${escapeHtml(anime.media_type || "TV")}</span>
+        <span class="anime-card-open" aria-hidden="true">↗</span>
       </span>
       <span class="anime-card-copy">
         <strong translate="no">${escapeHtml(anime.title)}</strong>
+        <span class="anime-card-subtitle" translate="no">
+          ${escapeHtml([anime.year, count ? `${count} Episoden` : ""].filter(Boolean).join(" · ") || "Anime")}
+        </span>
         <span class="anime-card-meta" translate="no">
-          ${dubCount ? `<span>DUB ${dubCount}</span>` : ""}
-          ${subCount ? `<span>SUB ${subCount}</span>` : ""}
-          <small>${count} EP</small>
+          ${dubCount ? `<span class="is-dub">DUB <b>${dubCount}</b></span>` : ""}
+          ${subCount ? `<span class="is-sub">SUB <b>${subCount}</b></span>` : ""}
         </span>
       </span>
     `;
@@ -1696,7 +1727,9 @@ function renderAnimeResults() {
         : "MKissa meldet momentan keine Anime.");
     container.appendChild(empty);
   }
-  document.getElementById("anime-page-label").textContent = `Seite ${state.anime.page}`;
+  renderAnimeFeature();
+  document.getElementById("anime-page-label").textContent =
+    `Seite ${state.anime.page} · ${state.anime.results.length} Titel`;
   document.getElementById("anime-prev").disabled = state.anime.loading || state.anime.page <= 1;
   document.getElementById("anime-next").disabled = state.anime.loading || !state.anime.hasMore;
 }
@@ -1727,9 +1760,10 @@ async function animeBrowse(mode, page = 1) {
     state.anime.hasMore = !!response.has_more;
     state.anime.loaded = true;
     state.anime.disabledReason = response.disabled ? response.disabled_reason : "";
+    const total = Number(response.total) || state.anime.results.length;
     document.getElementById("anime-status").textContent = response.disabled
       ? response.disabled_reason
-      : `${state.anime.results.length} Anime · MKissa · EN`;
+      : `${state.anime.results.length} Titel auf dieser Seite · ${total.toLocaleString("de-DE")} im Katalog`;
   } catch (error) {
     if (requestSeq !== state.anime.requestSeq) return;
     state.anime.results = [];

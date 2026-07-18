@@ -226,27 +226,35 @@ class MkissaScraper:
         }
         combined: Dict[str, MkissaAnime] = {}
         totals: List[int] = []
-        for translation in ("dub", "sub"):
-            variables = {
-                "search": search,
-                "limit": limit,
-                "page": page,
-                "translationType": translation,
-                "allowAdult": False,
-            }
-            response = self._graphql(variables, SEARCH_HASH, SEARCH_QUERY)
-            shows = response.get("data", {}).get("shows", {})
-            totals.append(int((shows.get("pageInfo") or {}).get("total") or 0))
-            for entry in self._parse_entries(shows.get("edges") or []):
-                existing = combined.get(entry.id)
-                if existing is None:
-                    combined[entry.id] = entry
-                    continue
-                for track, count in entry.translations.items():
-                    existing.translations[track] = max(
-                        existing.translations.get(track, 0),
-                        count,
-                    )
+        upstream_pages = 2 if limit > 24 else 1
+        first_upstream_page = (page - 1) * upstream_pages + 1
+        for upstream_page in range(
+            first_upstream_page,
+            first_upstream_page + upstream_pages,
+        ):
+            for translation in ("dub", "sub"):
+                variables = {
+                    "search": search,
+                    "limit": limit,
+                    "page": upstream_page,
+                    "translationType": translation,
+                    "allowAdult": False,
+                }
+                response = self._graphql(variables, SEARCH_HASH, SEARCH_QUERY)
+                shows = response.get("data", {}).get("shows", {})
+                totals.append(
+                    int((shows.get("pageInfo") or {}).get("total") or 0)
+                )
+                for entry in self._parse_entries(shows.get("edges") or []):
+                    existing = combined.get(entry.id)
+                    if existing is None:
+                        combined[entry.id] = entry
+                        continue
+                    for track, count in entry.translations.items():
+                        existing.translations[track] = max(
+                            existing.translations.get(track, 0),
+                            count,
+                        )
         results = list(combined.values())[:limit]
         total = max(totals, default=0)
         return {
