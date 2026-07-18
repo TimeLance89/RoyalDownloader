@@ -38,6 +38,8 @@ class FilmpalastSearchResult:
     url: str
     year: str = ""
     is_movie: bool = True
+    provider: str = ""
+    content_language: str = ""
 
 
 @dataclass
@@ -76,6 +78,8 @@ class FilmpalastMovie:
     description: str = ""
     genres: List[str] = field(default_factory=list)
     hosters: List[HosterInfo] = field(default_factory=list)
+    provider: str = ""
+    content_language: str = ""
 
     @property
     def voe_url(self) -> Optional[str]:

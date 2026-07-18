@@ -15,7 +15,14 @@ const state = {
   wl: { items: [], selected: new Set(), loaded: false },
   queue: { count: 0, groups: [], loaded: false },
   download: { active: false, percent: 0, completed: 0, total: 0, failed: 0 },
-  providers: { movies: [], series: [], labels: {} },
+  providers: {
+    movies: [],
+    series: [],
+    labels: {},
+    catalog: {},
+    enabledMovies: new Set(),
+    enabledSeries: new Set(),
+  },
   queuedSlugs: new Set(),
   jellyfinUserConfigured: false,
   watchlistCleanupDefault: "keep",
@@ -80,9 +87,10 @@ function appendLog(msg, level) {
   if (low.includes("fertig") || low.includes(" ok")) tag = "ok";
   else if (low.includes("fehler") || low.includes("error") || low.includes("nicht")) tag = "err";
   else if (low.includes("warn")) tag = "warn";
-  const ts = new Date().toLocaleTimeString("de-DE");
+  const ts = new Date().toLocaleTimeString(i18n.locale());
   const line = document.createElement("div");
   line.className = "log-line " + tag;
+  line.translate = false;
   line.textContent = `[${ts}] ${msg}`;
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
@@ -260,6 +268,7 @@ function renderQueue(payload) {
   for (const g of payload.groups) {
     const gEl = document.createElement("div");
     gEl.className = "queue-group";
+    gEl.translate = false;
     gEl.textContent = `${g.name}  (${g.items.length})`;
     list.appendChild(gEl);
     for (const it of g.items) {
@@ -273,10 +282,13 @@ function renderQueue(payload) {
       content.className = "queue-item-content";
       const label = document.createElement("strong");
       label.className = "queue-item-title";
+      label.translate = false;
       label.textContent = it.title;
       const route = document.createElement("span");
       route.className = "queue-item-route";
-      route.textContent = it.hoster_label;
+      route.translate = false;
+      const language = String(it.content_language || "").toUpperCase();
+      route.textContent = [language, it.hoster_label].filter(Boolean).join(" · ");
       content.append(label, route);
       const status = document.createElement("span");
       status.className = "queue-item-status";
@@ -756,6 +768,7 @@ function renderFpResults() {
     copy.className = "result-card-copy";
     const title = document.createElement("strong");
     title.className = "result-card-title";
+    title.translate = false;
     title.textContent = result.title;
     const subtitle = document.createElement("span");
     subtitle.className = "result-card-subtitle";
@@ -1250,6 +1263,7 @@ function renderSeriesResults() {
     copy.className = "result-card-copy";
     const title = document.createElement("strong");
     title.className = "result-card-title";
+    title.translate = false;
     title.textContent = result.title;
     const subtitle = document.createElement("span");
     subtitle.className = "result-card-subtitle";
@@ -1788,6 +1802,7 @@ function renderSeriesSubscriptions() {
     text.className = "subscription-text";
     const title = document.createElement("span");
     title.className = "subscription-name";
+    title.translate = false;
     title.textContent = entry.title;
     const meta = document.createElement("span");
     meta.className = "subscription-meta";
@@ -1989,6 +2004,7 @@ function renderWatchlist() {
     copy.className = "library-card-copy";
     const title = document.createElement("strong");
     title.className = "library-card-title";
+    title.translate = false;
     title.textContent = entry.title;
     const statusText = document.createElement("span");
     statusText.className = "library-card-status";
@@ -2089,6 +2105,7 @@ function fillJellyfinUserSelect(selectId, users, selectedId = "", selectedName =
     const option = document.createElement("option");
     option.value = user.id;
     option.textContent = user.name;
+    option.translate = false;
     option.dataset.name = user.name;
     select.appendChild(option);
   }
@@ -2096,6 +2113,7 @@ function fillJellyfinUserSelect(selectId, users, selectedId = "", selectedName =
     const option = document.createElement("option");
     option.value = selectedId;
     option.textContent = selectedName || "Gespeicherter Benutzer";
+    option.translate = false;
     option.dataset.name = selectedName || "";
     select.appendChild(option);
   }
@@ -2127,45 +2145,162 @@ async function loadJellyfinUsers({ urlId, keyId, selectId, buttonId, statusId = 
   }
 }
 
-function renderProviderPriority(mediaType) {
-  const list = document.getElementById(mediaType === "movies" ? "movie-provider-priority" : "series-provider-priority");
+function providerEnabledSet(mediaType) {
+  return mediaType === "movies"
+    ? state.providers.enabledMovies
+    : state.providers.enabledSeries;
+}
+
+function providerMonogram(label) {
+  const words = String(label || "").match(/[\p{L}\p{N}]+/gu) || [];
+  return (words.length > 1
+    ? words.slice(0, 2).map((word) => word[0]).join("")
+    : String(words[0] || "?").slice(0, 2)
+  ).toUpperCase();
+}
+
+function providerLogoUrl(meta) {
+  const homepage = String(meta?.homepage || "").trim();
+  if (!homepage) return "";
+  return `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(homepage)}&sz=128`;
+}
+
+function providerListIds(mediaType) {
+  return mediaType === "movies"
+    ? ["movie-provider-priority", "setup-movie-provider-priority"]
+    : ["series-provider-priority", "setup-series-provider-priority"];
+}
+
+function setProviderSelectionStatus(context, message, error = false) {
+  if (context === "setup") {
+    setSetupStatus(message, error);
+    return;
+  }
+  const status = document.getElementById("provider-selection-status");
+  if (!status) return;
+  status.textContent = message || "";
+  status.classList.toggle("error", error);
+}
+
+function renderProviderList(list, mediaType) {
   const providers = state.providers[mediaType] || [];
-  list.innerHTML = providers.map((provider, index) => `
-    <li class="provider-priority-item" data-provider="${escapeHtml(provider)}">
-      <span class="provider-position">${String(index + 1).padStart(2, "0")}</span>
-      <span class="provider-name">${escapeHtml(state.providers.labels[provider] || provider)}</span>
-      <span class="provider-order-actions">
-        <button class="provider-order-button" type="button" data-direction="-1"
-          aria-label="${escapeHtml(state.providers.labels[provider] || provider)} nach oben"
-          ${index === 0 ? "disabled" : ""}>↑</button>
-        <button class="provider-order-button" type="button" data-direction="1"
-          aria-label="${escapeHtml(state.providers.labels[provider] || provider)} nach unten"
-          ${index === providers.length - 1 ? "disabled" : ""}>↓</button>
-      </span>
-    </li>
-  `).join("");
+  const enabled = providerEnabledSet(mediaType);
+  const isSetup = list.id.startsWith("setup-");
+  const context = isSetup ? "setup" : "settings";
+  const mediaLabel = mediaType === "movies" ? "Filmquelle" : "Serienquelle";
+  list.innerHTML = providers.map((provider, index) => {
+    const meta = state.providers.catalog[provider] || {};
+    const label = state.providers.labels[provider] || meta.label || provider;
+    const active = enabled.has(provider);
+    const logoUrl = providerLogoUrl(meta);
+    const languageCode = String(meta.content_language || "").toUpperCase();
+    const languageLabel = meta.language_label || languageCode;
+    return `
+      <li class="provider-source-card ${active ? "is-enabled" : "is-disabled"} ${mediaType === "series" ? "is-series" : ""}"
+          data-provider="${escapeHtml(provider)}">
+        <label class="provider-source-toggle">
+          <input type="checkbox" ${active ? "checked" : ""}
+            aria-label="${escapeHtml(`${label} als ${mediaLabel} verwenden`)}">
+          <span class="provider-logo-frame" aria-hidden="true">
+            <span class="provider-logo-monogram">${escapeHtml(providerMonogram(label))}</span>
+            ${logoUrl ? `<img class="provider-logo-image" src="${escapeHtml(logoUrl)}" alt="">` : ""}
+          </span>
+          <span class="provider-source-copy">
+            <strong class="provider-name" translate="no">${escapeHtml(label)}</strong>
+            <span class="provider-source-meta" translate="no">
+              <em>${escapeHtml(languageCode)}</em>
+              <small>${escapeHtml(languageLabel)}</small>
+            </span>
+          </span>
+          <span class="provider-source-state" aria-hidden="true">
+            <i>✓</i><small>${active ? "aktiv" : "aus"}</small>
+          </span>
+        </label>
+        <span class="provider-source-order">
+          <b title="Priorität">${String(index + 1).padStart(2, "0")}</b>
+          <button class="provider-order-button" type="button" data-direction="-1"
+            aria-label="${escapeHtml(`${label} nach oben`)}"
+            ${index === 0 ? "disabled" : ""}>↑</button>
+          <button class="provider-order-button" type="button" data-direction="1"
+            aria-label="${escapeHtml(`${label} nach unten`)}"
+            ${index === providers.length - 1 ? "disabled" : ""}>↓</button>
+        </span>
+      </li>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".provider-logo-image").forEach((image) => {
+    image.addEventListener("error", () => image.remove(), { once: true });
+  });
+  list.querySelectorAll('.provider-source-toggle input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const provider = checkbox.closest(".provider-source-card").dataset.provider;
+      if (!checkbox.checked && enabled.size <= 1) {
+        checkbox.checked = true;
+        setProviderSelectionStatus(
+          context,
+          `Mindestens eine ${mediaType === "movies" ? "Filmquelle" : "Serienquelle"} muss aktiv bleiben.`,
+          true,
+        );
+        return;
+      }
+      if (checkbox.checked) enabled.add(provider);
+      else enabled.delete(provider);
+      setProviderSelectionStatus(
+        context,
+        `${enabled.size} ${mediaType === "movies" ? "Filmquellen" : "Serienquellen"} aktiv.`,
+      );
+      renderAllProviderBoards();
+    });
+  });
   list.querySelectorAll(".provider-order-button").forEach((button) => {
     button.addEventListener("click", () => {
-      const item = button.closest(".provider-priority-item");
+      const item = button.closest(".provider-source-card");
       const from = state.providers[mediaType].indexOf(item.dataset.provider);
       const to = from + Number(button.dataset.direction);
       if (from < 0 || to < 0 || to >= state.providers[mediaType].length) return;
       [state.providers[mediaType][from], state.providers[mediaType][to]] =
         [state.providers[mediaType][to], state.providers[mediaType][from]];
-      renderProviderPriority(mediaType);
+      renderAllProviderBoards();
     });
   });
+}
+
+function renderAllProviderBoards() {
+  for (const mediaType of ["movies", "series"]) {
+    for (const id of providerListIds(mediaType)) {
+      const list = document.getElementById(id);
+      if (list) renderProviderList(list, mediaType);
+    }
+    const enabledCount = providerEnabledSet(mediaType).size;
+    const totalCount = (state.providers[mediaType] || []).length;
+    const summary = `${enabledCount} von ${totalCount} aktiv`;
+    const ids = mediaType === "movies"
+      ? ["movie-provider-summary", "setup-movie-provider-summary"]
+      : ["series-provider-summary", "setup-series-provider-summary"];
+    ids.forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = summary;
+    });
+  }
 }
 
 function applyProviderPriority(cfg) {
   state.providers.movies = [...(cfg.movies || [])];
   state.providers.series = [...(cfg.series || [])];
   state.providers.labels = { ...(cfg.labels || {}) };
-  renderProviderPriority("movies");
-  renderProviderPriority("series");
+  state.providers.catalog = { ...(cfg.catalog || {}) };
+  state.providers.enabledMovies = new Set(
+    cfg.enabled_movies?.length ? cfg.enabled_movies : state.providers.movies,
+  );
+  state.providers.enabledSeries = new Set(
+    cfg.enabled_series?.length ? cfg.enabled_series : state.providers.series,
+  );
+  renderAllProviderBoards();
 }
 
 async function initSettings() {
+  document.getElementById("ui-language").value = i18n.language;
   const cfg = await api.configGet();
   document.getElementById("save-path").value = cfg.save_path;
   document.getElementById("series-path").value = cfg.series_path || "";
@@ -2469,6 +2604,7 @@ async function saveAllSettings() {
   btn.disabled = true;
   status.textContent = "Speichere …";
   try {
+    await api.uiConfigSet(document.getElementById("ui-language").value);
     await api.configSet(
       document.getElementById("save-path").value.trim(),
       document.getElementById("series-path").value.trim(),
@@ -2476,6 +2612,8 @@ async function saveAllSettings() {
     applyProviderPriority(await api.providerPrioritySet({
       movies: state.providers.movies,
       series: state.providers.series,
+      enabled_movies: [...state.providers.enabledMovies],
+      enabled_series: [...state.providers.enabledSeries],
     }));
     const jfUserSelect = document.getElementById("jellyfin-user-id");
     const cleanupDefault = document.querySelector('input[name="jellyfin-cleanup-default"]:checked')?.value
@@ -2530,7 +2668,23 @@ async function saveAllSettings() {
       chat_id: document.getElementById("telegram-chat-id").value.trim(),
     });
     applyTelegramCfg(telegram);
-    const t = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    state.fp.results = [];
+    state.fp.moviesCache = {};
+    state.fp.metadataCache = {};
+    state.fp.sources = [];
+    state.series.results = [];
+    state.series.sources = [];
+    state.series.browseMode = null;
+    state.series.page = 1;
+    state.series.cache = {};
+    await refreshGenres().catch((error) => {
+      document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
+      console.error("Genres konnten nach dem Quellenwechsel nicht geladen werden:", error);
+    });
+    fpShowList("new").catch((error) => {
+      document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
+    });
+    const t = new Date().toLocaleTimeString(i18n.locale(), { hour: "2-digit", minute: "2-digit" });
     status.textContent = `✓ Gespeichert (${t})`;
     if (state.wl.loaded) refreshWatchlist();
   } catch (e) {
@@ -2552,6 +2706,7 @@ async function openDirModal(path) {
   for (const d of data.dirs) {
     const item = document.createElement("div");
     item.className = "dir-item";
+    item.translate = false;
     item.textContent = d.name;
     item.addEventListener("click", () => openDirModal(d.path));
     list.appendChild(item);
@@ -2565,14 +2720,22 @@ let initialDataStarted = false;
 
 const setupStepCopy = {
   1: {
+    title: "Welche Sprache passt zu dir?",
+    intro: "Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.",
+  },
+  2: {
+    title: "Woher dürfen Inhalte kommen?",
+    intro: "Aktiviere Quellen getrennt für Filme und Serien. Die Reihenfolge bestimmt Suche und Fallbacks.",
+  },
+  3: {
     title: "Wohin sollen deine Medien?",
     intro: "Die Ordner werden bei Bedarf angelegt. Beide müssen für den Downloader beschreibbar sein.",
   },
-  2: {
+  4: {
     title: "Bibliothek und Filmdaten",
     intro: "Beide Verbindungen sind optional und können später in den Einstellungen ergänzt werden.",
   },
-  3: {
+  5: {
     title: "Downloads automatisieren",
     intro: "Lege fest, was selbstständig laufen darf. Alle Werte bleiben später änderbar.",
   },
@@ -2585,7 +2748,7 @@ function setSetupStatus(message = "", error = false) {
 }
 
 function showSetupStep(nextStep) {
-  setupStep = Math.max(1, Math.min(3, nextStep));
+  setupStep = Math.max(1, Math.min(5, nextStep));
   document.querySelectorAll("[data-setup-step]").forEach((panel) => {
     panel.classList.toggle("hidden", Number(panel.dataset.setupStep) !== setupStep);
   });
@@ -2596,19 +2759,28 @@ function showSetupStep(nextStep) {
     if (markerStep === setupStep) marker.setAttribute("aria-current", "step");
     else marker.removeAttribute("aria-current");
   });
-  document.getElementById("setup-step-label").textContent = `SCHRITT ${setupStep} VON 3`;
+  document.getElementById("setup-step-label").textContent = `SCHRITT ${setupStep} VON 5`;
   document.getElementById("setup-title").textContent = setupStepCopy[setupStep].title;
   document.getElementById("setup-intro").textContent = setupStepCopy[setupStep].intro;
   document.getElementById("setup-back").classList.toggle("hidden", setupStep === 1);
-  document.getElementById("setup-next").classList.toggle("hidden", setupStep === 3);
-  document.getElementById("setup-finish").classList.toggle("hidden", setupStep !== 3);
+  document.getElementById("setup-next").classList.toggle("hidden", setupStep === 5);
+  document.getElementById("setup-finish").classList.toggle("hidden", setupStep !== 5);
   setSetupStatus();
-  const focusTarget = document.querySelector(`[data-setup-step="${setupStep}"] input:not([type="checkbox"])`);
+  const focusTarget = document.querySelector(
+    `[data-setup-step="${setupStep}"] select, `
+    + `[data-setup-step="${setupStep}"] input:not([type="checkbox"])`,
+  );
   if (focusTarget) window.setTimeout(() => focusTarget.focus(), 40);
 }
 
 function validateSetupStep(step) {
-  if (step === 1) {
+  if (step === 2) {
+    if (!state.providers.enabledMovies.size || !state.providers.enabledSeries.size) {
+      setSetupStatus("Für Filme und Serien muss jeweils mindestens eine Quelle aktiv sein.", true);
+      return false;
+    }
+  }
+  if (step === 3) {
     const movie = document.getElementById("setup-save-path");
     const series = document.getElementById("setup-series-path");
     movie.removeAttribute("aria-invalid");
@@ -2621,7 +2793,7 @@ function validateSetupStep(step) {
       return false;
     }
   }
-  if (step === 3 && document.getElementById("setup-telegram-enabled").checked) {
+  if (step === 5 && document.getElementById("setup-telegram-enabled").checked) {
     const token = document.getElementById("setup-telegram-token");
     token.removeAttribute("aria-invalid");
     if (!token.value.trim() && token.dataset.hasSecret !== "true") {
@@ -2641,7 +2813,7 @@ function parseSetupHour(id) {
 }
 
 async function finishSetup() {
-  if (!validateSetupStep(3)) return;
+  if (!validateSetupStep(5)) return;
   const finish = document.getElementById("setup-finish");
   const back = document.getElementById("setup-back");
   finish.disabled = true;
@@ -2651,6 +2823,11 @@ async function finishSetup() {
     await api.setupComplete({
       save_path: document.getElementById("setup-save-path").value.trim(),
       series_path: document.getElementById("setup-series-path").value.trim(),
+      ui_language: document.getElementById("setup-ui-language").value,
+      movie_provider_order: state.providers.movies,
+      series_provider_order: state.providers.series,
+      movie_providers: [...state.providers.enabledMovies],
+      series_providers: [...state.providers.enabledSeries],
       jellyfin_url: document.getElementById("setup-jellyfin-url").value.trim(),
       jellyfin_api_key: document.getElementById("setup-jellyfin-key").value.trim(),
       jellyfin_user_id: document.getElementById("setup-jellyfin-user").value,
@@ -2690,6 +2867,18 @@ async function initSetupWizard() {
     const tmdb = defaults.tmdb || {};
     const telegram = defaults.telegram || {};
     const automation = defaults.automation || {};
+    const providers = defaults.providers || {};
+    if (providers.movies?.length && providers.series?.length) {
+      applyProviderPriority(providers);
+    }
+    const setupLanguage = defaults.ui_language_configured
+      ? defaults.ui_language
+      : i18n.browserDefaultLanguage();
+    document.getElementById("setup-ui-language").value = setupLanguage;
+    document.getElementById("ui-language").value = setupLanguage;
+    if (setupLanguage !== i18n.language) {
+      await i18n.changeLanguage(setupLanguage);
+    }
     document.getElementById("setup-save-path").value = defaults.save_path || "";
     document.getElementById("setup-series-path").value = defaults.series_path || defaults.save_path || "";
     document.getElementById("setup-jellyfin-url").value = jf.url || "";
@@ -2726,23 +2915,7 @@ async function initSetupWizard() {
 function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
-  api.genres().then((data) => {
-    const filter = document.getElementById("genre-filter");
-    for (const g of data.genres) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "genre-chip";
-      button.dataset.genre = g;
-      button.setAttribute("aria-pressed", "false");
-      button.textContent = g;
-      filter.appendChild(button);
-    }
-    document.getElementById("genre-count").textContent = `${data.genres.length} Genres verfügbar`;
-    const genresAvailable = data.genres.length > 0;
-    document.getElementById("genre-random").disabled = !genresAvailable;
-    document.getElementById("genre-toggle").disabled = !genresAvailable;
-    setActiveGenreFilter(state.fp.activeGenre);
-  }).catch((e) => {
+  refreshGenres().catch((e) => {
     document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
     console.error("Genres konnten nicht geladen werden:", e);
   });
@@ -2753,8 +2926,35 @@ function startInitialData() {
   });
 }
 
+async function refreshGenres() {
+  const data = await api.genres();
+  const genres = Array.isArray(data.genres) ? data.genres : [];
+  const filter = document.getElementById("genre-filter");
+  filter.querySelectorAll('.genre-chip:not([data-genre="Alle Genres"])').forEach((button) => {
+    button.remove();
+  });
+  for (const genre of genres) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "genre-chip";
+    button.dataset.genre = genre;
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = genre;
+    filter.appendChild(button);
+  }
+  if (state.fp.activeGenre !== "Alle Genres" && !genres.includes(state.fp.activeGenre)) {
+    state.fp.activeGenre = "Alle Genres";
+  }
+  document.getElementById("genre-count").textContent = `${genres.length} Genres verfügbar`;
+  const genresAvailable = genres.length > 0;
+  document.getElementById("genre-random").disabled = !genresAvailable;
+  document.getElementById("genre-toggle").disabled = !genresAvailable;
+  setActiveGenreFilter(state.fp.activeGenre);
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────
 async function initApp() {
+  await i18n.initialize();
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
@@ -2899,6 +3099,11 @@ async function initApp() {
   });
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
+  document.getElementById("ui-language").addEventListener("change", (event) => {
+    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+      console.warn("Sprache konnte nicht gewechselt werden:", error);
+    });
+  });
   document.getElementById("updater-check").addEventListener("click", () => checkForUpdates(true));
   document.getElementById("updater-install").addEventListener("click", installUpdate);
   document.getElementById("updater-mode").addEventListener("change", (event) => {
@@ -2954,6 +3159,11 @@ async function initApp() {
     urlId: "setup-jellyfin-url", keyId: "setup-jellyfin-key", selectId: "setup-jellyfin-user",
     buttonId: "setup-jellyfin-users-load",
   }));
+  document.getElementById("setup-ui-language").addEventListener("change", (event) => {
+    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+      setSetupStatus(`Sprache konnte nicht geladen werden: ${error.message}`, true);
+    });
+  });
   document.getElementById("setup-next").addEventListener("click", () => {
     if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1);
   });
@@ -2962,7 +3172,7 @@ async function initApp() {
   document.getElementById("setup-wizard").addEventListener("keydown", (e) => {
     if (!setupRequired || e.key !== "Enter" || e.target.closest("button") || e.target.type === "checkbox") return;
     e.preventDefault();
-    if (setupStep < 3) {
+    if (setupStep < 5) {
       if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1);
     } else {
       finishSetup();

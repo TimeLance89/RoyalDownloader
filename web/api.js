@@ -43,6 +43,15 @@ const api = {
   setupStatus() { return this.get("/api/setup/status"); },
   setupComplete(cfg) { return this.post("/api/setup/complete", cfg); },
 
+  uiConfigGet() { return this.get("/api/ui/config"); },
+  uiConfigSet(language) { return this.post("/api/ui/config", { language }); },
+  uiTranslate(language, texts) {
+    return this.post("/api/ui/translate", {
+      target_language: language,
+      texts,
+    });
+  },
+
   configGet() { return this.get("/api/config"); },
   configSet(savePath, seriesPath) { return this.post("/api/config", { save_path: savePath, series_path: seriesPath }); },
   providerPriorityGet() { return this.get("/api/providers/config"); },

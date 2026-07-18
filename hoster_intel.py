@@ -20,6 +20,8 @@ STATE_FILE = data_dir() / ".hoster_intel.json"
 
 
 BASE_SCORE = {
+    "filmfrei24": 130,
+    "filmfrei24 direct": 125,
     "vidara": 120,
     "firestream": 115,
     "voe": 90,

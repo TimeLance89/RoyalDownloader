@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir
+from providers.catalog import provider_keys
+from ui_translator import DEFAULT_UI_LANGUAGE, normalize_ui_language
 from watchlist_policy import (
     CLEANUP_MODE_DEFAULT,
     normalize_cleanup_mode,
@@ -28,8 +30,8 @@ logger = logging.getLogger(__name__)
 _config_lock = threading.RLock()
 
 APP_NAME = "FilmeDownloader"
-MOVIE_PROVIDER_DEFAULTS = ("filmpalast", "megakino", "moflix", "einschalten", "kinox", "kinoger", "xcine")
-SERIES_PROVIDER_DEFAULTS = ("serienstream", "megakino", "filmpalast", "moflix", "kinoger", "xcine")
+MOVIE_PROVIDER_DEFAULTS = provider_keys("movies")
+SERIES_PROVIDER_DEFAULTS = provider_keys("series")
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
@@ -166,6 +168,24 @@ def save_series_path(series_path: str) -> bool:
     return _update_all({"series_path": series_path})
 
 
+# ---------------------------------------------------------------------------
+# Sprache der Weboberfläche
+def load_ui_language() -> str:
+    values = _read_all()
+    return normalize_ui_language(
+        values.get("ui_language")
+        or os.environ.get("UI_LANGUAGE", DEFAULT_UI_LANGUAGE)
+    )
+
+
+def ui_language_configured() -> bool:
+    return bool(_read_all().get("ui_language", "").strip())
+
+
+def save_ui_language(language: str) -> bool:
+    return _update_all({"ui_language": normalize_ui_language(language)})
+
+
 def normalize_provider_order(value, supported) -> List[str]:
     """Behält nur bekannte Anbieter, entfernt Duplikate und ergänzt fehlende."""
     if isinstance(value, str):
@@ -185,22 +205,87 @@ def normalize_provider_order(value, supported) -> List[str]:
 def load_provider_priorities() -> dict:
     """Lädt die Reihenfolge, in der Katalogquellen gesucht und versucht werden."""
     values = _read_all()
+    movie_value = values.get("movie_provider_priority", "")
+    movies = normalize_provider_order(movie_value, MOVIE_PROVIDER_DEFAULTS)
+    # FilmFrei24 kam später hinzu und ist eine direkte HLS-Quelle. Bestehende
+    # Installationen kannten den Schlüssel noch nicht; dort einmal an seiner
+    # neuen Standardposition ergänzen. Sobald die UI speichert, bleibt jede
+    # anschließend gewählte Reihenfolge unverändert.
+    requested_movies = {
+        item.strip().casefold()
+        for item in movie_value.split(",")
+        if item.strip()
+    }
+    if movie_value and "filmfrei24" not in requested_movies:
+        movies.remove("filmfrei24")
+        movies.insert(MOVIE_PROVIDER_DEFAULTS.index("filmfrei24"), "filmfrei24")
     return {
-        "movies": normalize_provider_order(
-            values.get("movie_provider_priority", ""), MOVIE_PROVIDER_DEFAULTS,
-        ),
+        "movies": movies,
         "series": normalize_provider_order(
             values.get("series_provider_priority", ""), SERIES_PROVIDER_DEFAULTS,
         ),
     }
 
 
-def save_provider_priorities(movies, series) -> bool:
+def normalize_provider_selection(value, supported) -> List[str]:
+    """Normalisiert eine aktivierte Teilmenge, ohne fehlende Anbieter zu ergänzen."""
+    requested = value.split(",") if isinstance(value, str) else (value or [])
+    allowed = tuple(str(provider).strip().casefold() for provider in supported)
+    selected: List[str] = []
+    for provider in requested:
+        key = str(provider).strip().casefold()
+        if key in allowed and key not in selected:
+            selected.append(key)
+    return selected
+
+
+def load_provider_enabled() -> dict:
+    """Lädt die tatsächlich aktiven Quellen; Altinstallationen behalten alle."""
+    values = _read_all()
+    movies_raw = values.get("movie_provider_enabled")
+    series_raw = values.get("series_provider_enabled")
+    movies = (
+        normalize_provider_selection(movies_raw, MOVIE_PROVIDER_DEFAULTS)
+        if movies_raw is not None
+        else list(MOVIE_PROVIDER_DEFAULTS)
+    )
+    series = (
+        normalize_provider_selection(series_raw, SERIES_PROVIDER_DEFAULTS)
+        if series_raw is not None
+        else list(SERIES_PROVIDER_DEFAULTS)
+    )
+    return {
+        "movies": movies or list(MOVIE_PROVIDER_DEFAULTS),
+        "series": series or list(SERIES_PROVIDER_DEFAULTS),
+    }
+
+
+def save_provider_priorities(
+    movies,
+    series,
+    enabled_movies=None,
+    enabled_series=None,
+) -> bool:
     movie_order = normalize_provider_order(movies, MOVIE_PROVIDER_DEFAULTS)
     series_order = normalize_provider_order(series, SERIES_PROVIDER_DEFAULTS)
+    current_enabled = load_provider_enabled()
+    movie_enabled = (
+        normalize_provider_selection(enabled_movies, MOVIE_PROVIDER_DEFAULTS)
+        if enabled_movies is not None
+        else current_enabled["movies"]
+    )
+    series_enabled = (
+        normalize_provider_selection(enabled_series, SERIES_PROVIDER_DEFAULTS)
+        if enabled_series is not None
+        else current_enabled["series"]
+    )
+    if not movie_enabled or not series_enabled:
+        return False
     return _update_all({
         "movie_provider_priority": ",".join(movie_order),
         "series_provider_priority": ",".join(series_order),
+        "movie_provider_enabled": ",".join(movie_enabled),
+        "series_provider_enabled": ",".join(series_enabled),
     })
 
 
@@ -341,11 +426,35 @@ def save_initial_setup(
     check_interval_min: int = 30,
     dl_window_start: Optional[int] = None,
     dl_window_end: Optional[int] = None,
+    ui_language: str = DEFAULT_UI_LANGUAGE,
+    movie_provider_order=None,
+    series_provider_order=None,
+    movie_providers=None,
+    series_providers=None,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
+    movie_order = normalize_provider_order(
+        movie_provider_order, MOVIE_PROVIDER_DEFAULTS,
+    )
+    series_order = normalize_provider_order(
+        series_provider_order, SERIES_PROVIDER_DEFAULTS,
+    )
+    enabled_movies = normalize_provider_selection(
+        movie_providers, MOVIE_PROVIDER_DEFAULTS,
+    ) if movie_providers is not None else list(MOVIE_PROVIDER_DEFAULTS)
+    enabled_series = normalize_provider_selection(
+        series_providers, SERIES_PROVIDER_DEFAULTS,
+    ) if series_providers is not None else list(SERIES_PROVIDER_DEFAULTS)
+    if not enabled_movies or not enabled_series:
+        return False
     return _update_all({
         "save_path": save_path.strip(),
         "series_path": series_path.strip(),
+        "ui_language": normalize_ui_language(ui_language),
+        "movie_provider_priority": ",".join(movie_order),
+        "series_provider_priority": ",".join(series_order),
+        "movie_provider_enabled": ",".join(enabled_movies),
+        "series_provider_enabled": ",".join(enabled_series),
         "jellyfin_url": jellyfin_url.strip(),
         "jellyfin_api_key": jellyfin_api_key.strip(),
         "jellyfin_user_id": jellyfin_user_id.strip(),

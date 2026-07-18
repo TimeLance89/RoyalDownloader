@@ -352,6 +352,8 @@ class DownloadJob:
         on_done: Optional[Callable[[bool, str], None]] = None,
         queue_slug: Optional[str] = None,
         allow_slow: bool = False,
+        provider: str = "",
+        content_language: str = "",
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -362,6 +364,8 @@ class DownloadJob:
         # selbst wertet ihn nicht aus, damit bestehende Aufrufer kompatibel
         # bleiben.
         self.queue_slug = queue_slug
+        self.provider = str(provider or "").strip().casefold()
+        self.content_language = str(content_language or "").strip().casefold()
         self.allow_slow = bool(allow_slow)
         self.failure_kind = ""
         self.average_speed_bps = 0.0

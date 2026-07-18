@@ -62,7 +62,7 @@
       <span aria-hidden="true">↓</span><span id="mobile-queue-count">0</span>
     </button>
     <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
-    <button id="session-btn" class="btn btn-ghost">Sitzung</button>
+    <button id="session-btn" class="btn btn-ghost">Sitzungsstatus</button>
   </header>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
@@ -115,12 +115,12 @@
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div id="fp-pager" class="pager" aria-label="Filmseiten">
-            <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
+            <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Vorherige Seite</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
               <span id="fp-pager-label" class="accent">Seite 1</span>
               <span id="fp-pager-sources" class="fp-pager-sources dim"></span>
             </div>
-            <button id="fp-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
+            <button id="fp-pager-next" class="btn btn-accent" disabled>Nächste Seite  ›</button>
           </div>
           <div class="list-head movie-row">
             <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
@@ -208,12 +208,12 @@
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
           <div id="series-pager" class="pager" aria-label="Serienseiten">
-            <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Zurück</button>
+            <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Vorherige Seite</button>
             <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
               <span id="series-pager-label" class="accent">Seite 1</span>
               <span id="series-pager-sources" class="fp-pager-sources dim"></span>
             </div>
-            <button id="series-pager-next" class="btn btn-accent" disabled>Weiter  ›</button>
+            <button id="series-pager-next" class="btn btn-accent" disabled>Nächste Seite  ›</button>
           </div>
           <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
         </div>
@@ -291,6 +291,25 @@
         <span class="dim">Speicherorte, Metadaten &amp; Automatik</span>
       </div>
       <div class="panel settings-panel">
+        <div class="settings-group language-settings">
+          <h3>Sprache &amp; Oberfläche</h3>
+          <p class="dim settings-hint">Die Oberfläche wird automatisch übersetzt. Deutsch bleibt bei Verbindungsproblemen als sicherer Fallback erhalten.</p>
+          <label class="dim auto-lbl" for="ui-language">Oberflächensprache</label>
+          <select id="ui-language" aria-label="Oberflächensprache">
+            <option value="de" translate="no">Deutsch</option>
+            <option value="en" translate="no">English</option>
+            <option value="es" translate="no">Español</option>
+            <option value="fr" translate="no">Français</option>
+            <option value="it" translate="no">Italiano</option>
+            <option value="nl" translate="no">Nederlands</option>
+            <option value="pl" translate="no">Polski</option>
+            <option value="pt" translate="no">Português</option>
+            <option value="tr" translate="no">Türkçe</option>
+            <option value="uk" translate="no">Українська</option>
+          </select>
+          <div id="ui-language-status" class="dim small-status" role="status" aria-live="polite">Deutsch · Ausgangssprache</div>
+        </div>
+
         <div class="settings-group">
           <h3>Speicherorte</h3>
           <p class="dim settings-hint">Getrennte Zielordner für Filme und Serien.</p>
@@ -310,33 +329,36 @@
           <div class="provider-heading">
             <div>
               <span class="provider-kicker">DOWNLOAD · ROUTING</span>
-              <h3>Anbieter-Priorität</h3>
-              <p class="dim settings-hint">Position 1 wird zuerst genutzt. Ist eine Quelle nicht verfügbar, folgt automatisch die nächste.</p>
+              <h3>Quellen-Katalog</h3>
+              <p class="dim settings-hint">Wähle Anbieter für Filme und Serien. Position 1 wird zuerst genutzt; die Sprachkennung steuert das Download-Routing.</p>
             </div>
             <span class="provider-route-mark" aria-hidden="true">1→N</span>
           </div>
-          <div class="provider-priority-grid">
-            <section class="provider-priority-card" aria-labelledby="movie-provider-title">
+          <div class="provider-priority-grid provider-source-board">
+            <section class="provider-priority-card provider-source-lane" aria-labelledby="movie-provider-title">
               <div class="provider-card-heading">
                 <span class="provider-media-mark" aria-hidden="true">F</span>
                 <div>
                   <h4 id="movie-provider-title">Filme</h4>
                   <span class="dim">Primärquelle &amp; Fallbacks</span>
                 </div>
+                <strong id="movie-provider-summary" class="provider-lane-summary">0 aktiv</strong>
               </div>
               <ol id="movie-provider-priority" class="provider-priority-list" aria-label="Anbieter-Priorität für Filme"></ol>
             </section>
-            <section class="provider-priority-card" aria-labelledby="series-provider-title">
+            <section class="provider-priority-card provider-source-lane" aria-labelledby="series-provider-title">
               <div class="provider-card-heading">
                 <span class="provider-media-mark is-series" aria-hidden="true">S</span>
                 <div>
                   <h4 id="series-provider-title">Serien</h4>
                   <span class="dim">Primärquelle &amp; Fallbacks</span>
                 </div>
+                <strong id="series-provider-summary" class="provider-lane-summary is-series">0 aktiv</strong>
               </div>
               <ol id="series-provider-priority" class="provider-priority-list" aria-label="Anbieter-Priorität für Serien"></ol>
             </section>
           </div>
+          <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
         </div>
 
         <div class="settings-group">
@@ -600,14 +622,22 @@
       <ol class="setup-progress">
         <li class="active" data-setup-marker="1" aria-current="step">
           <span class="setup-marker-number">01</span>
-          <span><strong>Speicher</strong><small>Filme &amp; Serien</small></span>
+          <span><strong>Sprache</strong><small>Oberfläche</small></span>
         </li>
         <li data-setup-marker="2">
           <span class="setup-marker-number">02</span>
-          <span><strong>Bibliothek</strong><small>Jellyfin &amp; TMDB</small></span>
+          <span><strong>Quellen</strong><small>Filme &amp; Serien</small></span>
         </li>
         <li data-setup-marker="3">
           <span class="setup-marker-number">03</span>
+          <span><strong>Speicherorte</strong><small>Ordner &amp; Queue</small></span>
+        </li>
+        <li data-setup-marker="4">
+          <span class="setup-marker-number">04</span>
+          <span><strong>Bibliothek</strong><small>Jellyfin &amp; TMDB</small></span>
+        </li>
+        <li data-setup-marker="5">
+          <span class="setup-marker-number">05</span>
           <span><strong>Automatik</strong><small>Downloads &amp; Telegram</small></span>
         </li>
       </ol>
@@ -619,22 +649,79 @@
 
     <section class="setup-stage">
       <header class="setup-stage-head">
-        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 3</span>
-        <h1 id="setup-title">Wohin sollen deine Medien?</h1>
-        <p id="setup-intro">Die Ordner werden bei Bedarf angelegt. Beide müssen für den Downloader beschreibbar sein.</p>
+        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 5</span>
+        <h1 id="setup-title">Welche Sprache passt zu dir?</h1>
+        <p id="setup-intro">Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.</p>
       </header>
 
       <div class="setup-panels">
         <div class="setup-panel" data-setup-step="1">
+          <label class="setup-field setup-language-field" for="setup-ui-language">
+            <span>Sprache</span>
+            <select id="setup-ui-language" aria-label="Sprache für die Oberfläche">
+              <option value="de" translate="no">Deutsch</option>
+              <option value="en" translate="no">English</option>
+              <option value="es" translate="no">Español</option>
+              <option value="fr" translate="no">Français</option>
+              <option value="it" translate="no">Italiano</option>
+              <option value="nl" translate="no">Nederlands</option>
+              <option value="pl" translate="no">Polski</option>
+              <option value="pt" translate="no">Português</option>
+              <option value="tr" translate="no">Türkçe</option>
+              <option value="uk" translate="no">Українська</option>
+            </select>
+            <small>Die Auswahl wird sofort als Vorschau angewendet.</small>
+          </label>
+          <div class="setup-language-intro">
+            <span aria-hidden="true">文</span>
+            <div>
+              <strong>Die Steuerung spricht deine Sprache</strong>
+              <p>Im nächsten Schritt bestimmst du getrennt für Filme und Serien, welche Kataloge durchsucht werden.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
+          <div class="setup-provider-note">
+            <span class="setup-provider-signal" aria-hidden="true"><i></i><i></i><i></i></span>
+            <p>Karte anklicken zum Aktivieren. Mit den Pfeilen legst du fest, welche Quelle zuerst geprüft wird.</p>
+          </div>
+          <div class="setup-provider-board provider-source-board">
+            <section class="provider-priority-card provider-source-lane" aria-labelledby="setup-movie-provider-title">
+              <div class="provider-card-heading">
+                <span class="provider-media-mark" aria-hidden="true">F</span>
+                <div>
+                  <h4 id="setup-movie-provider-title">Filme</h4>
+                  <span class="dim">Katalog &amp; Fallbacks</span>
+                </div>
+                <strong id="setup-movie-provider-summary" class="provider-lane-summary">0 aktiv</strong>
+              </div>
+              <ol id="setup-movie-provider-priority" class="provider-priority-list" aria-label="Filmquellen auswählen und sortieren"></ol>
+            </section>
+            <section class="provider-priority-card provider-source-lane" aria-labelledby="setup-series-provider-title">
+              <div class="provider-card-heading">
+                <span class="provider-media-mark is-series" aria-hidden="true">S</span>
+                <div>
+                  <h4 id="setup-series-provider-title">Serien</h4>
+                  <span class="dim">Katalog &amp; Fallbacks</span>
+                </div>
+                <strong id="setup-series-provider-summary" class="provider-lane-summary is-series">0 aktiv</strong>
+              </div>
+              <ol id="setup-series-provider-priority" class="provider-priority-list" aria-label="Serienquellen auswählen und sortieren"></ol>
+            </section>
+          </div>
+        </div>
+
+        <div class="setup-panel hidden" data-setup-step="3">
           <label class="setup-field" for="setup-save-path">
-            <span>Filmordner <em>Pflicht</em></span>
+            <span>Filmordner <em>Erforderlich</em></span>
             <div class="setup-path-row">
               <input id="setup-save-path" type="text" autocomplete="off" placeholder="/downloads/Filme">
               <button id="setup-browse-movies" class="btn btn-ghost" type="button" aria-label="Filmordner auswählen">Ordner</button>
             </div>
           </label>
           <label class="setup-field" for="setup-series-path">
-            <span>Serienordner <em>Pflicht</em></span>
+            <span>Ordner für Serien <em>Erforderlich</em></span>
             <div class="setup-path-row">
               <input id="setup-series-path" type="text" autocomplete="off" placeholder="/downloads/Serien">
               <button id="setup-browse-series" class="btn btn-ghost" type="button" aria-label="Serienordner auswählen">Ordner</button>
@@ -646,7 +733,7 @@
           </div>
         </div>
 
-        <div class="setup-panel hidden" data-setup-step="2">
+        <div class="setup-panel hidden" data-setup-step="4">
           <div class="setup-section-title"><strong>Jellyfin</strong><span>optional</span></div>
           <p class="setup-copy">Verhindert doppelte Downloads und stößt nach Abschluss den Bibliotheksscan an.</p>
           <div class="setup-field-grid">
@@ -676,7 +763,7 @@
           </label>
         </div>
 
-        <div class="setup-panel hidden" data-setup-step="3">
+        <div class="setup-panel hidden" data-setup-step="5">
           <label class="setup-switch-card" for="setup-auto-download">
             <input id="setup-auto-download" type="checkbox">
             <span class="setup-switch" aria-hidden="true"></span>
@@ -719,7 +806,7 @@
       <footer class="setup-actions">
         <button id="setup-back" class="btn btn-ghost hidden" type="button">Zurück</button>
         <span class="setup-actions-spacer"></span>
-        <button id="setup-next" class="btn btn-accent" type="button">Weiter</button>
+        <button id="setup-next" class="btn btn-accent" type="button">Nächster Schritt</button>
         <button id="setup-finish" class="btn btn-accent hidden" type="button">Einrichtung abschließen</button>
       </footer>
     </section>
@@ -834,6 +921,7 @@
 </div>
 
 <script src="/api.js"></script>
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

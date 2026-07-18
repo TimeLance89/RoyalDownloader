@@ -93,9 +93,10 @@ also z. B. `/Deluxe/data` und `/Deluxe/downloads`. Genau dein „ich zieh die Da
 einfach selbst in einen Ordner"-Ansatz.
 
 Beim ersten Öffnen der Weboberfläche erscheint automatisch der Einrichtungs-
-Wizard. Er fragt Speicherorte, Jellyfin/TMDB, Automatik und Telegram ab und legt
-anschließend `data/FilmeDownloader/settings.ini` an. Solange diese Datei fehlt,
-starten weder Katalog-Warmup noch Watchlist-Automatik.
+Wizard. Er fragt Sprache, gewünschte Film- und Serienquellen, Speicherorte,
+Jellyfin/TMDB, Automatik und Telegram ab und legt anschließend
+`data/FilmeDownloader/settings.ini` an. Solange diese Datei fehlt, starten weder
+Katalog-Warmup noch Watchlist-Automatik.
 
 > Wichtig: `bash /Deluxe/start.sh` verwenden (nicht nur `/Deluxe/start.sh`), dann
 > ist das Ausführungs-Bit egal. Der Container muss als **root** laufen (Standard),
@@ -188,6 +189,10 @@ Per Env vorbelegen ist praktisch, damit der Einrichtungs-Wizard bei einem
 | `JELLYFIN_USER_NAME`| `Max` | Anzeigename des gewählten Benutzers. |
 | `TMDB_API_KEY`      | `abc123…` | Optional: TMDB v3 API-Key oder API Read Access Token für Metadaten. |
 | `TMDB_LANGUAGE`     | `de-DE`   | Sprache der TMDB-Metadaten. |
+| `UI_LANGUAGE`       | `en`      | Sprache der Weboberfläche (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, `tr`, `uk`). |
+| `UI_TRANSLATOR_URL` | `http://libretranslate:5000` | Optional: eigene LibreTranslate-Instanz statt des Standard-Fallbacks. |
+| `UI_TRANSLATOR_API_KEY` | `secret` | Optionaler Schlüssel der LibreTranslate-Instanz. |
+| `SFLIX_BASE_URL`    | `https://sflix.win` | Austauschbare Spiegeldomain der englischen SFlix-Quelle. |
 | `AUTO_DOWNLOAD`     | `true`   | Neue Folgen abonnierter Serien automatisch laden. |
 | `CHECK_INTERVAL_MIN`| `30`     | Prüf-/Download-Intervall in Minuten (min. 5). |
 | `DL_WINDOW_START`   | `1`      | Stunde 0–23: nur ab hier automatisch laden. |
@@ -199,6 +204,20 @@ Per Env vorbelegen ist praktisch, damit der Einrichtungs-Wizard bei einem
 > Ein im UI gesetzter Wert hat Vorrang vor der Env-Variable (er wird in `data/`
 > persistiert). Env dient der Erstbelegung.
 
+### Sprache der Oberfläche
+
+Die Sprache wird bei der Ersteinrichtung gewählt und kann später unter
+*Einstellungen → Sprache & Oberfläche* geändert werden. Unterstützt werden
+Deutsch, Englisch, Spanisch, Französisch, Italienisch, Niederländisch,
+Polnisch, Portugiesisch, Türkisch und Ukrainisch.
+
+Wenn der Browser die lokale Translator API bereitstellt, erfolgt die
+Übersetzung dort. Andernfalls werden ausschließlich die statischen deutschen
+Oberflächentexte an den serverseitigen Übersetzer übermittelt und in `data/`
+gecacht. Ohne `UI_TRANSLATOR_URL` wird dafür der öffentliche Google-Endpunkt
+verwendet. Für einen vollständig selbst gehosteten Betrieb kann eine
+LibreTranslate-Basis-URL eingetragen werden.
+
 ### TMDB-Metadaten
 
 Mit gesetztem TMDB-Key kommen Cover, Beschreibung, Genres, Erscheinungsjahr und
@@ -207,11 +226,18 @@ Hoster und Downloads. Ist TMDB nicht konfiguriert, nicht erreichbar oder findet
 keinen eindeutigen Treffer, werden automatisch die bisherigen Anbieterdaten
 verwendet. Antworten werden pro Film/Serie im Arbeitsspeicher gecacht.
 
-### Anbieter-Priorität
+### Quellen-Katalog
 
-Unter *Einstellungen → Anbieter-Priorität* lässt sich die Reihenfolge getrennt
-für Filme und Serien festlegen. Die erste Quelle wird bevorzugt; Suche,
-automatische Anfragen und Download-Fallbacks verwenden dieselbe Reihenfolge.
+Der Einrichtungs-Wizard zeigt nach der Sprachauswahl alle unterstützten
+Anbieter. Film- und Serienquellen lassen sich dort getrennt aktivieren und
+sortieren. Dieselbe Auswahl ist später unter *Einstellungen →
+Quellen-Katalog* änderbar. Die erste aktive Quelle wird bevorzugt; Suche,
+automatische Anfragen und Download-Fallbacks verwenden dieselbe Auswahl und
+Reihenfolge. Neben jedem Anbieter steht seine im zentralen Katalog hinterlegte
+Inhaltssprache. Diese Sprachkennung wird bis in den Download-Job übernommen;
+eine konkrete Sprachangabe des ausgewählten Hosters hat Vorrang.
+FilmFrei24 wird bei der Aktualisierung bestehender Installationen als erste
+Filmquelle ergänzt, weil dort eigene HLS-Streams ohne externen Hoster vorliegen.
 
 ### Updates
 

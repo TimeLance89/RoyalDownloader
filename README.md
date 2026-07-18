@@ -28,7 +28,14 @@ die gemounteten Medienordner geschrieben werden.
 
 ## Kernfunktionen
 
-- **Film- und Seriensuche** mit konfigurierbarer Anbieterpriorität und Fallbacks.
+- **Film- und Seriensuche** mit auswählbaren Quellen, Anbieterpriorität und
+  Fallbacks.
+- **Sprachbewusster Anbieter-Katalog** für später erweiterbare internationale
+  Quellen und eindeutige Sprachmetadaten im Download-Routing.
+- **FilmFrei24-Direktquelle** mit öffentlichem Katalog, Verfügbarkeitsprüfung
+  und zwei gestaffelten HLS-Routen ohne externen Hoster.
+- **SFlix-Quelle** für englische Filme und Serien mit expliziten
+  Sprachmetadaten bis in den Download.
 - **Intelligente Filmseiten**: providerübergreifend gemischt, dedupliziert und
   mit sichtbarer Quellenverteilung.
 - **Jellyfin-Duplikatschutz** für Filme, Serien und einzelne Episoden.
@@ -38,6 +45,8 @@ die gemounteten Medienordner geschrieben werden.
 - **TMDB-Metadaten** für Cover, Beschreibungen, Laufzeiten und Genres.
 - **Jellyfin-Empfehlungen** als automatisch gepflegte Collection.
 - **Persistente Queue** mit Hoster-Fallbacks, Wiederaufnahme und Integritätsprüfung.
+- **Mehrsprachige Oberfläche** mit Sprachauswahl im Wizard und in den
+  Einstellungen, lokalem Browser-Translator und serverseitigem Fallback.
 - **In-App-Updater** mit manuellem oder sicherem automatischem Betrieb.
 
 ## Schnellstart mit Docker Compose
@@ -60,8 +69,8 @@ docker compose logs -f seriendownloader
 ```
 
 Die Weboberfläche ist anschließend unter `http://<NAS-IP>:8765` erreichbar.
-Beim ersten Aufruf führt ein Wizard durch Speicherorte, Jellyfin, TMDB,
-Automatik und Telegram.
+Beim ersten Aufruf führt ein Wizard durch Sprache, Quellen-Katalog,
+Speicherorte, Jellyfin, TMDB, Automatik und Telegram.
 
 > [!TIP]
 > Setze für den Zugriff im Heimnetz mindestens `APP_USERNAME` und
