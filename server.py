@@ -375,7 +375,13 @@ def log(msg: str, level: str = ""):
 
 def _restart_after_update() -> None:
     def _restart():
-        time.sleep(2)
+        preserved = _pause_downloads_for_update_restart()
+        if preserved:
+            log(
+                f"Update-Neustart: {preserved} offene Queue-Einträge gespeichert; "
+                "sie werden danach automatisch fortgesetzt."
+            )
+        time.sleep(1)
         os.chdir(APP_DIR)
         start_script = APP_DIR / "start.sh"
         bash = shutil.which("bash")
@@ -427,23 +433,28 @@ def _update_block_reason_locked() -> str:
 
 
 def _start_update_when_idle(target_sha: str) -> dict:
+    """Startet das Update auch bei aktiver Queue.
+
+    Downloads dürfen während des Ladens weiterlaufen. Direkt vor dem Neustart
+    werden alle noch offenen Slugs persistent gesichert und die Prozesse sauber
+    gestoppt; der neue Server stellt sie automatisch wieder her.
+    """
     with state.queue_lifecycle_lock:
-        reason = _update_block_reason_locked()
-        if reason:
-            raise RuntimeError(f"{reason}; Update wird zurückgestellt.")
-        return UPDATE_INSTALLER.start(target_sha)
+        queued = bool(
+            state.dl_queue.active_count()
+            or state.dl_queue.pending_count()
+            or state.gated_retry_pending
+        )
+        result = UPDATE_INSTALLER.start(target_sha)
+    if queued:
+        log("Update wird installiert; die aktive Queue wird erst zum Neustart pausiert.")
+    return result
 
 
 def _attempt_automatic_update() -> str:
     with state.updater_config_lock:
         if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
             return "manual"
-
-    with state.queue_lifecycle_lock:
-        blocked = _update_block_reason_locked()
-    if blocked:
-        _set_updater_runtime("deferred", f"{blocked}; automatische Prüfung wird nachgeholt.")
-        return "deferred"
 
     try:
         update = UPDATE_CHECKER.check(True)
@@ -2684,6 +2695,45 @@ def _on_queue_done_locked():
 state.dl_queue.on_queue_done = on_queue_done
 
 
+def _pause_downloads_for_update_restart() -> int:
+    """Stoppt die physische Queue, ohne ihre persistenten Claims zu verlieren."""
+    with state.queue_lifecycle_lock:
+        with state.queue_claim_lock:
+            preserved = set(state.picked)
+            with state.download_state_lock:
+                # Abbruch-Callbacks dürfen die gespeicherten Slugs nicht als
+                # fachlich abgeschlossen verbuchen.
+                state.counted_queue_slugs.clear()
+            state.gated_retry_jobs.clear()
+            state.gated_retry_slugs.clear()
+            state.gated_retry_pending = False
+            _persist_queue_state()
+        state.dl_queue.cancel_all()
+
+    # Laufende yt-dlp-Prozesse und Browser-Tabs möglichst sauber beenden, bevor
+    # execv den Server ersetzt. Nach spätestens 20 Sekunden übernimmt der
+    # Prozessneustart; die Queue-Claims sind zu diesem Zeitpunkt bereits sicher.
+    deadline = time.monotonic() + 20
+    while state.dl_queue.active_count() and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+    if state.hoster_extract_lock.acquire(timeout=10):
+        try:
+            for attr in ("voe_pool", "embed_pool"):
+                pool = getattr(state, attr)
+                if pool is None:
+                    continue
+                try:
+                    pool.close()
+                except Exception as exc:
+                    log(f"Browser-Close vor Update fehlgeschlagen: {exc}", "warn")
+                finally:
+                    setattr(state, attr, None)
+        finally:
+            state.hoster_extract_lock.release()
+    return len(preserved)
+
+
 def _canonical_hoster_name(provider_name: str, resolved_url: str) -> str:
     """Bestimmt den Extraktor-Zweig (voe/doodstream/…) aus Provider-Label +
     aufgelöster Domain. VOE nutzt rotierende Mirror-Domains, daher zählt hier
@@ -2714,7 +2764,7 @@ def _canonical_hoster_name(provider_name: str, resolved_url: str) -> str:
 
 
 # Automatische Wiederholung für am serienstream-Captcha hängende Episoden.
-SERIES_MAX_WAVES = 8            # max. Anzahl Wellen (Sicherheitskappe)
+SERIES_MAX_WAVES = 3            # max. Anzahl Wellen (Sicherheitskappe)
 SERIES_WAVE_COOLDOWN = 90      # zusätzl. Pause (s) nach Leeren der Queue, bevor
                                # die nächste Welle das Rate-Fenster erneut testet
 
@@ -3004,6 +3054,17 @@ def _extract_from_movie(
         if hoster.url in unsupported_domains:
             log(f"  Überspringe {hoster.name}: Link nicht unterstützt", "warn")
             continue
+        cooldown, _reason = state.hoster_intel.cooldown(
+            hoster.url, hoster_name=hoster.name,
+        )
+        if cooldown:
+            minutes = max(1, (cooldown + 59) // 60)
+            log(
+                f"  Überspringe {hoster.name}: nach Ausfällen noch "
+                f"{minutes} Min. pausiert",
+                "warn",
+            )
+            continue
         res.hoster_used = hoster.name
         res.source_hoster_url = hoster.url
         log(f"  Versuche Hoster: {hoster.name}")
@@ -3035,6 +3096,17 @@ def _extract_from_movie(
                 continue
         name = _canonical_hoster_name(hoster.name, play_url)
         res.hoster_url_used = play_url
+        cooldown, _reason = state.hoster_intel.cooldown(
+            play_url, hoster_name=hoster.name,
+        )
+        if cooldown:
+            minutes = max(1, (cooldown + 59) // 60)
+            log(
+                f"  Überspringe {hoster.name}: Zielhost noch "
+                f"{minutes} Min. pausiert",
+                "warn",
+            )
+            continue
 
         if name == "voe":
             if state.voe_pool is None:
@@ -3081,6 +3153,7 @@ def _extract_from_movie(
                     res.stream_info = extract_stream_url(
                         play_url, session=session, log_cb=log, pool=state.embed_pool,
                         referer=embed_referer,
+                        browser_wait_seconds=12,
                     )
             except Exception as exc:
                 log(f"  Embed-Extraktion fehlgeschlagen: {exc}", "warn")
@@ -3107,6 +3180,7 @@ def _extract_from_movie(
                     res.stream_info = extract_stream_url(
                         play_url, session=session, log_cb=log, pool=state.embed_pool,
                         referer=referer,
+                        browser_wait_seconds=12,
                     )
             except Exception as exc:
                 log(f"  KinoGer-Mirror fehlgeschlagen: {exc}", "warn")
@@ -3177,6 +3251,7 @@ def _extract_from_movie(
                         res.stream_info = extract_stream_url(
                             play_url, session=session, log_cb=log, pool=state.embed_pool,
                             referer=referer,
+                            browser_wait_seconds=10,
                         )
             except Exception as exc:
                 log(f"  MegaKino-Hoster fehlgeschlagen: {exc}", "warn")
@@ -7170,10 +7245,6 @@ class UpdateInstallBody(BaseModel):
 
 @app.post("/api/updater/install")
 async def api_updater_install(body: UpdateInstallBody):
-    with state.queue_lifecycle_lock:
-        blocked = _update_block_reason_locked()
-    if blocked:
-        raise HTTPException(409, f"{blocked}; Update wird zurückgestellt.")
     update = await run_in_threadpool(UPDATE_CHECKER.check, True)
     target_sha = str(update.get("latest_sha") or "")
     if not target_sha or target_sha != body.target_sha.strip():

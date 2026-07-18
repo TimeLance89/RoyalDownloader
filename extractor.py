@@ -648,7 +648,11 @@ class VOEBrowserPool:
             self._async_extract(target_url, wait_seconds, referer), self._loop
         )
         try:
-            return future.result(timeout=wait_seconds + 20)
+            return future.result(timeout=wait_seconds + 8)
+        except TimeoutError:
+            future.cancel()
+            self._log(f"Browser-Extraktion nach {wait_seconds + 8}s abgebrochen.")
+            return None
         except Exception as exc:
             logger.error("Extraktions-Fehler: %s", exc)
             return None
@@ -956,6 +960,7 @@ def extract_stream_url(
     log_cb: Optional[Callable[[str], None]] = None,
     pool: Optional[VOEBrowserPool] = None,
     referer: str = "https://filmpalast.to/",
+    browser_wait_seconds: int = 25,
 ) -> Optional[Tuple[str, str]]:
     """
     Haupt-Einstiegspunkt für eine VOE.SX-URL.
@@ -1001,7 +1006,11 @@ def extract_stream_url(
 
     _log("Regex erfolglos – starte Browser-Extraktion …")
     target = alias_url or url
-    return pool.extract(target, referer=referer)
+    return pool.extract(
+        target,
+        wait_seconds=max(5, min(25, int(browser_wait_seconds))),
+        referer=referer,
+    )
 
 
 def _get_alias_url(html: str, original_url: str) -> Optional[str]:

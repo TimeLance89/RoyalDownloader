@@ -41,6 +41,21 @@ DOMAIN_SCORE = {
     "moflix.upns.xyz": -8,
 }
 
+# Ein instabiler Hoster darf nicht bei jeder Episode erneut die komplette
+# Browser-/yt-dlp-Kette blockieren. Harte, hosterweite Fehler öffnen den
+# Circuit sofort; sonst sind drei zeitnahe Probe-Fehler nötig.
+CIRCUIT_COOLDOWN_SECONDS = 20 * 60
+CIRCUIT_FAILURE_WINDOW_SECONDS = 10 * 60
+CIRCUIT_FAILURE_THRESHOLD = 3
+_HARD_CIRCUIT_MARKERS = (
+    "unsupported url",
+    "cloudflare anti-bot",
+    "anti-bot challenge",
+    "certificate_verify_failed",
+    "certificate verify failed",
+    "self-signed certificate",
+)
+
 
 class HosterIntel:
     def __init__(self, path: Path = STATE_FILE):
@@ -105,19 +120,66 @@ class HosterIntel:
         self, url: str, ok: bool, message: str = "", hoster_name: str = "",
     ):
         with self._lock:
+            now = time.time()
             entries = [self._entry(url)]
             if hoster_name:
                 entries.append(self._name_entry(hoster_name))
             for data in entries:
-                data["last_probe"] = time.time()
+                data["last_probe"] = now
                 if ok:
                     data["ok"] = data.get("ok", 0) + 1
                     data["unsupported"] = False
+                    data["probe_fail_streak"] = 0
+                    data.pop("circuit_until", None)
+                    data.pop("circuit_reason", None)
                 else:
                     data["fail"] = data.get("fail", 0) + 1
+                    last_failure = float(data.get("last_probe_failure", 0) or 0)
+                    if now - last_failure > CIRCUIT_FAILURE_WINDOW_SECONDS:
+                        data["probe_fail_streak"] = 0
+                    streak = int(data.get("probe_fail_streak", 0) or 0) + 1
+                    data["probe_fail_streak"] = streak
+                    data["last_probe_failure"] = now
+                    normalized = " ".join(str(message or "").split())
+                    if self._should_open_circuit(normalized, streak):
+                        data["circuit_until"] = max(
+                            float(data.get("circuit_until", 0) or 0),
+                            now + CIRCUIT_COOLDOWN_SECONDS,
+                        )
+                        data["circuit_reason"] = normalized[:160]
                     # Ein einzelner signierter Link darf nicht die komplette
-                    # rotierende Hoster-Domain dauerhaft sperren.
+                    # rotierende Hoster-Domain dauerhaft sperren. Deshalb
+                    # ignoriert der Circuit einzelne 404-Antworten.
             self._save()
+
+    def cooldown(
+        self, url: str = "", hoster_name: str = "",
+    ) -> tuple[int, str]:
+        """Restliche temporäre Sperre für Domain oder Hostername."""
+        now = time.time()
+        entries = []
+        domain = self.domain(url)
+        if domain:
+            entries.append(self.stats.get(domain, {}))
+        name_key = self.name_key(hoster_name)
+        if name_key:
+            entries.append(self.stats.get(name_key, {}))
+        blocked = max(
+            entries,
+            key=lambda data: float(data.get("circuit_until", 0) or 0),
+            default={},
+        )
+        remaining = int(max(0, float(blocked.get("circuit_until", 0) or 0) - now))
+        return remaining, str(blocked.get("circuit_reason", "") or "")
+
+    @staticmethod
+    def _should_open_circuit(message: str, streak: int) -> bool:
+        low = message.casefold()
+        if "404" in low or "not found" in low:
+            return False
+        if any(marker in low for marker in _HARD_CIRCUIT_MARKERS):
+            return True
+        return streak >= CIRCUIT_FAILURE_THRESHOLD
 
     def record_download(
         self,

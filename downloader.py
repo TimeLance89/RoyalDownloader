@@ -266,7 +266,7 @@ def probe_stream_url(
     stream_url: str,
     referer: str = "",
     origin: str = "",
-    timeout: int = 45,
+    timeout: int = 25,
 ) -> tuple:
     """
     Prüft per yt-dlp-Simulation, ob eine URL grundsätzlich ladbar ist.
@@ -279,9 +279,13 @@ def probe_stream_url(
         "--simulate",
         "--skip-download",
         "--no-warnings",
-        "--socket-timeout", "15",
-        "--retries", "1",
+        "--socket-timeout", "10",
+        "--retries", "0",
         "--fragment-retries", "0",
+        # Hilft generischen Playern mit Cloudflare-Challenge (z.B. Easyload).
+        # Ohne diese Option empfiehlt yt-dlp sie nur im Fehlertext und jeder
+        # Queue-Eintrag läuft erneut in denselben 403.
+        "--extractor-args", "generic:impersonate",
         "--user-agent", BROWSER_USER_AGENT,
     ]
     if referer:
@@ -631,6 +635,7 @@ class DownloadJob:
             # ext:mp4:m4a = bevorzugt mp4 Video + m4a Audio
             "-S", "res:1080,ext:mp4:m4a",
             "--ffmpeg-location", "ffmpeg",
+            "--extractor-args", "generic:impersonate",
             "--user-agent", BROWSER_USER_AGENT,
         ]
         if (
