@@ -4,6 +4,7 @@ const state = {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
     metadataCache: {}, requestSeq: 0, sources: [],
+    searchActive: false, searchReturn: null,
   },
   series: {
     results: [], browseMode: null, page: 1, lastPageFull: false,
@@ -11,12 +12,14 @@ const state = {
     current: null, currentSampleSlug: "", epPicked: new Set(),
     cache: {}, pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
     jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(),
+    searchReturn: null,
   },
   anime: {
     results: [], mode: null, query: "", page: 1, hasMore: false,
     loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
     currentId: "", current: null, translation: "", episodePage: 1,
     picked: new Set(),
+    searchReturn: null,
   },
   wl: { items: [], selected: new Set(), loaded: false },
   queue: { count: 0, groups: [], loaded: false },
@@ -951,9 +954,57 @@ async function preloadTmdbMetadata(requestId) {
   }
 }
 
+function clearFpSearchContext() {
+  state.fp.searchActive = false;
+  state.fp.searchReturn = null;
+  document.getElementById("fp-search").value = "";
+}
+
+function rememberFpSearchContext() {
+  if (state.fp.searchActive || state.fp.searchReturn) return;
+  if (!state.fp.category && !state.fp.results.length) return;
+  state.fp.searchReturn = {
+    results: state.fp.results.slice(),
+    category: state.fp.category,
+    page: state.fp.page,
+    lastPageFull: state.fp.lastPageFull,
+    activeGenre: state.fp.activeGenre,
+    selectedSlug: state.fp.selectedSlug,
+    sources: state.fp.sources.slice(),
+  };
+}
+
+async function restoreFpSearchContext() {
+  if (!state.fp.searchActive && !state.fp.searchReturn) return;
+  const saved = state.fp.searchReturn;
+  state.fp.searchActive = false;
+  state.fp.searchReturn = null;
+  document.getElementById("fp-search").value = "";
+  ++state.fp.requestSeq;
+  if (!saved) {
+    await fpShowList("new");
+    return;
+  }
+  applyFpResults({
+    results: saved.results,
+    category: saved.category,
+    page: saved.page,
+    has_more: saved.lastPageFull,
+    sources: saved.sources,
+  });
+  setActiveGenreFilter(saved.activeGenre);
+  state.fp.selectedSlug = saved.selectedSlug;
+  renderFpResults();
+}
+
 async function fpSearch() {
   const q = document.getElementById("fp-search").value.trim();
-  if (!q) return;
+  if (!q) {
+    await restoreFpSearchContext();
+    return;
+  }
+  rememberFpSearchContext();
+  state.fp.searchActive = true;
   state.fp.category = null;
   document.getElementById("fp-status").textContent = `Suche nach «${q}» …`;
   setActiveGenreFilter("Alle Genres");
@@ -964,6 +1015,7 @@ async function fpSearch() {
 }
 
 async function fpShowList(category) {
+  clearFpSearchContext();
   state.fp.category = category;
   setActiveGenreFilter("Alle Genres");
   document.getElementById("fp-status").textContent = `Lade ${category === "new" ? "Neu" : "Top"}-Filme …`;
@@ -974,6 +1026,7 @@ async function fpShowList(category) {
 }
 
 async function fpGenreChange(genre) {
+  clearFpSearchContext();
   if (genre === "Alle Genres") {
     await fpShowList("new");
     return;
@@ -1336,9 +1389,57 @@ function applySeriesResults(data) {
       : "Keine Serie gefunden.";
 }
 
+function clearSeriesSearchContext() {
+  state.series.searchReturn = null;
+  document.getElementById("series-search").value = "";
+}
+
+function rememberSeriesSearchContext() {
+  if (state.series.searchReturn || state.series.browseMode === "search") return;
+  if (!state.series.browseMode && !state.series.results.length) return;
+  state.series.searchReturn = {
+    results: state.series.results.slice(),
+    browseMode: state.series.browseMode,
+    page: state.series.page,
+    lastPageFull: state.series.lastPageFull,
+    sources: state.series.sources.slice(),
+    current: state.series.current,
+    currentSampleSlug: state.series.currentSampleSlug,
+    epPicked: new Set(state.series.epPicked),
+  };
+}
+
+async function restoreSeriesSearchContext() {
+  if (state.series.browseMode !== "search" && !state.series.searchReturn) return;
+  const saved = state.series.searchReturn;
+  state.series.searchReturn = null;
+  document.getElementById("series-search").value = "";
+  ++state.series.browseRequestSeq;
+  state.series.loadingBrowse = false;
+  if (!saved) {
+    await seriesBrowse("discover", 1);
+    return;
+  }
+  state.series.browseMode = saved.browseMode;
+  state.series.current = saved.current;
+  state.series.currentSampleSlug = saved.currentSampleSlug;
+  state.series.epPicked = new Set(saved.epPicked);
+  applySeriesResults({
+    results: saved.results,
+    page: saved.page,
+    has_more: saved.lastPageFull,
+    sources: saved.sources,
+  });
+  renderSeriesTiles();
+}
+
 async function seriesSearch() {
   const q = document.getElementById("series-search").value.trim();
-  if (!q) return;
+  if (!q) {
+    await restoreSeriesSearchContext();
+    return;
+  }
+  rememberSeriesSearchContext();
   const requestId = ++state.series.browseRequestSeq;
   const previousMode = state.series.browseMode;
   state.series.browseMode = "search";
@@ -1372,6 +1473,7 @@ function seriesParams(mode, page) {
 }
 
 async function seriesBrowse(mode, page) {
+  if (mode !== "search") clearSeriesSearchContext();
   const requestId = ++state.series.browseRequestSeq;
   const previousMode = state.series.browseMode;
   state.series.browseMode = mode;
@@ -1734,16 +1836,59 @@ function renderAnimeResults() {
   document.getElementById("anime-next").disabled = state.anime.loading || !state.anime.hasMore;
 }
 
+function clearAnimeSearchContext() {
+  state.anime.searchReturn = null;
+  state.anime.query = "";
+  document.getElementById("anime-search").value = "";
+}
+
+function rememberAnimeSearchContext() {
+  if (state.anime.searchReturn || state.anime.mode === "search") return;
+  if (!state.anime.loaded && !state.anime.results.length) return;
+  state.anime.searchReturn = {
+    results: state.anime.results.slice(),
+    mode: state.anime.mode || "latest",
+    query: state.anime.query,
+    page: state.anime.page,
+    hasMore: state.anime.hasMore,
+    disabledReason: state.anime.disabledReason || "",
+    status: document.getElementById("anime-status").textContent,
+  };
+}
+
+async function restoreAnimeSearchContext() {
+  if (state.anime.mode !== "search" && !state.anime.searchReturn) return;
+  const saved = state.anime.searchReturn;
+  state.anime.searchReturn = null;
+  document.getElementById("anime-search").value = "";
+  ++state.anime.requestSeq;
+  state.anime.loading = false;
+  if (!saved) {
+    await animeBrowse("latest", 1);
+    return;
+  }
+  state.anime.results = saved.results;
+  state.anime.mode = saved.mode;
+  state.anime.query = saved.query;
+  state.anime.page = saved.page;
+  state.anime.hasMore = saved.hasMore;
+  state.anime.disabledReason = saved.disabledReason;
+  setAnimeMode(saved.mode);
+  renderAnimeResults();
+  document.getElementById("anime-status").textContent = saved.status;
+}
+
 async function animeBrowse(mode, page = 1) {
-  if (state.anime.loading) return;
   const query = mode === "search"
     ? document.getElementById("anime-search").value.trim()
     : "";
   if (mode === "search" && !query) {
-    document.getElementById("anime-status").textContent = "Gib einen Anime-Titel ein.";
-    document.getElementById("anime-search").focus();
+    await restoreAnimeSearchContext();
     return;
   }
+  if (state.anime.loading) return;
+  if (mode === "search") rememberAnimeSearchContext();
+  else clearAnimeSearchContext();
   state.anime.loading = true;
   const requestSeq = ++state.anime.requestSeq;
   setAnimeMode(mode);
@@ -3505,7 +3650,14 @@ async function initApp() {
 
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
-  document.getElementById("fp-search").addEventListener("keydown", (e) => { if (e.key === "Enter") fpSearch(); });
+  document.getElementById("fp-search").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    fpSearch();
+  });
+  document.getElementById("fp-search").addEventListener("blur", (event) => {
+    if (!event.currentTarget.value.trim()) restoreFpSearchContext();
+  });
   document.getElementById("fp-new-btn").addEventListener("click", () => fpShowList("new"));
   document.getElementById("fp-top-btn").addEventListener("click", () => fpShowList("top"));
   document.getElementById("genre-filter").addEventListener("click", (e) => {
@@ -3530,7 +3682,14 @@ async function initApp() {
 
   // Serien
   document.getElementById("series-search-btn").addEventListener("click", seriesSearch);
-  document.getElementById("series-search").addEventListener("keydown", (e) => { if (e.key === "Enter") seriesSearch(); });
+  document.getElementById("series-search").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    seriesSearch();
+  });
+  document.getElementById("series-search").addEventListener("blur", (event) => {
+    if (!event.currentTarget.value.trim()) restoreSeriesSearchContext();
+  });
   document.getElementById("series-discover-btn").addEventListener("click", () => seriesBrowse("discover", 1));
   document.getElementById("series-new-btn").addEventListener("click", () => seriesBrowse("new", 1));
   document.getElementById("series-trending-btn").addEventListener("click", () => seriesBrowse("trending", 1));
@@ -3555,7 +3714,12 @@ async function initApp() {
   document.getElementById("series-subscriptions-manage").addEventListener("click", () => switchTab("bibliothek"));
   document.getElementById("anime-search-btn").addEventListener("click", () => animeBrowse("search", 1));
   document.getElementById("anime-search").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") animeBrowse("search", 1);
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    animeBrowse("search", 1);
+  });
+  document.getElementById("anime-search").addEventListener("blur", (event) => {
+    if (!event.currentTarget.value.trim()) restoreAnimeSearchContext();
   });
   document.getElementById("anime-latest-btn").addEventListener("click", () => animeBrowse("latest", 1));
   document.getElementById("anime-trending-btn").addEventListener("click", () => animeBrowse("trending", 1));
