@@ -286,12 +286,60 @@
     </section>
 
     <section class="tab-content" id="tab-einstellungen">
-      <div class="bar">
-        <span class="brand-title small">EINSTELLUNGEN</span>
-        <span class="dim">Speicherorte, Metadaten &amp; Automatik</span>
-      </div>
-      <div class="panel settings-panel">
-        <div class="settings-group language-settings">
+      <header class="settings-hero">
+        <div class="settings-hero-copy">
+          <span class="settings-eyebrow">SYSTEM · KONFIGURATION</span>
+          <h1>Kontrollpult</h1>
+          <p>Quellen, Medienanbindungen und den Dauerbetrieb an einem Ort steuern.</p>
+        </div>
+        <div class="settings-hero-state" aria-label="Konfigurationsbereiche">
+          <span><i aria-hidden="true"></i> Katalog</span>
+          <span><i aria-hidden="true"></i> Dienste</span>
+          <span><i aria-hidden="true"></i> Betrieb</span>
+        </div>
+      </header>
+
+      <div class="settings-workbench">
+        <aside class="settings-directory" aria-label="Einstellungsbereiche">
+          <div class="settings-directory-head">
+            <span>STEUERUNG</span>
+            <strong>Bereiche</strong>
+          </div>
+          <nav class="settings-directory-nav">
+            <a class="is-active" href="#settings-general" data-settings-target="settings-general" aria-current="true">
+              <span aria-hidden="true">⌂</span><strong>Basis</strong><small>Sprache &amp; Speicher</small>
+            </a>
+            <a href="#settings-sources" data-settings-target="settings-sources">
+              <span aria-hidden="true">⇄</span><strong>Quellen</strong><small>Katalog &amp; Routing</small>
+            </a>
+            <a href="#settings-media" data-settings-target="settings-media">
+              <span aria-hidden="true">◫</span><strong>Mediensysteme</strong><small>Jellyfin, Seerr, TMDB</small>
+            </a>
+            <a href="#settings-automation" data-settings-target="settings-automation">
+              <span aria-hidden="true">↻</span><strong>Automatik</strong><small>24/7 &amp; Telegram</small>
+            </a>
+            <a href="#settings-system" data-settings-target="settings-system">
+              <span aria-hidden="true">⌁</span><strong>System</strong><small>Updates &amp; Wartung</small>
+            </a>
+          </nav>
+          <div class="settings-directory-foot">
+            <span class="settings-live-mark" aria-hidden="true"><i></i></span>
+            <div><strong>Dauerbetrieb</strong><small>Konfiguration wird zentral gespeichert.</small></div>
+          </div>
+        </aside>
+
+        <div class="panel settings-panel">
+          <section id="settings-general" class="settings-section" data-settings-section aria-labelledby="settings-general-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark" aria-hidden="true">⌂</span>
+              <div>
+                <span>BASIS</span>
+                <h2 id="settings-general-title">Oberfläche und Speicher</h2>
+                <p>Grundlegende Darstellung und Zielordner des Downloaders.</p>
+              </div>
+            </header>
+            <div class="settings-card-grid settings-general-grid">
+        <div class="settings-group settings-card language-settings">
           <h3>Sprache &amp; Oberfläche</h3>
           <p class="dim settings-hint">Die Oberfläche wird automatisch übersetzt. Deutsch bleibt bei Verbindungsproblemen als sicherer Fallback erhalten.</p>
           <label class="dim auto-lbl" for="ui-language">Oberflächensprache</label>
@@ -310,7 +358,7 @@
           <div id="ui-language-status" class="dim small-status" role="status" aria-live="polite">Deutsch · Ausgangssprache</div>
         </div>
 
-        <div class="settings-group">
+        <div class="settings-group settings-card">
           <h3>Speicherorte</h3>
           <p class="dim settings-hint">Getrennte Zielordner für Filme und Serien.</p>
           <label class="dim auto-lbl">Filme</label>
@@ -324,8 +372,19 @@
             <button id="browse-series-btn" class="btn btn-ghost btn-sm">…</button>
           </div>
         </div>
+            </div>
+          </section>
 
-        <div class="settings-group provider-settings">
+          <section id="settings-sources" class="settings-section" data-settings-section aria-labelledby="settings-sources-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark is-source" aria-hidden="true">⇄</span>
+              <div>
+                <span>DOWNLOAD-ROUTING</span>
+                <h2 id="settings-sources-title">Quellen und Prioritäten</h2>
+                <p>Aktive Kataloge wählen und deren Fallback-Reihenfolge festlegen.</p>
+              </div>
+            </header>
+        <div class="settings-group settings-card provider-settings">
           <div class="provider-heading">
             <div>
               <span class="provider-kicker">DOWNLOAD · ROUTING</span>
@@ -360,8 +419,19 @@
           </div>
           <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
         </div>
+          </section>
 
-        <div class="settings-group">
+          <section id="settings-media" class="settings-section" data-settings-section aria-labelledby="settings-media-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark is-media" aria-hidden="true">◫</span>
+              <div>
+                <span>MEDIENSYSTEME</span>
+                <h2 id="settings-media-title">Bibliothek und Metadaten</h2>
+                <p>Externe Dienste für Abgleich, Wünsche und Medieninformationen.</p>
+              </div>
+            </header>
+            <div class="settings-card-grid settings-service-grid">
+        <div class="settings-group settings-card settings-card-wide">
           <h3>Jellyfin (NAS)</h3>
           <p class="dim settings-hint">Vorhandene Folgen werden übersprungen. Ein Wiedergabeprofil steuert Abos nach Gesehen-Status.</p>
           <div class="path-input-row">
@@ -407,7 +477,7 @@
           </fieldset>
         </div>
 
-        <div class="settings-group seerr-settings">
+        <div class="settings-group settings-card seerr-settings">
           <div class="seerr-heading">
             <div>
               <h3>Seerr · Wünsche aus Moonfin</h3>
@@ -443,7 +513,7 @@
           <div id="seerr-status" class="dim small-status" role="status">—</div>
         </div>
 
-        <div class="settings-group tmdb-settings">
+        <div class="settings-group settings-card tmdb-settings">
           <h3>TMDB-Metadaten</h3>
           <p class="dim settings-hint">Deutsche Cover, Beschreibungen, Genres, Jahr und Laufzeit. Ohne Schlüssel bleiben die Anbieterdaten aktiv.</p>
           <label class="dim auto-lbl" for="tmdb-api-key">API-Key oder Read Access Token</label>
@@ -456,8 +526,20 @@
             <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
           </a>
         </div>
+            </div>
+          </section>
 
-        <div class="settings-group">
+          <section id="settings-automation" class="settings-section" data-settings-section aria-labelledby="settings-automation-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark is-automation" aria-hidden="true">↻</span>
+              <div>
+                <span>DAUERBETRIEB</span>
+                <h2 id="settings-automation-title">Automatik und Fernzugriff</h2>
+                <p>Zeitpläne und Benachrichtigungen für den unbeaufsichtigten Betrieb.</p>
+              </div>
+            </header>
+            <div class="settings-card-grid settings-automation-grid">
+        <div class="settings-group settings-card">
           <h3>Automatik (24/7)</h3>
           <p class="dim settings-hint">Neue Folgen abonnierter Serien im Hintergrund automatisch laden.</p>
           <label class="auto-toggle-row">
@@ -479,7 +561,7 @@
           <div id="auto-status" class="dim small-status">—</div>
         </div>
 
-        <div class="settings-group telegram-settings">
+        <div class="settings-group settings-card telegram-settings">
           <h3>Telegram</h3>
           <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
           <label class="auto-toggle-row">
@@ -497,8 +579,19 @@
           <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
           <div id="telegram-status" class="dim small-status">—</div>
         </div>
+            </div>
+          </section>
 
-        <div id="updater-card" class="settings-group updater-settings" data-state="idle">
+          <section id="settings-system" class="settings-section" data-settings-section aria-labelledby="settings-system-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark is-system" aria-hidden="true">⌁</span>
+              <div>
+                <span>SYSTEM</span>
+                <h2 id="settings-system-title">Updates und Wartung</h2>
+                <p>Installierte Version prüfen und Aktualisierungen kontrolliert einspielen.</p>
+              </div>
+            </header>
+        <div id="updater-card" class="settings-group settings-card updater-settings" data-state="idle">
           <div class="updater-heading">
             <div>
               <span class="updater-kicker">SYSTEM · GITHUB</span>
@@ -549,10 +642,15 @@
             Repository öffnen <span aria-hidden="true">↗</span>
           </a>
         </div>
+          </section>
 
         <div class="settings-actions">
+          <div class="settings-actions-copy">
+            <strong>Änderungen übernehmen</strong>
+            <span id="settings-saved-status" class="dim">Noch keine ungespeicherten Änderungen.</span>
+          </div>
           <button id="settings-save" class="btn btn-accent btn-lg">Einstellungen speichern</button>
-          <span id="settings-saved-status" class="dim"></span>
+        </div>
         </div>
       </div>
     </section>

@@ -2594,6 +2594,69 @@ async function checkForUpdates(force = false) {
   }
 }
 
+function initSettingsNavigation() {
+  const root = document.getElementById("tab-einstellungen");
+  const panel = root?.querySelector(".settings-panel");
+  const links = [...(root?.querySelectorAll("[data-settings-target]") || [])];
+  const sections = [...(root?.querySelectorAll("[data-settings-section]") || [])];
+  if (!root || !panel || !links.length || !sections.length) return;
+
+  const activate = (id) => {
+    links.forEach((link) => {
+      const active = link.dataset.settingsTarget === id;
+      link.classList.toggle("is-active", active);
+      if (active) link.setAttribute("aria-current", "true");
+      else link.removeAttribute("aria-current");
+    });
+  };
+
+  let scrollFrame = 0;
+  const updateFromScroll = () => {
+    scrollFrame = 0;
+    if (window.innerWidth <= 820) return;
+    const rootTop = root.getBoundingClientRect().top;
+    let current = sections[0];
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top - rootTop <= 130) current = section;
+      else break;
+    }
+    activate(current.id);
+  };
+  root.addEventListener("scroll", () => {
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(updateFromScroll);
+  }, { passive: true });
+
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      const section = document.getElementById(link.dataset.settingsTarget);
+      if (!section) return;
+      const top = root.scrollTop
+        + section.getBoundingClientRect().top
+        - root.getBoundingClientRect().top
+        - 14;
+      root.scrollTo({
+        top,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+      activate(section.id);
+    });
+  });
+
+  const markDirty = () => {
+    const status = document.getElementById("settings-saved-status");
+    if (status) status.textContent = "Ungespeicherte Änderungen.";
+  };
+  panel.addEventListener("input", markDirty);
+  panel.addEventListener("change", markDirty);
+  panel.addEventListener("click", (event) => {
+    if (event.target.closest(".provider-order-button")) markDirty();
+  });
+  window.addEventListener("resize", updateFromScroll, { passive: true });
+}
+
 async function saveAllSettings() {
   const btn = document.getElementById("settings-save");
   const status = document.getElementById("settings-saved-status");
@@ -2958,6 +3021,7 @@ async function initApp() {
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
+  initSettingsNavigation();
 
   document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
