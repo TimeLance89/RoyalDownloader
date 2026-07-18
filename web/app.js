@@ -12,18 +12,26 @@ const state = {
     cache: {}, pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
     jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(),
   },
+  anime: {
+    results: [], mode: null, query: "", page: 1, hasMore: false,
+    loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
+    currentId: "", current: null, translation: "", episodePage: 1,
+    picked: new Set(),
+  },
   wl: { items: [], selected: new Set(), loaded: false },
   queue: { count: 0, groups: [], loaded: false },
   download: { active: false, percent: 0, completed: 0, total: 0, failed: 0 },
   providers: {
     movies: [],
     series: [],
+    anime: [],
     labels: {},
     catalog: {},
     languages: {},
     contentLanguages: new Set(),
     enabledMovies: new Set(),
     enabledSeries: new Set(),
+    enabledAnime: new Set(),
   },
   queuedSlugs: new Set(),
   jellyfinUserConfigured: false,
@@ -79,6 +87,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   state.tab = name;
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
   if (name === "serien" && autoLoad) ensureSeriesResults();
+  if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
@@ -199,7 +208,10 @@ function connectWs() {
         : String(data.msg || "Alle Anbieter sind ausgefallen").slice(0, 110);
       setDownloadState(kind, title, detail, percent);
       syncQueueSnapshot("Queue-Aktualisierung nach Download");
-      if (data.ok && data.slug) markSeriesSlugDownloaded(data.slug);
+      if (data.ok && data.slug) {
+        markSeriesSlugDownloaded(data.slug);
+        markAnimeSlugDownloaded(data.slug);
+      }
     } else if (data.type === "queue_started") {
       state.download.completed = data.done_jobs;
       state.download.total = data.total_jobs;
@@ -251,6 +263,7 @@ function renderQueue(payload) {
   state.queuedSlugs = new Set();
   for (const g of payload.groups) for (const it of g.items) state.queuedSlugs.add(it.slug);
   syncSeriesQueueFlags();
+  syncAnimeQueueFlags();
 
   const count = Number(payload.count) || 0;
   document.getElementById("queue-count").textContent =
@@ -1623,6 +1636,278 @@ async function seriesAddSelected() {
   }
 }
 
+// ── Anime ─────────────────────────────────────────────────────────────────
+function animeModeTitle(mode) {
+  return {
+    latest: "Aktuelle Ausstrahlungen",
+    trending: "Trending Activity",
+    popular: "Beliebte Anime",
+    search: "Suchergebnisse",
+  }[mode] || "Anime";
+}
+
+function setAnimeMode(mode) {
+  for (const [id, value] of [
+    ["anime-latest-btn", "latest"],
+    ["anime-trending-btn", "trending"],
+    ["anime-popular-btn", "popular"],
+  ]) {
+    document.getElementById(id).classList.toggle("is-active", mode === value);
+  }
+  document.getElementById("anime-catalog-title").textContent = animeModeTitle(mode);
+}
+
+function renderAnimeResults() {
+  const container = document.getElementById("anime-results");
+  container.innerHTML = "";
+  for (const anime of state.anime.results) {
+    const card = document.createElement("button");
+    card.className = "anime-card";
+    card.type = "button";
+    card.dataset.animeId = anime.id;
+    const dubCount = Number(anime.translations?.dub || 0);
+    const subCount = Number(anime.translations?.sub || 0);
+    const count = Math.max(dubCount, subCount, Number(anime.episode_count || 0));
+    card.innerHTML = `
+      <span class="anime-card-poster">
+        ${anime.cover_url
+    ? `<img src="${escapeHtml(anime.cover_url)}" alt="" loading="lazy">`
+    : ""}
+        <span class="anime-card-type" translate="no">${escapeHtml(anime.media_type || "TV")}</span>
+      </span>
+      <span class="anime-card-copy">
+        <strong translate="no">${escapeHtml(anime.title)}</strong>
+        <span class="anime-card-meta" translate="no">
+          ${dubCount ? `<span>DUB ${dubCount}</span>` : ""}
+          ${subCount ? `<span>SUB ${subCount}</span>` : ""}
+          <small>${count} EP</small>
+        </span>
+      </span>
+    `;
+    card.addEventListener("click", () => openAnimeDetail(anime, card));
+    container.appendChild(card);
+  }
+  if (!state.anime.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "anime-empty";
+    empty.textContent = state.anime.disabledReason
+      || (state.anime.mode === "search"
+        ? "Kein Anime passt zu dieser Suche."
+        : "MKissa meldet momentan keine Anime.");
+    container.appendChild(empty);
+  }
+  document.getElementById("anime-page-label").textContent = `Seite ${state.anime.page}`;
+  document.getElementById("anime-prev").disabled = state.anime.loading || state.anime.page <= 1;
+  document.getElementById("anime-next").disabled = state.anime.loading || !state.anime.hasMore;
+}
+
+async function animeBrowse(mode, page = 1) {
+  if (state.anime.loading) return;
+  const query = mode === "search"
+    ? document.getElementById("anime-search").value.trim()
+    : "";
+  if (mode === "search" && !query) {
+    document.getElementById("anime-status").textContent = "Gib einen Anime-Titel ein.";
+    document.getElementById("anime-search").focus();
+    return;
+  }
+  state.anime.loading = true;
+  const requestSeq = ++state.anime.requestSeq;
+  setAnimeMode(mode);
+  document.getElementById("anime-status").textContent =
+    mode === "search" ? `Suche nach «${query}» …` : `${animeModeTitle(mode)} werden geladen …`;
+  renderAnimeResults();
+  try {
+    const response = await api.anime({ mode, query, page });
+    if (requestSeq !== state.anime.requestSeq) return;
+    state.anime.results = response.results || [];
+    state.anime.mode = mode;
+    state.anime.query = query;
+    state.anime.page = Number(response.page) || page;
+    state.anime.hasMore = !!response.has_more;
+    state.anime.loaded = true;
+    state.anime.disabledReason = response.disabled ? response.disabled_reason : "";
+    document.getElementById("anime-status").textContent = response.disabled
+      ? response.disabled_reason
+      : `${state.anime.results.length} Anime · MKissa · EN`;
+  } catch (error) {
+    if (requestSeq !== state.anime.requestSeq) return;
+    state.anime.results = [];
+    state.anime.hasMore = false;
+    state.anime.loaded = true;
+    state.anime.disabledReason = error.message;
+    document.getElementById("anime-status").textContent = `Fehler: ${error.message}`;
+  } finally {
+    if (requestSeq === state.anime.requestSeq) {
+      state.anime.loading = false;
+      renderAnimeResults();
+    }
+  }
+}
+
+async function openAnimeDetail(anime, returnFocus = null) {
+  state.anime.currentId = anime.id;
+  state.anime.current = { ...anime, episodes: [] };
+  state.anime.translation = anime.translations?.dub
+    ? "dub"
+    : (anime.translations?.sub ? "sub" : Object.keys(anime.translations || {})[0] || "");
+  state.anime.episodePage = 1;
+  state.anime.picked.clear();
+  openMediaModal("anime-detail-modal", returnFocus);
+  document.getElementById("anime-detail-title").textContent = anime.title;
+  document.getElementById("anime-detail-description").textContent = "Episoden und Sprachspuren werden geladen …";
+  await loadAnimeDetail();
+}
+
+async function loadAnimeDetail({ keepSelection = false } = {}) {
+  const animeId = state.anime.currentId;
+  if (!animeId) return;
+  const detailSeq = ++state.anime.detailSeq;
+  if (!keepSelection) state.anime.picked.clear();
+  document.getElementById("anime-pick-count").textContent = "wird geladen";
+  document.getElementById("anime-add-btn").disabled = true;
+  try {
+    const detail = await api.animeDetail(
+      animeId,
+      state.anime.translation,
+      state.anime.episodePage,
+    );
+    if (detailSeq !== state.anime.detailSeq || animeId !== state.anime.currentId) return;
+    state.anime.current = detail;
+    state.anime.translation = detail.translation;
+    state.anime.episodePage = detail.page;
+    syncAnimeQueueFlags();
+    renderAnimeDetail();
+  } catch (error) {
+    if (detailSeq !== state.anime.detailSeq) return;
+    document.getElementById("anime-detail-description").textContent = error.message;
+    document.getElementById("anime-pick-count").textContent = "nicht verfügbar";
+  }
+}
+
+function renderAnimeDetail() {
+  const anime = state.anime.current;
+  if (!anime) return;
+  document.getElementById("anime-detail-title").textContent = anime.title;
+  const cover = document.getElementById("anime-detail-cover");
+  cover.src = anime.cover_url || "";
+  cover.alt = anime.title;
+  document.getElementById("anime-detail-type").textContent = anime.media_type || "TV";
+  const banner = document.getElementById("anime-detail-banner");
+  banner.style.backgroundImage = anime.banner_url ? `url("${anime.banner_url.replace(/"/g, "%22")}")` : "";
+  document.getElementById("anime-detail-description").textContent =
+    anime.description || "Keine Beschreibung verfügbar.";
+  const meta = [
+    anime.year,
+    anime.rating ? `★ ${Number(anime.rating).toFixed(1)}` : "",
+    ...(anime.genres || []).slice(0, 4),
+  ].filter(Boolean);
+  document.getElementById("anime-detail-meta").innerHTML =
+    meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("");
+
+  const trackOptions = document.getElementById("anime-track-options");
+  trackOptions.innerHTML = "";
+  for (const [track, countValue] of Object.entries(anime.translations || {})) {
+    const count = Number(countValue) || 0;
+    if (!count) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `anime-track-option ${track === state.anime.translation ? "is-active" : ""}`;
+    button.dataset.track = track;
+    button.innerHTML = `
+      <strong translate="no">${escapeHtml(track.toUpperCase())}</strong>
+      <small translate="no">${escapeHtml(anime.translation_labels?.[track] || track)} · ${count} EP</small>
+    `;
+    button.addEventListener("click", () => {
+      if (track === state.anime.translation) return;
+      state.anime.translation = track;
+      state.anime.episodePage = 1;
+      loadAnimeDetail();
+    });
+    trackOptions.appendChild(button);
+  }
+  renderAnimeEpisodes();
+}
+
+function renderAnimeEpisodes() {
+  const anime = state.anime.current;
+  const container = document.getElementById("anime-episode-grid");
+  container.innerHTML = "";
+  if (!anime?.episodes?.length) {
+    container.innerHTML = '<div class="anime-empty">Keine Episoden in dieser Sprachspur.</div>';
+    return;
+  }
+  for (const episode of anime.episodes) {
+    const selected = state.anime.picked.has(episode.slug);
+    const queued = episode.queued || state.queuedSlugs.has(episode.slug);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "anime-episode"
+      + (selected ? " is-selected" : "")
+      + (queued ? " is-queued" : "")
+      + (episode.downloaded ? " is-downloaded" : "");
+    button.textContent = episode.number;
+    button.title = episode.downloaded
+      ? `${episode.label} · bereits geladen`
+      : queued ? `${episode.label} · in der Warteschlange` : episode.label;
+    button.disabled = queued || episode.downloaded;
+    button.addEventListener("click", () => {
+      if (state.anime.picked.has(episode.slug)) state.anime.picked.delete(episode.slug);
+      else state.anime.picked.add(episode.slug);
+      renderAnimeEpisodes();
+    });
+    container.appendChild(button);
+  }
+  const first = anime.episodes[0]?.number || 0;
+  const last = anime.episodes.at(-1)?.number || 0;
+  document.getElementById("anime-episode-page-label").textContent =
+    `Episoden ${first}–${last} · Seite ${anime.page}/${anime.page_count}`;
+  document.getElementById("anime-episode-prev").disabled = anime.page <= 1;
+  document.getElementById("anime-episode-next").disabled = anime.page >= anime.page_count;
+  document.getElementById("anime-pick-count").textContent = `${state.anime.picked.size} ausgewählt`;
+  document.getElementById("anime-select-none").disabled = !state.anime.picked.size;
+  document.getElementById("anime-add-btn").disabled = !state.anime.picked.size;
+}
+
+function syncAnimeQueueFlags() {
+  const anime = state.anime.current;
+  if (!anime?.episodes) return;
+  for (const episode of anime.episodes) {
+    episode.queued = state.queuedSlugs.has(episode.slug);
+    if (episode.queued) state.anime.picked.delete(episode.slug);
+  }
+  if (!document.getElementById("anime-detail-modal").hidden) renderAnimeEpisodes();
+}
+
+function markAnimeSlugDownloaded(slug) {
+  const anime = state.anime.current;
+  const episode = anime?.episodes?.find((item) => item.slug === slug);
+  if (!episode) return;
+  episode.downloaded = true;
+  episode.queued = false;
+  state.anime.picked.delete(slug);
+  renderAnimeEpisodes();
+}
+
+async function animeAddSelected() {
+  const slugs = [...state.anime.picked];
+  if (!slugs.length) return;
+  const button = document.getElementById("anime-add-btn");
+  button.disabled = true;
+  document.getElementById("anime-pick-count").textContent = "wird eingeplant …";
+  try {
+    const response = await api.queueAdd(slugs);
+    refreshQueueUiAfterChange(response);
+    state.anime.picked.clear();
+    document.getElementById("anime-status").textContent =
+      `${response.added}/${slugs.length} Anime-Episode(n) gestartet`;
+  } catch (error) {
+    document.getElementById("anime-status").textContent = `Download fehlgeschlagen: ${error.message}`;
+  } finally {
+    renderAnimeEpisodes();
+  }
+}
+
 function closeWatchModeModal() {
   document.getElementById("watch-mode-modal").classList.add("hidden");
   document.getElementById("watch-mode-status").textContent = "";
@@ -2148,9 +2433,9 @@ async function loadJellyfinUsers({ urlId, keyId, selectId, buttonId, statusId = 
 }
 
 function providerEnabledSet(mediaType) {
-  return mediaType === "movies"
-    ? state.providers.enabledMovies
-    : state.providers.enabledSeries;
+  if (mediaType === "movies") return state.providers.enabledMovies;
+  if (mediaType === "anime") return state.providers.enabledAnime;
+  return state.providers.enabledSeries;
 }
 
 function providerLanguage(provider) {
@@ -2175,6 +2460,7 @@ function renderContentLanguageSelectors() {
       const providerCount = new Set([
         ...providersForLanguage(language, "movies"),
         ...providersForLanguage(language, "series"),
+        ...providersForLanguage(language, "anime"),
       ]).size;
       return `
         <button class="content-language-card ${active ? "is-selected" : ""}" type="button"
@@ -2213,13 +2499,13 @@ function renderContentLanguageSelectors() {
             return;
           }
           selected.delete(language);
-          for (const mediaType of ["movies", "series"]) {
+          for (const mediaType of ["movies", "series", "anime"]) {
             const enabled = providerEnabledSet(mediaType);
             providersForLanguage(language, mediaType).forEach((provider) => enabled.delete(provider));
           }
         } else {
           selected.add(language);
-          for (const mediaType of ["movies", "series"]) {
+          for (const mediaType of ["movies", "series", "anime"]) {
             const enabled = providerEnabledSet(mediaType);
             providersForLanguage(language, mediaType).forEach((provider) => enabled.add(provider));
           }
@@ -2257,9 +2543,13 @@ function providerLogoUrl(meta) {
 }
 
 function providerListIds(mediaType) {
-  return mediaType === "movies"
-    ? ["movie-provider-priority", "setup-movie-provider-priority"]
-    : ["series-provider-priority", "setup-series-provider-priority"];
+  if (mediaType === "movies") {
+    return ["movie-provider-priority", "setup-movie-provider-priority"];
+  }
+  if (mediaType === "anime") {
+    return ["anime-provider-priority", "setup-anime-provider-priority"];
+  }
+  return ["series-provider-priority", "setup-series-provider-priority"];
 }
 
 function setProviderSelectionStatus(context, message, error = false) {
@@ -2278,7 +2568,11 @@ function renderProviderList(list, mediaType) {
   const enabled = providerEnabledSet(mediaType);
   const isSetup = list.id.startsWith("setup-");
   const context = isSetup ? "setup" : "settings";
-  const mediaLabel = mediaType === "movies" ? "Filmquelle" : "Serienquelle";
+  const mediaLabel = {
+    movies: "Filmquelle",
+    series: "Serienquelle",
+    anime: "Animequelle",
+  }[mediaType];
   list.innerHTML = providers.map((provider, index) => {
     const meta = state.providers.catalog[provider] || {};
     const label = state.providers.labels[provider] || meta.label || provider;
@@ -2328,7 +2622,7 @@ function renderProviderList(list, mediaType) {
   list.querySelectorAll('.provider-source-toggle input[type="checkbox"]').forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       const provider = checkbox.closest(".provider-source-card").dataset.provider;
-      if (!checkbox.checked && enabled.size <= 1) {
+      if (mediaType !== "anime" && !checkbox.checked && enabled.size <= 1) {
         checkbox.checked = true;
         setProviderSelectionStatus(
           context,
@@ -2341,7 +2635,11 @@ function renderProviderList(list, mediaType) {
       else enabled.delete(provider);
       setProviderSelectionStatus(
         context,
-        `${enabled.size} ${mediaType === "movies" ? "Filmquellen" : "Serienquellen"} aktiv.`,
+        `${enabled.size} ${{
+          movies: "Filmquellen",
+          series: "Serienquellen",
+          anime: "Animequellen",
+        }[mediaType]} aktiv.`,
       );
       renderAllProviderBoards();
     });
@@ -2361,7 +2659,7 @@ function renderProviderList(list, mediaType) {
 
 function renderAllProviderBoards() {
   renderContentLanguageSelectors();
-  for (const mediaType of ["movies", "series"]) {
+  for (const mediaType of ["movies", "series", "anime"]) {
     for (const id of providerListIds(mediaType)) {
       const list = document.getElementById(id);
       if (list) renderProviderList(list, mediaType);
@@ -2371,9 +2669,11 @@ function renderAllProviderBoards() {
       (provider) => state.providers.contentLanguages.has(providerLanguage(provider)),
     ).length;
     const summary = `${enabledCount} aktiv · ${eligibleCount} passend`;
-    const ids = mediaType === "movies"
-      ? ["movie-provider-summary", "setup-movie-provider-summary"]
-      : ["series-provider-summary", "setup-series-provider-summary"];
+    const ids = {
+      movies: ["movie-provider-summary", "setup-movie-provider-summary"],
+      series: ["series-provider-summary", "setup-series-provider-summary"],
+      anime: ["anime-provider-summary", "setup-anime-provider-summary"],
+    }[mediaType];
     ids.forEach((id) => {
       const element = document.getElementById(id);
       if (element) element.textContent = summary;
@@ -2384,6 +2684,7 @@ function renderAllProviderBoards() {
 function applyProviderPriority(cfg) {
   state.providers.movies = [...(cfg.movies || [])];
   state.providers.series = [...(cfg.series || [])];
+  state.providers.anime = [...(cfg.anime || [])];
   state.providers.labels = { ...(cfg.labels || {}) };
   state.providers.catalog = { ...(cfg.catalog || {}) };
   state.providers.languages = { ...(cfg.languages || {}) };
@@ -2392,6 +2693,9 @@ function applyProviderPriority(cfg) {
   );
   state.providers.enabledSeries = new Set(
     cfg.enabled_series?.length ? cfg.enabled_series : state.providers.series,
+  );
+  state.providers.enabledAnime = new Set(
+    Array.isArray(cfg.enabled_anime) ? cfg.enabled_anime : state.providers.anime,
   );
   if (!Object.keys(state.providers.languages).length) {
     for (const meta of Object.values(state.providers.catalog)) {
@@ -2402,18 +2706,21 @@ function applyProviderPriority(cfg) {
   const inferredLanguages = [
     ...state.providers.enabledMovies,
     ...state.providers.enabledSeries,
+    ...state.providers.enabledAnime,
   ].map(providerLanguage).filter(Boolean);
   state.providers.contentLanguages = new Set(
     cfg.content_languages?.length
       ? cfg.content_languages
       : (inferredLanguages.length ? inferredLanguages : Object.keys(state.providers.languages)),
   );
-  for (const mediaType of ["movies", "series"]) {
+  for (const mediaType of ["movies", "series", "anime"]) {
     const enabled = providerEnabledSet(mediaType);
     [...enabled].forEach((provider) => {
       if (!state.providers.contentLanguages.has(providerLanguage(provider))) enabled.delete(provider);
     });
   }
+  state.anime.loaded = false;
+  state.anime.disabledReason = "";
   renderAllProviderBoards();
 }
 
@@ -2793,8 +3100,10 @@ async function saveAllSettings() {
     applyProviderPriority(await api.providerPrioritySet({
       movies: state.providers.movies,
       series: state.providers.series,
+      anime: state.providers.anime,
       enabled_movies: [...state.providers.enabledMovies],
       enabled_series: [...state.providers.enabledSeries],
+      enabled_anime: [...state.providers.enabledAnime],
       content_languages: [...state.providers.contentLanguages],
     }));
     const jfUserSelect = document.getElementById("jellyfin-user-id");
@@ -3012,8 +3321,10 @@ async function finishSetup() {
       ui_language: document.getElementById("setup-ui-language").value,
       movie_provider_order: state.providers.movies,
       series_provider_order: state.providers.series,
+      anime_provider_order: state.providers.anime,
       movie_providers: [...state.providers.enabledMovies],
       series_providers: [...state.providers.enabledSeries],
+      anime_providers: [...state.providers.enabledAnime],
       content_languages: [...state.providers.contentLanguages],
       jellyfin_url: document.getElementById("setup-jellyfin-url").value.trim(),
       jellyfin_api_key: document.getElementById("setup-jellyfin-key").value.trim(),
@@ -3208,6 +3519,40 @@ async function initApp() {
   document.getElementById("series-add-btn").addEventListener("click", seriesAddSelected);
   document.getElementById("series-watch-btn").addEventListener("click", () => openWatchModeModal());
   document.getElementById("series-subscriptions-manage").addEventListener("click", () => switchTab("bibliothek"));
+  document.getElementById("anime-search-btn").addEventListener("click", () => animeBrowse("search", 1));
+  document.getElementById("anime-search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") animeBrowse("search", 1);
+  });
+  document.getElementById("anime-latest-btn").addEventListener("click", () => animeBrowse("latest", 1));
+  document.getElementById("anime-trending-btn").addEventListener("click", () => animeBrowse("trending", 1));
+  document.getElementById("anime-popular-btn").addEventListener("click", () => animeBrowse("popular", 1));
+  document.getElementById("anime-prev").addEventListener("click", () => {
+    animeBrowse(state.anime.mode || "latest", Math.max(1, state.anime.page - 1));
+  });
+  document.getElementById("anime-next").addEventListener("click", () => {
+    animeBrowse(state.anime.mode || "latest", state.anime.page + 1);
+  });
+  document.getElementById("anime-select-page").addEventListener("click", () => {
+    for (const episode of state.anime.current?.episodes || []) {
+      if (!episode.queued && !episode.downloaded) state.anime.picked.add(episode.slug);
+    }
+    renderAnimeEpisodes();
+  });
+  document.getElementById("anime-select-none").addEventListener("click", () => {
+    state.anime.picked.clear();
+    renderAnimeEpisodes();
+  });
+  document.getElementById("anime-episode-prev").addEventListener("click", () => {
+    if (!state.anime.current || state.anime.current.page <= 1) return;
+    state.anime.episodePage = state.anime.current.page - 1;
+    loadAnimeDetail({ keepSelection: true });
+  });
+  document.getElementById("anime-episode-next").addEventListener("click", () => {
+    if (!state.anime.current || state.anime.current.page >= state.anime.current.page_count) return;
+    state.anime.episodePage = state.anime.current.page + 1;
+    loadAnimeDetail({ keepSelection: true });
+  });
+  document.getElementById("anime-add-btn").addEventListener("click", animeAddSelected);
   document.getElementById("watch-mode-close").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-cancel").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-save").addEventListener("click", saveWatchMode);

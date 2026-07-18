@@ -33,6 +33,17 @@ const api = {
     });
   },
 
+  anime(params) { return this.get("/api/anime?" + new URLSearchParams(params)); },
+  animeDetail(id, translation = "", episodePage = 1) {
+    return this.get(
+      `/api/anime/${encodeURIComponent(id)}?`
+      + new URLSearchParams({
+        translation,
+        episode_page: String(episodePage),
+      }),
+    );
+  },
+
   queueGet() { return this.get("/api/queue"); },
   queueAdd(slugs) { return this.post("/api/queue/add", { slugs }); },
   queueRemove(slug) { return this.post("/api/queue/remove", { slug }); },

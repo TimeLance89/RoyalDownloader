@@ -26,6 +26,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+      <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
       <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
     </nav>
@@ -68,6 +69,7 @@
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
     <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
     <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+    <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
     <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
     <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
   </nav>
@@ -246,6 +248,92 @@
       </div>
     </section>
 
+    <section class="tab-content anime-tab-content" id="tab-anime">
+      <header class="anime-hero">
+        <div class="anime-hero-copy">
+          <span class="anime-kicker">MKISSA · ENGLISH CATALOG</span>
+          <h1>Anime Broadcast</h1>
+          <p>Englische Dubs und Untertitel als eigene Sendeschiene – getrennt von klassischen Serien.</p>
+        </div>
+        <div class="anime-signal-card" aria-label="Anime-Sprachspuren">
+          <span class="anime-live-dot" aria-hidden="true"></span>
+          <div>
+            <small>SIGNALSPUREN</small>
+            <strong>DUB <i></i> SUB</strong>
+          </div>
+          <span class="anime-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+      </header>
+
+      <div class="anime-command-bar">
+        <label class="anime-search-field" for="anime-search">
+          <span class="anime-search-mark" aria-hidden="true">⌕</span>
+          <input id="anime-search" type="text" placeholder="Anime title in English">
+        </label>
+        <button id="anime-search-btn" class="btn btn-accent">Suchen</button>
+        <div class="anime-mode-switch" role="group" aria-label="Anime-Katalog">
+          <button id="anime-latest-btn" class="is-active" type="button">Neu</button>
+          <button id="anime-trending-btn" type="button">Trending</button>
+          <button id="anime-popular-btn" type="button">Popular</button>
+        </div>
+      </div>
+
+      <section class="anime-catalog-panel" aria-labelledby="anime-catalog-title">
+        <header class="anime-catalog-head">
+          <div>
+            <span class="anime-catalog-index">ANIME · 01</span>
+            <h2 id="anime-catalog-title">Aktuelle Ausstrahlungen</h2>
+          </div>
+          <span id="anime-status" class="dim" role="status">Wird beim Öffnen geladen …</span>
+        </header>
+        <div id="anime-results" class="anime-grid" aria-label="Anime-Ergebnisse"></div>
+        <div id="anime-pager" class="anime-pager">
+          <button id="anime-prev" class="btn btn-ghost" disabled>‹ Vorherige</button>
+          <span id="anime-page-label">Seite 1</span>
+          <button id="anime-next" class="btn btn-ghost" disabled>Nächste ›</button>
+        </div>
+      </section>
+
+      <div id="anime-detail-modal" class="media-modal anime-detail-modal" role="dialog" aria-modal="true" aria-labelledby="anime-detail-title" hidden>
+        <div class="media-modal-backdrop" data-modal-close="anime-detail-modal" aria-hidden="true"></div>
+        <div class="anime-detail-panel media-modal-panel" tabindex="-1">
+          <button class="media-modal-close" type="button" data-modal-close="anime-detail-modal" aria-label="Anime-Details schließen">×</button>
+          <div id="anime-detail-banner" class="anime-detail-banner" aria-hidden="true"></div>
+          <div class="anime-detail-content">
+            <div class="anime-detail-visual">
+              <img id="anime-detail-cover" alt="">
+              <span id="anime-detail-type" translate="no">TV</span>
+            </div>
+            <article class="anime-detail-copy">
+              <span class="anime-kicker">EPISODE CONTROL</span>
+              <h2 id="anime-detail-title">Anime auswählen</h2>
+              <div id="anime-detail-meta" class="anime-detail-meta"></div>
+              <p id="anime-detail-description"></p>
+            </article>
+            <section class="anime-track-console" aria-labelledby="anime-track-title">
+              <div class="anime-track-head">
+                <div>
+                  <span class="anime-catalog-index">AUDIO / SUBTITLE</span>
+                  <h3 id="anime-track-title">Sprachspur</h3>
+                </div>
+                <strong id="anime-pick-count">0 ausgewählt</strong>
+              </div>
+              <div id="anime-track-options" class="anime-track-options"></div>
+              <div class="anime-episode-toolbar">
+                <button id="anime-select-page" class="btn btn-ghost btn-sm">Seite auswählen</button>
+                <button id="anime-select-none" class="btn btn-ghost btn-sm">Keine</button>
+                <span id="anime-episode-page-label">Episoden 1–1</span>
+                <button id="anime-episode-prev" class="btn btn-ghost btn-sm" disabled>‹</button>
+                <button id="anime-episode-next" class="btn btn-ghost btn-sm" disabled>›</button>
+              </div>
+              <div id="anime-episode-grid" class="anime-episode-grid"></div>
+              <button id="anime-add-btn" class="btn btn-accent anime-add-button" disabled>Auswahl herunterladen</button>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="tab-content" id="tab-bibliothek">
       <header class="library-hero">
         <div class="library-hero-copy">
@@ -289,7 +377,7 @@
       <header class="settings-hero">
         <div class="settings-hero-copy">
           <span class="settings-eyebrow">SYSTEM · KONFIGURATION</span>
-          <h1>Kontrollpult</h1>
+          <h1>Kontrollcenter</h1>
           <p>Quellen, Medienanbindungen und den Dauerbetrieb an einem Ort steuern.</p>
         </div>
         <div class="settings-hero-state" aria-label="Konfigurationsbereiche">
@@ -426,6 +514,17 @@
                 <strong id="series-provider-summary" class="provider-lane-summary is-series">0 aktiv</strong>
               </div>
               <ol id="series-provider-priority" class="provider-priority-list" aria-label="Anbieter-Priorität für Serien"></ol>
+            </section>
+            <section class="provider-priority-card provider-source-lane is-anime" aria-labelledby="anime-provider-title">
+              <div class="provider-card-heading">
+                <span class="provider-media-mark is-anime" aria-hidden="true">A</span>
+                <div>
+                  <h4 id="anime-provider-title">Anime</h4>
+                  <span class="dim">DUB · SUB · Fallbacks</span>
+                </div>
+                <strong id="anime-provider-summary" class="provider-lane-summary is-anime">0 aktiv</strong>
+              </div>
+              <ol id="anime-provider-priority" class="provider-priority-list" aria-label="Anbieter-Priorität für Anime"></ol>
             </section>
           </div>
           <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
@@ -828,6 +927,17 @@
                 <strong id="setup-series-provider-summary" class="provider-lane-summary is-series">0 aktiv</strong>
               </div>
               <ol id="setup-series-provider-priority" class="provider-priority-list" aria-label="Serienquellen auswählen und sortieren"></ol>
+            </section>
+            <section class="provider-priority-card provider-source-lane is-anime" aria-labelledby="setup-anime-provider-title">
+              <div class="provider-card-heading">
+                <span class="provider-media-mark is-anime" aria-hidden="true">A</span>
+                <div>
+                  <h4 id="setup-anime-provider-title">Anime</h4>
+                  <span class="dim">Englische DUBs &amp; SUBs</span>
+                </div>
+                <strong id="setup-anime-provider-summary" class="provider-lane-summary is-anime">0 aktiv</strong>
+              </div>
+              <ol id="setup-anime-provider-priority" class="provider-priority-list" aria-label="Animequellen auswählen und sortieren"></ol>
             </section>
           </div>
         </div>

@@ -36,6 +36,7 @@ _config_lock = threading.RLock()
 APP_NAME = "FilmeDownloader"
 MOVIE_PROVIDER_DEFAULTS = provider_keys("movies")
 SERIES_PROVIDER_DEFAULTS = provider_keys("series")
+ANIME_PROVIDER_DEFAULTS = provider_keys("anime")
 CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
@@ -229,6 +230,9 @@ def load_provider_priorities() -> dict:
         "series": normalize_provider_order(
             values.get("series_provider_priority", ""), SERIES_PROVIDER_DEFAULTS,
         ),
+        "anime": normalize_provider_order(
+            values.get("anime_provider_priority", ""), ANIME_PROVIDER_DEFAULTS,
+        ),
     }
 
 
@@ -261,6 +265,7 @@ def load_provider_enabled() -> dict:
     values = _read_all()
     movies_raw = values.get("movie_provider_enabled")
     series_raw = values.get("series_provider_enabled")
+    anime_raw = values.get("anime_provider_enabled")
     movies = (
         normalize_provider_selection(movies_raw, MOVIE_PROVIDER_DEFAULTS)
         if movies_raw is not None
@@ -271,9 +276,15 @@ def load_provider_enabled() -> dict:
         if series_raw is not None
         else list(SERIES_PROVIDER_DEFAULTS)
     )
+    anime = (
+        normalize_provider_selection(anime_raw, ANIME_PROVIDER_DEFAULTS)
+        if anime_raw is not None
+        else list(ANIME_PROVIDER_DEFAULTS)
+    )
     return {
         "movies": movies or list(MOVIE_PROVIDER_DEFAULTS),
         "series": series or list(SERIES_PROVIDER_DEFAULTS),
+        "anime": anime,
     }
 
 
@@ -303,9 +314,12 @@ def save_provider_priorities(
     enabled_movies=None,
     enabled_series=None,
     content_languages=None,
+    anime=None,
+    enabled_anime=None,
 ) -> bool:
     movie_order = normalize_provider_order(movies, MOVIE_PROVIDER_DEFAULTS)
     series_order = normalize_provider_order(series, SERIES_PROVIDER_DEFAULTS)
+    anime_order = normalize_provider_order(anime, ANIME_PROVIDER_DEFAULTS)
     current_enabled = load_provider_enabled()
     movie_enabled = (
         normalize_provider_selection(enabled_movies, MOVIE_PROVIDER_DEFAULTS)
@@ -317,6 +331,11 @@ def save_provider_priorities(
         if enabled_series is not None
         else current_enabled["series"]
     )
+    anime_enabled = (
+        normalize_provider_selection(enabled_anime, ANIME_PROVIDER_DEFAULTS)
+        if enabled_anime is not None
+        else current_enabled["anime"]
+    )
     languages = (
         normalize_content_languages(content_languages)
         if content_languages is not None
@@ -327,8 +346,10 @@ def save_provider_priorities(
     return _update_all({
         "movie_provider_priority": ",".join(movie_order),
         "series_provider_priority": ",".join(series_order),
+        "anime_provider_priority": ",".join(anime_order),
         "movie_provider_enabled": ",".join(movie_enabled),
         "series_provider_enabled": ",".join(series_enabled),
+        "anime_provider_enabled": ",".join(anime_enabled),
         "content_languages": ",".join(languages),
     })
 
@@ -476,6 +497,8 @@ def save_initial_setup(
     movie_providers=None,
     series_providers=None,
     content_languages=None,
+    anime_provider_order=None,
+    anime_providers=None,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -484,12 +507,18 @@ def save_initial_setup(
     series_order = normalize_provider_order(
         series_provider_order, SERIES_PROVIDER_DEFAULTS,
     )
+    anime_order = normalize_provider_order(
+        anime_provider_order, ANIME_PROVIDER_DEFAULTS,
+    )
     enabled_movies = normalize_provider_selection(
         movie_providers, MOVIE_PROVIDER_DEFAULTS,
     ) if movie_providers is not None else list(MOVIE_PROVIDER_DEFAULTS)
     enabled_series = normalize_provider_selection(
         series_providers, SERIES_PROVIDER_DEFAULTS,
     ) if series_providers is not None else list(SERIES_PROVIDER_DEFAULTS)
+    enabled_anime = normalize_provider_selection(
+        anime_providers, ANIME_PROVIDER_DEFAULTS,
+    ) if anime_providers is not None else list(ANIME_PROVIDER_DEFAULTS)
     languages = (
         normalize_content_languages(content_languages)
         if content_languages is not None
@@ -503,8 +532,10 @@ def save_initial_setup(
         "ui_language": normalize_ui_language(ui_language),
         "movie_provider_priority": ",".join(movie_order),
         "series_provider_priority": ",".join(series_order),
+        "anime_provider_priority": ",".join(anime_order),
         "movie_provider_enabled": ",".join(enabled_movies),
         "series_provider_enabled": ",".join(enabled_series),
+        "anime_provider_enabled": ",".join(enabled_anime),
         "content_languages": ",".join(languages),
         "jellyfin_url": jellyfin_url.strip(),
         "jellyfin_api_key": jellyfin_api_key.strip(),

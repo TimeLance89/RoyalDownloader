@@ -6,3 +6,4 @@ yt-dlp
 fastapi
 uvicorn[standard]
 requests>=2.32,<3
+cryptography>=45,<49

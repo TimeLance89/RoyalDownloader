@@ -82,6 +82,12 @@ from providers.ridomovies import (
     RidomoviesScraper,
     SOURCE_PREFIX as RIDOMOVIES_PREFIX,
 )
+from providers.mkissa import (
+    BASE_URL as MKISSA_BASE_URL,
+    MkissaScraper,
+    SOURCE_PREFIX as MKISSA_PREFIX,
+    anime_episode_page,
+)
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from jellyfin_client import JellyfinClient
 from jellyfin_recommender import (
@@ -287,6 +293,8 @@ class AppState:
         # Rate-Limiting / Captcha-Clearance) über alle Aufrufe erhalten bleibt.
         self.sto_scraper: Optional[SerienstreamScraper] = None
         self.sto_lock = threading.Lock()
+        self.mkissa_scraper: Optional[MkissaScraper] = None
+        self.mkissa_lock = threading.RLock()
 
         self.fp_provider_genres: set = set()
         self.filmfrei24_provider_genres: set = set()
@@ -669,6 +677,12 @@ def get_sto_scraper() -> SerienstreamScraper:
     return state.sto_scraper
 
 
+def get_mkissa_scraper() -> MkissaScraper:
+    if state.mkissa_scraper is None:
+        state.mkissa_scraper = MkissaScraper(progress_cb=log)
+    return state.mkissa_scraper
+
+
 def get_jellyfin_client() -> JellyfinClient:
     with state.jellyfin_cache_lock:
         cfg = dict(state.jellyfin_cfg)
@@ -928,11 +942,11 @@ def strip_source_suffix(title: str) -> str:
 
 
 def provider_order(media_type: str) -> List[str]:
-    defaults = (
-        appconfig.MOVIE_PROVIDER_DEFAULTS
-        if media_type == "movies"
-        else appconfig.SERIES_PROVIDER_DEFAULTS
-    )
+    defaults = {
+        "movies": appconfig.MOVIE_PROVIDER_DEFAULTS,
+        "series": appconfig.SERIES_PROVIDER_DEFAULTS,
+        "anime": appconfig.ANIME_PROVIDER_DEFAULTS,
+    }.get(media_type, ())
     with state.provider_priority_lock:
         configured = state.provider_priorities.get(media_type, defaults)
         return appconfig.normalize_provider_order(configured, defaults)
@@ -951,6 +965,8 @@ def provider_priority(media_type: str) -> List[str]:
         if provider_content_language(provider) in languages
     ]
     active = [provider for provider in matching if provider in enabled]
+    if media_type == "anime":
+        return active
     return active or matching[:1] or ordered[:1]
 
 
@@ -1053,6 +1069,9 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         movie = SflixScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(RIDOMOVIES_PREFIX):
         movie = RidomoviesScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith(MKISSA_PREFIX):
+        with state.mkissa_lock:
+            movie = get_mkissa_scraper().get_episode(slug)
     else:
         if slug.lower().startswith(("http://", "https://")):
             host = (urlparse(slug).hostname or "").casefold()
@@ -3597,6 +3616,53 @@ def _extract_from_movie(
                 res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = RIDOMOVIES_BASE_URL
+        elif provider_for_value(movie.url) == "mkissa":
+            # MKissa liefert direkte Streams und generische Anime-Embeds.
+            # Direkte Medien bleiben unangetastet; Embed-Player durchlaufen
+            # zunächst die billige Extraktion und danach den Browser-Pool.
+            referer = f"{MKISSA_BASE_URL}/"
+            parsed = urlparse(play_url)
+            if parsed.path.casefold().endswith((".m3u8", ".mp4")):
+                res.stream_info = (play_url, "web")
+            else:
+                try:
+                    res.stream_info = extract_stream_url(
+                        play_url,
+                        session=session,
+                        log_cb=log,
+                        pool=None,
+                        referer=referer,
+                    )
+                    if res.stream_info is None:
+                        if state.embed_pool is None:
+                            log("Starte Browser-Pool für MKissa-Hoster …")
+                            try:
+                                state.embed_pool = VOEBrowserPool(
+                                    log_cb=log,
+                                    setup_voe=False,
+                                )
+                            except Exception as exc:
+                                log(
+                                    f"Browser-Pool konnte nicht starten: {exc}",
+                                    "warn",
+                                )
+                                state.embed_pool = None
+                        if state.embed_pool is not None:
+                            res.stream_info = extract_stream_url(
+                                play_url,
+                                session=session,
+                                log_cb=log,
+                                pool=state.embed_pool,
+                                referer=referer,
+                                browser_wait_seconds=12,
+                            )
+                except Exception as exc:
+                    log(f"  MKissa-Hoster fehlgeschlagen: {exc}", "warn")
+                    res.stream_info = None
+                if res.stream_info is None:
+                    res.stream_info = (play_url, "web")
+            res.referer = referer
+            res.origin = "https://mkissa.to"
         else:
             # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/…):
             # yt-dlp probieren lassen. Referer = eigene Hoster-Domain
@@ -7087,6 +7153,123 @@ async def api_series_load(body: SeriesLoadBody):
     return payload
 
 
+# ── Anime ───────────────────────────────────────────────────────────────────
+@app.get("/api/anime")
+async def api_anime(
+    mode: str = "latest",
+    query: str = "",
+    page: int = 1,
+):
+    if page < 1 or page > 50:
+        raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
+    if "mkissa" not in provider_priority("anime"):
+        return {
+            "results": [],
+            "mode": mode,
+            "page": 1,
+            "has_more": False,
+            "total": 0,
+            "disabled": True,
+            "disabled_reason": (
+                "MKissa ist pausiert. Aktiviere englische Inhalte und die "
+                "Anime-Quelle in den Einstellungen."
+            ),
+        }
+    browse_mode = mode if mode in {"search", "latest", "popular", "trending"} else "latest"
+    if browse_mode == "search" and not query.strip():
+        return {
+            "results": [],
+            "mode": browse_mode,
+            "page": 1,
+            "has_more": False,
+            "total": 0,
+            "disabled": False,
+        }
+
+    def _work():
+        with state.mkissa_lock:
+            return get_mkissa_scraper().browse(
+                mode=browse_mode,
+                query=query,
+                page=page,
+                limit=24,
+            )
+
+    try:
+        payload = await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"MKissa-Katalog fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"MKissa ist gerade nicht erreichbar: {exc}") from exc
+    return {
+        **payload,
+        "mode": browse_mode,
+        "disabled": False,
+        "provider": "mkissa",
+        "provider_label": PROVIDER_LABELS["mkissa"],
+        "content_language": provider_content_language("mkissa"),
+    }
+
+
+@app.get("/api/anime/{anime_id}")
+async def api_anime_detail(
+    anime_id: str,
+    translation: str = "",
+    episode_page: int = 1,
+):
+    if "mkissa" not in provider_priority("anime"):
+        raise HTTPException(
+            409,
+            "MKissa ist in den Quellen oder über die Inhaltssprache deaktiviert.",
+        )
+    requested_track = str(translation or "").strip().casefold()
+
+    def _work():
+        with state.mkissa_lock:
+            anime = get_mkissa_scraper().get_anime(anime_id)
+        available = anime.translations
+        track = requested_track if requested_track in available else (
+            "dub" if available.get("dub") else
+            "sub" if available.get("sub") else
+            next(iter(available), "")
+        )
+        if not track:
+            raise LookupError("MKissa meldet keine verfügbaren Episoden.")
+        episodes = anime_episode_page(
+            anime,
+            track,
+            page=episode_page,
+            page_size=100,
+        )
+        for episode in episodes["episodes"]:
+            slug = episode["slug"]
+            episode["queued"] = slug in state.picked
+            episode["downloaded"] = bool(
+                _existing_valid_episode_path(
+                    anime.title,
+                    1,
+                    int(episode["number"]),
+                )
+            )
+        return {
+            **anime.public_dict(),
+            "translation": track,
+            "translation_labels": {
+                "dub": "English Dub",
+                "sub": "English Sub",
+                "raw": "Japanese Raw",
+            },
+            **episodes,
+        }
+
+    try:
+        return await run_in_threadpool(_work)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        log(f"MKissa-Details fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"MKissa-Details sind nicht verfügbar: {exc}") from exc
+
+
 # ── Warteschlange ────────────────────────────────────────────────────────────
 class _QueuePreparationJob:
     """Löst neu hinzugefügte Inhalte innerhalb derselben 2-Slot-Queue auf.
@@ -7665,8 +7848,10 @@ class SetupCompleteBody(BaseModel):
     dl_window_end: Optional[int] = None
     movie_provider_order: Optional[List[str]] = None
     series_provider_order: Optional[List[str]] = None
+    anime_provider_order: Optional[List[str]] = None
     movie_providers: Optional[List[str]] = None
     series_providers: Optional[List[str]] = None
+    anime_providers: Optional[List[str]] = None
     content_languages: Optional[List[str]] = None
 
 
@@ -7751,6 +7936,11 @@ async def api_setup_complete(body: SetupCompleteBody):
         if body.series_provider_order is not None
         else provider_order("series")
     )
+    anime_order = (
+        [str(value).strip().casefold() for value in body.anime_provider_order]
+        if body.anime_provider_order is not None
+        else provider_order("anime")
+    )
     movie_providers = (
         [str(value).strip().casefold() for value in body.movie_providers]
         if body.movie_providers is not None
@@ -7760,6 +7950,11 @@ async def api_setup_complete(body: SetupCompleteBody):
         [str(value).strip().casefold() for value in body.series_providers]
         if body.series_providers is not None
         else list(state.provider_enabled.get("series", appconfig.SERIES_PROVIDER_DEFAULTS))
+    )
+    anime_providers = (
+        [str(value).strip().casefold() for value in body.anime_providers]
+        if body.anime_providers is not None
+        else list(state.provider_enabled.get("anime", appconfig.ANIME_PROVIDER_DEFAULTS))
     )
     content_languages = (
         appconfig.normalize_content_languages(body.content_languages)
@@ -7779,6 +7974,11 @@ async def api_setup_complete(body: SetupCompleteBody):
     ):
         raise HTTPException(400, "Die Reihenfolge der Serienquellen ist ungültig.")
     if (
+        len(anime_order) != len(set(anime_order))
+        or set(anime_order) != set(appconfig.ANIME_PROVIDER_DEFAULTS)
+    ):
+        raise HTTPException(400, "Die Reihenfolge der Anime-Quellen ist ungültig.")
+    if (
         not movie_providers
         or len(movie_providers) != len(set(movie_providers))
         or not set(movie_providers).issubset(appconfig.MOVIE_PROVIDER_DEFAULTS)
@@ -7790,11 +7990,16 @@ async def api_setup_complete(body: SetupCompleteBody):
         or not set(series_providers).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
     ):
         raise HTTPException(400, "Mindestens eine gültige Serienquelle muss aktiv sein.")
+    if (
+        len(anime_providers) != len(set(anime_providers))
+        or not set(anime_providers).issubset(appconfig.ANIME_PROVIDER_DEFAULTS)
+    ):
+        raise HTTPException(400, "Die Auswahl der Anime-Quellen ist ungültig.")
     if not content_languages:
         raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
     if any(
         provider_content_language(provider) not in content_languages
-        for provider in movie_providers + series_providers
+        for provider in movie_providers + series_providers + anime_providers
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
     if jellyfin_url and not jellyfin_api_key:
@@ -7835,6 +8040,8 @@ async def api_setup_complete(body: SetupCompleteBody):
         movie_providers,
         series_providers,
         content_languages,
+        anime_order,
+        anime_providers,
     )
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
@@ -7957,14 +8164,17 @@ async def api_config_set(body: ConfigBody):
 class ProviderPriorityBody(BaseModel):
     movies: List[str]
     series: List[str]
+    anime: Optional[List[str]] = None
     enabled_movies: Optional[List[str]] = None
     enabled_series: Optional[List[str]] = None
+    enabled_anime: Optional[List[str]] = None
     content_languages: Optional[List[str]] = None
 
 
 def _provider_priority_payload(saved: bool = False) -> dict:
     movie_order = provider_order("movies")
     series_order = provider_order("series")
+    anime_order = provider_order("anime")
     with state.provider_priority_lock:
         enabled_movie_ids = set(state.provider_enabled.get(
             "movies", appconfig.MOVIE_PROVIDER_DEFAULTS,
@@ -7972,15 +8182,22 @@ def _provider_priority_payload(saved: bool = False) -> dict:
         enabled_series_ids = set(state.provider_enabled.get(
             "series", appconfig.SERIES_PROVIDER_DEFAULTS,
         ))
+        enabled_anime_ids = set(state.provider_enabled.get(
+            "anime", appconfig.ANIME_PROVIDER_DEFAULTS,
+        ))
         content_languages = set(state.content_languages)
     return {
         "movies": movie_order,
         "series": series_order,
+        "anime": anime_order,
         "enabled_movies": [
             provider for provider in movie_order if provider in enabled_movie_ids
         ],
         "enabled_series": [
             provider for provider in series_order if provider in enabled_series_ids
+        ],
+        "enabled_anime": [
+            provider for provider in anime_order if provider in enabled_anime_ids
         ],
         "labels": PROVIDER_LABELS,
         "catalog": provider_catalog_payload(),
@@ -8003,10 +8220,17 @@ async def api_provider_priority_get():
 async def api_provider_priority_set(body: ProviderPriorityBody):
     movie_ids = [str(value).strip().casefold() for value in body.movies]
     series_ids = [str(value).strip().casefold() for value in body.series]
+    anime_ids = (
+        [str(value).strip().casefold() for value in body.anime]
+        if body.anime is not None
+        else provider_order("anime")
+    )
     if len(movie_ids) != len(set(movie_ids)) or set(movie_ids) != set(appconfig.MOVIE_PROVIDER_DEFAULTS):
         raise HTTPException(400, "Die Film-Anbieterliste ist unvollständig oder ungültig.")
     if len(series_ids) != len(set(series_ids)) or set(series_ids) != set(appconfig.SERIES_PROVIDER_DEFAULTS):
         raise HTTPException(400, "Die Serien-Anbieterliste ist unvollständig oder ungültig.")
+    if len(anime_ids) != len(set(anime_ids)) or set(anime_ids) != set(appconfig.ANIME_PROVIDER_DEFAULTS):
+        raise HTTPException(400, "Die Anime-Anbieterliste ist unvollständig oder ungültig.")
     current_enabled = appconfig.load_provider_enabled()
     enabled_movies = [
         str(value).strip().casefold()
@@ -8022,6 +8246,14 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
             body.enabled_series
             if body.enabled_series is not None
             else current_enabled["series"]
+        )
+    ]
+    enabled_anime = [
+        str(value).strip().casefold()
+        for value in (
+            body.enabled_anime
+            if body.enabled_anime is not None
+            else current_enabled["anime"]
         )
     ]
     content_languages = (
@@ -8041,11 +8273,16 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         or not set(enabled_series).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
     ):
         raise HTTPException(400, "Mindestens eine gültige Serienquelle muss aktiv sein.")
+    if (
+        len(enabled_anime) != len(set(enabled_anime))
+        or not set(enabled_anime).issubset(appconfig.ANIME_PROVIDER_DEFAULTS)
+    ):
+        raise HTTPException(400, "Die Auswahl der Anime-Quellen ist ungültig.")
     if not content_languages:
         raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
     if any(
         provider_content_language(provider) not in content_languages
-        for provider in enabled_movies + enabled_series
+        for provider in enabled_movies + enabled_series + enabled_anime
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
     if not appconfig.save_provider_priorities(
@@ -8053,7 +8290,9 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         series_ids,
         enabled_movies,
         enabled_series,
-        content_languages,
+        content_languages=content_languages,
+        anime=anime_ids,
+        enabled_anime=enabled_anime,
     ):
         raise HTTPException(500, "Anbieter-Prioritäten konnten nicht gespeichert werden.")
     with state.provider_priority_lock:

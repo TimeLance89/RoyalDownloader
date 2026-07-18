@@ -107,6 +107,7 @@ class ProviderDefinition:
     media_types: tuple[str, ...]
     movie_priority: Optional[int] = None
     series_priority: Optional[int] = None
+    anime_priority: Optional[int] = None
     source_prefixes: tuple[str, ...] = ()
     domains: tuple[str, ...] = ()
 
@@ -118,6 +119,7 @@ class ProviderDefinition:
         payload = asdict(self)
         payload.pop("movie_priority", None)
         payload.pop("series_priority", None)
+        payload.pop("anime_priority", None)
         payload.pop("source_prefixes", None)
         payload.pop("domains", None)
         payload["media_types"] = list(self.media_types)
@@ -227,6 +229,15 @@ PROVIDER_CATALOG = {
         source_prefixes=("ridomovies:",),
         domains=("ridomovies.su", "ridomovies.tv"),
     ),
+    "mkissa": ProviderDefinition(
+        key="mkissa",
+        label="MKissa",
+        content_language="en",
+        media_types=("anime",),
+        anime_priority=10,
+        source_prefixes=("mkissa:",),
+        domains=("mkissa.to", "api.mkissa.net"),
+    ),
     "serienstream": ProviderDefinition(
         key="serienstream",
         label="Serienstream",
@@ -240,7 +251,13 @@ PROVIDER_CATALOG = {
 
 
 def provider_keys(media_type: str) -> tuple[str, ...]:
-    priority_field = "movie_priority" if media_type == "movies" else "series_priority"
+    priority_field = {
+        "movies": "movie_priority",
+        "series": "series_priority",
+        "anime": "anime_priority",
+    }.get(media_type)
+    if priority_field is None:
+        return ()
     entries = [
         definition
         for definition in PROVIDER_CATALOG.values()
