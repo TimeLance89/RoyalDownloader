@@ -159,6 +159,9 @@ Bei **Weg A** liegen beide direkt im gemounteten Ordner. Bei **Weg B** werden si
 | `UPDATE_GITHUB_BRANCH` | `main` | Verglichener Branch. |
 | `UPDATE_MODE` | `manual` | Update-Modus: `manual` oder `automatic`; eine im UI gespeicherte Auswahl hat Vorrang. |
 | `AUTO_UPDATE_INTERVAL_HOURS` | `6` | Prüfintervall automatischer Updates, begrenzt auf 1–168 Stunden. |
+| `YTDLP_AUTO_UPDATE` | `true` | Prüft die stabile yt-dlp-Version automatisch und aktualisiert sie Queue-sicher. |
+| `YTDLP_UPDATE_INTERVAL_HOURS` | `24` | Prüfintervall für stabile yt-dlp-Updates, begrenzt auf 1–168 Stunden. |
+| `YTDLP_UPDATE_START_DELAY_SECONDS` | `300` | Erste yt-dlp-Prüfung nach dem Serverstart; mindestens 30 Sekunden. |
 
 ### DNS / Provider-Sperren
 

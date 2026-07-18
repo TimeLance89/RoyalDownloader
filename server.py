@@ -72,6 +72,7 @@ from telegram_bot import TelegramBot
 from seerr_client import SeerrClient, SeerrRequest
 from update_checker import UpdateChecker
 from self_updater import SelfUpdater
+from ytdlp_updater import YtDlpRuntimeUpdater
 from watchlist_policy import (
     CLEANUP_MODE_DEFAULT,
     CLEANUP_MODE_KEEP,
@@ -298,6 +299,7 @@ class AppState:
         # das Redirect-Gate.
         self.gated_retry_jobs: Dict[str, dict] = {}
         self.gated_retry_worker_running = False
+        self.ytdlp_update_active = False
 
         self.cover_cache: "OrderedDict[str, Optional[tuple]]" = OrderedDict()
         self.cover_cache_lock = threading.Lock()
@@ -356,6 +358,8 @@ _seerr_thread: Optional[threading.Thread] = None
 _updater_stop_event = threading.Event()
 _updater_wake_event = threading.Event()
 _updater_thread: Optional[threading.Thread] = None
+_ytdlp_updater_stop_event = threading.Event()
+_ytdlp_updater_thread: Optional[threading.Thread] = None
 
 
 def broadcast(data: dict):
@@ -373,9 +377,9 @@ def log(msg: str, level: str = ""):
     broadcast({"type": "log", "message": msg, "level": level})
 
 
-def _restart_after_update() -> None:
+def _restart_after_update(queue_already_paused: bool = False) -> None:
     def _restart():
-        preserved = _pause_downloads_for_update_restart()
+        preserved = 0 if queue_already_paused else _pause_downloads_for_update_restart()
         if preserved:
             log(
                 f"Update-Neustart: {preserved} offene Queue-Einträge gespeichert; "
@@ -398,10 +402,30 @@ UPDATE_INSTALLER = SelfUpdater(
     on_state=lambda payload: broadcast({"type": "updater_install", "installer": payload}),
     restart_callback=_restart_after_update,
 )
+YTDLP_UPDATER = YtDlpRuntimeUpdater()
 
 AUTO_UPDATE_START_DELAY_SECONDS = 30
 AUTO_UPDATE_DEFER_SECONDS = 5 * 60
 AUTO_UPDATE_ERROR_RETRY_SECONDS = 15 * 60
+
+
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+YTDLP_UPDATE_START_DELAY_SECONDS = _bounded_env_int(
+    "YTDLP_UPDATE_START_DELAY_SECONDS", 300, 30, 24 * 60 * 60,
+)
+YTDLP_UPDATE_INTERVAL_HOURS = _bounded_env_int(
+    "YTDLP_UPDATE_INTERVAL_HOURS", 24, 1, 168,
+)
+YTDLP_AUTO_UPDATE = os.environ.get(
+    "YTDLP_AUTO_UPDATE", "true",
+).strip().casefold() not in {"0", "false", "no", "off"}
 
 
 def _updater_config_payload() -> dict:
@@ -440,6 +464,8 @@ def _start_update_when_idle(target_sha: str) -> dict:
     gestoppt; der neue Server stellt sie automatisch wieder her.
     """
     with state.queue_lifecycle_lock:
+        if state.ytdlp_update_active:
+            raise RuntimeError("yt-dlp wird gerade aktualisiert")
         queued = bool(
             state.dl_queue.active_count()
             or state.dl_queue.pending_count()
@@ -530,6 +556,69 @@ def automatic_update_loop() -> None:
             delay = 60 * 60
         _updater_wake_event.wait(max(1, delay))
         _updater_wake_event.clear()
+
+
+def _attempt_ytdlp_runtime_update() -> str:
+    """Aktualisiert yt-dlp stabil und erhält dabei alle Queue-Claims."""
+    if not YTDLP_AUTO_UPDATE:
+        return "disabled"
+    if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
+        return "busy"
+    try:
+        update = YTDLP_UPDATER.check()
+    except Exception as exc:
+        log(f"yt-dlp-Updateprüfung fehlgeschlagen: {exc}", "warn")
+        return "error"
+    if not update.get("update_available"):
+        logger.info("yt-dlp ist aktuell (%s).", update.get("current") or "unbekannt")
+        return "current"
+
+    current = str(update.get("current") or "nicht installiert")
+    latest = str(update.get("latest") or "")
+    log(f"yt-dlp-Update verfügbar: {current} → {latest}; Paket wird vorbereitet.")
+    paused = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="seriendownloader-ytdlp-") as tmp:
+            wheel = YTDLP_UPDATER.download_wheel(latest, Path(tmp))
+            with state.queue_lifecycle_lock:
+                if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
+                    return "busy"
+                state.ytdlp_update_active = True
+            preserved = _pause_downloads_for_update_restart()
+            paused = True
+            if preserved:
+                log(
+                    f"yt-dlp-Update: {preserved} offene Queue-Einträge gespeichert; "
+                    "Fortsetzung nach Neustart."
+                )
+            YTDLP_UPDATER.install_wheel(wheel)
+    except Exception as exc:
+        if state.ytdlp_update_active:
+            # Auch bei einem pip-/Pause-Fehler neu starten, damit die Queue mit
+            # der bisherigen Version weiterläuft.
+            _restart_after_update(queue_already_paused=paused)
+        log(f"yt-dlp-Update fehlgeschlagen: {exc}", "warn")
+        return "error"
+
+    log(f"yt-dlp {latest} installiert – Server startet neu.")
+    _restart_after_update(queue_already_paused=True)
+    return "restarting"
+
+
+def ytdlp_runtime_update_loop() -> None:
+    if not YTDLP_AUTO_UPDATE:
+        return
+    if _ytdlp_updater_stop_event.wait(YTDLP_UPDATE_START_DELAY_SECONDS):
+        return
+    while not _ytdlp_updater_stop_event.is_set():
+        result = _attempt_ytdlp_runtime_update()
+        delay = (
+            60 * 60
+            if result in {"busy", "error"}
+            else YTDLP_UPDATE_INTERVAL_HOURS * 60 * 60
+        )
+        if _ytdlp_updater_stop_event.wait(delay):
+            return
 
 
 # ---------------------------------------------------------------------------
@@ -6306,7 +6395,8 @@ def watchlist_auto_check_loop():
 # ---------------------------------------------------------------------------
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
-    global _background_services_started, _recommender_thread, _seerr_thread, _updater_thread
+    global _background_services_started, _recommender_thread, _seerr_thread
+    global _updater_thread, _ytdlp_updater_thread
     with _background_services_lock:
         if _background_services_started:
             return
@@ -6338,6 +6428,13 @@ def start_background_services():
         daemon=True,
     )
     _updater_thread.start()
+    _ytdlp_updater_stop_event.clear()
+    _ytdlp_updater_thread = threading.Thread(
+        target=ytdlp_runtime_update_loop,
+        name="ytdlp-runtime-updater",
+        daemon=True,
+    )
+    _ytdlp_updater_thread.start()
 
 
 @asynccontextmanager
@@ -6370,6 +6467,7 @@ async def lifespan(app: FastAPI):
     _seerr_wake_event.set()
     _updater_stop_event.set()
     _updater_wake_event.set()
+    _ytdlp_updater_stop_event.set()
     stop_jellyfin_recommender()
     if _telegram_bot is not None:
         _telegram_bot.stop()
@@ -6804,7 +6902,7 @@ def _enqueue_automatic_downloads(
     slugs: List[str],
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
 ) -> set[str]:
-    if UPDATE_INSTALLER.is_active():
+    if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
         log("Downloadstart pausiert: Ein Systemupdate läuft.", "warn")
         return set()
     content_keys = {
@@ -6814,7 +6912,7 @@ def _enqueue_automatic_downloads(
     with state.queue_lifecycle_lock:
         # Zweite Prüfung unter demselben Lock, den auch der Updater beim Start
         # hält. So kann zwischen Vorprüfung und Queue-Aufbau kein Update starten.
-        if UPDATE_INSTALLER.is_active():
+        if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
             log("Downloadstart pausiert: Ein Systemupdate läuft.", "warn")
             return set()
         queue_idle = (

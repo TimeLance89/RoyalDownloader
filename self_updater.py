@@ -210,6 +210,7 @@ class SelfUpdater:
         required_files = (
             "server.py",
             "requirements.txt",
+            "ytdlp_updater.py",
             "web/app.js",
             "update_checker.py",
             "providers/__init__.py",
