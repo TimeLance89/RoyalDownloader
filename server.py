@@ -48,6 +48,7 @@ from providers.catalog import (
     provider_catalog_payload,
     provider_content_language,
     provider_for_source,
+    provider_language_payload,
 )
 from extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
@@ -75,6 +76,11 @@ from providers.sflix import (
     BASE_URL as SFLIX_BASE_URL,
     SflixScraper,
     SOURCE_PREFIX as SFLIX_PREFIX,
+)
+from providers.ridomovies import (
+    BASE_URL as RIDOMOVIES_BASE_URL,
+    RidomoviesScraper,
+    SOURCE_PREFIX as RIDOMOVIES_PREFIX,
 )
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from jellyfin_client import JellyfinClient
@@ -139,7 +145,7 @@ PROVIDER_LABELS = {
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
 MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix",
+    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
 })
 MOVIE_LIST_CACHE_TTL = 300
 MOVIE_LIST_FAILURE_CACHE_TTL = 30
@@ -164,7 +170,7 @@ MOVIE_GENRE_CANONICAL_BY_KEY = {
 }
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix",
+    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
@@ -232,6 +238,7 @@ class AppState:
         }
         self.provider_priorities: dict = appconfig.load_provider_priorities()
         self.provider_enabled: dict = appconfig.load_provider_enabled()
+        self.content_languages: set[str] = set(appconfig.load_content_languages())
         self.provider_priority_lock = threading.RLock()
         self.jellyfin_library: Optional[List[dict]] = None
         self.jellyfin_library_time: float = 0.0
@@ -290,6 +297,7 @@ class AppState:
         self.megakino_provider_genres: set = set()
         self.xcine_provider_genres: set = set()
         self.sflix_provider_genres: set = set()
+        self.ridomovies_provider_genres: set = set()
 
         self.series_cache: Dict[str, FilmpalastSeries] = {}
         self.series_dir_cache: Dict[tuple, Path] = {}
@@ -931,13 +939,19 @@ def provider_order(media_type: str) -> List[str]:
 
 
 def provider_priority(media_type: str) -> List[str]:
-    """Aktive Quellen in der vom Benutzer festgelegten Reihenfolge."""
+    """Aktive, sprachlich passende Quellen in Benutzer-Reihenfolge."""
     ordered = provider_order(media_type)
     with state.provider_priority_lock:
         configured = state.provider_enabled.get(media_type, ordered)
         enabled = set(appconfig.normalize_provider_selection(configured, ordered))
-    active = [provider for provider in ordered if provider in enabled]
-    return active or ordered[:1]
+        languages = set(state.content_languages)
+    matching = [
+        provider
+        for provider in ordered
+        if provider_content_language(provider) in languages
+    ]
+    active = [provider for provider in matching if provider in enabled]
+    return active or matching[:1] or ordered[:1]
 
 
 def provider_for_value(value: str) -> str:
@@ -1037,6 +1051,8 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         movie = XcineScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SFLIX_PREFIX):
         movie = SflixScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith(RIDOMOVIES_PREFIX):
+        movie = RidomoviesScraper(progress_cb=log).get_movie(slug)
     else:
         if slug.lower().startswith(("http://", "https://")):
             host = (urlparse(slug).hostname or "").casefold()
@@ -1067,6 +1083,7 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
         "megakino": lambda: MegaKinoScraper(progress_cb=log).search(q),
         "xcine": lambda: XcineScraper(progress_cb=log).search(q),
         "sflix": lambda: SflixScraper(progress_cb=log).search(q),
+        "ridomovies": lambda: RidomoviesScraper(progress_cb=log).search(q),
     }
     tasks = [
         (key, PROVIDER_LABELS[key], searches[key])
@@ -1148,6 +1165,7 @@ def _fetch_movie_provider_page(
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
         "sflix": SflixScraper,
+        "ridomovies": RidomoviesScraper,
     }
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
@@ -1225,6 +1243,7 @@ def _movie_provider_genres(provider: str) -> set:
         "megakino": state.megakino_provider_genres,
         "xcine": state.xcine_provider_genres,
         "sflix": state.sflix_provider_genres,
+        "ridomovies": state.ridomovies_provider_genres,
     }.get(provider, set())
 
 
@@ -1475,6 +1494,8 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return XcineScraper(progress_cb=log).search_series(query)
     if provider == "sflix":
         return SflixScraper(progress_cb=log).search_series(query)
+    if provider == "ridomovies":
+        return RidomoviesScraper(progress_cb=log).search_series(query)
     return []
 
 
@@ -1494,6 +1515,8 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return XcineScraper(progress_cb=log).get_series(value)
     if provider == "sflix":
         return SflixScraper(progress_cb=log).get_series(value)
+    if provider == "ridomovies":
+        return RidomoviesScraper(progress_cb=log).get_series(value)
     return None
 
 
@@ -1758,6 +1781,7 @@ def _fetch_series_provider_page(
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
         "sflix": SflixScraper,
+        "ridomovies": RidomoviesScraper,
     }
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
@@ -2026,7 +2050,7 @@ def _series_search_title(value: str) -> str:
     for pfx in (
         SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
         KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
-        SFLIX_PREFIX,
+        SFLIX_PREFIX, RIDOMOVIES_PREFIX,
     ):
         if v.startswith(pfx):
             v = v[len(pfx):]
@@ -3530,6 +3554,49 @@ def _extract_from_movie(
                 res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = SFLIX_BASE_URL
+        elif provider_for_value(movie.url) == "ridomovies":
+            # Closeload/Rapidrame sind generische Embed-Player. Erst die
+            # günstige HTML-Auflösung probieren, dann den gemeinsamen
+            # Browser-Pool für signierte Medienrequests verwenden.
+            referer = movie.url or f"{RIDOMOVIES_BASE_URL}/"
+            try:
+                res.stream_info = extract_stream_url(
+                    play_url,
+                    session=session,
+                    log_cb=log,
+                    pool=None,
+                    referer=referer,
+                )
+                if res.stream_info is None:
+                    if state.embed_pool is None:
+                        log("Starte Browser-Pool für Ridomovies-Hoster …")
+                        try:
+                            state.embed_pool = VOEBrowserPool(
+                                log_cb=log,
+                                setup_voe=False,
+                            )
+                        except Exception as exc:
+                            log(
+                                f"Browser-Pool konnte nicht starten: {exc}",
+                                "warn",
+                            )
+                            state.embed_pool = None
+                    if state.embed_pool is not None:
+                        res.stream_info = extract_stream_url(
+                            play_url,
+                            session=session,
+                            log_cb=log,
+                            pool=state.embed_pool,
+                            referer=referer,
+                            browser_wait_seconds=12,
+                        )
+            except Exception as exc:
+                log(f"  Ridomovies-Hoster fehlgeschlagen: {exc}", "warn")
+                res.stream_info = None
+            if res.stream_info is None:
+                res.stream_info = (play_url, "web")
+            res.referer = referer
+            res.origin = RIDOMOVIES_BASE_URL
         else:
             # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/…):
             # yt-dlp probieren lassen. Referer = eigene Hoster-Domain
@@ -6722,6 +6789,7 @@ async def api_genres():
             "megakino": lambda: MegaKinoScraper(progress_cb=log).list_genres(),
             "xcine": lambda: XcineScraper(progress_cb=log).list_genres(),
             "sflix": lambda: SflixScraper(progress_cb=log).list_genres(),
+            "ridomovies": lambda: RidomoviesScraper(progress_cb=log).list_genres(),
         }
         cleaned = {provider: set() for provider in appconfig.MOVIE_PROVIDER_DEFAULTS}
         for provider in provider_priority("movies"):
@@ -6747,6 +6815,7 @@ async def api_genres():
     mk_c = provider_genres["megakino"]
     xc_c = provider_genres["xcine"]
     sf_c = provider_genres["sflix"]
+    rm_c = provider_genres["ridomovies"]
     state.filmfrei24_provider_genres = ff_c
     state.fp_provider_genres = fp_c
     state.moflix_provider_genres = mx_c
@@ -6756,11 +6825,13 @@ async def api_genres():
     state.megakino_provider_genres = mk_c
     state.xcine_provider_genres = xc_c
     state.sflix_provider_genres = sf_c
+    state.ridomovies_provider_genres = rm_c
     genres = sorted(
         {
             canonical_movie_genre(genre)
             for genre in (
                 ff_c | fp_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
+                | rm_c
             )
         },
         key=str.casefold,
@@ -7596,6 +7667,7 @@ class SetupCompleteBody(BaseModel):
     series_provider_order: Optional[List[str]] = None
     movie_providers: Optional[List[str]] = None
     series_providers: Optional[List[str]] = None
+    content_languages: Optional[List[str]] = None
 
 
 def _prepare_media_directory(raw_path: str, label: str) -> dict:
@@ -7689,6 +7761,11 @@ async def api_setup_complete(body: SetupCompleteBody):
         if body.series_providers is not None
         else list(state.provider_enabled.get("series", appconfig.SERIES_PROVIDER_DEFAULTS))
     )
+    content_languages = (
+        appconfig.normalize_content_languages(body.content_languages)
+        if body.content_languages is not None
+        else list(state.content_languages)
+    )
     if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     if (
@@ -7713,6 +7790,13 @@ async def api_setup_complete(body: SetupCompleteBody):
         or not set(series_providers).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
     ):
         raise HTTPException(400, "Mindestens eine gültige Serienquelle muss aktiv sein.")
+    if not content_languages:
+        raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
+    if any(
+        provider_content_language(provider) not in content_languages
+        for provider in movie_providers + series_providers
+    ):
+        raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
     if jellyfin_url and not jellyfin_api_key:
         raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
     if jellyfin_url:
@@ -7750,6 +7834,7 @@ async def api_setup_complete(body: SetupCompleteBody):
         series_order,
         movie_providers,
         series_providers,
+        content_languages,
     )
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
@@ -7761,6 +7846,7 @@ async def api_setup_complete(body: SetupCompleteBody):
     with state.provider_priority_lock:
         state.provider_priorities = appconfig.load_provider_priorities()
         state.provider_enabled = appconfig.load_provider_enabled()
+        state.content_languages = set(appconfig.load_content_languages())
     _set_runtime_jellyfin_config(appconfig.load_jellyfin())
     state.tmdb_cfg = appconfig.load_tmdb()
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
@@ -7873,6 +7959,7 @@ class ProviderPriorityBody(BaseModel):
     series: List[str]
     enabled_movies: Optional[List[str]] = None
     enabled_series: Optional[List[str]] = None
+    content_languages: Optional[List[str]] = None
 
 
 def _provider_priority_payload(saved: bool = False) -> dict:
@@ -7885,6 +7972,7 @@ def _provider_priority_payload(saved: bool = False) -> dict:
         enabled_series_ids = set(state.provider_enabled.get(
             "series", appconfig.SERIES_PROVIDER_DEFAULTS,
         ))
+        content_languages = set(state.content_languages)
     return {
         "movies": movie_order,
         "series": series_order,
@@ -7896,6 +7984,12 @@ def _provider_priority_payload(saved: bool = False) -> dict:
         ],
         "labels": PROVIDER_LABELS,
         "catalog": provider_catalog_payload(),
+        "content_languages": [
+            language
+            for language in appconfig.CONTENT_LANGUAGE_DEFAULTS
+            if language in content_languages
+        ],
+        "languages": provider_language_payload(),
         "saved": saved,
     }
 
@@ -7930,6 +8024,11 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
             else current_enabled["series"]
         )
     ]
+    content_languages = (
+        appconfig.normalize_content_languages(body.content_languages)
+        if body.content_languages is not None
+        else appconfig.load_content_languages()
+    )
     if (
         not enabled_movies
         or len(enabled_movies) != len(set(enabled_movies))
@@ -7942,16 +8041,25 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         or not set(enabled_series).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
     ):
         raise HTTPException(400, "Mindestens eine gültige Serienquelle muss aktiv sein.")
+    if not content_languages:
+        raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
+    if any(
+        provider_content_language(provider) not in content_languages
+        for provider in enabled_movies + enabled_series
+    ):
+        raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
     if not appconfig.save_provider_priorities(
         movie_ids,
         series_ids,
         enabled_movies,
         enabled_series,
+        content_languages,
     ):
         raise HTTPException(500, "Anbieter-Prioritäten konnten nicht gespeichert werden.")
     with state.provider_priority_lock:
         state.provider_priorities = appconfig.load_provider_priorities()
         state.provider_enabled = appconfig.load_provider_enabled()
+        state.content_languages = set(appconfig.load_content_languages())
     with state.movie_list_cache_lock:
         state.movie_list_cache.clear()
     with state.series_list_cache_lock:

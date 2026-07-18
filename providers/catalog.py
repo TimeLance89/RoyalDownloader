@@ -217,6 +217,16 @@ PROVIDER_CATALOG = {
         source_prefixes=("sflix:",),
         domains=("sflix.win", "sflix.to"),
     ),
+    "ridomovies": ProviderDefinition(
+        key="ridomovies",
+        label="Ridomovies",
+        content_language="en",
+        media_types=("movies", "series"),
+        movie_priority=100,
+        series_priority=80,
+        source_prefixes=("ridomovies:",),
+        domains=("ridomovies.su", "ridomovies.tv"),
+    ),
     "serienstream": ProviderDefinition(
         key="serienstream",
         label="Serienstream",
@@ -258,6 +268,21 @@ def provider_for_source(value: str, default: str = "filmpalast") -> str:
 def provider_content_language(provider: str, default: str = "") -> str:
     definition = PROVIDER_CATALOG.get(str(provider or "").strip().casefold())
     return definition.content_language if definition else default
+
+
+def provider_language_keys() -> tuple[str, ...]:
+    """Inhaltssprachen in stabiler Katalog-Reihenfolge."""
+    return tuple(dict.fromkeys(
+        definition.content_language
+        for definition in PROVIDER_CATALOG.values()
+    ))
+
+
+def provider_language_payload() -> dict[str, str]:
+    return {
+        language: LANGUAGE_NAMES.get(language, language.upper())
+        for language in provider_language_keys()
+    }
 
 
 def provider_catalog_payload() -> dict[str, dict]:

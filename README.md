@@ -36,6 +36,8 @@ die gemounteten Medienordner geschrieben werden.
   und zwei gestaffelten HLS-Routen ohne externen Hoster.
 - **SFlix-Quelle** für englische Filme und Serien mit expliziten
   Sprachmetadaten bis in den Download.
+- **Ridomovies-Quelle** für englische Filme und Serien einschließlich
+  mehrerer Player, Staffeln und Episoden.
 - **Intelligente Filmseiten**: providerübergreifend gemischt, dedupliziert und
   mit sichtbarer Quellenverteilung.
 - **Jellyfin-Duplikatschutz** für Filme, Serien und einzelne Episoden.

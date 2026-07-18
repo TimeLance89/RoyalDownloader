@@ -56,6 +56,7 @@ services:
       UI_TRANSLATOR_URL: ${UI_TRANSLATOR_URL:-}
       UI_TRANSLATOR_API_KEY: ${UI_TRANSLATOR_API_KEY:-}
       SFLIX_BASE_URL: ${SFLIX_BASE_URL:-https://sflix.win}
+      RIDOMOVIES_BASE_URL: ${RIDOMOVIES_BASE_URL:-https://ridomovies.su}
       SEERR_ENABLED: ${SEERR_ENABLED:-false}
       SEERR_URL: ${SEERR_URL:-http://seerr:5055}
       SEERR_API_KEY: ${SEERR_API_KEY:-}

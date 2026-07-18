@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir
-from providers.catalog import provider_keys
+from providers.catalog import (
+    PROVIDER_CATALOG,
+    provider_keys,
+    provider_language_keys,
+)
 from ui_translator import DEFAULT_UI_LANGUAGE, normalize_ui_language
 from watchlist_policy import (
     CLEANUP_MODE_DEFAULT,
@@ -32,6 +36,7 @@ _config_lock = threading.RLock()
 APP_NAME = "FilmeDownloader"
 MOVIE_PROVIDER_DEFAULTS = provider_keys("movies")
 SERIES_PROVIDER_DEFAULTS = provider_keys("series")
+CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
@@ -239,6 +244,18 @@ def normalize_provider_selection(value, supported) -> List[str]:
     return selected
 
 
+def normalize_content_languages(value) -> List[str]:
+    """Normalisiert eine Auswahl auf die im Anbieter-Katalog verfügbaren Sprachen."""
+    requested = value.split(",") if isinstance(value, str) else (value or [])
+    allowed = set(CONTENT_LANGUAGE_DEFAULTS)
+    selected: List[str] = []
+    for language in requested:
+        key = str(language).strip().replace("_", "-").casefold().split("-", 1)[0]
+        if key in allowed and key not in selected:
+            selected.append(key)
+    return selected
+
+
 def load_provider_enabled() -> dict:
     """Lädt die tatsächlich aktiven Quellen; Altinstallationen behalten alle."""
     values = _read_all()
@@ -260,11 +277,32 @@ def load_provider_enabled() -> dict:
     }
 
 
+def load_content_languages() -> List[str]:
+    """Lädt Inhaltssprachen; Altinstallationen werden aus aktiven Quellen abgeleitet."""
+    values = _read_all()
+    configured = values.get("content_languages")
+    if configured is not None:
+        selected = normalize_content_languages(configured)
+        return selected or list(CONTENT_LANGUAGE_DEFAULTS)
+    enabled = load_provider_enabled()
+    active = set(enabled["movies"]) | set(enabled["series"])
+    inferred = [
+        language
+        for language in CONTENT_LANGUAGE_DEFAULTS
+        if any(
+            definition.content_language == language and key in active
+            for key, definition in PROVIDER_CATALOG.items()
+        )
+    ]
+    return inferred or list(CONTENT_LANGUAGE_DEFAULTS)
+
+
 def save_provider_priorities(
     movies,
     series,
     enabled_movies=None,
     enabled_series=None,
+    content_languages=None,
 ) -> bool:
     movie_order = normalize_provider_order(movies, MOVIE_PROVIDER_DEFAULTS)
     series_order = normalize_provider_order(series, SERIES_PROVIDER_DEFAULTS)
@@ -279,13 +317,19 @@ def save_provider_priorities(
         if enabled_series is not None
         else current_enabled["series"]
     )
-    if not movie_enabled or not series_enabled:
+    languages = (
+        normalize_content_languages(content_languages)
+        if content_languages is not None
+        else load_content_languages()
+    )
+    if not movie_enabled or not series_enabled or not languages:
         return False
     return _update_all({
         "movie_provider_priority": ",".join(movie_order),
         "series_provider_priority": ",".join(series_order),
         "movie_provider_enabled": ",".join(movie_enabled),
         "series_provider_enabled": ",".join(series_enabled),
+        "content_languages": ",".join(languages),
     })
 
 
@@ -431,6 +475,7 @@ def save_initial_setup(
     series_provider_order=None,
     movie_providers=None,
     series_providers=None,
+    content_languages=None,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -445,7 +490,12 @@ def save_initial_setup(
     enabled_series = normalize_provider_selection(
         series_providers, SERIES_PROVIDER_DEFAULTS,
     ) if series_providers is not None else list(SERIES_PROVIDER_DEFAULTS)
-    if not enabled_movies or not enabled_series:
+    languages = (
+        normalize_content_languages(content_languages)
+        if content_languages is not None
+        else list(CONTENT_LANGUAGE_DEFAULTS)
+    )
+    if not enabled_movies or not enabled_series or not languages:
         return False
     return _update_all({
         "save_path": save_path.strip(),
@@ -455,6 +505,7 @@ def save_initial_setup(
         "series_provider_priority": ",".join(series_order),
         "movie_provider_enabled": ",".join(enabled_movies),
         "series_provider_enabled": ",".join(enabled_series),
+        "content_languages": ",".join(languages),
         "jellyfin_url": jellyfin_url.strip(),
         "jellyfin_api_key": jellyfin_api_key.strip(),
         "jellyfin_user_id": jellyfin_user_id.strip(),

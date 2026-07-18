@@ -193,6 +193,7 @@ Per Env vorbelegen ist praktisch, damit der Einrichtungs-Wizard bei einem
 | `UI_TRANSLATOR_URL` | `http://libretranslate:5000` | Optional: eigene LibreTranslate-Instanz statt des Standard-Fallbacks. |
 | `UI_TRANSLATOR_API_KEY` | `secret` | Optionaler Schlüssel der LibreTranslate-Instanz. |
 | `SFLIX_BASE_URL`    | `https://sflix.win` | Austauschbare Spiegeldomain der englischen SFlix-Quelle. |
+| `RIDOMOVIES_BASE_URL` | `https://ridomovies.su` | Austauschbare Spiegeldomain der englischen Ridomovies-Quelle. |
 | `AUTO_DOWNLOAD`     | `true`   | Neue Folgen abonnierter Serien automatisch laden. |
 | `CHECK_INTERVAL_MIN`| `30`     | Prüf-/Download-Intervall in Minuten (min. 5). |
 | `DL_WINDOW_START`   | `1`      | Stunde 0–23: nur ab hier automatisch laden. |

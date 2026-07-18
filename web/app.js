@@ -20,6 +20,8 @@ const state = {
     series: [],
     labels: {},
     catalog: {},
+    languages: {},
+    contentLanguages: new Set(),
     enabledMovies: new Set(),
     enabledSeries: new Set(),
   },
@@ -2151,6 +2153,95 @@ function providerEnabledSet(mediaType) {
     : state.providers.enabledSeries;
 }
 
+function providerLanguage(provider) {
+  return String(state.providers.catalog[provider]?.content_language || "").toLowerCase();
+}
+
+function providersForLanguage(language, mediaType) {
+  return (state.providers[mediaType] || []).filter(
+    (provider) => providerLanguage(provider) === language,
+  );
+}
+
+function renderContentLanguageSelectors() {
+  const ids = ["content-language-options", "setup-content-language-options"];
+  const selected = state.providers.contentLanguages;
+  for (const id of ids) {
+    const container = document.getElementById(id);
+    if (!container) continue;
+    const context = id.startsWith("setup-") ? "setup" : "settings";
+    container.innerHTML = Object.entries(state.providers.languages).map(([language, label]) => {
+      const active = selected.has(language);
+      const providerCount = new Set([
+        ...providersForLanguage(language, "movies"),
+        ...providersForLanguage(language, "series"),
+      ]).size;
+      return `
+        <button class="content-language-card ${active ? "is-selected" : ""}" type="button"
+          data-language="${escapeHtml(language)}" aria-pressed="${active}">
+          <span class="content-language-code" translate="no">${escapeHtml(language.toUpperCase())}</span>
+          <span class="content-language-copy">
+            <strong translate="no">${escapeHtml(label)}</strong>
+            <small>${providerCount} ${providerCount === 1 ? "Quelle" : "Quellen"}</small>
+          </span>
+          <span class="content-language-signal" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        </button>
+      `;
+    }).join("");
+    container.querySelectorAll(".content-language-card").forEach((button) => {
+      button.addEventListener("click", () => {
+        const language = button.dataset.language;
+        if (selected.has(language) && selected.size <= 1) {
+          setProviderSelectionStatus(context, "Mindestens eine Inhaltssprache muss aktiv bleiben.", true);
+          return;
+        }
+        if (selected.has(language)) {
+          const remaining = new Set(selected);
+          remaining.delete(language);
+          const leavesMovies = state.providers.movies.some(
+            (provider) => remaining.has(providerLanguage(provider)),
+          );
+          const leavesSeries = state.providers.series.some(
+            (provider) => remaining.has(providerLanguage(provider)),
+          );
+          if (!leavesMovies || !leavesSeries) {
+            setProviderSelectionStatus(
+              context,
+              "Die Auswahl benötigt mindestens eine Sprache mit Film- und Serienquellen.",
+              true,
+            );
+            return;
+          }
+          selected.delete(language);
+          for (const mediaType of ["movies", "series"]) {
+            const enabled = providerEnabledSet(mediaType);
+            providersForLanguage(language, mediaType).forEach((provider) => enabled.delete(provider));
+          }
+        } else {
+          selected.add(language);
+          for (const mediaType of ["movies", "series"]) {
+            const enabled = providerEnabledSet(mediaType);
+            providersForLanguage(language, mediaType).forEach((provider) => enabled.add(provider));
+          }
+        }
+        const labels = [...selected].map((key) => state.providers.languages[key] || key.toUpperCase());
+        setProviderSelectionStatus(context, `Inhaltssprachen: ${labels.join(" + ")}.`);
+        renderAllProviderBoards();
+      });
+    });
+  }
+  const labels = [...selected].map(
+    (language) => state.providers.languages[language] || language.toUpperCase(),
+  );
+  const summary = labels.length > 1
+    ? `${labels.join(" + ")} · gemischter Katalog`
+    : `${labels[0] || "Keine"} · fokussierter Katalog`;
+  ["content-language-summary", "setup-content-language-summary"].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = summary;
+  });
+}
+
 function providerMonogram(label) {
   const words = String(label || "").match(/[\p{L}\p{N}]+/gu) || [];
   return (words.length > 1
@@ -2191,15 +2282,17 @@ function renderProviderList(list, mediaType) {
   list.innerHTML = providers.map((provider, index) => {
     const meta = state.providers.catalog[provider] || {};
     const label = state.providers.labels[provider] || meta.label || provider;
-    const active = enabled.has(provider);
+    const languageActive = state.providers.contentLanguages.has(providerLanguage(provider));
+    const active = languageActive && enabled.has(provider);
     const logoUrl = providerLogoUrl(meta);
     const languageCode = String(meta.content_language || "").toUpperCase();
     const languageLabel = meta.language_label || languageCode;
     return `
-      <li class="provider-source-card ${active ? "is-enabled" : "is-disabled"} ${mediaType === "series" ? "is-series" : ""}"
+      <li class="provider-source-card ${active ? "is-enabled" : "is-disabled"} ${languageActive ? "" : "is-language-muted"} ${mediaType === "series" ? "is-series" : ""}"
           data-provider="${escapeHtml(provider)}">
         <label class="provider-source-toggle">
           <input type="checkbox" ${active ? "checked" : ""}
+            ${languageActive ? "" : "disabled"}
             aria-label="${escapeHtml(`${label} als ${mediaLabel} verwenden`)}">
           <span class="provider-logo-frame" aria-hidden="true">
             <span class="provider-logo-monogram">${escapeHtml(providerMonogram(label))}</span>
@@ -2213,7 +2306,7 @@ function renderProviderList(list, mediaType) {
             </span>
           </span>
           <span class="provider-source-state" aria-hidden="true">
-            <i>✓</i><small>${active ? "aktiv" : "aus"}</small>
+            <i>✓</i><small>${active ? "aktiv" : (languageActive ? "aus" : "Sprache aus")}</small>
           </span>
         </label>
         <span class="provider-source-order">
@@ -2267,14 +2360,17 @@ function renderProviderList(list, mediaType) {
 }
 
 function renderAllProviderBoards() {
+  renderContentLanguageSelectors();
   for (const mediaType of ["movies", "series"]) {
     for (const id of providerListIds(mediaType)) {
       const list = document.getElementById(id);
       if (list) renderProviderList(list, mediaType);
     }
     const enabledCount = providerEnabledSet(mediaType).size;
-    const totalCount = (state.providers[mediaType] || []).length;
-    const summary = `${enabledCount} von ${totalCount} aktiv`;
+    const eligibleCount = (state.providers[mediaType] || []).filter(
+      (provider) => state.providers.contentLanguages.has(providerLanguage(provider)),
+    ).length;
+    const summary = `${enabledCount} aktiv · ${eligibleCount} passend`;
     const ids = mediaType === "movies"
       ? ["movie-provider-summary", "setup-movie-provider-summary"]
       : ["series-provider-summary", "setup-series-provider-summary"];
@@ -2290,12 +2386,34 @@ function applyProviderPriority(cfg) {
   state.providers.series = [...(cfg.series || [])];
   state.providers.labels = { ...(cfg.labels || {}) };
   state.providers.catalog = { ...(cfg.catalog || {}) };
+  state.providers.languages = { ...(cfg.languages || {}) };
   state.providers.enabledMovies = new Set(
     cfg.enabled_movies?.length ? cfg.enabled_movies : state.providers.movies,
   );
   state.providers.enabledSeries = new Set(
     cfg.enabled_series?.length ? cfg.enabled_series : state.providers.series,
   );
+  if (!Object.keys(state.providers.languages).length) {
+    for (const meta of Object.values(state.providers.catalog)) {
+      const language = String(meta.content_language || "").toLowerCase();
+      if (language) state.providers.languages[language] = meta.language_label || language.toUpperCase();
+    }
+  }
+  const inferredLanguages = [
+    ...state.providers.enabledMovies,
+    ...state.providers.enabledSeries,
+  ].map(providerLanguage).filter(Boolean);
+  state.providers.contentLanguages = new Set(
+    cfg.content_languages?.length
+      ? cfg.content_languages
+      : (inferredLanguages.length ? inferredLanguages : Object.keys(state.providers.languages)),
+  );
+  for (const mediaType of ["movies", "series"]) {
+    const enabled = providerEnabledSet(mediaType);
+    [...enabled].forEach((provider) => {
+      if (!state.providers.contentLanguages.has(providerLanguage(provider))) enabled.delete(provider);
+    });
+  }
   renderAllProviderBoards();
 }
 
@@ -2652,7 +2770,7 @@ function initSettingsNavigation() {
   panel.addEventListener("input", markDirty);
   panel.addEventListener("change", markDirty);
   panel.addEventListener("click", (event) => {
-    if (event.target.closest(".provider-order-button")) markDirty();
+    if (event.target.closest(".provider-order-button, .content-language-card")) markDirty();
   });
   window.addEventListener("resize", updateFromScroll, { passive: true });
 }
@@ -2677,6 +2795,7 @@ async function saveAllSettings() {
       series: state.providers.series,
       enabled_movies: [...state.providers.enabledMovies],
       enabled_series: [...state.providers.enabledSeries],
+      content_languages: [...state.providers.contentLanguages],
     }));
     const jfUserSelect = document.getElementById("jellyfin-user-id");
     const cleanupDefault = document.querySelector('input[name="jellyfin-cleanup-default"]:checked')?.value
@@ -2787,8 +2906,8 @@ const setupStepCopy = {
     intro: "Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.",
   },
   2: {
-    title: "Woher dürfen Inhalte kommen?",
-    intro: "Aktiviere Quellen getrennt für Filme und Serien. Die Reihenfolge bestimmt Suche und Fallbacks.",
+    title: "Welche Inhalte möchtest du?",
+    intro: "Wähle Inhaltssprachen und passende Quellen. Die Reihenfolge bestimmt Suche und Fallbacks.",
   },
   3: {
     title: "Wohin sollen deine Medien?",
@@ -2838,6 +2957,10 @@ function showSetupStep(nextStep) {
 
 function validateSetupStep(step) {
   if (step === 2) {
+    if (!state.providers.contentLanguages.size) {
+      setSetupStatus("Mindestens eine Inhaltssprache muss aktiv sein.", true);
+      return false;
+    }
     if (!state.providers.enabledMovies.size || !state.providers.enabledSeries.size) {
       setSetupStatus("Für Filme und Serien muss jeweils mindestens eine Quelle aktiv sein.", true);
       return false;
@@ -2891,6 +3014,7 @@ async function finishSetup() {
       series_provider_order: state.providers.series,
       movie_providers: [...state.providers.enabledMovies],
       series_providers: [...state.providers.enabledSeries],
+      content_languages: [...state.providers.contentLanguages],
       jellyfin_url: document.getElementById("setup-jellyfin-url").value.trim(),
       jellyfin_api_key: document.getElementById("setup-jellyfin-key").value.trim(),
       jellyfin_user_id: document.getElementById("setup-jellyfin-user").value,

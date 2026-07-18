@@ -16,6 +16,7 @@ Such-, Film-, Serien-, Episoden- und Hoster-Datenmodelle liegen in `models.py`.
 | `kinoger.py` | KinoGer |
 | `xcine.py` | XCine |
 | `sflix.py` | SFlix (Englisch) |
+| `ridomovies.py` | Ridomovies (Englisch) |
 | `serienstream.py` | Serienstream |
 
 Neue Adapter werden zusätzlich in den Provider-Tabellen in `server.py` und in

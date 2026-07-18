@@ -389,10 +389,21 @@
             <div>
               <span class="provider-kicker">DOWNLOAD · ROUTING</span>
               <h3>Quellen-Katalog</h3>
-              <p class="dim settings-hint">Wähle Anbieter für Filme und Serien. Position 1 wird zuerst genutzt; die Sprachkennung steuert das Download-Routing.</p>
+              <p class="dim settings-hint">Lege zuerst die Inhaltssprachen fest und verfeinere danach Anbieter und Fallback-Reihenfolge.</p>
             </div>
             <span class="provider-route-mark" aria-hidden="true">1→N</span>
           </div>
+          <section class="content-language-control" aria-labelledby="content-language-title">
+            <div class="content-language-heading">
+              <span class="provider-kicker">INHALTSPROFIL</span>
+              <h4 id="content-language-title">In welchen Sprachen soll Royal suchen?</h4>
+              <p>Mehrfachauswahl möglich. Quellen anderer Sprachen werden automatisch pausiert.</p>
+            </div>
+            <div>
+              <div id="content-language-options" class="content-language-options" role="group" aria-label="Sprachen der heruntergeladenen Inhalte"></div>
+              <strong id="content-language-summary" class="content-language-summary" role="status"></strong>
+            </div>
+          </section>
           <div class="provider-priority-grid provider-source-board">
             <section class="provider-priority-card provider-source-lane" aria-labelledby="movie-provider-title">
               <div class="provider-card-heading">
@@ -774,7 +785,7 @@
             <span aria-hidden="true">文</span>
             <div>
               <strong>Die Steuerung spricht deine Sprache</strong>
-              <p>Im nächsten Schritt bestimmst du getrennt für Filme und Serien, welche Kataloge durchsucht werden.</p>
+              <p>Im nächsten Schritt bestimmst du Inhaltssprachen und passende Kataloge für Filme und Serien.</p>
             </div>
           </div>
         </div>
@@ -782,8 +793,19 @@
         <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
           <div class="setup-provider-note">
             <span class="setup-provider-signal" aria-hidden="true"><i></i><i></i><i></i></span>
-            <p>Karte anklicken zum Aktivieren. Mit den Pfeilen legst du fest, welche Quelle zuerst geprüft wird.</p>
+            <p>Wähle zuerst Deutsch, Englisch oder beides. Danach kannst du die passenden Anbieter verfeinern.</p>
           </div>
+          <section class="content-language-control is-setup" aria-labelledby="setup-content-language-title">
+            <div class="content-language-heading">
+              <span class="provider-kicker">INHALTSPROFIL</span>
+              <h4 id="setup-content-language-title">In welchen Sprachen möchtest du Inhalte?</h4>
+              <p>Die Oberflächensprache bleibt davon unabhängig.</p>
+            </div>
+            <div>
+              <div id="setup-content-language-options" class="content-language-options" role="group" aria-label="Gewünschte Inhaltssprachen"></div>
+              <strong id="setup-content-language-summary" class="content-language-summary" role="status"></strong>
+            </div>
+          </section>
           <div class="setup-provider-board provider-source-board">
             <section class="provider-priority-card provider-source-lane" aria-labelledby="setup-movie-provider-title">
               <div class="provider-card-heading">
