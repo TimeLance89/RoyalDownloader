@@ -138,18 +138,18 @@
             <span class="panel-title">Filme</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
-          <div id="fp-pager" class="pager" aria-label="Filmseiten">
-            <button id="fp-pager-prev" class="btn btn-ghost" disabled>‹  Vorherige Seite</button>
-            <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
-              <span id="fp-pager-label" class="accent">Seite 1</span>
-              <span id="fp-pager-sources" class="fp-pager-sources dim"></span>
-            </div>
-            <button id="fp-pager-next" class="btn btn-accent" disabled>Nächste Seite  ›</button>
-          </div>
           <div class="list-head movie-row">
             <span></span><span>Titel</span><span>Jahr</span><span>Daten</span><span title="In Jellyfin-Bibliothek?">JF</span>
           </div>
           <div id="fp-results" class="list result-shelf" aria-label="Filmergebnisse"></div>
+          <div id="fp-infinite" class="catalog-infinite hidden" role="status"
+              aria-live="polite" aria-atomic="true">
+            <span class="catalog-infinite-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="fp-infinite-label">Weitere Filme werden beim Scrollen geladen</span>
+            <button id="fp-infinite-retry" class="btn btn-ghost btn-sm" type="button" hidden>
+              Erneut versuchen
+            </button>
+          </div>
         </div>
 
         <div id="fp-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="fp-detail-title" hidden>
@@ -231,15 +231,15 @@
             <span class="panel-title">Serien</span>
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
-          <div id="series-pager" class="pager" aria-label="Serienseiten">
-            <button id="series-pager-prev" class="btn btn-ghost" disabled>‹  Vorherige Seite</button>
-            <div class="fp-pager-copy" role="status" aria-live="polite" aria-atomic="true">
-              <span id="series-pager-label" class="accent">Seite 1</span>
-              <span id="series-pager-sources" class="fp-pager-sources dim"></span>
-            </div>
-            <button id="series-pager-next" class="btn btn-accent" disabled>Nächste Seite  ›</button>
-          </div>
           <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
+          <div id="series-infinite" class="catalog-infinite hidden" role="status"
+              aria-live="polite" aria-atomic="true">
+            <span class="catalog-infinite-mark is-series" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="series-infinite-label">Weitere Serien werden beim Scrollen geladen</span>
+            <button id="series-infinite-retry" class="btn btn-ghost btn-sm" type="button" hidden>
+              Erneut versuchen
+            </button>
+          </div>
         </div>
 
         <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>

@@ -1748,55 +1748,53 @@ body {
 .status-novoe { color: var(--red); }
 .status-picked { color: var(--pink); }
 
-/* ── Pager ──────────────────────────────────────────────────────────── */
-.pager {
+/* ── Infinite catalog loading ───────────────────────────────────────── */
+.catalog-infinite {
+  grid-column: 1 / -1;
   display: flex;
+  min-height: 68px;
   align-items: center;
-  justify-content: space-between;
-  background: var(--glass-soft);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
-  margin-top: 8px;
-}
-.pager .accent {
-  font-weight: 700;
-  letter-spacing: 0.1em;
-}
-.fp-pager-copy {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding-inline: 10px;
+  justify-content: center;
+  gap: 11px;
+  margin-top: 18px;
+  padding: 16px;
+  color: var(--text-dim);
+  border-top: 1px solid rgba(216, 183, 102, 0.12);
+  font: 600 10px/1.4 "Outfit", "Segoe UI", sans-serif;
+  letter-spacing: 0.04em;
   text-align: center;
 }
-.fp-pager-sources {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 10px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.catalog-infinite-mark {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 5px);
+  gap: 3px;
+  padding: 5px 6px;
+  border: 1px solid rgba(216, 183, 102, 0.24);
+  border-radius: 6px;
+  background: rgba(216, 183, 102, 0.05);
 }
-
-/* Dauerhaft sichtbarer Seitendock unterhalb der Ergebnisüberschrift. */
-#tab-filme .results-panel .pager,
-#tab-serien .results-panel .pager {
-  position: sticky;
-  z-index: 8;
-  top: 8px;
-  min-height: 48px;
-  margin: 0 0 18px;
-  padding: 7px 10px;
-  background: rgba(14, 9, 21, 0.94);
-  border: 1px solid rgba(216, 183, 102, 0.25);
-  box-shadow: 0 18px 48px -22px rgba(0, 0, 0, 0.98), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+.catalog-infinite-mark i {
+  width: 5px;
+  height: 12px;
+  background: rgba(216, 183, 102, 0.36);
+  border-radius: 2px;
+}
+.catalog-infinite-mark.is-series {
+  border-color: rgba(201, 154, 242, 0.28);
+  background: rgba(201, 154, 242, 0.05);
+}
+.catalog-infinite-mark.is-series i { background: rgba(201, 154, 242, 0.42); }
+.catalog-infinite[data-state="loading"] .catalog-infinite-mark i {
+  animation: catalog-loading 0.9s ease-in-out infinite alternate;
+}
+.catalog-infinite[data-state="loading"] .catalog-infinite-mark i:nth-child(2) { animation-delay: 0.14s; }
+.catalog-infinite[data-state="loading"] .catalog-infinite-mark i:nth-child(3) { animation-delay: 0.28s; }
+.catalog-infinite[data-state="complete"] { color: rgba(169, 158, 145, 0.7); }
+.catalog-infinite[data-state="error"] { color: var(--red); }
+.catalog-infinite .btn { margin-left: 5px; }
+@keyframes catalog-loading {
+  from { opacity: 0.3; transform: scaleY(0.55); }
+  to { opacity: 1; transform: scaleY(1); }
 }
 
 /* ── Detail-Panel ───────────────────────────────────────────────────── */
@@ -4526,10 +4524,7 @@ body.setup-open #dir-modal { z-index: 120; }
   }
   .wl-rule-cell { align-items: flex-start; flex-direction: column; gap: 3px; }
 
-  .pager { gap: 8px; padding: 7px; }
-  .pager .btn { min-height: 40px; padding: 8px 10px; }
-  .pager .accent { font-size: 11px; }
-  .fp-pager-copy { padding-inline: 2px; }
+  .catalog-infinite { min-height: 62px; flex-wrap: wrap; padding: 13px 8px; }
 
   .detail-body {
     display: grid;
@@ -5150,17 +5145,6 @@ body.setup-open #dir-modal { z-index: 120; }
     scroll-snap-type: x proximity;
     overscroll-behavior-inline: contain;
   }
-  .results-panel .pager {
-    min-height: 38px;
-    margin-top: 3px;
-    padding: 5px 8px;
-  }
-  .results-panel .pager .btn {
-    min-height: 30px;
-    padding: 6px 10px;
-    font-size: 10px;
-  }
-
   #fp-results .result-card,
   #series-results .result-card {
     position: relative;
@@ -5666,11 +5650,6 @@ body.setup-open #dir-modal { z-index: 120; }
     overflow: visible;
     padding: 2px 3px 12px;
     scroll-snap-type: none;
-  }
-  .results-panel .pager {
-    margin-top: 22px;
-    padding-top: 14px;
-    border-top: 1px solid rgba(216, 183, 102, 0.12);
   }
   #fp-results .result-card,
   #series-results .result-card {
@@ -6486,22 +6465,4 @@ body.setup-open #dir-modal { z-index: 120; }
   .library-card-title { font-size: 18px; }
   .library-episode-status { min-width: 50px; padding-left: 8px; }
   .library-card .wl-rule-btn { max-width: 70%; }
-}
-
-@media (max-width: 820px) {
-  #tab-filme .results-panel .pager,
-  #tab-serien .results-panel .pager {
-    top: calc(74px + env(safe-area-inset-top));
-    min-height: 52px;
-    margin-bottom: 10px;
-    padding: 6px 8px;
-    border-radius: 14px;
-  }
-  #tab-filme .results-panel .pager .btn,
-  #tab-serien .results-panel .pager .btn {
-    min-height: 38px;
-    padding: 7px 10px;
-    font-size: 9.5px;
-  }
-  .fp-pager-sources { display: none; }
 }

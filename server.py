@@ -1221,7 +1221,7 @@ def _load_movie_provider_pages(
     if cold_wave_budget is not None:
         if cold_wave_budget[0] <= 0:
             raise MovieCatalogColdLoadLimit(
-                "Diese Seite ist noch nicht vorbereitet. Bitte über ‚Weiter‘ schrittweise öffnen."
+                "Dieser Katalogabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
             )
         cold_wave_budget[0] -= 1
 
@@ -1835,7 +1835,7 @@ def _load_series_provider_pages(
     if cold_wave_budget is not None:
         if cold_wave_budget[0] <= 0:
             raise SeriesCatalogColdLoadLimit(
-                "Diese Serienseite ist noch nicht vorbereitet. Bitte über ‚Weiter‘ schrittweise öffnen."
+                "Dieser Serienabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
             )
         cold_wave_budget[0] -= 1
 

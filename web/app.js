@@ -4,12 +4,13 @@ const state = {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
     metadataCache: {}, requestSeq: 0, sources: [],
+    loadingMore: false, loadError: "",
     searchActive: false, searchReturn: null,
     featureCandidates: [], featureIndex: 0, featureTimer: null, featurePaused: false,
   },
   series: {
     results: [], browseMode: null, page: 1, lastPageFull: false,
-    sources: [], browseRequestSeq: 0, loadingBrowse: false,
+    sources: [], browseRequestSeq: 0, loadingBrowse: false, loadError: "",
     current: null, currentSampleSlug: "", epPicked: new Set(),
     cache: {}, pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
     jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(),
@@ -70,6 +71,8 @@ const WATCH_CLEANUP_LABELS = {
 };
 const FP_METADATA_BATCH_SIZE = 4;
 const FP_METADATA_BATCH_CONCURRENCY = 3;
+const catalogInfiniteObserverSupported = "IntersectionObserver" in window;
+let catalogInfiniteObserver = null;
 let watchModeContext = null;
 let watchModeReturnFocus = null;
 
@@ -621,7 +624,7 @@ function showMovieFeature(index, userInitiated = false) {
 }
 
 function refreshMovieFeatureCandidates() {
-  if (state.fp.category !== "new" || state.fp.page !== 1) {
+  if (state.fp.category !== "new") {
     document.getElementById("movie-feature")?.classList.add("hidden");
     stopMovieFeatureRotation();
     return;
@@ -675,23 +678,64 @@ function setActiveGenreFilter(genre) {
   });
 }
 
-function scrollCatalogToStart(tabId, resultsId) {
-  const tab = document.getElementById(tabId);
-  const results = document.getElementById(resultsId);
-  const panel = results?.closest(".results-panel");
-  if (!tab || !results || !panel) return;
-
-  results.scrollTop = 0;
-  results.scrollLeft = 0;
-  if (window.matchMedia("(max-width: 820px)").matches) {
-    const topbarHeight = document.querySelector(".topbar")?.getBoundingClientRect().height || 0;
-    const targetTop = window.scrollY + panel.getBoundingClientRect().top - topbarHeight - 14;
-    window.scrollTo({ top: Math.max(0, targetTop), behavior: "auto" });
-    return;
+function mergeCatalogItems(current, incoming, keyFor) {
+  const merged = current.slice();
+  const known = new Set(current.map(keyFor));
+  for (const item of incoming) {
+    const key = keyFor(item);
+    if (!key || known.has(key)) continue;
+    known.add(key);
+    merged.push(item);
   }
+  return merged;
+}
 
-  const targetTop = tab.scrollTop + panel.getBoundingClientRect().top - tab.getBoundingClientRect().top;
-  tab.scrollTo({ top: Math.max(0, targetTop - 8), behavior: "auto" });
+function mergeCatalogSources(current, incoming, append) {
+  const cleanIncoming = Array.isArray(incoming)
+    ? incoming.filter((source) => Number(source.count) > 0)
+    : [];
+  if (!append) return cleanIncoming;
+  const merged = new Map(current.map((source) => [source.key || source.label, { ...source }]));
+  for (const source of cleanIncoming) {
+    const key = source.key || source.label;
+    const existing = merged.get(key);
+    if (existing) existing.count = Number(existing.count || 0) + Number(source.count || 0);
+    else merged.set(key, { ...source });
+  }
+  return [...merged.values()];
+}
+
+function updateFpInfiniteState() {
+  const sentinel = document.getElementById("fp-infinite");
+  if (!sentinel) return;
+  const label = document.getElementById("fp-infinite-label");
+  const retry = document.getElementById("fp-infinite-retry");
+  const browsable = Boolean(state.fp.category && !state.fp.searchActive && state.fp.results.length);
+  sentinel.classList.toggle("hidden", !browsable);
+  if (!browsable) return;
+
+  const count = state.fp.results.length;
+  sentinel.setAttribute("aria-busy", String(state.fp.loadingMore));
+  retry.hidden = !state.fp.loadError
+    && (catalogInfiniteObserverSupported || !state.fp.lastPageFull);
+  retry.textContent = state.fp.loadError ? "Erneut versuchen" : "Weitere laden";
+  if (state.fp.loadingMore) {
+    sentinel.dataset.state = "loading";
+    label.textContent = "Weitere Filme werden geladen …";
+  } else if (state.fp.loadError) {
+    sentinel.dataset.state = "error";
+    label.textContent = `Nachladen fehlgeschlagen · ${count} Filme geladen`;
+  } else if (state.fp.lastPageFull) {
+    sentinel.dataset.state = "ready";
+    label.textContent = `${count} Filme geladen · Weiter scrollen`;
+  } else {
+    sentinel.dataset.state = "complete";
+    label.textContent = `${count} Filme geladen · Ende des Katalogs`;
+  }
+  const sourceSummary = state.fp.sources
+    .map((source) => `${source.label} ${source.count}`)
+    .join(" · ");
+  sentinel.title = sourceSummary;
 }
 
 async function refreshFpJellyfinStatus() {
@@ -829,10 +873,9 @@ function createResultCardVisual(media, title, kind, inJellyfin = false) {
     const image = document.createElement("img");
     image.className = "result-card-poster";
     image.alt = "";
-    // Die Posterwand ist bereits seitenweise begrenzt. Eager Loading verhindert,
-    // dass Browser Bilder im internen Scrollbereich erst nach einem Klick anfordern.
-    image.loading = kind === "movie" ? "eager" : "lazy";
-    if (kind === "movie") image.fetchPriority = "auto";
+    // Infinite catalogs keep poster traffic proportional to the visible area.
+    image.loading = "lazy";
+    image.fetchPriority = "low";
     image.decoding = "async";
     image.src = api.coverUrl(media.cover_url);
     image.addEventListener("error", () => image.remove(), { once: true });
@@ -954,11 +997,11 @@ function updateFpResultSelection() {
   }
 }
 
-function renderFpResults() {
+function renderFpResults(appendFrom = 0) {
   const container = document.getElementById("fp-results");
-  container.innerHTML = "";
+  if (appendFrom <= 0) container.innerHTML = "";
 
-  for (const result of state.fp.results) {
+  for (const result of state.fp.results.slice(appendFrom)) {
     const selected = result.slug === state.fp.selectedSlug;
     const queued = state.queuedSlugs.has(result.slug);
     const availability = fpResultAvailability(result);
@@ -1017,40 +1060,29 @@ function renderFpResults() {
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
-function applyFpResults(data) {
-  state.fp.results = data.results;
-  state.fp.page = data.page;
-  state.fp.category = data.category;
+function applyFpResults(data, { append = false } = {}) {
+  const incoming = Array.isArray(data.results) ? data.results : [];
+  const appendFrom = append ? state.fp.results.length : 0;
+  state.fp.results = append
+    ? mergeCatalogItems(state.fp.results, incoming, (item) => item.slug)
+    : incoming;
+  state.fp.page = data.page || 1;
+  state.fp.category = data.category ?? state.fp.category;
   state.fp.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
-  state.fp.sources = Array.isArray(data.sources)
-    ? data.sources.filter((source) => Number(source.count) > 0)
-    : [];
-  state.fp.selectedSlug = null;
+  state.fp.sources = mergeCatalogSources(state.fp.sources, data.sources, append);
+  state.fp.loadingMore = false;
+  state.fp.loadError = "";
+  if (!append) state.fp.selectedSlug = null;
   const pendingSlugs = new Set(
-    data.results
+    state.fp.results
       .filter((result) => !state.fp.metadataCache[result.slug])
       .map((result) => result.slug),
   );
   state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
-  renderFpResults();
+  renderFpResults(appendFrom);
   refreshMovieFeatureCandidates();
-  const pager = document.getElementById("fp-pager");
-  pager.classList.remove("hidden");
-  const sourceCount = state.fp.sources.length;
-  const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
-  document.getElementById("fp-pager-label").textContent = sourceCount
-    ? `Seite ${data.page} · ${sourceCount} ${sourceWord}`
-    : `Seite ${data.page || 1}`;
-  const sourceSummary = state.fp.sources
-    .map((source) => `${source.label} ${source.count}`)
-    .join(" · ");
-  const sourceElement = document.getElementById("fp-pager-sources");
-  sourceElement.textContent = sourceSummary;
-  sourceElement.title = sourceSummary;
-  const canPaginate = Boolean(data.category);
-  document.getElementById("fp-pager-prev").disabled = !canPaginate || data.page <= 1;
-  document.getElementById("fp-pager-next").disabled = !canPaginate || !state.fp.lastPageFull;
-  if (data.results.length) void preloadTmdbMetadata(state.fp.requestSeq);
+  updateFpInfiniteState();
+  if (pendingSlugs.size) void preloadTmdbMetadata(state.fp.requestSeq);
 }
 
 async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
@@ -1201,6 +1233,10 @@ async function fpSearch() {
   rememberFpSearchContext();
   state.fp.searchActive = true;
   state.fp.category = null;
+  state.fp.lastPageFull = false;
+  state.fp.loadingMore = false;
+  state.fp.loadError = "";
+  updateFpInfiniteState();
   refreshMovieFeatureCandidates();
   document.getElementById("fp-status").textContent = `Suche nach «${q}» …`;
   setActiveGenreFilter("Alle Genres");
@@ -1213,13 +1249,25 @@ async function fpSearch() {
 async function fpShowList(category) {
   clearFpSearchContext();
   state.fp.category = category;
+  state.fp.lastPageFull = false;
+  state.fp.loadingMore = true;
+  state.fp.loadError = "";
+  updateFpInfiniteState();
   refreshMovieFeatureCandidates();
   setActiveGenreFilter("Alle Genres");
   document.getElementById("fp-status").textContent = `Lade ${category === "new" ? "Neu" : "Top"}-Filme …`;
   const requestId = ++state.fp.requestSeq;
-  const data = await api.movies({ mode: category, page: 1 });
-  if (requestId !== state.fp.requestSeq) return;
-  applyFpResults(data);
+  try {
+    const data = await api.movies({ mode: category, page: 1 });
+    if (requestId !== state.fp.requestSeq) return;
+    applyFpResults(data);
+  } catch (error) {
+    if (requestId !== state.fp.requestSeq) return;
+    state.fp.loadingMore = false;
+    state.fp.loadError = error.message;
+    updateFpInfiniteState();
+    document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
+  }
 }
 
 async function fpGenreChange(genre) {
@@ -1229,44 +1277,55 @@ async function fpGenreChange(genre) {
     return;
   }
   state.fp.category = "genre";
+  state.fp.lastPageFull = false;
+  state.fp.loadingMore = true;
+  state.fp.loadError = "";
+  updateFpInfiniteState();
   refreshMovieFeatureCandidates();
   setActiveGenreFilter(genre);
   document.getElementById("fp-status").textContent = `Lade Genre ${genre} …`;
   const requestId = ++state.fp.requestSeq;
-  const data = await api.movies({ mode: "genre", genre, page: 1 });
-  if (requestId !== state.fp.requestSeq) return;
-  applyFpResults(data);
+  try {
+    const data = await api.movies({ mode: "genre", genre, page: 1 });
+    if (requestId !== state.fp.requestSeq) return;
+    applyFpResults(data);
+  } catch (error) {
+    if (requestId !== state.fp.requestSeq) return;
+    state.fp.loadingMore = false;
+    state.fp.loadError = error.message;
+    updateFpInfiniteState();
+    document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
+  }
 }
 
-async function fpPagerChange(delta) {
-  if (!state.fp.category) return;
-  const newPage = state.fp.page + delta;
-  if (newPage < 1) return;
+async function loadNextFpPage() {
+  if (
+    state.tab !== "filme"
+    || !state.fp.category
+    || state.fp.searchActive
+    || state.fp.loadingMore
+    || !state.fp.lastPageFull
+  ) return;
+  const newPage = state.fp.page + 1;
   const params = state.fp.category === "genre"
     ? { mode: "genre", genre: state.fp.activeGenre, page: newPage }
     : { mode: state.fp.category, page: newPage };
   const requestId = ++state.fp.requestSeq;
-  const pager = document.getElementById("fp-pager");
-  const previousButton = document.getElementById("fp-pager-prev");
-  const nextButton = document.getElementById("fp-pager-next");
-  pager.setAttribute("aria-busy", "true");
-  previousButton.disabled = true;
-  nextButton.disabled = true;
-  document.getElementById("fp-status").textContent = `Lade Seite ${newPage} …`;
+  state.fp.loadingMore = true;
+  state.fp.loadError = "";
+  updateFpInfiniteState();
   try {
     const data = await api.movies(params);
     if (requestId !== state.fp.requestSeq) return;
-    applyFpResults(data);
-    scrollCatalogToStart("tab-filme", "fp-results");
+    applyFpResults(data, { append: true });
   } catch (error) {
     if (requestId !== state.fp.requestSeq) return;
-    document.getElementById("fp-status").textContent =
-      `Seite ${newPage} konnte nicht geladen werden: ${error.message}`;
+    state.fp.loadError = error.message;
+    document.getElementById("fp-status").textContent = `Nachladen fehlgeschlagen: ${error.message}`;
   } finally {
     if (requestId === state.fp.requestSeq) {
-      pager.removeAttribute("aria-busy");
-      previousButton.disabled = state.fp.page <= 1;
-      nextButton.disabled = !state.fp.lastPageFull;
+      state.fp.loadingMore = false;
+      updateFpInfiniteState();
     }
   }
 }
@@ -1483,31 +1542,45 @@ function findCurrentEpisode(slug) {
   return seriesEpisodes().find((episode) => episode.slug === slug) || null;
 }
 
-function updateSeriesPager() {
-  const pager = document.getElementById("series-pager");
+function updateSeriesInfiniteState() {
+  const sentinel = document.getElementById("series-infinite");
+  if (!sentinel) return;
+  const label = document.getElementById("series-infinite-label");
+  const retry = document.getElementById("series-infinite-retry");
   const mode = state.series.browseMode;
-  pager.classList.remove("hidden");
-  const canPaginate = Boolean(mode && mode !== "search");
-  const sourceCount = state.series.sources.length;
-  const sourceWord = sourceCount === 1 ? "Quelle" : "Quellen";
-  document.getElementById("series-pager-label").textContent = sourceCount
-    ? `Seite ${state.series.page} · ${sourceCount} ${sourceWord}`
-    : `Seite ${state.series.page || 1}`;
+  const browsable = Boolean(mode && mode !== "search" && state.series.results.length);
+  sentinel.classList.toggle("hidden", !browsable);
+  if (!browsable) return;
+
+  const count = state.series.results.length;
+  sentinel.setAttribute("aria-busy", String(state.series.loadingBrowse));
+  retry.hidden = !state.series.loadError
+    && (catalogInfiniteObserverSupported || !state.series.lastPageFull);
+  retry.textContent = state.series.loadError ? "Erneut versuchen" : "Weitere laden";
+  if (state.series.loadingBrowse) {
+    sentinel.dataset.state = "loading";
+    label.textContent = "Weitere Serien werden geladen …";
+  } else if (state.series.loadError) {
+    sentinel.dataset.state = "error";
+    label.textContent = `Nachladen fehlgeschlagen · ${count} Serien geladen`;
+  } else if (state.series.lastPageFull) {
+    sentinel.dataset.state = "ready";
+    label.textContent = `${count} Serien geladen · Weiter scrollen`;
+  } else {
+    sentinel.dataset.state = "complete";
+    label.textContent = `${count} Serien geladen · Ende des Katalogs`;
+  }
   const sourceSummary = state.series.sources
     .map((source) => `${source.label} ${source.count}`)
     .join(" · ");
-  const sourceElement = document.getElementById("series-pager-sources");
-  sourceElement.textContent = sourceSummary;
-  sourceElement.title = sourceSummary;
-  document.getElementById("series-pager-prev").disabled = !canPaginate || state.series.page <= 1;
-  document.getElementById("series-pager-next").disabled = !canPaginate || !state.series.lastPageFull;
+  sentinel.title = sourceSummary;
 }
 
-function renderSeriesResults() {
+function renderSeriesResults(appendFrom = 0) {
   const container = document.getElementById("series-results");
-  container.innerHTML = "";
+  if (appendFrom <= 0) container.innerHTML = "";
 
-  for (const result of state.series.results) {
+  for (const result of state.series.results.slice(appendFrom)) {
     const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
     const selected = selectedBase === result.base_slug;
     const loading = state.series.pendingBaseSlug === result.base_slug;
@@ -1569,15 +1642,22 @@ function updateSeriesResultSelection() {
   });
 }
 
-function applySeriesResults(data) {
-  state.series.results = Array.isArray(data.results) ? data.results : [];
+function applySeriesResults(data, { append = false } = {}) {
+  const incoming = Array.isArray(data.results) ? data.results : [];
+  const appendFrom = append ? state.series.results.length : 0;
+  state.series.results = append
+    ? mergeCatalogItems(
+      state.series.results,
+      incoming,
+      (item) => item.base_slug || item.sample_slug || item.sample_url,
+    )
+    : incoming;
   state.series.page = data.page || 1;
   state.series.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
-  state.series.sources = Array.isArray(data.sources)
-    ? data.sources.filter((source) => Number(source.count) > 0)
-    : [];
-  renderSeriesResults();
-  updateSeriesPager();
+  state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
+  state.series.loadError = "";
+  renderSeriesResults(appendFrom);
+  updateSeriesInfiniteState();
   const sourceCount = state.series.sources.length;
   document.getElementById("series-status").textContent =
     state.series.results.length
@@ -1642,7 +1722,8 @@ async function seriesSearch() {
   const previousMode = state.series.browseMode;
   state.series.browseMode = "search";
   state.series.loadingBrowse = true;
-  updateSeriesPager();
+  state.series.loadError = "";
+  updateSeriesInfiniteState();
   document.getElementById("series-status").textContent = `Suche nach «${q}» …`;
   try {
     const data = await api.series({ mode: "search", query: q });
@@ -1656,10 +1737,13 @@ async function seriesSearch() {
   } catch (error) {
     if (requestId !== state.series.browseRequestSeq) return;
     state.series.browseMode = state.series.results.length ? previousMode : null;
-    updateSeriesPager();
+    updateSeriesInfiniteState();
     document.getElementById("series-status").textContent = `Fehler: ${error.message}`;
   } finally {
-    if (requestId === state.series.browseRequestSeq) state.series.loadingBrowse = false;
+    if (requestId === state.series.browseRequestSeq) {
+      state.series.loadingBrowse = false;
+      updateSeriesInfiniteState();
+    }
   }
 }
 
@@ -1670,28 +1754,43 @@ function seriesParams(mode, page) {
     : { mode, page };
 }
 
-async function seriesBrowse(mode, page) {
+async function seriesBrowse(mode, page, { append = false } = {}) {
   if (mode !== "search") clearSeriesSearchContext();
   const requestId = ++state.series.browseRequestSeq;
   const previousMode = state.series.browseMode;
+  const previousLastPageFull = state.series.lastPageFull;
   state.series.browseMode = mode;
   state.series.loadingBrowse = true;
-  updateSeriesPager();
+  state.series.loadError = "";
+  if (!append) state.series.lastPageFull = false;
+  updateSeriesInfiniteState();
   const modeLabels = { discover: "interessante Serien", new: "neue Serien", trending: "angesagte Serien" };
-  document.getElementById("series-status").textContent = `Lade ${modeLabels[mode] || "Serien"} …`;
+  if (!append) {
+    document.getElementById("series-status").textContent = `Lade ${modeLabels[mode] || "Serien"} …`;
+  }
   try {
     const data = await api.series(seriesParams(mode, page));
     if (requestId !== state.series.browseRequestSeq) return false;
-    applySeriesResults(data);
+    applySeriesResults(data, { append });
     return true;
   } catch (error) {
     if (requestId !== state.series.browseRequestSeq) return false;
-    document.getElementById("series-status").textContent = `Fehler: ${error.message}`;
-    state.series.browseMode = state.series.results.length ? previousMode : null;
-    updateSeriesPager();
+    document.getElementById("series-status").textContent = append
+      ? `Nachladen fehlgeschlagen: ${error.message}`
+      : `Fehler: ${error.message}`;
+    if (append) {
+      state.series.loadError = error.message;
+    } else {
+      state.series.loadError = "";
+      state.series.browseMode = state.series.results.length ? previousMode : null;
+      state.series.lastPageFull = previousLastPageFull;
+    }
     return false;
   } finally {
-    if (requestId === state.series.browseRequestSeq) state.series.loadingBrowse = false;
+    if (requestId === state.series.browseRequestSeq) {
+      state.series.loadingBrowse = false;
+      updateSeriesInfiniteState();
+    }
   }
 }
 
@@ -1700,14 +1799,16 @@ function ensureSeriesResults() {
   seriesBrowse("discover", 1);
 }
 
-async function seriesPagerChange(delta) {
+async function loadNextSeriesPage() {
   const mode = state.series.browseMode;
-  if (!mode || mode === "search") return;
-  const newPage = state.series.page + delta;
-  if (newPage < 1) return;
-  if (await seriesBrowse(mode, newPage)) {
-    scrollCatalogToStart("tab-serien", "series-results");
-  }
+  if (
+    state.tab !== "serien"
+    || !mode
+    || mode === "search"
+    || state.series.loadingBrowse
+    || !state.series.lastPageFull
+  ) return;
+  await seriesBrowse(mode, state.series.page + 1, { append: true });
 }
 
 async function loadSeries(result) {
@@ -3788,6 +3889,44 @@ async function initSetupWizard() {
   }
 }
 
+function retryFpInfiniteLoad() {
+  if (state.fp.loadingMore || !state.fp.category) return;
+  if (state.fp.lastPageFull) {
+    loadNextFpPage();
+  } else if (state.fp.category === "genre") {
+    fpGenreChange(state.fp.activeGenre);
+  } else {
+    fpShowList(state.fp.category);
+  }
+}
+
+function retrySeriesInfiniteLoad() {
+  const mode = state.series.browseMode;
+  if (state.series.loadingBrowse || !mode || mode === "search") return;
+  if (state.series.lastPageFull) loadNextSeriesPage();
+  else seriesBrowse(mode, 1);
+}
+
+function initCatalogInfiniteScroll() {
+  document.getElementById("fp-infinite-retry").addEventListener("click", retryFpInfiniteLoad);
+  document.getElementById("series-infinite-retry").addEventListener("click", retrySeriesInfiniteLoad);
+  if (!catalogInfiniteObserverSupported) return;
+
+  catalogInfiniteObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      if (entry.target.id === "fp-infinite") loadNextFpPage();
+      if (entry.target.id === "series-infinite") loadNextSeriesPage();
+    }
+  }, {
+    root: null,
+    rootMargin: "520px 0px",
+    threshold: 0.01,
+  });
+  catalogInfiniteObserver.observe(document.getElementById("fp-infinite"));
+  catalogInfiniteObserver.observe(document.getElementById("series-infinite"));
+}
+
 function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
@@ -3835,6 +3974,7 @@ async function initApp() {
   buildAlphaBar();
   connectWs();
   initSettingsNavigation();
+  initCatalogInfiniteScroll();
 
   document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
@@ -3904,9 +4044,6 @@ async function initApp() {
     if (!genres.length) return;
     fpGenreChange(genres[Math.floor(Math.random() * genres.length)]);
   });
-  document.getElementById("fp-pager-prev").addEventListener("click", () => fpPagerChange(-1));
-  document.getElementById("fp-pager-next").addEventListener("click", () => fpPagerChange(1));
-
   // Serien
   document.getElementById("series-search-btn").addEventListener("click", seriesSearch);
   document.getElementById("series-search").addEventListener("keydown", (event) => {
@@ -3923,8 +4060,6 @@ async function initApp() {
   document.getElementById("series-az-btn").addEventListener("click", () => {
     document.getElementById("series-alpha-bar").classList.toggle("hidden");
   });
-  document.getElementById("series-pager-prev").addEventListener("click", () => seriesPagerChange(-1));
-  document.getElementById("series-pager-next").addEventListener("click", () => seriesPagerChange(1));
   document.getElementById("series-select-all").addEventListener("click", () => {
     if (!state.series.current) return;
     state.series.epPicked = new Set(
