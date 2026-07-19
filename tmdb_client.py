@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 logger = logging.getLogger(__name__)
 API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+BACKDROP_IMAGE_BASE = "https://image.tmdb.org/t/p/w1280"
 SERIES_CACHE_TTL = 6 * 60 * 60
 SERIES_NEGATIVE_CACHE_TTL = 60
 
@@ -108,6 +109,10 @@ class TMDBClient:
     def _poster_url(path: str) -> str:
         return f"{IMAGE_BASE}{path}" if path else ""
 
+    @staticmethod
+    def _backdrop_url(path: str) -> str:
+        return f"{BACKDROP_IMAGE_BASE}{path}" if path else ""
+
     def movie_summary(self, title: str, year: str = "") -> Optional[dict]:
         """Schnelle Listenmetadaten mit nur einer TMDB-Suchanfrage."""
         query_title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "").strip()
@@ -140,6 +145,7 @@ class TMDBClient:
                 "year": _year_from_date(best.get("release_date") or ""),
                 "runtime": "",
                 "cover_url": self._poster_url(best.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(best.get("backdrop_path") or ""),
                 "description": best.get("overview") or "",
                 "genres": [],
                 "original_title": best.get("original_title") or "",
@@ -177,6 +183,7 @@ class TMDBClient:
                 "year": _year_from_date(details.get("release_date") or "") or summary.get("year", ""),
                 "runtime": f"{runtime} min" if runtime else "",
                 "cover_url": self._poster_url(details.get("poster_path") or "") or summary.get("cover_url", ""),
+                "backdrop_url": self._backdrop_url(details.get("backdrop_path") or "") or summary.get("backdrop_url", ""),
                 "description": details.get("overview") or summary.get("description") or "",
                 "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
                 "original_title": details.get("original_title") or summary.get("original_title") or "",
@@ -213,6 +220,7 @@ class TMDBClient:
                 "year": _year_from_date(details.get("release_date") or ""),
                 "runtime": f"{runtime} min" if runtime else "",
                 "cover_url": self._poster_url(details.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(details.get("backdrop_path") or ""),
                 "description": details.get("overview") or "",
                 "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
                 "original_title": details.get("original_title") or "",

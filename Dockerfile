@@ -1,14 +1,13 @@
-# Royal Downloader – Container-Image für den 24/7-Betrieb (NAS/Docker).
+# Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
 FROM python:3.12-slim AS runtime-base
 
-# System-Abhängigkeiten:
-#  - chromium:        echter Browser für nodriver (VOE-Extraktion +
-#                     Cloudflare-/Turnstile-Bypass via CDP). Der Extractor
-#                     startet ihn im Root-Container explizit ohne Sandbox.
-#  - ffmpeg:          von yt-dlp für HLS/M3U8-Streams (VOE u.a.) zwingend nötig.
-#  - ca-certificates: TLS-Wurzelzertifikate für curl_cffi/HTTPS.
-#  - fonts-liberation: Zeichensatz, damit Chromium headless sauber rendert.
+# System dependencies:
+#  - chromium:         real browser for nodriver and CDP-assisted extraction;
+#                      the root container launches it explicitly without a sandbox.
+#  - ffmpeg:           required by yt-dlp for HLS/M3U8 streams.
+#  - ca-certificates:  root certificates used by curl_cffi and HTTPS.
+#  - fonts-liberation: fonts for consistent headless Chromium rendering.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         ffmpeg \
@@ -18,12 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt/seriendownloader
 
-# Python-Abhängigkeiten zuerst (bessere Layer-Cache-Nutzung).
+# Install Python dependencies first for efficient layer caching.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Die Zwischenstufe darf lokale Git-Metadaten sehen, schreibt daraus aber nur
-# die Revision ins Image. Im finalen Image landet kein .git-Verzeichnis.
+# The intermediate stage may inspect local Git metadata but writes only the
+# revision marker into the image. The final image contains no .git directory.
 FROM runtime-base AS source
 ARG APP_COMMIT_SHA
 ENV APP_COMMIT_SHA=${APP_COMMIT_SHA}
@@ -35,17 +34,15 @@ FROM runtime-base AS runtime
 ARG APP_COMMIT_SHA
 COPY --from=source /opt/seriendownloader /opt/seriendownloader
 
-# nodriver 0.50.3 liefert cdp/network.py mit ungültigem UTF-8 aus → reparieren,
-# sonst scheitert `import nodriver` (VOE-Extraktion).
+# Repair invalid UTF-8 shipped in nodriver 0.50.3 cdp/network.py.
 RUN python -c "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()" || true
 
-# Betriebsmodus im Container:
-#  - SERIENDL_DATA_DIR: persistenter State (Cookies, Hoster-Intel, Einstellungen,
-#                       Watchlist) → per Volume gesichert.
-#  - DOWNLOAD_DIR:      Ziel der fertigen Downloads → Bind-Mount auf NAS-Medien.
-#  - HOST/PORT:         im Netzwerk erreichbar machen (0.0.0.0).
-#  - OPEN_BROWSER=0:    im Container KEINEN Browser öffnen.
-#  - CHROME_PATH:       Explizites Chromium-Binary für den VOE-Browser-Pool.
+# Container runtime:
+#  - SERIENDL_DATA_DIR: persistent settings, cookies, subscriptions, and queue state.
+#  - DOWNLOAD_DIR:      completed movie destination mounted from the NAS.
+#  - HOST/PORT:         expose the service on the container network.
+#  - OPEN_BROWSER=0:    never open a desktop browser inside the container.
+#  - CHROME_PATH:       explicit Chromium binary for the browser pool.
 ENV SERIENDL_DATA_DIR=/app/data \
     APP_RUNTIME_DIR=/runtime \
     DOWNLOAD_DIR=/movies \

@@ -1,22 +1,26 @@
-## Änderung
+## What changed?
 
-<!-- Was wurde geändert? -->
+<!-- Describe the implementation in concrete terms. -->
 
-## Grund
+## Why?
 
-<!-- Welches Problem oder welcher Anwendungsfall wird gelöst? -->
+<!-- Which problem or use case does this solve? -->
 
-## Prüfung
+## Validation
 
-<!-- Ausgeführte Befehle und manuelle Prüfungen -->
+<!-- List automated and manual checks that were run. -->
 
-- [ ] Python-Dateien kompilieren ohne Fehler.
-- [ ] `docker compose config` ist gültig.
-- [ ] Web-JavaScript besteht `node --check web/app.js`.
-- [ ] Persistente Einstellungen und bestehende Installationen bleiben kompatibel.
-- [ ] Keine Zugangsdaten, Cookies oder privaten Pfade enthalten.
+- [ ] Python files compile without errors.
+- [ ] `docker compose config` is valid.
+- [ ] `node --check web/app.js` passes.
+- [ ] Persistent settings and existing installations remain compatible.
+- [ ] No credentials, cookies, private addresses, or media paths are included.
 
-## UI-Änderungen
+## Provider impact
 
-<!-- Falls zutreffend: Screenshot oder kurze Beschreibung -->
+<!-- Note changes to providers, languages, routing, hosters, or fallback order. -->
+
+## UI changes
+
+<!-- Add desktop and mobile screenshots when applicable. -->
 

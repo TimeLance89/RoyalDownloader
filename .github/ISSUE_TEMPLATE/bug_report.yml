@@ -1,5 +1,5 @@
-name: Bug melden
-description: Reproduzierbaren Fehler in Royal Downloader melden
+name: Bug report
+description: Report a reproducible Royal Downloader defect
 title: "[Bug]: "
 labels:
   - bug
@@ -7,37 +7,68 @@ body:
   - type: markdown
     attributes:
       value: |
-        Danke für die Meldung. Entferne vorher API-Keys, Tokens, Cookies, private IPs und Medienpfade aus Logs und Screenshots.
+        Remove API keys, tokens, cookies, private IP addresses, and media paths from logs and screenshots before submitting.
   - type: input
     id: build
     attributes:
-      label: Build-ID
-      description: Unter Einstellungen → Updates angezeigte lokale Build-ID.
+      label: Build ID
+      description: The local build ID shown under Settings → Updates.
       placeholder: 646bdb3…
     validations:
       required: true
   - type: dropdown
     id: deployment
     attributes:
-      label: Installation
+      label: Deployment
       options:
         - Docker Compose
-        - NAS-Container mit start.sh
-        - Lokaler Windows-Start
-        - Andere
+        - NAS container with start.sh
+        - Local Windows installation
+        - Other
     validations:
       required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Web interface
+        - Movies
+        - Series or subscriptions
+        - Anime
+        - Provider or hoster
+        - Download queue
+        - Jellyfin
+        - Telegram
+        - Seerr or Moonfin
+        - Updates
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or content language
+      description: Include the provider and selected content language when relevant.
+      placeholder: "Example: SFlix, English"
   - type: textarea
     id: problem
     attributes:
-      label: Fehlerbild
-      description: Was passiert, und was wurde stattdessen erwartet?
+      label: Actual behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
-      label: Schritte zur Reproduktion
+      label: Steps to reproduce
       placeholder: |
         1. …
         2. …
@@ -47,16 +78,16 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Bereinigte Logs
-      description: Nur den relevanten Ausschnitt einfügen; Geheimnisse und private Daten entfernen.
+      label: Sanitized logs
+      description: Include only the relevant excerpt and remove all secrets and private data.
       render: shell
   - type: checkboxes
     id: checks
     attributes:
-      label: Vor dem Absenden
+      label: Before submitting
       options:
-        - label: Ich nutze den aktuellen Stand von `main` oder habe geprüft, dass der Fehler dort weiterhin besteht.
+        - label: I use the latest `main` revision or verified that the bug still exists there.
           required: true
-        - label: Ich habe Zugangsdaten, Tokens, Cookies und private Pfade entfernt.
+        - label: I removed credentials, tokens, cookies, private addresses, and media paths.
           required: true
 

@@ -82,6 +82,28 @@
         <button id="fp-new-btn" class="btn btn-ghost">Neu</button>
         <button id="fp-top-btn" class="btn btn-ghost">Top</button>
       </div>
+      <section id="movie-feature" class="movie-feature hidden" aria-label="Aktuelle Kinofilme"
+          aria-roledescription="Karussell">
+        <div id="movie-feature-art" class="movie-feature-art" aria-hidden="true"></div>
+        <div class="movie-feature-copy">
+          <div class="movie-feature-kicker">
+            <span>Aktuelle Kinofilme</span>
+            <span id="movie-feature-count" aria-live="polite">1 / 1</span>
+          </div>
+          <h1 id="movie-feature-title" translate="no"></h1>
+          <div id="movie-feature-meta" class="movie-feature-meta" translate="no"></div>
+          <p id="movie-feature-description"></p>
+          <button id="movie-feature-open" class="movie-feature-open" type="button">
+            Film öffnen <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+        <div class="movie-feature-controls" aria-label="Kinofilm auswählen">
+          <button id="movie-feature-prev" type="button" aria-label="Vorheriger Kinofilm">‹</button>
+          <div id="movie-feature-dots" class="movie-feature-dots"></div>
+          <button id="movie-feature-pause" type="button" aria-label="Rotation pausieren">Ⅱ</button>
+          <button id="movie-feature-next" type="button" aria-label="Nächster Kinofilm">›</button>
+        </div>
+      </section>
       <section class="genre-browser" aria-labelledby="genre-browser-title">
         <div class="genre-browser-summary">
           <div class="genre-browser-heading">

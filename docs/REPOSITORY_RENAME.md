@@ -1,20 +1,19 @@
-# Migration auf `RoyalDownloader`
+# Migrating to `RoyalDownloader`
 
-[← Zur Projektübersicht](../README.md)
+[← Project overview](../README.md)
 
-Das Repository wurde am 15. Juli 2026 von `TimeLance89/SerienDownloader` in
-`TimeLance89/RoyalDownloader` umbenannt. Der sichtbare Produktname lautet
-**Royal Downloader**; der technische GitHub-Slug enthält keine Leerzeichen.
+The repository was renamed on July 15, 2026:
 
-## Ziel
-
-| Element | Vorher | Nachher |
+| Item | Previous | Current |
 |---|---|---|
-| Produktname | SerienDownloader | Royal Downloader |
+| Product name | SerienDownloader | Royal Downloader |
 | Repository | `TimeLance89/SerienDownloader` | `TimeLance89/RoyalDownloader` |
-| Clone-Link | `https://github.com/TimeLance89/SerienDownloader.git` | `https://github.com/TimeLance89/RoyalDownloader.git` |
+| Clone URL | `https://github.com/TimeLance89/SerienDownloader.git` | `https://github.com/TimeLance89/RoyalDownloader.git` |
 
-## 1. Lokales Git-Remote aktualisieren
+The visible product name contains a space. The technical GitHub repository name
+does not.
+
+## 1. Update an existing Git remote
 
 ```bash
 git remote set-url origin https://github.com/TimeLance89/RoyalDownloader.git
@@ -22,58 +21,57 @@ git remote -v
 git fetch origin
 ```
 
-Bei GitHub CLI zusätzlich prüfen:
+With GitHub CLI:
 
 ```bash
 gh repo view TimeLance89/RoyalDownloader
 ```
 
-GitHub leitet alte Web- und Clone-URLs derzeit weiter. Das Remote sollte
-trotzdem aktualisiert werden, damit die Installation nicht dauerhaft von der
-Weiterleitung abhängt.
+GitHub currently redirects old web and clone URLs. Updating the remote avoids a
+permanent dependency on that redirect.
 
-## 2. Updater einer vorhandenen Installation umstellen
+## 2. Update an existing installation
 
-In der `.env` auf dem NAS den Repository-Wert anpassen:
+Set the repository in the NAS `.env` file:
 
 ```dotenv
 UPDATE_GITHUB_REPOSITORY=TimeLance89/RoyalDownloader
 UPDATE_GITHUB_BRANCH=main
 ```
 
-Danach den Container neu erstellen, damit die Umgebung neu eingelesen wird:
+Recreate the container so it reads the changed environment:
 
 ```bash
 docker compose up -d --build
 docker compose logs -f seriendownloader
 ```
 
-Ohne eigenen `UPDATE_GITHUB_REPOSITORY`-Eintrag verwendet ein aktueller Build
-automatisch `TimeLance89/RoyalDownloader`.
+Current builds use `TimeLance89/RoyalDownloader` automatically when no explicit
+repository override exists.
 
-## 3. Externe Verweise aktualisieren
+## 3. Update external references
 
-Lesezeichen, API-Integrationen, Deployment-Skripte und eigene Dokumentation auf
-folgende Adressen umstellen:
+Change bookmarks, API integrations, deployment scripts, and private
+documentation to:
 
 ```text
 https://github.com/TimeLance89/RoyalDownloader
 https://github.com/TimeLance89/RoyalDownloader.git
 ```
 
-Unter dem alten Namen sollte kein neues Repository angelegt werden, weil dies
-GitHubs Weiterleitung ungültig machen kann.
+Do not create a new repository under the old name. Doing so can invalidate
+GitHub's redirect.
 
-## 4. Abschluss prüfen
+## 4. Verify the migration
 
-- Die neue Repository-URL öffnet ohne Weiterleitung.
-- `git push origin main` funktioniert.
-- Der Updater zeigt `TimeLance89/RoyalDownloader · main` als erreichbar.
-- Eine Updateprüfung liefert die aktuelle `main`-Revision.
-- README, Issue-Formulare und Dokumentationslinks funktionieren.
-- Docker startet mit vorhandenen `data`- und `runtime`-Ordnern unverändert.
+- The new repository URL opens without a redirect.
+- `git push origin main` works.
+- The updater reports `TimeLance89/RoyalDownloader · main` as reachable.
+- An update check resolves the current `main` revision.
+- README, issue forms, and documentation links work.
+- Docker starts with existing `data` and `runtime` directories.
 
-Die internen Namen `FilmeDownloader` für den persistenten Konfigurationsordner
-und `seriendownloader` für den Compose-Service bleiben aus Gründen der
-Abwärtskompatibilität bestehen. Ihre Umbenennung würde vorhandene NAS-Volumes
-und Startskripte unnötig brechen.
+The internal names `FilmeDownloader` for the persistent configuration directory
+and `seriendownloader` for the Compose service remain unchanged for backward
+compatibility. Renaming them would break existing NAS volumes and startup
+scripts.

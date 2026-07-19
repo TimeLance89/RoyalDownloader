@@ -1,0 +1,70 @@
+name: Provider request
+description: Propose a provider for a supported or new content language
+title: "[Provider]: "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider name
+      placeholder: Example provider
+    validations:
+      required: true
+  - type: input
+    id: homepage
+    attributes:
+      label: Homepage
+      description: Public catalog URL without credentials or session data.
+      placeholder: https://example.com
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Primary content language
+      options:
+        - German
+        - English
+        - Spanish
+        - French
+        - Italian
+        - Dutch
+        - Polish
+        - Portuguese
+        - Turkish
+        - Ukrainian
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: media
+    attributes:
+      label: Media types
+      options:
+        - label: Movies
+        - label: Series
+        - label: Anime
+    validations:
+      required: true
+  - type: textarea
+    id: catalog
+    attributes:
+      label: Catalog and language details
+      description: Describe catalog size, dub/sub labeling, search, pagination, and update frequency.
+    validations:
+      required: true
+  - type: textarea
+    id: technical
+    attributes:
+      label: Technical notes
+      description: Mention public APIs, static HTML, player types, mirrors, or known anti-bot protection.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: The catalog is accessible without sharing an account, cookie, token, or private session.
+          required: true
+        - label: I checked that this provider has not already been requested.
+          required: true

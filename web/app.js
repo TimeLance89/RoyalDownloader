@@ -5,6 +5,7 @@ const state = {
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
     metadataCache: {}, requestSeq: 0, sources: [],
     searchActive: false, searchReturn: null,
+    featureCandidates: [], featureIndex: 0, featureTimer: null, featurePaused: false,
   },
   series: {
     results: [], browseMode: null, page: 1, lastPageFull: false,
@@ -79,7 +80,22 @@ function escapeHtml(s) {
 }
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
+function animeNavigationAvailable() {
+  return state.providers.contentLanguages.has("en");
+}
+
+function syncAnimeNavigationVisibility() {
+  const visible = animeNavigationAvailable();
+  document.querySelectorAll(".anime-tab-button, .provider-source-lane.is-anime").forEach((element) => {
+    element.classList.toggle("hidden", !visible);
+  });
+  const animeContent = document.getElementById("tab-anime");
+  if (animeContent) animeContent.setAttribute("aria-hidden", String(!visible));
+  if (!visible && state.tab === "anime") switchTab("filme");
+}
+
 function switchTab(name, { autoLoad = true } = {}) {
+  if (name === "anime" && !animeNavigationAvailable()) name = "filme";
   closeAllMediaModals(false);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach((s) => s.classList.toggle("active", s.id === `tab-${name}`));
@@ -91,6 +107,8 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
+  if (name === "filme") scheduleMovieFeatureRotation();
+  else stopMovieFeatureRotation();
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
@@ -456,6 +474,178 @@ function refreshQueueUiAfterChange(resp) {
 }
 
 // ── Filme-Tab ──────────────────────────────────────────────────────────────
+const MOVIE_FEATURE_INTERVAL_MS = 9000;
+const MOVIE_FEATURE_MAX_AGE_DAYS = 270;
+const MOVIE_FEATURE_MAX_FUTURE_DAYS = 45;
+
+function movieFeatureCandidate(result) {
+  const metadata = state.fp.metadataCache[result.slug] || {};
+  const artwork = metadata.backdrop_url || metadata.cover_url || "";
+
+  const now = new Date();
+  const release = metadata.release_date ? new Date(`${metadata.release_date}T12:00:00`) : null;
+  let ageDays = null;
+  if (release && !Number.isNaN(release.getTime())) {
+    ageDays = (now.getTime() - release.getTime()) / 86400000;
+    if (ageDays > MOVIE_FEATURE_MAX_AGE_DAYS || ageDays < -MOVIE_FEATURE_MAX_FUTURE_DAYS) {
+      return null;
+    }
+  } else {
+    const year = Number(metadata.year || result.year) || 0;
+    if (year && year < now.getFullYear() - 1) return null;
+  }
+
+  const year = Number(metadata.year || result.year) || 0;
+  const rating = Number(metadata.rating) || 0;
+  const votes = Number(metadata.vote_count) || 0;
+  const recencyScore = ageDays == null
+    ? (year === now.getFullYear() ? 36 : (year === now.getFullYear() - 1 ? 20 : 26))
+    : (ageDays >= 0 ? 70 - Math.min(ageDays, 365) * 0.1 : 54 - Math.abs(ageDays) * 0.2);
+  const score = recencyScore
+    + rating * 2
+    + Math.min(14, Math.log10(votes + 1) * 3)
+    + (metadata.backdrop_url ? 24 : 8)
+    + (metadata.description ? 7 : 0);
+  return {
+    ...result,
+    ...metadata,
+    artwork,
+    artworkKind: metadata.backdrop_url ? "backdrop" : (metadata.cover_url ? "poster" : "none"),
+    featureScore: score,
+  };
+}
+
+function stopMovieFeatureRotation() {
+  if (!state.fp.featureTimer) return;
+  clearInterval(state.fp.featureTimer);
+  state.fp.featureTimer = null;
+}
+
+function scheduleMovieFeatureRotation() {
+  stopMovieFeatureRotation();
+  const feature = document.getElementById("movie-feature");
+  if (
+    !feature
+    || feature.classList.contains("hidden")
+    || state.tab !== "filme"
+    || state.fp.featurePaused
+    || state.fp.featureCandidates.length < 2
+    || feature.matches(":hover")
+    || feature.contains(document.activeElement)
+    || document.hidden
+    || window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) return;
+  state.fp.featureTimer = window.setInterval(() => {
+    showMovieFeature(state.fp.featureIndex + 1);
+  }, MOVIE_FEATURE_INTERVAL_MS);
+}
+
+function setMovieFeaturePaused(paused) {
+  state.fp.featurePaused = paused;
+  const button = document.getElementById("movie-feature-pause");
+  if (button) {
+    button.textContent = paused ? "▶" : "Ⅱ";
+    button.setAttribute("aria-label", paused ? "Rotation fortsetzen" : "Rotation pausieren");
+    button.setAttribute("aria-pressed", String(paused));
+  }
+  if (paused) stopMovieFeatureRotation();
+  else scheduleMovieFeatureRotation();
+}
+
+function movieFeatureDate(candidate) {
+  if (!candidate.release_date) return candidate.year || "";
+  const date = new Date(`${candidate.release_date}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return candidate.year || "";
+  return date.toLocaleDateString(i18n.locale(), {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+}
+
+function renderMovieFeature() {
+  const feature = document.getElementById("movie-feature");
+  const candidates = state.fp.featureCandidates;
+  const candidate = candidates[state.fp.featureIndex];
+  if (!feature || !candidate) {
+    feature?.classList.add("hidden");
+    stopMovieFeatureRotation();
+    return;
+  }
+
+  feature.classList.remove("hidden");
+  feature.classList.toggle("is-poster-art", candidate.artworkKind === "poster");
+  feature.classList.toggle("has-no-art", candidate.artworkKind === "none");
+  feature.setAttribute("aria-label", `Aktuelle Kinofilme: ${candidate.title}`);
+  document.getElementById("movie-feature-art").style.backgroundImage = candidate.artwork
+    ? `url("${api.coverUrl(candidate.artwork).replace(/"/g, "%22")}")`
+    : "";
+  document.getElementById("movie-feature-title").textContent = candidate.title;
+  document.getElementById("movie-feature-count").textContent =
+    `${state.fp.featureIndex + 1} / ${candidates.length}`;
+  document.getElementById("movie-feature-description").textContent =
+    candidate.description || "Neu bei deinen ausgewählten Filmquellen.";
+  const provider = state.providers.labels[candidate.provider] || "";
+  document.getElementById("movie-feature-meta").textContent = [
+    movieFeatureDate(candidate),
+    candidate.rating ? `★ ${candidate.rating}` : "",
+    ...(candidate.genres || []).slice(0, 2),
+    provider,
+  ].filter(Boolean).join(" · ");
+  document.getElementById("movie-feature-open").dataset.slug = candidate.slug;
+
+  const dots = document.getElementById("movie-feature-dots");
+  dots.innerHTML = "";
+  candidates.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = index === state.fp.featureIndex ? "is-active" : "";
+    button.setAttribute("aria-label", `${item.title} anzeigen`);
+    button.setAttribute("aria-pressed", String(index === state.fp.featureIndex));
+    button.addEventListener("click", () => {
+      showMovieFeature(index, true);
+      scheduleMovieFeatureRotation();
+    });
+    dots.appendChild(button);
+  });
+}
+
+function showMovieFeature(index, userInitiated = false) {
+  const count = state.fp.featureCandidates.length;
+  if (!count) return;
+  state.fp.featureIndex = ((index % count) + count) % count;
+  const feature = document.getElementById("movie-feature");
+  if (!userInitiated && feature) {
+    feature.classList.add("is-changing");
+    window.setTimeout(() => feature.classList.remove("is-changing"), 360);
+  }
+  renderMovieFeature();
+}
+
+function refreshMovieFeatureCandidates() {
+  if (state.fp.category !== "new" || state.fp.page !== 1) {
+    document.getElementById("movie-feature")?.classList.add("hidden");
+    stopMovieFeatureRotation();
+    return;
+  }
+  const currentSlug = state.fp.featureCandidates[state.fp.featureIndex]?.slug;
+  const seenTitles = new Set();
+  const candidates = state.fp.results
+    .map(movieFeatureCandidate)
+    .filter(Boolean)
+    .sort((a, b) => b.featureScore - a.featureScore)
+    .filter((candidate) => {
+      const key = String(candidate.title || "").trim().toLocaleLowerCase();
+      if (!key || seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    })
+    .slice(0, 5);
+  state.fp.featureCandidates = candidates;
+  const preservedIndex = candidates.findIndex((candidate) => candidate.slug === currentSlug);
+  state.fp.featureIndex = preservedIndex >= 0 ? preservedIndex : 0;
+  renderMovieFeature();
+  scheduleMovieFeatureRotation();
+}
+
 function fpStatusMessage() {
   const visibleSlugs = new Set(state.fp.results.map((r) => r.slug));
   const visiblePicks = [...state.queuedSlugs].filter((s) => visibleSlugs.has(s)).length;
@@ -843,6 +1033,7 @@ function applyFpResults(data) {
   );
   state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
   renderFpResults();
+  refreshMovieFeatureCandidates();
   const pager = document.getElementById("fp-pager");
   pager.classList.remove("hidden");
   const sourceCount = state.fp.sources.length;
@@ -875,6 +1066,7 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
       if (metadata) {
         state.fp.metadataCache[item.slug] = metadata;
         updateFpResultCard(item.slug);
+        refreshMovieFeatureCandidates();
       }
       if (state.fp.selectedSlug === item.slug) {
         showFpDetail(item.slug, metadataPreviewMovie(metadata || basicMovieMetadata(item)), true);
@@ -887,6 +1079,7 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
         metadata = detailResponse.movie;
         state.fp.metadataCache[item.slug] = metadata;
         updateFpResultCard(item.slug);
+        refreshMovieFeatureCandidates();
         if (state.fp.selectedSlug === item.slug) showFpDetail(item.slug, metadataPreviewMovie(metadata), true);
       }
     }
@@ -933,6 +1126,7 @@ async function preloadTmdbMetadata(requestId) {
         state.fp.pendingPreload?.delete(slug);
         updateFpResultCard(slug);
       }
+      refreshMovieFeatureCandidates();
       const selected = state.fp.selectedSlug;
       if (selected && batch.some((item) => item.slug === selected)
           && !state.fp.moviesCache[selected] && state.fp.metadataCache[selected]) {
@@ -951,6 +1145,7 @@ async function preloadTmdbMetadata(requestId) {
     if (requestId !== state.fp.requestSeq) return;
     state.fp.pendingPreload = null;
     for (const slug of visibleSlugs) updateFpResultCard(slug);
+    refreshMovieFeatureCandidates();
   }
 }
 
@@ -1006,6 +1201,7 @@ async function fpSearch() {
   rememberFpSearchContext();
   state.fp.searchActive = true;
   state.fp.category = null;
+  refreshMovieFeatureCandidates();
   document.getElementById("fp-status").textContent = `Suche nach «${q}» …`;
   setActiveGenreFilter("Alle Genres");
   const requestId = ++state.fp.requestSeq;
@@ -1017,6 +1213,7 @@ async function fpSearch() {
 async function fpShowList(category) {
   clearFpSearchContext();
   state.fp.category = category;
+  refreshMovieFeatureCandidates();
   setActiveGenreFilter("Alle Genres");
   document.getElementById("fp-status").textContent = `Lade ${category === "new" ? "Neu" : "Top"}-Filme …`;
   const requestId = ++state.fp.requestSeq;
@@ -1032,6 +1229,7 @@ async function fpGenreChange(genre) {
     return;
   }
   state.fp.category = "genre";
+  refreshMovieFeatureCandidates();
   setActiveGenreFilter(genre);
   document.getElementById("fp-status").textContent = `Lade Genre ${genre} …`;
   const requestId = ++state.fp.requestSeq;
@@ -2858,6 +3056,7 @@ function renderAllProviderBoards() {
       if (element) element.textContent = summary;
     });
   }
+  syncAnimeNavigationVisibility();
 }
 
 function applyProviderPriority(cfg) {
@@ -3660,6 +3859,34 @@ async function initApp() {
   });
   document.getElementById("fp-new-btn").addEventListener("click", () => fpShowList("new"));
   document.getElementById("fp-top-btn").addEventListener("click", () => fpShowList("top"));
+  document.getElementById("movie-feature-open").addEventListener("click", (event) => {
+    const slug = event.currentTarget.dataset.slug;
+    if (slug) selectFpRow(slug);
+  });
+  document.getElementById("movie-feature-prev").addEventListener("click", () => {
+    showMovieFeature(state.fp.featureIndex - 1, true);
+    scheduleMovieFeatureRotation();
+  });
+  document.getElementById("movie-feature-next").addEventListener("click", () => {
+    showMovieFeature(state.fp.featureIndex + 1, true);
+    scheduleMovieFeatureRotation();
+  });
+  document.getElementById("movie-feature-pause").addEventListener("click", () => {
+    setMovieFeaturePaused(!state.fp.featurePaused);
+  });
+  const movieFeature = document.getElementById("movie-feature");
+  movieFeature.addEventListener("pointerenter", stopMovieFeatureRotation);
+  movieFeature.addEventListener("pointerleave", scheduleMovieFeatureRotation);
+  movieFeature.addEventListener("focusin", stopMovieFeatureRotation);
+  movieFeature.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (!movieFeature.contains(document.activeElement)) scheduleMovieFeatureRotation();
+    }, 0);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopMovieFeatureRotation();
+    else scheduleMovieFeatureRotation();
+  });
   document.getElementById("genre-filter").addEventListener("click", (e) => {
     const button = e.target.closest("[data-genre]");
     if (button) fpGenreChange(button.dataset.genre);

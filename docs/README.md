@@ -1,9 +1,9 @@
-# Dokumentation
+# Documentation
 
-[← Zur Projektübersicht](../README.md)
+[← Project overview](../README.md)
 
-| Dokument | Inhalt |
+| Document | Purpose |
 |---|---|
-| [Docker- und NAS-Betrieb](DOCKER.md) | Installation, Volumes, Umgebungsvariablen, Updates und Integrationen |
-| [Jellyfin-Empfehlungen](JELLYFIN_RECOMMENDER.md) | Automatisch gepflegte Empfehlungscollection |
-| [Repository-Migration](REPOSITORY_RENAME.md) | Umstellung bestehender Klone und Installationen auf `RoyalDownloader` |
+| [Docker and NAS operation](DOCKER.md) | Installation, volumes, environment variables, updates, and integrations |
+| [Jellyfin recommendations](JELLYFIN_RECOMMENDER.md) | Automatically maintained recommendation collection |
+| [Repository migration](REPOSITORY_RENAME.md) | Move existing clones and installations to `RoyalDownloader` |

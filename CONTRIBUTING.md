@@ -1,18 +1,18 @@
-# Zu Royal Downloader beitragen
+# Contributing to Royal Downloader
 
-Danke für dein Interesse. Änderungen sollen den selbst gehosteten Betrieb
-stabiler, nachvollziehbarer oder einfacher machen.
+Contributions should make long-running self-hosted installations more reliable,
+observable, or easier to operate.
 
-## Vor einer Änderung
+## Before making a change
 
-- Für Fehler das GitHub-Formular **Bug melden** verwenden.
-- Größere Funktionen zuerst als Feature-Idee beschreiben.
-- Keine Zugangsdaten, API-Keys, Cookies, privaten Medienpfade oder vollständige
-  Konfigurationsdateien veröffentlichen.
-- Änderungen an Download-, Update- und Duplikatschutzlogik müssen ausfallsicher
-  sein: Bei unklarem Zustand darf kein doppelter oder falscher Download starten.
+- Use the **Bug report** issue form for reproducible defects.
+- Describe larger features in a feature request before implementing them.
+- Never publish credentials, API keys, cookies, private media paths, or complete
+  configuration files.
+- Changes to download, update, persistence, and de-duplication logic must fail
+  safely. An uncertain state must never start a duplicate or incorrect download.
 
-## Lokale Einrichtung
+## Local setup
 
 ```bash
 git clone https://github.com/TimeLance89/RoyalDownloader.git
@@ -20,7 +20,7 @@ cd RoyalDownloader
 python -m venv .venv
 ```
 
-Linux/macOS:
+Linux and macOS:
 
 ```bash
 source .venv/bin/activate
@@ -34,16 +34,16 @@ Windows PowerShell:
 pip install -r requirements.txt
 ```
 
-Für den vollständigen Laufzeitstack wird Docker Compose empfohlen:
+Docker Compose is recommended for the complete runtime stack:
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-## Mindestprüfungen
+## Required checks
 
-Vor einem Pull Request mindestens ausführen:
+Run at least the following before opening a pull request:
 
 ```bash
 python -m py_compile *.py
@@ -52,22 +52,28 @@ docker compose config
 node --check web/app.js
 ```
 
-Die vollständige Regression wird intern vor einem Release ausgeführt.
+Run the regression suite when the local test package is available:
 
-## Pull Requests
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
 
-- Ein Thema pro Pull Request.
-- Titel kurz und im Imperativ formulieren.
-- Ursache, Änderung und Auswirkung im Beschreibungstext nennen.
-- UI-Änderungen mit einem Screenshot dokumentieren.
-- Neue Konfigurationswerte in `.env.example` und `docs/DOCKER.md` ergänzen.
-- Persistente Daten und bestehende `settings.ini` müssen kompatibel bleiben.
+## Pull requests
 
-## Stil
+- Keep each pull request focused on one topic.
+- Write a short imperative title.
+- Explain the problem, the implementation, and the user-visible impact.
+- Include desktop and mobile screenshots for UI changes.
+- Document new configuration values in `.env.example` and `docs/DOCKER.md`.
+- Preserve persistent data formats and existing `settings.ini` files.
+- Call out changes to provider behavior, fallback order, or content languages.
 
-- Python: bestehende Typen, Locks und Fehlerpfade respektieren.
-- Anbieter: gemeinsame Datenmodelle aus `providers.models` verwenden und neue
-  Adapter ausschließlich unter `providers/` registrieren.
-- JavaScript: keine Framework-Abhängigkeit ohne vorherige Abstimmung.
-- UI: bestehende Dark-/Gold-Gestaltung und mobile Darstellung beibehalten.
-- Dokumentation: Deutsch, kurze Abschnitte, ausführbare Beispiele.
+## Code style
+
+- **Python:** preserve existing types, locks, cancellation, and error paths.
+- **Providers:** use shared models from `providers.models`; register new adapters
+  through `providers/catalog.py` and the server integration points.
+- **JavaScript:** avoid framework dependencies unless discussed first.
+- **UI:** preserve the Obsidian-and-gold visual system, accessibility, and
+  responsive behavior.
+- **Documentation:** use English, short sections, and executable examples.

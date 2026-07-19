@@ -1,41 +1,52 @@
-# Jellyfin-Empfehlungen
+# Jellyfin recommendations
 
-[← Projektübersicht](../README.md) · [Docker-/NAS-Anleitung](DOCKER.md)
+[← Project overview](../README.md) · [Docker and NAS guide](DOCKER.md)
 
-Der bestehende `seriendownloader`-Server erstellt die globale Collection
-„Für dich empfohlen“. Der erste Lauf startet direkt mit dem Server, weitere
-Läufe folgen täglich. Nach geänderten Jellyfin-Einstellungen wird sofort neu
-gerechnet.
+Royal Downloader maintains a global Jellyfin collection named
+`Für dich empfohlen` by default. The first calculation starts with the server;
+later runs follow the configured interval. Saving changed Jellyfin settings
+triggers an immediate recalculation.
 
-## Start
+## Setup
 
-Jellyfin-URL, API-Schlüssel und Benutzer in der Weboberfläche speichern. Im
-Container liegen sie persistent unter
-`/app/data/FilmeDownloader/settings.ini` (Host-Mount:
-`./data/FilmeDownloader/settings.ini`). Danach den normalen Server starten:
+Save the Jellyfin URL, API key, and user in the web interface. Container
+deployments persist this configuration at:
+
+```text
+/app/data/FilmeDownloader/settings.ini
+```
+
+The default host mount is:
+
+```text
+./data/FilmeDownloader/settings.ini
+```
+
+Start the normal server:
 
 ```bash
 docker compose up -d --build
 docker compose logs -f seriendownloader
 ```
 
-Ein alter separater `jellyfin-recommender`-Container muss gestoppt werden, damit
-nicht zwei Prozesse dieselbe Collection aktualisieren.
+Stop any older standalone `jellyfin-recommender` container. Two processes must
+not update the same collection.
 
-## Optionale Umgebungsvariablen
+## Optional environment variables
 
-| Variable | Default | Bedeutung |
+| Variable | Default | Purpose |
 |---|---:|---|
-| `COLLECTION_NAME` | `Für dich empfohlen` | Exakter Collection-Name |
-| `TOP_N` | `20` | Maximale Anzahl Empfehlungen |
-| `RECENCY_HALF_LIFE_DAYS` | `180` | Aktualitätsgewichtung; `0` deaktiviert sie |
-| `RECOMMENDER_INTERVAL_SECONDS` | `86400` | Abstand zwischen Läufen, mindestens 60 Sekunden |
-| `REQUEST_TIMEOUT_SECONDS` | `120` | Jellyfin-Lese-Timeout |
-| `PAGE_SIZE` | `100` | Seitengröße der schweren Metadatenabfrage; maximal 100 |
+| `COLLECTION_NAME` | `Für dich empfohlen` | Exact collection name |
+| `TOP_N` | `20` | Maximum number of recommendations |
+| `RECENCY_HALF_LIFE_DAYS` | `180` | Recency weighting; `0` disables it |
+| `RECOMMENDER_INTERVAL_SECONDS` | `86400` | Interval between runs; minimum 60 seconds |
+| `REQUEST_TIMEOUT_SECONDS` | `120` | Jellyfin read timeout |
+| `PAGE_SIZE` | `100` | Page size for metadata-heavy requests; maximum 100 |
 
-Die Collection-ID bleibt bei Aktualisierungen stabil. Bei fehlenden Daten,
-fehlendem Profil oder doppelten gleichnamigen Collections wird die bestehende
-Collection nicht destruktiv verändert. Fehlgeschlagene Läufe werden nach
-15 Minuten erneut versucht. Fehlt der Collection ein Primärbild, wird einmalig
-das Poster der bestbewerteten Empfehlung übernommen. Ein vorhandenes oder
-manuell gesetztes Collection-Cover bleibt unverändert.
+The collection ID remains stable across updates. If profile data is missing or
+duplicate collections with the same name exist, the current collection is not
+modified destructively. Failed runs retry after 15 minutes.
+
+When the collection has no primary image, Royal Downloader sets the poster of
+the highest-ranked recommendation once. Existing or manually selected artwork
+is preserved.

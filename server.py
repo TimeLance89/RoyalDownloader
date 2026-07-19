@@ -2193,7 +2193,7 @@ def movie_to_dict(movie: FilmpalastMovie) -> dict:
     tmdb = get_tmdb_client().movie(strip_source_suffix(movie.title), movie.year)
     if tmdb:
         for field in (
-            "title", "year", "runtime", "cover_url", "description", "genres",
+            "title", "year", "runtime", "cover_url", "backdrop_url", "description", "genres",
             "original_title", "release_date", "rating", "vote_count", "tagline",
         ):
             if tmdb.get(field):

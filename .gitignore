@@ -1,4 +1,4 @@
-# Sensible Konfiguration und persistente Laufzeitdaten
+# Sensitive configuration and persistent runtime data
 /data/
 /Data/
 .env
@@ -16,7 +16,7 @@
 *.sqlite3
 *.db
 
-# Downloads und Medien
+# Downloads and media
 /downloads/
 /runtime/
 /Filme/
@@ -25,7 +25,7 @@
 *.crdownload
 *.ytdl
 
-# Lokale Entwicklungsdaten
+# Local development data
 /.claude/
 /.codex/
 /.codex-remote-attachments/
@@ -35,7 +35,7 @@
 /.vs/
 *.code-workspace
 
-# Python und Tests
+# Python and tests
 /tests/
 __pycache__/
 *.py[cod]
@@ -56,7 +56,7 @@ build/
 dist/
 *.egg-info/
 
-# Logs und temporäre Dateien
+# Logs and temporary files
 *.log
 *.tmp
 *.temp
@@ -64,7 +64,7 @@ dist/
 *.swp
 *.pid
 
-# Lokale Transferarchive
+# Local transfer archives
 /*.zip
 /*.7z
 /*.rar
@@ -72,7 +72,7 @@ dist/
 /*.tar.gz
 /*.tgz
 
-# Betriebssystem
+# Operating-system files
 .DS_Store
 Thumbs.db
 Desktop.ini

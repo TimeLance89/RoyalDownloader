@@ -3,27 +3,27 @@ services:
     build:
       context: .
       args:
-        # Optionaler CI-Override; lokale Git-Builds erkennen die Revision selbst.
+        # Optional CI override; local Git builds detect the revision automatically.
         APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
     image: seriendownloader:latest
     container_name: seriendownloader
     restart: unless-stopped
     ports:
-      # Web-Oberfläche: http://<NAS-IP>:8765
+      # Web interface: http://<NAS-IP>:8765
       - "8765:8765"
-    # Einheitliche DNS-Auflösung für Python, Chromium, ffmpeg und yt-dlp.
-    # Der lokale Resolver kann upstream DNS-over-TLS (z.B. dnsforge) nutzen.
+    # Consistent DNS resolution for Python, Chromium, ffmpeg, and yt-dlp.
+    # A local resolver may use DNS-over-TLS for its upstream connection.
     dns:
       - ${DNS_PRIMARY:-1.1.1.1}
       - ${DNS_SECONDARY:-9.9.9.9}
     volumes:
-      # Persistenter Programmstand für Updates direkt aus der Weboberfläche.
+      # Persistent application revision used by in-app updates.
       - ./runtime:/runtime
-      # Persistenter App-State (Cookies/CF-Clearance, Hoster-Intel,
-      # Einstellungen + Watchlist) – bleibt über Container-Neustarts erhalten.
+      # Persistent application state: cookies, anti-bot sessions, hoster
+      # intelligence, settings, subscriptions, and queue state.
       - ./data:/app/data
-      # Fertige Medien direkt in Jellyfins Bibliotheksordner schreiben.
-      # Auf dem NAS in .env auf absolute Host-Pfade setzen.
+      # Write completed media directly to Jellyfin library directories.
+      # Set absolute NAS host paths in .env.
       - ${MOVIES_HOST_DIR:-./downloads/Filme}:/movies
       - ${SERIES_HOST_DIR:-./downloads/Serien}:/serien
     environment:
@@ -40,7 +40,7 @@ services:
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_USER_ID: ${JELLYFIN_USER_ID:-}
       JELLYFIN_USER_NAME: ${JELLYFIN_USER_NAME:-}
-      # Recommender läuft im Server; JELLYFIN_* kommt bevorzugt aus settings.ini.
+      # The recommender runs inside the server; settings.ini takes precedence.
       COLLECTION_NAME: ${COLLECTION_NAME:-Für dich empfohlen}
       TOP_N: ${TOP_N:-20}
       RECENCY_HALF_LIFE_DAYS: ${RECENCY_HALF_LIFE_DAYS:-180}
@@ -72,8 +72,8 @@ services:
       CHECK_INTERVAL_MIN: ${CHECK_INTERVAL_MIN:-30}
       DL_WINDOW_START: ${DL_WINDOW_START:-}
       DL_WINDOW_END: ${DL_WINDOW_END:-}
-      # Medien-Transfer: HLS parallel, gedrosselte MP4-CDNs in Range-Bloecken;
-      # dauerhaft langsamere Quellen werden nach Puffer/Fenster gewechselt.
+      # Media transfer: parallel HLS and ranged requests for throttled MP4 CDNs.
+      # Sustained slow sources are replaced after the grace and sampling windows.
       HLS_CONCURRENT_FRAGMENTS: ${HLS_CONCURRENT_FRAGMENTS:-4}
       MP4_HTTP_CHUNK_SIZE: ${MP4_HTTP_CHUNK_SIZE:-4M}
       SLOW_DOWNLOAD_MIN_KIBPS: ${SLOW_DOWNLOAD_MIN_KIBPS:-384}
@@ -81,10 +81,9 @@ services:
       SLOW_DOWNLOAD_WINDOW_SECONDS: ${SLOW_DOWNLOAD_WINDOW_SECONDS:-90}
       DNS_PRIMARY: ${DNS_PRIMARY:-1.1.1.1}
       DNS_SECONDARY: ${DNS_SECONDARY:-9.9.9.9}
-      # Zeitzone für korrekte Log-/Zeitstempel (in .env überschreibbar).
+      # Time zone used by logs and schedules; override it in .env.
       TZ: ${TZ:-Europe/Berlin}
-    # Chromium headless braucht mehr als die Docker-Default-64MB /dev/shm,
-    # sonst stürzt der Browser bei der VOE-Extraktion ab.
+    # Headless Chromium needs more than Docker's default 64 MB /dev/shm.
     shm_size: "1gb"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=5)"]
@@ -104,7 +103,7 @@ services:
     ports:
       - "5055:5055"
     volumes:
-      # SQLite/App-Konfiguration. Beim NAS-Umzug nur im gestoppten Zustand kopieren.
+      # SQLite and application configuration. Copy only while Seerr is stopped.
       - ./data/seerr:/app/config
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5055/api/v1/settings/public || exit 1"]

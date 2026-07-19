@@ -1,21 +1,28 @@
-# Sicherheitsrichtlinie
+# Security policy
 
-## Unterstützte Version
+## Supported version
 
-Sicherheitskorrekturen werden für den aktuellen Stand des `main`-Branches entwickelt. Ältere Builds sollten vor einer Meldung aktualisiert werden.
+Security fixes target the current `main` branch. Please update older builds
+before reporting a vulnerability.
 
-## Schwachstelle melden
+## Reporting a vulnerability
 
-Sensible Details, Zugangsdaten und vollständige Logs gehören nicht in öffentliche Issues. Nutze nach Möglichkeit GitHubs private Sicherheitsmeldung unter **Security → Advisories → Report a vulnerability**.
+Do not publish sensitive details, credentials, or complete logs in a public
+issue. Prefer GitHub private vulnerability reporting:
 
-Falls die private Meldung nicht verfügbar ist, eröffne ein Issue ohne technische Details und bitte dort um einen privaten Kontaktweg.
+**Security → Advisories → Report a vulnerability**
 
-Hilfreich sind:
+If private reporting is unavailable, open an issue without technical details
+and request a private contact channel.
 
-- betroffene Build-ID oder Commit-SHA,
-- nachvollziehbare Schritte,
-- erwartetes und tatsächliches Verhalten,
-- Auswirkung und möglicher Angriffsweg,
-- bereinigte Logs ohne Tokens, Passwörter oder interne Adressen.
+A useful report includes:
 
-Besonders relevant sind Authentifizierungsumgehungen, Pfadmanipulation, unerwartete Befehlsausführung, Offenlegung von Zugangsdaten und Manipulation des Update-Prozesses.
+- affected build ID or commit SHA;
+- reproducible steps;
+- expected and actual behavior;
+- impact and possible attack path;
+- sanitized logs without tokens, passwords, cookies, or private addresses.
+
+High-priority examples include authentication bypasses, path traversal,
+unexpected command execution, credential disclosure, and update-process
+manipulation.

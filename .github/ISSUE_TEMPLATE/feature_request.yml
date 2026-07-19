@@ -1,5 +1,5 @@
-name: Funktion vorschlagen
-description: Eine konkrete Verbesserung für Royal Downloader vorschlagen
+name: Feature request
+description: Propose a focused improvement to Royal Downloader
 title: "[Feature]: "
 labels:
   - enhancement
@@ -7,36 +7,48 @@ body:
   - type: textarea
     id: use_case
     attributes:
-      label: Anwendungsfall
-      description: Welches Problem soll gelöst werden?
+      label: Use case
+      description: Which problem should this feature solve?
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
-      label: Gewünschtes Verhalten
-      description: Wie sollte Royal Downloader sich verhalten?
+      label: Proposed behavior
+      description: How should Royal Downloader behave?
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternativen
-      description: Welche Umgehung oder andere Lösung nutzt du aktuell?
+      label: Alternatives
+      description: Which workaround or alternative do you currently use?
   - type: dropdown
     id: area
     attributes:
-      label: Bereich
+      label: Area
       options:
-        - Weboberfläche
-        - Filme
-        - Serien / Abos
+        - Web interface
+        - Movies
+        - Series or subscriptions
+        - Anime
+        - Providers and languages
+        - Download queue
         - Jellyfin
         - Telegram
-        - Seerr / Moonfin
-        - Docker / NAS
+        - Seerr or Moonfin
+        - Docker or NAS
         - Updates
-        - Andere
+        - Other
     validations:
       required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Scope
+      options:
+        - label: This request describes one focused use case.
+          required: true
+        - label: I checked that no existing issue already covers it.
+          required: true
 

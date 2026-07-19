@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="220" viewBox="0 0 960 220" role="img" aria-labelledby="title desc">
   <title id="title">Royal Downloader</title>
-  <desc id="desc">Goldene Krone und der Schriftzug Royal Downloader auf dunklem Hintergrund</desc>
+  <desc id="desc">Golden crown and Royal Downloader lettering on a dark background</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#21152f"/>
