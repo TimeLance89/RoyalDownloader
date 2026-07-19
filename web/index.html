@@ -163,6 +163,9 @@
               </div>
               <div class="detail-head-actions">
                 <span id="fp-detail-availability" class="detail-availability is-idle" aria-live="polite">Keine Auswahl</span>
+                <button id="fp-detail-trailer" class="btn btn-ghost detail-trailer-btn" type="button" hidden>
+                  <span aria-hidden="true">▶</span> Trailer
+                </button>
                 <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
               </div>
             </div>
@@ -179,18 +182,45 @@
               <article class="detail-text">
                 <header class="detail-title-block">
                   <span class="detail-title-kicker">Aus dem Royal Archiv</span>
-                  <div id="fp-detail-genres" class="detail-genres"></div>
-                  <h2 id="fp-detail-title">Wähle einen Film aus</h2>
-                  <div id="fp-detail-meta" class="detail-meta"></div>
+                  <div id="fp-detail-genres" class="detail-genres" data-i18n-ignore></div>
+                  <h2 id="fp-detail-title" data-i18n-ignore>Wähle einen Film aus</h2>
+                  <p id="fp-detail-tagline" class="detail-tagline" data-i18n-ignore hidden></p>
+                  <div id="fp-detail-meta" class="detail-meta" data-i18n-ignore></div>
                 </header>
                 <section class="detail-synopsis">
                   <span class="detail-section-title">Handlung</span>
-                  <p id="fp-detail-desc">Poster auswählen, um Handlung, Verfügbarkeit und Downloadroute anzuzeigen.</p>
+                  <p id="fp-detail-desc" data-i18n-ignore>Poster auswählen, um Handlung, Verfügbarkeit und Downloadroute anzuzeigen.</p>
                 </section>
-                <div class="mission" aria-label="Filmdaten und Downloadroute">
-                  <div><label id="fp-detail-route-label">Originaltitel</label><span id="fp-detail-route">—</span></div>
-                  <div><label id="fp-detail-score-label">Bewertung</label><span id="fp-detail-score">—</span></div>
-                  <div><label id="fp-detail-fallback-label">Veröffentlichung</label><span id="fp-detail-fallback">—</span></div>
+                <div class="mission detail-facts" aria-label="TMDB-Filmdaten">
+                  <div><label>Originaltitel</label><span id="fp-detail-original-title" data-i18n-ignore>—</span></div>
+                  <div><label>Kinostart</label><span id="fp-detail-release" data-i18n-ignore>—</span></div>
+                  <div><label>Freigabe</label><span id="fp-detail-certification" data-i18n-ignore>—</span></div>
+                  <div><label>Sprache · Herkunft</label><span id="fp-detail-origin" data-i18n-ignore>—</span></div>
+                </div>
+                <section class="detail-credits" aria-labelledby="fp-detail-credits-title">
+                  <span id="fp-detail-credits-title" class="detail-section-title">Stab & Produktion</span>
+                  <div class="detail-credit-grid">
+                    <div><label>Regie</label><span id="fp-detail-directors" data-i18n-ignore>—</span></div>
+                    <div><label>Drehbuch</label><span id="fp-detail-writers" data-i18n-ignore>—</span></div>
+                    <div><label>Produktion</label><span id="fp-detail-studios" data-i18n-ignore>—</span></div>
+                  </div>
+                  <div id="fp-detail-insights" class="detail-insights" data-i18n-ignore></div>
+                  <div id="fp-detail-keywords" class="detail-keywords" data-i18n-ignore></div>
+                </section>
+                <section id="fp-detail-cast-section" class="detail-cast" aria-labelledby="fp-detail-cast-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-cast-title" class="detail-section-title">Besetzung</span>
+                    <a id="fp-detail-tmdb-link" class="detail-tmdb-link" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
+                      Auf TMDB ansehen ↗
+                    </a>
+                  </div>
+                  <div id="fp-detail-cast" class="detail-cast-strip" data-i18n-ignore></div>
+                </section>
+                <div id="fp-detail-route-card" class="detail-route-card">
+                  <span class="detail-route-mark" aria-hidden="true">RD</span>
+                  <div><label>Downloadroute</label><strong id="fp-detail-route" data-i18n-ignore>Streams werden geprüft</strong></div>
+                  <div><label>Hoster-Signal</label><strong id="fp-detail-score" data-i18n-ignore>—</strong></div>
+                  <div><label>Fallbacks</label><strong id="fp-detail-fallback" data-i18n-ignore>—</strong></div>
                 </div>
                 <div class="detail-queue-note">
                   <span class="detail-queue-icon" aria-hidden="true">↓</span>
@@ -200,6 +230,19 @@
             </div>
           </div>
         </div>
+        <dialog id="fp-trailer-modal" class="trailer-dialog" aria-labelledby="fp-trailer-title">
+          <div class="trailer-dialog-head">
+            <div>
+              <span class="detail-archive-code">RD · VORFÜHRRAUM</span>
+              <h2 id="fp-trailer-title" data-i18n-ignore>Trailer</h2>
+            </div>
+            <button id="fp-trailer-close" class="trailer-dialog-close" type="button" aria-label="Trailer schließen">×</button>
+          </div>
+          <div class="trailer-frame-shell">
+            <iframe id="fp-trailer-frame" title="Filmtrailer" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+          </div>
+          <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
+        </dialog>
       </div>
     </section>
 

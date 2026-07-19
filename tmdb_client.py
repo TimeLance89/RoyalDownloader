@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 BACKDROP_IMAGE_BASE = "https://image.tmdb.org/t/p/w1280"
+PROFILE_IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
 SERIES_CACHE_TTL = 6 * 60 * 60
 SERIES_NEGATIVE_CACHE_TTL = 60
 
@@ -113,6 +114,192 @@ class TMDBClient:
     def _backdrop_url(path: str) -> str:
         return f"{BACKDROP_IMAGE_BASE}{path}" if path else ""
 
+    @staticmethod
+    def _profile_url(path: str) -> str:
+        return f"{PROFILE_IMAGE_BASE}{path}" if path else ""
+
+    def _preferred_region(self) -> str:
+        parts = str(self.language or "").split("-", 1)
+        return parts[1].upper() if len(parts) == 2 and len(parts[1]) == 2 else "US"
+
+    def _movie_certification(self, details: dict) -> tuple[str, str]:
+        countries = (details.get("release_dates") or {}).get("results") or []
+        by_country = {
+            str(item.get("iso_3166_1") or "").upper(): item
+            for item in countries if isinstance(item, dict)
+        }
+        preferred = self._preferred_region()
+        for country in (preferred, "US", *by_country):
+            releases = (by_country.get(country) or {}).get("release_dates") or []
+            certified = [
+                release for release in releases
+                if isinstance(release, dict) and str(release.get("certification") or "").strip()
+            ]
+            if certified:
+                priority = {3: 0, 2: 1, 4: 2, 5: 3, 6: 4, 1: 5}
+                best = min(
+                    certified,
+                    key=lambda release: priority.get(int(release.get("type") or 99), 99),
+                )
+                return str(best.get("certification") or "").strip(), country
+        return "", ""
+
+    def _movie_trailer(self, videos: list) -> Optional[dict]:
+        preferred_language = str(self.language or "en-US").split("-", 1)[0].lower()
+        candidates = [
+            video for video in videos or []
+            if isinstance(video, dict)
+            and str(video.get("site") or "").casefold() == "youtube"
+            and str(video.get("key") or "").strip()
+            and str(video.get("type") or "") in {"Trailer", "Teaser"}
+        ]
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda video: (
+            bool(video.get("official")),
+            str(video.get("type") or "") == "Trailer",
+            str(video.get("iso_639_1") or "").lower() == preferred_language,
+            int(video.get("size") or 0),
+            str(video.get("published_at") or ""),
+        ))
+        return {
+            "site": "YouTube",
+            "key": str(best.get("key") or "").strip(),
+            "name": str(best.get("name") or "Trailer"),
+            "official": bool(best.get("official")),
+        }
+
+    def _movie_payload(
+        self, details: dict, fallback: dict, tmdb_id, fallback_title: str,
+        details_loaded: bool,
+    ) -> dict:
+        runtime = details.get("runtime")
+        crew = (details.get("credits") or {}).get("crew") or []
+        cast = (details.get("credits") or {}).get("cast") or []
+        directors = list(dict.fromkeys(
+            str(member.get("name") or "").strip()
+            for member in crew
+            if isinstance(member, dict)
+            and member.get("job") == "Director"
+            and member.get("name")
+        ))
+        writers = list(dict.fromkeys(
+            str(member.get("name") or "").strip()
+            for member in crew
+            if isinstance(member, dict)
+            and member.get("job") in {"Screenplay", "Writer", "Story"}
+            and member.get("name")
+        ))
+        certification, certification_country = self._movie_certification(details)
+        trailer = self._movie_trailer(
+            (details.get("videos") or {}).get("results") or []
+        )
+        keywords = (details.get("keywords") or {}).get("keywords") or []
+        original_language = str(details.get("original_language") or "").lower()
+        spoken_languages = [
+            str(language.get("english_name") or language.get("name") or "").strip()
+            for language in details.get("spoken_languages") or []
+            if isinstance(language, dict)
+            and (language.get("english_name") or language.get("name"))
+        ]
+        return {
+            "tmdb_id": int(tmdb_id),
+            "title": details.get("title") or fallback.get("title") or fallback_title,
+            "year": (
+                _year_from_date(details.get("release_date") or "")
+                or fallback.get("year", "")
+            ),
+            "runtime": (
+                f"{runtime} min" if runtime else fallback.get("runtime", "")
+            ),
+            "cover_url": (
+                self._poster_url(details.get("poster_path") or "")
+                or fallback.get("cover_url", "")
+            ),
+            "backdrop_url": (
+                self._backdrop_url(details.get("backdrop_path") or "")
+                or fallback.get("backdrop_url", "")
+            ),
+            "description": details.get("overview") or fallback.get("description") or "",
+            "genres": (
+                [genre.get("name", "") for genre in details.get("genres", []) if genre.get("name")]
+                or fallback.get("genres", [])
+            ),
+            "original_title": (
+                details.get("original_title") or fallback.get("original_title") or ""
+            ),
+            "release_date": (
+                details.get("release_date") or fallback.get("release_date") or ""
+            ),
+            "rating": round(
+                float(details.get("vote_average") or fallback.get("rating") or 0), 1
+            ),
+            "vote_count": int(
+                details.get("vote_count") or fallback.get("vote_count") or 0
+            ),
+            "tagline": details.get("tagline") or "",
+            "certification": certification,
+            "certification_country": certification_country,
+            "status": str(details.get("status") or ""),
+            "original_language": original_language,
+            "spoken_languages": spoken_languages[:4],
+            "countries": [
+                str(country.get("name") or "").strip()
+                for country in details.get("production_countries") or []
+                if isinstance(country, dict) and country.get("name")
+            ][:4],
+            "directors": directors[:3],
+            "writers": writers[:4],
+            "cast": [
+                {
+                    "name": str(member.get("name") or "").strip(),
+                    "character": str(member.get("character") or "").strip(),
+                    "profile_url": self._profile_url(member.get("profile_path") or ""),
+                }
+                for member in cast[:8]
+                if isinstance(member, dict) and member.get("name")
+            ],
+            "production_companies": [
+                str(company.get("name") or "").strip()
+                for company in details.get("production_companies") or []
+                if isinstance(company, dict) and company.get("name")
+            ][:4],
+            "keywords": [
+                str(keyword.get("name") or "").strip()
+                for keyword in keywords
+                if isinstance(keyword, dict) and keyword.get("name")
+            ][:8],
+            "collection": str(
+                (details.get("belongs_to_collection") or {}).get("name") or ""
+            ),
+            "budget": int(details.get("budget") or 0),
+            "revenue": int(details.get("revenue") or 0),
+            "trailer": trailer,
+            "tmdb_url": f"https://www.themoviedb.org/movie/{int(tmdb_id)}",
+            "details_loaded": details_loaded,
+            "metadata_source": "TMDB",
+        }
+
+    def _movie_details(self, tmdb_id) -> Optional[dict]:
+        details = self._request(f"/movie/{tmdb_id}", {
+            "language": self.language,
+            "append_to_response": "credits,videos,release_dates,keywords",
+        })
+        if not details:
+            return None
+        if not details.get("overview"):
+            english = self._request(f"/movie/{tmdb_id}", {"language": "en-US"}) or {}
+            details["overview"] = english.get("overview", "")
+        if "videos" in details and not self._movie_trailer(
+            (details.get("videos") or {}).get("results") or []
+        ):
+            english_videos = self._request(
+                f"/movie/{tmdb_id}/videos", {"language": "en-US"},
+            ) or {}
+            if english_videos.get("results"):
+                details["videos"] = english_videos
+        return details
+
     def movie_summary(self, title: str, year: str = "") -> Optional[dict]:
         """Schnelle Listenmetadaten mit nur einer TMDB-Suchanfrage."""
         query_title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "").strip()
@@ -172,30 +359,14 @@ class TMDBClient:
         summary = self.movie_summary(query_title, year)
         result = None
         if summary:
-            details = self._request(f"/movie/{summary['tmdb_id']}", {"language": self.language}) or summary
-            if not details.get("overview"):
-                english = self._request(f"/movie/{summary['tmdb_id']}", {"language": "en-US"}) or {}
-                details["overview"] = english.get("overview", "")
-            runtime = details.get("runtime")
-            result = {
-                "tmdb_id": summary["tmdb_id"],
-                "title": details.get("title") or summary.get("title") or title,
-                "year": _year_from_date(details.get("release_date") or "") or summary.get("year", ""),
-                "runtime": f"{runtime} min" if runtime else "",
-                "cover_url": self._poster_url(details.get("poster_path") or "") or summary.get("cover_url", ""),
-                "backdrop_url": self._backdrop_url(details.get("backdrop_path") or "") or summary.get("backdrop_url", ""),
-                "description": details.get("overview") or summary.get("description") or "",
-                "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
-                "original_title": details.get("original_title") or summary.get("original_title") or "",
-                "release_date": details.get("release_date") or summary.get("release_date") or "",
-                "rating": round(float(details.get("vote_average") or summary.get("rating") or 0), 1),
-                "vote_count": int(details.get("vote_count") or summary.get("vote_count") or 0),
-                "tagline": details.get("tagline") or "",
-                "details_loaded": True,
-                "metadata_source": "TMDB",
-            }
-        with self._lock:
-            self._movie_cache[cache_key] = result
+            details = self._movie_details(summary["tmdb_id"])
+            result = self._movie_payload(
+                details or summary, summary, summary["tmdb_id"], title,
+                details_loaded=details is not None,
+            )
+        if result and result.get("details_loaded"):
+            with self._lock:
+                self._movie_cache[cache_key] = result
         return result
 
     def movie_by_id(self, tmdb_id, title: str = "", force: bool = False) -> Optional[dict]:
@@ -207,30 +378,12 @@ class TMDBClient:
             if key in self._movie_id_cache and not force:
                 return self._movie_id_cache[key]
 
-        details = self._request(f"/movie/{key}", {"language": self.language})
+        details = self._movie_details(key)
         result = None
         if details:
-            if not details.get("overview"):
-                english = self._request(f"/movie/{key}", {"language": "en-US"}) or {}
-                details["overview"] = english.get("overview", "")
-            runtime = details.get("runtime")
-            result = {
-                "tmdb_id": int(key),
-                "title": details.get("title") or title,
-                "year": _year_from_date(details.get("release_date") or ""),
-                "runtime": f"{runtime} min" if runtime else "",
-                "cover_url": self._poster_url(details.get("poster_path") or ""),
-                "backdrop_url": self._backdrop_url(details.get("backdrop_path") or ""),
-                "description": details.get("overview") or "",
-                "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
-                "original_title": details.get("original_title") or "",
-                "release_date": details.get("release_date") or "",
-                "rating": round(float(details.get("vote_average") or 0), 1),
-                "vote_count": int(details.get("vote_count") or 0),
-                "tagline": details.get("tagline") or "",
-                "details_loaded": True,
-                "metadata_source": "TMDB",
-            }
+            result = self._movie_payload(
+                details, {}, key, title, details_loaded=True,
+            )
         if result is not None:
             with self._lock:
                 self._movie_id_cache[key] = result

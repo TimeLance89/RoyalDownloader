@@ -2226,6 +2226,10 @@ def movie_to_dict(movie: FilmpalastMovie) -> dict:
         for field in (
             "title", "year", "runtime", "cover_url", "backdrop_url", "description", "genres",
             "original_title", "release_date", "rating", "vote_count", "tagline",
+            "certification", "certification_country", "status", "original_language",
+            "spoken_languages", "countries", "directors", "writers", "cast",
+            "production_companies", "keywords", "collection", "budget", "revenue",
+            "trailer", "tmdb_url",
         ):
             if tmdb.get(field):
                 payload[field] = tmdb[field]

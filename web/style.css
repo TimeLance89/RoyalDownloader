@@ -5866,8 +5866,8 @@ body.setup-open #dir-modal { z-index: 120; }
    FILMAKTE — cineastisches Archivdossier
    ═══════════════════════════════════════════════════════════════════════ */
 .media-modal .detail-panel {
-  width: min(1160px, 100%);
-  height: min(680px, calc(100dvh - 72px));
+  width: min(1240px, 100%);
+  height: min(780px, calc(100dvh - 48px));
   padding: 0;
   overflow: hidden;
   background-image:
@@ -5919,6 +5919,21 @@ body.setup-open #dir-modal { z-index: 120; }
   justify-content: flex-end;
   gap: 14px;
 }
+.detail-trailer-btn {
+  min-height: 40px;
+  padding-inline: 14px;
+  color: var(--accent-hov);
+  background: rgba(216, 183, 102, 0.08);
+  border-color: rgba(216, 183, 102, 0.30);
+  border-radius: 11px;
+}
+.detail-trailer-btn:hover,
+.detail-trailer-btn:focus-visible {
+  color: #160f07;
+  background: var(--gold-grad);
+  border-color: transparent;
+}
+.detail-trailer-btn span { margin-right: 5px; font-size: 9px; }
 .detail-download-btn {
   min-height: 40px;
   padding-inline: 16px;
@@ -5981,13 +5996,16 @@ body.setup-open #dir-modal { z-index: 120; }
 .detail-text {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(205px, 0.38fr);
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.48fr);
   grid-template-areas:
     "title title"
     "synopsis facts"
-    "queue facts";
+    "credits facts"
+    "cast cast"
+    "route route"
+    "queue queue";
   align-content: start;
-  gap: 18px 30px;
+  gap: 18px 28px;
 }
 .detail-title-block {
   grid-area: title;
@@ -5996,11 +6014,18 @@ body.setup-open #dir-modal { z-index: 120; }
 }
 .detail-title-kicker { display: block; margin-bottom: 10px; }
 .detail-text h2 {
-  max-width: 17ch;
-  margin: 10px 0 12px;
-  font-size: clamp(38px, 5vw, 64px);
+  max-width: 19ch;
+  margin: 10px 0 10px;
+  font-size: clamp(38px, 4.6vw, 62px);
   line-height: 0.94;
   letter-spacing: -0.025em;
+}
+.detail-tagline {
+  max-width: 62ch;
+  margin: 0 0 12px;
+  color: rgba(240, 216, 144, 0.76);
+  font: italic 500 14px/1.35 "Cormorant Garamond", Georgia, serif;
+  letter-spacing: 0.015em;
 }
 .detail-genres { gap: 7px; }
 .detail-genres span { font-size: 8.5px; letter-spacing: 0.14em; }
@@ -6025,21 +6050,183 @@ body.setup-open #dir-modal { z-index: 120; }
   line-height: 1.72;
   color: rgba(243, 238, 227, 0.84);
 }
-.detail-text .mission {
+.detail-text .detail-facts {
   grid-area: facts;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 8px;
 }
-.detail-text .mission > div {
-  min-height: 72px;
+.detail-text .detail-facts > div {
+  min-height: 86px;
   padding: 12px;
   background: linear-gradient(145deg, rgba(216, 183, 102, 0.12), rgba(8, 6, 13, 0.48));
   border-color: rgba(216, 183, 102, 0.18);
   border-radius: 12px;
 }
-.detail-text .mission label { font-size: 7px; }
-.detail-text .mission span { font-size: 11.5px; }
+.detail-text .detail-facts label { font-size: 7px; }
+.detail-text .detail-facts span {
+  display: -webkit-box;
+  font-size: 11.5px;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.detail-credits {
+  grid-area: credits;
+  min-width: 0;
+  padding: 3px 0 0;
+}
+.detail-credit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.detail-credit-grid > div {
+  min-width: 0;
+  padding: 10px 11px;
+  background: rgba(8, 6, 13, 0.36);
+  border: 1px solid rgba(243, 238, 227, 0.08);
+  border-radius: 10px;
+}
+.detail-credit-grid label,
+.detail-route-card label {
+  display: block;
+  margin-bottom: 5px;
+  color: rgba(216, 183, 102, 0.62);
+  font: 600 7px/1.2 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.detail-credit-grid span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(243, 238, 227, 0.88);
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.detail-insights,
+.detail-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.detail-insights span,
+.detail-keywords span {
+  padding: 4px 7px;
+  color: rgba(243, 238, 227, 0.68);
+  background: rgba(243, 238, 227, 0.035);
+  border: 1px solid rgba(243, 238, 227, 0.08);
+  border-radius: 999px;
+  font: 500 7.5px/1.2 "JetBrains Mono", Consolas, monospace;
+}
+.detail-keywords span {
+  color: rgba(216, 183, 102, 0.70);
+  border-color: rgba(216, 183, 102, 0.13);
+}
+.detail-cast {
+  grid-area: cast;
+  min-width: 0;
+}
+.detail-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detail-tmdb-link {
+  color: rgba(169, 158, 145, 0.72);
+  font: 500 7.5px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.detail-tmdb-link:hover,
+.detail-tmdb-link:focus-visible { color: var(--accent-hov); outline: none; }
+.detail-cast-strip {
+  position: relative;
+  display: grid;
+  grid-auto-columns: minmax(154px, 1fr);
+  grid-auto-flow: column;
+  gap: 7px;
+  padding: 13px 8px;
+  overflow-x: auto;
+  background:
+    radial-gradient(circle, rgba(216, 183, 102, 0.40) 0 1.6px, transparent 1.9px) 4px 3px / 15px 6px repeat-x,
+    radial-gradient(circle, rgba(216, 183, 102, 0.28) 0 1.6px, transparent 1.9px) 4px calc(100% - 3px) / 15px 6px repeat-x,
+    rgba(8, 6, 13, 0.46);
+  border: 1px solid rgba(216, 183, 102, 0.13);
+  border-radius: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(216, 183, 102, 0.34) transparent;
+}
+.detail-cast-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  background: rgba(24, 17, 34, 0.86);
+  border: 1px solid rgba(243, 238, 227, 0.08);
+  border-radius: 8px;
+}
+.detail-cast-portrait {
+  width: 38px;
+  height: 48px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--accent);
+  background: linear-gradient(145deg, rgba(216, 183, 102, 0.16), rgba(8, 6, 13, 0.60));
+  border-radius: 6px;
+  font: 700 10px/1 "Cormorant Garamond", Georgia, serif;
+}
+.detail-cast-portrait img { width: 100%; height: 100%; object-fit: cover; }
+.detail-cast-card > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.detail-cast-card strong,
+.detail-cast-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-cast-card strong { color: var(--text); font-size: 9.5px; }
+.detail-cast-card small { color: var(--text-dim); font-size: 7.5px; }
+.detail-route-card {
+  grid-area: route;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1.8fr) minmax(90px, 0.5fr) minmax(90px, 0.5fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(8, 6, 13, 0.50);
+  border: 1px solid rgba(216, 183, 102, 0.13);
+  border-radius: 11px;
+}
+.detail-route-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #160f07;
+  background: var(--gold-grad);
+  border-radius: 8px;
+  font: 800 8px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+.detail-route-card > div { min-width: 0; }
+.detail-route-card strong {
+  display: block;
+  overflow: hidden;
+  color: rgba(243, 238, 227, 0.84);
+  font-size: 9px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-route-card.is-loading { opacity: 0.62; }
 .detail-queue-note {
   grid-area: queue;
   display: flex;
@@ -6065,6 +6252,73 @@ body.setup-open #dir-modal { z-index: 120; }
 .detail-queue-note > span:last-child { display: flex; flex-direction: column; gap: 2px; }
 .detail-queue-note strong { color: var(--text); font-size: 10.5px; font-weight: 600; }
 .detail-queue-note small { color: var(--text-dim); font-size: 8.5px; }
+
+.trailer-dialog {
+  width: min(960px, calc(100vw - 32px));
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: #09060e;
+  border: 1px solid rgba(216, 183, 102, 0.34);
+  border-radius: 20px;
+  box-shadow: 0 42px 120px rgba(0, 0, 0, 0.92), 0 0 50px rgba(216, 183, 102, 0.10);
+}
+.trailer-dialog::backdrop {
+  background: rgba(3, 2, 6, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.trailer-dialog-head {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 18px 13px;
+  background: linear-gradient(90deg, rgba(216, 183, 102, 0.10), transparent 52%);
+  border-bottom: 1px solid rgba(216, 183, 102, 0.15);
+}
+.trailer-dialog h2 {
+  margin: 3px 0 0;
+  font: 700 clamp(21px, 3vw, 30px)/1 "Cormorant Garamond", Georgia, serif;
+}
+.trailer-dialog-close {
+  width: 38px;
+  height: 38px;
+  color: var(--text);
+  background: rgba(243, 238, 227, 0.06);
+  border: 1px solid rgba(243, 238, 227, 0.14);
+  border-radius: 50%;
+  font-size: 21px;
+  cursor: pointer;
+}
+.trailer-dialog-close:hover,
+.trailer-dialog-close:focus-visible {
+  color: #160f07;
+  background: var(--gold-grad);
+  outline: none;
+}
+.trailer-frame-shell { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.trailer-frame-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(216, 183, 102, 0.12), transparent 58%);
+}
+.trailer-frame-shell iframe {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+}
+.trailer-caption {
+  min-height: 39px;
+  margin: 0;
+  padding: 11px 18px;
+  color: var(--text-dim);
+  font-size: 9px;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════
    BIBLIOTHEK — Abo-Dashboard und Kartenarchiv
@@ -6376,10 +6630,10 @@ body.setup-open #dir-modal { z-index: 120; }
 @media (max-width: 980px) {
   .detail-text {
     grid-template-columns: 1fr;
-    grid-template-areas: "title" "synopsis" "facts" "queue";
+    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "route" "queue";
   }
-  .detail-text .mission { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .detail-text .mission > div { min-height: 66px; }
+  .detail-text .detail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .detail-text .detail-facts > div { min-height: 66px; }
   .detail-text h2 { font-size: clamp(34px, 5.5vw, 52px); }
 }
 
@@ -6417,9 +6671,15 @@ body.setup-open #dir-modal { z-index: 120; }
     padding: 14px 52px 12px 16px;
   }
   .detail-head-primary .panel-title { font-size: 20px; }
-  .detail-head-actions { align-items: flex-end; flex-direction: column-reverse; gap: 6px; }
-  .detail-download-btn { min-height: 36px; padding: 6px 11px; }
-  .detail-availability { padding: 4px 7px; font-size: 7px; }
+  .detail-head-actions {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-items: end;
+    gap: 5px 6px;
+  }
+  .detail-download-btn,
+  .detail-trailer-btn { min-height: 34px; padding: 5px 9px; font-size: 8px; }
+  .detail-availability { grid-column: 1 / -1; padding: 3px 6px; font-size: 6.5px; }
   .media-modal .detail-body {
     display: grid;
     grid-template-columns: 128px minmax(0, 1fr);
@@ -6435,35 +6695,55 @@ body.setup-open #dir-modal { z-index: 120; }
     grid-column: 2;
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-areas: "title" "synopsis" "facts" "queue";
+    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "route" "queue";
     gap: 14px;
   }
   .detail-title-block { padding: 0 0 13px; }
   .detail-title-kicker { margin-bottom: 7px; font-size: 6.5px; }
   .detail-text h2 { margin: 7px 0 9px; font-size: clamp(26px, 8vw, 38px); }
   .detail-meta span { padding: 3px 5px; font-size: 7px; }
-  .detail-synopsis,
-  .detail-text .mission,
-  .detail-queue-note { grid-column: 1 / -1; }
   .detail-synopsis { padding: 12px 13px; }
   #fp-detail-desc { font-size: 11.5px; line-height: 1.62; }
-  .detail-text .mission { grid-template-columns: 1fr; }
-  .detail-text .mission > div { min-height: 58px; }
+  .detail-text .detail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .detail-text .detail-facts > div { min-height: 58px; }
+  .detail-credit-grid { grid-template-columns: 1fr; }
+  .detail-route-card {
+    grid-template-columns: 30px minmax(0, 1fr) minmax(70px, auto);
+  }
+  .detail-route-card > div:last-child { display: none; }
   .detail-queue-note { padding-bottom: 4px; }
 }
 
 @media (max-width: 560px) {
-  .media-modal .detail-body { grid-template-columns: 104px minmax(0, 1fr); gap: 13px; }
+  .media-modal .detail-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .detail-visual,
+  .detail-text { grid-column: 1; }
   .poster-shell,
-  .detail-visual-caption { width: 104px; }
+  .detail-visual-caption { width: 142px; }
+  .poster-shell { margin-inline: 0; }
+  .detail-visual-caption { margin-inline: 0; }
   .detail-text h2 { font-size: clamp(24px, 8vw, 34px); }
-  .detail-text .mission,
+  .detail-text .detail-facts,
   .detail-synopsis,
+  .detail-credits,
+  .detail-cast,
+  .detail-route-card,
   .detail-queue-note {
     grid-column: 1 / -1;
-    margin-left: -117px;
+    margin-left: 0;
   }
-  .detail-synopsis { margin-top: 6px; }
+  .detail-credit-grid { grid-template-columns: 1fr; }
+  .detail-cast-strip { grid-auto-columns: 145px; }
+  .detail-route-card {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+  .detail-route-card > div:nth-of-type(n + 2) { display: none; }
+  .trailer-dialog { width: calc(100vw - 18px); border-radius: 15px; }
+  .trailer-dialog-head { min-height: 58px; padding: 10px 12px; }
+  .trailer-caption { padding-inline: 12px; }
   .library-hero { padding: 15px; }
   .library-hero p { font-size: 10.5px; }
   .library-overview { gap: 6px; }

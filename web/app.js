@@ -422,6 +422,7 @@ function openMediaModal(modalId, trigger = null) {
 function closeMediaModal(modalId, restoreFocus = true) {
   const modal = document.getElementById(modalId);
   if (!modal || modal.hidden) return;
+  if (modalId === "fp-detail-modal") closeFpTrailerModal(false);
   const returnFocus = modal._returnFocus;
   modal.classList.remove("is-open");
   modal.hidden = true;
@@ -436,6 +437,14 @@ function closeAllMediaModals(restoreFocus = true) {
 }
 
 function handleMediaModalKeydown(event) {
+  const trailerDialog = document.getElementById("fp-trailer-modal");
+  if (trailerDialog?.open) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFpTrailerModal();
+    }
+    return true;
+  }
   const modal = activeMediaModal();
   if (!modal) return false;
   if (event.key === "Escape") {
@@ -1356,12 +1365,7 @@ async function selectFpRow(slug) {
   if (movie) showFpDetail(slug, movie);
   else if (metadata) showFpDetail(slug, metadataPreviewMovie(metadata), true);
   else {
-    const detailPanel = document.getElementById("fp-detail-panel");
-    detailPanel.classList.remove("is-empty");
-    detailPanel.classList.add("has-no-cover");
-    detailPanel.style.removeProperty("--detail-backdrop-image");
-    document.getElementById("fp-detail-cover").removeAttribute("src");
-    document.getElementById("fp-detail-title").textContent = "Lade Cover und Beschreibung …";
+    showFpDetail(slug, basicMovieMetadata(item), true);
     setFpDetailAvailability("Metadaten werden geladen", "loading");
   }
   openMediaModal("fp-detail-modal", findFpResultCard(slug));
@@ -1401,6 +1405,122 @@ function setFpDetailAvailability(text, state = "ready") {
   badge.className = `detail-availability is-${state}`;
 }
 
+function formatMovieDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return value || "—";
+  const date = new Date(`${value}T00:00:00Z`);
+  return new Intl.DateTimeFormat(i18n.locale(), {
+    day: "2-digit", month: "long", year: "numeric", timeZone: "UTC",
+  }).format(date);
+}
+
+function formatMovieNumber(value) {
+  const number = Number(value || 0);
+  return number > 0 ? new Intl.NumberFormat(i18n.locale()).format(number) : "";
+}
+
+function formatMovieMoney(value) {
+  const number = Number(value || 0);
+  if (number <= 0) return "";
+  return new Intl.NumberFormat(i18n.locale(), {
+    style: "currency", currency: "USD", maximumFractionDigits: 0,
+    notation: number >= 1_000_000 ? "compact" : "standard",
+  }).format(number);
+}
+
+function movieCertificationLabel(movie) {
+  const certification = String(movie.certification || "").trim();
+  if (!certification) return "Nicht angegeben";
+  const country = String(movie.certification_country || "").toUpperCase();
+  if (country === "DE") return `FSK ${certification}`;
+  return country ? `${country} ${certification}` : certification;
+}
+
+function movieStatusLabel(status) {
+  return ({
+    Released: "Veröffentlicht",
+    "Post Production": "Postproduktion",
+    "In Production": "In Produktion",
+    Planned: "Geplant",
+    Rumored: "Gerücht",
+    Canceled: "Abgebrochen",
+  })[status] || status || "";
+}
+
+function setFpDetailText(id, value, fallback = "—") {
+  document.getElementById(id).textContent = value || fallback;
+}
+
+function renderFpCast(cast, tmdbUrl) {
+  const section = document.getElementById("fp-detail-cast-section");
+  const container = document.getElementById("fp-detail-cast");
+  const link = document.getElementById("fp-detail-tmdb-link");
+  const members = Array.isArray(cast) ? cast.filter((member) => member?.name) : [];
+  section.hidden = !members.length;
+  container.innerHTML = "";
+  const safeTmdbUrl = /^https:\/\/www\.themoviedb\.org\/movie\/\d+$/.test(tmdbUrl || "");
+  link.href = safeTmdbUrl ? tmdbUrl : "https://www.themoviedb.org";
+  if (!members.length) return;
+  for (const member of members) {
+    const card = document.createElement("div");
+    card.className = "detail-cast-card";
+    const portrait = document.createElement("div");
+    portrait.className = "detail-cast-portrait";
+    if (member.profile_url) {
+      const image = document.createElement("img");
+      image.src = api.coverUrl(member.profile_url);
+      image.alt = "";
+      image.loading = "lazy";
+      portrait.appendChild(image);
+    } else {
+      portrait.textContent = member.name
+        .split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
+    }
+    const copy = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = member.name;
+    const role = document.createElement("small");
+    role.textContent = member.character || "Besetzung";
+    copy.append(name, role);
+    card.append(portrait, copy);
+    container.appendChild(card);
+  }
+}
+
+function closeFpTrailerModal(restoreFocus = true) {
+  const dialog = document.getElementById("fp-trailer-modal");
+  if (!dialog?.open) return;
+  const returnFocus = dialog._returnFocus;
+  dialog.close();
+  document.getElementById("fp-trailer-frame").removeAttribute("src");
+  if (restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
+    returnFocus.focus();
+  }
+}
+
+function openFpTrailerModal(movie, trigger) {
+  const trailer = movie?.trailer;
+  const key = String(trailer?.key || "").trim();
+  if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
+  const dialog = document.getElementById("fp-trailer-modal");
+  dialog._returnFocus = trigger;
+  document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
+  document.getElementById("fp-trailer-caption").textContent = trailer.name || "Offizieller Trailer";
+  document.getElementById("fp-trailer-frame").src =
+    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0`;
+  dialog.showModal();
+  document.getElementById("fp-trailer-close").focus();
+}
+
+function configureFpTrailer(movie) {
+  const button = document.getElementById("fp-detail-trailer");
+  const trailer = movie?.trailer;
+  const available = trailer?.site === "YouTube"
+    && /^[A-Za-z0-9_-]{6,20}$/.test(String(trailer.key || ""));
+  button.hidden = !available;
+  button.onclick = available ? () => openFpTrailerModal(movie, button) : null;
+  if (!available) closeFpTrailerModal(false);
+}
+
 function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const addBtn = document.getElementById("fp-detail-add");
   const queued = state.queuedSlugs.has(slug);
@@ -1437,7 +1557,8 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   if (movie.cover_url) {
     const coverUrl = api.coverUrl(movie.cover_url);
     if (cover.getAttribute("src") !== coverUrl) cover.src = coverUrl;
-    detailPanel.style.setProperty("--detail-backdrop-image", `url("${coverUrl}")`);
+    const backdropUrl = api.coverUrl(movie.backdrop_url || movie.cover_url).replace(/"/g, "%22");
+    detailPanel.style.setProperty("--detail-backdrop-image", `url("${backdropUrl}")`);
   } else if (cover.hasAttribute("src")) {
     cover.removeAttribute("src");
     detailPanel.style.removeProperty("--detail-backdrop-image");
@@ -1449,26 +1570,63 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   const metaParts = [];
   if (movie.year) metaParts.push(movie.year);
   if (movie.runtime) metaParts.push(movie.runtime);
-  if (movie.rating) metaParts.push(`★ ${movie.rating}/10`);
+  if (movie.rating) {
+    metaParts.push(
+      `★ ${movie.rating}/10${movie.vote_count ? ` · ${formatMovieNumber(movie.vote_count)} Stimmen` : ""}`,
+    );
+  }
   if (!metadataOnly) metaParts.push(movie.hosters.length ? `${movie.hosters.length} Hoster` : "kein Hoster");
   if (movie.metadata_source) metaParts.push(movie.metadata_source);
   renderFpDetailItems("fp-detail-meta", metaParts, "Keine Metadaten");
   renderFpDetailItems("fp-detail-genres", movie.genres, "Genre unbekannt");
+  const tagline = document.getElementById("fp-detail-tagline");
+  tagline.textContent = movie.tagline || "";
+  tagline.hidden = !movie.tagline;
   if (metadataOnly) setFpDetailAvailability("Streams werden geprüft", "loading");
   else if (movie.hosters.length) setFpDetailAvailability(`${movie.hosters.length} Hoster bereit`, "ready");
   else setFpDetailAvailability("Kein Hoster verfügbar", "error");
-  document.getElementById("fp-detail-route-label").textContent = metadataOnly ? "Originaltitel" : "Route";
-  document.getElementById("fp-detail-score-label").textContent = metadataOnly ? "Bewertung" : "Signal";
-  document.getElementById("fp-detail-fallback-label").textContent = metadataOnly ? "Veröffentlichung" : "Fallback";
-  document.getElementById("fp-detail-route").textContent = metadataOnly ? (movie.original_title || "—") : (movie.hoster_route || "—");
-  document.getElementById("fp-detail-score").textContent = metadataOnly
-    ? (movie.rating ? `${movie.rating}/10${movie.vote_count ? ` · ${movie.vote_count} Stimmen` : ""}` : "—")
-    : (movie.hoster_score != null ? String(movie.hoster_score) : "—");
-  document.getElementById("fp-detail-fallback").textContent = metadataOnly
-    ? (movie.release_date || "—")
-    : (movie.hosters.length ? `${movie.hoster_fallback_count} Alternativen` : "—");
+  setFpDetailText("fp-detail-original-title", movie.original_title);
+  setFpDetailText("fp-detail-release", formatMovieDate(movie.release_date));
+  setFpDetailText("fp-detail-certification", movieCertificationLabel(movie));
+  const languages = (movie.spoken_languages || []).slice(0, 2).join(", ")
+    || (movie.original_language ? movie.original_language.toUpperCase() : "");
+  const origin = [
+    languages,
+    ...(movie.countries || []),
+  ].filter(Boolean).join(" · ");
+  setFpDetailText("fp-detail-origin", origin);
+  setFpDetailText("fp-detail-directors", (movie.directors || []).join(", "));
+  setFpDetailText("fp-detail-writers", (movie.writers || []).join(", "));
+  setFpDetailText("fp-detail-studios", (movie.production_companies || []).join(", "));
+  const insights = [];
+  const status = movieStatusLabel(movie.status);
+  const budget = formatMovieMoney(movie.budget);
+  const revenue = formatMovieMoney(movie.revenue);
+  if (status) insights.push(`Status · ${status}`);
+  if (movie.collection) insights.push(`Reihe · ${movie.collection}`);
+  if (budget) insights.push(`Budget · ${budget}`);
+  if (revenue) insights.push(`Einspiel · ${revenue}`);
+  renderFpDetailItems("fp-detail-insights", insights);
+  renderFpDetailItems("fp-detail-keywords", movie.keywords || []);
+  renderFpCast(movie.cast, movie.tmdb_url);
+  document.getElementById("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);
+  setFpDetailText(
+    "fp-detail-route",
+    metadataOnly ? "Streams werden geprüft" : movie.hoster_route,
+  );
+  setFpDetailText(
+    "fp-detail-score",
+    metadataOnly ? "Noch offen" : (movie.hoster_score != null ? String(movie.hoster_score) : ""),
+  );
+  setFpDetailText(
+    "fp-detail-fallback",
+    metadataOnly
+      ? "Noch offen"
+      : (movie.hosters.length ? `${movie.hoster_fallback_count} Alternativen` : ""),
+  );
   document.getElementById("fp-detail-desc").textContent = movie.description || "(keine Beschreibung)";
 
+  configureFpTrailer(movie);
   configureFpDetailAction(slug, movie, metadataOnly);
 }
 
@@ -3999,6 +4157,23 @@ async function initApp() {
   });
   document.getElementById("fp-new-btn").addEventListener("click", () => fpShowList("new"));
   document.getElementById("fp-top-btn").addEventListener("click", () => fpShowList("top"));
+  document.getElementById("fp-trailer-close").addEventListener("click", () => {
+    closeFpTrailerModal();
+  });
+  const trailerDialog = document.getElementById("fp-trailer-modal");
+  trailerDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeFpTrailerModal();
+  });
+  trailerDialog.addEventListener("click", (event) => {
+    if (event.target !== trailerDialog) return;
+    const rect = trailerDialog.getBoundingClientRect();
+    const inside = (
+      event.clientX >= rect.left && event.clientX <= rect.right
+      && event.clientY >= rect.top && event.clientY <= rect.bottom
+    );
+    if (!inside) closeFpTrailerModal();
+  });
   document.getElementById("movie-feature-open").addEventListener("click", (event) => {
     const slug = event.currentTarget.dataset.slug;
     if (slug) selectFpRow(slug);
