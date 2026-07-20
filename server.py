@@ -8592,8 +8592,17 @@ async def api_seerr_config_set(body: SeerrConfigBody):
     same_server = bool(url) and url.casefold() == str(previous.get("url") or "").rstrip("/").casefold()
     api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
     interval = max(15, min(3600, int(body.poll_interval_seconds or 60)))
-    if body.enabled and (not url or not api_key):
-        raise HTTPException(400, "Für Seerr fehlen URL oder API-Schlüssel.")
+    if body.enabled and not url and not api_key:
+        raise HTTPException(400, "Für Seerr fehlen Adresse und API-Schlüssel.")
+    if body.enabled and not url:
+        raise HTTPException(400, "Für Seerr fehlt die Adresse.")
+    if body.enabled and not api_key:
+        raise HTTPException(
+            400,
+            "Für Seerr fehlt der API-Schlüssel: Es ist keiner gespeichert. "
+            "Bitte aus Seerr → Einstellungen → Allgemein kopieren und einmal "
+            "eintragen; danach darf das Feld wieder leer bleiben.",
+        )
     if body.enabled:
         valid = await run_in_threadpool(SeerrClient(url, api_key).test_connection)
         if not valid:
