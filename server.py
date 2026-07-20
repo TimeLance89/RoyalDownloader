@@ -23,7 +23,7 @@ import socket
 import sys
 import requests
 from contextlib import asynccontextmanager
-from collections import Counter, OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -99,7 +99,7 @@ from jellyfin_recommender import (
 from tmdb_client import SERIES_CACHE_TTL, TMDBClient
 from telegram_bot import TelegramBot
 from seerr_client import SeerrClient, SeerrRequest
-from update_checker import UpdateChecker
+from update_checker import UpdateChecker, resolve_update_source
 from self_updater import SelfUpdater
 from ytdlp_updater import YtDlpRuntimeUpdater
 from ui_translator import (
@@ -139,9 +139,10 @@ WEB_DIR = APP_DIR / "web"
 APP_USERNAME = os.environ.get("APP_USERNAME", "").strip()
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 AUTH_ENABLED = bool(APP_USERNAME and APP_PASSWORD)
+UPDATE_REPOSITORY, UPDATE_BRANCH = resolve_update_source()
 UPDATE_CHECKER = UpdateChecker(
-    repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
-    branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
+    repository=UPDATE_REPOSITORY,
+    branch=UPDATE_BRANCH,
     app_dir=APP_DIR,
 )
 UI_TRANSLATOR = UITranslator()
@@ -198,6 +199,100 @@ def _authorized_header(value: str) -> bool:
     except Exception:
         return False
     return secrets.compare_digest(username, APP_USERNAME) and secrets.compare_digest(password, APP_PASSWORD)
+
+
+_LOOPBACK_BIND_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _unauthenticated_lan_allowed() -> bool:
+    return os.environ.get("ALLOW_UNAUTHENTICATED_LAN", "").strip().lower() in {"1", "true", "yes"}
+
+
+def enforce_network_auth_policy() -> None:
+    """Sicher-per-Standard: Netzwerkfreigabe nur mit Anmeldung.
+
+    Ohne APP_USERNAME/APP_PASSWORD darf der Server nur auf Loopback lauschen.
+    Wer die Oberfläche bewusst ohne Anmeldung im Netz freigeben will (z. B.
+    isoliertes Labornetz), muss ALLOW_UNAUTHENTICATED_LAN=1 setzen.
+    """
+    bind_host = os.environ.get("HOST", "127.0.0.1").strip()
+    if bind_host in _LOOPBACK_BIND_HOSTS or AUTH_ENABLED:
+        return
+    if _unauthenticated_lan_allowed():
+        logger.warning(
+            "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar "
+            "(ALLOW_UNAUTHENTICATED_LAN=1). APP_USERNAME und APP_PASSWORD setzen."
+        )
+        return
+    raise RuntimeError(
+        f"Start abgebrochen: HOST={bind_host} macht die Weboberfläche ohne "
+        "Anmeldung im Netzwerk erreichbar. Entweder APP_USERNAME und "
+        "APP_PASSWORD setzen, HOST=127.0.0.1 verwenden oder die Freigabe "
+        "bewusst mit ALLOW_UNAUTHENTICATED_LAN=1 bestätigen."
+    )
+
+
+# ── Brute-Force-Schutz für die Basic-Auth-Anmeldung ─────────────────────────
+# Nur Requests MIT Authorization-Header zählen als Fehlversuch; der erste
+# Browser-Aufruf ohne Zugangsdaten (401 → Login-Dialog) bleibt straffrei.
+LOGIN_GUARD_MAX_FAILURES = 5
+LOGIN_GUARD_WINDOW_SECONDS = 300
+LOGIN_GUARD_LOCKOUT_SECONDS = 300
+_LOGIN_GUARD_MAX_TRACKED_CLIENTS = 1000
+_login_guard_lock = threading.Lock()
+_login_guard_failures: Dict[str, deque] = {}
+_login_guard_locked_until: Dict[str, float] = {}
+
+
+def _login_guard_prune(now: float) -> None:
+    for client in [ip for ip, until in _login_guard_locked_until.items() if until <= now]:
+        _login_guard_locked_until.pop(client, None)
+    for client in list(_login_guard_failures):
+        stamps = _login_guard_failures[client]
+        while stamps and now - stamps[0] > LOGIN_GUARD_WINDOW_SECONDS:
+            stamps.popleft()
+        if not stamps:
+            _login_guard_failures.pop(client, None)
+
+
+def login_guard_retry_after(client_ip: str) -> int:
+    """Sekunden bis zur Entsperrung des Clients, 0 wenn nicht gesperrt."""
+    now = time.monotonic()
+    with _login_guard_lock:
+        until = _login_guard_locked_until.get(client_ip, 0.0)
+        if until <= now:
+            _login_guard_locked_until.pop(client_ip, None)
+            return 0
+        return max(1, int(until - now))
+
+
+def login_guard_register(client_ip: str, success: bool) -> None:
+    now = time.monotonic()
+    with _login_guard_lock:
+        if success:
+            had_failures = client_ip in _login_guard_failures
+            _login_guard_failures.pop(client_ip, None)
+            _login_guard_locked_until.pop(client_ip, None)
+            if had_failures:
+                logger.info("Anmeldung erfolgreich nach Fehlversuchen: %s", client_ip)
+            return
+        _login_guard_prune(now)
+        if len(_login_guard_failures) >= _LOGIN_GUARD_MAX_TRACKED_CLIENTS:
+            return
+        stamps = _login_guard_failures.setdefault(client_ip, deque())
+        stamps.append(now)
+        if len(stamps) >= LOGIN_GUARD_MAX_FAILURES:
+            _login_guard_locked_until[client_ip] = now + LOGIN_GUARD_LOCKOUT_SECONDS
+            _login_guard_failures.pop(client_ip, None)
+            logger.warning(
+                "SICHERHEIT: %s nach %s fehlgeschlagenen Anmeldeversuchen für %s s gesperrt.",
+                client_ip, LOGIN_GUARD_MAX_FAILURES, LOGIN_GUARD_LOCKOUT_SECONDS,
+            )
+        else:
+            logger.warning(
+                "Fehlgeschlagene Anmeldung von %s (%s/%s).",
+                client_ip, len(stamps), LOGIN_GUARD_MAX_FAILURES,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -6806,12 +6901,7 @@ async def lifespan(app: FastAPI):
     global _main_loop, _telegram_bot
     import asyncio
     _main_loop = asyncio.get_event_loop()
-    bind_host = os.environ.get("HOST", "127.0.0.1")
-    if bind_host not in ("127.0.0.1", "localhost", "::1") and not AUTH_ENABLED:
-        logger.warning(
-            "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
-            "APP_USERNAME und APP_PASSWORD setzen."
-        )
+    enforce_network_auth_policy()
     removed_staging = await asyncio.to_thread(
         cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
     )
@@ -6857,13 +6947,56 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def require_basic_auth(request: Request, call_next):
-    if request.url.path == "/api/health" or _authorized_header(request.headers.get("authorization", "")):
+    if request.url.path == "/api/health" or not AUTH_ENABLED:
         return await call_next(request)
+    client_ip = request.client.host if request.client else "unbekannt"
+    retry_after = login_guard_retry_after(client_ip)
+    if retry_after:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Zu viele fehlgeschlagene Anmeldeversuche."},
+            headers={"Retry-After": str(retry_after)},
+        )
+    supplied = request.headers.get("authorization", "")
+    if _authorized_header(supplied):
+        login_guard_register(client_ip, True)
+        return await call_next(request)
+    if supplied:
+        login_guard_register(client_ip, False)
     return JSONResponse(
         status_code=401,
         content={"detail": "Anmeldung erforderlich."},
         headers={"WWW-Authenticate": 'Basic realm="Royal Downloader"'},
     )
+
+
+# Zuletzt registriert = äußerste Middleware: Header landen auch auf 401/429.
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' https: data:; "
+        "connect-src 'self' ws: wss:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers[name] = value
+    return response
 
 
 @app.get("/api/health")
@@ -9569,9 +9702,18 @@ async def api_watchlist_open(body: WatchlistOpenBody):
 # ── WebSocket (Log / Fortschritt / Queue-Events) ────────────────────────────
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
-    if not _authorized_header(websocket.headers.get("authorization", "")):
+    client_ip = websocket.client.host if websocket.client else "unbekannt"
+    if AUTH_ENABLED and login_guard_retry_after(client_ip):
+        await websocket.close(code=1013, reason="Zu viele fehlgeschlagene Anmeldeversuche")
+        return
+    supplied = websocket.headers.get("authorization", "")
+    if not _authorized_header(supplied):
+        if AUTH_ENABLED and supplied:
+            login_guard_register(client_ip, False)
         await websocket.close(code=1008, reason="Anmeldung erforderlich")
         return
+    if AUTH_ENABLED:
+        login_guard_register(client_ip, True)
     await ws_manager.connect(websocket)
     try:
         while True:
@@ -9612,6 +9754,11 @@ if __name__ == "__main__":
     # erreichbar) läuft.
     PORT = int(os.environ.get("PORT", "8765"))
     HOST = os.environ.get("HOST", "127.0.0.1")
+    try:
+        enforce_network_auth_policy()
+    except RuntimeError as exc:
+        logger.critical("%s", exc)
+        sys.exit(1)
     open_browser = os.environ.get("OPEN_BROWSER", "1").lower() not in ("0", "false", "no")
     if open_browser:
         threading.Thread(target=_open_browser, args=(PORT,), daemon=True).start()

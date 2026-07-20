@@ -39,6 +39,9 @@ selection. They are never silently downloaded as a normal release.
 1. Copy the repository to the NAS and copy `.env.example` to `.env`.
 2. Set `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` to the actual Jellyfin media
    directories. Royal Downloader and Jellyfin must see the same host folders.
+   For access from other devices set `BIND_ADDRESS=0.0.0.0`,
+   `SEERR_BIND_ADDRESS=0.0.0.0`, and `APP_USERNAME`/`APP_PASSWORD` – both
+   ports stay host-local otherwise.
 3. Prepare the Seerr data directory:
 
    ```bash
@@ -121,7 +124,11 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open `http://<NAS-IP>:8765`.
+Open `http://127.0.0.1:8765` on the Docker host. Both web interfaces bind to
+`127.0.0.1` by default. For LAN access set `BIND_ADDRESS=0.0.0.0` together
+with `APP_USERNAME`/`APP_PASSWORD` in `.env` – with network exposure and no
+credentials the container refuses to start. The same applies to Seerr via
+`SEERR_BIND_ADDRESS`.
 
 ## Volumes and persistent data
 
@@ -149,10 +156,13 @@ All variables are optional and have operational defaults.
 | `SERIES_DIR` | `DOWNLOAD_DIR` | Separate series destination; when omitted, series use the movie directory |
 | `MOVIES_HOST_DIR` | `./downloads/Filme` | Compose-only NAS movie directory mounted to `/movies` |
 | `SERIES_HOST_DIR` | `./downloads/Serien` | Compose-only NAS series directory mounted to `/serien` |
-| `HOST` / `PORT` | `0.0.0.0` / `8765` | Server bind address and port |
+| `HOST` / `PORT` | `0.0.0.0` / `8765` | Server bind address and port inside the container |
+| `BIND_ADDRESS` | `127.0.0.1` | Compose-only host interface for port 8765; `0.0.0.0` publishes to the LAN |
+| `SEERR_BIND_ADDRESS` | `127.0.0.1` | Compose-only host interface for the Seerr port 5055 |
 | `OPEN_BROWSER` | `0` | Prevents opening a desktop browser inside the container |
-| `APP_USERNAME` | empty | HTTP Basic Auth username; recommended on a LAN |
-| `APP_PASSWORD` | empty | HTTP Basic Auth password; recommended on a LAN |
+| `APP_USERNAME` | empty | HTTP Basic Auth username; required for network exposure |
+| `APP_PASSWORD` | empty | HTTP Basic Auth password; required for network exposure |
+| `ALLOW_UNAUTHENTICATED_LAN` | empty | Deliberate opt-out: `1` allows network exposure without login (not recommended) |
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
 | `DNS_SECONDARY` | `9.9.9.9` | Fallback container resolver |
 | `DNS_OVERRIDE` | `1` | `start.sh` only: set to `0` to keep Docker's existing `resolv.conf` |
@@ -178,6 +188,7 @@ All variables are optional and have operational defaults.
 | `APP_COMMIT_SHA` | empty | Optional CI revision override; normal builds detect Git automatically |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/RoyalDownloader` | Repository used by the updater |
 | `UPDATE_GITHUB_BRANCH` | `main` | Branch compared by the updater |
+| `UPDATE_ALLOW_CUSTOM_REPOSITORY` | empty | Must be `1` before a deviating repository or branch takes effect; otherwise the official source stays active |
 | `UPDATE_MODE` | `manual` | `manual` or `automatic`; a value saved in the UI takes precedence |
 | `AUTO_UPDATE_INTERVAL_HOURS` | `6` | Automatic application update interval, limited to 1–168 hours |
 | `YTDLP_AUTO_UPDATE` | `true` | Enables queue-safe stable yt-dlp updates |

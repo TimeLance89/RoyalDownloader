@@ -1,6 +1,7 @@
 """Vergleicht den lokalen Build mit dem neuesten Stand des GitHub-Repositories."""
 
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -13,10 +14,54 @@ from urllib.parse import quote
 import requests
 
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_REPOSITORY = "TimeLance89/RoyalDownloader"
 DEFAULT_BRANCH = "main"
 RECENT_COMMIT_SCAN_LIMIT = 5
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+_REPOSITORY_RE = re.compile(r"[\w.-]+/[\w.-]+")
+_BRANCH_RE = re.compile(r"[\w][\w./-]*")
+
+
+def _custom_update_source_allowed() -> bool:
+    return os.environ.get(
+        "UPDATE_ALLOW_CUSTOM_REPOSITORY", "",
+    ).strip().lower() in {"1", "true", "yes"}
+
+
+def resolve_update_source() -> tuple[str, str]:
+    """Liest die Update-Quelle aus der Umgebung; Abweichungen nur mit Opt-in.
+
+    Solange Updates nicht signiert sind, wäre eine frei zur Laufzeit
+    austauschbare Update-Quelle ein direkter Weg zu Remote-Code-Execution.
+    Abweichende Repositories oder Branches greifen deshalb nur, wenn
+    zusätzlich UPDATE_ALLOW_CUSTOM_REPOSITORY=1 gesetzt ist; sonst bleibt
+    die offizielle Quelle aktiv.
+    """
+    repository = os.environ.get("UPDATE_GITHUB_REPOSITORY", "").strip() or DEFAULT_REPOSITORY
+    branch = os.environ.get("UPDATE_GITHUB_BRANCH", "").strip() or DEFAULT_BRANCH
+    if not _REPOSITORY_RE.fullmatch(repository):
+        logger.warning(
+            "Ungültiges UPDATE_GITHUB_REPOSITORY %r – verwende %s.",
+            repository, DEFAULT_REPOSITORY,
+        )
+        repository = DEFAULT_REPOSITORY
+    if not _BRANCH_RE.fullmatch(branch) or ".." in branch:
+        logger.warning(
+            "Ungültiger UPDATE_GITHUB_BRANCH %r – verwende %s.",
+            branch, DEFAULT_BRANCH,
+        )
+        branch = DEFAULT_BRANCH
+    if (repository, branch) != (DEFAULT_REPOSITORY, DEFAULT_BRANCH) and not _custom_update_source_allowed():
+        logger.warning(
+            "SICHERHEIT: Abweichende Update-Quelle %s@%s ignoriert, da Updates "
+            "nicht signiert sind. Es bleibt %s@%s aktiv; eine eigene Quelle "
+            "erfordert UPDATE_ALLOW_CUSTOM_REPOSITORY=1.",
+            repository, branch, DEFAULT_REPOSITORY, DEFAULT_BRANCH,
+        )
+        return DEFAULT_REPOSITORY, DEFAULT_BRANCH
+    return repository, branch
 
 
 def _valid_commit(value: str) -> str:
