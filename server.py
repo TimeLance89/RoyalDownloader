@@ -7980,6 +7980,15 @@ async def api_updater_install_status():
     return {"installer": UPDATE_INSTALLER.status()}
 
 
+@app.post("/api/updater/rollback")
+async def api_updater_rollback():
+    try:
+        installer = UPDATE_INSTALLER.rollback()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"installer": installer}
+
+
 class UpdaterConfigBody(BaseModel):
     update_mode: str = appconfig.UPDATE_MODE_MANUAL
     auto_update_interval_hours: int = 6
