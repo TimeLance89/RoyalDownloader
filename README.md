@@ -99,11 +99,7 @@ cd RoyalDownloader
 cp .env.example .env
 ```
 
-Set at least `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` in `.env`. For access
-from other devices additionally set `BIND_ADDRESS=0.0.0.0` together with
-`APP_USERNAME` and `APP_PASSWORD` – the ports are host-local by default, and
-with network exposure and no credentials the container refuses to start.
-Then start:
+Set at least `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` in `.env`, then start:
 
 ```bash
 docker compose up -d --build
@@ -115,7 +111,8 @@ language, content languages, providers, storage paths, Jellyfin, TMDB,
 automation, and Telegram.
 
 > [!TIP]
-> Never expose port `8765` directly to the public internet.
+> Set `APP_USERNAME` and `APP_PASSWORD`, even on a trusted home network. Never
+> expose port `8765` directly to the public internet.
 
 See the complete [Docker and NAS guide](docs/DOCKER.md) for volume, Seerr, DNS,
 update, and migration details.

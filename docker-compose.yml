@@ -8,14 +8,9 @@ services:
     image: seriendownloader:latest
     container_name: seriendownloader
     restart: unless-stopped
-    # Privilege escalation inside the container (setuid binaries) is blocked.
-    security_opt:
-      - no-new-privileges:true
     ports:
-      # Secure by default: only reachable from the Docker host itself.
-      # For LAN access set BIND_ADDRESS=0.0.0.0 in .env – the app then
-      # requires APP_USERNAME/APP_PASSWORD and refuses to start without them.
-      - "${BIND_ADDRESS:-127.0.0.1}:8765:8765"
+      # Web interface: http://<NAS-IP>:8765
+      - "8765:8765"
     # Consistent DNS resolution for Python, Chromium, ffmpeg, and yt-dlp.
     # A local resolver may use DNS-over-TLS for its upstream connection.
     dns:
@@ -41,11 +36,6 @@ services:
       OPEN_BROWSER: "0"
       APP_USERNAME: ${APP_USERNAME:-}
       APP_PASSWORD: ${APP_PASSWORD:-}
-      # Deliberate opt-out only: exposes the UI without login on the network.
-      ALLOW_UNAUTHENTICATED_LAN: ${ALLOW_UNAUTHENTICATED_LAN:-}
-      # Required before UPDATE_GITHUB_REPOSITORY/BRANCH may deviate from the
-      # official release source (updates are not cryptographically signed yet).
-      UPDATE_ALLOW_CUSTOM_REPOSITORY: ${UPDATE_ALLOW_CUSTOM_REPOSITORY:-}
       JELLYFIN_URL: ${JELLYFIN_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_USER_ID: ${JELLYFIN_USER_ID:-}
@@ -103,19 +93,15 @@ services:
       start_period: 40s
 
   seerr:
-    # Pinned release instead of a movable "latest" tag; bump deliberately.
-    image: ghcr.io/seerr-team/seerr:${SEERR_IMAGE_TAG:-v3.0.1}
+    image: ghcr.io/seerr-team/seerr:${SEERR_IMAGE_TAG:-latest}
     init: true
     container_name: seerr
-    security_opt:
-      - no-new-privileges:true
     environment:
       LOG_LEVEL: ${SEERR_LOG_LEVEL:-info}
       TZ: ${TZ:-Europe/Berlin}
       PORT: 5055
     ports:
-      # Seerr stays host-local by default; publish it deliberately via .env.
-      - "${SEERR_BIND_ADDRESS:-127.0.0.1}:5055:5055"
+      - "5055:5055"
     volumes:
       # SQLite and application configuration. Copy only while Seerr is stopped.
       - ./data/seerr:/app/config
