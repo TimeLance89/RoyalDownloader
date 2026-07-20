@@ -1,8 +1,13 @@
 """
 Persistente Einstellungen.
 
-Speicherort: %APPDATA%/FilmeDownloader/settings.ini (Windows)
-             ~/.config/FilmeDownloader/settings.ini (Linux/macOS)
+Speicherort: <Projekt>/data/FilmeDownloader/settings.ini (nativ)
+             $SERIENDL_DATA_DIR/FilmeDownloader/settings.ini (Docker/NAS)
+
+Der Ablageort liegt bewusst IM Projektordner (gitignored): Ein frisch
+geklontes Projekt hat keinen data-Ordner und wird damit zuverlässig als
+Ersteinrichtung erkannt. Ältere Installationen (Benutzerprofil, z.B.
+%APPDATA%/FilmeDownloader) werden beim ersten Zugriff einmalig umgezogen.
 
 Inhalt: Speicherorte, Integrationen und Automatik-Einstellungen.
 """
@@ -10,6 +15,7 @@ Inhalt: Speicherorte, Integrationen und Automatik-Einstellungen.
 import json
 import logging
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -43,16 +49,62 @@ UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
 
 
-def _config_dir() -> Path:
-    # Docker/NAS: liegt ein zentrales Daten-Verzeichnis vor (SERIENDL_DATA_DIR),
-    # werden Einstellungen + Watchlist dort abgelegt (persistentes Volume).
-    if os.environ.get("SERIENDL_DATA_DIR", "").strip():
-        return data_dir() / APP_NAME
+_PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
+_legacy_migration_checked = False
+
+
+def _legacy_config_dir() -> Path:
+    """Alter Ablageort im Benutzerprofil (Installationen vor Juli 2026)."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
         return Path(base) / APP_NAME
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / APP_NAME
+
+
+def _migrate_legacy_config(target: Path) -> None:
+    """Zieht eine Konfiguration aus dem Benutzerprofil einmalig ins Projekt um.
+
+    Move statt Copy: Nach dem Umzug ist das Benutzerprofil leer, damit ein
+    späterer frischer Checkout wieder als Ersteinrichtung erkannt wird.
+    """
+    global _legacy_migration_checked
+    if _legacy_migration_checked:
+        return
+    with _config_lock:
+        if _legacy_migration_checked:
+            return
+        _legacy_migration_checked = True
+        legacy = _legacy_config_dir()
+        try:
+            if (target / "settings.ini").is_file() or not (legacy / "settings.ini").is_file():
+                return
+            target.mkdir(parents=True, exist_ok=True)
+            for item in list(legacy.iterdir()):
+                dest = target / item.name
+                if not dest.exists():
+                    shutil.move(str(item), str(dest))
+            try:
+                legacy.rmdir()
+            except OSError:
+                pass
+            logger.info("Einstellungen aus %s nach %s übernommen.", legacy, target)
+        except OSError as exc:
+            logger.warning(
+                "Übernahme der alten Konfiguration fehlgeschlagen (%s): %s", legacy, exc
+            )
+
+
+def _config_dir() -> Path:
+    # Docker/NAS: liegt ein zentrales Daten-Verzeichnis vor (SERIENDL_DATA_DIR),
+    # werden Einstellungen + Watchlist dort abgelegt (persistentes Volume).
+    if os.environ.get("SERIENDL_DATA_DIR", "").strip():
+        return data_dir() / APP_NAME
+    # Nativ gilt derselbe Aufbau wie im Docker-Volume: <Projekt>/data/… .
+    # Fehlt der data-Ordner, ist das Projekt frisch → Ersteinrichtung.
+    target = _PROJECT_DATA_DIR / APP_NAME
+    _migrate_legacy_config(target)
+    return target
 
 
 def _config_file() -> Path:
