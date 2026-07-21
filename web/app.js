@@ -754,11 +754,19 @@ function updateFpInfiniteState() {
   sentinel.title = sourceSummary;
 }
 
+// Bestes bekanntes Jahr eines Filmtreffers. Anbieterlisten liefern teils ein
+// falsches Jahr (Re-Release/Scraping-Fehler), das den jahrgenauen
+// Jellyfin-Abgleich sonst fälschlich scheitern lässt und im UI verkehrt
+// angezeigt wird. Das per TMDB aufgelöste Jahr ist verlässlicher.
+function fpResultYear(result) {
+  return state.fp.metadataCache[result.slug]?.year || result.year || "";
+}
+
 async function refreshFpJellyfinStatus() {
   const items = state.fp.results.map((r) => ({
     slug: r.slug,
     title: r.title,
-    year: r.year || "",
+    year: fpResultYear(r),
     tmdb_id: state.fp.metadataCache[r.slug]?.tmdb_id || null,
   }));
   if (!items.length) return;
@@ -966,6 +974,8 @@ function updateFpResultCard(slug) {
   if (subtitle) subtitle.textContent = (fpResultMedia(result).genres || []).slice(0, 2).join(" · ") || "Film";
   const rating = row.querySelector(".result-card-rating");
   if (rating) rating.textContent = fpResultMedia(result).rating ? `★ ${fpResultMedia(result).rating}` : "★ —";
+  const yearEl = row.querySelector(".result-card-year");
+  if (yearEl) yearEl.textContent = fpResultYear(result) || "Jahr offen";
 }
 
 function syncFpDetailQueueAction() {
@@ -1047,7 +1057,7 @@ function renderFpResults(appendFrom = 0) {
     rating.textContent = media.rating ? `★ ${media.rating}` : "★ —";
     const year = document.createElement("span");
     year.className = "result-card-year";
-    year.textContent = result.year || "Jahr offen";
+    year.textContent = fpResultYear(result) || "Jahr offen";
     const status = document.createElement("span");
     status.className = `result-card-state status-${availability.tag}`;
     status.textContent = availability.label;
