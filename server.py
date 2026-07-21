@@ -815,28 +815,47 @@ def get_tmdb_series(title: str, tmdb_id="", force: bool = False) -> Optional[dic
     return client.series(title, force=force)
 
 
-def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
-    """Episoden, die laut TMDB-Ausstrahlungsdatum noch nicht erschienen sind.
+def _unreleased_episode_keys(
+    tmdb_id, keys: set[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    """(Staffel, Episode)-Paare aus ``keys``, die laut TMDB-Ausstrahlungsdatum
+    noch nicht erschienen sind oder unbekannt sind.
 
-    Liefert eine leere Menge, wenn TMDB keine Staffeldaten liefert (fail-open:
-    dann bleibt das bisherige Verhalten unverändert, statt fälschlich alles zu
-    sperren). Providerunabhängig, da manche Anbieter geplante Episoden schon
-    vor dem eigentlichen Release listen.
+    Liefert eine leere Menge, wenn TMDB nicht konfiguriert ist oder keine
+    Staffeldaten liefert (fail-open: dann bleibt das bisherige Verhalten
+    unverändert, statt fälschlich alles zu sperren).
     """
     client = get_tmdb_client()
-    if not client.configured or not tmdb_id:
+    if not client.configured or not tmdb_id or not keys:
         return set()
     today = time.strftime("%Y-%m-%d", time.localtime())
-    unreleased: set[str] = set()
-    for season_number in series.season_numbers:
+    unreleased: set[tuple[int, int]] = set()
+    for season_number in {season for season, _episode in keys}:
         air_dates = client.season_air_dates(tmdb_id, season_number)
         if air_dates is None:
             continue
-        for ep in series.seasons.get(season_number, []):
-            air_date = air_dates.get(ep.episode)
+        for season, episode in keys:
+            if season != season_number:
+                continue
+            air_date = air_dates.get(episode)
             if not air_date or air_date > today:
-                unreleased.add(ep.slug)
+                unreleased.add((season, episode))
     return unreleased
+
+
+def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
+    """Episoden, die laut TMDB-Ausstrahlungsdatum noch nicht erschienen sind.
+
+    Providerunabhängig, da manche Anbieter geplante Episoden schon vor dem
+    eigentlichen Release listen.
+    """
+    by_key = {
+        (ep.season, ep.episode): ep.slug
+        for season_number in series.season_numbers
+        for ep in series.seasons.get(season_number, [])
+    }
+    unreleased_keys = _unreleased_episode_keys(tmdb_id, set(by_key))
+    return {by_key[key] for key in unreleased_keys}
 
 
 JELLYFIN_CACHE_TTL = 300  # Sekunden – wie lange die komplette Filmliste gecacht wird
@@ -4225,8 +4244,15 @@ def run_download_queue(
         # verarbeitet statt der ganzen Staffel.
         ep_info = parse_episode_slug(movie_slug)
         if ep_info:
-            series_title = strip_episode_suffix(movie.title) or movie.title
-            existing_file = _existing_valid_episode_path(series_title, ep_info[1], ep_info[2])
+            # Originalen Serientitel EIN EINZIGES MAL festhalten (vor einem
+            # etwaigen Hoster-Refresh oder Fallback), damit der "schon
+            # vorhanden?"-Check und der tatsächliche Zielordner garantiert
+            # denselben Serien-/Staffel-Ordner verwenden. Würde man den Titel
+            # später aus einem inzwischen ersetzten movie-Objekt neu ableiten,
+            # könnte eine leicht abweichende Anbieter-Formatierung die Episode
+            # in einem zweiten, abweichenden Ordner landen lassen.
+            orig_series_title = strip_episode_suffix(movie.title) or movie.title
+            existing_file = _existing_valid_episode_path(orig_series_title, ep_info[1], ep_info[2])
             if existing_file is not None:
                 if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                     on_job_done(True, "bereits vorhanden", movie.title, existing_file, slug=movie_slug)
@@ -4256,11 +4282,6 @@ def run_download_queue(
                     on_job_done(True, "bereits vorhanden", movie.title, existing_movie, slug=movie_slug)
                 continue
 
-        # Originalen Serientitel VOR einem etwaigen Fallback festhalten, damit die
-        # Episode – egal ob von s.to oder vom Fallback-Anbieter – immer im selben
-        # Serien-/Staffel-Ordner landet (der Fallback-Movie hätte sonst einen leicht
-        # abweichenden Titel und damit einen anderen Ordner).
-        orig_series_title = strip_episode_suffix(movie.title) or movie.title
         source_movies = [movie]
         seen_source_urls = {movie.url}
         known_fallbacks = (movie_fallbacks or {}).get(movie_slug, [])
@@ -9062,8 +9083,16 @@ def _calculate_watchlist_entry_state(
         if (parsed := parse_episode_slug(slug)) is not None
     }
     current_keys = {(episode.season, episode.episode) for episode in series.all_episodes}
-    if previous_keys and not previous_keys.issubset(current_keys):
-        raise RuntimeError("Anbieterantwort unvollständig – bisher bekannte Episoden fehlen")
+    vanished_keys = previous_keys - current_keys
+    if vanished_keys:
+        # Verschwundene Episoden sind nur dann unbedenklich, wenn TMDB
+        # bestätigt, dass sie ohnehin noch nicht ausgestrahlt wurden (z.B. weil
+        # ein Anbieter sie zuvor fälschlich als bereits verfügbar gelistet
+        # hatte). Ohne diese Bestätigung bleibt der Schutz vor einer
+        # unvollständigen Anbieterantwort bestehen.
+        explained = _unreleased_episode_keys(entry.get("tmdb_id", ""), vanished_keys)
+        if vanished_keys - explained:
+            raise RuntimeError("Anbieterantwort unvollständig – bisher bekannte Episoden fehlen")
 
     downloaded = compute_downloaded_episodes(series)
     aliases = tuple(dict.fromkeys([
