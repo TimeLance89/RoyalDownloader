@@ -815,6 +815,30 @@ def get_tmdb_series(title: str, tmdb_id="", force: bool = False) -> Optional[dic
     return client.series(title, force=force)
 
 
+def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
+    """Episoden, die laut TMDB-Ausstrahlungsdatum noch nicht erschienen sind.
+
+    Liefert eine leere Menge, wenn TMDB keine Staffeldaten liefert (fail-open:
+    dann bleibt das bisherige Verhalten unverändert, statt fälschlich alles zu
+    sperren). Providerunabhängig, da manche Anbieter geplante Episoden schon
+    vor dem eigentlichen Release listen.
+    """
+    client = get_tmdb_client()
+    if not client.configured or not tmdb_id:
+        return set()
+    today = time.strftime("%Y-%m-%d", time.localtime())
+    unreleased: set[str] = set()
+    for season_number in series.season_numbers:
+        air_dates = client.season_air_dates(tmdb_id, season_number)
+        if air_dates is None:
+            continue
+        for ep in series.seasons.get(season_number, []):
+            air_date = air_dates.get(ep.episode)
+            if not air_date or air_date > today:
+                unreleased.add(ep.slug)
+    return unreleased
+
+
 JELLYFIN_CACHE_TTL = 300  # Sekunden – wie lange die komplette Filmliste gecacht wird
 JELLYFIN_ERROR_RETRY_SECONDS = 30
 
@@ -2422,6 +2446,10 @@ def series_to_dict(
     season_counts_checked_at = (tmdb or {}).get("season_counts_checked_at") or (
         watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
     )
+    unreleased_slugs = (
+        _unreleased_episode_slugs(series, tmdb_id)
+        if not defer_checks and tmdb_id else set()
+    )
     jf_client = get_jellyfin_client()
     jellyfin_pending = bool(defer_checks and jf_client.configured)
     jf_identity_available: Optional[bool] = None if jellyfin_pending else True
@@ -2467,6 +2495,7 @@ def series_to_dict(
                 "queued": ep.slug in state.picked,
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,
+                "unreleased": ep.slug in unreleased_slugs,
             })
         seasons.append({"season": s, "episodes": episodes})
     provider = provider_for_value(series.url or series.base_slug)
@@ -5556,9 +5585,11 @@ def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
         )
 
     requested_seasons = set(request.seasons)
+    unreleased_slugs = _unreleased_episode_slugs(series, request.tmdb_id)
     selected = [
         episode for episode in series.all_episodes
-        if not requested_seasons or episode.season in requested_seasons
+        if (not requested_seasons or episode.season in requested_seasons)
+        and episode.slug not in unreleased_slugs
     ]
     if not selected:
         raise RuntimeError("Die angeforderten Staffeln sind beim Anbieter nicht vorhanden")
@@ -5589,10 +5620,25 @@ def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
         )
     ]
     if not missing:
-        _seerr_update_record(
-            request_id, status="available", title=series.title,
-            message="Alle angeforderten Episoden sind bereits vorhanden.", next_retry=0,
+        pending_unreleased = sum(
+            1 for episode in series.all_episodes
+            if (not requested_seasons or episode.season in requested_seasons)
+            and episode.slug in unreleased_slugs
         )
+        if pending_unreleased:
+            _seerr_update_record(
+                request_id, status="queued", title=series.title,
+                message=(
+                    f"{pending_unreleased} Episode(n) noch nicht erschienen – "
+                    "wird automatisch nachgeladen, sobald verfügbar."
+                ),
+                next_retry=0,
+            )
+        else:
+            _seerr_update_record(
+                request_id, status="available", title=series.title,
+                message="Alle angeforderten Episoden sind bereits vorhanden.", next_retry=0,
+            )
         return
 
     movies: Dict[str, FilmpalastMovie] = {}
@@ -9082,6 +9128,7 @@ def _calculate_watchlist_entry_state(
         required_seasons = regular_seasons or source_seasons
         if any(expected_counts.get(season, 0) <= 0 for season in required_seasons):
             raise RuntimeError("Staffelumfang nicht verifizierbar – Auto-Download pausiert")
+    unreleased_slugs = _unreleased_episode_slugs(series, entry.get("tmdb_id", ""))
     missing_slugs = select_missing_episode_slugs(
         series.all_episodes,
         mode,
@@ -9089,6 +9136,7 @@ def _calculate_watchlist_entry_state(
         jellyfin_existing=jf_existing,
         jellyfin_watched=jf_watched,
         season_episode_counts=entry.get("season_episode_counts") or {},
+        unreleased_slugs=unreleased_slugs,
     )
     return {
         "mode": mode,

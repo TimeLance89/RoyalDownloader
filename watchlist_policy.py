@@ -124,6 +124,7 @@ def select_missing_episode_slugs(
     jellyfin_existing=None,
     jellyfin_watched=None,
     season_episode_counts=None,
+    unreleased_slugs=None,
 ) -> set[str]:
     """Waehlt fehlende Episoden entsprechend der Abo-Regel aus.
 
@@ -131,16 +132,22 @@ def select_missing_episode_slugs(
     konfigurierten Benutzer gesehenen ``(staffel, episode)``-Paare. Im Modus
     ``next_season`` wird erst nach einer vollständig gesehenen Staffel die
     folgende freigegeben. ``None`` bedeutet, dass kein Benutzerstatus vorliegt.
+    ``unreleased_slugs`` enthaelt Episoden, die laut Metadaten noch nicht
+    erschienen sind – die werden nie als fehlend gemeldet, sonst landen
+    unveroeffentlichte Folgen in der Auto-Download-Warteschlange und schlagen
+    dort dauerhaft fehl.
     """
     episodes = list(episodes or [])
     downloaded = set(downloaded_slugs or [])
     jellyfin = set(jellyfin_existing or [])
+    unreleased = set(unreleased_slugs or [])
     mode = normalize_watch_mode(mode)
 
     missing = [
         episode for episode in episodes
         if episode.slug not in downloaded
         and (episode.season, episode.episode) not in jellyfin
+        and episode.slug not in unreleased
     ]
     if not missing:
         return set()

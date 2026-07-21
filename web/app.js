@@ -1663,6 +1663,7 @@ function isEpisodeSelectable(episode) {
     && state.series.current?.jellyfin_available !== false
     && !episode.downloaded
     && !episode.in_jellyfin
+    && !episode.unreleased
     && !isEpisodeQueued(episode)
   );
 }
@@ -2122,6 +2123,7 @@ function renderSeriesTiles() {
       else if (ep.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
       else if (ep.downloaded) tile.title = "Bereits heruntergeladen";
       else if (isEpisodeQueued(ep)) tile.title = "Bereits in der Warteschlange";
+      else if (ep.unreleased) tile.title = "Noch nicht veröffentlicht";
       tile.addEventListener("click", () => toggleEpisodeTile(ep.slug));
       tiles.appendChild(tile);
     }

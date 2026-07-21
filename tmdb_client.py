@@ -49,6 +49,7 @@ class TMDBClient:
         self._series_cache: dict = {}
         self._series_id_cache: dict = {}
         self._series_match_cache: dict = {}
+        self._season_cache: dict = {}
         self._lock = threading.Lock()
 
     @property
@@ -430,6 +431,36 @@ class TMDBClient:
             result = self._series_payload(details, title, key, now)
         with self._lock:
             self._series_id_cache[key] = (now, result)
+        return result
+
+    def season_air_dates(
+        self, tmdb_id, season_number: int, force: bool = False,
+    ) -> Optional[dict[int, str]]:
+        """Liefert {episode_number: air_date} einer Staffel, oder ``None``
+        wenn TMDB dazu nichts Verwertbares liefert (Aufrufer müssen das als
+        "nicht prüfbar" behandeln, nicht als "nichts ist erschienen")."""
+        key = (str(tmdb_id or "").strip(), int(season_number))
+        if not key[0].isdigit():
+            return None
+        now = time.time()
+        with self._lock:
+            cached = self._season_cache.get(key)
+            if cached:
+                ttl = SERIES_CACHE_TTL if cached[1] is not None else SERIES_NEGATIVE_CACHE_TTL
+                if not force and now - cached[0] < ttl:
+                    return cached[1]
+        details = self._request(
+            f"/tv/{key[0]}/season/{key[1]}", {"language": self.language},
+        )
+        result = None
+        if details and details.get("episodes"):
+            result = {
+                int(episode["episode_number"]): str(episode.get("air_date") or "")
+                for episode in details["episodes"]
+                if episode.get("episode_number") is not None
+            }
+        with self._lock:
+            self._season_cache[key] = (now, result)
         return result
 
     def series_matches_id(self, title: str, tmdb_id, year: str = "") -> bool:
