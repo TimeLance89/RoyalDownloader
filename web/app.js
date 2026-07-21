@@ -72,7 +72,8 @@ const WATCH_CLEANUP_LABELS = {
 const FP_METADATA_BATCH_SIZE = 4;
 const FP_METADATA_BATCH_CONCURRENCY = 3;
 const catalogInfiniteObserverSupported = "IntersectionObserver" in window;
-let catalogInfiniteObserver = null;
+let fpInfiniteObserver = null;
+let seriesInfiniteObserver = null;
 let watchModeContext = null;
 let watchModeReturnFocus = null;
 
@@ -4072,19 +4073,34 @@ function initCatalogInfiniteScroll() {
   document.getElementById("series-infinite-retry").addEventListener("click", retrySeriesInfiniteLoad);
   if (!catalogInfiniteObserverSupported) return;
 
-  catalogInfiniteObserver = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      if (entry.target.id === "fp-infinite") loadNextFpPage();
-      if (entry.target.id === "series-infinite") loadNextSeriesPage();
-    }
-  }, {
-    root: null,
-    rootMargin: "520px 0px",
+  // rootMargin greift nur relativ zum tatsächlichen Scroll-Container. Die
+  // Tabs scrollen intern (#tab-filme/#tab-serien haben overflow-y:auto),
+  // das Dokument selbst scrollt nicht – mit root:null (Viewport) würde der
+  // grosszügige Vorlauf deshalb wirkungslos verpuffen und das Nachladen
+  // liefe erst beim tatsächlichen Erreichen des unteren Rands los.
+  const options = {
+    // Grosszuegiger Vorlauf, damit das Nachladen weit ausserhalb des
+    // sichtbaren Bereichs passiert und beim Scrollen nie als Ladepause
+    // wahrnehmbar wird.
+    rootMargin: "1800px 0px",
     threshold: 0.01,
-  });
-  catalogInfiniteObserver.observe(document.getElementById("fp-infinite"));
-  catalogInfiniteObserver.observe(document.getElementById("series-infinite"));
+  };
+
+  const fpRoot = document.getElementById("tab-filme");
+  fpInfiniteObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) loadNextFpPage();
+    }
+  }, { root: fpRoot, ...options });
+  fpInfiniteObserver.observe(document.getElementById("fp-infinite"));
+
+  const seriesRoot = document.getElementById("tab-serien");
+  seriesInfiniteObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) loadNextSeriesPage();
+    }
+  }, { root: seriesRoot, ...options });
+  seriesInfiniteObserver.observe(document.getElementById("series-infinite"));
 }
 
 function startInitialData() {
