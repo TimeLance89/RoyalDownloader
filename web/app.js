@@ -1366,9 +1366,19 @@ async function fpSearch() {
   document.getElementById("fp-status").textContent = `Suche nach «${q}» …`;
   setActiveGenreFilter("Alle Genres");
   const requestId = ++state.fp.requestSeq;
-  const data = await api.movies({ mode: "search", query: q });
-  if (requestId !== state.fp.requestSeq) return;
-  applyFpResults(data);
+  try {
+    const data = await api.movies({ mode: "search", query: q });
+    if (requestId !== state.fp.requestSeq) return;
+    applyFpResults(data);
+  } catch (error) {
+    // Ohne diesen Zweig blieb der Status bei «Suche nach …» stehen: eine
+    // abgelaufene Sitzung oder ein Providerfehler sah aus wie „kein Treffer“.
+    if (requestId !== state.fp.requestSeq) return;
+    state.fp.loadingMore = false;
+    state.fp.loadError = error.message;
+    updateFpInfiniteState();
+    document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
+  }
 }
 
 async function fpShowList(category) {
