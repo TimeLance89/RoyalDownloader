@@ -2668,6 +2668,11 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
   border-color: rgba(147, 212, 154, 0.25);
   background: rgba(147, 212, 154, 0.07);
 }
+.settings-section-mark.is-account {
+  color: var(--yellow);
+  border-color: rgba(232, 189, 97, 0.25);
+  background: rgba(232, 189, 97, 0.07);
+}
 .settings-card-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3517,6 +3522,74 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
 .log-line.ok { color: var(--green); }
 .log-line.err { color: var(--red); }
 .log-line.warn { color: var(--yellow); }
+
+/* ── Anmeldung ──────────────────────────────────────────────────────── */
+body.login-open { overflow: hidden; }
+body.login-open #app {
+  pointer-events: none;
+  filter: blur(9px) saturate(0.5);
+  transform: scale(0.99);
+}
+.login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(216, 183, 102, 0.16), transparent 34%),
+    radial-gradient(circle at 84% 88%, rgba(126, 87, 194, 0.18), transparent 38%),
+    rgba(5, 3, 9, 0.95);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: backdrop-in 0.35s ease both;
+}
+.login-card {
+  width: min(400px, 100%);
+  padding: 32px 30px 26px;
+  background: rgba(15, 10, 22, 0.96);
+  border: 1px solid rgba(216, 183, 102, 0.38);
+  border-radius: 22px;
+  box-shadow: 0 44px 120px rgba(0, 0, 0, 0.72), 0 0 50px rgba(216, 183, 102, 0.08);
+}
+.login-brand { display: flex; align-items: baseline; gap: 7px; margin-bottom: 22px; }
+.login-brand-kicker {
+  background: var(--gold-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-family: "Cormorant Garamond", serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+.login-brand strong { color: var(--text-dim); font-size: 11px; font-weight: 500; letter-spacing: 0.24em; text-transform: uppercase; }
+.login-card h1 { margin: 0 0 5px; font-size: 24px; }
+.login-intro { margin: 0 0 20px; color: var(--text-dim); font-size: 11.5px; }
+.login-form { display: flex; flex-direction: column; gap: 4px; }
+.login-form input { width: 100%; margin-bottom: 12px; }
+.login-submit { width: 100%; margin-top: 6px; }
+.login-status { min-height: 30px; padding-top: 9px; color: var(--green); font-size: 11.5px; text-align: center; }
+.login-status.error { color: var(--red); }
+
+/* ── Zugang (Einstellungen) ─────────────────────────────────────────── */
+.account-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  background: rgba(226, 92, 92, 0.09);
+  border: 1px solid rgba(226, 92, 92, 0.4);
+  border-radius: 12px;
+}
+.account-warning strong { color: var(--red); font-size: 12px; }
+.account-warning span { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+.account-settings input { margin-bottom: 4px; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.account-sessions button { margin-top: 10px; }
+#account-status.error, #account-revoke-status.error { color: var(--red); }
 
 /* ── Ersteinrichtungs-Wizard ────────────────────────────────────────── */
 body.setup-open { overflow: hidden; }

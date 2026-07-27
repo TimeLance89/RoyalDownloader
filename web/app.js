@@ -138,6 +138,98 @@ function appendLog(msg, level) {
   el.scrollTop = el.scrollHeight;
 }
 
+// ── Anmeldung ────────────────────────────────────────────────────────────
+// Ein einziges Administratorkonto, Sitzung über ein HttpOnly-Cookie. Die
+// Maske blockiert den Start der Oberfläche, solange keine gültige Sitzung
+// besteht; laeuft eine Sitzung waehrend der Nutzung ab, kommt sie erneut.
+let authStatus = { configured: false, authenticated: true, prompt_setup: false };
+let loginResolve = null;
+let loginVisible = false;
+
+function setLoginStatus(message = "", error = false) {
+  const el = document.getElementById("login-status");
+  el.textContent = message;
+  el.classList.toggle("error", !!error);
+}
+
+function showLoginScreen({ expired = false } = {}) {
+  const screen = document.getElementById("login-screen");
+  if (loginVisible) return;
+  loginVisible = true;
+  document.body.classList.add("login-open");
+  screen.classList.remove("hidden");
+  setLoginStatus(expired ? "Die Sitzung ist abgelaufen. Bitte erneut anmelden." : "", expired);
+  const username = document.getElementById("login-username");
+  const password = document.getElementById("login-password");
+  password.value = "";
+  window.setTimeout(() => (username.value.trim() ? password : username).focus(), 60);
+}
+
+function hideLoginScreen() {
+  loginVisible = false;
+  document.body.classList.remove("login-open");
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("login-password").value = "";
+  setLoginStatus();
+}
+
+async function submitLogin(event) {
+  if (event) event.preventDefault();
+  const button = document.getElementById("login-submit");
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password").value;
+  if (!username || !password) {
+    setLoginStatus("Benutzername und Passwort werden benötigt.", true);
+    return;
+  }
+  button.disabled = true;
+  setLoginStatus("Anmeldung läuft …");
+  try {
+    authStatus = await api.authLogin(username, password);
+    hideLoginScreen();
+    if (loginResolve) {
+      // Anmeldung beim Start: der reguläre Startablauf läuft danach weiter.
+      const resolve = loginResolve;
+      loginResolve = null;
+      resolve();
+    } else {
+      // Abgelaufene Sitzung mitten im Betrieb: neu laden ist der einzige
+      // Weg, der jeden Teilzustand (Queue, Katalog, Abos) zuverlässig wieder
+      // in Übereinstimmung mit dem Server bringt.
+      location.reload();
+    }
+  } catch (error) {
+    setLoginStatus(error.message, true);
+    document.getElementById("login-password").select();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handleUnauthorized() {
+  if (loginVisible || setupRequired) return;
+  showLoginScreen({ expired: true });
+}
+
+async function requireLogin() {
+  try {
+    authStatus = await api.authStatus();
+  } catch (error) {
+    // Server nicht erreichbar: die Oberfläche startet trotzdem und zeigt den
+    // Fehler an der jeweiligen Stelle an, statt hier hängen zu bleiben.
+    console.warn("Anmeldestatus konnte nicht geprüft werden:", error);
+    return;
+  }
+  if (!authStatus.configured || authStatus.authenticated) return;
+  showLoginScreen();
+  await new Promise((resolve) => { loginResolve = resolve; });
+}
+
+function initLoginScreen() {
+  api.onUnauthorized = handleUnauthorized;
+  document.getElementById("login-form").addEventListener("submit", submitLogin);
+}
+
 // ── WebSocket ────────────────────────────────────────────────────────────
 let wsReconnectTimer = null;
 let wsConnectionGeneration = 0;
@@ -280,8 +372,15 @@ function connectWs() {
     }
   };
   ws.onerror = () => ws.close();
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     if (connectionGeneration !== wsConnectionGeneration) return;
+    // 1008 = der Server hat die Verbindung mangels gültiger Sitzung
+    // abgewiesen. Ein Wiederverbindungsversuch im Sekundentakt würde daran
+    // nichts ändern; stattdessen wird zur Anmeldung aufgefordert.
+    if (event && event.code === 1008) {
+      handleUnauthorized();
+      return;
+    }
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
     wsReconnectTimer = setTimeout(connectWs, 2000);
   };
@@ -3418,7 +3517,105 @@ async function initSettings() {
   const telegram = await api.telegramConfigGet();
   applyTelegramCfg(telegram);
   applyProviderPriority(await api.providerPriorityGet());
+  await refreshAccountCard();
   checkForUpdates(false);
+}
+
+// ── Zugang (Einstellungen) ───────────────────────────────────────────────
+function setAccountStatus(message = "", error = false) {
+  const el = document.getElementById("account-status");
+  el.textContent = message;
+  el.classList.toggle("error", !!error);
+}
+
+function applyAccountCfg(cfg) {
+  const configured = !!cfg.configured;
+  const card = document.getElementById("account-card");
+  card.dataset.state = configured ? "configured" : "open";
+  document.getElementById("account-warning").classList.toggle("hidden", configured);
+  document.getElementById("account-username").value = cfg.username || "";
+  // Ohne bestehendes Konto gibt es kein aktuelles Passwort zu bestätigen.
+  document.getElementById("account-current-label").classList.toggle("hidden", !configured);
+  document.getElementById("account-current-password").classList.toggle("hidden", !configured);
+  document.getElementById("account-logout").classList.toggle("hidden", !configured);
+  document.getElementById("account-state").textContent = configured
+    ? (cfg.source === "env"
+      ? `Angemeldet als „${cfg.username}“ · Zugangsdaten stammen aus APP_USERNAME/APP_PASSWORD. Beim Speichern werden sie in die Einstellungen übernommen.`
+      : `Angemeldet als „${cfg.username}“.`)
+    : "Es ist kein Konto eingerichtet – die Oberfläche ist ungeschützt erreichbar.";
+  document.getElementById("account-sessions-count").textContent =
+    `${cfg.active_sessions ?? 0} aktive Sitzung(en)`;
+  document.getElementById("account-save").textContent = configured
+    ? "Zugangsdaten speichern"
+    : "Konto anlegen";
+}
+
+async function refreshAccountCard() {
+  try {
+    applyAccountCfg(await api.authConfigGet());
+  } catch (error) {
+    document.getElementById("account-state").textContent =
+      `Kontostatus nicht abrufbar: ${error.message}`;
+  }
+}
+
+async function saveAccount() {
+  const button = document.getElementById("account-save");
+  const username = document.getElementById("account-username").value.trim();
+  const password = document.getElementById("account-password").value;
+  const repeat = document.getElementById("account-password-repeat").value;
+  const current = document.getElementById("account-current-password").value;
+  if (!username) {
+    setAccountStatus("Der Benutzername fehlt.", true);
+    return;
+  }
+  if (!password) {
+    setAccountStatus("Bitte ein neues Passwort eingeben.", true);
+    return;
+  }
+  if (password !== repeat) {
+    setAccountStatus("Die beiden Passwörter stimmen nicht überein.", true);
+    return;
+  }
+  button.disabled = true;
+  setAccountStatus("Wird gespeichert …");
+  try {
+    const result = await api.authConfigSet(username, password, current);
+    document.getElementById("account-password").value = "";
+    document.getElementById("account-password-repeat").value = "";
+    document.getElementById("account-current-password").value = "";
+    applyAccountCfg(result);
+    authStatus = { ...authStatus, configured: true, authenticated: true, username };
+    setAccountStatus("✓ Gespeichert. Andere Geräte müssen sich neu anmelden.");
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function revokeOtherSessions() {
+  const status = document.getElementById("account-revoke-status");
+  status.classList.remove("error");
+  status.textContent = "Sitzungen werden beendet …";
+  try {
+    const result = await api.authSessionsRevoke();
+    status.textContent = `✓ ${result.revoked} Sitzung(en) beendet.`;
+    document.getElementById("account-sessions-count").textContent =
+      `${result.active_sessions ?? 0} aktive Sitzung(en)`;
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  }
+}
+
+async function logoutAccount() {
+  try {
+    await api.authLogout();
+  } catch (error) {
+    console.warn("Abmeldung fehlgeschlagen:", error);
+  }
+  location.reload();
 }
 
 function applySeerrCfg(cfg) {
@@ -3893,7 +4090,13 @@ const setupStepCopy = {
     title: "Downloads automatisieren",
     intro: "Lege fest, was selbstständig laufen darf. Alle Werte bleiben später änderbar.",
   },
+  6: {
+    title: "Zugang sichern",
+    intro: "Ein Konto schützt die Oberfläche. Ohne Anmeldung könnte jedes Gerät im Netzwerk Downloads auslösen.",
+  },
 };
+
+const SETUP_STEP_COUNT = 6;
 
 function setSetupStatus(message = "", error = false) {
   const el = document.getElementById("setup-status");
@@ -3902,7 +4105,7 @@ function setSetupStatus(message = "", error = false) {
 }
 
 function showSetupStep(nextStep) {
-  setupStep = Math.max(1, Math.min(5, nextStep));
+  setupStep = Math.max(1, Math.min(SETUP_STEP_COUNT, nextStep));
   document.querySelectorAll("[data-setup-step]").forEach((panel) => {
     panel.classList.toggle("hidden", Number(panel.dataset.setupStep) !== setupStep);
   });
@@ -3913,12 +4116,12 @@ function showSetupStep(nextStep) {
     if (markerStep === setupStep) marker.setAttribute("aria-current", "step");
     else marker.removeAttribute("aria-current");
   });
-  document.getElementById("setup-step-label").textContent = `SCHRITT ${setupStep} VON 5`;
+  document.getElementById("setup-step-label").textContent = `SCHRITT ${setupStep} VON ${SETUP_STEP_COUNT}`;
   document.getElementById("setup-title").textContent = setupStepCopy[setupStep].title;
   document.getElementById("setup-intro").textContent = setupStepCopy[setupStep].intro;
   document.getElementById("setup-back").classList.toggle("hidden", setupStep === 1);
-  document.getElementById("setup-next").classList.toggle("hidden", setupStep === 5);
-  document.getElementById("setup-finish").classList.toggle("hidden", setupStep !== 5);
+  document.getElementById("setup-next").classList.toggle("hidden", setupStep === SETUP_STEP_COUNT);
+  document.getElementById("setup-finish").classList.toggle("hidden", setupStep !== SETUP_STEP_COUNT);
   setSetupStatus();
   const focusTarget = document.querySelector(
     `[data-setup-step="${setupStep}"] select, `
@@ -3961,6 +4164,30 @@ function validateSetupStep(step) {
       return false;
     }
   }
+  if (step === 6) {
+    const username = document.getElementById("setup-auth-username");
+    const password = document.getElementById("setup-auth-password");
+    const repeat = document.getElementById("setup-auth-password-repeat");
+    [username, password, repeat].forEach((field) => field.removeAttribute("aria-invalid"));
+    if (username.value.trim().length < 3) {
+      username.setAttribute("aria-invalid", "true");
+      setSetupStatus("Der Benutzername braucht mindestens 3 Zeichen.", true);
+      username.focus();
+      return false;
+    }
+    if (password.value.length < 8) {
+      password.setAttribute("aria-invalid", "true");
+      setSetupStatus("Das Passwort braucht mindestens 8 Zeichen.", true);
+      password.focus();
+      return false;
+    }
+    if (password.value !== repeat.value) {
+      repeat.setAttribute("aria-invalid", "true");
+      setSetupStatus("Die beiden Passwörter stimmen nicht überein.", true);
+      repeat.focus();
+      return false;
+    }
+  }
   return true;
 }
 
@@ -3971,7 +4198,7 @@ function parseSetupHour(id) {
 }
 
 async function finishSetup() {
-  if (!validateSetupStep(5)) return;
+  if (!validateSetupStep(5) || !validateSetupStep(6)) return;
   const finish = document.getElementById("setup-finish");
   const back = document.getElementById("setup-back");
   finish.disabled = true;
@@ -4004,7 +4231,11 @@ async function finishSetup() {
       telegram_enabled: document.getElementById("setup-telegram-enabled").checked,
       telegram_bot_token: document.getElementById("setup-telegram-token").value.trim(),
       telegram_chat_id: document.getElementById("setup-telegram-chat").value.trim(),
+      auth_username: document.getElementById("setup-auth-username").value.trim(),
+      auth_password: document.getElementById("setup-auth-password").value,
     });
+    document.getElementById("setup-auth-password").value = "";
+    document.getElementById("setup-auth-password-repeat").value = "";
     setupRequired = false;
     document.body.classList.remove("setup-open");
     document.getElementById("setup-wizard").classList.add("hidden");
@@ -4171,6 +4402,10 @@ async function refreshGenres() {
 // ── Init ─────────────────────────────────────────────────────────────────
 async function initApp() {
   await i18n.initialize();
+  initLoginScreen();
+  // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
+  // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
+  await requireLogin();
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
@@ -4483,12 +4718,16 @@ async function initApp() {
   document.getElementById("setup-wizard").addEventListener("keydown", (e) => {
     if (!setupRequired || e.key !== "Enter" || e.target.closest("button") || e.target.type === "checkbox") return;
     e.preventDefault();
-    if (setupStep < 5) {
+    if (setupStep < SETUP_STEP_COUNT) {
       if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1);
     } else {
       finishSetup();
     }
   });
+
+  document.getElementById("account-save").addEventListener("click", saveAccount);
+  document.getElementById("account-logout").addEventListener("click", logoutAccount);
+  document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
 
   try {
     await initSettings();

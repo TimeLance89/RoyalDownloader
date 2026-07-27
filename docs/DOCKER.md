@@ -151,8 +151,8 @@ All variables are optional and have operational defaults.
 | `SERIES_HOST_DIR` | `./downloads/Serien` | Compose-only NAS series directory mounted to `/serien` |
 | `HOST` / `PORT` | `0.0.0.0` / `8765` | Server bind address and port |
 | `OPEN_BROWSER` | `0` | Prevents opening a desktop browser inside the container |
-| `APP_USERNAME` | empty | HTTP Basic Auth username; recommended on a LAN |
-| `APP_PASSWORD` | empty | HTTP Basic Auth password; recommended on a LAN |
+| `APP_USERNAME` | empty | Fallback account name; only used until an account is created in the interface |
+| `APP_PASSWORD` | empty | Fallback account password; only used until an account is created in the interface |
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
 | `DNS_SECONDARY` | `9.9.9.9` | Fallback container resolver |
 | `DNS_OVERRIDE` | `1` | `start.sh` only: set to `0` to keep Docker's existing `resolv.conf` |

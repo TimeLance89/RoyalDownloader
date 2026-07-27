@@ -57,6 +57,8 @@ and Jellyfin remains the source of truth for content already in the library.
 - **Seerr and Moonfin bridge** for media requests without requiring Radarr or Sonarr.
 - **TMDB metadata** for artwork, descriptions, genres, ratings, and runtime.
 - **Jellyfin recommendations** maintained as an automatically updated collection.
+- **Account-based sign-in** with a hashed password, persistent sessions that
+  survive restarts, brute-force protection, and device sign-out.
 - **Multilingual web UI** with language selection during onboarding and in settings.
 - **In-app updater** plus queue-safe automatic updates for Royal Downloader and yt-dlp.
 
@@ -108,11 +110,12 @@ docker compose logs -f seriendownloader
 
 Open `http://<NAS-IP>:8765`. The first-run wizard configures the interface
 language, content languages, providers, storage paths, Jellyfin, TMDB,
-automation, and Telegram.
+automation, Telegram, and the administrator account used to sign in.
 
 > [!TIP]
-> Set `APP_USERNAME` and `APP_PASSWORD`, even on a trusted home network. Never
-> expose port `8765` directly to the public internet.
+> Never expose port `8765` directly to the public internet. Existing
+> installations keep running without an account and show a reminder in
+> **Settings → Access**, where the account can be created at any time.
 
 See the complete [Docker and NAS guide](docs/DOCKER.md) for volume, Seerr, DNS,
 update, and migration details.

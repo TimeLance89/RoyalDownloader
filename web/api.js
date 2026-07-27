@@ -1,6 +1,10 @@
 const api = {
+  // Wird von app.js gesetzt: reagiert auf eine abgelaufene oder entzogene
+  // Sitzung, indem die Anmeldemaske wieder eingeblendet wird.
+  onUnauthorized: null,
+
   async _req(method, url, body) {
-    const opts = { method, headers: {} };
+    const opts = { method, headers: {}, credentials: "same-origin" };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
@@ -9,13 +13,31 @@ const api = {
     let data = null;
     try { data = await resp.json(); } catch (e) { /* no body */ }
     if (!resp.ok) {
+      // Die Anmeldeprüfung selbst darf den Wiederanmelde-Dialog nicht
+      // auslösen – sonst würde ein falsches Passwort die Maske neu aufbauen.
+      if (resp.status === 401 && !url.startsWith("/api/auth/") && this.onUnauthorized) {
+        this.onUnauthorized();
+      }
       const msg = (data && (data.detail || data.error)) || `HTTP ${resp.status}`;
-      throw new Error(msg);
+      const error = new Error(msg);
+      error.status = resp.status;
+      throw error;
     }
     return data;
   },
   get(url) { return this._req("GET", url); },
   post(url, body) { return this._req("POST", url, body === undefined ? {} : body); },
+
+  authStatus() { return this.get("/api/auth/status"); },
+  authLogin(username, password) { return this.post("/api/auth/login", { username, password }); },
+  authLogout() { return this.post("/api/auth/logout"); },
+  authConfigGet() { return this.get("/api/auth/config"); },
+  authConfigSet(username, password, currentPassword = "") {
+    return this.post("/api/auth/config", {
+      username, password, current_password: currentPassword,
+    });
+  },
+  authSessionsRevoke() { return this.post("/api/auth/sessions/revoke"); },
 
   genres() { return this.get("/api/genres"); },
   movies(params) { return this.get("/api/movies?" + new URLSearchParams(params)); },

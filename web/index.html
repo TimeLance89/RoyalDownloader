@@ -476,6 +476,9 @@
             <a href="#settings-automation" data-settings-target="settings-automation">
               <span aria-hidden="true">↻</span><strong>Automatik</strong><small>24/7 &amp; Telegram</small>
             </a>
+            <a href="#settings-account" data-settings-target="settings-account">
+              <span aria-hidden="true">⚿</span><strong>Zugang</strong><small>Anmeldung &amp; Sitzungen</small>
+            </a>
             <a href="#settings-system" data-settings-target="settings-system">
               <span aria-hidden="true">⌁</span><strong>System</strong><small>Updates &amp; Wartung</small>
             </a>
@@ -762,6 +765,48 @@
             </div>
           </section>
 
+          <section id="settings-account" class="settings-section" data-settings-section aria-labelledby="settings-account-title">
+            <header class="settings-section-heading">
+              <span class="settings-section-mark is-account" aria-hidden="true">⚿</span>
+              <div>
+                <span>ZUGANG</span>
+                <h2 id="settings-account-title">Anmeldung</h2>
+                <p>Zugangsdaten für die Oberfläche festlegen und angemeldete Geräte verwalten.</p>
+              </div>
+            </header>
+            <div class="settings-card-grid">
+        <div id="account-card" class="settings-group settings-card account-settings" data-state="unknown">
+          <h3>Konto</h3>
+          <div id="account-warning" class="account-warning hidden">
+            <strong>Diese Instanz ist ungeschützt.</strong>
+            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Benutzername und Passwort fest.</span>
+          </div>
+          <p id="account-state" class="dim settings-hint" role="status" aria-live="polite">Wird geladen …</p>
+          <label class="dim auto-lbl" for="account-username">Benutzername</label>
+          <input id="account-username" type="text" autocomplete="username">
+          <label id="account-current-label" class="dim auto-lbl" for="account-current-password">Aktuelles Passwort</label>
+          <input id="account-current-password" type="password" autocomplete="current-password" placeholder="Zur Bestätigung">
+          <label class="dim auto-lbl" for="account-password">Neues Passwort</label>
+          <input id="account-password" type="password" autocomplete="new-password" placeholder="Mindestens 8 Zeichen">
+          <label class="dim auto-lbl" for="account-password-repeat">Neues Passwort wiederholen</label>
+          <input id="account-password-repeat" type="password" autocomplete="new-password">
+          <div class="account-actions">
+            <button id="account-save" class="btn btn-primary btn-sm" type="button">Zugangsdaten speichern</button>
+            <button id="account-logout" class="btn btn-ghost btn-sm" type="button">Abmelden</button>
+          </div>
+          <div id="account-status" class="dim small-status" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="settings-group settings-card account-sessions">
+          <h3>Angemeldete Geräte</h3>
+          <p class="dim settings-hint">Jede Anmeldung erzeugt eine Sitzung, die einen Neustart überdauert. Bei Verdacht auf einen fremden Zugriff hier alle anderen Geräte abmelden.</p>
+          <p id="account-sessions-count" class="dim small-status" role="status" aria-live="polite">—</p>
+          <button id="account-revoke" class="btn btn-ghost btn-sm" type="button">Andere Sitzungen beenden</button>
+          <div id="account-revoke-status" class="dim small-status" role="status" aria-live="polite"></div>
+        </div>
+            </div>
+          </section>
+
           <section id="settings-system" class="settings-section" data-settings-section aria-labelledby="settings-system-title">
             <header class="settings-section-heading">
               <span class="settings-section-mark is-system" aria-hidden="true">⌁</span>
@@ -890,6 +935,25 @@
   </main>
 </div>
 
+<div id="login-screen" class="login-screen hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="login-brand-kicker">ROYAL</span>
+      <strong>Downloader</strong>
+    </div>
+    <h1 id="login-title">Anmelden</h1>
+    <p class="login-intro">Diese Instanz ist durch ein Konto geschützt.</p>
+    <form id="login-form" class="login-form" autocomplete="on">
+      <label class="dim auto-lbl" for="login-username">Benutzername</label>
+      <input id="login-username" name="username" type="text" autocomplete="username" required>
+      <label class="dim auto-lbl" for="login-password">Passwort</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <button id="login-submit" class="btn btn-primary login-submit" type="submit">Anmelden</button>
+    </form>
+    <div id="login-status" class="login-status" role="status" aria-live="polite"></div>
+  </div>
+</div>
+
 <div id="setup-wizard" class="setup-wizard hidden" role="dialog" aria-modal="true" aria-labelledby="setup-title">
   <div class="setup-shell">
     <aside class="setup-rail" aria-label="Einrichtungsfortschritt">
@@ -917,6 +981,10 @@
         <li data-setup-marker="5">
           <span class="setup-marker-number">05</span>
           <span><strong>Automatik</strong><small>Downloads &amp; Telegram</small></span>
+        </li>
+        <li data-setup-marker="6">
+          <span class="setup-marker-number">06</span>
+          <span><strong>Zugang</strong><small>Konto anlegen</small></span>
         </li>
       </ol>
       <div class="setup-data-note">
@@ -1099,6 +1167,28 @@
               <input id="setup-telegram-chat" type="text" autocomplete="off" placeholder="optional, später per /start">
             </label>
           </div>
+        </div>
+
+        <div class="setup-panel hidden" data-setup-step="6">
+          <div class="setup-section-title"><strong>Administratorkonto</strong><span>erforderlich</span></div>
+          <p class="setup-copy">Der Downloader läuft dauerhaft im Netzwerk. Dieses Konto schützt die Oberfläche und alle Downloads davor, von anderen Geräten gesteuert zu werden.</p>
+          <div class="setup-field-grid">
+            <label class="setup-field" for="setup-auth-username">
+              <span>Benutzername</span>
+              <input id="setup-auth-username" type="text" autocomplete="username" placeholder="mindestens 3 Zeichen">
+            </label>
+          </div>
+          <div class="setup-field-grid">
+            <label class="setup-field" for="setup-auth-password">
+              <span>Passwort</span>
+              <input id="setup-auth-password" type="password" autocomplete="new-password" placeholder="mindestens 8 Zeichen">
+            </label>
+            <label class="setup-field" for="setup-auth-password-repeat">
+              <span>Passwort wiederholen</span>
+              <input id="setup-auth-password-repeat" type="password" autocomplete="new-password">
+            </label>
+          </div>
+          <p class="setup-copy">Das Passwort wird nur als Hashwert gespeichert und lässt sich später in den Einstellungen unter „Zugang“ ändern.</p>
         </div>
       </div>
 

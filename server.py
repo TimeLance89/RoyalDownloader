@@ -121,6 +121,7 @@ from watchlist_policy import (
     serialize_episode_history,
 )
 import config as appconfig
+import auth as appauth
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -136,9 +137,12 @@ nodriver_patch.ensure_cdp_utf8()
 
 APP_DIR = Path(__file__).parent
 WEB_DIR = APP_DIR / "web"
-APP_USERNAME = os.environ.get("APP_USERNAME", "").strip()
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
-AUTH_ENABLED = bool(APP_USERNAME and APP_PASSWORD)
+SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
+LOGIN_GUARD = appauth.LoginGuard()
+# Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
+# /api/ui/translate vor der Anmeldung erreichbar sein. Ein Budget je IP
+# verhindert, dass daraus ein offener Übersetzungsproxy wird.
+PUBLIC_TRANSLATE_LIMITER = appauth.RateLimiter(max_requests=60, window_seconds=300)
 UPDATE_CHECKER = UpdateChecker(
     repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
     branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
@@ -187,9 +191,51 @@ SERIES_MAX_SOURCE_PAGE = 50
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 
 
-def _authorized_header(value: str) -> bool:
-    if not AUTH_ENABLED:
-        return True
+# ---------------------------------------------------------------------------
+# Anmeldung
+#
+# Es gibt genau EIN Administratorkonto; die App ist durchgehend auf einen
+# Nutzer ausgelegt (eine Watchlist, eine Queue, ein Jellyfin-Benutzer).
+# Angemeldet wird per Sitzungs-Cookie. HTTP-Basic bleibt zusätzlich gültig,
+# damit bestehende Skripte und Health-Checks weiterlaufen.
+# ---------------------------------------------------------------------------
+def auth_account() -> dict:
+    """Aktuell hinterlegtes Konto (settings.ini oder APP_USERNAME/APP_PASSWORD)."""
+    return appconfig.load_auth()
+
+
+def auth_configured() -> bool:
+    return bool(auth_account().get("configured"))
+
+
+def auth_required() -> bool:
+    """Ob Anfragen abgewiesen werden, wenn keine Anmeldung vorliegt.
+
+    Vor abgeschlossener Ersteinrichtung ist die Oberfläche offen – sonst wäre
+    der Assistent, der das Konto erst anlegt, selbst nicht erreichbar.
+    """
+    if not appconfig.is_initialized():
+        return False
+    return auth_configured()
+
+
+def verify_credentials(username: str, password: str) -> bool:
+    """Prüft Zugangsdaten gegen das hinterlegte Konto (zeitkonstant)."""
+    account = auth_account()
+    if not account.get("configured"):
+        return False
+    if not secrets.compare_digest(str(username or ""), str(account.get("username", ""))):
+        # Trotzdem eine Hash-Runde rechnen, damit ein falscher Benutzername
+        # nicht spürbar schneller beantwortet wird als ein falsches Passwort.
+        appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+        return False
+    if account.get("source") == "env":
+        return secrets.compare_digest(str(password or ""), str(account.get("env_password", "")))
+    return appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+
+
+def _authorized_basic_header(value: str) -> bool:
+    """Erlaubt weiterhin `Authorization: Basic` für Skripte und Monitoring."""
     if not value or not value.startswith("Basic "):
         return False
     try:
@@ -197,7 +243,26 @@ def _authorized_header(value: str) -> bool:
         username, password = decoded.split(":", 1)
     except Exception:
         return False
-    return secrets.compare_digest(username, APP_USERNAME) and secrets.compare_digest(password, APP_PASSWORD)
+    return verify_credentials(username, password)
+
+
+def _session_token(scope_cookies: dict) -> str:
+    return str(scope_cookies.get(appauth.SESSION_COOKIE_NAME) or "")
+
+
+def request_is_authenticated(headers, cookies) -> bool:
+    """Gültige Sitzung oder gültiger Basic-Header?"""
+    if not auth_required():
+        return True
+    if SESSION_STORE.validate(_session_token(cookies)):
+        return True
+    return _authorized_basic_header(headers.get("authorization", ""))
+
+
+def client_key(request) -> str:
+    """Herkunfts-IP für Sperren und Budgets."""
+    client = getattr(request, "client", None)
+    return getattr(client, "host", "") or "unbekannt"
 
 
 # ---------------------------------------------------------------------------
@@ -6874,10 +6939,13 @@ async def lifespan(app: FastAPI):
     import asyncio
     _main_loop = asyncio.get_event_loop()
     bind_host = os.environ.get("HOST", "127.0.0.1")
-    if bind_host not in ("127.0.0.1", "localhost", "::1") and not AUTH_ENABLED:
+    # Bewusst nur eine Warnung, kein Startabbruch: der Dienst läuft im
+    # Container 24/7 und darf sich nach einem Update nicht selbst aussperren.
+    # Die Oberfläche weist zusätzlich sichtbar auf das fehlende Konto hin.
+    if bind_host not in ("127.0.0.1", "localhost", "::1") and not auth_configured():
         logger.warning(
             "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
-            "APP_USERNAME und APP_PASSWORD setzen."
+            "Konto in den Einstellungen unter „Anmeldung“ anlegen."
         )
     removed_staging = await asyncio.to_thread(
         cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
@@ -6922,14 +6990,71 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+# Ohne Anmeldung erreichbar. Die statischen Dateien gehören dazu, weil die
+# Anmeldemaske Teil der Oberfläche ist – sie enthalten keine Nutzerdaten,
+# alle Inhalte kommen über die geschützten /api-Routen.
+PUBLIC_API_PATHS = frozenset({
+    "/api/health",
+    "/api/auth/status",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/ui/config",
+    "/api/ui/translate",
+})
+# Zustandsändernde Methoden: ein fremder Ursprung darf sie nicht auslösen.
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _same_origin(request: Request) -> bool:
+    """Prüft den Origin-Header gegen den eigenen Host.
+
+    Zusammen mit `SameSite=Lax` am Sitzungscookie ist das der CSRF-Schutz:
+    Lax verhindert, dass das Cookie bei einem fremden Formular-POST überhaupt
+    mitgeschickt wird, die Origin-Prüfung fängt den Rest ab. Fehlt der Header
+    (klassische API-Clients wie curl senden ihn nicht), greift sie nicht –
+    solche Clients haben aber auch kein Cookie und müssen sich per Basic
+    ausweisen.
+    """
+    origin = request.headers.get("origin", "")
+    if not origin:
+        return True
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    host = request.headers.get("host", "")
+    return bool(parsed.netloc) and parsed.netloc == host
+
+
+def _is_public_path(path: str) -> bool:
+    if path in PUBLIC_API_PATHS:
+        return True
+    # Vor abgeschlossener Ersteinrichtung braucht der Assistent seine Routen.
+    if path.startswith("/api/setup/") and not appconfig.is_initialized():
+        return True
+    return not path.startswith("/api/")
+
+
 @app.middleware("http")
-async def require_basic_auth(request: Request, call_next):
-    if request.url.path == "/api/health" or _authorized_header(request.headers.get("authorization", "")):
+async def require_authentication(request: Request, call_next):
+    path = request.url.path
+    if request.method in UNSAFE_METHODS and not _same_origin(request):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Anfrage von einem fremden Ursprung wurde abgewiesen."},
+        )
+    if path == "/api/ui/translate" and not request_is_authenticated(request.headers, request.cookies):
+        if not PUBLIC_TRANSLATE_LIMITER.allow(client_key(request)):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Zu viele Übersetzungsanfragen. Bitte kurz warten."},
+                headers={"Retry-After": "60"},
+            )
+    if _is_public_path(path) or request_is_authenticated(request.headers, request.cookies):
         return await call_next(request)
     return JSONResponse(
         status_code=401,
-        content={"detail": "Anmeldung erforderlich."},
-        headers={"WWW-Authenticate": 'Basic realm="Royal Downloader"'},
+        content={"detail": "Anmeldung erforderlich.", "code": "auth_required"},
     )
 
 
@@ -6947,6 +7072,166 @@ async def api_health():
 async def handle_exc(request, exc):
     log(f"Serverfehler: {exc}", "err")
     return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+# ── Anmeldung ───────────────────────────────────────────────────────────────
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+class AuthConfigBody(BaseModel):
+    username: str
+    password: str
+    current_password: Optional[str] = ""
+
+
+def _request_is_secure(request: Request) -> bool:
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return forwarded == "https" or request.url.scheme == "https"
+
+
+def _set_session_cookie(response: Response, request: Request, token: str) -> None:
+    response.set_cookie(
+        appauth.SESSION_COOKIE_NAME,
+        token,
+        max_age=appauth.DEFAULT_SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        # Hinter einem HTTPS-Reverse-Proxy wird das Cookie auf `Secure`
+        # gesetzt; im reinen LAN-Betrieb über http würde das Flag verhindern,
+        # dass der Browser das Cookie überhaupt speichert.
+        secure=_request_is_secure(request),
+        path="/",
+    )
+
+
+def _auth_status_payload(request: Request) -> dict:
+    account = auth_account()
+    configured = bool(account.get("configured"))
+    authenticated = request_is_authenticated(request.headers, request.cookies)
+    return {
+        "configured": configured,
+        "required": auth_required(),
+        "authenticated": authenticated,
+        "username": account.get("username", "") if authenticated or not configured else "",
+        "source": account.get("source", "none"),
+        "setup_required": not appconfig.is_initialized(),
+        # Bestandsinstallation ohne Konto: die Oberfläche zeigt dafür einen
+        # Hinweis mit direktem Weg in die Konto-Einstellungen.
+        "prompt_setup": appconfig.is_initialized() and not configured,
+        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
+        "min_username_length": appauth.MIN_USERNAME_LENGTH,
+    }
+
+
+@app.get("/api/auth/status")
+async def api_auth_status(request: Request):
+    return _auth_status_payload(request)
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(body: LoginBody, request: Request):
+    key = client_key(request)
+    blocked = LOGIN_GUARD.retry_after(key)
+    if blocked:
+        raise HTTPException(
+            429,
+            f"Zu viele Fehlversuche. Bitte {blocked} Sekunden warten.",
+            headers={"Retry-After": str(blocked)},
+        )
+    if not auth_configured():
+        raise HTTPException(400, "Es ist kein Konto eingerichtet.")
+    ok = await run_in_threadpool(
+        verify_credentials, body.username.strip(), body.password,
+    )
+    if not ok:
+        lockout = LOGIN_GUARD.register_failure(key)
+        log(f"Fehlgeschlagene Anmeldung von {key}.", "warn")
+        if lockout:
+            raise HTTPException(
+                429,
+                f"Zu viele Fehlversuche. Bitte {lockout} Sekunden warten.",
+                headers={"Retry-After": str(lockout)},
+            )
+        remaining = LOGIN_GUARD.remaining_attempts(key)
+        raise HTTPException(
+            401,
+            f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
+        )
+    LOGIN_GUARD.register_success(key)
+    token = SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120])
+    payload = _auth_status_payload(request)
+    payload.update({"authenticated": True, "username": auth_account().get("username", "")})
+    response = JSONResponse(payload)
+    _set_session_cookie(response, request, token)
+    log("Anmeldung erfolgreich.")
+    return response
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout(request: Request):
+    SESSION_STORE.revoke(_session_token(request.cookies))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(appauth.SESSION_COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/auth/config")
+async def api_auth_config_get(request: Request):
+    account = auth_account()
+    return {
+        "configured": bool(account.get("configured")),
+        "username": account.get("username", ""),
+        "source": account.get("source", "none"),
+        "active_sessions": SESSION_STORE.count(),
+        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
+        "min_username_length": appauth.MIN_USERNAME_LENGTH,
+    }
+
+
+@app.post("/api/auth/config")
+async def api_auth_config_set(body: AuthConfigBody, request: Request):
+    account = auth_account()
+    configured = bool(account.get("configured"))
+    # Ist bereits ein Konto vorhanden, muss das aktuelle Passwort bestätigt
+    # werden – sonst könnte eine gekaperte Sitzung das Konto stillschweigend
+    # übernehmen. Ohne Konto (Bestandsinstallation) ist das die Ersteinrichtung.
+    if configured:
+        confirmed = await run_in_threadpool(
+            verify_credentials, account.get("username", ""), body.current_password or "",
+        )
+        if not confirmed:
+            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+    try:
+        username = appauth.validate_username(body.username)
+        password = appauth.validate_password(body.password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    password_hash = await run_in_threadpool(appauth.hash_password, password)
+    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
+        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
+    # Alle bestehenden Sitzungen verlieren ihre Gültigkeit; das aufrufende
+    # Gerät bekommt sofort eine neue, damit es nicht herausfliegt.
+    SESSION_STORE.revoke_all()
+    token = SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120])
+    response = JSONResponse({
+        "ok": True,
+        "configured": True,
+        "username": username,
+        "source": "settings",
+        "active_sessions": SESSION_STORE.count(),
+    })
+    _set_session_cookie(response, request, token)
+    log(f"Zugangsdaten aktualisiert (Benutzer „{username}“).")
+    return response
+
+
+@app.post("/api/auth/sessions/revoke")
+async def api_auth_sessions_revoke(request: Request):
+    removed = SESSION_STORE.revoke_all(keep_token=_session_token(request.cookies))
+    log(f"{removed} andere Sitzung(en) beendet.")
+    return {"ok": True, "revoked": removed, "active_sessions": SESSION_STORE.count()}
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────
@@ -7965,6 +8250,8 @@ class SetupCompleteBody(BaseModel):
     series_providers: Optional[List[str]] = None
     anime_providers: Optional[List[str]] = None
     content_languages: Optional[List[str]] = None
+    auth_username: str = ""
+    auth_password: str = ""
 
 
 def _prepare_media_directory(raw_path: str, label: str) -> dict:
@@ -8023,7 +8310,22 @@ async def api_setup_status():
 
 
 @app.post("/api/setup/complete")
-async def api_setup_complete(body: SetupCompleteBody):
+async def api_setup_complete(body: SetupCompleteBody, request: Request):
+    # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
+    # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
+    already_initialized = appconfig.is_initialized()
+    if already_initialized and not request_is_authenticated(request.headers, request.cookies):
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    account_hash = ""
+    account_user = ""
+    if not auth_configured():
+        # Neuinstallation: ohne Konto wird nicht abgeschlossen.
+        try:
+            account_user = appauth.validate_username(body.auth_username)
+            account_password = appauth.validate_password(body.auth_password)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        account_hash = await run_in_threadpool(appauth.hash_password, account_password)
     movie_path = body.save_path.strip()
     series_path = body.series_path.strip() or movie_path
     jellyfin_url = body.jellyfin_url.strip()
@@ -8154,6 +8456,8 @@ async def api_setup_complete(body: SetupCompleteBody):
         content_languages,
         anime_order,
         anime_providers,
+        account_user,
+        account_hash,
     )
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
@@ -8172,14 +8476,25 @@ async def api_setup_complete(body: SetupCompleteBody):
     state.telegram_cfg = appconfig.load_telegram()
     state.automation = appconfig.load_automation()
     start_background_services()
-    return {
+    payload = {
         "saved": True,
         "required": False,
         "config_path": str(appconfig.config_path()),
         "save_path": state.save_path,
         "series_path": state.series_path,
         "ui_language": state.ui_language,
+        "auth_configured": auth_configured(),
     }
+    if not account_hash:
+        return payload
+    # Ab jetzt greift die Anmeldepflicht. Der Browser, der gerade die
+    # Einrichtung abgeschlossen hat, bekommt direkt eine Sitzung – sonst
+    # stünde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
+    response = JSONResponse(payload)
+    _set_session_cookie(
+        response, request, SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120]),
+    )
+    return response
 
 
 class UILanguageBody(BaseModel):
@@ -9655,7 +9970,11 @@ async def api_watchlist_open(body: WatchlistOpenBody):
 # ── WebSocket (Log / Fortschritt / Queue-Events) ────────────────────────────
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
-    if not _authorized_header(websocket.headers.get("authorization", "")):
+    # JavaScript kann beim WebSocket-Handshake keinen Authorization-Header
+    # setzen, und Browser hängen gespeicherte Basic-Zugangsdaten dort nicht an.
+    # Das Sitzungscookie wird dagegen mitgeschickt – erst damit funktionieren
+    # Live-Log, Fortschritt und Queue-Updates bei aktivierter Anmeldung.
+    if not request_is_authenticated(websocket.headers, websocket.cookies):
         await websocket.close(code=1008, reason="Anmeldung erforderlich")
         return
     await ws_manager.connect(websocket)

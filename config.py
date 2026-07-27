@@ -123,6 +123,11 @@ def _seerr_requests_file() -> Path:
     return _config_dir() / "seerr_requests.json"
 
 
+def sessions_file() -> Path:
+    """Ablage der angemeldeten Sitzungen (nur Token-Hashes, siehe auth.py)."""
+    return _config_dir() / "sessions.json"
+
+
 def _default_path() -> str:
     # Docker/NAS: Zielordner für Downloads per Env vorgeben (Bind-Mount auf den
     # NAS-Medienordner). Ohne die Variable bleibt der bisherige Default.
@@ -516,6 +521,61 @@ def config_path() -> Path:
     return _config_file()
 
 
+# ---------------------------------------------------------------------------
+# Anmeldung (ein Administratorkonto)
+def load_auth() -> dict:
+    """Lädt das hinterlegte Konto.
+
+    Priorität: gespeichertes Konto (Benutzername + Passwort-Hash aus der
+    settings.ini) > Umgebungsvariablen APP_USERNAME/APP_PASSWORD. Der
+    Env-Weg bleibt erhalten, damit bestehende Docker-Installationen sich nach
+    dem Update unverändert mit ihren bisherigen Zugangsdaten anmelden können;
+    `source` sagt der Oberfläche, welcher Weg gerade greift.
+    """
+    values = _read_all()
+    username = values.get("auth_username", "").strip()
+    password_hash = values.get("auth_password_hash", "").strip()
+    if username and password_hash:
+        return {
+            "username": username,
+            "password_hash": password_hash,
+            "configured": True,
+            "source": "settings",
+        }
+    env_user = os.environ.get("APP_USERNAME", "").strip()
+    env_password = os.environ.get("APP_PASSWORD", "")
+    if env_user and env_password:
+        return {
+            "username": env_user,
+            "password_hash": "",
+            "env_password": env_password,
+            "configured": True,
+            "source": "env",
+        }
+    return {
+        "username": "",
+        "password_hash": "",
+        "configured": False,
+        "source": "none",
+    }
+
+
+def save_auth(username: str, password_hash: str) -> bool:
+    """Speichert Benutzername und Passwort-Hash (nie das Klartextpasswort)."""
+    user = str(username or "").strip()
+    digest = str(password_hash or "").strip()
+    if not user or not digest:
+        return False
+    return _update_all({
+        "auth_username": user,
+        "auth_password_hash": digest,
+    })
+
+
+def auth_configured() -> bool:
+    return bool(load_auth().get("configured"))
+
+
 def is_initialized() -> bool:
     """Eine vorhandene settings.ini markiert eine abgeschlossene Ersteinrichtung.
 
@@ -551,6 +611,8 @@ def save_initial_setup(
     content_languages=None,
     anime_provider_order=None,
     anime_providers=None,
+    auth_username: str = "",
+    auth_password_hash: str = "",
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -578,7 +640,14 @@ def save_initial_setup(
     )
     if not enabled_movies or not enabled_series or not languages:
         return False
+    account = {}
+    if auth_username.strip() and auth_password_hash.strip():
+        account = {
+            "auth_username": auth_username.strip(),
+            "auth_password_hash": auth_password_hash.strip(),
+        }
     return _update_all({
+        **account,
         "save_path": save_path.strip(),
         "series_path": series_path.strip(),
         "ui_language": normalize_ui_language(ui_language),
