@@ -76,6 +76,23 @@ NO_OUTPUT_TIMEOUT_SECONDS = _env_number(
 )
 SLOW_FAILURE_PREFIX = "Stream dauerhaft zu langsam"
 
+# Mit --abort-on-unavailable-fragments schliesst yt-dlp den Zieldatei-Stream
+# bereits im Worker-Thread, sobald ein Fragment endgueltig scheitert. Die uebrigen
+# parallelen Fragmente laufen aber noch und melden danach nur "write to closed
+# file". Diese Folgemeldung ueberschreibt die echte Ursache (403, Timeout, …),
+# deshalb wird sie beim Auswerten der Ausgabe uebersprungen.
+_YTDLP_NOISE_ERROR_MARKERS = (
+    "write to closed file",
+    "i/o operation on closed file",
+    "operation on closed file",
+)
+# Zeigt an, dass der Abbruch aus der Fragment-Kette kam und ein serieller
+# Wiederholungsversuch sinnvoll ist.
+_YTDLP_FRAGMENT_ERROR_MARKERS = (
+    "unable to continue",
+    "fragment",
+) + _YTDLP_NOISE_ERROR_MARKERS
+
 # Kleine Hoster (z.B. filmfrei24.com inkl. tv.filmfrei24.com) drosseln pro IP,
 # sobald mehrere Downloads gleichzeitig laufen. Deshalb laeuft pro Host-Gruppe
 # nur ein Download; der zweite Queue-Slot nimmt derweil einen anderen Host.
@@ -424,6 +441,22 @@ class DownloadJob:
             if (
                 not success
                 and not self._cancelled
+                and self.failure_kind == "fragment"
+                and HLS_CONCURRENT_FRAGMENTS > 1
+            ):
+                # Ein einzelnes gescheitertes Fragment reisst mit parallelen
+                # Downloads die gesamte Datei mit. Seriell bleibt der Zielstream
+                # offen, der Abbruch trifft nur das wirklich defekte Fragment –
+                # und yt-dlp meldet die echte Ursache statt der Folgefehler.
+                self.on_progress(-1, "Fragment abgebrochen – erneuter Versuch ohne Parallelität …")
+                self._cleanup_staging()
+                parallel_msg = msg
+                success, msg = self._download_ytdlp(concurrent_fragments=1)
+                if not success and self.failure_kind != "slow":
+                    msg = f"{parallel_msg}; seriell: {msg}"
+            if (
+                not success
+                and not self._cancelled
                 and self.stream_type == "mp4"
                 and ".m3u8" not in self.stream_url.lower()
                 and self.failure_kind != "slow"
@@ -624,11 +657,12 @@ class DownloadJob:
             except OSError:
                 pass
 
-    def _download_ytdlp(self) -> tuple:
+    def _download_ytdlp(self, concurrent_fragments: Optional[int] = None) -> tuple:
         if self._cancelled:
             return False, "Abgebrochen"
         self.failure_kind = ""
         self.average_speed_bps = 0.0
+        fragments = int(concurrent_fragments or HLS_CONCURRENT_FRAGMENTS)
         prepared, detail = self._prepare_staging()
         if not prepared:
             return False, f"Staging nicht nutzbar: {detail}"
@@ -645,7 +679,7 @@ class DownloadJob:
             "--abort-on-unavailable-fragments",
             "--file-access-retries", "1",
             "--retry-sleep", "1",
-            "--concurrent-fragments", str(HLS_CONCURRENT_FRAGMENTS),
+            "--concurrent-fragments", str(fragments),
             "--progress-delta", "1",
             "--output", str(self.staging_path),
             "--merge-output-format", "mp4",
@@ -700,6 +734,8 @@ class DownloadJob:
 
         threading.Thread(target=_read_output, daemon=True).start()
         last_error = ""
+        first_real_error = ""
+        fragment_abort = False
         last_output = time.monotonic()
         stalled = False
         slow = False
@@ -722,7 +758,17 @@ class DownloadJob:
             if not line:
                 continue
             if self._is_ytdlp_error(line):
-                last_error = self._clean_ytdlp_error(line)
+                cleaned = self._clean_ytdlp_error(line)
+                last_error = cleaned
+                low_error = cleaned.casefold()
+                if any(m in low_error for m in _YTDLP_FRAGMENT_ERROR_MARKERS):
+                    fragment_abort = True
+                if not first_real_error and not any(
+                    m in low_error for m in _YTDLP_NOISE_ERROR_MARKERS
+                ):
+                    # Die erste echte Meldung ist die Ursache; spaetere Zeilen sind
+                    # nur noch Folgefehler der bereits abgebrochenen Fragmentkette.
+                    first_real_error = cleaned
             speed_bps = self._parse_speed_bps(line)
             if speed_bps is not None:
                 self.average_speed_bps = (
@@ -754,7 +800,9 @@ class DownloadJob:
             return False, "Stream lieferte zu lange keinen Fortschritt"
         if self._proc.returncode == 0:
             return True, "yt-dlp OK"
-        detail = last_error or f"Prozesscode {self._proc.returncode}"
+        if fragment_abort:
+            self.failure_kind = "fragment"
+        detail = first_real_error or last_error or f"Prozesscode {self._proc.returncode}"
         return False, f"Stream nicht erreichbar: {detail}"
 
     def _parse_progress(self, line: str) -> float:

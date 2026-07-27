@@ -3439,6 +3439,7 @@ def _extract_from_movie(
     movie: FilmpalastMovie,
     unsupported_domains: set,
     excluded_hoster_urls: Optional[set] = None,
+    barren_hoster_urls: Optional[set] = None,
 ) -> _HosterResult:
     """Probiert der Reihe nach die Hoster eines Movies (nach hoster_intel-Ranking)
     durch, löst serienstream-Redirects lazy auf und liefert den ersten nutzbaren
@@ -3449,12 +3450,20 @@ def _extract_from_movie(
     res.content_language = _movie_content_language(movie)
     session = state.fp_scraper.session._curl if state.fp_scraper else None
     excluded_hoster_urls = excluded_hoster_urls or set()
+    # Ergebnislose Extraktionen dieses Laufs. Ein Embed, das schon einmal die
+    # komplette Browser-Kette ohne Stream-URL durchlaufen hat, liefert Sekunden
+    # später dasselbe Nichts – kostet aber erneut die volle Wartezeit.
+    if barren_hoster_urls is None:
+        barren_hoster_urls = set()
 
     for hoster in state.hoster_intel.rank(movie.hosters):
         if not hoster.url:
             continue
         if hoster.url in excluded_hoster_urls:
             log(f"  Überspringe {hoster.name}: Download zuvor fehlgeschlagen", "warn")
+            continue
+        if hoster.url in barren_hoster_urls:
+            log(f"  Überspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
             continue
         name = hoster.name.lower()
         if hoster.url in unsupported_domains:
@@ -3503,6 +3512,10 @@ def _extract_from_movie(
             name = _canonical_hoster_name(hoster.name, play_url)
             if play_url in unsupported_domains:
                 log(f"  Überspringe {hoster.name}: Link nicht unterstützt", "warn")
+                continue
+            if play_url in barren_hoster_urls:
+                # s.to rotiert die Redirect-URLs, das Embed-Ziel bleibt gleich.
+                log(f"  Überspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
                 continue
         name = _canonical_hoster_name(hoster.name, play_url)
         res.hoster_url_used = play_url
@@ -3840,6 +3853,12 @@ def _extract_from_movie(
                 res.stream_info = None
                 continue
             break
+        else:
+            # Der Extraktor lief vollständig durch, ohne eine Stream-URL zu
+            # finden. Innerhalb dieses Laufs nicht erneut versuchen.
+            barren_hoster_urls.add(hoster.url)
+            if play_url:
+                barren_hoster_urls.add(play_url)
 
     return res
 
@@ -3912,6 +3931,7 @@ def _enqueue_hoster_attempt(
     source_index: int,
     source_fallbacks_loaded: List[bool],
     refreshed_hoster_urls: set,
+    barren_hoster_urls: Optional[set] = None,
     cancelled: Optional[Callable[[], bool]] = None,
     gate_seen: Optional[List[bool]] = None,
     gate_retry: Optional[Callable[[], bool]] = None,
@@ -3925,6 +3945,8 @@ def _enqueue_hoster_attempt(
         return False
     gate_seen = gate_seen or [bool(result.gated)]
     gate_seen[0] = gate_seen[0] or bool(result.gated)
+    if barren_hoster_urls is None:
+        barren_hoster_urls = set()
     if slow_candidates is None:
         slow_candidates = []
     stream_url, stream_type = result.stream_info
@@ -3979,13 +4001,22 @@ def _enqueue_hoster_attempt(
                     movie,
                     unsupported_domains,
                     excluded_hoster_urls=failed_hoster_urls,
+                    barren_hoster_urls=barren_hoster_urls,
                 )
             gate_seen[0] = gate_seen[0] or bool(refreshed.gated)
-            if refreshed.stream_info:
+            if refreshed.stream_info and refreshed.stream_info[0] == stream_url:
+                # Identischer Link: die Signatur war nicht abgelaufen, der Fehler
+                # lag am Abruf selbst. Ein zweiter Versuch scheitert genauso.
+                log(
+                    f"  {hoster_used}: unveränderter Link – kein zweiter Versuch",
+                    "warn",
+                )
+            elif refreshed.stream_info:
                 if _enqueue_hoster_attempt(
                     movie, movie_slug, out_path, refreshed, unsupported_domains,
                     failed_hoster_urls, attempt_errors, source_movies, source_index,
-                    source_fallbacks_loaded, refreshed_hoster_urls, cancelled,
+                    source_fallbacks_loaded, refreshed_hoster_urls,
+                    barren_hoster_urls, cancelled,
                     gate_seen, gate_retry, slow_candidates, last_resort,
                 ):
                     return
@@ -4003,13 +4034,15 @@ def _enqueue_hoster_attempt(
                 movie,
                 unsupported_domains,
                 excluded_hoster_urls=failed_hoster_urls,
+                barren_hoster_urls=barren_hoster_urls,
             )
         gate_seen[0] = gate_seen[0] or bool(next_result.gated)
         if next_result.stream_info:
             if _enqueue_hoster_attempt(
                 movie, movie_slug, out_path, next_result, unsupported_domains,
                 failed_hoster_urls, attempt_errors, source_movies, source_index,
-                source_fallbacks_loaded, refreshed_hoster_urls, cancelled,
+                source_fallbacks_loaded, refreshed_hoster_urls,
+                barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
             ):
                 return
@@ -4045,6 +4078,7 @@ def _enqueue_hoster_attempt(
                     next_movie,
                     unsupported_domains,
                     excluded_hoster_urls=failed_hoster_urls,
+                    barren_hoster_urls=barren_hoster_urls,
                 )
             gate_seen[0] = gate_seen[0] or bool(source_result.gated)
             if not source_result.stream_info:
@@ -4052,7 +4086,8 @@ def _enqueue_hoster_attempt(
             if _enqueue_hoster_attempt(
                 next_movie, movie_slug, out_path, source_result, unsupported_domains,
                 failed_hoster_urls, attempt_errors, source_movies, next_index,
-                source_fallbacks_loaded, refreshed_hoster_urls, cancelled,
+                source_fallbacks_loaded, refreshed_hoster_urls,
+                barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
             ):
                 return
@@ -4092,6 +4127,7 @@ def _enqueue_hoster_attempt(
                 source_index,
                 source_fallbacks_loaded,
                 refreshed_hoster_urls,
+                barren_hoster_urls,
                 cancelled,
                 gate_seen,
                 gate_retry,
@@ -4356,6 +4392,9 @@ def run_download_queue(
             source_movies.append(fallback_movie)
             seen_source_urls.add(fallback_movie.url)
         source_fallbacks_loaded = [movie_fallbacks is not None and movie_slug in movie_fallbacks]
+        # Gilt für den kompletten Versuch dieses Slugs, quellenübergreifend:
+        # ein Embed ohne Stream-URL bleibt für diesen Lauf ausgeschlossen.
+        barren_hoster_urls: set = set()
         # Watchlist-Einträge behalten ihren ursprünglichen Katalog-Slug. Wurde
         # später eine andere Primärquelle konfiguriert, laden wir deren Treffer
         # vorab und sortieren die tatsächlich nutzbaren Quellen neu.
@@ -4382,7 +4421,9 @@ def run_download_queue(
         source_index = 0
 
         with state.hoster_extract_lock:
-            result = _extract_from_movie(movie, unsupported_domains)
+            result = _extract_from_movie(
+                movie, unsupported_domains, barren_hoster_urls=barren_hoster_urls,
+            )
         if primary_unavailable:
             # Eine temporaer nicht lesbare s.to-Episodenseite wird wie das
             # Redirect-Gate behandelt und nicht sofort terminal gezaehlt.
@@ -4414,7 +4455,11 @@ def run_download_queue(
                 next_movie = source_movies[next_index]
                 log(f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}", "warn")
                 with state.hoster_extract_lock:
-                    source_result = _extract_from_movie(next_movie, unsupported_domains)
+                    source_result = _extract_from_movie(
+                        next_movie,
+                        unsupported_domains,
+                        barren_hoster_urls=barren_hoster_urls,
+                    )
                 gate_seen[0] = gate_seen[0] or bool(source_result.gated)
                 if not source_result.stream_info:
                     continue
@@ -4456,6 +4501,7 @@ def run_download_queue(
             source_index=source_index,
             source_fallbacks_loaded=source_fallbacks_loaded,
             refreshed_hoster_urls=set(),
+            barren_hoster_urls=barren_hoster_urls,
             cancelled=cancelled,
             gate_seen=gate_seen,
             gate_retry=lambda primary=source_movies[0], slug=movie_slug: _defer_gated_episode(
