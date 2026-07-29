@@ -114,6 +114,8 @@ data class MovieSummary(
     @SerialName("backdrop_url") val backdropUrl: String = "",
     val description: String = "",
     val rating: Double? = null,
+    @SerialName("release_date") val releaseDate: String = "",
+    @SerialName("in_cinema") val inCinema: Boolean = false,
     @SerialName("in_jellyfin") val inJellyfin: Boolean? = null,
     @SerialName("tmdb_id") val tmdbId: Int? = null,
 )
@@ -141,6 +143,8 @@ data class MovieListMetadata(
     @SerialName("backdrop_url") val backdropUrl: String = "",
     val description: String = "",
     val rating: Double? = null,
+    @SerialName("release_date") val releaseDate: String = "",
+    @SerialName("in_cinema") val inCinema: Boolean = false,
 )
 
 @Serializable
@@ -286,6 +290,9 @@ data class SeriesDetail(
     val rating: Double? = null,
     @SerialName("vote_count") val voteCount: Int? = null,
     val status: String = "",
+    val cast: List<CastMember> = emptyList(),
+    val creators: List<String> = emptyList(),
+    val networks: List<String> = emptyList(),
     val trailer: MovieTrailer? = null,
     @SerialName("tmdb_id") val tmdbId: Int? = null,
     val aliases: List<String> = emptyList(),

@@ -54,6 +54,10 @@ fun DetailScreen(
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var editSubscription by remember { mutableStateOf(false) }
+    var seriesSection by remember { mutableStateOf(SeriesDetailSection.OVERVIEW) }
+    LaunchedEffect(state.series?.baseSlug) {
+        seriesSection = SeriesDetailSection.OVERVIEW
+    }
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
     }
@@ -130,7 +134,10 @@ fun DetailScreen(
                                 series,
                                 state.selectedEpisodes,
                                 viewModel::toggleEpisode,
+                                viewModel::toggleSeason,
                                 onEditSubscription = { editSubscription = true },
+                                section = seriesSection,
+                                onSectionChange = { seriesSection = it },
                             )
                         }
                         DetailKind.ANIME -> state.anime?.let {
@@ -309,7 +316,7 @@ private fun SeriesHero(
             ) {
                 Box(Modifier.width(4.dp).height(20.dp).background(RoyalCinemaRed))
                 RoyalArchiveLabel(
-                    if (series.watchlisted) "ROYAL ORIGINAL · ABONNIERT" else "ROYAL SERIE",
+                    if (series.watchlisted) "SERIE · ABONNIERT" else "SERIE",
                     color = RoyalText,
                 )
             }
@@ -716,113 +723,198 @@ internal fun youtubeVideoId(trailer: MovieTrailer?): String? {
 
 private val YOUTUBE_VIDEO_ID = Regex("^[A-Za-z0-9_-]{6,20}$")
 
+private enum class SeriesDetailSection(val label: String) {
+    OVERVIEW("Übersicht"),
+    EPISODES("Episoden"),
+    DETAILS("Details"),
+}
+
 private fun androidx.compose.foundation.lazy.LazyListScope.seriesContent(
     series: SeriesDetail,
     selected: Set<String>,
     onToggle: (String) -> Unit,
+    onToggleSeason: (Int) -> Unit,
     onEditSubscription: () -> Unit,
+    section: SeriesDetailSection,
+    onSectionChange: (SeriesDetailSection) -> Unit,
 ) {
     item {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            RoyalSectionHeader("Über ${series.title}", label = "DIE SERIE")
-            Text(
-                series.description.ifBlank { "Keine Beschreibung verfügbar." },
-                color = RoyalText,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                series.genres.forEach { RoyalStatusChip(it, tone = RoyalStatusTone.Selected) }
-                if (series.status.isNotBlank()) RoyalStatusChip(series.status)
-                if (series.providerLabel.isNotBlank()) RoyalStatusChip(series.providerLabel)
-                if (series.contentLanguage.isNotBlank()) {
-                    RoyalStatusChip(series.contentLanguage.uppercase(), tone = RoyalStatusTone.Active)
-                }
+        SeriesSectionNavigation(section, onSectionChange)
+    }
+
+    when (section) {
+        SeriesDetailSection.OVERVIEW -> {
+            item { SeriesOverview(series) }
+            if (series.watchlisted) {
+                item { SubscriptionSection(series, onEditSubscription) }
             }
-            if (series.originalTitle.isNotBlank() && series.originalTitle != series.title) {
-                DetailKeyValue("Originaltitel", series.originalTitle)
+            if (series.cast.isNotEmpty()) {
+                item { SeriesCastRail(series.cast) }
             }
         }
-    }
-    item {
-        SeriesFacts(series)
-    }
-    if (series.watchlisted) {
-        item {
-            SubscriptionSection(series, onEditSubscription)
-        }
-    }
-    if (series.availabilityPending || series.availabilityError.isNotBlank() || series.jellyfinAvailable == false) {
-        item {
-            val message = when {
-                series.availabilityError.isNotBlank() -> series.availabilityError
-                series.jellyfinAvailable == false ->
-                    "Jellyfin konnte nicht eindeutig abgeglichen werden. Die Episodenauswahl ist vorsorglich eingeschränkt."
-                else -> "Bestand, Veröffentlichungen und Metadaten werden noch geprüft."
+        SeriesDetailSection.EPISODES -> {
+            if (series.availabilityPending || series.availabilityError.isNotBlank() || series.jellyfinAvailable == false) {
+                item { SeriesAvailabilityBanner(series) }
             }
-            RoyalConnectionBanner(
-                title = "Verfügbarkeitsprüfung",
-                message = message,
-                tone = if (series.availabilityError.isNotBlank()) RoyalStatusTone.Error else RoyalStatusTone.Warning,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
-            )
+            item { SeriesEpisodeBrowser(series, selected, onToggle, onToggleSeason) }
         }
-    }
-    item {
-        SeriesEpisodeBrowser(series, selected, onToggle)
+        SeriesDetailSection.DETAILS -> {
+            item { SeriesMetadata(series) }
+            if (series.watchlisted) {
+                item { SubscriptionSection(series, onEditSubscription) }
+            }
+        }
     }
 }
 
 @Composable
-private fun SeriesFacts(series: SeriesDetail) {
+private fun SeriesSectionNavigation(
+    selected: SeriesDetailSection,
+    onSelected: (SeriesDetailSection) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(RoyalVault)
+            .padding(horizontal = 18.dp),
+    ) {
+        SeriesDetailSection.entries.forEach { section ->
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onSelected(section) }
+                    .padding(top = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    section.label,
+                    color = if (selected == section) RoyalText else RoyalTextMuted,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected == section) FontWeight.Bold else FontWeight.Medium,
+                )
+                Spacer(Modifier.height(11.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(if (selected == section) 3.dp else 1.dp)
+                        .background(
+                            if (selected == section) RoyalCinemaRed else RoyalGoldBorder,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesOverview(series: SeriesDetail) {
     val episodeCount = series.episodeCount.takeIf { it > 0 }
         ?: series.seasons.sumOf { it.episodes.size }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SeriesFact(
-            value = series.seasons.size.toString(),
-            label = if (series.seasons.size == 1) "Staffel" else "Staffeln",
-            modifier = Modifier.weight(1f),
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            series.rating?.takeIf { it > 0 }?.let {
+                Text("★ %.1f".format(it), color = RoyalSuccess, style = MaterialTheme.typography.titleMedium)
+            }
+            if (series.year.isNotBlank()) Text(series.year, color = RoyalText, style = MaterialTheme.typography.labelLarge)
+            Text("${series.seasons.size} Staffeln", color = RoyalText, style = MaterialTheme.typography.labelLarge)
+            Text("$episodeCount Episoden", color = RoyalTextMuted, style = MaterialTheme.typography.labelLarge)
+        }
+        Text(
+            series.description.ifBlank { "Keine Beschreibung verfügbar." },
+            color = RoyalText,
+            style = MaterialTheme.typography.bodyLarge,
         )
-        SeriesFact(
-            value = episodeCount.toString(),
-            label = "Episoden",
-            modifier = Modifier.weight(1f),
-        )
-        SeriesFact(
-            value = series.rating?.takeIf { it > 0 }?.let { "%.1f".format(it) } ?: "–",
-            label = "TMDB-Wertung",
-            modifier = Modifier.weight(1f),
-        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            series.genres.forEach { RoyalStatusChip(it, tone = RoyalStatusTone.Selected) }
+        }
+        if (series.creators.isNotEmpty()) {
+            DetailKeyValue("Von", series.creators.joinToString())
+        }
+        if (series.cast.isNotEmpty()) {
+            DetailKeyValue("Mit", series.cast.take(4).joinToString { it.name })
+        }
     }
 }
 
 @Composable
-private fun SeriesFact(value: String, label: String, modifier: Modifier = Modifier) {
-    RoyalInsetPanel(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+private fun SeriesCastRail(cast: List<CastMember>) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            value,
-            color = RoyalGoldBright,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            "Besetzung",
+            modifier = Modifier.padding(horizontal = 18.dp),
+            color = RoyalText,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontFamily = Outfit,
+                fontWeight = FontWeight.Bold,
+            ),
         )
-        Text(
-            label.uppercase(),
-            color = RoyalTextFaint,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(cast.take(14), key = { "${it.name}:${it.character}" }) {
+                CastCard(it)
+            }
+        }
     }
+}
+
+@Composable
+private fun SeriesMetadata(series: SeriesDetail) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Über diesen Titel",
+            color = RoyalText,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontFamily = Outfit,
+                fontWeight = FontWeight.Bold,
+            ),
+        )
+        Spacer(Modifier.height(4.dp))
+        if (series.creators.isNotEmpty()) DetailKeyValue("Erstellt von", series.creators.joinToString())
+        if (series.networks.isNotEmpty()) DetailKeyValue("Netzwerk", series.networks.joinToString())
+        if (series.originalTitle.isNotBlank()) DetailKeyValue("Originaltitel", series.originalTitle)
+        if (series.firstAirDate.isNotBlank()) DetailKeyValue("Erstausstrahlung", formatMovieDate(series.firstAirDate))
+        if (series.runtime.isNotBlank()) DetailKeyValue("Laufzeit", series.runtime)
+        if (series.status.isNotBlank()) DetailKeyValue("Status", series.status)
+        if (series.providerLabel.isNotBlank()) DetailKeyValue("Quelle", series.providerLabel)
+        if (series.languageLabel.isNotBlank()) DetailKeyValue("Sprache", series.languageLabel)
+        if (series.metadataSource.isNotBlank()) DetailKeyValue("Metadaten", series.metadataSource)
+        if (series.genres.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                series.genres.forEach { RoyalStatusChip(it, tone = RoyalStatusTone.Selected) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesAvailabilityBanner(series: SeriesDetail) {
+    val message = when {
+        series.availabilityError.isNotBlank() -> series.availabilityError
+        series.jellyfinAvailable == false ->
+            "Jellyfin konnte nicht eindeutig abgeglichen werden. Die Episodenauswahl ist vorsorglich eingeschränkt."
+        else -> "Bestand, Veröffentlichungen und Metadaten werden noch geprüft."
+    }
+    RoyalConnectionBanner(
+        title = "Verfügbarkeitsprüfung",
+        message = message,
+        tone = if (series.availabilityError.isNotBlank()) RoyalStatusTone.Error else RoyalStatusTone.Warning,
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+    )
 }
 
 @Composable
@@ -830,6 +922,7 @@ private fun SeriesEpisodeBrowser(
     series: SeriesDetail,
     selected: Set<String>,
     onToggle: (String) -> Unit,
+    onToggleSeason: (Int) -> Unit,
 ) {
     val initialSeason = series.seasons.firstOrNull()?.season ?: 0
     var selectedSeason by remember(series.baseSlug, series.seasons) {
@@ -861,13 +954,27 @@ private fun SeriesEpisodeBrowser(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(series.seasons, key = { it.season }) { item ->
+                val selectable = item.episodes.filterNot {
+                    it.queued || it.downloaded || it.inJellyfin || it.unreleased
+                }
+                val fullySelected = selectable.isNotEmpty() &&
+                    selectable.all { it.slug in selected }
                 RoyalFilterChip(
-                    selected = item.season == season?.season,
-                    onClick = { selectedSeason = item.season },
-                    label = "Staffel ${item.season}",
+                    selected = fullySelected,
+                    onClick = {
+                        selectedSeason = item.season
+                        onToggleSeason(item.season)
+                    },
+                    label = "${if (fullySelected) "✓ " else ""}Staffel ${item.season}",
                 )
             }
         }
+        Text(
+            "Staffel antippen: alle verfügbaren Episoden auswählen oder abwählen.",
+            modifier = Modifier.padding(horizontal = 18.dp),
+            color = RoyalTextFaint,
+            style = MaterialTheme.typography.bodySmall,
+        )
         AnimatedContent(
             targetState = season,
             label = "Staffelwechsel",

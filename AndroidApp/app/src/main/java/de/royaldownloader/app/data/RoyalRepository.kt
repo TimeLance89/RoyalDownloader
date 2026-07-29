@@ -91,6 +91,7 @@ data class LiveResult(val label: String, val message: String, val successful: Bo
 data class HomeSnapshot(
     val queue: QueueSnapshot,
     val watchlist: List<WatchlistItem>,
+    val cinemaMovies: List<MovieSummary>,
     val newMovies: List<MovieSummary>,
     val topMovies: List<MovieSummary>,
     val series: List<SeriesSummary>,
@@ -419,11 +420,16 @@ class RoyalRepository(
             val q = queueResult.getOrDefault(QueueSnapshot())
             val w = watchResult.getOrDefault(emptyList())
             val a = animeResult.getOrDefault(AnimeCatalogResponse())
+            val newMovies = newResult.getOrDefault(emptyList())
+            val topMovies = topResult.getOrDefault(emptyList())
             HomeSnapshot(
                 queue = q,
                 watchlist = w,
-                newMovies = newResult.getOrDefault(emptyList()),
-                topMovies = topResult.getOrDefault(emptyList()),
+                cinemaMovies = (newMovies + topMovies)
+                    .distinctBy { it.slug }
+                    .filter { it.inCinema },
+                newMovies = newMovies,
+                topMovies = topMovies,
                 series = seriesResult.getOrDefault(emptyList()),
                 anime = a.results,
                 animeDisabledReason = a.disabledReason,
@@ -449,7 +455,6 @@ class RoyalRepository(
 
     private suspend fun enrichMovieArtwork(catalog: MovieCatalogResponse): MovieCatalogResponse {
         if (catalog.results.isEmpty()) return catalog
-        if (catalog.results.all { it.tmdbId != null }) return catalog
         val body = MovieMetadataRequest(
             catalog.results.map { MovieMetadataItem(it.slug, it.title, it.year) },
         )
@@ -466,6 +471,8 @@ class RoyalRepository(
                     backdropUrl = enrichment.backdropUrl.ifBlank { movie.backdropUrl },
                     description = enrichment.description.ifBlank { movie.description },
                     rating = enrichment.rating ?: movie.rating,
+                    releaseDate = enrichment.releaseDate.ifBlank { movie.releaseDate },
+                    inCinema = enrichment.inCinema,
                 )
             },
         )

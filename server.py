@@ -3052,7 +3052,8 @@ def series_to_dict(
         for field in (
             "title", "year", "first_air_date", "runtime", "cover_url",
             "backdrop_url", "description", "genres", "original_title",
-            "rating", "vote_count", "status", "trailer",
+            "rating", "vote_count", "status", "trailer", "cast", "creators",
+            "networks",
         ):
             if tmdb.get(field):
                 payload[field] = tmdb[field]
@@ -8275,6 +8276,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
         return {"movies": {}}
 
     def _work():
+        now_playing_ids = get_tmdb_client().now_playing_ids()
         unique = {}
         for item in body.items[:100]:
             title = strip_source_suffix(item.title)
@@ -8293,6 +8295,10 @@ async def api_tmdb_movies(body: MovieMetadataBody):
                     log(f"TMDB-Vorladen fehlgeschlagen ({group['title']}): {exc}", "warn")
                     metadata = None
                 if metadata:
+                    metadata = {
+                        **metadata,
+                        "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
+                    }
                     for slug in group["slugs"]:
                         result[slug] = metadata
         return result

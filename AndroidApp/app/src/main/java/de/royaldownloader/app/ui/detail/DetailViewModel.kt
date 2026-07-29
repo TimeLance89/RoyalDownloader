@@ -122,6 +122,23 @@ class DetailViewModel(
         )
     }
 
+    fun toggleSeason(seasonNumber: Int) {
+        val season = _state.value.series?.seasons
+            ?.firstOrNull { it.season == seasonNumber } ?: return
+        val selectable = season.episodes
+            .filterNot { it.queued || it.downloaded || it.inJellyfin || it.unreleased }
+            .mapTo(mutableSetOf()) { it.slug }
+        if (selectable.isEmpty()) return
+        val selected = _state.value.selectedEpisodes
+        _state.value = _state.value.copy(
+            selectedEpisodes = if (selectable.all { it in selected }) {
+                selected - selectable
+            } else {
+                selected + selectable
+            },
+        )
+    }
+
     fun queueMovie() = queue(listOf(_state.value.movieSlug))
     fun queueSelected() = queue(_state.value.selectedEpisodes.toList())
 

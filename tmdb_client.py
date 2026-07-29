@@ -20,6 +20,7 @@ BACKDROP_IMAGE_BASE = "https://image.tmdb.org/t/p/w1280"
 PROFILE_IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
 SERIES_CACHE_TTL = 6 * 60 * 60
 SERIES_NEGATIVE_CACHE_TTL = 60
+NOW_PLAYING_CACHE_TTL = 6 * 60 * 60
 
 
 def _series_cache_ttl(value: Optional[dict]) -> int:
@@ -52,6 +53,7 @@ class TMDBClient:
         self._series_id_cache: dict = {}
         self._series_match_cache: dict = {}
         self._season_cache: dict = {}
+        self._now_playing_cache: tuple[float, set[int]] = (0.0, set())
         self._lock = threading.Lock()
 
     @property
@@ -352,6 +354,39 @@ class TMDBClient:
                 self._movie_summary_cache[cache_key] = result
         return result
 
+    def now_playing_ids(self, force: bool = False) -> set[int]:
+        """Aktuell im Kino laufende TMDB-Filme der konfigurierten Region."""
+        now = time.time()
+        with self._lock:
+            cached_at, cached_ids = self._now_playing_cache
+            if cached_ids and not force and now - cached_at < NOW_PLAYING_CACHE_TTL:
+                return set(cached_ids)
+        params = {
+            "language": self.language,
+            "region": self._preferred_region(),
+            "page": "1",
+        }
+        response = self._request("/movie/now_playing", params) or {}
+        pages = [response]
+        page_count = min(3, max(1, int(response.get("total_pages") or 1)))
+        if page_count > 1:
+            with ThreadPoolExecutor(max_workers=page_count - 1) as pool:
+                pages.extend(filter(None, pool.map(
+                    lambda page: self._request(
+                        "/movie/now_playing", {**params, "page": str(page)},
+                    ),
+                    range(2, page_count + 1),
+                )))
+        ids = {
+            int(item["id"])
+            for page in pages
+            for item in page.get("results", [])
+            if str(item.get("id") or "").isdigit()
+        }
+        with self._lock:
+            self._now_playing_cache = (now, ids)
+        return set(ids)
+
     def search_movies(self, query: str, max_results: int = 100) -> list[dict]:
         """Liefert die TMDB-Trefferauswahl vor jeder Anbietersuche.
 
@@ -489,6 +524,25 @@ class TMDBClient:
             "rating": round(float(details.get("vote_average") or 0), 1),
             "vote_count": int(details.get("vote_count") or 0),
             "status": str(details.get("status") or ""),
+            "creators": [
+                creator.get("name", "")
+                for creator in details.get("created_by", [])
+                if creator.get("name")
+            ],
+            "networks": [
+                network.get("name", "")
+                for network in details.get("networks", [])
+                if network.get("name")
+            ],
+            "cast": [
+                {
+                    "name": member.get("name", ""),
+                    "character": member.get("character", ""),
+                    "profile_url": self._profile_url(member.get("profile_path") or ""),
+                }
+                for member in (details.get("credits") or {}).get("cast", [])[:16]
+                if member.get("name")
+            ],
             "trailer": trailer,
             "season_episode_counts": {
                 str(int(season.get("season_number"))): int(season.get("episode_count"))
@@ -510,7 +564,7 @@ class TMDBClient:
                 return cached[1]
         details = self._request(f"/tv/{key}", {
             "language": self.language,
-            "append_to_response": "videos",
+            "append_to_response": "videos,credits",
         })
         result = None
         if details:

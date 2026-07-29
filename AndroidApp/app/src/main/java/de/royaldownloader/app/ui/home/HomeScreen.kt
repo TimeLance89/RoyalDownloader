@@ -1,5 +1,6 @@
 package de.royaldownloader.app.ui.home
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -12,8 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,12 +25,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import de.royaldownloader.app.data.HomeSnapshot
 import de.royaldownloader.app.data.remote.*
 import de.royaldownloader.app.ui.components.*
 import de.royaldownloader.app.ui.theme.*
+import kotlinx.coroutines.delay
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun HomeScreen(
@@ -68,10 +72,14 @@ private fun HomeContent(
     onOpenQueue: () -> Unit,
     onOpenWatchlist: () -> Unit,
 ) {
-    val featured = snapshot.newMovies.firstOrNull { it.backdropUrl.isNotBlank() }
+    val fallbackFeatured = snapshot.newMovies.firstOrNull { it.backdropUrl.isNotBlank() }
         ?: snapshot.topMovies.firstOrNull { it.backdropUrl.isNotBlank() }
         ?: snapshot.newMovies.firstOrNull()
         ?: snapshot.topMovies.firstOrNull()
+    val cinemaFeatures = snapshot.cinemaMovies
+        .filter { it.backdropUrl.isNotBlank() }
+        .take(6)
+        .ifEmpty { listOfNotNull(fallbackFeatured) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 32.dp),
@@ -90,11 +98,11 @@ private fun HomeContent(
                 }
             }
         }
-        featured?.let { movie ->
+        if (cinemaFeatures.isNotEmpty()) {
             item {
-                FeaturedMovie(
-                    movie = movie,
-                    onClick = { onMovie(movie.slug) },
+                FeaturedCinemaBanner(
+                    movies = cinemaFeatures,
+                    onMovie = onMovie,
                 )
             }
         }
@@ -182,12 +190,39 @@ private fun HomeContent(
 }
 
 @Composable
-private fun FeaturedMovie(movie: MovieSummary, onClick: () -> Unit) {
+private fun FeaturedCinemaBanner(
+    movies: List<MovieSummary>,
+    onMovie: (String) -> Unit,
+) {
+    var index by remember(movies.map { it.slug }) { mutableIntStateOf(0) }
+    LaunchedEffect(movies) {
+        while (movies.size > 1) {
+            delay(7_500)
+            index = (index + 1) % movies.size
+        }
+    }
+    val safeIndex = index.coerceIn(movies.indices)
+    Crossfade(targetState = safeIndex, label = "Kinofilmwechsel") { position ->
+        FeaturedMovie(
+            movie = movies[position],
+            position = position,
+            total = movies.size,
+            onClick = { onMovie(movies[position].slug) },
+        )
+    }
+}
+
+@Composable
+private fun FeaturedMovie(
+    movie: MovieSummary,
+    position: Int,
+    total: Int,
+    onClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(430.dp)
-            .clip(MaterialTheme.shapes.large),
+            .height(480.dp),
     ) {
         AsyncImage(
             model = movie.backdropUrl.ifBlank { movie.coverUrl },
@@ -218,25 +253,38 @@ private fun FeaturedMovie(movie: MovieSummary, onClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth(0.88f)
+                .fillMaxWidth(0.92f)
                 .padding(horizontal = 22.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.width(4.dp).height(18.dp).background(RoyalCinemaRed))
-                RoyalArchiveLabel("HEUTE IM FOKUS", color = RoyalText)
+                RoyalArchiveLabel(
+                    if (movie.inCinema) "JETZT IM KINO" else "HEUTE IM FOKUS",
+                    color = RoyalText,
+                )
             }
             Text(
                 movie.title,
-                color = RoyalText,
-                style = MaterialTheme.typography.displaySmall,
+                color = androidx.compose.ui.graphics.Color.White,
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontFamily = Outfit,
+                    fontWeight = FontWeight.Black,
+                ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (movie.year.isNotBlank()) RoyalStatusChip(movie.year)
+                if (movie.releaseDate.isNotBlank()) {
+                    RoyalStatusChip(
+                        "${if (movie.inCinema) "Kinostart" else "Start"} ${formatCinemaDate(movie.releaseDate)}",
+                        tone = RoyalStatusTone.Active,
+                    )
+                } else if (movie.year.isNotBlank()) {
+                    RoyalStatusChip(movie.year)
+                }
                 movie.rating?.takeIf { it > 0 }?.let {
-                    RoyalStatusChip("★ %.1f".format(it), tone = RoyalStatusTone.Active)
+                    RoyalStatusChip("★ %.1f".format(it), tone = RoyalStatusTone.Success)
                 }
                 if (movie.contentLanguage.isNotBlank()) {
                     RoyalStatusChip(movie.contentLanguage.uppercase(), tone = RoyalStatusTone.Success)
@@ -251,14 +299,44 @@ private fun FeaturedMovie(movie: MovieSummary, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            RoyalPrimaryButton(onClick = onClick, modifier = Modifier.widthIn(min = 150.dp)) {
+            Button(
+                onClick = onClick,
+                modifier = Modifier.widthIn(min = 166.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = androidx.compose.ui.graphics.Color.White,
+                    contentColor = androidx.compose.ui.graphics.Color.Black,
+                ),
+            ) {
                 Icon(Icons.Rounded.Info, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Mehr Infos")
+                Text("Details ansehen", fontWeight = FontWeight.Bold)
+            }
+        }
+        if (total > 1) {
+            Row(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 26.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                repeat(total) { dot ->
+                    Box(
+                        Modifier
+                            .width(if (dot == position) 18.dp else 6.dp)
+                            .height(4.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .background(
+                                if (dot == position) RoyalCinemaRed
+                                else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.44f),
+                            ),
+                    )
+                }
             }
         }
     }
 }
+
+private fun formatCinemaDate(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+}.getOrDefault(value)
 
 @Composable
 private fun CinemaRailHeader(title: String, label: String, modifier: Modifier = Modifier) {
@@ -315,20 +393,6 @@ private fun RankedMovieRail(movies: List<MovieSummary>, onMovie: (String) -> Uni
 @Composable
 private fun RankedMovieCard(rank: Int, movie: MovieSummary, onClick: () -> Unit) {
     Box(modifier = Modifier.width(246.dp).height(352.dp)) {
-        Text(
-            text = rank.toString(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = (-2).dp, y = (-10).dp),
-            color = RoyalGoldBright.copy(alpha = 0.78f),
-            fontFamily = CormorantGaramond,
-            fontWeight = FontWeight.Bold,
-            fontSize = 154.sp,
-            lineHeight = 154.sp,
-            style = MaterialTheme.typography.displayLarge.copy(
-                drawStyle = Stroke(width = 3.5f),
-            ),
-        )
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -356,29 +420,6 @@ private fun RankedMovieCard(rank: Int, movie: MovieSummary, onClick: () -> Unit)
                         ),
                     ),
             )
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(10.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .background(RoyalCinemaRed)
-                    .padding(horizontal = 9.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    "TOP",
-                    color = androidx.compose.ui.graphics.Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    rank.toString().padStart(2, '0'),
-                    color = androidx.compose.ui.graphics.Color.White,
-                    style = RoyalDataStyle,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
             if (movie.inJellyfin == true) {
                 RoyalStatusChip(
                     "In Jellyfin",
@@ -421,5 +462,30 @@ private fun RankedMovieCard(rank: Int, movie: MovieSummary, onClick: () -> Unit)
                 }
             }
         }
+        val rankModifier = Modifier
+            .align(Alignment.BottomStart)
+            .offset(x = (-4).dp, y = (-4).dp)
+            .zIndex(3f)
+        Text(
+            text = rank.toString(),
+            modifier = rankModifier,
+            color = RoyalVault.copy(alpha = 0.94f),
+            fontFamily = Outfit,
+            fontWeight = FontWeight.Black,
+            fontSize = 150.sp,
+            lineHeight = 150.sp,
+        )
+        Text(
+            text = rank.toString(),
+            modifier = rankModifier,
+            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.96f),
+            fontFamily = Outfit,
+            fontWeight = FontWeight.Black,
+            fontSize = 150.sp,
+            lineHeight = 150.sp,
+            style = MaterialTheme.typography.displayLarge.copy(
+                drawStyle = Stroke(width = 5f),
+            ),
+        )
     }
 }
