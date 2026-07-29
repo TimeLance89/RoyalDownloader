@@ -153,6 +153,8 @@ until no download or download preparation is active.
 | Topic | Document |
 |---|---|
 | Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
+| Native Android app, setup, architecture, and build | [AndroidApp/README.md](AndroidApp/README.md) |
+| Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Development and pull requests | [CONTRIBUTING.md](CONTRIBUTING.md) |

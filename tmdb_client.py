@@ -8,6 +8,7 @@ import time
 import unicodedata
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -44,6 +45,7 @@ class TMDBClient:
         self.language = language
         self.timeout = timeout
         self._movie_summary_cache: dict = {}
+        self._movie_search_cache: dict = {}
         self._movie_cache: dict = {}
         self._movie_id_cache: dict = {}
         self._series_cache: dict = {}
@@ -350,6 +352,81 @@ class TMDBClient:
                 self._movie_summary_cache[cache_key] = result
         return result
 
+    def search_movies(self, query: str, max_results: int = 100) -> list[dict]:
+        """Liefert die TMDB-Trefferauswahl vor jeder Anbietersuche.
+
+        Mehrdeutige Begriffe wie ``Saw`` bleiben dadurch als einzelne Filme
+        sichtbar. Erst der anschließend gewählte TMDB-Titel wird bei den
+        aktivierten Streaming-Quellen gesucht.
+        """
+        query = " ".join(str(query or "").split()).strip()
+        if not query or not self.configured:
+            return []
+        limit = max(1, min(int(max_results), 100))
+        cache_key = (_normalize(query), limit)
+        with self._lock:
+            cached = self._movie_search_cache.get(cache_key)
+            if cached is not None:
+                return [dict(item) for item in cached]
+
+        params = {
+            "query": query,
+            "language": self.language,
+            "include_adult": "false",
+            "page": "1",
+        }
+        first = self._request("/search/movie", params)
+        if first is None:
+            return []
+
+        pages = [first]
+        result_count = len(first.get("results") or [])
+        total_pages = max(1, int(first.get("total_pages") or 1))
+        wanted_pages = min(total_pages, max(1, (limit + 19) // 20))
+        if wanted_pages > 1 and result_count < limit:
+            def _page(number: int) -> Optional[dict]:
+                return self._request("/search/movie", {**params, "page": str(number)})
+
+            with ThreadPoolExecutor(max_workers=min(4, wanted_pages - 1)) as pool:
+                pages.extend(
+                    page for page in pool.map(_page, range(2, wanted_pages + 1))
+                    if page is not None
+                )
+
+        results: list[dict] = []
+        seen: set[int] = set()
+        for page in pages:
+            for item in page.get("results") or []:
+                try:
+                    tmdb_id = int(item.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if tmdb_id in seen:
+                    continue
+                seen.add(tmdb_id)
+                results.append({
+                    "tmdb_id": tmdb_id,
+                    "title": item.get("title") or item.get("original_title") or query,
+                    "year": _year_from_date(item.get("release_date") or ""),
+                    "cover_url": self._poster_url(item.get("poster_path") or ""),
+                    "backdrop_url": self._backdrop_url(item.get("backdrop_path") or ""),
+                    "description": item.get("overview") or "",
+                    "original_title": item.get("original_title") or "",
+                    "release_date": item.get("release_date") or "",
+                    "rating": round(float(item.get("vote_average") or 0), 1),
+                    "vote_count": int(item.get("vote_count") or 0),
+                    "details_loaded": False,
+                    "metadata_source": "TMDB",
+                })
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+
+        with self._lock:
+            self._movie_search_cache[cache_key] = [dict(item) for item in results]
+        return results
+
     def movie(self, title: str, year: str = "") -> Optional[dict]:
         query_title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "").strip()
         cache_key = (_normalize(query_title), str(year or ""))
@@ -395,15 +472,24 @@ class TMDBClient:
     ) -> dict:
         runtimes = details.get("episode_run_time") or []
         runtime = runtimes[0] if runtimes else None
+        trailer = self._movie_trailer(
+            (details.get("videos") or {}).get("results") or []
+        )
         return {
             "tmdb_id": int(tmdb_id),
             "title": details.get("name") or fallback_title,
             "original_title": details.get("original_name") or "",
             "year": _year_from_date(details.get("first_air_date") or ""),
+            "first_air_date": str(details.get("first_air_date") or ""),
             "runtime": f"{runtime} min/Folge" if runtime else "",
             "cover_url": self._poster_url(details.get("poster_path") or ""),
+            "backdrop_url": self._backdrop_url(details.get("backdrop_path") or ""),
             "description": details.get("overview") or "",
             "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
+            "rating": round(float(details.get("vote_average") or 0), 1),
+            "vote_count": int(details.get("vote_count") or 0),
+            "status": str(details.get("status") or ""),
+            "trailer": trailer,
             "season_episode_counts": {
                 str(int(season.get("season_number"))): int(season.get("episode_count"))
                 for season in details.get("seasons", [])
@@ -422,12 +508,23 @@ class TMDBClient:
             cached = self._series_id_cache.get(key)
             if cached and not force and now - cached[0] < _series_cache_ttl(cached[1]):
                 return cached[1]
-        details = self._request(f"/tv/{key}", {"language": self.language})
+        details = self._request(f"/tv/{key}", {
+            "language": self.language,
+            "append_to_response": "videos",
+        })
         result = None
         if details:
             if not details.get("overview"):
                 english = self._request(f"/tv/{key}", {"language": "en-US"}) or {}
                 details["overview"] = english.get("overview", "")
+            if "videos" in details and not self._movie_trailer(
+                (details.get("videos") or {}).get("results") or []
+            ):
+                english_videos = self._request(
+                    f"/tv/{key}/videos", {"language": "en-US"},
+                ) or {}
+                if english_videos.get("results"):
+                    details["videos"] = english_videos
             result = self._series_payload(details, title, key, now)
         with self._lock:
             self._series_id_cache[key] = (now, result)

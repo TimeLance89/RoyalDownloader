@@ -20,7 +20,7 @@ import threading
 import time
 import unicodedata
 from typing import Callable, List, Optional
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from curl_cffi import requests as cr
 
@@ -40,6 +40,11 @@ _catalog_cache: List[dict] = []
 _catalog_cache_until = 0.0
 _availability_cache: dict[str, bool] = {}
 _availability_cache_until = 0.0
+
+
+def _artwork_url(value) -> str:
+    raw = str(value or "").strip()
+    return urljoin(BASE_URL + "/", raw) if raw else ""
 
 
 def clear_cache() -> None:
@@ -182,7 +187,7 @@ class FilmFrei24Scraper:
             url=player_url,
             year=self._year(film.get("year")),
             runtime=str(film.get("duration") or ""),
-            cover_url=str(film.get("thumbnail") or ""),
+            cover_url=_artwork_url(film.get("thumbnail")),
             description=str(film.get("description") or ""),
             genres=[
                 str(genre).strip()

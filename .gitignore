@@ -11,6 +11,8 @@
 *.key
 *.p12
 *.pfx
+*.jks
+*.keystore
 *cookies*.txt
 *.sqlite
 *.sqlite3
@@ -31,12 +33,13 @@
 /.codex-remote-attachments/
 /debug/
 /.vscode/
-/.idea/
+**/.idea/
 /.vs/
 *.code-workspace
 
 # Python and tests
-/tests/
+/tests/*
+!/tests/test_server_mobile_api.py
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -55,6 +58,14 @@ env/
 build/
 dist/
 *.egg-info/
+
+# Android / Gradle local state
+.gradle/
+.kotlin/
+local.properties
+captures/
+*.iml
+**/gradle/gradle-daemon-jvm.properties
 
 # Logs and temporary files
 *.log

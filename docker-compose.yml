@@ -10,7 +10,8 @@ services:
     restart: unless-stopped
     ports:
       # Web interface: http://<NAS-IP>:8765
-      - "8765:8765"
+      # For a host-managed Cloudflare Tunnel set ROYAL_BIND_ADDRESS=127.0.0.1.
+      - "${ROYAL_BIND_ADDRESS:-0.0.0.0}:8765:8765"
     # Consistent DNS resolution for Python, Chromium, ffmpeg, and yt-dlp.
     # A local resolver may use DNS-over-TLS for its upstream connection.
     dns:
@@ -36,6 +37,10 @@ services:
       OPEN_BROWSER: "0"
       APP_USERNAME: ${APP_USERNAME:-}
       APP_PASSWORD: ${APP_PASSWORD:-}
+      # Public/tunnel deployments must fail closed if account data is missing.
+      APP_REQUIRE_AUTH: ${APP_REQUIRE_AUTH:-false}
+      # Enable only when the origin port is reachable exclusively through Cloudflare.
+      TRUST_CLOUDFLARE_HEADERS: ${TRUST_CLOUDFLARE_HEADERS:-false}
       JELLYFIN_URL: ${JELLYFIN_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_USER_ID: ${JELLYFIN_USER_ID:-}

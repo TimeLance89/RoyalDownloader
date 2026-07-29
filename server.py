@@ -8,6 +8,7 @@ Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht darüber.
 Start: python server.py  (öffnet automatisch den Browser)
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -15,6 +16,7 @@ import shutil
 import threading
 import time
 import tempfile
+import unicodedata
 import webbrowser
 import base64
 import ipaddress
@@ -28,12 +30,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from providers.filmpalast import FilmpalastScraper
@@ -99,7 +101,7 @@ from jellyfin_recommender import (
 from tmdb_client import SERIES_CACHE_TTL, TMDBClient
 from telegram_bot import TelegramBot
 from seerr_client import SeerrClient, SeerrRequest
-from update_checker import UpdateChecker
+from update_checker import UpdateChecker, detect_local_commit
 from self_updater import SelfUpdater
 from ytdlp_updater import YtDlpRuntimeUpdater
 from ui_translator import (
@@ -137,8 +139,14 @@ nodriver_patch.ensure_cdp_utf8()
 
 APP_DIR = Path(__file__).parent
 WEB_DIR = APP_DIR / "web"
+API_VERSION = 1
+EVENT_SCHEMA_VERSION = 1
+WEBSOCKET_AUTH_RECHECK_SECONDS = 30.0
+WEBSOCKET_CLIENT_QUEUE_SIZE = 128
+SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
 LOGIN_GUARD = appauth.LoginGuard()
+BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
 # /api/ui/translate vor der Anmeldung erreichbar sein. Ein Budget je IP
 # verhindert, dass daraus ein offener Übersetzungsproxy wird.
@@ -164,6 +172,7 @@ MOVIE_MAX_GLOBAL_PAGE = 50
 MOVIE_MAX_SOURCE_PAGE = 50
 MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
 TMDB_MOVIE_BATCH_MAX_WORKERS = 8
+TMDB_MOVIE_SEARCH_MAX_RESULTS = 100
 MOVIE_GENRE_GROUPS = {
     "Animation": ("Animation", "Zeichentrick"),
     "Biografie": ("Biografie", "Biographie"),
@@ -196,8 +205,9 @@ SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 #
 # Es gibt genau EIN Administratorkonto; die App ist durchgehend auf einen
 # Nutzer ausgelegt (eine Watchlist, eine Queue, ein Jellyfin-Benutzer).
-# Angemeldet wird per Sitzungs-Cookie. HTTP-Basic bleibt zusätzlich gültig,
-# damit bestehende Skripte und Health-Checks weiterlaufen.
+# Die Weboberfläche nutzt ein Sitzungs-Cookie. Native Clients können dasselbe
+# widerrufbare, serverseitig gehashte Sitzungsformat als Bearer-Token verwenden.
+# HTTP-Basic bleibt für bestehende Skripte und Health-Checks zusätzlich gültig.
 # ---------------------------------------------------------------------------
 def auth_account() -> dict:
     """Aktuell hinterlegtes Konto (settings.ini oder APP_USERNAME/APP_PASSWORD)."""
@@ -208,12 +218,27 @@ def auth_configured() -> bool:
     return bool(auth_account().get("configured"))
 
 
+def fail_closed_auth_enabled() -> bool:
+    """Expliziter Schutz für öffentlich angebundene Installationen.
+
+    Der Default bleibt für bestehende reine LAN-Installationen kompatibel. Wer
+    den Dienst über einen Tunnel veröffentlicht, setzt `APP_REQUIRE_AUTH=1`;
+    eine verlorene oder beschädigte Kontokonfiguration öffnet die API dann
+    nicht stillschweigend.
+    """
+    return os.environ.get("APP_REQUIRE_AUTH", "").strip().casefold() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def auth_required() -> bool:
     """Ob Anfragen abgewiesen werden, wenn keine Anmeldung vorliegt.
 
     Vor abgeschlossener Ersteinrichtung ist die Oberfläche offen – sonst wäre
     der Assistent, der das Konto erst anlegt, selbst nicht erreichbar.
     """
+    if fail_closed_auth_enabled():
+        return True
     if not appconfig.is_initialized():
         return False
     return auth_configured()
@@ -234,7 +259,7 @@ def verify_credentials(username: str, password: str) -> bool:
     return appauth.verify_password(str(password or ""), account.get("password_hash", ""))
 
 
-def _authorized_basic_header(value: str) -> bool:
+def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
     """Erlaubt weiterhin `Authorization: Basic` für Skripte und Monitoring."""
     if not value or not value.startswith("Basic "):
         return False
@@ -243,26 +268,124 @@ def _authorized_basic_header(value: str) -> bool:
         username, password = decoded.split(":", 1)
     except Exception:
         return False
-    return verify_credentials(username, password)
+    key = guard_key or "basic-global"
+    if BASIC_AUTH_GUARD.retry_after(key):
+        return False
+    authenticated = verify_credentials(username, password)
+    if authenticated:
+        BASIC_AUTH_GUARD.register_success(key)
+    else:
+        BASIC_AUTH_GUARD.register_failure(key)
+    return authenticated
+
+
+def _bearer_token(headers) -> str:
+    """Liest ein Bearer-Token, ohne es zu protokollieren oder umzuschreiben."""
+    value = str(headers.get("authorization", "") or "").strip()
+    scheme, separator, credential = value.partition(" ")
+    if not separator or scheme.casefold() != "bearer":
+        return ""
+    token = credential.strip()
+    if not token or any(char.isspace() for char in token):
+        return ""
+    return token
 
 
 def _session_token(scope_cookies: dict) -> str:
     return str(scope_cookies.get(appauth.SESSION_COOKIE_NAME) or "")
 
 
-def request_is_authenticated(headers, cookies) -> bool:
-    """Gültige Sitzung oder gültiger Basic-Header?"""
+def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
+    """Gibt ausschließlich ein gültiges Mobile-Bearer-Token zurück."""
+    bearer = _bearer_token(headers)
+    if bearer and SESSION_STORE.validate(
+        bearer, appauth.SESSION_KIND_MOBILE, touch=touch,
+    ):
+        return bearer
+    return ""
+
+
+def authenticated_web_token(cookies, *, touch: bool = True) -> str:
+    """Gibt ausschließlich ein gültiges Browser-Cookie-Token zurück."""
+    cookie = _session_token(cookies)
+    if cookie and SESSION_STORE.validate(
+        cookie, appauth.SESSION_KIND_WEB, touch=touch,
+    ):
+        return cookie
+    return ""
+
+
+def request_auth_method(
+    headers,
+    cookies,
+    guard_key: str = "",
+    *,
+    versioned: bool = False,
+    allow_mobile_bearer: bool = True,
+    allow_basic: bool = True,
+    touch: bool = True,
+) -> str:
+    """Authentifizierungsweg für Statusantworten; enthält nie Zugangsdaten."""
+    if allow_mobile_bearer and authenticated_mobile_token(headers, touch=touch):
+        return "bearer"
+    if not versioned and authenticated_web_token(cookies, touch=touch):
+        return "cookie"
+    if (
+        not versioned
+        and allow_basic
+        and _authorized_basic_header(headers.get("authorization", ""), guard_key)
+    ):
+        return "basic"
+    return "none"
+
+
+def request_is_authenticated(
+    headers,
+    cookies,
+    guard_key: str = "",
+    *,
+    versioned: bool = False,
+    allow_mobile_bearer: bool = True,
+    allow_basic: bool = True,
+    touch: bool = True,
+) -> bool:
+    """Gültiges Cookie-/Bearer-Token oder gültiger Basic-Header?"""
     if not auth_required():
         return True
-    if SESSION_STORE.validate(_session_token(cookies)):
+    if allow_mobile_bearer and authenticated_mobile_token(headers, touch=touch):
         return True
-    return _authorized_basic_header(headers.get("authorization", ""))
+    if not versioned and authenticated_web_token(cookies, touch=touch):
+        return True
+    return bool(
+        not versioned
+        and allow_basic
+        and _authorized_basic_header(headers.get("authorization", ""), guard_key)
+    )
+
+
+def trust_cloudflare_headers_enabled() -> bool:
+    """Nur explizit aktivieren, wenn der Origin ausschließlich den Tunnel sieht."""
+    return os.environ.get("TRUST_CLOUDFLARE_HEADERS", "").strip().casefold() in {
+        "1", "true", "yes", "on",
+    }
 
 
 def client_key(request) -> str:
     """Herkunfts-IP für Sperren und Budgets."""
     client = getattr(request, "client", None)
-    return getattr(client, "host", "") or "unbekannt"
+    peer = getattr(client, "host", "") or "unbekannt"
+    if not trust_cloudflare_headers_enabled():
+        return peer
+    raw = str(request.headers.get("cf-connecting-ip", "") or "").strip()
+    # CF-Connecting-IP enthält exakt eine Adresse. Listen gehören zu XFF und
+    # werden hier absichtlich nicht akzeptiert, damit kein frei wählbarer
+    # erster Eintrag zum Umgehen der Login-Sperre wird.
+    if not raw or "," in raw or len(raw) > 64:
+        return peer
+    try:
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return peer
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +465,11 @@ class AppState:
         self.jellyfin_refresh_pending = False
 
         self.fp_movies: Dict[str, FilmpalastMovie] = {}
+        # Virtuelle ``tmdb:<id>``-Treffer bündeln alle tatsächlich gefundenen
+        # Anbieterquellen in Nutzerpriorität. Index 0 ist die Primärquelle,
+        # alle weiteren Einträge sind Download-Fallbacks.
+        self.movie_source_cache: Dict[str, List[FilmpalastMovie]] = {}
+        self.movie_source_cache_lock = threading.RLock()
         self.movie_list_cache: Dict[tuple, tuple] = {}
         self.movie_list_cache_lock = threading.Lock()
         self.series_list_cache: Dict[tuple, tuple] = {}
@@ -434,27 +562,95 @@ state = AppState()
 # ---------------------------------------------------------------------------
 # WebSocket-Broadcast (Log / Fortschritt / Queue-Events)
 # ---------------------------------------------------------------------------
-class WSManager:
-    def __init__(self):
-        self.clients: List[WebSocket] = []
+class _WSClient:
+    def __init__(self, websocket: WebSocket, queue_size: int):
+        self.websocket = websocket
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=queue_size)
+        self.sender_task: Optional[asyncio.Task] = None
+        self.close_task: Optional[asyncio.Task] = None
+        self.closing = False
 
-    async def connect(self, ws: WebSocket):
+
+class WSManager:
+    """Serialisierte, begrenzte Auslieferung je WebSocket-Client."""
+
+    def __init__(self, queue_size: int = WEBSOCKET_CLIENT_QUEUE_SIZE):
+        self.clients: Dict[WebSocket, _WSClient] = {}
+        self.queue_size = max(1, int(queue_size))
+
+    async def connect(
+        self,
+        ws: WebSocket,
+        initial_payload: Optional[dict] = None,
+        initial_payload_factory: Optional[Callable[[], dict]] = None,
+    ):
         await ws.accept()
-        self.clients.append(ws)
+        client = _WSClient(ws, self.queue_size)
+        # Nach accept() bis zur Registrierung gibt es bewusst kein await. Ein
+        # parallel aus einem Worker-Thread angekündigtes Event läuft erst danach
+        # auf dem Main-Loop und landet somit hinter dem initialen Snapshot.
+        if initial_payload_factory is not None:
+            initial_payload = initial_payload_factory()
+        if initial_payload is not None:
+            client.queue.put_nowait(initial_payload)
+        self.clients[ws] = client
+        client.sender_task = asyncio.create_task(self._sender(client))
 
     def disconnect(self, ws: WebSocket):
-        if ws in self.clients:
-            self.clients.remove(ws)
+        client = self.clients.pop(ws, None)
+        if client is None:
+            return
+        client.closing = True
+        try:
+            current = asyncio.current_task()
+        except RuntimeError:
+            current = None
+        for task in (client.sender_task, client.close_task):
+            if task is not None and task is not current and not task.done():
+                task.cancel()
+
+    async def _sender(self, client: _WSClient):
+        try:
+            while True:
+                payload = await client.queue.get()
+                await client.websocket.send_json(payload)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+        finally:
+            self.disconnect(client.websocket)
+
+    async def _close_slow_client(self, client: _WSClient):
+        try:
+            await client.websocket.close(
+                code=1013,
+                reason="Live-Updates konnten nicht schnell genug zugestellt werden.",
+            )
+        except Exception:
+            pass
+        finally:
+            self.disconnect(client.websocket)
+
+    def publish(self, data: dict):
+        """Muss auf dem Main-Loop laufen; blockiert keinen Produzenten-Thread."""
+        for client in list(self.clients.values()):
+            if client.closing:
+                continue
+            try:
+                client.queue.put_nowait(data)
+            except asyncio.QueueFull:
+                # Keine strukturellen Events wegwerfen: Der Client wird getrennt
+                # und erhält beim Reconnect einen vollständigen neuen Snapshot.
+                client.closing = True
+                client.close_task = asyncio.create_task(
+                    self._close_slow_client(client)
+                )
 
     async def send_all(self, data: dict):
-        dead = []
-        for ws in self.clients:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+        """Kompatibilitätswrapper für bestehende interne Tests/Aufrufer."""
+        self.publish(data)
+        await asyncio.sleep(0)
 
 
 ws_manager = WSManager()
@@ -476,12 +672,19 @@ _ytdlp_updater_thread: Optional[threading.Thread] = None
 
 
 def broadcast(data: dict):
-    if _main_loop is None:
+    loop = _main_loop
+    if loop is None or loop.is_closed():
         return
-    import asyncio
     try:
-        asyncio.run_coroutine_threadsafe(ws_manager.send_all(data), _main_loop)
-    except Exception:
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            ws_manager.publish(data)
+        else:
+            loop.call_soon_threadsafe(ws_manager.publish, data)
+    except RuntimeError:
         pass
 
 
@@ -1189,6 +1392,9 @@ def watchlist_lookup(base_slug: str) -> Optional[dict]:
 
 
 def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
+    if re.fullmatch(r"tmdb:\d+", slug or "", flags=re.IGNORECASE):
+        sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
+        return sources[0] if sources else None
     provider = provider_for_value(slug)
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
@@ -1259,6 +1465,183 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
             except Exception as exc:
                 log(f"{name} Suche übersprungen: {exc}", "warn")
     return results
+
+
+def _tmdb_search_results(query: str) -> List[dict]:
+    """Formatiert TMDB-Treffer als providerunabhängige Filmkarten."""
+    movies = get_tmdb_client().search_movies(
+        query, max_results=TMDB_MOVIE_SEARCH_MAX_RESULTS,
+    )
+    return [
+        {
+            **movie,
+            "slug": f"tmdb:{movie['tmdb_id']}",
+            "url": f"https://www.themoviedb.org/movie/{movie['tmdb_id']}",
+            "is_movie": True,
+            "provider": "",
+            "content_language": "",
+        }
+        for movie in movies
+    ]
+
+
+def _movie_title_match_keys(title: str) -> set[str]:
+    raw = re.sub(
+        r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$",
+        "",
+        strip_source_suffix(title),
+    ).strip()
+    def _match_norm(value: str) -> str:
+        ascii_value = (
+            unicodedata.normalize("NFKD", value or "")
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        return re.sub(r"[^a-z0-9]+", "", ascii_value.casefold())
+
+    keys = {_match_norm(raw)}
+    roman_to_number = {
+        "i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5",
+        "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10",
+    }
+    match = re.search(r"\b(i{1,3}|iv|v|vi{0,3}|ix|x|\d{1,2})$", raw, re.IGNORECASE)
+    if match:
+        suffix = match.group(1).casefold()
+        replacement = roman_to_number.get(suffix)
+        if replacement:
+            keys.add(_match_norm(raw[:match.start()] + replacement))
+        elif suffix.isdigit():
+            number_to_roman = {value: key for key, value in roman_to_number.items()}
+            roman = number_to_roman.get(str(int(suffix)))
+            if roman:
+                keys.add(_match_norm(raw[:match.start()] + roman))
+    keys.discard("")
+    return keys
+
+
+def _movie_matches_tmdb_choice(
+    title: str,
+    year: str,
+    aliases: set[str],
+    wanted_year: str,
+) -> bool:
+    if not (_movie_title_match_keys(title) & aliases):
+        return False
+    candidate_year = str(year or "").strip()
+    return not (wanted_year and candidate_year and candidate_year != wanted_year)
+
+
+def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
+    """Sucht einen gewählten TMDB-Film bei allen aktiven Filmquellen.
+
+    Das Ergebnis bleibt ein logischer Inhalt. Die erste Quelle folgt der
+    Nutzerpriorität; jede weitere Quelle wird als echter Download-Fallback
+    gespeichert und später automatisch durchprobiert.
+    """
+    key = str(tmdb_id or "").strip()
+    if not key.isdigit():
+        raise ValueError("Ungültige TMDB-Film-ID.")
+    virtual_slug = f"tmdb:{int(key)}"
+    with state.movie_source_cache_lock:
+        cached = state.movie_source_cache.get(virtual_slug)
+        if cached:
+            return list(cached)
+
+    tmdb = get_tmdb_client().movie_by_id(key)
+    if not tmdb:
+        raise LookupError("Der gewählte TMDB-Film ist nicht verfügbar.")
+    search_titles = []
+    for value in (tmdb.get("title"), tmdb.get("original_title")):
+        value = " ".join(str(value or "").split()).strip()
+        if value and _norm_title(value) not in {_norm_title(item) for item in search_titles}:
+            search_titles.append(value)
+    if not search_titles:
+        raise LookupError("TMDB liefert keinen suchbaren Filmtitel.")
+
+    aliases = {
+        key
+        for title in search_titles
+        for key in _movie_title_match_keys(title)
+    }
+    wanted_year = str(tmdb.get("year") or "").strip()
+    candidates: List[FilmpalastSearchResult] = []
+    seen_candidates: set[str] = set()
+    provider_candidate_counts: Counter = Counter()
+    for search_title in search_titles:
+        for candidate in search_movie_candidates(search_title):
+            provider = str(candidate.provider or provider_for_value(candidate.slug)).casefold()
+            if provider_candidate_counts[provider] >= 3 or candidate.slug in seen_candidates:
+                continue
+            if not candidate.is_movie or not _movie_matches_tmdb_choice(
+                candidate.title, candidate.year, aliases, wanted_year,
+            ):
+                continue
+            seen_candidates.add(candidate.slug)
+            candidates.append(candidate)
+            provider_candidate_counts[provider] += 1
+
+    def _load(candidate: FilmpalastSearchResult):
+        try:
+            loaded = state.fp_movies.get(candidate.slug) or load_movie_for_slug(candidate.slug)
+        except Exception as exc:
+            log(f"Filmquelle {candidate.title} nicht ladbar: {exc}", "warn")
+            return None
+        if not loaded or not loaded.hosters:
+            return None
+        if not _movie_matches_tmdb_choice(
+            loaded.title, loaded.year or candidate.year, aliases, wanted_year,
+        ):
+            return None
+        state.fp_movies[candidate.slug] = loaded
+        return loaded
+
+    loaded_sources: List[FilmpalastMovie] = []
+    if candidates:
+        with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as pool:
+            loaded_sources = [
+                movie for movie in pool.map(_load, candidates)
+                if movie is not None
+            ]
+
+    positions = {
+        provider: index for index, provider in enumerate(provider_priority("movies"))
+    }
+    loaded_sources.sort(
+        key=lambda movie: positions.get(_movie_provider(movie), len(positions)),
+    )
+    unique_sources: List[FilmpalastMovie] = []
+    seen_providers: set[str] = set()
+    for movie in loaded_sources:
+        provider = _movie_provider(movie)
+        if provider in seen_providers:
+            continue
+        seen_providers.add(provider)
+        unique_sources.append(movie)
+    if not unique_sources:
+        raise LookupError(
+            f"«{tmdb.get('title') or search_titles[0]}» wurde bei keinem aktiven Anbieter gefunden."
+        )
+
+    primary = replace(
+        unique_sources[0],
+        title=tmdb.get("title") or unique_sources[0].title,
+        year=wanted_year or unique_sources[0].year,
+        runtime=tmdb.get("runtime") or unique_sources[0].runtime,
+        cover_url=tmdb.get("cover_url") or unique_sources[0].cover_url,
+        description=tmdb.get("description") or unique_sources[0].description,
+        genres=tmdb.get("genres") or unique_sources[0].genres,
+    )
+    sources = [primary, *unique_sources[1:]]
+    with state.movie_source_cache_lock:
+        existing = state.movie_source_cache.get(virtual_slug)
+        if existing:
+            return list(existing)
+        state.movie_source_cache[virtual_slug] = list(sources)
+        state.fp_movies[virtual_slug] = primary
+    log(
+        f"TMDB-Film «{primary.title}»: {len(sources)} Anbieterquelle(n) gebündelt."
+    )
+    return sources
 
 
 class MovieCatalogColdLoadLimit(RuntimeError):
@@ -2313,7 +2696,10 @@ def get_series_for_value(value: str) -> Optional[FilmpalastSeries]:
     return _find_series_by_title(value, fallbacks)
 
 
-def movie_to_dict(movie: FilmpalastMovie) -> dict:
+def movie_to_dict(
+    movie: FilmpalastMovie,
+    tmdb_override: Optional[dict] = None,
+) -> dict:
     ranked = state.hoster_intel.rank(movie.hosters) if movie.hosters else []
     provider = _movie_provider(movie)
     content_language = _movie_content_language(movie)
@@ -2332,7 +2718,9 @@ def movie_to_dict(movie: FilmpalastMovie) -> dict:
         "hoster_fallback_count": max(0, len(ranked) - 1) if ranked else 0,
         "metadata_source": "Anbieter",
     }
-    tmdb = get_tmdb_client().movie(strip_source_suffix(movie.title), movie.year)
+    tmdb = tmdb_override or get_tmdb_client().movie(
+        strip_source_suffix(movie.title), movie.year,
+    )
     if tmdb:
         for field in (
             "title", "year", "runtime", "cover_url", "backdrop_url", "description", "genres",
@@ -2347,6 +2735,58 @@ def movie_to_dict(movie: FilmpalastMovie) -> dict:
         payload["metadata_source"] = "TMDB"
         payload["tmdb_id"] = tmdb["tmdb_id"]
     return payload
+
+
+def movie_detail_to_dict(slug: str, movie: FilmpalastMovie) -> dict:
+    """Ergänzt einen Film um seine gebündelten Anbieterquellen."""
+    tmdb_match = re.fullmatch(r"tmdb:(\d+)", slug or "", flags=re.IGNORECASE)
+    tmdb = (
+        get_tmdb_client().movie_by_id(tmdb_match.group(1))
+        if tmdb_match else None
+    )
+    payload = movie_to_dict(movie, tmdb_override=tmdb)
+    if tmdb_match:
+        if tmdb:
+            for field in (
+                "title", "year", "runtime", "cover_url", "backdrop_url",
+                "description", "genres", "original_title", "release_date",
+                "rating", "vote_count", "tagline", "certification",
+                "certification_country", "status", "original_language",
+                "spoken_languages", "countries", "directors", "writers", "cast",
+                "production_companies", "keywords", "collection", "budget",
+                "revenue", "trailer", "tmdb_url",
+            ):
+                if tmdb.get(field):
+                    payload[field] = tmdb[field]
+            payload["metadata_source"] = "TMDB"
+            payload["tmdb_id"] = tmdb["tmdb_id"]
+
+    with state.movie_source_cache_lock:
+        sources = list(state.movie_source_cache.get(slug) or [movie])
+    provider_sources = []
+    for source in sources:
+        provider = _movie_provider(source)
+        provider_sources.append({
+            "key": provider,
+            "label": PROVIDER_LABELS.get(provider, provider),
+            "content_language": _movie_content_language(source),
+            "hoster_count": len(source.hosters),
+            "hosters": [asdict(hoster) for hoster in source.hosters],
+        })
+    payload["source_providers"] = provider_sources
+    payload["provider_count"] = len(provider_sources)
+    payload["provider_fallback_count"] = max(0, len(provider_sources) - 1)
+    payload["hoster_total"] = sum(source["hoster_count"] for source in provider_sources)
+    payload["provider_route"] = " → ".join(
+        source["label"] for source in provider_sources
+    )
+    return payload
+
+
+def cached_movie_source_fallbacks(slug: str) -> Optional[List[FilmpalastMovie]]:
+    with state.movie_source_cache_lock:
+        sources = state.movie_source_cache.get(slug)
+        return list(sources[1:]) if sources else None
 
 
 def _series_folder_key(name: str) -> str:
@@ -2609,7 +3049,11 @@ def series_to_dict(
         "metadata_source": "Anbieter",
     }
     if tmdb:
-        for field in ("title", "year", "runtime", "cover_url", "description", "genres"):
+        for field in (
+            "title", "year", "first_air_date", "runtime", "cover_url",
+            "backdrop_url", "description", "genres", "original_title",
+            "rating", "vote_count", "status", "trailer",
+        ):
             if tmdb.get(field):
                 payload[field] = tmdb[field]
         payload["metadata_source"] = "TMDB"
@@ -2761,6 +3205,48 @@ def watchlist_payload() -> dict:
                 "status": status,
             })
     return {"watchlist": items}
+
+
+def hydrate_watchlist_artwork() -> None:
+    """Ergänzt Bilder alter Abo-Einträge unabhängig von Jellyfin-Prüfungen."""
+    if not get_tmdb_client().configured:
+        return
+    with state.watchlist_lock:
+        missing = [
+            {
+                "base_slug": str(entry.get("base_slug") or ""),
+                "title": str(entry.get("title") or ""),
+                "tmdb_id": entry.get("tmdb_id") or "",
+            }
+            for entry in state.watchlist
+            if not entry.get("backdrop_url") or not entry.get("cover_url")
+        ]
+    if not missing:
+        return
+
+    artwork = {}
+    for item in missing:
+        metadata = get_tmdb_series(item["title"], item["tmdb_id"])
+        if not metadata:
+            continue
+        artwork[item["base_slug"]] = {
+            "tmdb_id": metadata.get("tmdb_id"),
+            "cover_url": metadata.get("cover_url") or "",
+            "backdrop_url": metadata.get("backdrop_url") or "",
+        }
+
+    changed = False
+    with state.watchlist_lock:
+        for entry in state.watchlist:
+            images = artwork.get(str(entry.get("base_slug") or ""))
+            if not images:
+                continue
+            for field in ("tmdb_id", "cover_url", "backdrop_url"):
+                if not entry.get(field) and images.get(field):
+                    entry[field] = images[field]
+                    changed = True
+        if changed:
+            appconfig.save_watchlist(state.watchlist)
 
 
 # ---------------------------------------------------------------------------
@@ -6989,6 +7475,10 @@ async def lifespan(app: FastAPI):
     # Container 24/7 und darf sich nach einem Update nicht selbst aussperren.
     # Die Oberfläche weist zusätzlich sichtbar auf das fehlende Konto hin.
     if bind_host not in ("127.0.0.1", "localhost", "::1") and not auth_configured():
+        if fail_closed_auth_enabled():
+            raise RuntimeError(
+                "APP_REQUIRE_AUTH ist aktiv, aber es ist kein Konto konfiguriert."
+            )
         logger.warning(
             "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
             "Konto in den Einstellungen unter „Anmeldung“ anlegen."
@@ -7008,6 +7498,9 @@ async def lifespan(app: FastAPI):
     )
     _telegram_bot.start()
     yield
+    # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
+    # den auslaufenden Event-Loop einstellen.
+    _main_loop = None
     _seerr_stop_event.set()
     _seerr_wake_event.set()
     _updater_stop_event.set()
@@ -7046,6 +7539,36 @@ PUBLIC_API_PATHS = frozenset({
     "/api/auth/logout",
     "/api/ui/config",
     "/api/ui/translate",
+    "/api/v1/capabilities",
+    "/api/v1/health",
+    "/api/v1/auth/status",
+    "/api/v1/auth/login",
+    "/api/v1/auth/logout",
+})
+# Übergang für frühe native Clients: Ein Mobile-Bearer darf nur die fachlichen
+# Legacy-Gegenstücke der v1-Kern-API verwenden, nie Einstellungen, Updater,
+# Setup oder andere Browser-Administrationsrouten.
+MOBILE_LEGACY_API_PATHS = frozenset({
+    "/api/genres",
+    "/api/movies",
+    "/api/movies/preload",
+    "/api/tmdb/movie",
+    "/api/tmdb/movies",
+    "/api/jellyfin/matches",
+    "/api/series",
+    "/api/series/load",
+    "/api/anime",
+    "/api/queue",
+    "/api/queue/add",
+    "/api/queue/remove",
+    "/api/queue/clear",
+    "/api/download/cancel",
+    "/api/watchlist",
+    "/api/watchlist/add",
+    "/api/watchlist/mode",
+    "/api/watchlist/remove",
+    "/api/watchlist/check",
+    "/api/watchlist/open",
 })
 # Zustandsändernde Methoden: ein fremder Ursprung darf sie nicht auslösen.
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -7058,8 +7581,7 @@ def _same_origin(request: Request) -> bool:
     Lax verhindert, dass das Cookie bei einem fremden Formular-POST überhaupt
     mitgeschickt wird, die Origin-Prüfung fängt den Rest ab. Fehlt der Header
     (klassische API-Clients wie curl senden ihn nicht), greift sie nicht –
-    solche Clients haben aber auch kein Cookie und müssen sich per Basic
-    ausweisen.
+    solche Clients weisen sich per Bearer oder weiterhin per Basic aus.
     """
     origin = request.headers.get("origin", "")
     if not origin:
@@ -7068,8 +7590,12 @@ def _same_origin(request: Request) -> bool:
         parsed = urlparse(origin)
     except ValueError:
         return False
-    host = request.headers.get("host", "")
-    return bool(parsed.netloc) and parsed.netloc == host
+    host = request.headers.get("host", "").casefold()
+    effective_scheme = "https" if _request_is_secure(request) else "http"
+    return bool(parsed.netloc) and (
+        parsed.netloc.casefold() == host
+        and parsed.scheme.casefold() == effective_scheme
+    )
 
 
 def _is_public_path(path: str) -> bool:
@@ -7081,27 +7607,139 @@ def _is_public_path(path: str) -> bool:
     return not path.startswith("/api/")
 
 
+def _is_mobile_legacy_path(path: str) -> bool:
+    return (
+        path in MOBILE_LEGACY_API_PATHS
+        or path.startswith("/api/movie/")
+        or path.startswith("/api/anime/")
+    )
+
+
+def _harden_http_response(request: Request, response: Response, path: str) -> Response:
+    """Einheitliche Browser- und Cloudflare-Härtung für jede HTTP-Antwort."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+    if path.startswith("/api/"):
+        # Auch bei versehentlich aktivierter Cloudflare-Cache-Regel dürfen
+        # authentifizierte oder konfigurationsabhängige DTOs nie am Edge landen.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers.setdefault("Pragma", "no-cache")
+    if _request_is_secure(request):
+        # Kein includeSubDomains: Der Betreiber kontrolliert möglicherweise
+        # nicht jede Subdomain derselben Zone.
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000",
+        )
+    return response
+
+
 @app.middleware("http")
 async def require_authentication(request: Request, call_next):
     path = request.url.path
+    is_v1 = path.startswith("/api/v1/")
     if request.method in UNSAFE_METHODS and not _same_origin(request):
-        return JSONResponse(
+        return _harden_http_response(request, JSONResponse(
             status_code=403,
             content={"detail": "Anfrage von einem fremden Ursprung wurde abgewiesen."},
-        )
-    if path == "/api/ui/translate" and not request_is_authenticated(request.headers, request.cookies):
+        ), path)
+    if path == "/api/ui/translate" and not request_is_authenticated(
+        request.headers, request.cookies, client_key(request),
+    ):
         if not PUBLIC_TRANSLATE_LIMITER.allow(client_key(request)):
-            return JSONResponse(
+            return _harden_http_response(request, JSONResponse(
                 status_code=429,
                 content={"detail": "Zu viele Übersetzungsanfragen. Bitte kurz warten."},
                 headers={"Retry-After": "60"},
-            )
-    if _is_public_path(path) or request_is_authenticated(request.headers, request.cookies):
-        return await call_next(request)
-    return JSONResponse(
-        status_code=401,
-        content={"detail": "Anmeldung erforderlich.", "code": "auth_required"},
+            ), path)
+    if _is_public_path(path) or request_is_authenticated(
+        request.headers,
+        request.cookies,
+        client_key(request),
+        versioned=is_v1,
+        allow_mobile_bearer=is_v1 or _is_mobile_legacy_path(path),
+        allow_basic=not is_v1,
+    ):
+        response = await call_next(request)
+        return _harden_http_response(request, response, path)
+    if (
+        not is_v1
+        and not _is_mobile_legacy_path(path)
+        and authenticated_mobile_token(request.headers, touch=False)
+    ):
+        return _harden_http_response(request, JSONResponse(
+            status_code=403,
+            content={
+                "detail": "Diese Route ist für Mobile-Sitzungen nicht freigegeben.",
+                "code": "access_denied",
+            },
+            headers={"Cache-Control": "no-store"},
+        ), path)
+    supplied_session = bool(
+        _bearer_token(request.headers)
+        if is_v1
+        else (_bearer_token(request.headers) or _session_token(request.cookies))
     )
+    return _harden_http_response(request, JSONResponse(
+        status_code=401,
+        content={
+            "detail": (
+                "Die Sitzung ist abgelaufen oder wurde widerrufen."
+                if supplied_session
+                else "Anmeldung erforderlich."
+            ),
+            "code": "session_expired" if supplied_session else "auth_required",
+        },
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    ), path)
+
+
+@app.get("/api/v1/capabilities")
+async def api_v1_capabilities():
+    """Stabiler, öffentlicher Kompatibilitäts-Handshake für native Clients."""
+    return {
+        "name": "Royal Downloader",
+        "api_version": API_VERSION,
+        "supported_api_versions": [API_VERSION],
+        "minimum_api_version": API_VERSION,
+        "build": SERVER_BUILD or None,
+        "initialized": appconfig.is_initialized(),
+        "setup_required": not appconfig.is_initialized(),
+        "authentication": {
+            "configured": auth_configured(),
+            "required": auth_required(),
+            "methods": ["bearer"],
+            "legacy_methods": ["cookie", "basic"],
+            "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
+            "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
+        },
+        "features": {
+            "movies": True,
+            "series": True,
+            "anime": True,
+            "queue": True,
+            "watchlist": True,
+            "jellyfin_matching": True,
+            "tmdb_metadata": True,
+            "cover_proxy": True,
+            "websocket": True,
+        },
+        "websocket": {
+            "path": "/api/v1/ws",
+            "legacy_path": "/ws",
+            "event_schema_version": EVENT_SCHEMA_VERSION,
+            "initial_snapshot": True,
+            "authorization_header": True,
+            "authentication": ["bearer"],
+        },
+    }
+
+
+@app.get("/api/v1/health")
+async def api_v1_health():
+    """Öffentliche Liveness-Antwort ohne Queue- oder Konfigurationsdaten."""
+    return {"status": "ok", "api_version": API_VERSION}
 
 
 @app.get("/api/health")
@@ -7117,13 +7755,32 @@ async def api_health():
 @app.exception_handler(Exception)
 async def handle_exc(request, exc):
     log(f"Serverfehler: {exc}", "err")
-    return JSONResponse(status_code=500, content={"error": str(exc)})
+    return JSONResponse(status_code=500, content={"error": "Interner Serverfehler."})
+
+
+@app.exception_handler(appauth.SessionPersistenceError)
+async def handle_session_persistence_error(request, exc):
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Die Sitzungsverwaltung ist vorübergehend nicht verfügbar.",
+            "code": "session_store_unavailable",
+        },
+        headers={"Retry-After": "30", "Cache-Control": "no-store"},
+    )
 
 
 # ── Anmeldung ───────────────────────────────────────────────────────────────
 class LoginBody(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=appauth.MAX_USERNAME_LENGTH)
+    password: str = Field(max_length=appauth.MAX_PASSWORD_LENGTH)
+
+
+class ApiV1LoginBody(LoginBody):
+    device_label: str = Field(default="", max_length=120)
+    # Frühe Mobile-Prototypen verwendeten diesen Namen. Additiv akzeptieren,
+    # im dokumentierten v1-Vertrag bleibt `device_label` kanonisch.
+    device_name: str = Field(default="", max_length=120)
 
 
 class AuthConfigBody(BaseModel):
@@ -7152,10 +7809,14 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
     )
 
 
-def _auth_status_payload(request: Request) -> dict:
+def _auth_status_payload(request: Request, auth_method: Optional[str] = None) -> dict:
     account = auth_account()
     configured = bool(account.get("configured"))
-    authenticated = request_is_authenticated(request.headers, request.cookies)
+    authenticated = (
+        request_is_authenticated(request.headers, request.cookies, client_key(request))
+        if auth_method is None
+        else (not auth_required() or auth_method != "none")
+    )
     return {
         "configured": configured,
         "required": auth_required(),
@@ -7173,11 +7834,42 @@ def _auth_status_payload(request: Request) -> dict:
 
 @app.get("/api/auth/status")
 async def api_auth_status(request: Request):
-    return _auth_status_payload(request)
+    return JSONResponse(
+        _auth_status_payload(request),
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
-@app.post("/api/auth/login")
-async def api_auth_login(body: LoginBody, request: Request):
+@app.get("/api/v1/auth/status")
+async def api_v1_auth_status(request: Request):
+    auth_method = request_auth_method(
+        request.headers,
+        request.cookies,
+        client_key(request),
+        versioned=True,
+        allow_basic=False,
+    )
+    payload = _auth_status_payload(request, auth_method=auth_method)
+    payload.update({
+        "api_version": API_VERSION,
+        "auth_method": auth_method,
+        "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
+        "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
+    })
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+
+
+async def _create_login_session(
+    username: str,
+    password: str,
+    request: Request,
+    label: str,
+    session_kind: str,
+) -> tuple[str, dict, str]:
+    """Gemeinsame Login-Prüfung für Web-Cookie und v1-Bearer-Token."""
     key = client_key(request)
     blocked = LOGIN_GUARD.retry_after(key)
     if blocked:
@@ -7189,7 +7881,7 @@ async def api_auth_login(body: LoginBody, request: Request):
     if not auth_configured():
         raise HTTPException(400, "Es ist kein Konto eingerichtet.")
     ok = await run_in_threadpool(
-        verify_credentials, body.username.strip(), body.password,
+        verify_credentials, username.strip(), password,
     )
     if not ok:
         lockout = LOGIN_GUARD.register_failure(key)
@@ -7206,20 +7898,75 @@ async def api_auth_login(body: LoginBody, request: Request):
             f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
         )
     LOGIN_GUARD.register_success(key)
-    token = SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120])
+    session_label = str(label or "").strip()[:120]
+    token = SESSION_STORE.create(label=session_label, kind=session_kind)
     payload = _auth_status_payload(request)
     payload.update({"authenticated": True, "username": auth_account().get("username", "")})
+    log("Anmeldung erfolgreich.")
+    return token, payload, session_label
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(body: LoginBody, request: Request):
+    token, payload, _label = await _create_login_session(
+        body.username,
+        body.password,
+        request,
+        request.headers.get("user-agent", ""),
+        appauth.SESSION_KIND_WEB,
+    )
     response = JSONResponse(payload)
     _set_session_cookie(response, request, token)
-    log("Anmeldung erfolgreich.")
     return response
+
+
+@app.post("/api/v1/auth/login")
+async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):
+    requested_label = (
+        body.device_label
+        or body.device_name
+        or request.headers.get("user-agent", "")
+        or "API client"
+    )
+    token, payload, session_label = await _create_login_session(
+        body.username,
+        body.password,
+        request,
+        requested_label,
+        appauth.SESSION_KIND_MOBILE,
+    )
+    payload.update({
+        "api_version": API_VERSION,
+        "auth_method": "bearer",
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
+        "idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
+        "device_label": session_label,
+    })
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
 @app.post("/api/auth/logout")
 async def api_auth_logout(request: Request):
-    SESSION_STORE.revoke(_session_token(request.cookies))
+    SESSION_STORE.revoke(
+        _session_token(request.cookies), kind=appauth.SESSION_KIND_WEB,
+    )
     response = JSONResponse({"ok": True})
     response.delete_cookie(appauth.SESSION_COOKIE_NAME, path="/")
+    return response
+
+
+@app.post("/api/v1/auth/logout")
+async def api_v1_auth_logout(request: Request):
+    token = _bearer_token(request.headers)
+    revoked = int(bool(
+        token and SESSION_STORE.revoke(token, kind=appauth.SESSION_KIND_MOBILE)
+    ))
+    response = JSONResponse({"ok": True, "revoked": revoked})
     return response
 
 
@@ -7230,7 +7977,7 @@ async def api_auth_config_get(request: Request):
         "configured": bool(account.get("configured")),
         "username": account.get("username", ""),
         "source": account.get("source", "none"),
-        "active_sessions": SESSION_STORE.count(),
+        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
         "min_password_length": appauth.MIN_PASSWORD_LENGTH,
         "min_username_length": appauth.MIN_USERNAME_LENGTH,
     }
@@ -7255,18 +8002,23 @@ async def api_auth_config_set(body: AuthConfigBody, request: Request):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     password_hash = await run_in_threadpool(appauth.hash_password, password)
+    # Alle bestehenden Sitzungen verlieren ihre Gültigkeit; das aufrufende
+    # Gerät bekommt nach erfolgreicher Kontospeicherung sofort eine neue. Der
+    # Widerruf geschieht zuerst dauerhaft: So kann ein Fehler beim Schreiben
+    # der Sitzungsdatei nicht nach einem Neustart alte Tokens wiederbeleben.
+    SESSION_STORE.revoke_all()
     if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
         raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
-    # Alle bestehenden Sitzungen verlieren ihre Gültigkeit; das aufrufende
-    # Gerät bekommt sofort eine neue, damit es nicht herausfliegt.
-    SESSION_STORE.revoke_all()
-    token = SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120])
+    token = SESSION_STORE.create(
+        label=request.headers.get("user-agent", "")[:120],
+        kind=appauth.SESSION_KIND_WEB,
+    )
     response = JSONResponse({
         "ok": True,
         "configured": True,
         "username": username,
         "source": "settings",
-        "active_sessions": SESSION_STORE.count(),
+        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
     })
     _set_session_cookie(response, request, token)
     log(f"Zugangsdaten aktualisiert (Benutzer „{username}“).")
@@ -7275,12 +8027,35 @@ async def api_auth_config_set(body: AuthConfigBody, request: Request):
 
 @app.post("/api/auth/sessions/revoke")
 async def api_auth_sessions_revoke(request: Request):
-    removed = SESSION_STORE.revoke_all(keep_token=_session_token(request.cookies))
+    removed = SESSION_STORE.revoke_all(
+        keep_token=authenticated_web_token(request.cookies),
+        kind=appauth.SESSION_KIND_WEB,
+    )
     log(f"{removed} andere Sitzung(en) beendet.")
-    return {"ok": True, "revoked": removed, "active_sessions": SESSION_STORE.count()}
+    return {
+        "ok": True,
+        "revoked": removed,
+        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
+    }
+
+
+@app.post("/api/v1/auth/sessions/revoke")
+async def api_v1_auth_sessions_revoke(request: Request):
+    keep_token = authenticated_mobile_token(request.headers)
+    removed = SESSION_STORE.revoke_all(
+        keep_token=keep_token, kind=appauth.SESSION_KIND_MOBILE,
+    )
+    log(f"{removed} andere Sitzung(en) beendet.")
+    return {
+        "ok": True,
+        "revoked": removed,
+        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
+        "current_session_preserved": bool(keep_token),
+    }
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────
+@app.get("/api/v1/genres")
 @app.get("/api/genres")
 async def api_genres():
     def _work():
@@ -7345,6 +8120,7 @@ async def api_genres():
 
 
 # ── Filme: Suche / Listen / Genre ───────────────────────────────────────────
+@app.get("/api/v1/movies")
 @app.get("/api/movies")
 async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):
     if page < 1 or page > MOVIE_MAX_GLOBAL_PAGE:
@@ -7358,7 +8134,12 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
                     "results": [], "category": None, "page": 1,
                     "has_more": False, "sources": [],
                 }
-            results = search_movie_candidates(q)
+            if not get_tmdb_client().configured:
+                raise HTTPException(
+                    503,
+                    "Für die eindeutige Filmsuche muss TMDB in den Einstellungen konfiguriert sein.",
+                )
+            results = _tmdb_search_results(q)
             return {
                 "results": results, "category": None, "page": 1,
                 "has_more": False, "sources": [],
@@ -7372,7 +8153,10 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         return {**catalog, "category": category}
 
     data = await run_in_threadpool(_work)
-    result_dicts = [asdict(r) for r in data["results"]]
+    result_dicts = [
+        dict(result) if isinstance(result, dict) else asdict(result)
+        for result in data["results"]
+    ]
     jf_items = await run_in_threadpool(get_jellyfin_library)
     with state.jellyfin_cache_lock:
         jf_available = state.jellyfin_library_available
@@ -7392,6 +8176,7 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     }
 
 
+@app.get("/api/v1/movie/{slug:path}")
 @app.get("/api/movie/{slug:path}")
 async def api_movie(slug: str):
     def _work():
@@ -7400,10 +8185,13 @@ async def api_movie(slug: str):
             movie = load_movie_for_slug(slug)
         if movie is not None:
             state.fp_movies[slug] = movie
-            return movie_to_dict(movie)
+            return movie_detail_to_dict(slug, movie)
         return None
 
-    payload = await run_in_threadpool(_work)
+    try:
+        payload = await run_in_threadpool(_work)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(404, str(exc)) from exc
     if payload is None:
         raise HTTPException(404, "Film nicht gefunden oder kein Hoster.")
     return payload
@@ -7413,6 +8201,7 @@ class PreloadBody(BaseModel):
     slugs: List[str]
 
 
+@app.post("/api/v1/movies/preload")
 @app.post("/api/movies/preload")
 async def api_movies_preload(body: PreloadBody):
     def _work():
@@ -7423,7 +8212,7 @@ async def api_movies_preload(body: PreloadBody):
                 movie = load_movie_for_slug(slug)
             if movie is not None:
                 state.fp_movies[slug] = movie
-                payloads[slug] = movie_to_dict(movie)
+                payloads[slug] = movie_detail_to_dict(slug, movie)
         return payloads
 
     payloads = await run_in_threadpool(_work)
@@ -7441,16 +8230,23 @@ class MovieMetadataBody(BaseModel):
     items: List[MovieMetadataItem]
 
 
+@app.post("/api/v1/tmdb/movie")
 @app.post("/api/tmdb/movie")
 async def api_tmdb_movie(item: MovieMetadataItem):
     """Vollständige TMDB-Details eines Films – ohne Anbieter-/Hoster-Aufruf."""
     if not get_tmdb_client().configured:
         return {"movie": None}
     title = strip_source_suffix(item.title)
-    movie = await run_in_threadpool(get_tmdb_client().movie, title, item.year)
+    if item.tmdb_id:
+        movie = await run_in_threadpool(
+            get_tmdb_client().movie_by_id, item.tmdb_id, title,
+        )
+    else:
+        movie = await run_in_threadpool(get_tmdb_client().movie, title, item.year)
     return {"movie": movie}
 
 
+@app.post("/api/v1/jellyfin/matches")
 @app.post("/api/jellyfin/matches")
 async def api_jellyfin_matches(body: MovieMetadataBody):
     """Aktualisiert nur die JF-Badges, ohne Anbieter oder Streams neu zu laden."""
@@ -7471,6 +8267,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
     return {"matches": await run_in_threadpool(_work)}
 
 
+@app.post("/api/v1/tmdb/movies")
 @app.post("/api/tmdb/movies")
 async def api_tmdb_movies(body: MovieMetadataBody):
     """Lädt schnelle TMDB-Listenmetadaten parallel, ohne Hoster-Seiten."""
@@ -7504,6 +8301,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 
 
 # ── Serien ───────────────────────────────────────────────────────────────────
+@app.get("/api/v1/series")
 @app.get("/api/series")
 async def api_series(mode: str = "search", query: str = "", letter: str = "", page: int = 1):
     if page < 1 or page > SERIES_MAX_GLOBAL_PAGE:
@@ -7575,6 +8373,7 @@ class SeriesLoadBody(BaseModel):
     defer_checks: bool = False
 
 
+@app.post("/api/v1/series/load")
 @app.post("/api/series/load")
 async def api_series_load(body: SeriesLoadBody):
     def _work():
@@ -7597,6 +8396,7 @@ async def api_series_load(body: SeriesLoadBody):
 
 
 # ── Anime ───────────────────────────────────────────────────────────────────
+@app.get("/api/v1/anime")
 @app.get("/api/anime")
 async def api_anime(
     mode: str = "latest",
@@ -7653,6 +8453,7 @@ async def api_anime(
     }
 
 
+@app.get("/api/v1/anime/{anime_id}")
 @app.get("/api/anime/{anime_id}")
 async def api_anime_detail(
     anime_id: str,
@@ -7883,6 +8684,10 @@ def _enqueue_automatic_downloads(
                     fallbacks = {}
                     if movie_fallbacks is not None and slug in movie_fallbacks:
                         fallbacks[slug] = list(movie_fallbacks[slug])
+                    else:
+                        cached_fallbacks = cached_movie_source_fallbacks(slug)
+                        if cached_fallbacks is not None:
+                            fallbacks[slug] = cached_fallbacks
                     state.dl_queue.add(_QueuePreparationJob(
                         [job], Path(state.save_path), movie_fallbacks=fallbacks,
                     ))
@@ -7953,6 +8758,7 @@ class QueueAddBody(BaseModel):
     slugs: List[str]
 
 
+@app.post("/api/v1/queue/add")
 @app.post("/api/queue/add")
 async def api_queue_add(body: QueueAddBody):
     def _work():
@@ -8113,6 +8919,7 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
     return cancellable
 
 
+@app.post("/api/v1/queue/remove")
 @app.post("/api/queue/remove")
 async def api_queue_remove(body: QueueRemoveBody):
     with state.queue_lifecycle_lock:
@@ -8144,6 +8951,7 @@ async def api_queue_remove(body: QueueRemoveBody):
     }
 
 
+@app.post("/api/v1/queue/clear")
 @app.post("/api/queue/clear")
 async def api_queue_clear():
     with state.queue_lifecycle_lock:
@@ -8162,12 +8970,14 @@ async def api_queue_clear():
     return {"removed": len(removed_slugs), "queue": build_queue_payload()}
 
 
+@app.get("/api/v1/queue")
 @app.get("/api/queue")
 async def api_queue_get():
     return {"queue": build_queue_payload()}
 
 
 # ── Downloads ────────────────────────────────────────────────────────────────
+@app.post("/api/v1/download/cancel")
 @app.post("/api/download/cancel")
 async def api_download_cancel():
     with state.queue_lifecycle_lock:
@@ -8360,7 +9170,9 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
     # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
     # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
     already_initialized = appconfig.is_initialized()
-    if already_initialized and not request_is_authenticated(request.headers, request.cookies):
+    if already_initialized and not request_is_authenticated(
+        request.headers, request.cookies, client_key(request),
+    ):
         raise HTTPException(401, "Anmeldung erforderlich.")
     account_hash = ""
     account_user = ""
@@ -8538,7 +9350,12 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
     # stünde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
     response = JSONResponse(payload)
     _set_session_cookie(
-        response, request, SESSION_STORE.create(label=request.headers.get("user-agent", "")[:120]),
+        response,
+        request,
+        SESSION_STORE.create(
+            label=request.headers.get("user-agent", "")[:120],
+            kind=appauth.SESSION_KIND_WEB,
+        ),
     )
     return response
 
@@ -8774,6 +9591,13 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         state.content_languages = set(appconfig.load_content_languages())
     with state.movie_list_cache_lock:
         state.movie_list_cache.clear()
+    with state.movie_source_cache_lock:
+        state.movie_source_cache.clear()
+        for slug in [
+            cached_slug for cached_slug in state.fp_movies
+            if cached_slug.startswith("tmdb:")
+        ]:
+            state.fp_movies.pop(slug, None)
     with state.series_list_cache_lock:
         state.series_list_cache.clear()
     state.fallback_series_cache.clear()
@@ -8907,6 +9731,13 @@ async def api_tmdb_config_set(body: TMDBConfigBody):
         raise HTTPException(500, "TMDB-Einstellungen konnten nicht gespeichert werden.")
     state.tmdb_cfg = appconfig.load_tmdb()
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
+    with state.movie_source_cache_lock:
+        state.movie_source_cache.clear()
+        for slug in [
+            cached_slug for cached_slug in state.fp_movies
+            if cached_slug.startswith("tmdb:")
+        ]:
+            state.fp_movies.pop(slug, None)
     valid = await run_in_threadpool(state.tmdb_client.validate) if api_key else False
     return {
         "api_key": "",
@@ -9111,6 +9942,8 @@ def _safe_public_http_url(raw_url: str) -> bool:
         if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
             return False
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if port not in (80, 443):
+            return False
         addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
         if not addresses:
             return False
@@ -9123,6 +9956,40 @@ def _safe_public_http_url(raw_url: str) -> bool:
 
 
 COVER_FAIL_RETRY_SECONDS = 180.0
+COVER_MAX_BYTES = 10 * 1024 * 1024
+COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
+COVER_CACHE_MAX_ENTRIES = 256
+COVER_MAX_REDIRECTS = 3
+COVER_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+COVER_IMAGE_TYPES = frozenset({
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/x-png",
+    "image/webp",
+    "image/gif",
+    "image/avif",
+})
+
+
+def _cover_log_target(raw_url: str) -> str:
+    """Loggt nie Query, Fragment oder Zugangsdaten einer Bild-URL."""
+    try:
+        parsed = urlparse(raw_url)
+        host = parsed.hostname or "unbekannter-host"
+        path = (parsed.path or "/")[:160]
+        return f"{host}{path}"
+    except (TypeError, ValueError):
+        return "ungültige-url"
+
+
+def _close_cover_response(response) -> None:
+    close = getattr(response, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
 
 
 def _fetch_cover_data(url: str) -> Optional[tuple]:
@@ -9138,41 +10005,81 @@ def _fetch_cover_data(url: str) -> Optional[tuple]:
                 return None
             del state.cover_fail_cache[url]
     try:
-        def _download(manager, referer: str) -> tuple:
-            resp = manager._curl.get(
-                url,
-                headers=manager._browser_headers(url, referer),
-                timeout=20,
-                stream=True,
-                allow_redirects=True,
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(f"HTTP {resp.status_code}")
-            content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-            if not content_type.startswith("image/"):
-                raise RuntimeError(f"kein Bild ({content_type or 'unbekannter Content-Type'})")
-            declared = int(resp.headers.get("Content-Length", 0) or 0)
-            if declared > 10 * 1024 * 1024:
-                raise RuntimeError("Bild ist größer als 10 MB")
-            content = bytearray()
-            for chunk in resp.iter_content(chunk_size=128 * 1024):
-                content.extend(chunk)
-                if len(content) > 10 * 1024 * 1024:
-                    raise RuntimeError("Bild ist größer als 10 MB")
-            return bytes(content), content_type
+        def _download(manager, curl_session, referer: str) -> tuple:
+            current_url = url
+            current_referer = referer
+            for redirect_index in range(COVER_MAX_REDIRECTS + 1):
+                # Jeden Hop vor dem Request erneut prüfen. Damit kann ein
+                # öffentlicher Bildhost nicht auf localhost/private Netze umleiten.
+                if not _safe_public_http_url(current_url):
+                    raise RuntimeError("unsicheres Bildziel")
+                headers = manager._browser_headers(current_url, current_referer)
+                headers.update({
+                    "Accept": "image/webp,image/png,image/jpeg,image/gif,*/*;q=0.1",
+                    "Sec-Fetch-Dest": "image",
+                    "Sec-Fetch-Mode": "no-cors",
+                })
+                headers.pop("Sec-Fetch-User", None)
+                headers.pop("Upgrade-Insecure-Requests", None)
+                resp = curl_session.get(
+                    current_url,
+                    headers=headers,
+                    timeout=20,
+                    stream=True,
+                    allow_redirects=False,
+                )
+                try:
+                    peer_ip = str(getattr(resp, "primary_ip", "") or "").strip()
+                    if not peer_ip or not ipaddress.ip_address(peer_ip).is_global:
+                        raise RuntimeError("unsichere Zieladresse nach DNS-Auflösung")
+                    if resp.status_code in COVER_REDIRECT_STATUSES:
+                        location = str(resp.headers.get("Location") or "").strip()
+                        if not location or redirect_index >= COVER_MAX_REDIRECTS:
+                            raise RuntimeError("ungültige oder zu tiefe Bildweiterleitung")
+                        next_url = urljoin(current_url, location)
+                        if not _safe_public_http_url(next_url):
+                            raise RuntimeError("unsicheres Weiterleitungsziel")
+                        current_referer = current_url
+                        current_url = next_url
+                        continue
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"HTTP {resp.status_code}")
+                    content_type = (
+                        resp.headers.get("Content-Type") or ""
+                    ).split(";", 1)[0].strip().lower()
+                    if content_type not in COVER_IMAGE_TYPES:
+                        raise RuntimeError("nicht unterstütztes Bildformat")
+                    declared = int(resp.headers.get("Content-Length", 0) or 0)
+                    if declared > COVER_MAX_BYTES:
+                        raise RuntimeError("Bild ist größer als 10 MB")
+                    content = bytearray()
+                    for chunk in resp.iter_content(chunk_size=128 * 1024):
+                        content.extend(chunk)
+                        if len(content) > COVER_MAX_BYTES:
+                            raise RuntimeError("Bild ist größer als 10 MB")
+                    return bytes(content), content_type
+                finally:
+                    _close_cover_response(resp)
+            raise RuntimeError("zu viele Bildweiterleitungen")
 
         parsed_url = urlparse(url)
         hostname = (parsed_url.hostname or "").casefold()
         referer = f"{parsed_url.scheme}://{parsed_url.netloc}/"
-        if hostname == "serienstream.to" or hostname.endswith(".serienstream.to"):
-            with state.sto_lock:
-                data = _download(
-                    get_sto_scraper().session, "https://serienstream.to/",
-                )
-        else:
-            data = _download(get_fp_scraper().session, referer)
+        manager = (
+            get_sto_scraper().session
+            if hostname == "serienstream.to" or hostname.endswith(".serienstream.to")
+            else get_fp_scraper().session
+        )
+        # Eine eigene Curl-Session pro Bild verhindert Datenrennen mit parallel
+        # laufenden Provider-Scrapes und übernimmt dennoch gespeicherte Cookies.
+        curl_session = manager._make_curl_session()
+        try:
+            data = _download(manager, curl_session, referer)
+        finally:
+            _close_cover_response(curl_session)
     except Exception as exc:
-        log(f"Cover-Laden fehlgeschlagen ({url}): {exc}", "warn")
+        reason = str(exc)[:160] if isinstance(exc, RuntimeError) else type(exc).__name__
+        log(f"Cover-Laden fehlgeschlagen ({_cover_log_target(url)}): {reason}", "warn")
         with state.cover_cache_lock:
             state.cover_fail_cache[url] = time.time()
             state.cover_fail_cache.move_to_end(url)
@@ -9182,12 +10089,18 @@ def _fetch_cover_data(url: str) -> Optional[tuple]:
     with state.cover_cache_lock:
         state.cover_cache[url] = data
         state.cover_cache.move_to_end(url)
-        while len(state.cover_cache) > 256:
-            state.cover_cache.popitem(last=False)
+        cached_bytes = sum(len(item[0]) for item in state.cover_cache.values())
+        while state.cover_cache and (
+            len(state.cover_cache) > COVER_CACHE_MAX_ENTRIES
+            or cached_bytes > COVER_CACHE_MAX_BYTES
+        ):
+            _old_url, old_data = state.cover_cache.popitem(last=False)
+            cached_bytes -= len(old_data[0])
         state.cover_fail_cache.pop(url, None)
     return data
 
 
+@app.get("/api/v1/cover")
 @app.get("/api/cover")
 async def api_cover(url: str):
     data = await run_in_threadpool(_fetch_cover_data, url)
@@ -9211,6 +10124,7 @@ class WatchlistAddBody(BaseModel):
     season_counts_checked_at: float = 0.0
 
 
+@app.post("/api/v1/watchlist/add")
 @app.post("/api/watchlist/add")
 async def api_watchlist_add(body: WatchlistAddBody):
     if body.download_mode not in WATCH_MODE_LABELS:
@@ -9281,6 +10195,10 @@ async def api_watchlist_add(body: WatchlistAddBody):
                         duplicate["season_counts_checked_at"] = float(
                             incoming_tmdb.get("season_counts_checked_at") or 0
                         )
+                    if (incoming_tmdb or {}).get("cover_url"):
+                        duplicate["cover_url"] = incoming_tmdb["cover_url"]
+                    if (incoming_tmdb or {}).get("backdrop_url"):
+                        duplicate["backdrop_url"] = incoming_tmdb["backdrop_url"]
                     appconfig.save_watchlist(state.watchlist)
                 raise HTTPException(
                     409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
@@ -9294,6 +10212,8 @@ async def api_watchlist_add(body: WatchlistAddBody):
                 for season, count in (body.season_episode_counts or {}).items()
             }
             entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
+            entry["cover_url"] = (incoming_tmdb or {}).get("cover_url", "")
+            entry["backdrop_url"] = (incoming_tmdb or {}).get("backdrop_url", "")
             entry["download_mode"] = normalize_watch_mode(body.download_mode)
             entry["cleanup_mode"] = normalize_cleanup_mode(
                 body.cleanup_mode
@@ -9336,6 +10256,7 @@ class WatchlistModeBody(BaseModel):
     cleanup_mode: Optional[str] = None
 
 
+@app.post("/api/v1/watchlist/mode")
 @app.post("/api/watchlist/mode")
 async def api_watchlist_mode(body: WatchlistModeBody):
     if body.download_mode not in WATCH_MODE_LABELS:
@@ -9392,6 +10313,7 @@ class WatchlistRemoveBody(BaseModel):
     base_slugs: List[str]
 
 
+@app.post("/api/v1/watchlist/remove")
 @app.post("/api/watchlist/remove")
 async def api_watchlist_remove(body: WatchlistRemoveBody):
     pending_slugs: set[str] = set()
@@ -9420,8 +10342,10 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
     return watchlist_payload()
 
 
+@app.get("/api/v1/watchlist")
 @app.get("/api/watchlist")
 async def api_watchlist_get():
+    await run_in_threadpool(hydrate_watchlist_artwork)
     return watchlist_payload()
 
 
@@ -9785,6 +10709,10 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
                 entry_snapshot["season_counts_checked_at"] = float(
                     tmdb.get("season_counts_checked_at") or 0
                 )
+                entry_snapshot["cover_url"] = tmdb.get("cover_url") or series.cover_url
+                entry_snapshot["backdrop_url"] = tmdb.get("backdrop_url") or ""
+            elif series.cover_url:
+                entry_snapshot["cover_url"] = series.cover_url
             calculated = _calculate_watchlist_entry_state(
                 entry_snapshot, series, jf_client, jf_episodes, jf_user_episodes, jf_series,
             )
@@ -9807,6 +10735,8 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
                         entry["season_counts_checked_at"] = entry_snapshot.get(
                             "season_counts_checked_at", 0,
                         )
+                    entry["cover_url"] = entry_snapshot.get("cover_url", "")
+                    entry["backdrop_url"] = entry_snapshot.get("backdrop_url", "")
                     entry["cleanup_mode"] = cleanup_mode
                     entry["cleanup_last_error"] = (
                         "Jellyfin-Benutzerstatus nicht verfügbar"
@@ -9845,6 +10775,7 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
     return checked
 
 
+@app.post("/api/v1/watchlist/check")
 @app.post("/api/watchlist/check")
 async def api_watchlist_check(body: WatchlistCheckBody):
     def _work():
@@ -9867,6 +10798,7 @@ class WatchlistOpenBody(BaseModel):
     base_slug: str
 
 
+@app.post("/api/v1/watchlist/open")
 @app.post("/api/watchlist/open")
 async def api_watchlist_open(body: WatchlistOpenBody):
     with state.watchlist_lock:
@@ -9911,6 +10843,10 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                 entry["season_counts_checked_at"] = float(
                     payload.get("season_counts_checked_at") or 0
                 )
+            if payload.get("cover_url"):
+                entry["cover_url"] = payload["cover_url"]
+            if payload.get("backdrop_url"):
+                entry["backdrop_url"] = payload["backdrop_url"]
 
     def _sync_entry_from_loaded_series():
         withdrawn_slugs: set[str] = set()
@@ -10014,20 +10950,118 @@ async def api_watchlist_open(body: WatchlistOpenBody):
 
 
 # ── WebSocket (Log / Fortschritt / Queue-Events) ────────────────────────────
+def websocket_snapshot_payload() -> dict:
+    """Konsistenter Startzustand für neue v1-WebSocket-Verbindungen."""
+    with state.download_state_lock:
+        download = {
+            "done_jobs": state.done_jobs,
+            "total_jobs": state.total_jobs,
+            "successful_jobs": len(state.done_slugs),
+            "failed_jobs": max(0, state.done_jobs - len(state.done_slugs)),
+            "active": state.dl_queue.active_count(),
+            "pending": state.dl_queue.pending_count(),
+        }
+    return {
+        "type": "snapshot",
+        "api_version": API_VERSION,
+        "event_schema_version": EVENT_SCHEMA_VERSION,
+        "timestamp": time.time(),
+        "queue": build_queue_payload(),
+        "watchlist": watchlist_payload()["watchlist"],
+        "download": download,
+    }
+
+
+def _websocket_origin_allowed(websocket: WebSocket) -> bool:
+    """Cookie-WebSockets akzeptieren nur den Ursprung der eigenen Oberfläche."""
+    origin = websocket.headers.get("origin", "")
+    if not origin:
+        # Native Clients und nicht-browserbasierte Werkzeuge senden keinen
+        # Origin-Header. Sie benötigen ohnehin ein explizites Bearer-Token.
+        return True
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    forwarded = (
+        websocket.headers.get("x-forwarded-proto", "")
+        .split(",")[0]
+        .strip()
+        .casefold()
+    )
+    if forwarded in {"https", "wss"}:
+        effective_scheme = "https"
+    elif forwarded in {"http", "ws"}:
+        effective_scheme = "http"
+    else:
+        effective_scheme = (
+            "https" if websocket.url.scheme.casefold() in {"https", "wss"} else "http"
+        )
+    return bool(parsed.netloc) and (
+        parsed.netloc.casefold() == websocket.headers.get("host", "").casefold()
+        and parsed.scheme.casefold() == effective_scheme
+    )
+
+
+def _websocket_is_authenticated(
+    websocket: WebSocket,
+    *,
+    versioned: bool,
+    touch: bool,
+) -> bool:
+    if not auth_required():
+        return True
+    if authenticated_mobile_token(websocket.headers, touch=touch):
+        return True
+    if versioned:
+        return False
+    return bool(
+        _websocket_origin_allowed(websocket)
+        and authenticated_web_token(websocket.cookies, touch=touch)
+    )
+
+
+@app.websocket("/api/v1/ws")
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     # JavaScript kann beim WebSocket-Handshake keinen Authorization-Header
     # setzen, und Browser hängen gespeicherte Basic-Zugangsdaten dort nicht an.
     # Das Sitzungscookie wird dagegen mitgeschickt – erst damit funktionieren
-    # Live-Log, Fortschritt und Queue-Updates bei aktivierter Anmeldung.
-    if not request_is_authenticated(websocket.headers, websocket.cookies):
+    # Live-Log, Fortschritt und Queue-Updates bei aktivierter Anmeldung. Native
+    # Clients dürfen dasselbe Sitzungsformat als Bearer-Header senden.
+    is_v1 = websocket.scope.get("path") == "/api/v1/ws"
+    if not _websocket_is_authenticated(
+        websocket, versioned=is_v1, touch=True,
+    ):
         await websocket.close(code=1008, reason="Anmeldung erforderlich")
         return
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(
+        websocket,
+        initial_payload_factory=websocket_snapshot_payload if is_v1 else None,
+    )
+    loop = asyncio.get_running_loop()
+    recheck_interval = max(0.01, float(WEBSOCKET_AUTH_RECHECK_SECONDS))
+    next_auth_check = loop.time() + recheck_interval
     try:
         while True:
-            await websocket.receive_text()
+            try:
+                await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=max(0.0, next_auth_check - loop.time()),
+                )
+            except asyncio.TimeoutError:
+                pass
+            now = loop.time()
+            if now >= next_auth_check:
+                if not _websocket_is_authenticated(
+                    websocket, versioned=is_v1, touch=False,
+                ):
+                    await websocket.close(code=1008, reason="Sitzung abgelaufen")
+                    break
+                next_auth_check = now + recheck_interval
     except WebSocketDisconnect:
+        pass
+    finally:
         ws_manager.disconnect(websocket)
 
 

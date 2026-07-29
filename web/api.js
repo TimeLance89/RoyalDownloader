@@ -139,7 +139,9 @@ const api = {
     try {
       const parsed = new URL(url, location.origin);
       if (parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org") return parsed.href;
-    } catch (e) { /* Ungültige Anbieter-URL wird vom Proxy abgewiesen. */ }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+      url = parsed.href;
+    } catch (e) { return ""; }
     return "/api/cover?" + new URLSearchParams({ url });
   },
 };

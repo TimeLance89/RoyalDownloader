@@ -22,10 +22,12 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -121,6 +123,13 @@ SESSION_TOKEN_BYTES = 32
 DEFAULT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60   # 30 Tage
 DEFAULT_SESSION_IDLE_SECONDS = 14 * 24 * 60 * 60  # 14 Tage ohne Aktivität
 MAX_SESSIONS = 50
+SESSION_KIND_WEB = "web"
+SESSION_KIND_MOBILE = "mobile"
+SESSION_KINDS = frozenset({SESSION_KIND_WEB, SESSION_KIND_MOBILE})
+
+
+class SessionPersistenceError(RuntimeError):
+    """Eine sicherheitsrelevante Sitzungsänderung konnte nicht gespeichert werden."""
 
 
 def _token_fingerprint(token: str) -> str:
@@ -166,31 +175,65 @@ class SessionStore:
             return
         now = time.time()
         with self._lock:
+            loaded = []
             for fingerprint, entry in entries.items():
                 if not isinstance(entry, dict):
                     continue
-                created = float(entry.get("created") or 0)
-                last_seen = float(entry.get("last_seen") or created)
-                if not created or self._is_expired(created, last_seen, now):
+                try:
+                    created = float(entry.get("created") or 0)
+                    last_seen = float(entry.get("last_seen") or created)
+                except (TypeError, ValueError, OverflowError):
                     continue
-                self._sessions[str(fingerprint)] = {
+                if (
+                    not created
+                    or not math.isfinite(created)
+                    or not math.isfinite(last_seen)
+                    or self._is_expired(created, last_seen, now)
+                ):
+                    continue
+                # Dateien aus Version 1 besitzen noch kein `kind`. Sie stammen
+                # ausschließlich von Browser-Logins und werden deshalb bewusst
+                # als Web-Sitzung migriert, nie als privilegiertes Mobile-Token.
+                kind = str(entry.get("kind") or SESSION_KIND_WEB)
+                if kind not in SESSION_KINDS:
+                    kind = SESSION_KIND_WEB
+                loaded.append((str(fingerprint), {
                     "created": created,
                     "last_seen": last_seen,
                     "label": str(entry.get("label") or ""),
-                }
+                    "kind": kind,
+                    "_persisted_last_seen": last_seen,
+                }))
+            # Auch eine manipulierte oder beschädigte Datei darf das konfigurierte
+            # Speicherlimit nicht umgehen. Die zuletzt aktiven Sitzungen bleiben.
+            loaded.sort(key=lambda item: item[1]["last_seen"], reverse=True)
+            self._sessions.update(loaded[:self._max_sessions])
 
     def _save_locked(self) -> None:
         if not self._path:
             return
-        payload = {"version": 1, "sessions": self._sessions}
+        payload = {
+            "version": 2,
+            "sessions": {
+                fingerprint: {
+                    key: value
+                    for key, value in entry.items()
+                    if not key.startswith("_")
+                }
+                for fingerprint, entry in self._sessions.items()
+            },
+        }
         tmp = self._path.with_name(f".{self._path.name}.{os.getpid()}.tmp")
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as handle:
+            descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self._path)
+            for entry in self._sessions.values():
+                entry["_persisted_last_seen"] = entry["last_seen"]
             try:
                 self._path.chmod(0o600)
             except OSError:
@@ -201,6 +244,9 @@ class SessionStore:
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
+            raise SessionPersistenceError(
+                "Sitzungen konnten nicht dauerhaft gespeichert werden."
+            ) from exc
 
     # -- Ablauf -------------------------------------------------------------
     def _is_expired(self, created: float, last_seen: float, now: float) -> bool:
@@ -217,11 +263,14 @@ class SessionStore:
         return bool(stale)
 
     # -- API ----------------------------------------------------------------
-    def create(self, label: str = "") -> str:
+    def create(self, label: str = "", kind: str = SESSION_KIND_WEB) -> str:
         """Legt eine Sitzung an und gibt das Klartext-Token für das Cookie zurück."""
+        if kind not in SESSION_KINDS:
+            raise ValueError("Unbekannter Sitzungstyp.")
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         now = time.time()
         with self._lock:
+            previous = {key: dict(entry) for key, entry in self._sessions.items()}
             self._purge_locked(now)
             if len(self._sessions) >= self._max_sessions:
                 # Älteste Sitzung weichen lassen, damit ein Gerät mit
@@ -232,13 +281,27 @@ class SessionStore:
                 "created": now,
                 "last_seen": now,
                 "label": str(label or "")[:120],
+                "kind": kind,
+                "_persisted_last_seen": now,
             }
-            self._save_locked()
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions = previous
+                raise
         return token
 
-    def validate(self, token: str) -> bool:
+    def validate(
+        self,
+        token: str,
+        kind: Optional[str] = None,
+        *,
+        touch: bool = True,
+    ) -> bool:
         """Prüft ein Token und schreibt bei Erfolg den Zeitstempel fort."""
         if not token:
+            return False
+        if kind is not None and kind not in SESSION_KINDS:
             return False
         fingerprint = _token_fingerprint(token)
         now = time.time()
@@ -246,43 +309,86 @@ class SessionStore:
             entry = self._sessions.get(fingerprint)
             if entry is None:
                 return False
+            if kind is not None and entry.get("kind", SESSION_KIND_WEB) != kind:
+                return False
             if self._is_expired(entry["created"], entry["last_seen"], now):
                 self._sessions.pop(fingerprint, None)
-                self._save_locked()
+                try:
+                    self._save_locked()
+                except SessionPersistenceError:
+                    # Der Eintrag ist anhand seiner persistierten Zeitwerte auch
+                    # nach einem Neustart abgelaufen. Authentifizierung bleibt
+                    # deshalb sicher abgewiesen, selbst wenn Aufräumen scheitert.
+                    pass
                 return False
+            if not touch:
+                return True
             # Nicht bei jedem Request schreiben: die Oberfläche fragt im
             # Sekundentakt Status ab, das wären sonst tausende Schreibzugriffe
             # pro Stunde auf dem NAS-Volume.
-            previous = entry["last_seen"]
             entry["last_seen"] = now
-            if (now - previous) > 3600:
-                self._save_locked()
+            if (now - entry.get("_persisted_last_seen", 0)) > 3600:
+                try:
+                    self._save_locked()
+                except SessionPersistenceError:
+                    # Ein Checkpoint-Fehler darf eine aktuell gültige Sitzung
+                    # nicht mitten im Request in einen Serverfehler verwandeln.
+                    pass
             return True
 
-    def revoke(self, token: str) -> bool:
+    def revoke(self, token: str, kind: Optional[str] = None) -> bool:
         if not token:
+            return False
+        if kind is not None and kind not in SESSION_KINDS:
             return False
         fingerprint = _token_fingerprint(token)
         with self._lock:
-            removed = self._sessions.pop(fingerprint, None) is not None
-            if removed:
+            entry = self._sessions.get(fingerprint)
+            if entry is None:
+                return False
+            if kind is not None and entry.get("kind", SESSION_KIND_WEB) != kind:
+                return False
+            removed = self._sessions.pop(fingerprint)
+            try:
                 self._save_locked()
-            return removed
+            except SessionPersistenceError:
+                self._sessions[fingerprint] = removed
+                raise
+            return True
 
-    def revoke_all(self, keep_token: str = "") -> int:
+    def revoke_all(self, keep_token: str = "", kind: Optional[str] = None) -> int:
         """Meldet alle Sitzungen ab; `keep_token` bleibt optional bestehen."""
+        if kind is not None and kind not in SESSION_KINDS:
+            raise ValueError("Unbekannter Sitzungstyp.")
         keep = _token_fingerprint(keep_token) if keep_token else ""
         with self._lock:
-            removed = [key for key in self._sessions if key != keep]
+            removed = {
+                key: entry
+                for key, entry in self._sessions.items()
+                if key != keep
+                and (kind is None or entry.get("kind", SESSION_KIND_WEB) == kind)
+            }
+            if not removed:
+                return 0
             for key in removed:
                 self._sessions.pop(key, None)
-            self._save_locked()
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                self._sessions.update(removed)
+                raise
             return len(removed)
 
-    def count(self) -> int:
+    def count(self, kind: Optional[str] = None) -> int:
+        if kind is not None and kind not in SESSION_KINDS:
+            return 0
         with self._lock:
             self._purge_locked(time.time())
-            return len(self._sessions)
+            return sum(
+                1
+                for entry in self._sessions.values()
+                if kind is None or entry.get("kind", SESSION_KIND_WEB) == kind
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +397,7 @@ class SessionStore:
 DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_ATTEMPT_WINDOW = 300.0
 DEFAULT_LOCKOUT_SECONDS = 300.0
+DEFAULT_MAX_TRACKED_LOGIN_KEYS = 4096
 
 
 class LoginGuard:
@@ -301,13 +408,45 @@ class LoginGuard:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         window_seconds: float = DEFAULT_ATTEMPT_WINDOW,
         lockout_seconds: float = DEFAULT_LOCKOUT_SECONDS,
+        max_tracked_keys: int = DEFAULT_MAX_TRACKED_LOGIN_KEYS,
     ):
         self._max_attempts = max(1, int(max_attempts))
         self._window = float(window_seconds)
         self._lockout = float(lockout_seconds)
+        self._max_tracked_keys = max(16, int(max_tracked_keys))
         self._lock = threading.Lock()
         self._attempts: Dict[str, list] = {}
         self._locked_until: Dict[str, float] = {}
+        self._key_order: OrderedDict[str, None] = OrderedDict()
+        self._last_cleanup = 0.0
+
+    def _touch_key_locked(self, key: str) -> None:
+        self._key_order.pop(key, None)
+        self._key_order[key] = None
+        while len(self._key_order) > self._max_tracked_keys:
+            oldest, _ = self._key_order.popitem(last=False)
+            self._attempts.pop(oldest, None)
+            self._locked_until.pop(oldest, None)
+
+    def _cleanup_locked(self, now: float) -> None:
+        if (
+            (now - self._last_cleanup) < 60
+            and len(self._key_order) <= self._max_tracked_keys
+        ):
+            return
+        for key, timestamps in list(self._attempts.items()):
+            active = [stamp for stamp in timestamps if (now - stamp) < self._window]
+            if active:
+                self._attempts[key] = active
+            else:
+                self._attempts.pop(key, None)
+        for key, until in list(self._locked_until.items()):
+            if until <= now:
+                self._locked_until.pop(key, None)
+        for key in list(self._key_order):
+            if key not in self._attempts and key not in self._locked_until:
+                self._key_order.pop(key, None)
+        self._last_cleanup = now
 
     def retry_after(self, key: str) -> int:
         """Verbleibende Sperrzeit in Sekunden (0 = nicht gesperrt)."""
@@ -315,11 +454,15 @@ class LoginGuard:
             return 0
         now = time.time()
         with self._lock:
+            self._cleanup_locked(now)
             until = self._locked_until.get(key, 0.0)
             if until <= now:
                 if key in self._locked_until:
                     self._locked_until.pop(key, None)
+                    if key not in self._attempts:
+                        self._key_order.pop(key, None)
                 return 0
+            self._touch_key_locked(key)
             return int(until - now) + 1
 
     def register_failure(self, key: str) -> int:
@@ -328,11 +471,13 @@ class LoginGuard:
             return 0
         now = time.time()
         with self._lock:
+            self._cleanup_locked(now)
             timestamps = [
                 stamp for stamp in self._attempts.get(key, []) if (now - stamp) < self._window
             ]
             timestamps.append(now)
             self._attempts[key] = timestamps
+            self._touch_key_locked(key)
             if len(timestamps) >= self._max_attempts:
                 self._locked_until[key] = now + self._lockout
                 self._attempts.pop(key, None)
@@ -345,15 +490,23 @@ class LoginGuard:
         with self._lock:
             self._attempts.pop(key, None)
             self._locked_until.pop(key, None)
+            self._key_order.pop(key, None)
 
     def remaining_attempts(self, key: str) -> int:
         if not key:
             return self._max_attempts
         now = time.time()
         with self._lock:
+            self._cleanup_locked(now)
             timestamps = [
                 stamp for stamp in self._attempts.get(key, []) if (now - stamp) < self._window
             ]
+            if timestamps:
+                self._attempts[key] = timestamps
+            else:
+                self._attempts.pop(key, None)
+                if key not in self._locked_until:
+                    self._key_order.pop(key, None)
             return max(0, self._max_attempts - len(timestamps))
 
 

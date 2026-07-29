@@ -9,7 +9,7 @@ import json
 import logging
 import re
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cr
@@ -146,7 +146,7 @@ class MoflixScraper:
             url=url,
             year=year,
             runtime=runtime,
-            cover_url=title.get("poster") or "",
+            cover_url=self._artwork_url(title.get("poster")),
             description=title.get("description") or "",
             genres=genres,
             hosters=hosters,
@@ -182,7 +182,7 @@ class MoflixScraper:
             title=f"{series_title} S{season:02d}E{episode:02d}",
             url=url,
             year=str(ep.get("year") or ""),
-            cover_url=ep.get("poster") or title_obj.get("poster") or "",
+            cover_url=self._artwork_url(ep.get("poster") or title_obj.get("poster")),
             description=ep.get("description") or "",
             hosters=hosters,
         )
@@ -242,7 +242,7 @@ class MoflixScraper:
 
         return FilmpalastSeries(
             title=series_title, base_slug=f"{SOURCE_PREFIX}{title_id}:{series_slug}", url=url,
-            cover_url=title_obj.get("poster") or "", description=title_obj.get("description") or "",
+            cover_url=self._artwork_url(title_obj.get("poster")), description=title_obj.get("description") or "",
             genres=genres, seasons=seasons,
         )
 
@@ -277,8 +277,13 @@ class MoflixScraper:
             sample_slug=f"{SOURCE_PREFIX}{title_id}:{slug}",
             sample_url=f"{BASE_URL}/titles/{title_id}/{slug}",
             year=self._year(title.get("release_date") or title.get("year")),
-            cover_url=title.get("poster") or "",
+            cover_url=self._artwork_url(title.get("poster")),
         )
+
+    @staticmethod
+    def _artwork_url(value) -> str:
+        raw = str(value or "").strip()
+        return urljoin(BASE_URL + "/", raw) if raw else ""
 
     def _watch_src(self, video_id: int) -> str:
         data = self._bootstrap(f"{BASE_URL}/watch/{video_id}")

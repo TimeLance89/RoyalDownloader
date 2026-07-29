@@ -123,6 +123,22 @@ docker compose up -d --build
 
 Open `http://<NAS-IP>:8765`.
 
+### Cloudflare Tunnel
+
+For a host-managed tunnel, keep the origin port off the LAN/Internet and fail
+closed if account configuration is ever lost:
+
+```dotenv
+ROYAL_BIND_ADDRESS=127.0.0.1
+APP_REQUIRE_AUTH=true
+TRUST_CLOUDFLARE_HEADERS=true
+```
+
+Point `cloudflared` to `http://127.0.0.1:8765`. If `cloudflared` runs in a
+container, use a private Docker network instead of publishing port 8765. Do not
+enable `TRUST_CLOUDFLARE_HEADERS` while clients can reach the origin directly;
+otherwise they can forge the source address used by login rate limiting.
+
 ## Volumes and persistent data
 
 | Container path | Purpose |
@@ -153,6 +169,9 @@ All variables are optional and have operational defaults.
 | `OPEN_BROWSER` | `0` | Prevents opening a desktop browser inside the container |
 | `APP_USERNAME` | empty | Fallback account name; only used until an account is created in the interface |
 | `APP_PASSWORD` | empty | Fallback account password; only used until an account is created in the interface |
+| `APP_REQUIRE_AUTH` | `false` | Fail closed when account configuration is missing; required for public/tunnel deployments |
+| `ROYAL_BIND_ADDRESS` | `0.0.0.0` | Host address used by Compose when publishing port 8765; use `127.0.0.1` for a host-managed tunnel |
+| `TRUST_CLOUDFLARE_HEADERS` | `false` | Trust validated `CF-Connecting-IP` for rate limiting; only safe when the origin is otherwise unreachable |
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
 | `DNS_SECONDARY` | `9.9.9.9` | Fallback container resolver |
 | `DNS_OVERRIDE` | `1` | `start.sh` only: set to `0` to keep Docker's existing `resolv.conf` |

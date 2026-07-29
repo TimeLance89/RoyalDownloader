@@ -769,7 +769,9 @@ function fpStatusMessage() {
   const visiblePicks = [...state.queuedSlugs].filter((s) => visibleSlugs.has(s)).length;
   const otherPicks = state.queuedSlugs.size - visiblePicks;
   let msg;
-  if (state.fp.activeGenre === "Alle Genres") {
+  if (state.fp.searchActive) {
+    msg = `${state.fp.results.length} Filme auf TMDB`;
+  } else if (state.fp.activeGenre === "Alle Genres") {
     msg = `${state.fp.results.length} Treffer`;
   } else {
     msg = `Genre: ${state.fp.activeGenre}  ·  ${state.fp.results.length} Treffer`;
@@ -1044,8 +1046,12 @@ function fpResultAvailability(result) {
   if (queued) return { label: "In Queue", tag: "picked" };
   if (movie) {
     if (!movie.hosters || movie.hosters.length === 0) return { label: "Kein Hoster", tag: "novoe" };
-    return { label: movie.hoster_label || "Bereit", tag: "ready" };
+    return {
+      label: movie.provider_count ? `${movie.provider_count} Anbieter` : (movie.hoster_label || "Bereit"),
+      tag: "ready",
+    };
   }
+  if (String(result.slug || "").startsWith("tmdb:")) return { label: "Auswählen", tag: "idle" };
   if (state.fp.pendingPreload?.has(result.slug)) return { label: "Lädt …", tag: "pending" };
   return { label: "Wird geprüft", tag: "idle" };
 }
@@ -1070,7 +1076,12 @@ function updateFpResultCard(slug) {
     stateLabel.textContent = availability.label;
   }
   const subtitle = row.querySelector(".result-card-subtitle");
-  if (subtitle) subtitle.textContent = (fpResultMedia(result).genres || []).slice(0, 2).join(" · ") || "Film";
+  if (subtitle) {
+    const resolved = state.fp.moviesCache[result.slug];
+    subtitle.textContent = (resolved?.source_providers || []).map((source) => source.label).join(" · ")
+      || (fpResultMedia(result).genres || []).slice(0, 2).join(" · ")
+      || "Film";
+  }
   const rating = row.querySelector(".result-card-rating");
   if (rating) rating.textContent = fpResultMedia(result).rating ? `★ ${fpResultMedia(result).rating}` : "★ —";
   const yearEl = row.querySelector(".result-card-year");
@@ -1187,6 +1198,9 @@ function renderFpResults(appendFrom = 0) {
 
 function applyFpResults(data, { append = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
+  for (const result of incoming) {
+    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = { ...result };
+  }
   const appendFrom = append ? state.fp.results.length : 0;
   state.fp.results = append
     ? mergeCatalogItems(state.fp.results, incoming, (item) => item.slug)
@@ -1230,7 +1244,12 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
       }
     }
     if (metadata && !metadata.details_loaded) {
-      const detailResponse = await api.tmdbMovie({ slug: item.slug, title: item.title, year: item.year || "" });
+      const detailResponse = await api.tmdbMovie({
+        slug: item.slug,
+        title: item.title,
+        year: item.year || "",
+        tmdb_id: item.tmdb_id || null,
+      });
       if (requestId !== state.fp.requestSeq) return metadata;
       if (detailResponse.movie) {
         metadata = detailResponse.movie;
@@ -1501,6 +1520,21 @@ async function selectFpRow(slug) {
   openMediaModal("fp-detail-modal", findFpResultCard(slug));
   if (movie) return;
   await loadFpMetadata(item);
+  if (!String(slug).startsWith("tmdb:") || state.fp.selectedSlug !== slug) return;
+  setFpDetailAvailability("Alle Anbieter werden durchsucht", "loading");
+  try {
+    const resolved = await api.movie(slug);
+    state.fp.moviesCache[slug] = resolved;
+    updateFpResultCard(slug);
+    if (state.fp.selectedSlug === slug) showFpDetail(slug, resolved);
+  } catch (error) {
+    console.warn("Anbietersuche fehlgeschlagen:", error);
+    if (state.fp.selectedSlug === slug) {
+      const preview = state.fp.metadataCache[slug] || basicMovieMetadata(item);
+      showFpDetail(slug, metadataPreviewMovie(preview), true);
+      setFpDetailAvailability(error.message, "error");
+    }
+  }
 }
 
 function basicMovieMetadata(item) {
@@ -1705,7 +1739,14 @@ function showFpDetail(slug, movie, metadataOnly = false) {
       `★ ${movie.rating}/10${movie.vote_count ? ` · ${formatMovieNumber(movie.vote_count)} Stimmen` : ""}`,
     );
   }
-  if (!metadataOnly) metaParts.push(movie.hosters.length ? `${movie.hosters.length} Hoster` : "kein Hoster");
+  if (!metadataOnly) {
+    if (movie.provider_count) {
+      metaParts.push(`${movie.provider_count} Anbieter`);
+    }
+    metaParts.push(movie.hoster_total
+      ? `${movie.hoster_total} Hoster gesamt`
+      : (movie.hosters.length ? `${movie.hosters.length} Hoster` : "kein Hoster"));
+  }
   if (movie.metadata_source) metaParts.push(movie.metadata_source);
   renderFpDetailItems("fp-detail-meta", metaParts, "Keine Metadaten");
   renderFpDetailItems("fp-detail-genres", movie.genres, "Genre unbekannt");
@@ -1713,7 +1754,14 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   tagline.textContent = movie.tagline || "";
   tagline.hidden = !movie.tagline;
   if (metadataOnly) setFpDetailAvailability("Streams werden geprüft", "loading");
-  else if (movie.hosters.length) setFpDetailAvailability(`${movie.hosters.length} Hoster bereit`, "ready");
+  else if (movie.hosters.length) {
+    setFpDetailAvailability(
+      movie.provider_count
+        ? `${movie.provider_count} Anbieter · ${movie.hoster_total || movie.hosters.length} Hoster`
+        : `${movie.hosters.length} Hoster bereit`,
+      "ready",
+    );
+  }
   else setFpDetailAvailability("Kein Hoster verfügbar", "error");
   setFpDetailText("fp-detail-original-title", movie.original_title);
   setFpDetailText("fp-detail-release", formatMovieDate(movie.release_date));
@@ -1742,7 +1790,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   document.getElementById("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);
   setFpDetailText(
     "fp-detail-route",
-    metadataOnly ? "Streams werden geprüft" : movie.hoster_route,
+    metadataOnly ? "Streams werden geprüft" : (movie.provider_route || movie.hoster_route),
   );
   setFpDetailText(
     "fp-detail-score",
@@ -1752,7 +1800,11 @@ function showFpDetail(slug, movie, metadataOnly = false) {
     "fp-detail-fallback",
     metadataOnly
       ? "Noch offen"
-      : (movie.hosters.length ? `${movie.hoster_fallback_count} Alternativen` : ""),
+      : (movie.hosters.length
+        ? (movie.provider_count
+          ? `${movie.provider_fallback_count || 0} Anbieter · ${movie.hoster_fallback_count || 0} Hoster`
+          : `${movie.hoster_fallback_count} Alternativen`)
+        : ""),
   );
   document.getElementById("fp-detail-desc").textContent = movie.description || "(keine Beschreibung)";
 
@@ -2392,7 +2444,7 @@ function renderAnimeResults() {
     card.innerHTML = `
       <span class="anime-card-poster">
         ${anime.cover_url
-    ? `<img src="${escapeHtml(anime.cover_url)}" alt="" loading="lazy">`
+    ? `<img src="${escapeHtml(api.coverUrl(anime.cover_url))}" alt="" loading="lazy">`
     : ""}
         <span class="anime-card-fallback">${escapeHtml(mediaCardInitials(anime.title))}</span>
         <span class="anime-card-type" translate="no">${escapeHtml(anime.media_type || "TV")}</span>
@@ -2561,11 +2613,13 @@ function renderAnimeDetail() {
   if (!anime) return;
   document.getElementById("anime-detail-title").textContent = anime.title;
   const cover = document.getElementById("anime-detail-cover");
-  cover.src = anime.cover_url || "";
+  cover.src = api.coverUrl(anime.cover_url || "");
   cover.alt = anime.title;
   document.getElementById("anime-detail-type").textContent = anime.media_type || "TV";
   const banner = document.getElementById("anime-detail-banner");
-  banner.style.backgroundImage = anime.banner_url ? `url("${anime.banner_url.replace(/"/g, "%22")}")` : "";
+  banner.style.backgroundImage = anime.banner_url
+    ? `url("${api.coverUrl(anime.banner_url).replace(/"/g, "%22")}")`
+    : "";
   document.getElementById("anime-detail-description").textContent =
     anime.description || "Keine Beschreibung verfügbar.";
   const meta = [

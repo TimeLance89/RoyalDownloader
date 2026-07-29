@@ -432,11 +432,12 @@ class SflixScraper:
             image = item.select_one(".film-poster-img")
             cover_url = ""
             if image:
-                cover_url = str(
+                raw_cover_url = str(
                     image.get("src")
                     or image.get("data-src")
                     or ""
                 ).strip()
+                cover_url = urljoin(self.base_url + "/", raw_cover_url) if raw_cover_url else ""
             cards.append(_Card(
                 title=title,
                 site_slug=site_slug,
@@ -482,11 +483,12 @@ class SflixScraper:
         image = soup.select_one(".detail_page-infor .film-poster-img")
         cover_url = ""
         if image:
-            cover_url = str(
+            raw_cover_url = str(
                 image.get("src")
                 or image.get("data-src")
                 or ""
             ).strip()
+            cover_url = urljoin(self.base_url + "/", raw_cover_url) if raw_cover_url else ""
         return {
             "title": title,
             "year": year,
