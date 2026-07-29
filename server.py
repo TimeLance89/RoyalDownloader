@@ -1281,9 +1281,46 @@ def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
 
 
 def strip_source_suffix(title: str) -> str:
-    """Entfernt die UI-Markierung " [Anbieter]" (Moflix/Einschalten/Kinox) für
-    den Jellyfin-Titelabgleich."""
-    return re.sub(r"\s*\[[^\]]+\]\s*$", "", title or "")
+    """Entfernt die UI-Markierung ``[Anbieter]``."""
+    return re.sub(r"\s*\[[^\]]+\]\s*$", "", title or "").strip()
+
+
+def clean_movie_title(title: str) -> str:
+    """Bereinigt Filmtitel für Anzeige, TMDB und Jellyfin.
+
+    Quellseiten hängen teils Editionen oder Sprachmarker an, etwa
+    ``(Black and Chrome Edition) [Moflix]`` oder ``ENGLISH\\Titel``.
+    """
+    value = " ".join(str(title or "").split()).strip()
+    language = r"(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI(?:LANGUAGE)?|OV|O-TON)"
+    previous = None
+    while value and value != previous:
+        previous = value
+        value = strip_source_suffix(value)
+        value = re.sub(r"\s*\([^()]*\)\s*$", "", value).strip()
+        value = re.sub(
+            rf"^[\\/|:_-]*\s*{language}(?:\s+(?:DUB|SUB|DL))?"
+            rf"\s*[\\/|:_-]+\s*",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        ).strip()
+        value = re.sub(
+            rf"\s*[\\/|:_-]+\s*{language}(?:\s+(?:DUB|SUB|DL))?"
+            rf"\s*[\\/|:_-]*\s*$",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        ).strip()
+        # Ein alleinstehender, großgeschriebener Release-Marker am Ende ist
+        # ebenfalls kein Titelbestandteil. Normales „English Movie“ bleibt.
+        value = re.sub(
+            r"\s+(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI|OV|O-TON)"
+            r"(?:\s+(?:DUB|SUB|DL))?\s*$",
+            "",
+            value,
+        ).strip()
+    return value
 
 
 def provider_order(media_type: str) -> List[str]:
@@ -1489,7 +1526,7 @@ def _movie_title_match_keys(title: str) -> set[str]:
     raw = re.sub(
         r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$",
         "",
-        strip_source_suffix(title),
+        clean_movie_title(title),
     ).strip()
     def _match_norm(value: str) -> str:
         ascii_value = (
@@ -1818,7 +1855,7 @@ def _movie_result_identity(
     provider: str,
     years_by_title: Dict[str, set[str]],
 ) -> tuple:
-    title_key = _norm_title(strip_source_suffix(result.title))
+    title_key = _norm_title(clean_movie_title(result.title))
     if not title_key:
         return ("source", provider, str(result.slug or result.url))
     year = str(result.year or "").strip()
@@ -1839,7 +1876,7 @@ def _mix_movie_provider_results(
     years_by_title: Dict[str, set[str]] = defaultdict(set)
     for results in provider_results.values():
         for result in results:
-            title_key = _norm_title(strip_source_suffix(result.title))
+            title_key = _norm_title(clean_movie_title(result.title))
             year = str(result.year or "").strip()
             if title_key and year:
                 years_by_title[title_key].add(year)
@@ -1989,7 +2026,7 @@ def warm_home_movie_cache():
 
         unique = {}
         for movie in movies:
-            title = strip_source_suffix(movie.title)
+            title = clean_movie_title(movie.title)
             unique.setdefault((_norm_title(title), str(movie.year or "")), (title, movie.year or ""))
         values = list(unique.values())
         # Das erste sichtbare Detail hat Vorrang. Erst danach den Rest mit
@@ -2704,7 +2741,8 @@ def movie_to_dict(
     provider = _movie_provider(movie)
     content_language = _movie_content_language(movie)
     payload = {
-        "title": movie.title, "url": movie.url, "year": movie.year,
+        "title": clean_movie_title(movie.title),
+        "url": movie.url, "year": movie.year,
         "runtime": movie.runtime, "cover_url": movie.cover_url,
         "description": movie.description, "genres": movie.genres,
         "provider": provider,
@@ -2719,7 +2757,7 @@ def movie_to_dict(
         "metadata_source": "Anbieter",
     }
     tmdb = tmdb_override or get_tmdb_client().movie(
-        strip_source_suffix(movie.title), movie.year,
+        clean_movie_title(movie.title), movie.year,
     )
     if tmdb:
         for field in (
@@ -3099,7 +3137,7 @@ def queue_content_key(slug: str, movie: Optional[FilmpalastMovie] = None) -> str
             tmdb_id = str((tmdb or {}).get("tmdb_id") or "")
         identity = f"tmdb:{tmdb_id}" if tmdb_id else f"title:{_norm_title(title)}"
         return f"series:{identity}:s{season}:e{episode}"
-    title = strip_source_suffix(movie.title)
+    title = clean_movie_title(movie.title)
     tmdb = get_tmdb_client().movie_summary(title, movie.year)
     tmdb_id = str((tmdb or {}).get("tmdb_id") or "")
     identity = f"tmdb:{tmdb_id}" if tmdb_id else f"title:{_norm_title(title)}:{movie.year or ''}"
@@ -4357,7 +4395,7 @@ def find_movie_source_fallbacks(
 ) -> List[FilmpalastMovie]:
     """Sucht denselben Film erst dann bei anderen Katalogquellen, wenn alle
     Hoster des ausgewählten Treffers zur Laufzeit gescheitert sind."""
-    title = strip_source_suffix(movie.title)
+    title = clean_movie_title(movie.title)
     wanted = _norm_title(title)
     wanted_year = str(movie.year or "")
     if not wanted:
@@ -4559,7 +4597,7 @@ def _enqueue_hoster_attempt(
                 ))
         for next_index in range(source_index + 1, len(source_movies)):
             next_movie = source_movies[next_index]
-            log(f"  Wechsle Filmquelle: {strip_source_suffix(next_movie.title)}", "warn")
+            log(f"  Wechsle Filmquelle: {clean_movie_title(next_movie.title)}", "warn")
             with state.hoster_extract_lock:
                 source_result = _extract_from_movie(
                     next_movie,
@@ -4662,7 +4700,7 @@ def _enqueue_hoster_attempt(
 
 def _existing_valid_movie_path(out_root: Path, movie: FilmpalastMovie) -> Optional[Path]:
     """Findet eine bereits vollständig geladene Filmdatei dieses Titels."""
-    titles = [strip_source_suffix(movie.title)]
+    titles = [clean_movie_title(movie.title)]
     if movie.title not in titles:
         titles.append(movie.title)
     checked: set = set()
@@ -4785,7 +4823,7 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
             library_available = state.jellyfin_library_available
         if items is None or not library_available:
             return True, "Jellyfin nicht erreichbar"
-        title = strip_source_suffix(movie.title)
+        title = clean_movie_title(movie.title)
         tmdb = get_tmdb_client().movie_summary(title, movie.year)
         with state.jellyfin_cache_lock:
             if (
@@ -4974,7 +5012,9 @@ def run_download_queue(
             out_path = series_episode_out_path(orig_series_title, season, episode)
         else:
             primary_movie = source_movies[0]
-            out_path = out_root / build_movie_filename(strip_source_suffix(primary_movie.title), primary_movie.year)
+            out_path = out_root / build_movie_filename(
+                clean_movie_title(primary_movie.title), primary_movie.year,
+            )
 
         enqueued = _enqueue_hoster_attempt(
             movie=movie,
@@ -5075,7 +5115,7 @@ def _rank_telegram_series_results(
             wanted not in _norm_title(result.title),
             abs(len(_norm_title(result.title)) - len(wanted)),
             not _norm_title(result.title).startswith(wanted),
-            strip_source_suffix(result.title).casefold(),
+            clean_movie_title(result.title).casefold(),
         ),
     )
     # Identische Titel verschiedener Anbieter sind keine Auswahlvarianten. Der
@@ -5155,7 +5195,7 @@ def _send_telegram_series_choice_page_locked(token: str, entry: dict) -> bool:
             if state.telegram_series_choices.get(token) is not entry:
                 break
         candidate = candidates[index]
-        title = strip_source_suffix(candidate.title).strip() or candidate.title
+        title = clean_movie_title(candidate.title) or candidate.title
         caption = f"{index + 1}. {title}"
         if candidate.year:
             caption += f" ({candidate.year})"
@@ -5336,7 +5376,7 @@ def _build_telegram_movie_options(
         if not loaded or not loaded.hosters or loaded.url in seen_urls:
             continue
         seen_urls.add(loaded.url)
-        title = strip_source_suffix(loaded.title).strip() or strip_source_suffix(candidate.title).strip()
+        title = clean_movie_title(loaded.title) or clean_movie_title(candidate.title)
         year = str(loaded.year or candidate.year or "")
         key = (_norm_title(title), year)
         option = grouped.get(key)
@@ -5940,7 +5980,7 @@ def _seerr_register_request_jobs(request_id, items: dict, title: str, **record_v
 
 def _seerr_movie_title_key(value: str) -> str:
     """Normalisiert Quelltitel inklusive optional angehängtem Erscheinungsjahr."""
-    title = strip_source_suffix(str(value or "").strip())
+    title = clean_movie_title(str(value or "").strip())
     title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title).strip()
     return _norm_title(title)
 
@@ -6017,7 +6057,7 @@ def _seerr_find_movie_sources(metadata: dict, tmdb_id: int) -> List[tuple]:
         candidates.sort(key=lambda candidate: (
             bool(year) and str(candidate.year or "").strip() != year,
             not bool(str(candidate.year or "").strip()),
-            strip_source_suffix(candidate.title).casefold(),
+            clean_movie_title(candidate.title).casefold(),
         ))
 
         for candidate in candidates:
@@ -6037,7 +6077,7 @@ def _seerr_find_movie_sources(metadata: dict, tmdb_id: int) -> List[tuple]:
             if not loaded or not loaded.hosters:
                 continue
 
-            loaded_title = strip_source_suffix(loaded.title)
+            loaded_title = clean_movie_title(loaded.title)
             loaded_key = _seerr_movie_title_key(loaded_title)
             if loaded_key not in {key for _value, key in aliases}:
                 continue
@@ -6879,7 +6919,7 @@ def _run_telegram_movie_request(
         movie = option["movie"]
         chosen_result = option["result"]
         fallback_movies = list(option.get("fallback_movies", []))
-        title = str(option.get("title") or strip_source_suffix(movie.title)).strip()
+        title = str(option.get("title") or clean_movie_title(movie.title)).strip()
         year = str(option.get("year") or movie.year or chosen_result.year or "")
         _telegram_send(chat_id, f"🔎 Prüfe „{title}“{f' ({year})' if year else ''} …")
 
@@ -8158,13 +8198,18 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         dict(result) if isinstance(result, dict) else asdict(result)
         for result in data["results"]
     ]
+    for result in result_dicts:
+        if result.get("provider"):
+            result["title"] = clean_movie_title(result.get("title", ""))
     jf_items = await run_in_threadpool(get_jellyfin_library)
     with state.jellyfin_cache_lock:
         jf_available = state.jellyfin_library_available
     if jf_items is not None and jf_available:
         jf_client = get_jellyfin_client()
         for rd in result_dicts:
-            rd["in_jellyfin"] = jf_client.match(strip_source_suffix(rd["title"]), rd.get("year", ""), items=jf_items)
+            rd["in_jellyfin"] = jf_client.match(
+                clean_movie_title(rd["title"]), rd.get("year", ""), items=jf_items,
+            )
     return {
         "results": result_dicts,
         "category": data["category"],
@@ -8237,7 +8282,7 @@ async def api_tmdb_movie(item: MovieMetadataItem):
     """Vollständige TMDB-Details eines Films – ohne Anbieter-/Hoster-Aufruf."""
     if not get_tmdb_client().configured:
         return {"movie": None}
-    title = strip_source_suffix(item.title)
+    title = clean_movie_title(item.title)
     if item.tmdb_id:
         movie = await run_in_threadpool(
             get_tmdb_client().movie_by_id, item.tmdb_id, title,
@@ -8260,7 +8305,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
         client = get_jellyfin_client()
         return {
             item.slug: client.match(
-                strip_source_suffix(item.title), item.year,
+                clean_movie_title(item.title), item.year,
                 items=items, tmdb_id=item.tmdb_id,
             )
             for item in body.items[:100]
@@ -8279,7 +8324,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
         now_playing_ids = get_tmdb_client().now_playing_ids()
         unique = {}
         for item in body.items[:100]:
-            title = strip_source_suffix(item.title)
+            title = clean_movie_title(item.title)
             key = (_norm_title(title), str(item.year or ""))
             group = unique.setdefault(key, {"title": title, "year": item.year, "slugs": []})
             group["slugs"].append(item.slug)

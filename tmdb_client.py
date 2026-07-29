@@ -40,6 +40,40 @@ def _year_from_date(value: str) -> str:
     return match.group(1) if match else ""
 
 
+def _clean_movie_query_title(title: str) -> str:
+    """Entfernt Release-/Anbieterzusätze, die kein TMDB-Titelbestandteil sind."""
+    value = " ".join(str(title or "").split()).strip()
+    language = r"(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI(?:LANGUAGE)?|OV|O-TON)"
+    previous = None
+    while value and value != previous:
+        previous = value
+        value = re.sub(r"\s*\[[^\]]+\]\s*$", "", value).strip()
+        value = re.sub(r"\s*\([^()]*\)\s*$", "", value).strip()
+        value = re.sub(
+            rf"^[\\/|:_-]*\s*{language}(?:\s+(?:DUB|SUB|DL))?"
+            rf"\s*[\\/|:_-]+\s*",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        ).strip()
+        value = re.sub(
+            rf"\s*[\\/|:_-]+\s*{language}(?:\s+(?:DUB|SUB|DL))?"
+            rf"\s*[\\/|:_-]*\s*$",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        ).strip()
+        value = re.sub(
+            r"\s+(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI|OV|O-TON)"
+            r"(?:\s+(?:DUB|SUB|DL))?\s*$",
+            "",
+            value,
+        ).strip()
+    return re.sub(
+        r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", value,
+    ).strip()
+
+
 class TMDBClient:
     def __init__(self, api_key: str = "", language: str = "de-DE", timeout: float = 8.0):
         self.api_key = (api_key or "").strip()
@@ -307,7 +341,7 @@ class TMDBClient:
 
     def movie_summary(self, title: str, year: str = "") -> Optional[dict]:
         """Schnelle Listenmetadaten mit nur einer TMDB-Suchanfrage."""
-        query_title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "").strip()
+        query_title = _clean_movie_query_title(title)
         cache_key = (_normalize(query_title), str(year or ""))
         with self._lock:
             if cache_key in self._movie_summary_cache:
@@ -463,7 +497,7 @@ class TMDBClient:
         return results
 
     def movie(self, title: str, year: str = "") -> Optional[dict]:
-        query_title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "").strip()
+        query_title = _clean_movie_query_title(title)
         cache_key = (_normalize(query_title), str(year or ""))
         with self._lock:
             if cache_key in self._movie_cache:
