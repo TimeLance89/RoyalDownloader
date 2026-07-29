@@ -7,6 +7,7 @@ const state = {
     loadingMore: false, loadError: "",
     searchActive: false, searchReturn: null,
     featureCandidates: [], featureIndex: 0, featureTimer: null, featurePaused: false,
+    downloadSelections: new Map(),
   },
   series: {
     results: [], browseMode: null, page: 1, lastPageFull: false,
@@ -1704,7 +1705,10 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
         else if (state.fp.selectedSlug === slug) showFpDetail(slug, movie, true);
         return;
       }
-      const resp = shouldRemove ? await api.queueRemove(slug) : await api.queueAdd([slug]);
+      const selection = state.fp.downloadSelections.get(slug);
+      const resp = shouldRemove
+        ? await api.queueRemove(slug)
+        : await api.queueAdd([slug], selection ? { [slug]: selection } : {});
       refreshQueueUiAfterChange(resp);
       if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
     } catch (error) {
@@ -1713,6 +1717,82 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
     }
   };
 }
+
+function movieQualityRank(value) {
+  const text = String(value || "").toUpperCase();
+  const resolution = Number(text.match(/(\d{3,4})\s*P?/)?.[1] || 0);
+  if (resolution) return resolution;
+  if (text.includes("UHD") || text.includes("4K")) return 2160;
+  if (text.includes("FULL HD") || text.includes("FHD")) return 1080;
+  if (text.includes("HD")) return 720;
+  if (text.includes("SD")) return 480;
+  return 0;
+}
+
+function renderFpDownloadSources(slug, movie, metadataOnly) {
+  const section = document.getElementById("fp-detail-sources-section");
+  const container = document.getElementById("fp-detail-sources");
+  container.innerHTML = "";
+  const sources = metadataOnly || !Array.isArray(movie.source_providers)
+    ? []
+    : movie.source_providers.filter((source) => Array.isArray(source.hosters) && source.hosters.length);
+  section.hidden = !sources.length;
+  if (!sources.length) return;
+
+  const options = [];
+  for (const source of sources) {
+    const qualities = [...new Set(source.hosters.map((hoster) => String(hoster.quality || "").trim()))];
+    qualities.sort((a, b) => movieQualityRank(b) - movieQualityRank(a) || a.localeCompare(b));
+    for (const quality of qualities) {
+      const matching = source.hosters.filter(
+        (hoster) => String(hoster.quality || "").trim() === quality,
+      );
+      options.push({
+        provider: source.key,
+        providerLabel: source.label || source.key,
+        quality,
+        qualityLabel: quality || "Qualität unbekannt",
+        hosterCount: matching.length,
+        rank: movieQualityRank(quality),
+      });
+    }
+  }
+  options.sort((a, b) => b.rank - a.rank);
+  const stored = state.fp.downloadSelections.get(slug);
+  const selected = options.find(
+    (option) => option.provider === stored?.provider && option.quality === stored?.quality,
+  ) || options[0];
+  if (selected) {
+    state.fp.downloadSelections.set(slug, {
+      provider: selected.provider,
+      quality: selected.quality,
+    });
+  }
+
+  for (const option of options) {
+    const label = document.createElement("label");
+    label.className = "detail-source-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = `movie-source-${slug}`;
+    input.checked = option === selected;
+    input.addEventListener("change", () => {
+      state.fp.downloadSelections.set(slug, {
+        provider: option.provider,
+        quality: option.quality,
+      });
+    });
+    const copy = document.createElement("span");
+    const provider = document.createElement("strong");
+    provider.textContent = option.providerLabel;
+    const details = document.createElement("small");
+    details.textContent = `${option.qualityLabel} · ${option.hosterCount} Hoster`;
+    copy.append(provider, details);
+    label.append(input, copy);
+    container.appendChild(label);
+  }
+}
+
 function showFpDetail(slug, movie, metadataOnly = false) {
   const detailPanel = document.getElementById("fp-detail-panel");
   const cover = document.getElementById("fp-detail-cover");
@@ -1787,6 +1867,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   renderFpDetailItems("fp-detail-insights", insights);
   renderFpDetailItems("fp-detail-keywords", movie.keywords || []);
   renderFpCast(movie.cast, movie.tmdb_url);
+  renderFpDownloadSources(slug, movie, metadataOnly);
   document.getElementById("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);
   setFpDetailText(
     "fp-detail-route",

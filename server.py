@@ -3981,7 +3981,14 @@ def _extract_from_movie(
     if barren_hoster_urls is None:
         barren_hoster_urls = set()
 
-    for hoster in state.hoster_intel.rank(movie.hosters):
+    ranked_hosters = state.hoster_intel.rank(movie.hosters)
+    preferred_quality_value = getattr(movie, "_preferred_quality", None)
+    if preferred_quality_value is not None:
+        preferred_quality = str(preferred_quality_value or "").strip().casefold()
+        ranked_hosters.sort(
+            key=lambda hoster: str(hoster.quality or "").strip().casefold() != preferred_quality
+        )
+    for hoster in ranked_hosters:
         if not hoster.url:
             continue
         if hoster.url in excluded_hoster_urls:
@@ -8805,8 +8812,38 @@ def restore_persisted_queue():
             time.sleep(60)
 
 
+class MovieDownloadPreference(BaseModel):
+    provider: str = ""
+    quality: str = ""
+
+
 class QueueAddBody(BaseModel):
     slugs: List[str]
+    preferences: Dict[str, MovieDownloadPreference] = Field(default_factory=dict)
+
+
+def _preferred_movie_sources(
+    slug: str,
+    movie: FilmpalastMovie,
+    preference: Optional[MovieDownloadPreference],
+) -> tuple[FilmpalastMovie, Optional[List[FilmpalastMovie]]]:
+    """Sortiert die gewählte Quelle/Qualität vor, behält aber alle Fallbacks."""
+    if preference is None or parse_episode_slug(slug):
+        return movie, None
+    provider = str(preference.provider or "").strip().casefold()
+    quality = str(preference.quality or "").strip()
+    with state.movie_source_cache_lock:
+        sources = list(state.movie_source_cache.get(slug) or [movie])
+    chosen_index = next(
+        (index for index, source in enumerate(sources) if _movie_provider(source) == provider),
+        None,
+    )
+    if chosen_index is None:
+        return movie, None
+    chosen_source = sources.pop(chosen_index)
+    chosen = replace(chosen_source, hosters=list(chosen_source.hosters))
+    setattr(chosen, "_preferred_quality", quality)
+    return chosen, sources
 
 
 @app.post("/api/v1/queue/add")
@@ -8814,6 +8851,7 @@ class QueueAddBody(BaseModel):
 async def api_queue_add(body: QueueAddBody):
     def _work():
         added_slugs: List[str] = []
+        selected_fallbacks: Dict[str, List[FilmpalastMovie]] = {}
         skipped = 0
         skipped_details: Dict[str, str] = {}
         for slug in body.slugs:
@@ -8854,17 +8892,27 @@ async def api_queue_add(body: QueueAddBody):
                         state.picked.discard(slug)
                     continue
                 state.fp_movies[slug] = movie
+                preferred, fallbacks = _preferred_movie_sources(
+                    slug, movie, body.preferences.get(slug),
+                )
+                if fallbacks is not None:
+                    movie = preferred
+                    state.fp_movies[slug] = movie
+                    selected_fallbacks[slug] = fallbacks
                 added_slugs.append(slug)
             except Exception as exc:
                 with state.queue_claim_lock:
                     state.picked.discard(slug)
                 skipped += 1
                 skipped_details[slug] = str(exc)[:180]
-        return added_slugs, skipped, skipped_details
+        return added_slugs, skipped, skipped_details, selected_fallbacks
 
-    added_slugs, skipped, skipped_details = await run_in_threadpool(_work)
+    added_slugs, skipped, skipped_details, selected_fallbacks = await run_in_threadpool(_work)
     _persist_queue_state()
-    accepted = _enqueue_automatic_downloads(added_slugs)
+    accepted = _enqueue_automatic_downloads(
+        added_slugs,
+        movie_fallbacks=selected_fallbacks or None,
+    )
     duplicate_rejected = set(added_slugs) - accepted
     if len(accepted) < len(added_slugs):
         with state.queue_claim_lock:

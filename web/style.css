@@ -6075,6 +6075,7 @@ body.setup-open #dir-modal { z-index: 120; }
     "synopsis facts"
     "credits facts"
     "cast cast"
+    "sources sources"
     "route route"
     "queue queue";
   align-content: start;
@@ -6204,6 +6205,59 @@ body.setup-open #dir-modal { z-index: 120; }
   grid-area: cast;
   min-width: 0;
 }
+.detail-sources {
+  grid-area: sources;
+  min-width: 0;
+}
+.detail-sources .detail-section-head small {
+  color: var(--text-dim);
+  font-size: 8px;
+}
+.detail-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+}
+.detail-source-option {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  color: var(--text);
+  background: rgba(8, 6, 13, 0.48);
+  border: 1px solid rgba(243, 238, 227, 0.09);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.detail-source-option:hover {
+  border-color: rgba(216, 183, 102, 0.36);
+}
+.detail-source-option:has(input:checked) {
+  background: rgba(216, 183, 102, 0.12);
+  border-color: rgba(216, 183, 102, 0.58);
+  box-shadow: inset 3px 0 0 rgba(216, 183, 102, 0.72);
+}
+.detail-source-option input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+.detail-source-option > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.detail-source-option strong,
+.detail-source-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-source-option strong { font-size: 10px; }
+.detail-source-option small { color: var(--text-dim); font-size: 8px; }
 .detail-section-head {
   display: flex;
   align-items: center;
@@ -6703,7 +6757,7 @@ body.setup-open #dir-modal { z-index: 120; }
 @media (max-width: 980px) {
   .detail-text {
     grid-template-columns: 1fr;
-    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "route" "queue";
+    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "sources" "route" "queue";
   }
   .detail-text .detail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .detail-text .detail-facts > div { min-height: 66px; }
@@ -6768,7 +6822,7 @@ body.setup-open #dir-modal { z-index: 120; }
     grid-column: 2;
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "route" "queue";
+    grid-template-areas: "title" "synopsis" "facts" "credits" "cast" "sources" "route" "queue";
     gap: 14px;
   }
   .detail-title-block { padding: 0 0 13px; }

@@ -67,7 +67,9 @@ const api = {
   },
 
   queueGet() { return this.get("/api/queue"); },
-  queueAdd(slugs) { return this.post("/api/queue/add", { slugs }); },
+  queueAdd(slugs, preferences = {}) {
+    return this.post("/api/queue/add", { slugs, preferences });
+  },
   queueRemove(slug) { return this.post("/api/queue/remove", { slug }); },
   queueClear() { return this.post("/api/queue/clear"); },
 
