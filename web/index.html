@@ -278,11 +278,17 @@
 
       <section class="movie-subscriptions" aria-labelledby="movie-subscriptions-title">
         <div class="subscriptions-head">
-          <div>
-            <span id="movie-subscriptions-title" class="subscriptions-title">Film-Abos</span>
-            <span id="movie-subscriptions-count" class="subscriptions-count">0 Filme</span>
+          <div class="movie-subscriptions-heading">
+            <span class="movie-subscriptions-radar" aria-hidden="true"><i></i></span>
+            <div>
+              <span class="movie-subscriptions-kicker">QUALITÄTSWÄCHTER</span>
+              <span id="movie-subscriptions-title" class="subscriptions-title">Film-Abos</span>
+              <span id="movie-subscriptions-count" class="subscriptions-count">0 Filme werden überwacht</span>
+            </div>
           </div>
-          <button id="movie-subscriptions-check" class="btn btn-ghost btn-sm" type="button">↻ Qualitäten prüfen</button>
+          <button id="movie-subscriptions-check" class="btn btn-ghost btn-sm" type="button">
+            <span aria-hidden="true">↻</span> Jetzt prüfen
+          </button>
         </div>
         <div id="movie-subscriptions-list" class="subscriptions-list"></div>
       </section>

@@ -2451,13 +2451,25 @@ function renderMovieSubscriptions() {
   if (!container) return;
   const items = state.movieSubscriptions.items;
   document.getElementById("movie-subscriptions-count").textContent =
-    `${items.length} ${items.length === 1 ? "Film" : "Filme"}`;
+    items.length
+      ? `${items.length} ${items.length === 1 ? "Film wird" : "Filme werden"} überwacht`
+      : "Noch keine Filme überwacht";
   document.getElementById("movie-subscriptions-check").disabled = !items.length;
   container.innerHTML = "";
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "subscriptions-empty";
-    empty.textContent = "Noch keine Film-Abos – Film öffnen und „Film abonnieren“ wählen.";
+    const mark = document.createElement("span");
+    mark.className = "subscriptions-empty-mark";
+    mark.textContent = "＋";
+    mark.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = "Erstes Film-Abo anlegen";
+    const hint = document.createElement("small");
+    hint.textContent = "Film öffnen und „Film abonnieren“ wählen.";
+    copy.append(title, hint);
+    empty.append(mark, copy);
     container.appendChild(empty);
     return;
   }
@@ -2466,6 +2478,8 @@ function renderMovieSubscriptions() {
     card.type = "button";
     card.className = "subscription-card"
       + (["failed", "upgrade"].includes(entry.status) ? " has-new" : "");
+    card.dataset.status = entry.status || "current";
+    card.setAttribute("aria-label", `${entry.title}: ${movieSubscriptionStatus(entry)}`);
     const monogram = document.createElement("span");
     monogram.className = "subscription-monogram";
     monogram.textContent = subscriptionMonogram(entry.title);
@@ -2479,7 +2493,23 @@ function renderMovieSubscriptions() {
     meta.className = "subscription-meta";
     meta.textContent = movieSubscriptionStatus(entry);
     copy.append(title, meta);
-    card.append(monogram, copy);
+    const signal = document.createElement("span");
+    signal.className = "movie-subscription-signal";
+    const signalDot = document.createElement("i");
+    signalDot.setAttribute("aria-hidden", "true");
+    const signalLabel = document.createElement("span");
+    signalLabel.textContent = {
+      queued: "In Queue",
+      failed: "Fehler",
+      upgrade: "Upgrade",
+      watched_deleted: "Erledigt",
+    }[entry.status] || "Aktuell";
+    signal.append(signalDot, signalLabel);
+    const open = document.createElement("span");
+    open.className = "movie-subscription-open";
+    open.textContent = "›";
+    open.setAttribute("aria-hidden", "true");
+    card.append(monogram, copy, signal, open);
     card.addEventListener("click", () => openMovieSubscriptionModal(entry.source_slug, null, entry));
     container.appendChild(card);
   }
