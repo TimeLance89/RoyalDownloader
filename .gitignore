@@ -60,6 +60,7 @@ dist/
 *.egg-info/
 
 # Android / Gradle local state
+/AndroidApp/
 .gradle/
 .kotlin/
 local.properties

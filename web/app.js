@@ -1,5 +1,9 @@
 const state = {
-  tab: "filme",
+  tab: "home",
+  home: {
+    newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
+    heroIndex: 0, heroTimer: null, loading: true,
+  },
   fp: {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
     activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
@@ -116,10 +120,12 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "einstellungen") setQueueDockExpanded(false);
   state.tab = name;
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
+  if (name === "home") scheduleHomeHeroRotation();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
   if (name === "filme") scheduleMovieFeatureRotation();
   else stopMovieFeatureRotation();
+  if (name !== "home") stopHomeHeroRotation();
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
@@ -763,6 +769,283 @@ function refreshMovieFeatureCandidates() {
   state.fp.featureIndex = preservedIndex >= 0 ? preservedIndex : 0;
   renderMovieFeature();
   scheduleMovieFeatureRotation();
+  renderHomeHero();
+}
+
+function homeMovieBySlug(slug) {
+  return [...state.home.newMovies, ...state.home.topMovies]
+    .find((item) => item.slug === slug) || null;
+}
+
+function homeSeriesBySlug(baseSlug) {
+  return [...state.home.trendingSeries, ...state.home.newSeries]
+    .find((item) => item.base_slug === baseSlug) || null;
+}
+
+function uniqueHomeEntries(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (!entry?.item) return false;
+    const key = `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function interleaveHomeEntries(primary, secondary, limit = 20) {
+  const mixed = [];
+  const max = Math.max(primary.length, secondary.length);
+  for (let index = 0; index < max && mixed.length < limit; index += 1) {
+    if (primary[index]) mixed.push(primary[index]);
+    if (secondary[index] && mixed.length < limit) mixed.push(secondary[index]);
+  }
+  return uniqueHomeEntries(mixed).slice(0, limit);
+}
+
+function homeMovieEntry(item) {
+  return { kind: "movie", item };
+}
+
+function homeSeriesEntry(item) {
+  return { kind: "series", item };
+}
+
+function homeTopEntries() {
+  return interleaveHomeEntries(
+    state.home.topMovies.map(homeMovieEntry),
+    state.home.trendingSeries.map(homeSeriesEntry),
+    10,
+  );
+}
+
+function homeNewEntries() {
+  return interleaveHomeEntries(
+    state.home.newMovies.map(homeMovieEntry),
+    state.home.newSeries.map(homeSeriesEntry),
+    24,
+  );
+}
+
+function homeHeroCandidates() {
+  const entries = interleaveHomeEntries(
+    state.home.topMovies.slice(0, 4).map(homeMovieEntry),
+    state.home.trendingSeries.slice(0, 4).map(homeSeriesEntry),
+    7,
+  );
+  return entries.map((entry) => {
+    const metadata = entry.kind === "movie"
+      ? (state.fp.metadataCache[entry.item.slug] || {})
+      : {};
+    const media = { ...entry.item, ...metadata };
+    return {
+      ...entry,
+      media,
+      artwork: media.backdrop_url || media.cover_url || "",
+      artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
+    };
+  });
+}
+
+function stopHomeHeroRotation() {
+  if (!state.home.heroTimer) return;
+  window.clearInterval(state.home.heroTimer);
+  state.home.heroTimer = null;
+}
+
+function scheduleHomeHeroRotation() {
+  stopHomeHeroRotation();
+  const hero = document.getElementById("home-hero");
+  if (
+    !hero
+    || state.tab !== "home"
+    || homeHeroCandidates().length < 2
+    || hero.matches(":hover")
+    || hero.contains(document.activeElement)
+    || document.hidden
+    || window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) return;
+  state.home.heroTimer = window.setInterval(() => {
+    showHomeHero(state.home.heroIndex + 1);
+  }, 9000);
+}
+
+function renderHomeHero() {
+  const hero = document.getElementById("home-hero");
+  if (!hero) return;
+  const candidates = homeHeroCandidates();
+  if (!candidates.length) {
+    hero.classList.add("is-loading", "has-no-art");
+    document.getElementById("home-hero-open").disabled = true;
+    return;
+  }
+  state.home.heroIndex = ((state.home.heroIndex % candidates.length) + candidates.length) % candidates.length;
+  const candidate = candidates[state.home.heroIndex];
+  const media = candidate.media;
+  hero.classList.remove("is-loading");
+  hero.classList.toggle("is-poster-art", candidate.artworkKind === "poster");
+  hero.classList.toggle("has-no-art", candidate.artworkKind === "none");
+  hero.setAttribute("aria-label", `${candidate.kind === "movie" ? "Film" : "Serie"}: ${media.title}`);
+  document.getElementById("home-hero-art").style.backgroundImage = candidate.artwork
+    ? `url("${api.coverUrl(candidate.artwork).replace(/"/g, "%22")}")`
+    : "";
+  document.getElementById("home-hero-kind").textContent =
+    candidate.kind === "movie" ? "ROYAL FILM" : "ROYAL SERIE";
+  document.getElementById("home-hero-title").textContent = media.title || "Royal";
+  document.getElementById("home-hero-meta").textContent = [
+    media.year || (media.first_air_date ? String(media.first_air_date).slice(0, 4) : ""),
+    media.rating ? `★ ${media.rating}` : "",
+    ...(media.genres || []).slice(0, 2),
+    candidate.kind === "movie" ? "Film" : "Serie",
+  ].filter(Boolean).join(" · ");
+  document.getElementById("home-hero-description").textContent =
+    media.description
+    || (candidate.kind === "movie"
+      ? "Neu und beliebt bei deinen ausgewählten Filmquellen."
+      : "Eine aktuell angesagte Serie aus deinen eingerichteten Quellen.");
+  const open = document.getElementById("home-hero-open");
+  open.disabled = false;
+  open.dataset.kind = candidate.kind;
+  open.dataset.key = candidate.kind === "movie" ? media.slug : media.base_slug;
+  document.getElementById("home-hero-position").textContent =
+    `${state.home.heroIndex + 1} / ${candidates.length}`;
+}
+
+function showHomeHero(index, userInitiated = false) {
+  const count = homeHeroCandidates().length;
+  if (!count) return;
+  state.home.heroIndex = ((index % count) + count) % count;
+  const hero = document.getElementById("home-hero");
+  if (!userInitiated && hero) {
+    hero.classList.add("is-changing");
+    window.setTimeout(() => hero.classList.remove("is-changing"), 380);
+  }
+  renderHomeHero();
+}
+
+function openHomeEntry(kind, key) {
+  if (kind === "movie") {
+    const movie = homeMovieBySlug(key);
+    if (movie) selectFpRow(movie.slug);
+    return;
+  }
+  const series = homeSeriesBySlug(key);
+  if (series) loadSeries(series);
+}
+
+function createHomeCard(entry, rank = 0) {
+  const { kind, item } = entry;
+  const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
+  const media = { ...item, ...metadata };
+  const key = kind === "movie" ? item.slug : item.base_slug;
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = `home-card home-card-${kind}${rank ? " is-ranked" : ""}`;
+  card.dataset.kind = kind;
+  card.dataset.key = key;
+  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kind === "movie" ? "Film" : "Serie"}`);
+
+  if (rank) {
+    const number = document.createElement("span");
+    number.className = "home-card-rank";
+    number.textContent = String(rank);
+    number.setAttribute("aria-hidden", "true");
+    card.appendChild(number);
+  }
+
+  const art = document.createElement("span");
+  art.className = "home-card-art";
+  const fallback = document.createElement("span");
+  fallback.className = "home-card-fallback";
+  fallback.textContent = mediaCardInitials(media.title);
+  art.appendChild(fallback);
+  const artwork = media.backdrop_url || media.cover_url;
+  if (artwork) {
+    const image = document.createElement("img");
+    image.src = api.coverUrl(artwork);
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", () => image.remove(), { once: true });
+    art.appendChild(image);
+  }
+  const type = document.createElement("span");
+  type.className = "home-card-type";
+  type.textContent = kind === "movie" ? "FILM" : "SERIE";
+  const overlay = document.createElement("span");
+  overlay.className = "home-card-overlay";
+  const title = document.createElement("strong");
+  title.translate = false;
+  title.textContent = media.title;
+  const meta = document.createElement("span");
+  meta.textContent = [
+    media.year || "",
+    media.rating ? `★ ${media.rating}` : "",
+  ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
+  overlay.append(title, meta);
+  art.append(type, overlay);
+  card.appendChild(art);
+  card.addEventListener("click", () => openHomeEntry(kind, key));
+  return card;
+}
+
+function renderHomeRail(trackId, entries, { ranked = false } = {}) {
+  const track = document.getElementById(trackId);
+  if (!track) return;
+  track.replaceChildren();
+  if (!entries.length) {
+    if (!state.home.loading) {
+      const empty = document.createElement("span");
+      empty.className = "home-rail-empty";
+      empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
+      track.appendChild(empty);
+      return;
+    }
+    for (let index = 0; index < 6; index += 1) {
+      const skeleton = document.createElement("span");
+      skeleton.className = "home-card-skeleton";
+      skeleton.setAttribute("aria-hidden", "true");
+      track.appendChild(skeleton);
+    }
+    return;
+  }
+  entries.forEach((entry, index) => {
+    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0));
+  });
+}
+
+function renderHome() {
+  renderHomeHero();
+  renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
+  renderHomeRail("home-movies-track", state.home.topMovies.map(homeMovieEntry));
+  renderHomeRail("home-series-track", state.home.trendingSeries.map(homeSeriesEntry));
+  renderHomeRail("home-new-track", homeNewEntries());
+  scheduleHomeHeroRotation();
+}
+
+async function loadHomeData() {
+  state.home.loading = true;
+  renderHome();
+  const topMoviesRequest = api.movies({ mode: "top", page: 1 });
+  const newSeriesRequest = api.series({ mode: "new", page: 1 });
+  await Promise.allSettled([
+    fpShowList("new"),
+    seriesBrowse("trending", 1),
+  ]);
+  state.home.newMovies = state.fp.results.slice();
+  state.home.trendingSeries = state.series.results.slice();
+  const [topMoviesResult, newSeriesResult] = await Promise.allSettled([
+    topMoviesRequest,
+    newSeriesRequest,
+  ]);
+  state.home.topMovies = topMoviesResult.status === "fulfilled"
+    ? (topMoviesResult.value.results || [])
+    : state.home.newMovies.slice();
+  state.home.newSeries = newSeriesResult.status === "fulfilled"
+    ? (newSeriesResult.value.results || [])
+    : state.home.trendingSeries.slice();
+  state.home.loading = false;
+  renderHome();
 }
 
 function fpStatusMessage() {
@@ -1509,7 +1792,7 @@ async function selectFpRow(slug) {
   state.fp.selectedSlug = slug;
   updateFpResultSelection();
   const movie = state.fp.moviesCache[slug];
-  const item = state.fp.results.find((r) => r.slug === slug);
+  const item = state.fp.results.find((r) => r.slug === slug) || homeMovieBySlug(slug);
   if (!item) return;
   const metadata = state.fp.metadataCache[slug];
   if (movie) showFpDetail(slug, movie);
@@ -4513,8 +4796,10 @@ function startInitialData() {
   });
   syncQueueSnapshot("Initiale Queue-Synchronisierung");
   refreshWatchlist();
-  fpShowList("new").catch((e) => {
+  loadHomeData().catch((e) => {
     document.getElementById("fp-status").textContent = `Fehler: ${e.message}`;
+    state.home.loading = false;
+    renderHome();
   });
 }
 
@@ -4566,6 +4851,37 @@ async function initApp() {
   document.getElementById("queue-dock-toggle").addEventListener("click", toggleDesktopQueue);
   document.querySelectorAll("[data-modal-close]").forEach((button) => {
     button.addEventListener("click", () => closeMediaModal(button.dataset.modalClose));
+  });
+
+  // Startseite
+  document.getElementById("home-hero-open").addEventListener("click", (event) => {
+    const { kind, key } = event.currentTarget.dataset;
+    if (kind && key) openHomeEntry(kind, key);
+  });
+  document.getElementById("home-hero-list").addEventListener("click", () => switchTab("bibliothek"));
+  document.getElementById("home-hero-prev").addEventListener("click", () => {
+    showHomeHero(state.home.heroIndex - 1, true);
+    scheduleHomeHeroRotation();
+  });
+  document.getElementById("home-hero-next").addEventListener("click", () => {
+    showHomeHero(state.home.heroIndex + 1, true);
+    scheduleHomeHeroRotation();
+  });
+  const homeHero = document.getElementById("home-hero");
+  homeHero.addEventListener("pointerenter", stopHomeHeroRotation);
+  homeHero.addEventListener("pointerleave", scheduleHomeHeroRotation);
+  homeHero.addEventListener("focusin", stopHomeHeroRotation);
+  homeHero.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (!homeHero.contains(document.activeElement)) scheduleHomeHeroRotation();
+    }, 0);
+  });
+  document.querySelectorAll("[data-home-scroll]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const track = document.getElementById(button.dataset.homeScroll);
+      const direction = Number(button.dataset.direction) || 1;
+      track?.scrollBy({ left: direction * Math.max(280, track.clientWidth * 0.82), behavior: "smooth" });
+    });
   });
 
   // Filme
@@ -4622,8 +4938,13 @@ async function initApp() {
     }, 0);
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopMovieFeatureRotation();
-    else scheduleMovieFeatureRotation();
+    if (document.hidden) {
+      stopMovieFeatureRotation();
+      stopHomeHeroRotation();
+    } else {
+      scheduleMovieFeatureRotation();
+      scheduleHomeHeroRotation();
+    }
   });
   document.getElementById("genre-filter").addEventListener("click", (e) => {
     const button = e.target.closest("[data-genre]");

@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@raw/ofl_cormorant_garamond,@raw/ofl_jetbrains_mono,@raw/ofl_outfit" />

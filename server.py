@@ -172,7 +172,7 @@ MOVIE_MAX_GLOBAL_PAGE = 50
 MOVIE_MAX_SOURCE_PAGE = 50
 MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
 TMDB_MOVIE_BATCH_MAX_WORKERS = 8
-TMDB_MOVIE_SEARCH_MAX_RESULTS = 100
+TMDB_MOVIE_SEARCH_MAX_RESULTS = 40
 MOVIE_GENRE_GROUPS = {
     "Animation": ("Animation", "Zeichentrick"),
     "Biografie": ("Biografie", "Biographie"),
@@ -8815,6 +8815,7 @@ def restore_persisted_queue():
 class MovieDownloadPreference(BaseModel):
     provider: str = ""
     quality: str = ""
+    hoster_url: str = ""
 
 
 class QueueAddBody(BaseModel):
@@ -8832,6 +8833,7 @@ def _preferred_movie_sources(
         return movie, None
     provider = str(preference.provider or "").strip().casefold()
     quality = str(preference.quality or "").strip()
+    hoster_url = str(preference.hoster_url or "").strip()
     with state.movie_source_cache_lock:
         sources = list(state.movie_source_cache.get(slug) or [movie])
     chosen_index = next(
@@ -8843,6 +8845,8 @@ def _preferred_movie_sources(
     chosen_source = sources.pop(chosen_index)
     chosen = replace(chosen_source, hosters=list(chosen_source.hosters))
     setattr(chosen, "_preferred_quality", quality)
+    if hoster_url:
+        chosen.hosters.sort(key=lambda hoster: str(hoster.url or "").strip() != hoster_url)
     return chosen, sources
 
 

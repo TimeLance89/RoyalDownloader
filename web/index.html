@@ -6,7 +6,7 @@
 <title>Royal Downloader</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -21,13 +21,14 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-title">ROYAL</span>
-      <span class="brand-sub">Downloader</span>
+      <span class="brand-sub">Cinema</span>
     </div>
     <nav class="tabs">
-      <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
+      <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Startseite</span></button>
+      <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
       <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
-      <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
+      <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
       <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
     </nav>
     <div class="bell-wrap">
@@ -67,7 +68,8 @@
   </header>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
-    <button class="tab-btn active" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
+    <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
+    <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
     <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
     <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
     <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
@@ -75,13 +77,88 @@
   </nav>
 
   <main class="layout">
-    <section class="tab-content active" id="tab-filme">
-      <div class="bar">
-        <input id="fp-search" type="text" placeholder="Filmtitel eingeben und Enter drücken">
-        <button id="fp-search-btn" class="btn btn-accent">Suchen</button>
-        <button id="fp-new-btn" class="btn btn-ghost">Neu</button>
-        <button id="fp-top-btn" class="btn btn-ghost">Top</button>
+    <section class="tab-content active" id="tab-home">
+      <section id="home-hero" class="home-hero is-loading" aria-label="Empfehlung"
+          aria-roledescription="Karussell">
+        <div id="home-hero-art" class="home-hero-art" aria-hidden="true"></div>
+        <div class="home-hero-copy">
+          <div class="home-hero-kicker">
+            <span class="home-hero-brand" aria-hidden="true">R</span>
+            <span id="home-hero-kind">ROYAL EMPFIEHLT</span>
+          </div>
+          <h1 id="home-hero-title" translate="no">Dein nächster Filmabend</h1>
+          <div id="home-hero-meta" class="home-hero-meta" translate="no">Filme und Serien werden geladen</div>
+          <p id="home-hero-description">Neue Titel aus deinen eingerichteten Quellen erscheinen gleich hier.</p>
+          <div class="home-hero-actions">
+            <button id="home-hero-open" class="home-hero-primary" type="button" disabled>
+              <span aria-hidden="true">▶</span> Details
+            </button>
+            <button id="home-hero-list" class="home-hero-secondary" type="button">
+              <span aria-hidden="true">＋</span> Meine Liste
+            </button>
+          </div>
+        </div>
+        <div class="home-hero-controls" aria-label="Empfehlung auswählen">
+          <button id="home-hero-prev" type="button" aria-label="Vorherige Empfehlung">‹</button>
+          <span id="home-hero-position">— / —</span>
+          <button id="home-hero-next" type="button" aria-label="Nächste Empfehlung">›</button>
+        </div>
+      </section>
+
+      <div class="home-rails" aria-live="polite">
+        <section class="home-rail is-ranked" aria-labelledby="home-top-title">
+          <header class="home-rail-head">
+            <div>
+              <span class="home-rail-eyebrow">Diese Woche</span>
+              <h2 id="home-top-title">Top 10 bei Royal</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 dieser Woche"></div>
+        </section>
+
+        <section class="home-rail" aria-labelledby="home-movies-title">
+          <header class="home-rail-head">
+            <h2 id="home-movies-title">Beliebte Filme</h2>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-movies-track" data-direction="-1" aria-label="Beliebte Filme nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Beliebte Filme nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-movies-track" class="home-track" aria-label="Beliebte Filme"></div>
+        </section>
+
+        <section class="home-rail" aria-labelledby="home-series-title">
+          <header class="home-rail-head">
+            <h2 id="home-series-title">Angesagte Serien</h2>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-series-track" data-direction="-1" aria-label="Angesagte Serien nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-series-track" data-direction="1" aria-label="Angesagte Serien nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-series-track" class="home-track" aria-label="Angesagte Serien"></div>
+        </section>
+
+        <section class="home-rail" aria-labelledby="home-new-title">
+          <header class="home-rail-head">
+            <div>
+              <span class="home-rail-eyebrow">Frisch eingetroffen</span>
+              <h2 id="home-new-title">Neu bei Royal</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-new-track" data-direction="-1" aria-label="Neue Titel nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-new-track" data-direction="1" aria-label="Neue Titel nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-new-track" class="home-track" aria-label="Neue Filme und Serien"></div>
+        </section>
       </div>
+    </section>
+
+    <section class="tab-content" id="tab-filme">
       <section id="movie-feature" class="movie-feature hidden" aria-label="Aktuelle Kinofilme"
           aria-roledescription="Karussell">
         <div id="movie-feature-art" class="movie-feature-art" aria-hidden="true"></div>
@@ -94,7 +171,7 @@
           <div id="movie-feature-meta" class="movie-feature-meta" translate="no"></div>
           <p id="movie-feature-description"></p>
           <button id="movie-feature-open" class="movie-feature-open" type="button">
-            Film öffnen <span aria-hidden="true">↗</span>
+            <span aria-hidden="true">▶</span> Details
           </button>
         </div>
         <div class="movie-feature-controls" aria-label="Kinofilm auswählen">
@@ -104,12 +181,18 @@
           <button id="movie-feature-next" type="button" aria-label="Nächster Kinofilm">›</button>
         </div>
       </section>
+      <div class="bar">
+        <input id="fp-search" type="text" placeholder="Titel, Schauspieler oder Genre">
+        <button id="fp-search-btn" class="btn btn-accent">Suchen</button>
+        <button id="fp-new-btn" class="btn btn-ghost">Neu &amp; beliebt</button>
+        <button id="fp-top-btn" class="btn btn-ghost">Top 10</button>
+      </div>
       <section class="genre-browser" aria-labelledby="genre-browser-title">
         <div class="genre-browser-summary">
           <div class="genre-browser-heading">
-            <span class="genre-browser-kicker">Genre-Navigation</span>
+            <span class="genre-browser-kicker">Für dich ausgewählt</span>
             <div class="genre-browser-title-row">
-              <strong id="genre-browser-title">Was soll heute laufen?</strong>
+              <strong id="genre-browser-title">Filme entdecken</strong>
               <span id="genre-active">Alle Filme</span>
             </div>
           </div>
