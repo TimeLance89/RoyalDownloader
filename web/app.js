@@ -2022,7 +2022,7 @@ function openFpTrailerModal(movie, trigger) {
   document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
   document.getElementById("fp-trailer-caption").textContent = trailer.name || "Offizieller Trailer";
   document.getElementById("fp-trailer-frame").src =
-    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0`;
+    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
   modal.hidden = false;
   modal.classList.add("is-open");
   document.body.classList.add("trailer-modal-open");
@@ -2032,10 +2032,14 @@ function openFpTrailerModal(movie, trigger) {
 function configureFpTrailer(movie) {
   const button = document.getElementById("fp-detail-trailer");
   const trailer = movie?.trailer;
+  const trailerKey = String(trailer?.key || "").trim();
   const available = trailer?.site === "YouTube"
-    && /^[A-Za-z0-9_-]{6,20}$/.test(String(trailer.key || ""));
+    && /^[A-Za-z0-9_-]{6,20}$/.test(trailerKey);
   button.hidden = !available;
-  button.onclick = available ? () => openFpTrailerModal(movie, button) : null;
+  const trailerMovie = available
+    ? { ...movie, trailer: { ...trailer, key: trailerKey } }
+    : null;
+  button.onclick = trailerMovie ? () => openFpTrailerModal(trailerMovie, button) : null;
   if (!available) closeFpTrailerModal(false);
 }
 
