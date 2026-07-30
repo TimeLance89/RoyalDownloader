@@ -6292,6 +6292,18 @@ body.setup-open #dir-modal { z-index: 120; }
   border-color: rgba(121, 184, 210, 0.55);
   background: rgba(89, 160, 191, 0.11);
 }
+.detail-subscribe-btn:not(:disabled) {
+  color: #d7f3fc;
+  border-color: rgba(121, 184, 210, 0.58);
+  background: linear-gradient(135deg, rgba(89, 160, 191, 0.19), rgba(89, 160, 191, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(185, 231, 245, 0.04);
+}
+.detail-subscribe-btn:not(:disabled):hover,
+.detail-subscribe-btn:not(:disabled):focus-visible {
+  color: #fff;
+  border-color: #9bd2e7;
+  background: rgba(89, 160, 191, 0.25);
+}
 .watch-cleanup-warning {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);

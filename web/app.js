@@ -2108,11 +2108,20 @@ function movieSubscriptionFor(slug, movie) {
 
 function configureFpSubscriptionAction(slug, movie) {
   const button = document.getElementById("fp-detail-subscribe");
-  const entry = movieSubscriptionFor(slug, movie);
-  button.disabled = !slug || !movie?.title;
+  const fallback = state.fp.results.find((item) => item.slug === slug) || homeMovieBySlug(slug);
+  const resolvedMovie = {
+    ...(fallback || {}),
+    ...(movie || {}),
+    title: movie?.title || fallback?.title || "Film",
+    year: movie?.year || fallback?.year || "",
+  };
+  const entry = movieSubscriptionFor(slug, resolvedMovie);
+  button.disabled = !slug;
   button.classList.toggle("is-active", Boolean(entry));
   button.textContent = entry ? "⚙ Film-Abo" : "+ Film abonnieren";
-  button.onclick = () => openMovieSubscriptionModal(slug, movie, entry);
+  button.onclick = slug
+    ? () => openMovieSubscriptionModal(slug, resolvedMovie, entry)
+    : null;
 }
 
 function closeMovieSubscriptionModal() {
@@ -2328,6 +2337,8 @@ function renderFpDownloadSources(slug, movie, metadataOnly) {
 function showFpDetail(slug, movie, metadataOnly = false) {
   const detailPanel = document.getElementById("fp-detail-panel");
   const cover = document.getElementById("fp-detail-cover");
+  // Die Abo-Aktion darf nicht von späteren Metadaten-/Hosterfeldern abhängen.
+  configureFpSubscriptionAction(slug, movie);
   cover.loading = "eager";
   cover.fetchPriority = "high";
   detailPanel.classList.remove("is-empty");
@@ -2426,7 +2437,6 @@ function showFpDetail(slug, movie, metadataOnly = false) {
 
   configureFpTrailer(movie);
   configureFpDetailAction(slug, movie, metadataOnly);
-  configureFpSubscriptionAction(slug, movie);
 }
 
 // ── Serien-Tab ─────────────────────────────────────────────────────────────
