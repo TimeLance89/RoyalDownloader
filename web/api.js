@@ -104,7 +104,7 @@ const api = {
   },
   jellyfinUsers(url, apiKey) { return this.post("/api/jellyfin/users", { url, api_key: apiKey }); },
   tmdbConfigGet() { return this.get("/api/tmdb/config"); },
-  tmdbConfigSet(apiKey) { return this.post("/api/tmdb/config", { api_key: apiKey, language: "de-DE" }); },
+  tmdbConfigSet(apiKey) { return this.post("/api/tmdb/config", { api_key: apiKey }); },
   automationConfigGet() { return this.get("/api/automation/config"); },
   automationConfigSet(cfg) { return this.post("/api/automation/config", cfg); },
   telegramConfigGet() { return this.get("/api/telegram/config"); },

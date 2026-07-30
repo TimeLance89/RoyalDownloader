@@ -105,12 +105,53 @@
         </div>
       </section>
 
+      <section class="smart-search smart-search-home" aria-labelledby="home-search-title">
+        <div class="smart-search-intro">
+          <span class="smart-search-kicker">ENTDECKEN</span>
+          <h2 id="home-search-title">Was möchtest du sehen?</h2>
+        </div>
+        <div class="smart-search-main">
+          <div class="smart-search-field">
+            <span class="smart-search-icon" aria-hidden="true">⌕</span>
+            <input id="home-search" type="search" autocomplete="off"
+                placeholder="Film, Serie, Schauspieler oder Genre"
+                aria-label="Filme und Serien durchsuchen"
+                aria-controls="home-search-suggestions" aria-expanded="false">
+            <kbd aria-hidden="true">/</kbd>
+            <button id="home-search-clear" class="smart-search-clear" type="button"
+                aria-label="Suche leeren" hidden>×</button>
+          </div>
+          <button id="home-search-btn" class="smart-search-submit" type="button">Finden</button>
+        </div>
+        <div class="smart-search-footer">
+          <div class="smart-search-scopes" aria-label="Suchbereich">
+            <button class="is-active" type="button" data-home-search-scope="all" aria-pressed="true">Alles</button>
+            <button type="button" data-home-search-scope="movie" aria-pressed="false">Filme</button>
+            <button type="button" data-home-search-scope="series" aria-pressed="false">Serien</button>
+          </div>
+          <span class="smart-search-hint">Mit <strong>/</strong> direkt suchen</span>
+        </div>
+        <div id="home-search-suggestions" class="smart-search-suggestions" hidden></div>
+      </section>
+
+      <section id="home-search-results" class="home-search-results" aria-labelledby="home-search-results-title" hidden>
+        <header class="home-search-results-head">
+          <div>
+            <span class="home-rail-eyebrow">Archivsuche</span>
+            <h2 id="home-search-results-title">Suchergebnisse</h2>
+            <span id="home-search-status" class="dim"></span>
+          </div>
+          <button id="home-search-close" type="button" aria-label="Suchergebnisse schließen">×</button>
+        </header>
+        <div id="home-search-track" class="home-search-grid"></div>
+      </section>
+
       <div class="home-rails" aria-live="polite">
         <section class="home-rail is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
-              <span class="home-rail-eyebrow">Diese Woche</span>
-              <h2 id="home-top-title">Top 10 bei Royal</h2>
+              <span class="home-rail-eyebrow">Heute in deiner Auswahl</span>
+              <h2 id="home-top-title">Top 10</h2>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
@@ -122,7 +163,7 @@
 
         <section class="home-rail" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
-            <h2 id="home-movies-title">Beliebte Filme</h2>
+            <h2 id="home-movies-title">Empfehlungen für dich</h2>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-movies-track" data-direction="-1" aria-label="Beliebte Filme nach links scrollen">‹</button>
               <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Beliebte Filme nach rechts scrollen">›</button>
@@ -133,7 +174,7 @@
 
         <section class="home-rail" aria-labelledby="home-series-title">
           <header class="home-rail-head">
-            <h2 id="home-series-title">Angesagte Serien</h2>
+            <h2 id="home-series-title">Serien, die gerade alle sehen</h2>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-series-track" data-direction="-1" aria-label="Angesagte Serien nach links scrollen">‹</button>
               <button type="button" data-home-scroll="home-series-track" data-direction="1" aria-label="Angesagte Serien nach rechts scrollen">›</button>
@@ -146,7 +187,7 @@
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Frisch eingetroffen</span>
-              <h2 id="home-new-title">Neu bei Royal</h2>
+              <h2 id="home-new-title">Neu hinzugefügt</h2>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-new-track" data-direction="-1" aria-label="Neue Titel nach links scrollen">‹</button>
@@ -181,12 +222,32 @@
           <button id="movie-feature-next" type="button" aria-label="Nächster Kinofilm">›</button>
         </div>
       </section>
-      <div class="bar">
-        <input id="fp-search" type="text" placeholder="Titel, Schauspieler oder Genre">
-        <button id="fp-search-btn" class="btn btn-accent">Suchen</button>
-        <button id="fp-new-btn" class="btn btn-ghost">Neu &amp; beliebt</button>
-        <button id="fp-top-btn" class="btn btn-ghost">Top 10</button>
-      </div>
+      <section class="smart-search smart-search-catalog" aria-labelledby="movie-search-title">
+        <div class="smart-search-intro">
+          <span class="smart-search-kicker">FILMARCHIV</span>
+          <h2 id="movie-search-title">Finde deinen nächsten Film</h2>
+        </div>
+        <div class="smart-search-main">
+          <div class="smart-search-field">
+            <span class="smart-search-icon" aria-hidden="true">⌕</span>
+            <input id="fp-search" type="search" autocomplete="off"
+                placeholder="Titel, Schauspieler oder Genre"
+                aria-controls="fp-search-suggestions" aria-expanded="false">
+            <button id="fp-search-clear" class="smart-search-clear" type="button"
+                aria-label="Filmsuche leeren" hidden>×</button>
+          </div>
+          <button id="fp-search-btn" class="smart-search-submit" type="button">Suchen</button>
+        </div>
+        <div class="smart-search-footer">
+          <div class="smart-search-quick">
+            <span>Schnellzugriff</span>
+            <button id="fp-new-btn" type="button">Neu &amp; beliebt</button>
+            <button id="fp-top-btn" type="button">Top 10</button>
+          </div>
+          <span class="smart-search-hint">Titel und Genres werden direkt erkannt</span>
+        </div>
+        <div id="fp-search-suggestions" class="smart-search-suggestions" hidden></div>
+      </section>
       <section class="genre-browser" aria-labelledby="genre-browser-title">
         <div class="genre-browser-summary">
           <div class="genre-browser-heading">
@@ -342,14 +403,34 @@
     </section>
 
     <section class="tab-content" id="tab-serien">
-      <div class="bar">
-        <input id="series-search" type="text" placeholder="Serientitel oder URL eines Serienanbieters">
-        <button id="series-search-btn" class="btn btn-accent">Suchen</button>
-        <button id="series-discover-btn" class="btn btn-ghost">Entdecken</button>
-        <button id="series-new-btn" class="btn btn-ghost">Neu</button>
-        <button id="series-trending-btn" class="btn btn-ghost">Angesagt</button>
-        <button id="series-az-btn" class="btn btn-ghost">A-Z  ⌄</button>
-      </div>
+      <section class="smart-search smart-search-catalog smart-search-series" aria-labelledby="series-search-title">
+        <div class="smart-search-intro">
+          <span class="smart-search-kicker">SERIENARCHIV</span>
+          <h2 id="series-search-title">Suche, Link oder neue Entdeckung</h2>
+        </div>
+        <div class="smart-search-main">
+          <div class="smart-search-field">
+            <span class="smart-search-icon" aria-hidden="true">⌕</span>
+            <input id="series-search" type="search" autocomplete="off"
+                placeholder="Serientitel oder Anbieter-URL"
+                aria-controls="series-search-suggestions" aria-expanded="false">
+            <button id="series-search-clear" class="smart-search-clear" type="button"
+                aria-label="Seriensuche leeren" hidden>×</button>
+          </div>
+          <button id="series-search-btn" class="smart-search-submit" type="button">Suchen</button>
+        </div>
+        <div class="smart-search-footer">
+          <div class="smart-search-quick">
+            <span>Entdecken</span>
+            <button id="series-discover-btn" type="button">Für dich</button>
+            <button id="series-new-btn" type="button">Neu</button>
+            <button id="series-trending-btn" type="button">Angesagt</button>
+            <button id="series-az-btn" type="button">A–Z <span aria-hidden="true">⌄</span></button>
+          </div>
+          <span class="smart-search-hint">Links werden automatisch erkannt</span>
+        </div>
+        <div id="series-search-suggestions" class="smart-search-suggestions" hidden></div>
+      </section>
       <div id="series-alpha-bar" class="alpha-bar hidden"></div>
 
       <section class="series-subscriptions" aria-labelledby="series-subscriptions-title">

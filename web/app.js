@@ -3,6 +3,7 @@ const state = {
   home: {
     newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
     heroIndex: 0, heroTimer: null, loading: true,
+    search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
   },
   fp: {
     results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
@@ -798,12 +799,20 @@ function refreshMovieFeatureCandidates() {
 }
 
 function homeMovieBySlug(slug) {
-  return [...state.home.newMovies, ...state.home.topMovies]
+  return [
+    ...state.home.newMovies,
+    ...state.home.topMovies,
+    ...state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+  ]
     .find((item) => item.slug === slug) || null;
 }
 
 function homeSeriesBySlug(baseSlug) {
-  return [...state.home.trendingSeries, ...state.home.newSeries]
+  return [
+    ...state.home.trendingSeries,
+    ...state.home.newSeries,
+    ...state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+  ]
     .find((item) => item.base_slug === baseSlug) || null;
 }
 
@@ -1050,6 +1059,208 @@ function renderHome() {
   renderHomeRail("home-series-track", state.home.trendingSeries.map(homeSeriesEntry));
   renderHomeRail("home-new-track", homeNewEntries());
   scheduleHomeHeroRotation();
+}
+
+const SEARCH_HISTORY_KEY = "royal-search-history-v1";
+
+function searchHistory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((entry) => entry?.query).slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberSearch(query, kind) {
+  const normalized = query.trim();
+  if (!normalized) return;
+  const next = [
+    { query: normalized, kind },
+    ...searchHistory().filter((entry) => entry.query.toLocaleLowerCase() !== normalized.toLocaleLowerCase()),
+  ].slice(0, 6);
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+  } catch {
+    // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
+  }
+}
+
+function searchCandidates(kind) {
+  const movies = uniqueHomeEntries([
+    ...state.fp.results.map(homeMovieEntry),
+    ...state.home.topMovies.map(homeMovieEntry),
+    ...state.home.newMovies.map(homeMovieEntry),
+  ]);
+  const series = uniqueHomeEntries([
+    ...state.series.results.map(homeSeriesEntry),
+    ...state.home.trendingSeries.map(homeSeriesEntry),
+    ...state.home.newSeries.map(homeSeriesEntry),
+  ]);
+  if (kind === "movie") return movies;
+  if (kind === "series") return series;
+  return interleaveHomeEntries(movies, series, 40);
+}
+
+function searchEntryText(entry) {
+  const item = entry.item;
+  return [
+    item.title,
+    item.year,
+    ...(item.genres || []),
+    ...(item.actors || item.cast || []),
+  ].filter(Boolean).join(" ").toLocaleLowerCase();
+}
+
+function rankedSearchCandidates(kind, query) {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  return searchCandidates(kind)
+    .map((entry) => {
+      const title = String(entry.item.title || "").toLocaleLowerCase();
+      const text = searchEntryText(entry);
+      const score = title === needle ? 0 : title.startsWith(needle) ? 1 : title.includes(needle) ? 2 : text.includes(needle) ? 3 : 99;
+      return { entry, score };
+    })
+    .filter(({ score }) => score < 99)
+    .sort((a, b) => a.score - b.score || String(a.entry.item.title).localeCompare(String(b.entry.item.title), "de"))
+    .slice(0, 6)
+    .map(({ entry }) => entry);
+}
+
+function closeSearchSuggestions(panelId, inputId) {
+  const panel = document.getElementById(panelId);
+  const input = document.getElementById(inputId);
+  if (panel) panel.hidden = true;
+  if (input) input.setAttribute("aria-expanded", "false");
+}
+
+function renderSearchSuggestions(kind, inputId, panelId, runSearch) {
+  const input = document.getElementById(inputId);
+  const panel = document.getElementById(panelId);
+  if (!input || !panel) return;
+  const query = input.value.trim();
+  const matches = rankedSearchCandidates(kind, query);
+  const recent = query ? [] : searchHistory().filter((entry) => kind === "all" || entry.kind === kind).slice(0, 4);
+  panel.replaceChildren();
+  const rows = matches.length
+    ? matches.map((entry) => ({
+        label: entry.item.title,
+        meta: `${entry.kind === "movie" ? "Film" : "Serie"}${entry.item.year ? ` · ${entry.item.year}` : ""}`,
+      }))
+    : recent.map((entry) => ({ label: entry.query, meta: "Zuletzt gesucht" }));
+  if (!rows.length) {
+    closeSearchSuggestions(panelId, inputId);
+    return;
+  }
+  const heading = document.createElement("span");
+  heading.className = "smart-search-suggestions-label";
+  heading.textContent = matches.length ? "Direkte Treffer" : "Letzte Suchen";
+  panel.appendChild(heading);
+  rows.forEach((row) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    const label = document.createElement("strong");
+    label.textContent = row.label;
+    const meta = document.createElement("span");
+    meta.textContent = row.meta;
+    button.append(label, meta);
+    button.addEventListener("click", () => {
+      input.value = row.label;
+      syncSearchClearButtons();
+      closeSearchSuggestions(panelId, inputId);
+      runSearch();
+    });
+    panel.appendChild(button);
+  });
+  panel.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+}
+
+function syncSearchClearButtons() {
+  [
+    ["home-search", "home-search-clear"],
+    ["fp-search", "fp-search-clear"],
+    ["series-search", "series-search-clear"],
+  ].forEach(([inputId, clearId]) => {
+    const input = document.getElementById(inputId);
+    const clear = document.getElementById(clearId);
+    if (input && clear) clear.hidden = !input.value;
+  });
+}
+
+function renderHomeSearchResults() {
+  const section = document.getElementById("home-search-results");
+  const track = document.getElementById("home-search-track");
+  const status = document.getElementById("home-search-status");
+  if (!section || !track || !status) return;
+  section.hidden = !state.home.search.active;
+  if (!state.home.search.active) return;
+  track.replaceChildren();
+  status.textContent = state.home.search.loading
+    ? `Suche nach «${state.home.search.query}» …`
+    : `${state.home.search.results.length} Treffer für «${state.home.search.query}»`;
+  section.classList.toggle("is-loading", state.home.search.loading);
+  if (state.home.search.loading) {
+    for (let index = 0; index < 6; index += 1) {
+      const skeleton = document.createElement("span");
+      skeleton.className = "home-card-skeleton";
+      track.appendChild(skeleton);
+    }
+    return;
+  }
+  if (!state.home.search.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "home-search-empty";
+    empty.innerHTML = "<strong>Nichts gefunden</strong><span>Versuche einen kürzeren Titel, ein Genre oder einen Schauspieler.</span>";
+    track.appendChild(empty);
+    return;
+  }
+  state.home.search.results.forEach((entry, index) => track.appendChild(createHomeCard(entry, 0, index < 4)));
+}
+
+async function homeSearch() {
+  const input = document.getElementById("home-search");
+  const query = input.value.trim();
+  if (!query) {
+    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+    return;
+  }
+  rememberSearch(query, state.home.search.scope);
+  closeSearchSuggestions("home-search-suggestions", "home-search");
+  const requestId = ++state.home.search.requestSeq;
+  state.home.search.query = query;
+  state.home.search.active = true;
+  state.home.search.loading = true;
+  renderHomeSearchResults();
+  const requests = [];
+  if (state.home.search.scope !== "series") {
+    requests.push(api.movies({ mode: "search", query }).then((data) => (data.results || []).map(homeMovieEntry)));
+  }
+  if (state.home.search.scope !== "movie") {
+    requests.push(api.series({ mode: "search", query }).then((data) => (data.results || []).map(homeSeriesEntry)));
+  }
+  const settled = await Promise.allSettled(requests);
+  if (requestId !== state.home.search.requestSeq) return;
+  const groups = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+  state.home.search.results = groups.length > 1
+    ? interleaveHomeEntries(groups[0], groups[1], 36)
+    : uniqueHomeEntries(groups[0] || []).slice(0, 36);
+  state.home.search.loading = false;
+  renderHomeSearchResults();
+  hydrateHomeMovieArtwork(
+    state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item).slice(0, 12),
+  ).then(renderHomeSearchResults);
+}
+
+function closeHomeSearch() {
+  ++state.home.search.requestSeq;
+  state.home.search.active = false;
+  state.home.search.loading = false;
+  state.home.search.results = [];
+  document.getElementById("home-search").value = "";
+  syncSearchClearButtons();
+  renderHomeSearchResults();
 }
 
 async function loadHomeData() {
@@ -1672,6 +1883,8 @@ function clearFpSearchContext() {
   state.fp.searchActive = false;
   state.fp.searchReturn = null;
   document.getElementById("fp-search").value = "";
+  syncSearchClearButtons();
+  closeSearchSuggestions("fp-search-suggestions", "fp-search");
 }
 
 function rememberFpSearchContext() {
@@ -1717,6 +1930,8 @@ async function fpSearch() {
     await restoreFpSearchContext();
     return;
   }
+  rememberSearch(q, "movie");
+  closeSearchSuggestions("fp-search-suggestions", "fp-search");
   rememberFpSearchContext();
   state.fp.searchActive = true;
   state.fp.category = null;
@@ -2117,11 +2332,22 @@ function configureFpSubscriptionAction(slug, movie) {
   };
   const entry = movieSubscriptionFor(slug, resolvedMovie);
   button.disabled = !slug;
+  button.dataset.slug = slug || "";
   button.classList.toggle("is-active", Boolean(entry));
   button.textContent = entry ? "⚙ Film-Abo" : "+ Film abonnieren";
-  button.onclick = slug
-    ? () => openMovieSubscriptionModal(slug, resolvedMovie, entry)
-    : null;
+}
+
+function openSelectedMovieSubscription() {
+  const button = document.getElementById("fp-detail-subscribe");
+  const slug = button?.dataset.slug || state.fp.selectedSlug;
+  if (!slug) return;
+  const fallback = state.fp.results.find((item) => item.slug === slug) || homeMovieBySlug(slug);
+  const movie = {
+    ...(fallback || {}),
+    ...(state.fp.metadataCache[slug] || {}),
+    ...(state.fp.moviesCache[slug] || {}),
+  };
+  openMovieSubscriptionModal(slug, movie, movieSubscriptionFor(slug, movie));
 }
 
 function closeMovieSubscriptionModal() {
@@ -2638,6 +2864,8 @@ function applySeriesResults(data, { append = false } = {}) {
 function clearSeriesSearchContext() {
   state.series.searchReturn = null;
   document.getElementById("series-search").value = "";
+  syncSearchClearButtons();
+  closeSearchSuggestions("series-search-suggestions", "series-search");
 }
 
 function rememberSeriesSearchContext() {
@@ -2685,6 +2913,8 @@ async function seriesSearch() {
     await restoreSeriesSearchContext();
     return;
   }
+  rememberSearch(q, "series");
+  closeSearchSuggestions("series-search-suggestions", "series-search");
   rememberSeriesSearchContext();
   const requestId = ++state.series.browseRequestSeq;
   const previousMode = state.series.browseMode;
@@ -4356,7 +4586,7 @@ function applyTmdbCfg(cfg) {
   const status = document.getElementById("tmdb-status");
   if (!cfg.configured) status.textContent = "TMDB aus · Anbieterdaten werden verwendet";
   else if (cfg.valid === false) status.textContent = "✗ API-Key ungültig oder TMDB nicht erreichbar";
-  else status.textContent = "TMDB aktiv · Sprache Deutsch";
+  else status.textContent = `TMDB aktiv · Sprache ${cfg.language === "de-DE" ? "Deutsch" : "Englisch"}`;
 }
 
 function applyTelegramCfg(cfg) {
@@ -5168,13 +5398,60 @@ async function initApp() {
       track?.scrollBy({ left: direction * Math.max(280, track.clientWidth * 0.82), behavior: "smooth" });
     });
   });
+  document.getElementById("home-search-btn").addEventListener("click", homeSearch);
+  document.getElementById("home-search-close").addEventListener("click", closeHomeSearch);
+  document.getElementById("home-search-clear").addEventListener("click", closeHomeSearch);
+  document.getElementById("home-search").addEventListener("input", () => {
+    syncSearchClearButtons();
+    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+  });
+  document.getElementById("home-search").addEventListener("focus", () => {
+    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+  });
+  document.getElementById("home-search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      homeSearch();
+    } else if (event.key === "Escape") {
+      event.stopPropagation();
+      closeSearchSuggestions("home-search-suggestions", "home-search");
+    }
+  });
+  document.querySelectorAll("[data-home-search-scope]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.home.search.scope = button.dataset.homeSearchScope;
+      document.querySelectorAll("[data-home-search-scope]").forEach((candidate) => {
+        const active = candidate === button;
+        candidate.classList.toggle("is-active", active);
+        candidate.setAttribute("aria-pressed", String(active));
+      });
+      if (document.getElementById("home-search").value.trim()) homeSearch();
+    });
+  });
 
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
+  document.getElementById("fp-search-clear").addEventListener("click", async () => {
+    document.getElementById("fp-search").value = "";
+    syncSearchClearButtons();
+    closeSearchSuggestions("fp-search-suggestions", "fp-search");
+    await restoreFpSearchContext();
+  });
+  document.getElementById("fp-search").addEventListener("input", () => {
+    syncSearchClearButtons();
+    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
+  });
+  document.getElementById("fp-search").addEventListener("focus", () => {
+    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
+  });
   document.getElementById("fp-search").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    fpSearch();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fpSearch();
+    } else if (event.key === "Escape") {
+      event.stopPropagation();
+      closeSearchSuggestions("fp-search-suggestions", "fp-search");
+    }
   });
   document.getElementById("fp-search").addEventListener("blur", (event) => {
     if (!event.currentTarget.value.trim()) restoreFpSearchContext();
@@ -5249,6 +5526,7 @@ async function initApp() {
       button.disabled = !state.movieSubscriptions.items.length;
     }
   });
+  document.getElementById("fp-detail-subscribe").addEventListener("click", openSelectedMovieSubscription);
   document.getElementById("movie-subscription-close").addEventListener("click", closeMovieSubscriptionModal);
   document.getElementById("movie-subscription-cancel").addEventListener("click", closeMovieSubscriptionModal);
   document.getElementById("movie-subscription-save").addEventListener("click", saveMovieSubscription);
@@ -5266,10 +5544,27 @@ async function initApp() {
   });
   // Serien
   document.getElementById("series-search-btn").addEventListener("click", seriesSearch);
+  document.getElementById("series-search-clear").addEventListener("click", async () => {
+    document.getElementById("series-search").value = "";
+    syncSearchClearButtons();
+    closeSearchSuggestions("series-search-suggestions", "series-search");
+    await restoreSeriesSearchContext();
+  });
+  document.getElementById("series-search").addEventListener("input", () => {
+    syncSearchClearButtons();
+    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
+  });
+  document.getElementById("series-search").addEventListener("focus", () => {
+    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
+  });
   document.getElementById("series-search").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    seriesSearch();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      seriesSearch();
+    } else if (event.key === "Escape") {
+      event.stopPropagation();
+      closeSearchSuggestions("series-search-suggestions", "series-search");
+    }
   });
   document.getElementById("series-search").addEventListener("blur", (event) => {
     if (!event.currentTarget.value.trim()) restoreSeriesSearchContext();
@@ -5294,6 +5589,22 @@ async function initApp() {
   document.getElementById("series-add-btn").addEventListener("click", seriesAddSelected);
   document.getElementById("series-watch-btn").addEventListener("click", () => openWatchModeModal());
   document.getElementById("series-subscriptions-manage").addEventListener("click", () => switchTab("bibliothek"));
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key !== "/"
+      || event.ctrlKey
+      || event.metaKey
+      || event.altKey
+      || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "")
+      || document.activeElement?.isContentEditable
+    ) return;
+    const input = document.getElementById(
+      state.tab === "filme" ? "fp-search" : state.tab === "serien" ? "series-search" : "home-search",
+    );
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+  });
   document.getElementById("anime-search-btn").addEventListener("click", () => animeBrowse("search", 1));
   document.getElementById("anime-search").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;

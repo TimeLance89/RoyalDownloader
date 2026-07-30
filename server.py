@@ -9616,6 +9616,19 @@ async def api_ui_config_set(body: UILanguageBody):
         raise HTTPException(500, "Die Sprache konnte nicht gespeichert werden.")
     with state.ui_language_lock:
         state.ui_language = language
+    tmdb_language = appconfig.tmdb_language_for_ui(language)
+    state.tmdb_cfg = {
+        **state.tmdb_cfg,
+        "language": tmdb_language,
+    }
+    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
+    with state.movie_source_cache_lock:
+        state.movie_source_cache.clear()
+        for slug in [
+            cached_slug for cached_slug in state.fp_movies
+            if cached_slug.startswith("tmdb:")
+        ]:
+            state.fp_movies.pop(slug, None)
     return _ui_language_payload(saved=True)
 
 
@@ -9944,7 +9957,7 @@ async def api_tmdb_config_get():
 
 @app.post("/api/tmdb/config")
 async def api_tmdb_config_set(body: TMDBConfigBody):
-    language = (body.language or "de-DE").strip()
+    language = appconfig.tmdb_language_for_ui(state.ui_language)
     api_key = body.api_key.strip() or state.tmdb_cfg.get("api_key", "")
     ok = appconfig.save_tmdb(api_key, language)
     if not ok:

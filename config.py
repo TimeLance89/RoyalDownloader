@@ -253,8 +253,17 @@ def ui_language_configured() -> bool:
     return bool(_read_all().get("ui_language", "").strip())
 
 
+def tmdb_language_for_ui(language: str) -> str:
+    """TMDB liefert für deutsche Oberflächen Deutsch, sonst Englisch."""
+    return "de-DE" if normalize_ui_language(language) == "de" else "en-US"
+
+
 def save_ui_language(language: str) -> bool:
-    return _update_all({"ui_language": normalize_ui_language(language)})
+    normalized = normalize_ui_language(language)
+    return _update_all({
+        "ui_language": normalized,
+        "tmdb_language": tmdb_language_for_ui(normalized),
+    })
 
 
 def normalize_provider_order(value, supported) -> List[str]:
@@ -458,14 +467,14 @@ def load_tmdb() -> dict:
     values = _read_all()
     return {
         "api_key": values.get("tmdb_api_key") or os.environ.get("TMDB_API_KEY", "").strip(),
-        "language": values.get("tmdb_language") or os.environ.get("TMDB_LANGUAGE", "de-DE").strip() or "de-DE",
+        "language": tmdb_language_for_ui(load_ui_language()),
     }
 
 
 def save_tmdb(api_key: str, language: str = "de-DE") -> bool:
     return _update_all({
         "tmdb_api_key": api_key.strip(),
-        "tmdb_language": (language or "de-DE").strip(),
+        "tmdb_language": tmdb_language_for_ui(load_ui_language()),
     })
 
 
@@ -671,7 +680,7 @@ def save_initial_setup(
         "jellyfin_user_id": jellyfin_user_id.strip(),
         "jellyfin_user_name": jellyfin_user_name.strip(),
         "tmdb_api_key": tmdb_api_key.strip(),
-        "tmdb_language": "de-DE",
+        "tmdb_language": tmdb_language_for_ui(ui_language),
         "telegram_enabled": "true" if telegram_enabled else "false",
         "telegram_bot_token": telegram_bot_token.strip(),
         "telegram_chat_id": telegram_chat_id.strip(),
