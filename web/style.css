@@ -1354,15 +1354,17 @@ body {
   -webkit-backdrop-filter: none;
 }
 .media-modal .detail-head-primary { display: none; }
-.media-modal .detail-head-actions {
-  position: absolute;
-  top: 326px;
-  left: 46px;
+.media-modal .detail-body .detail-head-actions {
+  position: relative;
+  z-index: 6;
+  grid-area: actions;
   display: grid;
   grid-template-columns: 144px 112px minmax(170px, auto) minmax(190px, auto);
   grid-template-areas: "download trailer availability jellyfin";
   align-items: center;
   gap: 10px;
+  width: max-content;
+  max-width: 100%;
   pointer-events: auto;
 }
 .media-modal .detail-download-btn {
@@ -1468,7 +1470,7 @@ body {
   height: 100%;
   max-width: none;
   margin: 0;
-  padding: 420px 46px 48px;
+  padding: 326px 46px 48px;
   overflow-y: auto;
 }
 .media-modal .detail-visual { display: none; }
@@ -1477,6 +1479,7 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(250px, 0.72fr);
   grid-template-areas:
+    "actions actions"
     "synopsis facts"
     "credits facts"
     "cast cast"
@@ -1525,6 +1528,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 9px;
+}
+.media-modal .detail-title-block .detail-genres,
+.media-modal .detail-title-block .detail-meta {
+  max-width: 620px;
+  max-height: 18px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .media-modal .detail-genres span,
 .media-modal .detail-meta span {
@@ -1821,15 +1832,16 @@ body {
     width: calc(100% - 40px);
   }
   .media-modal .detail-text h2 { font-size: clamp(34px, 10vw, 48px); }
-  .media-modal .detail-head-actions {
-    top: 278px;
-    left: 20px;
-    right: 20px;
+  .media-modal .detail-body .detail-head-actions {
+    top: auto;
+    right: auto;
+    left: auto;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
       "download trailer"
       "jellyfin jellyfin";
     align-items: stretch;
+    width: 100%;
   }
   .media-modal .detail-download-btn,
   .media-modal .detail-trailer-btn {
@@ -1840,10 +1852,11 @@ body {
     width: max-content;
     max-width: 100%;
   }
-  .media-modal .detail-body { padding: 408px 20px 32px; }
+  .media-modal .detail-body { padding: 278px 20px 32px; }
   .media-modal .detail-text {
     grid-template-columns: 1fr;
     grid-template-areas:
+      "actions"
       "synopsis"
       "facts"
       "credits"

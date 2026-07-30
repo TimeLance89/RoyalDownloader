@@ -244,17 +244,6 @@
                 <span class="detail-archive-code">RD · FILMARCHIV</span>
                 <span class="panel-title">FILMAKTE</span>
               </div>
-              <div class="detail-head-actions">
-                <span id="fp-detail-availability" class="detail-availability is-idle" aria-live="polite">Keine Auswahl</span>
-                <span id="fp-detail-jellyfin" class="detail-jellyfin is-checking" aria-live="polite">
-                  <span class="detail-jellyfin-mark" aria-hidden="true">JF</span>
-                  <strong>Jellyfin wird geprüft</strong>
-                </span>
-                <button id="fp-detail-trailer" class="btn btn-ghost detail-trailer-btn" type="button" hidden>
-                  <span aria-hidden="true">▶</span> Trailer
-                </button>
-                <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
-              </div>
             </div>
             <div class="detail-body">
               <div class="detail-visual">
@@ -274,6 +263,17 @@
                   <p id="fp-detail-tagline" class="detail-tagline" data-i18n-ignore hidden></p>
                   <div id="fp-detail-meta" class="detail-meta" data-i18n-ignore></div>
                 </header>
+                <div class="detail-head-actions" aria-label="Filmaktionen">
+                  <span id="fp-detail-availability" class="detail-availability is-idle" aria-live="polite">Keine Auswahl</span>
+                  <span id="fp-detail-jellyfin" class="detail-jellyfin is-checking" aria-live="polite">
+                    <span class="detail-jellyfin-mark" aria-hidden="true">JF</span>
+                    <strong>Jellyfin wird geprüft</strong>
+                  </span>
+                  <button id="fp-detail-trailer" class="btn btn-ghost detail-trailer-btn" type="button" hidden>
+                    <span aria-hidden="true">▶</span> Trailer
+                  </button>
+                  <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
+                </div>
                 <section class="detail-synopsis">
                   <span class="detail-section-title">Handlung</span>
                   <p id="fp-detail-desc" data-i18n-ignore>Poster auswählen, um Handlung, Verfügbarkeit und Downloadroute anzuzeigen.</p>
