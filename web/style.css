@@ -3387,7 +3387,8 @@ body {
 .split { display: flex; gap: 12px; flex: 1; min-height: 0; }
 
 /* ── Serien-Abos ───────────────────────────────────────────────────── */
-.series-subscriptions {
+.series-subscriptions,
+.movie-subscriptions {
   position: relative;
   flex-shrink: 0;
   display: grid;
@@ -3400,6 +3401,16 @@ body {
   border-left: 3px solid var(--accent);
   border-radius: 14px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.movie-subscriptions {
+  background: linear-gradient(100deg, rgba(89, 160, 191, 0.14), rgba(20, 14, 29, 0.68) 26%, rgba(20, 14, 29, 0.48));
+  border-left-color: #79b8d2;
+}
+.movie-subscriptions .subscriptions-title { color: #9bd2e7; }
+.movie-subscriptions .subscription-monogram {
+  color: #b9e7f5;
+  border-color: rgba(121, 184, 210, 0.4);
+  background: linear-gradient(150deg, rgba(89, 160, 191, 0.22), rgba(25, 50, 66, 0.28));
 }
 .subscriptions-head {
   display: flex;
@@ -5923,6 +5934,17 @@ body.setup-open #dir-modal { z-index: 120; }
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
+#movie-subscription-modal {
+  z-index: 190;
+  background: rgba(4, 3, 8, 0.8);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+#movie-subscription-modal .modal-box {
+  background: rgba(14, 18, 25, 0.985);
+  border-color: rgba(121, 184, 210, 0.38);
+  box-shadow: 0 34px 90px -24px rgba(0, 0, 0, 0.98), 0 0 34px rgba(89, 160, 191, 0.12);
+}
 #watch-mode-modal .modal-box {
   background: rgba(18, 12, 27, 0.98);
   border-color: rgba(216, 183, 102, 0.34);
@@ -6197,6 +6219,79 @@ body.setup-open #dir-modal { z-index: 120; }
   font-style: normal;
 }
 .watch-cleanup-option:has(input:checked) > i { color: #191106; background: var(--accent); border-color: var(--accent); }
+
+/* ── Film-Abo / Qualitätswächter ──────────────────────────────────── */
+.movie-subscription-box {
+  width: min(610px, calc(100vw - 28px));
+  max-height: min(860px, 94vh);
+  overflow: hidden;
+}
+.movie-subscription-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.movie-subscription-content h2 {
+  margin: -5px 0 -8px;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 27px;
+}
+.movie-subscription-content > p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.movie-subscription-content fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.movie-subscription-content legend {
+  padding: 0 5px;
+  color: #9bd2e7;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.movie-subscription-content fieldset label,
+.movie-upgrade-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-height: 57px;
+  padding: 9px;
+  background: rgba(8, 6, 13, 0.58);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.movie-subscription-content label:has(input:checked) {
+  border-color: rgba(121, 184, 210, 0.62);
+  background: rgba(89, 160, 191, 0.12);
+}
+.movie-subscription-content label > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.movie-subscription-content label strong { font-size: 10.5px; }
+.movie-subscription-content label small { color: var(--text-dim); font-size: 9px; line-height: 1.35; }
+.movie-subscription-content input { accent-color: #79b8d2; }
+.detail-subscribe-btn.is-active {
+  color: #b9e7f5;
+  border-color: rgba(121, 184, 210, 0.55);
+  background: rgba(89, 160, 191, 0.11);
+}
 .watch-cleanup-warning {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
@@ -6455,7 +6550,8 @@ body.setup-open #dir-modal { z-index: 120; }
   }
   .alpha-bar button { flex: 0 0 38px; min-height: 38px; }
 
-  .series-subscriptions {
+  .series-subscriptions,
+  .movie-subscriptions {
     grid-template-columns: 1fr;
     min-height: 0;
     padding: 8px;
@@ -6468,6 +6564,7 @@ body.setup-open #dir-modal { z-index: 120; }
   .subscriptions-head > div { flex-direction: row; align-items: baseline; gap: 8px; }
   .subscriptions-list { min-height: 61px; }
   .subscription-card { flex-basis: min(78vw, 245px); min-height: 58px; }
+  .movie-subscription-content fieldset { grid-template-columns: 1fr; }
 
   .split { flex-direction: column; gap: 8px; }
   .panel {

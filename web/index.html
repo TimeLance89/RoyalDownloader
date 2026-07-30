@@ -215,6 +215,17 @@
         </div>
       </section>
 
+      <section class="movie-subscriptions" aria-labelledby="movie-subscriptions-title">
+        <div class="subscriptions-head">
+          <div>
+            <span id="movie-subscriptions-title" class="subscriptions-title">Film-Abos</span>
+            <span id="movie-subscriptions-count" class="subscriptions-count">0 Filme</span>
+          </div>
+          <button id="movie-subscriptions-check" class="btn btn-ghost btn-sm" type="button">↻ Qualitäten prüfen</button>
+        </div>
+        <div id="movie-subscriptions-list" class="subscriptions-list"></div>
+      </section>
+
       <div class="split">
         <div class="panel results-panel" aria-label="Filme">
           <div class="panel-head">
@@ -271,6 +282,9 @@
                   </span>
                   <button id="fp-detail-trailer" class="btn btn-ghost detail-trailer-btn" type="button" hidden>
                     <span aria-hidden="true">▶</span> Trailer
+                  </button>
+                  <button id="fp-detail-subscribe" class="btn btn-ghost detail-subscribe-btn" type="button" disabled>
+                    + Film abonnieren
                   </button>
                   <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
                 </div>
@@ -1281,6 +1295,43 @@
         <button id="setup-finish" class="btn btn-accent hidden" type="button">Einrichtung abschließen</button>
       </footer>
     </section>
+  </div>
+</div>
+
+<div id="movie-subscription-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="movie-subscription-title">
+  <div class="modal-box movie-subscription-box">
+    <div class="modal-head">
+      <span>FILM-ABONNEMENT</span>
+      <button id="movie-subscription-close" class="btn btn-ghost btn-sm" type="button" aria-label="Schließen">✕</button>
+    </div>
+    <div class="movie-subscription-content">
+      <span class="watch-mode-kicker">QUALITÄTSWÄCHTER</span>
+      <h2 id="movie-subscription-title">Film abonnieren</h2>
+      <p>Royal prüft den Film regelmäßig. Eine bessere Fassung wird vollständig geladen, validiert und ersetzt erst danach die alte Datei.</p>
+      <fieldset>
+        <legend>Zielqualität</legend>
+        <label><input type="radio" name="movie-target-quality" value="best" checked><span><strong>Beste verfügbare Qualität</strong><small>Jede echte Verbesserung übernehmen.</small></span></label>
+        <label><input type="radio" name="movie-target-quality" value="2160p"><span><strong>Bis 4K</strong><small>Schrittweise bis 2160p verbessern.</small></span></label>
+        <label><input type="radio" name="movie-target-quality" value="1080p"><span><strong>Bis 1080p</strong><small>Keine 4K-Dateien laden.</small></span></label>
+        <label><input type="radio" name="movie-target-quality" value="720p"><span><strong>Bis 720p</strong><small>Speicherbedarf begrenzen.</small></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Nach dem Ansehen</legend>
+        <label><input type="radio" name="movie-cleanup" value="keep" checked><span><strong>Behalten</strong><small>Der Film bleibt in Jellyfin.</small></span></label>
+        <label><input type="radio" name="movie-cleanup" value="watched"><span><strong>Gesehen → löschen</strong><small>Jellyfin entfernt die Mediendatei beim nächsten Check.</small></span></label>
+      </fieldset>
+      <label class="movie-upgrade-toggle">
+        <input id="movie-upgrade-enabled" type="checkbox" checked>
+        <span><strong>Qualitäts-Upgrades aktiv</strong><small>Regelmäßige automatische Prüfung einschalten.</small></span>
+      </label>
+      <p id="movie-subscription-status" class="watch-mode-status" role="status" aria-live="polite"></p>
+    </div>
+    <div class="modal-actions">
+      <button id="movie-subscription-remove" class="btn btn-ghost btn-sm hidden" type="button">Abo entfernen</button>
+      <span></span>
+      <button id="movie-subscription-cancel" class="btn btn-ghost btn-sm" type="button">Abbrechen</button>
+      <button id="movie-subscription-save" class="btn btn-accent btn-sm" type="button">Abo speichern</button>
+    </div>
   </div>
 </div>
 

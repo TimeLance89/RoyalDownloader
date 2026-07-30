@@ -39,7 +39,6 @@
 
 # Python and tests
 /tests/*
-!/tests/test_server_mobile_api.py
 __pycache__/
 *.py[cod]
 .pytest_cache/

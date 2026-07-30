@@ -136,6 +136,15 @@ const api = {
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },
   watchlistOpen(baseSlug) { return this.post("/api/watchlist/open", { base_slug: baseSlug }); },
 
+  movieSubscriptionsGet() { return this.get("/api/movie-subscriptions"); },
+  movieSubscriptionSave(entry) { return this.post("/api/movie-subscriptions", entry); },
+  movieSubscriptionsCheck(keys = null) {
+    return this.post("/api/movie-subscriptions/check", { keys });
+  },
+  movieSubscriptionsRemove(keys) {
+    return this.post("/api/movie-subscriptions/remove", { keys });
+  },
+
   coverUrl(url) {
     if (!url) return "";
     try {

@@ -122,6 +122,18 @@ from watchlist_policy import (
     select_missing_episode_slugs,
     serialize_episode_history,
 )
+from movie_subscription_policy import (
+    MOVIE_CLEANUP_DEFAULT,
+    MOVIE_CLEANUP_LABELS,
+    MOVIE_CLEANUP_WATCHED,
+    MOVIE_QUALITY_DEFAULT,
+    MOVIE_QUALITY_LABELS,
+    MOVIE_QUALITY_TARGETS,
+    movie_quality_rank,
+    normalize_movie_cleanup,
+    normalize_movie_quality,
+    select_upgrade_quality,
+)
 import config as appconfig
 import auth as appauth
 
@@ -400,6 +412,9 @@ class AppState:
         self.ui_language_lock = threading.RLock()
         self.watchlist: List[dict] = appconfig.load_watchlist()
         self.watchlist_lock = threading.RLock()
+        self.movie_subscriptions: List[dict] = appconfig.load_movie_subscriptions()
+        self.movie_subscriptions_lock = threading.RLock()
+        self.movie_subscription_check_lock = threading.Lock()
         self.auto_download_lock = threading.Lock()
         self.hoster_intel = HosterIntel()
 
@@ -3376,6 +3391,8 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
                 appconfig.save_watchlist(state.watchlist)
         if watchlist_changed:
             broadcast({"type": "watchlist_update", **watchlist_payload()})
+        if not ok and not parse_episode_slug(slug):
+            _movie_subscription_download_failed(slug, msg)
         with state.telegram_jobs_lock:
             telegram_job = state.telegram_jobs.pop(slug, None)
         if telegram_job:
@@ -3945,7 +3962,7 @@ class _HosterResult:
     """Ergebnis eines Hoster-Extraktionsversuchs für genau einen Movie/Episode."""
     __slots__ = (
         "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
-        "referer", "origin", "gated", "provider", "content_language",
+        "referer", "origin", "gated", "provider", "content_language", "quality",
     )
 
     def __init__(self):
@@ -3958,6 +3975,7 @@ class _HosterResult:
         self.gated = False   # serienstream Captcha-Gate war aktiv
         self.provider = ""
         self.content_language = ""
+        self.quality = ""
 
 
 def _extract_from_movie(
@@ -4013,6 +4031,7 @@ def _extract_from_movie(
             )
             continue
         res.hoster_used = hoster.name
+        res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
         res.content_language = _movie_content_language(
             movie,
@@ -4496,6 +4515,8 @@ def _enqueue_hoster_attempt(
                 failure_kind=getattr(job, "failure_kind", ""),
             )
         if ok:
+            if not parse_episode_slug(movie_slug):
+                _movie_subscription_download_finished(movie_slug, out_path, result.quality)
             on_job_done(True, msg, label, out_path, slug=movie_slug)
             return
         if msg == "Abgebrochen":
@@ -4730,6 +4751,91 @@ def _existing_valid_movie_path(out_root: Path, movie: FilmpalastMovie) -> Option
     return None
 
 
+def _movie_subscription_download_finished(
+    movie_slug: str, out_path: Path, quality: str,
+) -> None:
+    """Bucht ein erfolgreiches Upgrade und entfernt erst danach die alte Datei."""
+    changed = False
+    subscription = None
+    old_media_path = ""
+    with state.movie_subscriptions_lock:
+        subscription = next(
+            (
+                entry for entry in state.movie_subscriptions
+                if entry.get("pending_slug") == movie_slug
+                or entry.get("source_slug") == movie_slug
+            ),
+            None,
+        )
+        if subscription is None:
+            return
+        rank = movie_quality_rank(quality)
+        subscription["current_quality_rank"] = max(
+            int(subscription.get("current_quality_rank") or 0), rank,
+        )
+        subscription["current_quality"] = quality or (
+            f"{rank}p" if rank else "Qualität unbekannt"
+        )
+        subscription["pending_slug"] = ""
+        subscription["last_error"] = ""
+        subscription["upgrade_available_rank"] = 0
+        subscription["upgrade_available_quality"] = ""
+        subscription["last_upgraded"] = time.time()
+        old_media_path = str(subscription.get("existing_path") or "")
+        changed = True
+        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+
+    # DownloadJob hat die neue Datei bereits atomar committed. Bei abweichender
+    # Container-Endung bleibt die alte Datei daneben liegen; nur dann bereinigen.
+    try:
+        candidates = [
+            path for path in out_path.parent.glob(out_path.stem + ".*")
+            if path.suffix.casefold() in {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
+            and path.is_file()
+        ]
+        valid_candidates = [
+            path for path in candidates if validate_media_file(path)[0]
+        ]
+        if valid_candidates:
+            newest = max(valid_candidates, key=lambda path: path.stat().st_mtime_ns)
+            old_path = Path(old_media_path)
+            if old_path.is_absolute():
+                root = Path(state.save_path).expanduser().resolve(strict=False)
+                resolved_old = old_path.expanduser().resolve(strict=False)
+                try:
+                    resolved_old.relative_to(root)
+                    old_is_safe = True
+                except ValueError:
+                    old_is_safe = False
+                if old_is_safe and resolved_old != newest.resolve(strict=False):
+                    resolved_old.unlink(missing_ok=True)
+                    log(f"Qualitäts-Upgrade: alte Filmdatei gelöscht: {resolved_old.name}")
+            for candidate in candidates:
+                if candidate != newest:
+                    candidate.unlink(missing_ok=True)
+                    log(f"Qualitäts-Upgrade: alte Filmdatei gelöscht: {candidate.name}")
+    except OSError as exc:
+        log(f"Qualitäts-Upgrade: alte Filmdatei konnte nicht bereinigt werden: {exc}", "warn")
+    if changed:
+        broadcast({"type": "movie_subscriptions_update", **movie_subscriptions_payload()})
+
+
+def _movie_subscription_download_failed(movie_slug: str, message: str) -> None:
+    changed = False
+    with state.movie_subscriptions_lock:
+        for entry in state.movie_subscriptions:
+            if entry.get("pending_slug") != movie_slug:
+                continue
+            entry["pending_slug"] = ""
+            entry["last_error"] = "" if message == "Abgebrochen" else str(message)[:240]
+            entry["last_checked"] = time.time()
+            changed = True
+        if changed:
+            appconfig.save_movie_subscriptions(state.movie_subscriptions)
+    if changed:
+        broadcast({"type": "movie_subscriptions_update", **movie_subscriptions_payload()})
+
+
 def _existing_valid_episode_path(series_title: str, season: int, episode: int) -> Optional[Path]:
     expected = series_episode_out_path(series_title, season, episode)
     if not expected.parent.exists():
@@ -4909,7 +5015,11 @@ def run_download_queue(
                     primary_unavailable = True
         else:
             primary_unavailable = False
-            existing_movie = _existing_valid_movie_path(out_root, movie)
+            existing_movie = (
+                None
+                if bool(getattr(movie, "_allow_quality_upgrade", False))
+                else _existing_valid_movie_path(out_root, movie)
+            )
             if existing_movie is not None:
                 if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                     on_job_done(True, "bereits vorhanden", movie.title, existing_movie, slug=movie_slug)
@@ -7463,6 +7573,10 @@ def watchlist_auto_check_loop():
             checked, total = _watchlist_auto_check_once()
         except Exception as exc:
             log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
+        try:
+            check_movie_subscriptions()
+        except Exception as exc:
+            log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
         time.sleep(_watchlist_auto_check_delay(checked, total, interval_min))
 
 
@@ -7617,6 +7731,9 @@ MOBILE_LEGACY_API_PATHS = frozenset({
     "/api/watchlist/remove",
     "/api/watchlist/check",
     "/api/watchlist/open",
+    "/api/movie-subscriptions",
+    "/api/movie-subscriptions/check",
+    "/api/movie-subscriptions/remove",
 })
 # Zustandsändernde Methoden: ein fremder Ursprung darf sie nicht auslösen.
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -9875,6 +9992,7 @@ async def api_automation_config_set(body: AutomationConfigBody):
     state.automation = appconfig.load_automation()
     if state.automation.get("auto_download"):
         threading.Thread(target=_auto_download_new_episodes, daemon=True).start()
+        threading.Thread(target=check_movie_subscriptions, daemon=True).start()
     return {**state.automation, "in_window": is_within_download_window(), "saved": True}
 
 
@@ -10211,6 +10329,338 @@ async def api_cover(url: str):
         raise HTTPException(502, "Cover konnte nicht geladen werden.")
     content, content_type = data
     return Response(content=content, media_type=content_type)
+
+
+# ── Film-Abonnements ─────────────────────────────────────────────────────────
+def movie_subscription_key(tmdb_id="", title: str = "", year: str = "") -> str:
+    tmdb = str(tmdb_id or "").strip()
+    if tmdb:
+        return f"tmdb:{tmdb}"
+    return f"title:{_norm_title(title)}:{str(year or '').strip()}"
+
+
+def movie_subscription_lookup(key: str) -> Optional[dict]:
+    return next(
+        (entry for entry in state.movie_subscriptions if entry.get("key") == key),
+        None,
+    )
+
+
+def _movie_subscription_jellyfin_item(entry: dict, items: Optional[List[dict]]) -> Optional[dict]:
+    if not items:
+        return None
+    tmdb_id = str(entry.get("tmdb_id") or "").strip()
+    if tmdb_id:
+        exact = next(
+            (item for item in items if str(item.get("tmdb_id") or "") == tmdb_id),
+            None,
+        )
+        if exact:
+            return exact
+    wanted = _norm_title(entry.get("title", ""))
+    year = str(entry.get("year") or "")
+    for item in items:
+        aliases = (
+            item.get("name", ""), item.get("original_title", ""), item.get("sort_name", ""),
+        )
+        if wanted not in {_norm_title(value) for value in aliases if value}:
+            continue
+        item_year = str(item.get("year") or "")
+        if year and item_year and year != item_year:
+            continue
+        return item
+    return None
+
+
+def movie_subscriptions_payload() -> dict:
+    with state.queue_claim_lock, state.movie_subscriptions_lock:
+        items = []
+        for stored in state.movie_subscriptions:
+            entry = dict(stored)
+            entry["cleanup_mode"] = normalize_movie_cleanup(entry.get("cleanup_mode"))
+            entry["cleanup_mode_label"] = MOVIE_CLEANUP_LABELS[entry["cleanup_mode"]]
+            entry["target_quality"] = normalize_movie_quality(entry.get("target_quality"))
+            entry["target_quality_label"] = MOVIE_QUALITY_LABELS[entry["target_quality"]]
+            entry["queued"] = bool(entry.get("pending_slug") in state.picked)
+            if entry.get("watched_deleted"):
+                entry["status"] = "watched_deleted"
+            elif entry["queued"]:
+                entry["status"] = "queued"
+            elif entry.get("last_error"):
+                entry["status"] = "failed"
+            elif entry.get("upgrade_available_rank"):
+                entry["status"] = "upgrade"
+            else:
+                entry["status"] = "current"
+            items.append(entry)
+    return {"movie_subscriptions": items}
+
+
+def _movie_subscription_sources(entry: dict) -> List[FilmpalastMovie]:
+    tmdb_id = str(entry.get("tmdb_id") or "").strip()
+    if tmdb_id:
+        return resolve_tmdb_movie_sources(tmdb_id)
+    slug = str(entry.get("source_slug") or "").strip()
+    if not slug:
+        return []
+    movie = state.fp_movies.get(slug) or load_movie_for_slug(slug)
+    if not movie:
+        return []
+    state.fp_movies[slug] = movie
+    return [movie, *find_movie_source_fallbacks(movie, slug, {movie.url})]
+
+
+def _prepare_movie_subscription_upgrade(
+    entry: dict, sources: List[FilmpalastMovie],
+) -> tuple[Optional[FilmpalastMovie], List[FilmpalastMovie], int, str]:
+    current_rank = max(0, int(entry.get("current_quality_rank") or 0))
+    target = normalize_movie_quality(entry.get("target_quality"))
+    qualities = [
+        hoster.quality
+        for source in sources
+        for hoster in source.hosters
+    ]
+    selected = select_upgrade_quality(qualities, current_rank, target)
+    if not selected:
+        return None, [], 0, ""
+    selected_rank, selected_label = selected
+    ceiling = MOVIE_QUALITY_TARGETS[target]
+    prepared = []
+    for source in sources:
+        hosters = [
+            hoster for hoster in source.hosters
+            if current_rank < movie_quality_rank(hoster.quality) <= ceiling
+        ]
+        if not hosters:
+            continue
+        clone = replace(source, hosters=list(hosters))
+        clone.hosters.sort(
+            key=lambda hoster: (
+                movie_quality_rank(hoster.quality) != selected_rank,
+                -movie_quality_rank(hoster.quality),
+            )
+        )
+        setattr(clone, "_preferred_quality", selected_label)
+        setattr(clone, "_allow_quality_upgrade", True)
+        prepared.append(clone)
+    prepared.sort(
+        key=lambda movie: max(
+            (movie_quality_rank(hoster.quality) for hoster in movie.hosters),
+            default=0,
+        ) != selected_rank
+    )
+    return (prepared[0] if prepared else None), prepared[1:], selected_rank, selected_label
+
+
+def check_movie_subscriptions(entries: Optional[List[dict]] = None) -> int:
+    """Prüft Gesehen-Regeln und reiht ausschließlich echte Upgrades ein."""
+    if not state.movie_subscription_check_lock.acquire(blocking=False):
+        return 0
+    try:
+        with state.movie_subscriptions_lock:
+            selected_entries = list(entries if entries is not None else state.movie_subscriptions)
+        jf_client = get_jellyfin_client()
+        user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()
+        user_movies = (
+            jf_client.list_movies_with_user_data(user_id)
+            if jf_client.configured and user_id else None
+        )
+        library_movies = get_jellyfin_library(force=True) if jf_client.configured else None
+        checked = 0
+        for entry in selected_entries:
+            with state.movie_subscriptions_lock:
+                if not any(current is entry for current in state.movie_subscriptions):
+                    continue
+                if entry.get("pending_slug") in state.picked:
+                    continue
+            checked += 1
+            now = time.time()
+            jf_item = _movie_subscription_jellyfin_item(
+                entry, user_movies if user_movies is not None else library_movies,
+            )
+            with state.movie_subscriptions_lock:
+                if jf_item:
+                    entry["current_quality_rank"] = max(
+                        int(entry.get("current_quality_rank") or 0),
+                        int(jf_item.get("quality_rank") or 0),
+                    )
+                    entry["existing_path"] = str(jf_item.get("path") or "")
+                entry["last_checked"] = now
+
+            if (
+                normalize_movie_cleanup(entry.get("cleanup_mode")) == MOVIE_CLEANUP_WATCHED
+                and jf_item and jf_item.get("played") and not entry.get("watched_deleted")
+            ):
+                if jf_client.delete_item(jf_item.get("id", "")):
+                    with state.movie_subscriptions_lock:
+                        entry["watched_deleted"] = True
+                        entry["last_error"] = ""
+                        entry["cleanup_last_error"] = ""
+                        entry["cleanup_deleted_at"] = now
+                    log(f"Film-Abo: «{entry['title']}» nach dem Ansehen gelöscht.")
+                else:
+                    with state.movie_subscriptions_lock:
+                        entry["last_error"] = "Gesehener Film konnte in Jellyfin nicht gelöscht werden"
+                continue
+            if (
+                normalize_movie_cleanup(entry.get("cleanup_mode")) == MOVIE_CLEANUP_WATCHED
+                and jf_client.configured and not user_id
+            ):
+                with state.movie_subscriptions_lock:
+                    entry["cleanup_last_error"] = "Jellyfin-Profil für den Gesehen-Status fehlt"
+            elif user_id or normalize_movie_cleanup(entry.get("cleanup_mode")) != MOVIE_CLEANUP_WATCHED:
+                with state.movie_subscriptions_lock:
+                    entry["cleanup_last_error"] = ""
+
+            if entry.get("watched_deleted") or not entry.get("upgrade_enabled", True):
+                continue
+            if jf_item and int(jf_item.get("quality_rank") or 0) <= 0:
+                with state.movie_subscriptions_lock:
+                    entry["last_error"] = "Jellyfin konnte die vorhandene Filmqualität nicht ermitteln"
+                continue
+            try:
+                sources = _movie_subscription_sources(entry)
+                primary, fallbacks, rank, label = _prepare_movie_subscription_upgrade(entry, sources)
+            except Exception as exc:
+                with state.movie_subscriptions_lock:
+                    entry["last_error"] = str(exc)[:240]
+                continue
+            with state.movie_subscriptions_lock:
+                entry["upgrade_available_rank"] = rank
+                entry["upgrade_available_quality"] = label
+                if not primary:
+                    entry["last_error"] = ""
+                    continue
+                if not state.automation.get("auto_download") or not is_within_download_window():
+                    entry["last_error"] = ""
+                    continue
+                slug = str(entry.get("source_slug") or entry.get("key") or "")
+                entry["pending_slug"] = slug
+                entry["last_error"] = ""
+            state.fp_movies[slug] = primary
+            with state.queue_lifecycle_lock:
+                with state.queue_claim_lock:
+                    if slug in state.picked:
+                        continue
+                    state.picked.add(slug)
+            _persist_queue_state()
+            accepted = _enqueue_automatic_downloads(
+                [slug], movie_fallbacks={slug: fallbacks},
+            )
+            if slug not in accepted:
+                with state.queue_claim_lock:
+                    state.picked.discard(slug)
+                with state.movie_subscriptions_lock:
+                    entry["pending_slug"] = ""
+                    entry["last_error"] = "Upgrade konnte nicht eingereiht werden"
+            else:
+                log(
+                    f"Film-Abo: Qualitäts-Upgrade für «{entry['title']}» "
+                    f"auf {label or f'{rank}p'} eingereiht."
+                )
+        with state.movie_subscriptions_lock:
+            appconfig.save_movie_subscriptions(state.movie_subscriptions)
+        payload = movie_subscriptions_payload()
+        broadcast({"type": "movie_subscriptions_update", **payload})
+        return checked
+    finally:
+        state.movie_subscription_check_lock.release()
+
+
+class MovieSubscriptionBody(BaseModel):
+    source_slug: str
+    title: str
+    year: str = ""
+    tmdb_id: Optional[int] = None
+    cover_url: str = ""
+    target_quality: str = MOVIE_QUALITY_DEFAULT
+    cleanup_mode: str = MOVIE_CLEANUP_DEFAULT
+    upgrade_enabled: bool = True
+
+
+@app.post("/api/v1/movie-subscriptions")
+@app.post("/api/movie-subscriptions")
+async def api_movie_subscription_save(body: MovieSubscriptionBody):
+    if body.target_quality not in MOVIE_QUALITY_LABELS:
+        raise HTTPException(400, "Unbekannte Zielqualität.")
+    if body.cleanup_mode not in MOVIE_CLEANUP_LABELS:
+        raise HTTPException(400, "Unbekannte Löschregel.")
+    key = movie_subscription_key(body.tmdb_id, body.title, body.year)
+    with state.movie_subscriptions_lock:
+        entry = movie_subscription_lookup(key)
+        if entry is None:
+            entry = {
+                "key": key,
+                "source_slug": body.source_slug,
+                "title": body.title.strip(),
+                "year": body.year.strip(),
+                "tmdb_id": body.tmdb_id,
+                "cover_url": body.cover_url,
+                "current_quality_rank": 0,
+                "current_quality": "",
+                "last_error": "",
+                "cleanup_last_error": "",
+                "pending_slug": "",
+                "watched_deleted": False,
+            }
+            state.movie_subscriptions.append(entry)
+        entry.update({
+            "source_slug": body.source_slug,
+            "target_quality": normalize_movie_quality(body.target_quality),
+            "cleanup_mode": normalize_movie_cleanup(body.cleanup_mode),
+            "upgrade_enabled": bool(body.upgrade_enabled),
+        })
+        if entry["cleanup_mode"] != MOVIE_CLEANUP_WATCHED:
+            entry["watched_deleted"] = False
+            entry["cleanup_last_error"] = ""
+        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+    threading.Thread(
+        target=check_movie_subscriptions, args=([entry],), daemon=True,
+    ).start()
+    return movie_subscriptions_payload()
+
+
+@app.get("/api/v1/movie-subscriptions")
+@app.get("/api/movie-subscriptions")
+async def api_movie_subscriptions_get():
+    return movie_subscriptions_payload()
+
+
+class MovieSubscriptionKeysBody(BaseModel):
+    keys: Optional[List[str]] = None
+
+
+@app.post("/api/v1/movie-subscriptions/check")
+@app.post("/api/movie-subscriptions/check")
+async def api_movie_subscriptions_check(body: MovieSubscriptionKeysBody):
+    with state.movie_subscriptions_lock:
+        entries = (
+            list(state.movie_subscriptions)
+            if not body.keys
+            else [entry for entry in state.movie_subscriptions if entry.get("key") in body.keys]
+        )
+    checked = await run_in_threadpool(check_movie_subscriptions, entries)
+    return {"checked": checked, **movie_subscriptions_payload()}
+
+
+@app.post("/api/v1/movie-subscriptions/remove")
+@app.post("/api/movie-subscriptions/remove")
+async def api_movie_subscriptions_remove(body: MovieSubscriptionKeysBody):
+    keys = set(body.keys or [])
+    pending = set()
+    with state.movie_subscriptions_lock:
+        pending = {
+            str(entry.get("pending_slug") or "")
+            for entry in state.movie_subscriptions
+            if entry.get("key") in keys and entry.get("pending_slug")
+        }
+        state.movie_subscriptions = [
+            entry for entry in state.movie_subscriptions if entry.get("key") not in keys
+        ]
+        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+    if pending:
+        _cancel_queue_slugs(pending, "Film-Abo entfernt")
+    return movie_subscriptions_payload()
 
 
 # ── Bibliothek (Watchlist) ───────────────────────────────────────────────────

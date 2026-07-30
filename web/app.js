@@ -29,6 +29,7 @@ const state = {
     searchReturn: null,
   },
   wl: { items: [], selected: new Set(), loaded: false },
+  movieSubscriptions: { items: [], loaded: false },
   queue: { count: 0, groups: [], loaded: false },
   download: { active: false, percent: 0, completed: 0, total: 0, failed: 0 },
   providers: {
@@ -87,6 +88,8 @@ let recheckFpInfinite = () => {};
 let recheckSeriesInfinite = () => {};
 let watchModeContext = null;
 let watchModeReturnFocus = null;
+let movieSubscriptionContext = null;
+let movieSubscriptionReturnFocus = null;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -269,6 +272,17 @@ async function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApp
   }
 }
 
+async function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung") {
+  try {
+    const response = await api.movieSubscriptionsGet();
+    applyMovieSubscriptions(response.movie_subscriptions || []);
+    return true;
+  } catch (error) {
+    console.warn(`${context} fehlgeschlagen:`, error);
+    return false;
+  }
+}
+
 async function resyncAfterWsOpen(connectionGeneration) {
   const isCurrentConnection = () => connectionGeneration === wsConnectionGeneration;
   const queueSync = syncQueueSnapshot(
@@ -277,7 +291,10 @@ async function resyncAfterWsOpen(connectionGeneration) {
   const watchlistSync = syncWatchlistSnapshot(
     "Abo-Synchronisierung nach Verbindung", isCurrentConnection,
   );
-  await Promise.allSettled([queueSync, watchlistSync]);
+  const movieSubscriptionSync = syncMovieSubscriptions(
+    "Film-Abo-Synchronisierung nach Verbindung",
+  );
+  await Promise.allSettled([queueSync, watchlistSync, movieSubscriptionSync]);
   if (connectionGeneration !== wsConnectionGeneration) return;
   await Promise.allSettled([
     refreshSeriesJellyfinStatus(true),
@@ -373,6 +390,8 @@ function connectWs() {
       if (data.watchlist) applyWatchlist(data.watchlist);
       } else if (data.type === "watchlist_update") {
         applyWatchlist(data.watchlist || []);
+      } else if (data.type === "movie_subscriptions_update") {
+        applyMovieSubscriptions(data.movie_subscriptions || []);
       }
     } catch (error) {
       console.warn("WebSocket-Aktualisierung konnte nicht verarbeitet werden:", error);
@@ -2075,6 +2094,162 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
   };
 }
 
+function movieSubscriptionFor(slug, movie) {
+  const tmdbId = String(movie?.tmdb_id || "").trim();
+  if (tmdbId) {
+    return state.movieSubscriptions.items.find(
+      (entry) => String(entry.tmdb_id || "") === tmdbId,
+    ) || null;
+  }
+  return state.movieSubscriptions.items.find(
+    (entry) => entry.source_slug === slug,
+  ) || null;
+}
+
+function configureFpSubscriptionAction(slug, movie) {
+  const button = document.getElementById("fp-detail-subscribe");
+  const entry = movieSubscriptionFor(slug, movie);
+  button.disabled = !slug || !movie?.title;
+  button.classList.toggle("is-active", Boolean(entry));
+  button.textContent = entry ? "⚙ Film-Abo" : "+ Film abonnieren";
+  button.onclick = () => openMovieSubscriptionModal(slug, movie, entry);
+}
+
+function closeMovieSubscriptionModal() {
+  document.getElementById("movie-subscription-modal").classList.add("hidden");
+  document.getElementById("movie-subscription-status").textContent = "";
+  movieSubscriptionContext = null;
+  if (movieSubscriptionReturnFocus instanceof HTMLElement && movieSubscriptionReturnFocus.isConnected) {
+    movieSubscriptionReturnFocus.focus();
+  }
+  movieSubscriptionReturnFocus = null;
+}
+
+function openMovieSubscriptionModal(slug, movie, stored = null) {
+  const entry = stored || movieSubscriptionFor(slug, movie);
+  movieSubscriptionReturnFocus = document.activeElement;
+  movieSubscriptionContext = {
+    key: entry?.key || "",
+    sourceSlug: entry?.source_slug || slug,
+    title: entry?.title || movie?.title || "Film",
+    year: String(entry?.year || movie?.year || ""),
+    tmdbId: entry?.tmdb_id || movie?.tmdb_id || null,
+    coverUrl: entry?.cover_url || movie?.cover_url || "",
+    tracked: Boolean(entry),
+  };
+  document.getElementById("movie-subscription-title").textContent = movieSubscriptionContext.title;
+  document.querySelectorAll('input[name="movie-target-quality"]').forEach((radio) => {
+    radio.checked = radio.value === (entry?.target_quality || "best");
+  });
+  document.querySelectorAll('input[name="movie-cleanup"]').forEach((radio) => {
+    radio.checked = radio.value === (entry?.cleanup_mode || "keep");
+  });
+  document.getElementById("movie-upgrade-enabled").checked = entry?.upgrade_enabled !== false;
+  document.getElementById("movie-subscription-remove").classList.toggle("hidden", !entry);
+  document.getElementById("movie-subscription-save").textContent =
+    entry ? "Regel übernehmen" : "Abo speichern";
+  document.getElementById("movie-subscription-status").textContent =
+    !state.jellyfinUserConfigured
+      && document.querySelector('input[name="movie-cleanup"]:checked')?.value === "watched"
+      ? "Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein."
+      : "";
+  document.getElementById("movie-subscription-modal").classList.remove("hidden");
+  setTimeout(() => document.querySelector('input[name="movie-target-quality"]:checked')?.focus(), 0);
+}
+
+async function saveMovieSubscription() {
+  if (!movieSubscriptionContext) return;
+  const button = document.getElementById("movie-subscription-save");
+  button.disabled = true;
+  try {
+    const response = await api.movieSubscriptionSave({
+      source_slug: movieSubscriptionContext.sourceSlug,
+      title: movieSubscriptionContext.title,
+      year: movieSubscriptionContext.year,
+      tmdb_id: movieSubscriptionContext.tmdbId,
+      cover_url: movieSubscriptionContext.coverUrl,
+      target_quality: document.querySelector('input[name="movie-target-quality"]:checked')?.value || "best",
+      cleanup_mode: document.querySelector('input[name="movie-cleanup"]:checked')?.value || "keep",
+      upgrade_enabled: document.getElementById("movie-upgrade-enabled").checked,
+    });
+    applyMovieSubscriptions(response.movie_subscriptions || []);
+    closeMovieSubscriptionModal();
+  } catch (error) {
+    document.getElementById("movie-subscription-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function removeMovieSubscription() {
+  if (!movieSubscriptionContext?.key) return;
+  const response = await api.movieSubscriptionsRemove([movieSubscriptionContext.key]);
+  applyMovieSubscriptions(response.movie_subscriptions || []);
+  closeMovieSubscriptionModal();
+}
+
+function movieSubscriptionStatus(entry) {
+  if (entry.status === "watched_deleted") return "Gesehen · gelöscht";
+  if (entry.cleanup_last_error) return entry.cleanup_last_error;
+  if (entry.status === "queued") return `Upgrade ${entry.upgrade_available_quality || ""} in Queue`.trim();
+  if (entry.status === "failed") return entry.last_error || "Prüfung fehlgeschlagen";
+  if (entry.status === "upgrade") return `${entry.upgrade_available_quality || "Besser"} verfügbar`;
+  const current = entry.current_quality || (
+    entry.current_quality_rank ? `${entry.current_quality_rank}p` : "Noch keine Fassung"
+  );
+  return `${current} · Ziel ${entry.target_quality_label || "Beste Qualität"}`;
+}
+
+function applyMovieSubscriptions(items) {
+  state.movieSubscriptions.items = items;
+  state.movieSubscriptions.loaded = true;
+  renderMovieSubscriptions();
+  if (state.fp.selectedSlug) {
+    const movie = state.fp.moviesCache[state.fp.selectedSlug]
+      || state.fp.metadataCache[state.fp.selectedSlug];
+    if (movie) configureFpSubscriptionAction(state.fp.selectedSlug, movie);
+  }
+}
+
+function renderMovieSubscriptions() {
+  const container = document.getElementById("movie-subscriptions-list");
+  if (!container) return;
+  const items = state.movieSubscriptions.items;
+  document.getElementById("movie-subscriptions-count").textContent =
+    `${items.length} ${items.length === 1 ? "Film" : "Filme"}`;
+  document.getElementById("movie-subscriptions-check").disabled = !items.length;
+  container.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "subscriptions-empty";
+    empty.textContent = "Noch keine Film-Abos – Film öffnen und „Film abonnieren“ wählen.";
+    container.appendChild(empty);
+    return;
+  }
+  for (const entry of items) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "subscription-card"
+      + (["failed", "upgrade"].includes(entry.status) ? " has-new" : "");
+    const monogram = document.createElement("span");
+    monogram.className = "subscription-monogram";
+    monogram.textContent = subscriptionMonogram(entry.title);
+    const copy = document.createElement("span");
+    copy.className = "subscription-text";
+    const title = document.createElement("span");
+    title.className = "subscription-name";
+    title.textContent = entry.title;
+    title.translate = false;
+    const meta = document.createElement("span");
+    meta.className = "subscription-meta";
+    meta.textContent = movieSubscriptionStatus(entry);
+    copy.append(title, meta);
+    card.append(monogram, copy);
+    card.addEventListener("click", () => openMovieSubscriptionModal(entry.source_slug, null, entry));
+    container.appendChild(card);
+  }
+}
+
 function movieQualityRank(value) {
   const text = String(value || "").toUpperCase();
   const resolution = Number(text.match(/(\d{3,4})\s*P?/)?.[1] || 0);
@@ -2251,6 +2426,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
 
   configureFpTrailer(movie);
   configureFpDetailAction(slug, movie, metadataOnly);
+  configureFpSubscriptionAction(slug, movie);
 }
 
 // ── Serien-Tab ─────────────────────────────────────────────────────────────
@@ -4894,6 +5070,7 @@ function startInitialData() {
   });
   syncQueueSnapshot("Initiale Queue-Synchronisierung");
   refreshWatchlist();
+  syncMovieSubscriptions();
   loadHomeData().catch((e) => {
     document.getElementById("fp-status").textContent = `Fehler: ${e.message}`;
     state.home.loading = false;
@@ -5050,6 +5227,33 @@ async function initApp() {
     if (!genres.length) return;
     fpGenreChange(genres[Math.floor(Math.random() * genres.length)]);
   });
+  document.getElementById("movie-subscriptions-check").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "Prüfe …";
+    try {
+      const response = await api.movieSubscriptionsCheck();
+      applyMovieSubscriptions(response.movie_subscriptions || []);
+    } finally {
+      button.textContent = "↻ Qualitäten prüfen";
+      button.disabled = !state.movieSubscriptions.items.length;
+    }
+  });
+  document.getElementById("movie-subscription-close").addEventListener("click", closeMovieSubscriptionModal);
+  document.getElementById("movie-subscription-cancel").addEventListener("click", closeMovieSubscriptionModal);
+  document.getElementById("movie-subscription-save").addEventListener("click", saveMovieSubscription);
+  document.getElementById("movie-subscription-remove").addEventListener("click", removeMovieSubscription);
+  document.getElementById("movie-subscription-modal").addEventListener("click", (event) => {
+    if (event.target.id === "movie-subscription-modal") closeMovieSubscriptionModal();
+  });
+  document.querySelectorAll('input[name="movie-cleanup"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const status = document.getElementById("movie-subscription-status");
+      status.textContent = !state.jellyfinUserConfigured && radio.checked && radio.value === "watched"
+        ? "Für die Gesehen-Löschung muss unter Einstellungen ein Jellyfin-Profil gewählt sein."
+        : "";
+    });
+  });
   // Serien
   document.getElementById("series-search-btn").addEventListener("click", seriesSearch);
   document.getElementById("series-search").addEventListener("keydown", (event) => {
@@ -5174,6 +5378,11 @@ async function initApp() {
     switchTab("bibliothek");
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !document.getElementById("movie-subscription-modal").classList.contains("hidden")) {
+      event.preventDefault();
+      closeMovieSubscriptionModal();
+      return;
+    }
     if (event.key === "Escape" && !document.getElementById("watch-mode-modal").classList.contains("hidden")) {
       event.preventDefault();
       closeWatchModeModal();

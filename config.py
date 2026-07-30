@@ -35,6 +35,10 @@ from watchlist_policy import (
     normalize_watch_mode,
     serialize_episode_history,
 )
+from movie_subscription_policy import (
+    normalize_movie_cleanup,
+    normalize_movie_quality,
+)
 
 logger = logging.getLogger(__name__)
 _config_lock = threading.RLock()
@@ -113,6 +117,10 @@ def _config_file() -> Path:
 
 def _watchlist_file() -> Path:
     return _config_dir() / "series_watchlist.json"
+
+
+def _movie_subscriptions_file() -> Path:
+    return _config_dir() / "movie_subscriptions.json"
 
 
 def _queue_file() -> Path:
@@ -834,6 +842,55 @@ def save_watchlist(entries: List[dict]) -> bool:
             return True
         except Exception as exc:
             logger.warning("Watchlist konnte nicht gespeichert werden: %s", exc)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+
+
+def load_movie_subscriptions() -> List[dict]:
+    path = _movie_subscriptions_file()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        valid = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if not str(entry.get("key") or "").strip() or not str(entry.get("title") or "").strip():
+                logger.warning("Ungültiges Film-Abo übersprungen: %r", entry)
+                continue
+            entry["cleanup_mode"] = normalize_movie_cleanup(entry.get("cleanup_mode"))
+            entry["target_quality"] = normalize_movie_quality(entry.get("target_quality"))
+            entry["current_quality_rank"] = max(0, int(entry.get("current_quality_rank") or 0))
+            entry["upgrade_enabled"] = bool(entry.get("upgrade_enabled", True))
+            valid.append(entry)
+        return valid
+    except Exception as exc:
+        logger.warning("Film-Abos nicht lesbar (%s): %s", path, exc)
+        return []
+
+
+def save_movie_subscriptions(entries: List[dict]) -> bool:
+    cfg_dir = _config_dir()
+    path = _movie_subscriptions_file()
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    with _config_lock:
+        try:
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(entries, ensure_ascii=False, indent=2)
+            with open(tmp, "w", encoding="utf-8") as file:
+                file.write(payload)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(tmp, path)
+            return True
+        except Exception as exc:
+            logger.warning("Film-Abos konnten nicht gespeichert werden: %s", exc)
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:

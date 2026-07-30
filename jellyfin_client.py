@@ -22,6 +22,19 @@ logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000
 
 
+def _movie_quality_rank(item: dict) -> int:
+    heights = []
+    for source in item.get("MediaSources") or []:
+        for stream in source.get("MediaStreams") or []:
+            if str(stream.get("Type") or "").casefold() != "video":
+                continue
+            try:
+                heights.append(int(stream.get("Height") or 0))
+            except (TypeError, ValueError):
+                continue
+    return max(heights or [0])
+
+
 def _normalize(title: str) -> str:
     title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title or "")
     ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
@@ -148,11 +161,12 @@ class JellyfinClient:
             "ExcludeLocationTypes": "Virtual,Offline",
             "IsMissing": "false",
             "IsPlaceHolder": "false",
-            "Fields": "ProductionYear,OriginalTitle,SortName,ProviderIds",
+            "Fields": "ProductionYear,OriginalTitle,SortName,ProviderIds,MediaSources,Path",
         }, limit, "Jellyfin-Bibliotheksabruf")
         if items is None:
             return None
         return [{
+            "id": str(it.get("Id") or ""),
             "name": it.get("Name", ""),
             "original_title": it.get("OriginalTitle", ""),
             "sort_name": it.get("SortName", ""),
@@ -162,7 +176,45 @@ class JellyfinClient:
                 or (it.get("ProviderIds") or {}).get("TheMovieDb")
                 or ""
             ),
+            "quality_rank": _movie_quality_rank(it),
+            "path": str(it.get("Path") or ""),
         } for it in items]
+
+    def list_movies_with_user_data(
+        self, user_id: str, limit: int = 1000,
+    ) -> Optional[List[dict]]:
+        """Liefert Filme mit stabilem Match und Gesehen-Status eines Benutzers."""
+        user_id = (user_id or "").strip()
+        if not self.configured or not user_id:
+            return None
+        items = self._list_items({
+            "UserId": user_id,
+            "IncludeItemTypes": "Movie",
+            "Recursive": "true",
+            "EnableUserData": "true",
+            "CollapseBoxSetItems": "false",
+            "ExcludeLocationTypes": "Virtual,Offline",
+            "IsMissing": "false",
+            "IsPlaceHolder": "false",
+            "Fields": "ProductionYear,OriginalTitle,SortName,ProviderIds,MediaSources,Path",
+        }, limit, "Jellyfin-Filmstatus")
+        if items is None:
+            return None
+        return [{
+            "id": str(item.get("Id") or ""),
+            "name": str(item.get("Name") or ""),
+            "original_title": str(item.get("OriginalTitle") or ""),
+            "sort_name": str(item.get("SortName") or ""),
+            "year": item.get("ProductionYear"),
+            "tmdb_id": str(
+                (item.get("ProviderIds") or {}).get("Tmdb")
+                or (item.get("ProviderIds") or {}).get("TheMovieDb")
+                or ""
+            ),
+            "played": bool((item.get("UserData") or {}).get("Played", False)),
+            "quality_rank": _movie_quality_rank(item),
+            "path": str(item.get("Path") or ""),
+        } for item in items]
 
     def match(
         self, title: str, year: str = "", items: Optional[List[dict]] = None, tmdb_id="",
