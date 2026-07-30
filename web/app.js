@@ -544,17 +544,23 @@ function closeMediaModal(modalId, restoreFocus = true) {
 }
 
 function closeAllMediaModals(restoreFocus = true) {
+  closeFpTrailerModal(false);
   document.querySelectorAll(".media-modal:not([hidden])").forEach((modal) => {
     closeMediaModal(modal.id, restoreFocus);
   });
 }
 
 function handleMediaModalKeydown(event) {
-  const trailerDialog = document.getElementById("fp-trailer-modal");
-  if (trailerDialog?.open) {
+  const trailerModal = document.getElementById("fp-trailer-modal");
+  if (trailerModal && !trailerModal.hidden) {
     if (event.key === "Escape") {
       event.preventDefault();
       closeFpTrailerModal();
+      return true;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      document.getElementById("fp-trailer-close")?.focus();
     }
     return true;
   }
@@ -1995,11 +2001,13 @@ function renderFpCast(cast, tmdbUrl) {
 }
 
 function closeFpTrailerModal(restoreFocus = true) {
-  const dialog = document.getElementById("fp-trailer-modal");
-  if (!dialog?.open) return;
-  const returnFocus = dialog._returnFocus;
-  dialog.close();
-  document.getElementById("fp-trailer-frame").removeAttribute("src");
+  const modal = document.getElementById("fp-trailer-modal");
+  if (!modal || modal.hidden) return;
+  const returnFocus = modal._returnFocus;
+  modal.classList.remove("is-open");
+  modal.hidden = true;
+  document.body.classList.remove("trailer-modal-open");
+  document.getElementById("fp-trailer-frame")?.removeAttribute("src");
   if (restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
     returnFocus.focus();
   }
@@ -2009,14 +2017,16 @@ function openFpTrailerModal(movie, trigger) {
   const trailer = movie?.trailer;
   const key = String(trailer?.key || "").trim();
   if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
-  const dialog = document.getElementById("fp-trailer-modal");
-  dialog._returnFocus = trigger;
+  const modal = document.getElementById("fp-trailer-modal");
+  modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
   document.getElementById("fp-trailer-caption").textContent = trailer.name || "Offizieller Trailer";
   document.getElementById("fp-trailer-frame").src =
     `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0`;
-  dialog.showModal();
-  document.getElementById("fp-trailer-close").focus();
+  modal.hidden = false;
+  modal.classList.add("is-open");
+  document.body.classList.add("trailer-modal-open");
+  requestAnimationFrame(() => document.getElementById("fp-trailer-close")?.focus());
 }
 
 function configureFpTrailer(movie) {
@@ -4983,19 +4993,8 @@ async function initApp() {
   document.getElementById("fp-trailer-close").addEventListener("click", () => {
     closeFpTrailerModal();
   });
-  const trailerDialog = document.getElementById("fp-trailer-modal");
-  trailerDialog.addEventListener("cancel", (event) => {
-    event.preventDefault();
+  document.getElementById("fp-trailer-backdrop").addEventListener("click", () => {
     closeFpTrailerModal();
-  });
-  trailerDialog.addEventListener("click", (event) => {
-    if (event.target !== trailerDialog) return;
-    const rect = trailerDialog.getBoundingClientRect();
-    const inside = (
-      event.clientX >= rect.left && event.clientX <= rect.right
-      && event.clientY >= rect.top && event.clientY <= rect.bottom
-    );
-    if (!inside) closeFpTrailerModal();
   });
   document.getElementById("movie-feature-open").addEventListener("click", (event) => {
     const slug = event.currentTarget.dataset.slug;

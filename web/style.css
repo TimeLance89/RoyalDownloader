@@ -1815,6 +1815,35 @@ body {
   border-color: var(--accent);
 }
 
+/* Trailer overlay: custom layer avoids a stuck native dialog backdrop. */
+.trailer-modal[hidden] { display: none; }
+.trailer-modal {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  isolation: isolate;
+}
+.trailer-modal-backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.trailer-modal .trailer-dialog {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+}
+.trailer-modal .trailer-frame-shell::before { pointer-events: none; }
+body.trailer-modal-open { overflow: hidden; }
+
 @media (max-width: 820px) {
   .media-modal { padding: 0; }
   .media-modal .detail-panel,

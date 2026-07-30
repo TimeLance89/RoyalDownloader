@@ -324,19 +324,6 @@
             </div>
           </div>
         </div>
-        <dialog id="fp-trailer-modal" class="trailer-dialog" aria-labelledby="fp-trailer-title">
-          <div class="trailer-dialog-head">
-            <div>
-              <span class="detail-archive-code">RD · VORFÜHRRAUM</span>
-              <h2 id="fp-trailer-title" data-i18n-ignore>Trailer</h2>
-            </div>
-            <button id="fp-trailer-close" class="trailer-dialog-close" type="button" aria-label="Trailer schließen">×</button>
-          </div>
-          <div class="trailer-frame-shell">
-            <iframe id="fp-trailer-frame" title="Filmtrailer" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-          </div>
-          <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
-        </dialog>
       </div>
     </section>
 
@@ -1386,6 +1373,23 @@
       <button id="watch-mode-cancel" class="btn btn-ghost btn-sm" type="button">Abbrechen</button>
       <button id="watch-mode-save" class="btn btn-accent btn-sm" type="button">Abo speichern</button>
     </div>
+  </div>
+</div>
+
+<div id="fp-trailer-modal" class="trailer-modal" role="dialog" aria-modal="true" aria-labelledby="fp-trailer-title" hidden>
+  <div id="fp-trailer-backdrop" class="trailer-modal-backdrop" aria-hidden="true"></div>
+  <div class="trailer-dialog" tabindex="-1">
+    <div class="trailer-dialog-head">
+      <div>
+        <span class="detail-archive-code">RD · VORFÜHRRAUM</span>
+        <h2 id="fp-trailer-title" data-i18n-ignore>Trailer</h2>
+      </div>
+      <button id="fp-trailer-close" class="trailer-dialog-close" type="button" aria-label="Trailer schließen">×</button>
+    </div>
+    <div class="trailer-frame-shell">
+      <iframe id="fp-trailer-frame" title="Filmtrailer" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
   </div>
 </div>
 
