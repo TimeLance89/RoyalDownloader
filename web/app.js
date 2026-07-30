@@ -1290,6 +1290,10 @@ function updateFpJellyfinBadges() {
     const posterBadge = row.querySelector(".result-card-library-badge");
     if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, !!result.in_jellyfin);
   }
+  const selected = resultsBySlug.get(state.fp.selectedSlug);
+  if (selected && typeof selected.in_jellyfin === "boolean") {
+    setFpDetailJellyfinStatus(selected.in_jellyfin);
+  }
 }
 
 function mediaCardInitials(title) {
@@ -1883,6 +1887,32 @@ function setFpDetailAvailability(text, state = "ready") {
   badge.className = `detail-availability is-${state}`;
 }
 
+function setFpDetailJellyfinStatus(owned) {
+  const badge = document.getElementById("fp-detail-jellyfin");
+  const label = badge.querySelector("strong");
+  badge.className = "detail-jellyfin";
+  if (owned === true) {
+    badge.classList.add("is-owned");
+    label.textContent = "In Jellyfin vorhanden";
+    return;
+  }
+  if (owned === false) {
+    badge.classList.add("is-missing");
+    label.textContent = "Nicht in Jellyfin";
+    return;
+  }
+  badge.classList.add("is-checking");
+  label.textContent = "Jellyfin wird geprüft";
+}
+
+function fpDetailJellyfinValue(slug, movie) {
+  const catalogItem = state.fp.results.find((item) => item.slug === slug)
+    || homeMovieBySlug(slug);
+  if (typeof catalogItem?.in_jellyfin === "boolean") return catalogItem.in_jellyfin;
+  if (typeof movie?.in_jellyfin === "boolean") return movie.in_jellyfin;
+  return null;
+}
+
 function formatMovieDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return value || "—";
   const date = new Date(`${value}T00:00:00Z`);
@@ -2148,6 +2178,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   const tagline = document.getElementById("fp-detail-tagline");
   tagline.textContent = movie.tagline || "";
   tagline.hidden = !movie.tagline;
+  setFpDetailJellyfinStatus(fpDetailJellyfinValue(slug, movie));
   if (metadataOnly) setFpDetailAvailability("Streams werden geprüft", "loading");
   else if (movie.hosters.length) {
     setFpDetailAvailability(
