@@ -1204,18 +1204,12 @@ function openHomeEntry(kind, key) {
   if (kind === "movie") {
     const movie = homeMovieBySlug(key);
     closeGlobalSearch();
-    if (movie) {
-      switchTab("filme", { autoLoad: false });
-      selectFpRow(movie.slug);
-    }
+    if (movie) selectFpRow(movie.slug);
     return;
   }
   const series = homeSeriesBySlug(key);
   closeGlobalSearch();
-  if (series) {
-    switchTab("serien", { autoLoad: false });
-    loadSeries(series);
-  }
+  if (series) loadSeries(series);
 }
 
 function createHomeCard(entry, rank = 0, eager = false) {
@@ -1244,22 +1238,29 @@ function createHomeCard(entry, rank = 0, eager = false) {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  // Strikte Formattrennung: Top 10 zeigt TMDB-Poster, alle anderen Rails
-  // ausschließlich TMDB-Backdrops. Ein falsches Format wird nie eingesetzt.
-  const preferredArtwork = rank ? media.cover_url : media.backdrop_url;
-  const artwork = /^https:\/\/image\.tmdb\.org\//i.test(String(preferredArtwork || ""))
-    ? preferredArtwork
-    : "";
-  if (artwork) {
+  // Das bevorzugte Format bleibt erhalten, vorhandenes alternatives Artwork
+  // verhindert aber leere Karten bei Titeln ohne TMDB-Backdrop oder -Poster.
+  const artworkCandidates = [
+    rank ? media.cover_url : media.backdrop_url,
+    rank ? media.backdrop_url : media.cover_url,
+  ]
+    .map((url) => api.coverUrl(url))
+    .filter((url, index, urls) => url && urls.indexOf(url) === index);
+  if (artworkCandidates.length) {
     const image = document.createElement("img");
-    image.src = api.coverUrl(artwork);
+    let artworkIndex = 0;
+    image.src = artworkCandidates[artworkIndex];
     image.alt = "";
     // Die Startseite zeigt nur kuratierte Rails. Ihre Bilder werden sofort
     // geladen, damit beim horizontalen Scrollen keine Platzhalter aufblitzen.
     image.loading = "eager";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
-    image.addEventListener("error", () => image.remove(), { once: true });
+    image.addEventListener("error", () => {
+      artworkIndex += 1;
+      if (artworkIndex < artworkCandidates.length) image.src = artworkCandidates[artworkIndex];
+      else image.remove();
+    });
     art.appendChild(image);
   }
   const type = document.createElement("span");
@@ -1527,14 +1528,12 @@ async function performGlobalSearch(query, requestId) {
     hydrateHomeMovieArtwork(
       state.globalSearch.results
         .filter((entry) => entry.kind === "movie")
-        .map((entry) => entry.item)
-        .slice(0, 30),
+        .map((entry) => entry.item),
     ),
     hydrateHomeSeriesArtwork(
       state.globalSearch.results
         .filter((entry) => entry.kind === "series")
-        .map((entry) => entry.item)
-        .slice(0, 30),
+        .map((entry) => entry.item),
     ),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
@@ -1639,10 +1638,10 @@ async function homeSearch() {
   state.home.search.loading = false;
   renderHomeSearchResults();
   hydrateHomeMovieArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item).slice(0, 12),
+    state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
   ).then(renderHomeSearchResults);
   hydrateHomeSeriesArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item).slice(0, 12),
+    state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
   ).then(renderHomeSearchResults);
 }
 
@@ -1662,7 +1661,6 @@ async function loadHomeData() {
   const newMoviesRequest = fpShowList("new").then(() => {
     state.home.newMovies = state.fp.results.slice();
     renderHome();
-    return hydrateHomeMovieArtwork(state.home.newMovies.slice(0, 12));
   });
   const trendingSeriesRequest = seriesBrowse("trending", 1).then(() => {
     state.home.trendingSeries = state.series.results.slice();
@@ -1671,7 +1669,6 @@ async function loadHomeData() {
   const topMoviesRequest = api.movies({ mode: "top", page: 1 }).then((data) => {
     state.home.topMovies = data.results || [];
     renderHome();
-    return hydrateHomeMovieArtwork(state.home.topMovies.slice(0, 16));
   });
   const newSeriesRequest = api.series({ mode: "new", page: 1 }).then((data) => {
     state.home.newSeries = data.results || [];
@@ -1685,7 +1682,6 @@ async function loadHomeData() {
       .filter((result) => result.status === "fulfilled")
       .flatMap((result) => result.value.results || []);
     renderHome();
-    return hydrateHomeMovieArtwork(state.home.discoveryMovies.slice(0, 18));
   });
   const discoverySeriesRequest = api.series({ mode: "discover", page: 1 }).then((data) => {
     state.home.discoverySeries = data.results || [];
@@ -1701,17 +1697,30 @@ async function loadHomeData() {
   ]);
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
-  await hydrateHomeSeriesArtwork([
-    ...state.home.trendingSeries.slice(0, 24),
-    ...state.home.newSeries.slice(0, 24),
-    ...state.home.discoverySeries.slice(0, 24),
+  await Promise.allSettled([
+    hydrateHomeMovieArtwork([
+      ...state.home.newMovies,
+      ...state.home.topMovies,
+      ...state.home.discoveryMovies,
+    ]),
+    hydrateHomeSeriesArtwork([
+      ...state.home.trendingSeries,
+      ...state.home.newSeries,
+      ...state.home.discoverySeries,
+    ]),
   ]);
   state.home.loading = false;
   renderHome();
 }
 
 async function hydrateHomeMovieArtwork(items) {
-  const targets = items.filter((item) => item?.slug && (!item.cover_url || !item.backdrop_url));
+  const targets = [
+    ...new Map(
+      items
+        .filter((item) => item?.slug && (!item.cover_url || !item.backdrop_url))
+        .map((item) => [item.slug, item]),
+    ).values(),
+  ];
   if (!targets.length) return;
   try {
     const response = await api.tmdbMovies(targets.map((item) => ({
