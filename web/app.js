@@ -5780,7 +5780,6 @@ async function initApp() {
 
   document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
-  document.getElementById("session-btn").addEventListener("click", () => api.clearCookies());
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
   document.getElementById("mobile-queue-backdrop").addEventListener("click", closeMobileQueue);

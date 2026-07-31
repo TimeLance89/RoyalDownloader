@@ -64,7 +64,6 @@
       <span aria-hidden="true">↓</span><span id="mobile-queue-count">0</span>
     </button>
     <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
-    <button id="session-btn" class="btn btn-ghost">Sitzungsstatus</button>
   </header>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
@@ -147,20 +146,6 @@
       </section>
 
       <div class="home-rails" aria-live="polite">
-        <section class="home-rail is-ranked" aria-labelledby="home-top-title">
-          <header class="home-rail-head">
-            <div>
-              <span class="home-rail-eyebrow">Diese Woche</span>
-              <h2 id="home-top-title">Top 10</h2>
-            </div>
-            <div class="home-rail-controls">
-              <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
-              <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
-            </div>
-          </header>
-          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 dieser Woche"></div>
-        </section>
-
         <section class="home-rail" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
             <div>
@@ -173,6 +158,20 @@
             </div>
           </header>
           <div id="home-movies-track" class="home-track" aria-label="Persönliche Empfehlungen"></div>
+        </section>
+
+        <section class="home-rail is-ranked" aria-labelledby="home-top-title">
+          <header class="home-rail-head">
+            <div>
+              <span class="home-rail-eyebrow">Diese Woche</span>
+              <h2 id="home-top-title">Top 10</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-top-track" data-direction="-1" aria-label="Top 10 nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 dieser Woche"></div>
         </section>
 
         <section class="home-rail" aria-labelledby="home-series-title">
