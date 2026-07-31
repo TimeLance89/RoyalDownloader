@@ -1943,6 +1943,7 @@ async function refreshFpJellyfinStatus() {
 
 function updateSeriesStatus(series) {
   if (!series) return;
+  updateSeriesJellyfinBadge(series);
   const status = document.getElementById("series-status");
   if (series.availability_error) {
     status.textContent = `${series.episode_count} Episoden · Verfügbarkeitsprüfung fehlgeschlagen`;
@@ -1965,6 +1966,36 @@ function updateSeriesStatus(series) {
     return;
   }
   status.textContent = `${series.episode_count} Episoden`;
+}
+
+function updateSeriesJellyfinBadge(series, checking = false) {
+  const badge = document.getElementById("series-jellyfin-status");
+  if (!badge) return;
+  const label = badge.querySelector("strong");
+  badge.className = "series-jellyfin-status";
+  if (checking || series?.availability_pending || series?.jellyfin_pending) {
+    badge.classList.add("is-checking");
+    label.textContent = "Jellyfin wird geprüft";
+    return;
+  }
+  if (series?.availability_error || series?.jellyfin_available === false) {
+    badge.classList.add("is-unavailable");
+    label.textContent = "Jellyfin-Abgleich nicht verfügbar";
+    return;
+  }
+  if (!series?.jellyfin_configured) {
+    badge.classList.add("is-disconnected");
+    label.textContent = "Jellyfin nicht verbunden";
+    return;
+  }
+  const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
+  const jellyfinCount = episodes.filter((episode) => episode.in_jellyfin).length;
+  badge.classList.add(jellyfinCount ? "is-owned" : "is-missing");
+  label.textContent = jellyfinCount === episodes.length && episodes.length
+    ? "Vollständig in Jellyfin"
+    : jellyfinCount
+      ? `${jellyfinCount} Episoden in Jellyfin`
+      : "Nicht in Jellyfin";
 }
 
 async function refreshSeriesJellyfinStatus(force = false) {
@@ -3703,6 +3734,7 @@ function showSeriesLoading(result) {
   state.series.viewGeneration += 1;
   state.series.current = null;
   document.getElementById("series-detail-title").textContent = result.title;
+  updateSeriesJellyfinBadge(result, true);
   setSeriesDetailArtwork(result);
   const cover = document.getElementById("series-cover");
   cover.loading = "eager";
@@ -3801,6 +3833,7 @@ function showSeriesDetail(series, sampleSlug) {
   document.getElementById("series-select-none").disabled = false;
   updateWatchBtn();
   renderSeriesTiles();
+  updateSeriesStatus(series);
   openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
 }
 
