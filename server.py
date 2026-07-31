@@ -7716,6 +7716,7 @@ MOBILE_LEGACY_API_PATHS = frozenset({
     "/api/movies/preload",
     "/api/tmdb/movie",
     "/api/tmdb/movies",
+    "/api/tmdb/series",
     "/api/jellyfin/matches",
     "/api/series",
     "/api/series/load",
@@ -8400,6 +8401,16 @@ class MovieMetadataBody(BaseModel):
     items: List[MovieMetadataItem]
 
 
+class SeriesMetadataItem(BaseModel):
+    base_slug: str
+    title: str
+    year: str = ""
+
+
+class SeriesMetadataBody(BaseModel):
+    items: List[SeriesMetadataItem]
+
+
 @app.post("/api/v1/tmdb/movie")
 @app.post("/api/tmdb/movie")
 async def api_tmdb_movie(item: MovieMetadataItem):
@@ -8473,6 +8484,54 @@ async def api_tmdb_movies(body: MovieMetadataBody):
         return result
 
     return {"movies": await run_in_threadpool(_work)}
+
+
+@app.post("/api/v1/tmdb/series")
+@app.post("/api/tmdb/series")
+async def api_tmdb_series(body: SeriesMetadataBody):
+    """Lädt schnelle TMDB-Backdrops für Serien-Rails ohne Seriendetails."""
+    if not get_tmdb_client().configured or not body.items:
+        return {"series": {}}
+
+    def _work():
+        unique = {}
+        for item in body.items[:100]:
+            title = strip_source_suffix(item.title)
+            key = (_norm_title(title), str(item.year or ""))
+            group = unique.setdefault(
+                key,
+                {"title": title, "year": item.year, "base_slugs": []},
+            )
+            group["base_slugs"].append(item.base_slug)
+
+        result = {}
+        groups = list(unique.values())
+        with ThreadPoolExecutor(
+            max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups)),
+        ) as pool:
+            futures = [
+                (
+                    group,
+                    pool.submit(
+                        get_tmdb_client().series_summary,
+                        group["title"],
+                        group["year"],
+                    ),
+                )
+                for group in groups
+            ]
+            for group, future in futures:
+                try:
+                    metadata = future.result()
+                except Exception as exc:
+                    log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
+                    metadata = None
+                if metadata:
+                    for base_slug in group["base_slugs"]:
+                        result[base_slug] = metadata
+        return result
+
+    return {"series": await run_in_threadpool(_work)}
 
 
 # ── Serien ───────────────────────────────────────────────────────────────────

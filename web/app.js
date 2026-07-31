@@ -1507,6 +1507,9 @@ async function homeSearch() {
   hydrateHomeMovieArtwork(
     state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item).slice(0, 12),
   ).then(renderHomeSearchResults);
+  hydrateHomeSeriesArtwork(
+    state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item).slice(0, 12),
+  ).then(renderHomeSearchResults);
 }
 
 function closeHomeSearch() {
@@ -1564,6 +1567,11 @@ async function loadHomeData() {
   ]);
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+  await hydrateHomeSeriesArtwork([
+    ...state.home.trendingSeries.slice(0, 24),
+    ...state.home.newSeries.slice(0, 24),
+    ...state.home.discoverySeries.slice(0, 24),
+  ]);
   state.home.loading = false;
   renderHome();
 }
@@ -1583,6 +1591,31 @@ async function hydrateHomeMovieArtwork(items) {
     renderHome();
   } catch (error) {
     console.warn("Startseitenbilder konnten nicht ergänzt werden:", error);
+  }
+}
+
+async function hydrateHomeSeriesArtwork(items) {
+  const targets = [
+    ...new Map(
+      items
+        .filter((item) => item?.base_slug && !item.backdrop_url)
+        .map((item) => [item.base_slug, item]),
+    ).values(),
+  ];
+  if (!targets.length) return;
+  try {
+    const response = await api.tmdbSeries(targets.map((item) => ({
+      base_slug: item.base_slug,
+      title: item.title,
+      year: item.year || "",
+    })));
+    for (const item of targets) {
+      const metadata = response.series?.[item.base_slug];
+      if (metadata?.backdrop_url) Object.assign(item, metadata);
+    }
+    renderHome();
+  } catch (error) {
+    console.warn("Serien-Wallpaper konnten nicht ergänzt werden:", error);
   }
 }
 

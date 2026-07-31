@@ -110,6 +110,7 @@ class UpdateChecker:
         branch: str = DEFAULT_BRANCH,
         app_dir: Optional[Path] = None,
         cache_seconds: int = 600,
+        github_token: Optional[str] = None,
     ):
         self.repository = (
             repository
@@ -119,6 +120,16 @@ class UpdateChecker:
         self.branch = branch.strip() or DEFAULT_BRANCH
         self.app_dir = Path(app_dir or Path(__file__).resolve().parent)
         self.cache_seconds = max(0, int(cache_seconds))
+        self.github_token = str(
+            github_token
+            if github_token is not None
+            else (
+                os.environ.get("UPDATE_GITHUB_TOKEN")
+                or os.environ.get("GITHUB_TOKEN")
+                or os.environ.get("GH_TOKEN")
+                or ""
+            )
+        ).strip()
         self._cache: Optional[dict] = None
         self._cache_time = 0.0
         self._lock = threading.Lock()
@@ -231,16 +242,30 @@ class UpdateChecker:
         return f"https://github.com/{self.repository}"
 
     def _request_json(self, path: str):
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Royal-Downloader-Updater",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if self.github_token:
+            headers["Authorization"] = f"Bearer {self.github_token}"
         response = requests.get(
             f"https://api.github.com/repos/{self.repository}/{path}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "Royal-Downloader-Updater",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=headers,
             timeout=10,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            if (
+                response.status_code == 403
+                and response.headers.get("X-RateLimit-Remaining") == "0"
+            ):
+                raise RuntimeError(
+                    "GitHub-API-Limit erreicht. UPDATE_GITHUB_TOKEN hinterlegen "
+                    "oder bis zum Zurücksetzen des Limits warten."
+                ) from exc
+            raise
         return response.json()
 
     def _get_json(self, path: str) -> dict:

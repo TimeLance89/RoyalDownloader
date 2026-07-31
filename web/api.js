@@ -45,6 +45,7 @@ const api = {
   moviesPreload(slugs) { return this.post("/api/movies/preload", { slugs }); },
   tmdbMovies(items) { return this.post("/api/tmdb/movies", { items }); },
   tmdbMovie(item) { return this.post("/api/tmdb/movie", item); },
+  tmdbSeries(items) { return this.post("/api/tmdb/series", { items }); },
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },

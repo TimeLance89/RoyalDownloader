@@ -197,6 +197,7 @@ All variables are optional and have operational defaults.
 | `APP_COMMIT_SHA` | empty | Optional CI revision override; normal builds detect Git automatically |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/RoyalDownloader` | Repository used by the updater |
 | `UPDATE_GITHUB_BRANCH` | `main` | Branch compared by the updater |
+| `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token with read-only repository contents access; prevents the low anonymous API limit |
 | `UPDATE_MODE` | `manual` | `manual` or `automatic`; a value saved in the UI takes precedence |
 | `AUTO_UPDATE_INTERVAL_HOURS` | `6` | Automatic application update interval, limited to 1–168 hours |
 | `YTDLP_AUTO_UPDATE` | `true` | Enables queue-safe stable yt-dlp updates |

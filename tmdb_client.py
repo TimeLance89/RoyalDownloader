@@ -80,6 +80,7 @@ class TMDBClient:
         self.language = language
         self.timeout = timeout
         self._movie_summary_cache: dict = {}
+        self._series_summary_cache: dict = {}
         self._movie_search_cache: dict = {}
         self._movie_cache: dict = {}
         self._movie_id_cache: dict = {}
@@ -616,6 +617,55 @@ class TMDBClient:
             result = self._series_payload(details, title, key, now)
         with self._lock:
             self._series_id_cache[key] = (now, result)
+        return result
+
+    def series_summary(self, title: str, year: str = "") -> Optional[dict]:
+        """Schnelle Serien-Listenmetadaten mit nur einer TMDB-Suchanfrage."""
+        query_title = str(title or "").strip()
+        cache_key = (_normalize(query_title), str(year or ""))
+        with self._lock:
+            if cache_key in self._series_summary_cache:
+                return self._series_summary_cache[cache_key]
+
+        params = {
+            "query": query_title,
+            "language": self.language,
+            "include_adult": "false",
+        }
+        if year:
+            params["first_air_date_year"] = str(year)
+        search = self._request("/search/tv", params) or {}
+        best = self._best_result(
+            search.get("results", []), query_title, str(year or ""),
+            ("name", "original_name"), "first_air_date",
+        )
+        if best is None and year:
+            params.pop("first_air_date_year", None)
+            search = self._request("/search/tv", params) or {}
+            best = self._best_result(
+                search.get("results", []), query_title, str(year),
+                ("name", "original_name"), "first_air_date",
+            )
+
+        result = None
+        if best:
+            result = {
+                "tmdb_id": best["id"],
+                "title": best.get("name") or title,
+                "original_title": best.get("original_name") or "",
+                "year": _year_from_date(best.get("first_air_date") or ""),
+                "first_air_date": best.get("first_air_date") or "",
+                "cover_url": self._poster_url(best.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(best.get("backdrop_path") or ""),
+                "description": best.get("overview") or "",
+                "genres": [],
+                "rating": round(float(best.get("vote_average") or 0), 1),
+                "vote_count": int(best.get("vote_count") or 0),
+                "metadata_source": "TMDB",
+            }
+        if result is not None:
+            with self._lock:
+                self._series_summary_cache[cache_key] = result
         return result
 
     def season_air_dates(
