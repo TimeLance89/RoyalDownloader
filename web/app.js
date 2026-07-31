@@ -239,6 +239,15 @@ async function requireLogin() {
 function initLoginScreen() {
   api.onUnauthorized = handleUnauthorized;
   document.getElementById("login-form").addEventListener("submit", submitLogin);
+  document.getElementById("login-password-toggle").addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    const password = document.getElementById("login-password");
+    const visible = password.type === "text";
+    password.type = visible ? "password" : "text";
+    button.setAttribute("aria-pressed", String(!visible));
+    button.setAttribute("aria-label", visible ? "Passwort anzeigen" : "Passwort verbergen");
+    password.focus();
+  });
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────
