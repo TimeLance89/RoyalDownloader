@@ -1981,12 +1981,18 @@ async function refreshSeriesJellyfinStatus(force = false) {
     const isSameView = state.series.viewGeneration === viewGeneration;
     if (!isLatestForSeries || !isSameView || state.series.current?.base_slug !== baseSlug) return false;
     syncSeriesQueueFlags(refreshed);
-    state.series.current = refreshed;
-    state.series.cache[baseSlug] = refreshed;
+    const enriched = {
+      ...current,
+      ...refreshed,
+      backdrop_url: refreshed.backdrop_url || current.backdrop_url || "",
+    };
+    state.series.current = enriched;
+    state.series.cache[baseSlug] = enriched;
     pruneSeriesEpisodeSelection();
+    updateSeriesOverview(enriched);
     updateWatchBtn();
     renderSeriesTiles();
-    updateSeriesStatus(refreshed);
+    updateSeriesStatus(enriched);
     return true;
   } catch (error) {
     console.warn("Serienstatus konnte nicht live aktualisiert werden:", error);
@@ -3658,16 +3664,26 @@ async function loadSeries(result) {
 
   const cached = state.series.cache[cacheKey];
   if (cached) {
-    showSeriesDetail(cached, result.sample_slug);
-    updateSeriesStatus(cached);
+    const enriched = {
+      ...result,
+      ...cached,
+      backdrop_url: cached.backdrop_url || result.backdrop_url || "",
+    };
+    showSeriesDetail(enriched, result.sample_slug);
+    updateSeriesStatus(enriched);
     refreshSeriesJellyfinStatus();
     return;
   }
 
   document.getElementById("series-status").textContent = `Öffne Staffeln für «${result.title}» …`;
   try {
-    const series = await api.seriesLoad(result.sample_slug, result.base_slug || "", false, true);
+    const loaded = await api.seriesLoad(result.sample_slug, result.base_slug || "", false, true);
     if (requestId !== state.series.requestSeq) return;
+    const series = {
+      ...result,
+      ...loaded,
+      backdrop_url: loaded.backdrop_url || result.backdrop_url || "",
+    };
     showSeriesDetail(series, result.sample_slug);
     updateSeriesStatus(series);
     refreshSeriesJellyfinStatus();
@@ -3737,7 +3753,9 @@ function updateWatchBtn() {
 
 function setSeriesDetailArtwork(series) {
   const panel = document.querySelector("#series-detail-modal .series-detail-panel");
-  const artwork = series?.backdrop_url || series?.cover_url || "";
+  // Das Hero ist ein 16:9-Wallpaper. Hochformat-Poster dürfen hier nie als
+  // Ersatz erscheinen, da sie aufgezoomt und abgeschnitten wirken.
+  const artwork = series?.backdrop_url || "";
   panel.classList.toggle("has-no-art", !artwork);
   if (!artwork) {
     panel.style.removeProperty("--series-backdrop-image");
@@ -3747,15 +3765,7 @@ function setSeriesDetailArtwork(series) {
   panel.style.setProperty("--series-backdrop-image", `url("${backdropUrl}")`);
 }
 
-function showSeriesDetail(series, sampleSlug) {
-  state.series.viewGeneration += 1;
-  syncSeriesQueueFlags(series);
-  state.series.current = series;
-  state.series.currentSampleSlug = sampleSlug;
-  state.series.cache[series.base_slug] = series;
-  state.series.pendingBaseSlug = "";
-  state.series.epPicked = new Set();
-  updateSeriesResultSelection();
+function updateSeriesOverview(series) {
   document.getElementById("series-detail-title").textContent = series.title;
   setSeriesDetailArtwork(series);
   const cover = document.getElementById("series-cover");
@@ -3769,11 +3779,23 @@ function showSeriesDetail(series, sampleSlug) {
   seriesMeta.push(...(series.genres || []));
   seriesMeta.push(
     `${series.seasons.length} ${series.seasons.length === 1 ? "Staffel" : "Staffeln"}`,
-    `${series.episode_count} ${series.episode_count === 1 ? "Episode" : "Episoden"}`
+    `${series.episode_count} ${series.episode_count === 1 ? "Episode" : "Episoden"}`,
   );
   if (series.metadata_source) seriesMeta.push(`Metadaten: ${series.metadata_source}`);
   renderSeriesDetailMeta(seriesMeta);
   document.getElementById("series-desc").textContent = series.description || "(keine Beschreibung verfügbar)";
+}
+
+function showSeriesDetail(series, sampleSlug) {
+  state.series.viewGeneration += 1;
+  syncSeriesQueueFlags(series);
+  state.series.current = series;
+  state.series.currentSampleSlug = sampleSlug;
+  state.series.cache[series.base_slug] = series;
+  state.series.pendingBaseSlug = "";
+  state.series.epPicked = new Set();
+  updateSeriesResultSelection();
+  updateSeriesOverview(series);
   document.getElementById("series-watch-btn").disabled = false;
   document.getElementById("series-select-all").disabled = false;
   document.getElementById("series-select-none").disabled = false;
