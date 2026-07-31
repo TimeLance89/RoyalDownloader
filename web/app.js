@@ -572,7 +572,10 @@ function openMediaModal(modalId, trigger = null) {
 function closeMediaModal(modalId, restoreFocus = true) {
   const modal = document.getElementById(modalId);
   if (!modal || modal.hidden) return;
-  if (modalId === "fp-detail-modal") closeFpTrailerModal(false);
+  if (modalId === "fp-detail-modal") {
+    closeFpTrailerModal(false);
+    stopFpDetailHeroTrailer();
+  }
   const returnFocus = modal._returnFocus;
   modal.classList.remove("is-open");
   modal.hidden = true;
@@ -2511,6 +2514,80 @@ function renderFpCast(cast, tmdbUrl) {
   }
 }
 
+let fpDetailHeroTrailerTimer = null;
+let fpDetailHeroTrailerToken = 0;
+let fpDetailHeroTrailerMuted = true;
+
+function fpTrailerYoutubeKey(movie) {
+  const trailer = movie?.trailer;
+  const key = String(trailer?.key || "").trim();
+  return trailer?.site === "YouTube" && /^[A-Za-z0-9_-]{6,20}$/.test(key) ? key : "";
+}
+
+function setFpDetailHeroTrailerMuted(muted) {
+  fpDetailHeroTrailerMuted = Boolean(muted);
+  const frame = document.getElementById("fp-detail-hero-frame");
+  const button = document.getElementById("fp-detail-hero-mute");
+  const enabled = !fpDetailHeroTrailerMuted;
+  frame?.contentWindow?.postMessage(JSON.stringify({
+    event: "command",
+    func: fpDetailHeroTrailerMuted ? "mute" : "unMute",
+    args: [],
+  }), "*");
+  button.setAttribute("aria-pressed", String(enabled));
+  button.setAttribute("aria-label", enabled ? "Trailerton ausschalten" : "Trailerton einschalten");
+  button.title = enabled ? "Trailerton ausschalten" : "Trailerton einschalten";
+  button.querySelector("span").textContent = enabled ? "🔊" : "🔇";
+}
+
+function stopFpDetailHeroTrailer() {
+  fpDetailHeroTrailerToken += 1;
+  if (fpDetailHeroTrailerTimer) clearTimeout(fpDetailHeroTrailerTimer);
+  fpDetailHeroTrailerTimer = null;
+  const panel = document.getElementById("fp-detail-panel");
+  const shell = document.getElementById("fp-detail-hero-trailer");
+  const frame = document.getElementById("fp-detail-hero-frame");
+  const muteButton = document.getElementById("fp-detail-hero-mute");
+  shell.classList.remove("is-playing");
+  panel.classList.remove("is-trailer-playing");
+  muteButton.hidden = true;
+  frame.onload = null;
+  frame.removeAttribute("src");
+  shell.hidden = true;
+  setFpDetailHeroTrailerMuted(true);
+}
+
+function scheduleFpDetailHeroTrailer(movie) {
+  stopFpDetailHeroTrailer();
+  const key = fpTrailerYoutubeKey(movie);
+  if (!key || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const token = fpDetailHeroTrailerToken;
+  fpDetailHeroTrailerTimer = setTimeout(() => {
+    if (
+      token !== fpDetailHeroTrailerToken
+      || document.getElementById("fp-detail-modal").hidden
+    ) return;
+    const panel = document.getElementById("fp-detail-panel");
+    const shell = document.getElementById("fp-detail-hero-trailer");
+    const frame = document.getElementById("fp-detail-hero-frame");
+    const muteButton = document.getElementById("fp-detail-hero-mute");
+    setFpDetailHeroTrailerMuted(true);
+    shell.hidden = false;
+    frame.onload = () => {
+      if (token !== fpDetailHeroTrailerToken) return;
+      shell.classList.add("is-playing");
+      panel.classList.add("is-trailer-playing");
+      muteButton.hidden = false;
+      setFpDetailHeroTrailerMuted(true);
+    };
+    frame.src =
+      `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
+      + `?autoplay=1&mute=1&controls=0&loop=1&playlist=${encodeURIComponent(key)}`
+      + `&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`
+      + `&origin=${encodeURIComponent(window.location.origin)}`;
+  }, 2000);
+}
+
 function closeFpTrailerModal(restoreFocus = true) {
   const modal = document.getElementById("fp-trailer-modal");
   if (!modal || modal.hidden) return;
@@ -2528,6 +2605,7 @@ function openFpTrailerModal(movie, trigger) {
   const trailer = movie?.trailer;
   const key = String(trailer?.key || "").trim();
   if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
+  stopFpDetailHeroTrailer();
   const modal = document.getElementById("fp-trailer-modal");
   modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
@@ -2542,16 +2620,20 @@ function openFpTrailerModal(movie, trigger) {
 
 function configureFpTrailer(movie) {
   const button = document.getElementById("fp-detail-trailer");
+  const trailerKey = fpTrailerYoutubeKey(movie);
+  const available = Boolean(trailerKey);
   const trailer = movie?.trailer;
-  const trailerKey = String(trailer?.key || "").trim();
-  const available = trailer?.site === "YouTube"
-    && /^[A-Za-z0-9_-]{6,20}$/.test(trailerKey);
   button.hidden = !available;
   const trailerMovie = available
     ? { ...movie, trailer: { ...trailer, key: trailerKey } }
     : null;
   button.onclick = trailerMovie ? () => openFpTrailerModal(trailerMovie, button) : null;
-  if (!available) closeFpTrailerModal(false);
+  if (!available) {
+    closeFpTrailerModal(false);
+    stopFpDetailHeroTrailer();
+  } else {
+    scheduleFpDetailHeroTrailer(trailerMovie);
+  }
 }
 
 function configureFpDetailAction(slug, movie, metadataOnly = false) {
@@ -5807,6 +5889,9 @@ async function initApp() {
   });
   document.getElementById("fp-trailer-backdrop").addEventListener("click", () => {
     closeFpTrailerModal();
+  });
+  document.getElementById("fp-detail-hero-mute").addEventListener("click", () => {
+    setFpDetailHeroTrailerMuted(!fpDetailHeroTrailerMuted);
   });
   document.getElementById("movie-feature-open").addEventListener("click", (event) => {
     const slug = event.currentTarget.dataset.slug;
