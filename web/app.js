@@ -1278,7 +1278,40 @@ function createHomeCard(entry, rank = 0, eager = false) {
     media.rating ? `★ ${media.rating}` : "",
   ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
   overlay.append(title, meta);
-  art.append(type, overlay);
+
+  const preview = document.createElement("span");
+  preview.className = "home-card-preview";
+  preview.setAttribute("aria-hidden", "true");
+  const previewActions = document.createElement("span");
+  previewActions.className = "home-card-preview-actions";
+  const playMark = document.createElement("span");
+  playMark.className = "is-play";
+  playMark.textContent = "▶";
+  const addMark = document.createElement("span");
+  addMark.className = "is-add";
+  addMark.textContent = "+";
+  const moreMark = document.createElement("span");
+  moreMark.className = "is-more";
+  moreMark.textContent = "⌄";
+  previewActions.append(playMark, addMark, moreMark);
+  const previewTitle = document.createElement("strong");
+  previewTitle.translate = false;
+  previewTitle.textContent = media.title;
+  const previewMeta = document.createElement("span");
+  previewMeta.className = "home-card-preview-meta";
+  previewMeta.textContent = [
+    media.rating ? `★ ${media.rating}` : "",
+    media.year || "",
+    media.runtime || "",
+    kind === "movie" ? "Film" : "Serie",
+  ].filter(Boolean).join(" · ");
+  const previewGenres = document.createElement("span");
+  previewGenres.className = "home-card-preview-genres";
+  previewGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
+    || (kind === "movie" ? "Film entdecken" : "Serie entdecken");
+  preview.append(previewActions, previewTitle, previewMeta, previewGenres);
+
+  art.append(type, overlay, preview);
   card.appendChild(art);
   card.addEventListener("click", () => openHomeEntry(kind, key));
   return card;

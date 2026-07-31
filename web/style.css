@@ -12401,3 +12401,157 @@ body.global-search-open { overflow: hidden; }
     grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
   }
 }
+
+/* ── Startseite: verzögerte Streaming-Hovervorschau ───────────────── */
+.home-card-preview { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  #tab-home .home-card {
+    z-index: 1;
+    transition: z-index 0s .32s;
+  }
+
+  #tab-home .home-card:hover,
+  #tab-home .home-card:focus-visible {
+    z-index: 20;
+    transition-delay: 0s;
+  }
+
+  #tab-home .home-card .home-card-art {
+    transform-origin: center;
+    transition:
+      transform .28s cubic-bezier(.2, .8, .2, 1) .12s,
+      box-shadow .28s ease .12s,
+      border-color .2s ease;
+  }
+
+  #tab-home .home-card:first-child .home-card-art { transform-origin: left center; }
+
+  #tab-home .home-card:hover .home-card-art,
+  #tab-home .home-card:focus-visible .home-card-art {
+    border-color: rgba(255, 255, 255, .28);
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, .96);
+    transform: scale(1.095);
+  }
+
+  #tab-home .home-card-art img {
+    transition: transform .45s cubic-bezier(.2, .8, .2, 1) .16s, filter .3s ease .16s;
+  }
+
+  #tab-home .home-card:hover .home-card-art img,
+  #tab-home .home-card:focus-visible .home-card-art img {
+    filter: saturate(1.04) brightness(.82);
+    transform: scale(1.045);
+  }
+
+  #tab-home .home-card-preview {
+    position: absolute;
+    z-index: 5;
+    inset: auto 0 0;
+    display: flex;
+    min-width: 0;
+    min-height: 74%;
+    justify-content: flex-end;
+    flex-direction: column;
+    gap: 4px;
+    padding: 38px 10px 9px;
+    opacity: 0;
+    background: linear-gradient(180deg, transparent 0%, rgba(24, 24, 24, .88) 36%, #181818 58%);
+    transform: translateY(36%);
+    transition: opacity .2s ease .23s, transform .28s cubic-bezier(.2, .8, .2, 1) .23s;
+    pointer-events: none;
+  }
+
+  #tab-home .home-card:hover .home-card-preview,
+  #tab-home .home-card:focus-visible .home-card-preview {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #tab-home .home-card:hover .home-card-overlay,
+  #tab-home .home-card:focus-visible .home-card-overlay {
+    opacity: 0;
+    transition: opacity .12s ease .16s;
+  }
+
+  #tab-home .home-card-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 1px;
+  }
+
+  #tab-home .home-card-preview-actions > span {
+    display: grid;
+    width: 23px;
+    height: 23px;
+    place-items: center;
+    color: #fff;
+    background: rgba(28, 28, 28, .88);
+    border: 1px solid rgba(255, 255, 255, .58);
+    border-radius: 50%;
+    font: 700 11px/1 "Archivo", sans-serif;
+  }
+
+  #tab-home .home-card-preview-actions .is-play {
+    padding-left: 1px;
+    color: #111;
+    background: #fff;
+    border-color: #fff;
+    font-size: 9px;
+  }
+
+  #tab-home .home-card-preview-actions .is-more {
+    margin-left: auto;
+    color: #ddd;
+    font-size: 14px;
+  }
+
+  #tab-home .home-card-preview > strong {
+    overflow: hidden;
+    color: #fff;
+    font: 750 10px/1.15 "Archivo", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #tab-home .home-card-preview-meta {
+    overflow: hidden;
+    color: #63dc80;
+    font: 650 7.5px/1.2 "DM Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #tab-home .home-card-preview-genres {
+    overflow: hidden;
+    color: rgba(255, 255, 255, .72);
+    font: 550 7px/1.2 "DM Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #tab-home .home-card.is-ranked .home-card-preview {
+    min-height: 64%;
+    padding: 34px 7px 7px;
+  }
+
+  #tab-home .home-card.is-ranked .home-card-preview-actions > span {
+    width: 20px;
+    height: 20px;
+  }
+
+  #tab-home .home-card.is-ranked .home-card-preview-actions .is-add { display: none; }
+  #tab-home .home-card.is-ranked .home-card-preview > strong { font-size: 8px; }
+  #tab-home .home-card.is-ranked .home-card-preview-meta,
+  #tab-home .home-card.is-ranked .home-card-preview-genres { font-size: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #tab-home .home-card,
+  #tab-home .home-card .home-card-art,
+  #tab-home .home-card-art img,
+  #tab-home .home-card-preview {
+    transition: none;
+  }
+}

@@ -7890,6 +7890,7 @@ async def api_v1_capabilities():
             "tmdb_metadata": True,
             "cover_proxy": True,
             "websocket": True,
+            "settings": True,
         },
         "websocket": {
             "path": "/api/v1/ws",
@@ -8136,14 +8137,20 @@ async def api_v1_auth_logout(request: Request):
     return response
 
 
+@app.get("/api/v1/auth/config")
 @app.get("/api/auth/config")
 async def api_auth_config_get(request: Request):
     account = auth_account()
+    session_kind = (
+        appauth.SESSION_KIND_MOBILE
+        if request.url.path.startswith("/api/v1/")
+        else appauth.SESSION_KIND_WEB
+    )
     return {
         "configured": bool(account.get("configured")),
         "username": account.get("username", ""),
         "source": account.get("source", "none"),
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
+        "active_sessions": SESSION_STORE.count(session_kind),
         "min_password_length": appauth.MIN_PASSWORD_LENGTH,
         "min_username_length": appauth.MIN_USERNAME_LENGTH,
     }
@@ -8189,6 +8196,43 @@ async def api_auth_config_set(body: AuthConfigBody, request: Request):
     _set_session_cookie(response, request, token)
     log(f"Zugangsdaten aktualisiert (Benutzer „{username}“).")
     return response
+
+
+@app.post("/api/v1/auth/config")
+async def api_v1_auth_config_set(body: AuthConfigBody, request: Request):
+    account = auth_account()
+    if bool(account.get("configured")):
+        confirmed = await run_in_threadpool(
+            verify_credentials, account.get("username", ""), body.current_password or "",
+        )
+        if not confirmed:
+            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+    try:
+        username = appauth.validate_username(body.username)
+        password = appauth.validate_password(body.password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    password_hash = await run_in_threadpool(appauth.hash_password, password)
+    SESSION_STORE.revoke_all()
+    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
+        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
+    session_label = (request.headers.get("user-agent", "") or "Android")[:120]
+    token = SESSION_STORE.create(
+        label=session_label,
+        kind=appauth.SESSION_KIND_MOBILE,
+    )
+    log(f"Zugangsdaten über die Android-App aktualisiert (Benutzer „{username}“).")
+    return {
+        "ok": True,
+        "configured": True,
+        "username": username,
+        "source": "settings",
+        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
+        "device_label": session_label,
+    }
 
 
 @app.post("/api/auth/sessions/revoke")
@@ -9302,6 +9346,7 @@ async def api_download_cancel():
 # ── Einstellungen ────────────────────────────────────────────────────────────
 
 
+@app.get("/api/v1/updater/status")
 @app.get("/api/updater/status")
 async def api_updater_status(force: bool = False):
     payload = await run_in_threadpool(UPDATE_CHECKER.check, force)
@@ -9314,6 +9359,7 @@ class UpdateInstallBody(BaseModel):
     target_sha: str
 
 
+@app.post("/api/v1/updater/install")
 @app.post("/api/updater/install")
 async def api_updater_install(body: UpdateInstallBody):
     update = await run_in_threadpool(UPDATE_CHECKER.check, True)
@@ -9329,6 +9375,7 @@ async def api_updater_install(body: UpdateInstallBody):
     return {"installer": installer}
 
 
+@app.get("/api/v1/updater/install/status")
 @app.get("/api/updater/install/status")
 async def api_updater_install_status():
     return {"installer": UPDATE_INSTALLER.status()}
@@ -9339,11 +9386,13 @@ class UpdaterConfigBody(BaseModel):
     auto_update_interval_hours: int = 6
 
 
+@app.get("/api/v1/updater/config")
 @app.get("/api/updater/config")
 async def api_updater_config_get():
     return _updater_config_payload()
 
 
+@app.post("/api/v1/updater/config")
 @app.post("/api/updater/config")
 async def api_updater_config_set(body: UpdaterConfigBody):
     mode = str(body.update_mode or "").strip().lower()
@@ -9663,11 +9712,13 @@ def _ui_language_payload(saved: bool = False) -> dict:
     }
 
 
+@app.get("/api/v1/ui/config")
 @app.get("/api/ui/config")
 async def api_ui_config_get():
     return _ui_language_payload()
 
 
+@app.post("/api/v1/ui/config")
 @app.post("/api/ui/config")
 async def api_ui_config_set(body: UILanguageBody):
     language = normalize_ui_language(body.language)
@@ -9720,11 +9771,13 @@ class ConfigBody(BaseModel):
     series_path: Optional[str] = None
 
 
+@app.get("/api/v1/config")
 @app.get("/api/config")
 async def api_config_get():
     return {"save_path": state.save_path, "series_path": state.series_path}
 
 
+@app.post("/api/v1/config")
 @app.post("/api/config")
 async def api_config_set(body: ConfigBody):
     movie_path = body.save_path.strip()
@@ -9793,11 +9846,13 @@ def _provider_priority_payload(saved: bool = False) -> dict:
     }
 
 
+@app.get("/api/v1/providers/config")
 @app.get("/api/providers/config")
 async def api_provider_priority_get():
     return _provider_priority_payload()
 
 
+@app.post("/api/v1/providers/config")
 @app.post("/api/providers/config")
 async def api_provider_priority_set(body: ProviderPriorityBody):
     movie_ids = [str(value).strip().casefold() for value in body.movies]
@@ -9904,6 +9959,7 @@ class JellyfinConfigBody(BaseModel):
     cleanup_default: Optional[str] = None
 
 
+@app.get("/api/v1/jellyfin/config")
 @app.get("/api/jellyfin/config")
 async def api_jellyfin_config_get():
     return {
@@ -9918,6 +9974,7 @@ async def api_jellyfin_config_get():
     }
 
 
+@app.post("/api/v1/jellyfin/config")
 @app.post("/api/jellyfin/config")
 async def api_jellyfin_config_set(body: JellyfinConfigBody):
     url = body.url.strip()
@@ -9984,6 +10041,7 @@ class JellyfinUsersBody(BaseModel):
     api_key: str
 
 
+@app.post("/api/v1/jellyfin/users")
 @app.post("/api/jellyfin/users")
 async def api_jellyfin_users(body: JellyfinUsersBody):
     url = body.url.strip() or state.jellyfin_cfg.get("url", "")
@@ -10004,6 +10062,7 @@ class TMDBConfigBody(BaseModel):
     language: str = "de-DE"
 
 
+@app.get("/api/v1/tmdb/config")
 @app.get("/api/tmdb/config")
 async def api_tmdb_config_get():
     return {
@@ -10014,6 +10073,7 @@ async def api_tmdb_config_get():
     }
 
 
+@app.post("/api/v1/tmdb/config")
 @app.post("/api/tmdb/config")
 async def api_tmdb_config_set(body: TMDBConfigBody):
     language = appconfig.tmdb_language_for_ui(state.ui_language)
@@ -10048,11 +10108,13 @@ class AutomationConfigBody(BaseModel):
     dl_window_end: Optional[int] = None
 
 
+@app.get("/api/v1/automation/config")
 @app.get("/api/automation/config")
 async def api_automation_config_get():
     return {**state.automation, "in_window": is_within_download_window()}
 
 
+@app.post("/api/v1/automation/config")
 @app.post("/api/automation/config")
 async def api_automation_config_set(body: AutomationConfigBody):
     ok = appconfig.save_automation(
@@ -10074,6 +10136,7 @@ class TelegramConfigBody(BaseModel):
     chat_id: str = ""
 
 
+@app.get("/api/v1/telegram/config")
 @app.get("/api/telegram/config")
 async def api_telegram_config_get():
     return {
@@ -10084,6 +10147,7 @@ async def api_telegram_config_get():
     }
 
 
+@app.post("/api/v1/telegram/config")
 @app.post("/api/telegram/config")
 async def api_telegram_config_set(body: TelegramConfigBody):
     token = body.bot_token.strip() or state.telegram_cfg.get("bot_token", "")
@@ -10132,11 +10196,13 @@ def _seerr_config_payload() -> dict:
     }
 
 
+@app.get("/api/v1/seerr/config")
 @app.get("/api/seerr/config")
 async def api_seerr_config_get():
     return _seerr_config_payload()
 
 
+@app.post("/api/v1/seerr/config")
 @app.post("/api/seerr/config")
 async def api_seerr_config_set(body: SeerrConfigBody):
     url = body.url.strip().rstrip("/")
@@ -10176,6 +10242,7 @@ async def api_seerr_config_set(body: SeerrConfigBody):
     return payload
 
 
+@app.post("/api/v1/seerr/sync")
 @app.post("/api/seerr/sync")
 async def api_seerr_sync():
     result = await run_in_threadpool(seerr_poll_once)
@@ -10192,6 +10259,7 @@ async def api_seerr_requests():
     return {"requests": records[:100]}
 
 
+@app.get("/api/v1/browse-dir")
 @app.get("/api/browse-dir")
 async def api_browse_dir(path: str = ""):
     def _work():
