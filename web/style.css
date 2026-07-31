@@ -11413,22 +11413,17 @@ body.login-open #app {
 }
 
 #tab-home .home-card,
-#tab-home .home-card-skeleton,
-#tab-home .home-card.is-ranked {
+#tab-home .home-card-skeleton {
   flex: 0 0 clamp(210px, 13.65vw, 300px);
   width: clamp(210px, 13.65vw, 300px);
 }
 
-#tab-home .home-card,
-#tab-home .home-card.is-ranked {
-  display: block;
-}
+#tab-home .home-card { display: block; }
 
 #tab-home .home-card-art,
-#tab-home .home-card-skeleton,
-#tab-home .home-card.is-ranked .home-card-art {
+#tab-home .home-card-skeleton {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 9.35;
   grid-column: auto;
   border-radius: 5px;
 }
@@ -11474,43 +11469,51 @@ body.login-open #app {
 }
 
 #tab-home .home-card.is-ranked {
-  grid-template-columns: none;
-  align-items: initial;
+  display: grid;
+  flex: 0 0 clamp(220px, 13.5vw, 270px);
+  width: clamp(220px, 13.5vw, 270px);
+  grid-template-columns: minmax(96px, .48fr) minmax(118px, .52fr);
+  align-items: end;
   gap: 0;
 }
 
-#tab-home .home-card-rank {
-  position: absolute;
-  z-index: 6;
-  top: 0;
-  left: 0;
-  display: flex;
-  width: 27px;
-  height: 33px;
-  align-items: flex-end;
-  justify-content: center;
-  margin: 0;
-  padding-bottom: 4px;
-  color: #fff;
-  background: #e50914;
-  border-radius: 5px 0 4px 0;
-  box-shadow: 3px 3px 10px rgba(0, 0, 0, .38);
-  font: 800 11px/1 "Archivo", sans-serif;
-  text-align: center;
-  text-shadow: none;
-  -webkit-text-stroke: 0;
+#tab-home .home-top-track {
+  gap: clamp(12px, .9vw, 18px);
 }
 
-#tab-home .home-card-rank::before {
-  content: "TOP";
-  position: absolute;
-  top: 4px;
-  left: 0;
+#tab-home .home-card.is-ranked .home-card-art {
+  grid-column: 2;
   width: 100%;
-  font: 800 6px/1 "Archivo", sans-serif;
-  letter-spacing: .04em;
-  text-align: center;
+  aspect-ratio: 2 / 3;
+  border-radius: 5px;
 }
+
+#tab-home .home-card-rank {
+  position: relative;
+  z-index: 0;
+  top: auto;
+  left: auto;
+  grid-column: 1;
+  align-self: end;
+  display: block;
+  width: auto;
+  height: auto;
+  margin: 0 -8px 0 0;
+  padding: 0;
+  color: #0f0f0f;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  font: 800 clamp(220px, 14.6vw, 290px)/.72 "Archivo", sans-serif;
+  letter-spacing: -.08em;
+  text-align: right;
+  text-shadow: 4px 4px 0 #0f0f0f;
+  -webkit-text-stroke: 2px #686868;
+}
+
+#tab-home .home-card-rank::before { display: none; }
+
+#tab-home .home-card.is-ranked .home-card-type { display: none; }
 
 #tab-home .home-rail-controls {
   opacity: .45;
@@ -11530,9 +11533,18 @@ body.login-open #app {
   }
 
   #tab-home .home-card,
-  #tab-home .home-card-skeleton,
-  #tab-home .home-card.is-ranked {
+  #tab-home .home-card-skeleton {
     flex-basis: clamp(176px, 46vw, 230px);
     width: clamp(176px, 46vw, 230px);
+  }
+
+  #tab-home .home-card.is-ranked {
+    flex-basis: clamp(238px, 67vw, 294px);
+    width: clamp(238px, 67vw, 294px);
+    grid-template-columns: minmax(88px, .43fr) minmax(132px, .57fr);
+  }
+
+  #tab-home .home-card-rank {
+    font-size: clamp(240px, 78vw, 320px);
   }
 }
