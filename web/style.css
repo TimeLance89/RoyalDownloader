@@ -13081,9 +13081,9 @@ body.global-search-open { overflow: hidden; }
 #tab-filme #fp-results.result-shelf,
 #tab-serien #series-results.result-shelf {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(180px, 11.2vw, 220px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 12.2vw, 250px), 1fr));
   align-items: start;
-  gap: clamp(26px, 2.5vw, 38px) clamp(12px, 1.25vw, 20px);
+  gap: clamp(30px, 3vw, 46px) clamp(14px, 1.4vw, 24px);
   min-height: 0;
   overflow: visible;
   padding: 0 0 16px;
