@@ -581,6 +581,9 @@ function closeMediaModal(modalId, restoreFocus = true) {
   if (modalId === "fp-detail-modal") {
     closeFpTrailerModal(false);
     stopFpDetailHeroTrailer();
+  } else if (modalId === "series-detail-modal") {
+    closeFpTrailerModal(false);
+    stopSeriesDetailHeroTrailer();
   }
   const returnFocus = modal._returnFocus;
   modal.classList.remove("is-open");
@@ -1213,6 +1216,36 @@ function openHomeEntry(kind, key) {
   if (series) loadSeries(series);
 }
 
+function updateHomeCardHoverEdge(card) {
+  if (!card || card.classList.contains("is-ranked")) return;
+  const track = card.closest(".home-track");
+  if (!track) return;
+  const cardRect = card.getBoundingClientRect();
+  const trackRect = track.getBoundingClientRect();
+  const growth = cardRect.width * 0.35;
+  const clipsLeft = cardRect.left - growth < trackRect.left;
+  const clipsRight = cardRect.right + growth > trackRect.right;
+  card.classList.toggle("is-hover-edge-left", clipsLeft && !clipsRight);
+  card.classList.toggle("is-hover-edge-right", clipsRight && !clipsLeft);
+  if (clipsLeft && clipsRight) {
+    const useLeft = cardRect.left + (cardRect.width / 2) < trackRect.left + (trackRect.width / 2);
+    card.classList.toggle("is-hover-edge-left", useLeft);
+    card.classList.toggle("is-hover-edge-right", !useLeft);
+  }
+}
+
+function updateHomeRailNavigation(track) {
+  if (!track?.id) return;
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+  const canScroll = maxScroll > 2;
+  const atStart = track.scrollLeft <= 2;
+  const atEnd = track.scrollLeft >= maxScroll - 2;
+  document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
+    const direction = Number(button.dataset.direction) || 1;
+    button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
+  });
+}
+
 function createHomeCard(entry, rank = 0, eager = false) {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1313,6 +1346,14 @@ function createHomeCard(entry, rank = 0, eager = false) {
 
   art.append(type, overlay, preview);
   card.appendChild(art);
+  card.addEventListener("pointerenter", () => updateHomeCardHoverEdge(card));
+  card.addEventListener("pointerleave", () => {
+    card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
+  });
+  card.addEventListener("focus", () => updateHomeCardHoverEdge(card));
+  card.addEventListener("blur", () => {
+    card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
+  });
   card.addEventListener("click", () => openHomeEntry(kind, key));
   return card;
 }
@@ -1321,6 +1362,7 @@ function renderHomeRail(trackId, entries, { ranked = false } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
   track.replaceChildren();
+  requestAnimationFrame(() => updateHomeRailNavigation(track));
   if (!entries.length) {
     if (!state.home.loading) {
       const empty = document.createElement("span");
@@ -2828,7 +2870,21 @@ function renderFpCast(cast, tmdbUrl) {
 
 let fpDetailHeroTrailerTimer = null;
 let fpDetailHeroTrailerToken = 0;
-let fpDetailHeroTrailerMuted = true;
+let fpDetailHeroTrailerCurrentTime = 0;
+let fpDetailHeroTrailerKey = "";
+const FP_TRAILER_MUTED_KEY = "royal-trailer-muted-v1";
+const heroTrailerTimeResolvers = new Map();
+
+function loadFpDetailHeroTrailerMuted() {
+  try {
+    const saved = localStorage.getItem(FP_TRAILER_MUTED_KEY);
+    return saved === null ? true : saved !== "false";
+  } catch {
+    return true;
+  }
+}
+
+let fpDetailHeroTrailerMuted = loadFpDetailHeroTrailerMuted();
 
 function fpTrailerYoutubeKey(movie) {
   const trailer = movie?.trailer;
@@ -2836,20 +2892,90 @@ function fpTrailerYoutubeKey(movie) {
   return trailer?.site === "YouTube" && /^[A-Za-z0-9_-]{6,20}$/.test(key) ? key : "";
 }
 
-function setFpDetailHeroTrailerMuted(muted) {
+function setFpDetailHeroTrailerMuted(muted, { persist = false } = {}) {
   fpDetailHeroTrailerMuted = Boolean(muted);
-  const frame = document.getElementById("fp-detail-hero-frame");
-  const button = document.getElementById("fp-detail-hero-mute");
+  if (persist) {
+    try {
+      localStorage.setItem(FP_TRAILER_MUTED_KEY, String(fpDetailHeroTrailerMuted));
+    } catch {
+      // Gesperrter Browser-Speicher darf die Trailersteuerung nicht blockieren.
+    }
+  }
   const enabled = !fpDetailHeroTrailerMuted;
-  frame?.contentWindow?.postMessage(JSON.stringify({
-    event: "command",
-    func: fpDetailHeroTrailerMuted ? "mute" : "unMute",
-    args: [],
+  for (const [frameId, buttonId] of [
+    ["fp-detail-hero-frame", "fp-detail-hero-mute"],
+    ["series-detail-hero-frame", "series-detail-hero-mute"],
+  ]) {
+    const frame = document.getElementById(frameId);
+    const button = document.getElementById(buttonId);
+    frame?.contentWindow?.postMessage(JSON.stringify({
+      event: "command",
+      func: fpDetailHeroTrailerMuted ? "mute" : "unMute",
+      args: [],
+    }), "*");
+    if (!button) continue;
+    button.setAttribute("aria-pressed", String(enabled));
+    button.setAttribute("aria-label", enabled ? "Trailerton ausschalten" : "Trailerton einschalten");
+    button.title = enabled ? "Trailerton ausschalten" : "Trailerton einschalten";
+    button.querySelector("span").textContent = enabled ? "🔊" : "🔇";
+  }
+}
+
+window.addEventListener("message", (event) => {
+  if (!["https://www.youtube-nocookie.com", "https://www.youtube.com"].includes(event.origin)) return;
+  let payload = event.data;
+  if (typeof payload === "string") {
+    try { payload = JSON.parse(payload); } catch { return; }
+  }
+  const currentTime = Number(payload?.info?.currentTime);
+  if (!Number.isFinite(currentTime) || currentTime < 0) return;
+  for (const [frameId, kind] of [
+    ["fp-detail-hero-frame", "film"],
+    ["series-detail-hero-frame", "series"],
+  ]) {
+    const frame = document.getElementById(frameId);
+    if (!frame || event.source !== frame.contentWindow) continue;
+    if (kind === "film") fpDetailHeroTrailerCurrentTime = currentTime;
+    else seriesDetailHeroTrailerCurrentTime = currentTime;
+    const resolve = heroTrailerTimeResolvers.get(frameId);
+    if (resolve) {
+      heroTrailerTimeResolvers.delete(frameId);
+      resolve(currentTime);
+    }
+    break;
+  }
+});
+
+function listenForHeroTrailerTime(frame) {
+  if (!frame?.contentWindow) return;
+  const subscribe = () => frame.contentWindow?.postMessage(JSON.stringify({
+    event: "listening",
+    id: frame.id,
+    channel: frame.id,
   }), "*");
-  button.setAttribute("aria-pressed", String(enabled));
-  button.setAttribute("aria-label", enabled ? "Trailerton ausschalten" : "Trailerton einschalten");
-  button.title = enabled ? "Trailerton ausschalten" : "Trailerton einschalten";
-  button.querySelector("span").textContent = enabled ? "🔊" : "🔇";
+  subscribe();
+  window.setTimeout(subscribe, 250);
+  window.setTimeout(subscribe, 750);
+}
+
+function readHeroTrailerCurrentTime(frameId, fallback = 0) {
+  const frame = document.getElementById(frameId);
+  if (!frame?.getAttribute("src") || !frame.contentWindow) return Promise.resolve(fallback);
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      heroTrailerTimeResolvers.delete(frameId);
+      resolve(Number.isFinite(value) ? value : fallback);
+    };
+    heroTrailerTimeResolvers.set(frameId, finish);
+    listenForHeroTrailerTime(frame);
+    frame.contentWindow.postMessage(JSON.stringify({
+      event: "command", func: "getCurrentTime", args: [],
+    }), "*");
+    window.setTimeout(() => finish(fallback), 500);
+  });
 }
 
 function stopFpDetailHeroTrailer() {
@@ -2866,13 +2992,16 @@ function stopFpDetailHeroTrailer() {
   frame.onload = null;
   frame.removeAttribute("src");
   shell.hidden = true;
-  setFpDetailHeroTrailerMuted(true);
+  setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+  fpDetailHeroTrailerKey = "";
 }
 
 function scheduleFpDetailHeroTrailer(movie) {
   stopFpDetailHeroTrailer();
   const key = fpTrailerYoutubeKey(movie);
   if (!key || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  fpDetailHeroTrailerKey = key;
+  fpDetailHeroTrailerCurrentTime = 0;
   const token = fpDetailHeroTrailerToken;
   fpDetailHeroTrailerTimer = setTimeout(() => {
     if (
@@ -2883,14 +3012,15 @@ function scheduleFpDetailHeroTrailer(movie) {
     const shell = document.getElementById("fp-detail-hero-trailer");
     const frame = document.getElementById("fp-detail-hero-frame");
     const muteButton = document.getElementById("fp-detail-hero-mute");
-    setFpDetailHeroTrailerMuted(true);
+    setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
     shell.hidden = false;
     frame.onload = () => {
       if (token !== fpDetailHeroTrailerToken) return;
+      listenForHeroTrailerTime(frame);
       shell.classList.add("is-playing");
       panel.classList.add("is-trailer-playing");
       muteButton.hidden = false;
-      setFpDetailHeroTrailerMuted(true);
+      setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
@@ -2913,17 +3043,27 @@ function closeFpTrailerModal(restoreFocus = true) {
   }
 }
 
-function openFpTrailerModal(movie, trigger) {
+async function openFpTrailerModal(movie, trigger, heroKind = "film") {
   const trailer = movie?.trailer;
   const key = String(trailer?.key || "").trim();
   if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
+  const isSeriesHero = heroKind === "series" && seriesDetailHeroTrailerKey === key;
+  const isFilmHero = heroKind === "film" && fpDetailHeroTrailerKey === key;
+  const startAt = isSeriesHero
+    ? await readHeroTrailerCurrentTime("series-detail-hero-frame", seriesDetailHeroTrailerCurrentTime)
+    : isFilmHero
+      ? await readHeroTrailerCurrentTime("fp-detail-hero-frame", fpDetailHeroTrailerCurrentTime)
+      : 0;
   stopFpDetailHeroTrailer();
+  stopSeriesDetailHeroTrailer();
   const modal = document.getElementById("fp-trailer-modal");
   modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
   document.getElementById("fp-trailer-caption").textContent = trailer.name || "Offizieller Trailer";
   document.getElementById("fp-trailer-frame").src =
-    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
+    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0`
+    + `${startAt >= 1 ? `&start=${Math.floor(startAt)}` : ""}`
+    + `&origin=${encodeURIComponent(window.location.origin)}`;
   modal.hidden = false;
   modal.classList.add("is-open");
   document.body.classList.add("trailer-modal-open");
@@ -2939,7 +3079,7 @@ function configureFpTrailer(movie) {
   const trailerMovie = available
     ? { ...movie, trailer: { ...trailer, key: trailerKey } }
     : null;
-  button.onclick = trailerMovie ? () => openFpTrailerModal(trailerMovie, button) : null;
+  button.onclick = trailerMovie ? () => openFpTrailerModal(trailerMovie, button, "film") : null;
   if (!available) {
     closeFpTrailerModal(false);
     stopFpDetailHeroTrailer();
@@ -3782,6 +3922,7 @@ function showSeriesLoading(result) {
   renderSeriesDetailMeta(previewMeta);
   document.getElementById("series-desc").textContent =
     "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
+  configureSeriesTrailer(result);
   const tiles = document.getElementById("series-tiles");
   tiles.replaceChildren();
   const loading = document.createElement("div");
@@ -3830,6 +3971,82 @@ function setSeriesDetailArtwork(series) {
   panel.style.setProperty("--series-backdrop-image", `url("${backdropUrl}")`);
 }
 
+let seriesDetailHeroTrailerTimer = null;
+let seriesDetailHeroTrailerToken = 0;
+let seriesDetailHeroTrailerCurrentTime = 0;
+let seriesDetailHeroTrailerKey = "";
+
+function stopSeriesDetailHeroTrailer() {
+  seriesDetailHeroTrailerToken += 1;
+  if (seriesDetailHeroTrailerTimer) clearTimeout(seriesDetailHeroTrailerTimer);
+  seriesDetailHeroTrailerTimer = null;
+  const panel = document.querySelector("#series-detail-modal .series-detail-panel");
+  const shell = document.getElementById("series-detail-hero-trailer");
+  const frame = document.getElementById("series-detail-hero-frame");
+  const muteButton = document.getElementById("series-detail-hero-mute");
+  if (!panel || !shell || !frame || !muteButton) return;
+  shell.classList.remove("is-playing");
+  panel.classList.remove("is-trailer-playing");
+  muteButton.hidden = true;
+  frame.onload = null;
+  frame.removeAttribute("src");
+  shell.hidden = true;
+  seriesDetailHeroTrailerKey = "";
+  setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+}
+
+function scheduleSeriesDetailHeroTrailer(series) {
+  const key = fpTrailerYoutubeKey(series);
+  if (!key || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    stopSeriesDetailHeroTrailer();
+    return;
+  }
+  const shell = document.getElementById("series-detail-hero-trailer");
+  if (seriesDetailHeroTrailerKey === key && (!shell.hidden || seriesDetailHeroTrailerTimer)) return;
+  stopSeriesDetailHeroTrailer();
+  seriesDetailHeroTrailerKey = key;
+  seriesDetailHeroTrailerCurrentTime = 0;
+  const token = seriesDetailHeroTrailerToken;
+  seriesDetailHeroTrailerTimer = setTimeout(() => {
+    if (
+      token !== seriesDetailHeroTrailerToken
+      || document.getElementById("series-detail-modal").hidden
+    ) return;
+    const panel = document.querySelector("#series-detail-modal .series-detail-panel");
+    const frame = document.getElementById("series-detail-hero-frame");
+    const muteButton = document.getElementById("series-detail-hero-mute");
+    shell.hidden = false;
+    frame.onload = () => {
+      if (token !== seriesDetailHeroTrailerToken) return;
+      listenForHeroTrailerTime(frame);
+      shell.classList.add("is-playing");
+      panel.classList.add("is-trailer-playing");
+      muteButton.hidden = false;
+      setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+    };
+    frame.src =
+      `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
+      + `?autoplay=1&mute=1&controls=0&loop=1&playlist=${encodeURIComponent(key)}`
+      + `&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`
+      + `&origin=${encodeURIComponent(window.location.origin)}`;
+  }, 2000);
+}
+
+function configureSeriesTrailer(series) {
+  const button = document.getElementById("series-detail-trailer");
+  const trailerKey = fpTrailerYoutubeKey(series);
+  const available = Boolean(trailerKey);
+  const trailerSeries = available
+    ? { ...series, trailer: { ...series.trailer, key: trailerKey } }
+    : null;
+  button.hidden = !available;
+  button.onclick = trailerSeries
+    ? () => openFpTrailerModal(trailerSeries, button, "series")
+    : null;
+  if (available) scheduleSeriesDetailHeroTrailer(trailerSeries);
+  else stopSeriesDetailHeroTrailer();
+}
+
 function updateSeriesOverview(series) {
   document.getElementById("series-detail-title").textContent = series.title;
   setSeriesDetailArtwork(series);
@@ -3849,6 +4066,7 @@ function updateSeriesOverview(series) {
   if (series.metadata_source) seriesMeta.push(`Metadaten: ${series.metadata_source}`);
   renderSeriesDetailMeta(seriesMeta);
   document.getElementById("series-desc").textContent = series.description || "(keine Beschreibung verfügbar)";
+  configureSeriesTrailer(series);
 }
 
 function showSeriesDetail(series, sampleSlug) {
@@ -6171,6 +6389,17 @@ async function initApp() {
       track?.scrollBy({ left: direction * Math.max(280, track.clientWidth * 0.82), behavior: "smooth" });
     });
   });
+  document.querySelectorAll("#tab-home .home-track").forEach((track) => {
+    let navigationFrame = 0;
+    track.addEventListener("scroll", () => {
+      cancelAnimationFrame(navigationFrame);
+      navigationFrame = requestAnimationFrame(() => updateHomeRailNavigation(track));
+    }, { passive: true });
+    updateHomeRailNavigation(track);
+  });
+  window.addEventListener("resize", () => {
+    document.querySelectorAll("#tab-home .home-track").forEach(updateHomeRailNavigation);
+  });
   const globalSearchInput = document.getElementById("global-search-input");
   const globalSearchToggle = document.getElementById("global-search-toggle");
   globalSearchToggle.addEventListener("click", () => globalSearchInput.focus());
@@ -6272,7 +6501,10 @@ async function initApp() {
     closeFpTrailerModal();
   });
   document.getElementById("fp-detail-hero-mute").addEventListener("click", () => {
-    setFpDetailHeroTrailerMuted(!fpDetailHeroTrailerMuted);
+    setFpDetailHeroTrailerMuted(!fpDetailHeroTrailerMuted, { persist: true });
+  });
+  document.getElementById("series-detail-hero-mute").addEventListener("click", () => {
+    setFpDetailHeroTrailerMuted(!fpDetailHeroTrailerMuted, { persist: true });
   });
   document.getElementById("movie-feature-open").addEventListener("click", (event) => {
     const slug = event.currentTarget.dataset.slug;

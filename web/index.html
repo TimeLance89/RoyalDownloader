@@ -555,6 +555,24 @@
         <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
           <div class="media-modal-backdrop" data-modal-close="series-detail-modal" aria-hidden="true"></div>
           <div class="panel series-detail-panel media-modal-panel" tabindex="-1">
+            <div id="series-detail-hero-trailer" class="detail-hero-trailer series-detail-hero-trailer" aria-hidden="true" hidden>
+              <iframe
+                id="series-detail-hero-frame"
+                title="Serientrailer im Hintergrund"
+                tabindex="-1"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allow="autoplay; encrypted-media"
+              ></iframe>
+            </div>
+            <button
+              id="series-detail-hero-mute"
+              class="detail-hero-mute"
+              type="button"
+              aria-label="Trailerton einschalten"
+              aria-pressed="false"
+              title="Trailerton einschalten"
+              hidden
+            ><span aria-hidden="true">🔇</span></button>
             <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen">×</button>
             <section class="series-hero-copy" aria-label="Serieninformationen">
               <span class="series-detail-kicker">AUS DEM ROYAL ARCHIV · SERIE</span>
@@ -565,6 +583,9 @@
             </section>
             <div class="series-action-bar">
               <button id="series-watch-btn" class="btn btn-ghost">+ Abonnieren</button>
+              <button id="series-detail-trailer" class="btn btn-ghost series-trailer-btn" type="button" hidden>
+                <span aria-hidden="true">▶</span> Trailer
+              </button>
               <div id="series-jellyfin-status" class="series-jellyfin-status is-checking" aria-live="polite">
                 <span class="series-jellyfin-mark" aria-hidden="true">JF</span>
                 <strong>Jellyfin wird geprüft</strong>
@@ -1667,7 +1688,7 @@
       <button id="fp-trailer-close" class="trailer-dialog-close" type="button" aria-label="Trailer schließen">×</button>
     </div>
     <div class="trailer-frame-shell">
-      <iframe id="fp-trailer-frame" title="Filmtrailer" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      <iframe id="fp-trailer-frame" title="Trailer" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
     </div>
     <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
   </div>

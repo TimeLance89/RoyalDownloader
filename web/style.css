@@ -1969,6 +1969,25 @@ body {
   position: relative;
   z-index: 1;
 }
+
+/* Trailer und Tonsteuerung gehoeren zur Hero-Ebene und duerfen den
+   eigentlichen Serieninhalt nicht im normalen Dokumentfluss verschieben. */
+.media-modal .series-detail-panel > .series-detail-hero-trailer {
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 auto;
+  width: 100%;
+  height: var(--detail-hero-height);
+}
+
+.media-modal .series-detail-panel > #series-detail-hero-mute {
+  position: absolute;
+  z-index: 24;
+  top: 16px;
+  right: 66px;
+  bottom: auto;
+  left: auto;
+}
 .media-modal .series-detail-panel.has-no-art::before {
   background-image:
     radial-gradient(circle at 74% 28%, rgba(229, 9, 20, 0.22), transparent 20%),
@@ -11905,6 +11924,7 @@ body.global-search-open { overflow: hidden; }
 /* ── Series detail: cinematic hero + episode browser ──────────────── */
 .media-modal .series-detail-panel {
   --series-surface: #181818;
+  --detail-hero-height: min(620px, 70dvh);
   width: min(1180px, calc(100vw - 40px));
   height: min(90dvh, 860px);
   max-height: none;
@@ -11921,7 +11941,7 @@ body.global-search-open { overflow: hidden; }
   position: absolute;
   inset: 0 0 auto;
   width: 100%;
-  height: 520px;
+  height: var(--detail-hero-height);
   background-image:
     linear-gradient(90deg, rgba(15, 15, 17, .98) 0%, rgba(15, 15, 17, .7) 43%, rgba(15, 15, 17, .08) 79%),
     linear-gradient(0deg, var(--series-surface) 0%, rgba(24, 24, 24, .18) 54%, transparent 76%),
@@ -11945,7 +11965,7 @@ body.global-search-open { overflow: hidden; }
 
 .media-modal .series-hero-copy {
   display: flex;
-  min-height: 442px;
+  min-height: 520px;
   justify-content: flex-end;
   flex-direction: column;
   width: min(790px, calc(100% - 50px));
@@ -12022,6 +12042,7 @@ body.global-search-open { overflow: hidden; }
 }
 
 .media-modal #series-watch-btn,
+.media-modal .series-trailer-btn,
 .media-modal #series-add-btn {
   width: auto;
   min-height: 44px;
@@ -12037,6 +12058,19 @@ body.global-search-open { overflow: hidden; }
   color: #f1f1f1;
   background: rgba(255, 255, 255, .1);
   border-color: rgba(255, 255, 255, .24);
+}
+
+.media-modal .series-trailer-btn {
+  color: #171717;
+  background: #fff;
+  border-color: #fff;
+}
+
+.media-modal .series-trailer-btn:hover,
+.media-modal .series-trailer-btn:focus-visible {
+  color: #111;
+  background: #d9d9d9;
+  border-color: #d9d9d9;
 }
 
 .media-modal #series-watch-btn.btn-accent,
@@ -12305,6 +12339,7 @@ body.global-search-open { overflow: hidden; }
 
 @media (max-width: 820px) {
   .media-modal .series-detail-panel {
+    --detail-hero-height: 450px;
     width: 100%;
     height: 94dvh;
     padding: 0 20px 38px;
@@ -12349,6 +12384,7 @@ body.global-search-open { overflow: hidden; }
   }
 
   .media-modal #series-watch-btn,
+  .media-modal .series-trailer-btn,
   .media-modal #series-add-btn { width: 100%; }
 
   .media-modal .series-episodes-head {
@@ -12376,6 +12412,7 @@ body.global-search-open { overflow: hidden; }
 
 @media (max-width: 520px) {
   .media-modal .series-detail-panel { padding-inline: 16px; }
+  .media-modal .series-detail-panel { --detail-hero-height: 420px; }
   .media-modal .series-detail-panel::before { height: 420px; }
   .media-modal .series-hero-copy { min-height: 370px; }
   .media-modal .series-detail-kicker { font-size: 8px; }
@@ -12384,6 +12421,7 @@ body.global-search-open { overflow: hidden; }
   .media-modal .series-action-bar { grid-template-columns: 1fr; }
   .media-modal .series-selection-status,
   .media-modal #series-watch-btn,
+  .media-modal .series-trailer-btn,
   .media-modal #series-add-btn { grid-column: 1; }
 
   .media-modal .series-jellyfin-status {
@@ -12408,9 +12446,9 @@ body.global-search-open { overflow: hidden; }
 @media (hover: hover) and (pointer: fine) {
   #tab-home .home-track,
   #tab-home .home-top-track {
-    margin-block: -14px -13px;
-    padding-top: 17px;
-    padding-bottom: 25px;
+    margin-block: -88px -86px;
+    padding-top: 92px;
+    padding-bottom: 100px;
   }
 
   #tab-home .home-card {
@@ -12424,13 +12462,13 @@ body.global-search-open { overflow: hidden; }
   #tab-home .home-card:hover,
   #tab-home .home-card:focus-visible {
     z-index: 20;
-    transform: scale(1.14);
+    transform: scale(1.7);
     transition-delay: 0s;
   }
 
   #tab-home .home-card.is-ranked:hover,
   #tab-home .home-card.is-ranked:focus-visible {
-    transform: scale(1.075);
+    transform: none;
   }
 
   #tab-home .home-card .home-card-art {
@@ -12568,4 +12606,65 @@ body.global-search-open { overflow: hidden; }
   #tab-home .home-card-preview {
     transition: none;
   }
+}
+
+/* Startseiten-Rails: Randkarten wachsen nach innen, Navigation sitzt am Rand. */
+@media (min-width: 821px) {
+  #tab-home .home-rail { position: relative; }
+
+  #tab-home .home-rail-controls {
+    position: static;
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  #tab-home .home-rail-controls button {
+    position: absolute;
+    z-index: 40;
+    top: calc(50% + 10px);
+    width: clamp(38px, 3vw, 54px);
+    height: clamp(96px, 8.2vw, 150px);
+    color: #fff;
+    background: rgba(12, 12, 12, .72);
+    border: 0;
+    border-radius: 0;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .42);
+    font-size: clamp(30px, 2.5vw, 44px);
+    opacity: 0;
+    pointer-events: auto;
+    transform: translateY(-50%);
+    transition: opacity .16s ease, background .16s ease;
+  }
+
+  #tab-home .home-rail-controls button[hidden] { display: none; }
+
+  #tab-home .home-rail.is-ranked .home-rail-controls button {
+    height: clamp(150px, 15vw, 250px);
+  }
+
+  #tab-home .home-rail-controls button[data-direction="-1"] {
+    left: 0;
+    border-radius: 0 5px 5px 0;
+  }
+
+  #tab-home .home-rail-controls button[data-direction="1"] {
+    right: 0;
+    border-radius: 5px 0 0 5px;
+  }
+
+  #tab-home .home-rail:hover .home-rail-controls button:not([hidden]),
+  #tab-home .home-rail:focus-within .home-rail-controls button:not([hidden]) {
+    opacity: 1;
+  }
+
+  #tab-home .home-rail-controls button:hover,
+  #tab-home .home-rail-controls button:focus-visible {
+    background: rgba(18, 18, 18, .92);
+    transform: translateY(-50%);
+  }
+}
+
+@media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+  #tab-home .home-card.is-hover-edge-left { transform-origin: left center; }
+  #tab-home .home-card.is-hover-edge-right { transform-origin: right center; }
 }
