@@ -660,7 +660,9 @@ const MOVIE_FEATURE_MAX_FUTURE_DAYS = 45;
 
 function movieFeatureCandidate(result) {
   const metadata = state.fp.metadataCache[result.slug] || {};
-  const artwork = metadata.backdrop_url || metadata.cover_url || "";
+  const backdrop = metadata.backdrop_url || result.backdrop_url || "";
+  const cover = metadata.cover_url || result.cover_url || "";
+  const artwork = backdrop || cover;
 
   const now = new Date();
   const release = metadata.release_date ? new Date(`${metadata.release_date}T12:00:00`) : null;
@@ -684,13 +686,13 @@ function movieFeatureCandidate(result) {
   const score = recencyScore
     + rating * 2
     + Math.min(14, Math.log10(votes + 1) * 3)
-    + (metadata.backdrop_url ? 24 : 8)
+    + (backdrop ? 24 : 8)
     + (metadata.description ? 7 : 0);
   return {
     ...result,
     ...metadata,
     artwork,
-    artworkKind: metadata.backdrop_url ? "backdrop" : (metadata.cover_url ? "poster" : "none"),
+    artworkKind: backdrop ? "backdrop" : (cover ? "poster" : "none"),
     featureScore: score,
   };
 }
@@ -808,7 +810,7 @@ function refreshMovieFeatureCandidates() {
   }
   const currentSlug = state.fp.featureCandidates[state.fp.featureIndex]?.slug;
   const seenTitles = new Set();
-  const candidates = state.fp.results
+  const allCandidates = state.fp.results
     .map(movieFeatureCandidate)
     .filter(Boolean)
     .sort((a, b) => b.featureScore - a.featureScore)
@@ -817,8 +819,9 @@ function refreshMovieFeatureCandidates() {
       if (!key || seenTitles.has(key)) return false;
       seenTitles.add(key);
       return true;
-    })
-    .slice(0, 5);
+    });
+  const artworkCandidates = allCandidates.filter((candidate) => candidate.artwork);
+  const candidates = (artworkCandidates.length ? artworkCandidates : allCandidates).slice(0, 5);
   state.fp.featureCandidates = candidates;
   const preservedIndex = candidates.findIndex((candidate) => candidate.slug === currentSlug);
   state.fp.featureIndex = preservedIndex >= 0 ? preservedIndex : 0;
@@ -1208,7 +1211,7 @@ function openHomeEntry(kind, key) {
   if (kind === "movie") {
     const movie = homeMovieBySlug(key);
     closeGlobalSearch();
-    if (movie) selectFpRow(movie.slug);
+    if (movie) selectFpRow(movie.slug, movie);
     return;
   }
   const series = homeSeriesBySlug(key);
@@ -2695,11 +2698,13 @@ async function toggleFpPick(slug) {
   refreshQueueUiAfterChange(resp);
 }
 
-async function selectFpRow(slug) {
+async function selectFpRow(slug, initialItem = null) {
   state.fp.selectedSlug = slug;
   updateFpResultSelection();
   const movie = state.fp.moviesCache[slug];
-  const item = state.fp.results.find((r) => r.slug === slug) || homeMovieBySlug(slug);
+  const item = state.fp.results.find((r) => r.slug === slug)
+    || homeMovieBySlug(slug)
+    || initialItem;
   if (!item) return;
   const metadata = state.fp.metadataCache[slug];
   trackDiscoveryPreference("movie", { ...item, ...metadata, slug }, 0.8, "open");
@@ -3614,6 +3619,44 @@ function updateSeriesInfiniteState() {
   sentinel.title = sourceSummary;
 }
 
+function renderSeriesCatalogHero() {
+  const feature = document.getElementById("series-feature");
+  if (!feature) return;
+  const catalogCandidate = state.series.results.find((result) => result.backdrop_url);
+  const featuredHomeSeries = [
+    ...state.home.trendingSeries,
+    ...state.home.newSeries,
+    ...state.home.discoverySeries,
+  ].find((result) => result.backdrop_url);
+  const candidate = catalogCandidate
+    || (state.series.browseMode !== "search" ? featuredHomeSeries : null)
+    || state.series.results[0];
+  if (!candidate) {
+    feature.classList.add("hidden");
+    return;
+  }
+  const artwork = candidate.backdrop_url || candidate.cover_url || "";
+  const posterArtwork = !candidate.backdrop_url && Boolean(candidate.cover_url);
+  feature.classList.remove("hidden");
+  feature.classList.toggle("has-no-art", !artwork);
+  feature.classList.toggle("is-poster-art", posterArtwork);
+  feature.setAttribute("aria-label", `Serie im Fokus: ${candidate.title}`);
+  document.getElementById("series-feature-art").style.backgroundImage = artwork
+    ? `url("${api.coverUrl(artwork).replace(/"/g, "%22")}")`
+    : "";
+  document.getElementById("series-feature-title").textContent = candidate.title;
+  const sources = Array.isArray(candidate.sources) ? candidate.sources : [];
+  document.getElementById("series-feature-meta").textContent = [
+    candidate.year || "",
+    candidate.rating ? `★ ${candidate.rating}` : "",
+    ...(candidate.genres || []).slice(0, 2),
+    sources.length > 1 ? `${sources.length} Quellen` : (candidate.provider_label || sources[0]?.label || ""),
+  ].filter(Boolean).join(" · ");
+  document.getElementById("series-feature-description").textContent =
+    candidate.description || "Staffeln, Episoden und Verfügbarkeit direkt im Royal Archiv entdecken.";
+  document.getElementById("series-feature-open").onclick = () => loadSeries(candidate);
+}
+
 function renderSeriesResults(appendFrom = 0) {
   const container = document.getElementById("series-results");
   if (appendFrom <= 0) container.innerHTML = "";
@@ -3695,6 +3738,10 @@ function applySeriesResults(data, { append = false } = {}) {
   state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
   state.series.loadError = "";
   renderSeriesResults(appendFrom);
+  renderSeriesCatalogHero();
+  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(() => {
+    renderSeriesCatalogHero();
+  });
   updateSeriesInfiniteState();
   const sourceCount = state.series.sources.length;
   document.getElementById("series-status").textContent =

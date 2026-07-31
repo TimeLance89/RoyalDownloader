@@ -362,7 +362,7 @@
       <div class="split">
         <div class="panel results-panel" aria-label="Filme">
           <div class="panel-head">
-            <span class="panel-title">Filme</span>
+            <span class="panel-title">Beliebt auf Royal</span>
             <span id="fp-status" class="dim">Bereit zum Suchen …</span>
           </div>
           <div class="list-head movie-row">
@@ -494,6 +494,18 @@
     </section>
 
     <section class="tab-content" id="tab-serien">
+      <section id="series-feature" class="series-feature hidden" aria-label="Serienempfehlung">
+        <div id="series-feature-art" class="series-feature-art" aria-hidden="true"></div>
+        <div class="series-feature-copy">
+          <span class="series-feature-kicker"><b>R</b> Serien im Fokus</span>
+          <h1 id="series-feature-title" translate="no"></h1>
+          <div id="series-feature-meta" class="series-feature-meta" translate="no"></div>
+          <p id="series-feature-description"></p>
+          <button id="series-feature-open" class="series-feature-open" type="button">
+            <span aria-hidden="true">▶</span> Details
+          </button>
+        </div>
+      </section>
       <section class="smart-search smart-search-catalog smart-search-series" aria-labelledby="series-search-title">
         <div class="smart-search-intro">
           <span class="smart-search-kicker">SERIENARCHIV</span>
@@ -538,7 +550,7 @@
       <div class="split">
         <div class="panel results-panel" aria-label="Serien">
           <div class="panel-head">
-            <span class="panel-title">Serien</span>
+            <span class="panel-title">Serien entdecken</span>
             <span id="series-status" class="dim">Wird beim Öffnen automatisch geladen …</span>
           </div>
           <div id="series-results" class="list result-shelf" aria-label="Serienergebnisse"></div>
