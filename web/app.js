@@ -1,5 +1,9 @@
 const state = {
   tab: "home",
+  globalSearch: {
+    query: "", results: [], active: false, loading: false,
+    requestSeq: 0, debounceTimer: null,
+  },
   home: {
     newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
     discoveryMovies: [], discoverySeries: [],
@@ -116,6 +120,7 @@ function syncAnimeNavigationVisibility() {
 
 function switchTab(name, { autoLoad = true } = {}) {
   if (name === "anime" && !animeNavigationAvailable()) name = "filme";
+  if (state.globalSearch.active) closeGlobalSearch();
   closeAllMediaModals(false);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab-content").forEach((s) => s.classList.toggle("active", s.id === `tab-${name}`));
@@ -824,6 +829,7 @@ function homeMovieBySlug(slug) {
     ...state.home.topMovies,
     ...state.home.discoveryMovies,
     ...state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+    ...state.globalSearch.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
   ]
     .find((item) => item.slug === slug) || null;
 }
@@ -834,6 +840,7 @@ function homeSeriesBySlug(baseSlug) {
     ...state.home.newSeries,
     ...state.home.discoverySeries,
     ...state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+    ...state.globalSearch.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
   ]
     .find((item) => item.base_slug === baseSlug) || null;
 }
@@ -1196,11 +1203,19 @@ function showHomeHero(index, userInitiated = false) {
 function openHomeEntry(kind, key) {
   if (kind === "movie") {
     const movie = homeMovieBySlug(key);
-    if (movie) selectFpRow(movie.slug);
+    closeGlobalSearch();
+    if (movie) {
+      switchTab("filme", { autoLoad: false });
+      selectFpRow(movie.slug);
+    }
     return;
   }
   const series = homeSeriesBySlug(key);
-  if (series) loadSeries(series);
+  closeGlobalSearch();
+  if (series) {
+    switchTab("serien", { autoLoad: false });
+    loadSeries(series);
+  }
 }
 
 function createHomeCard(entry, rank = 0, eager = false) {
@@ -1229,7 +1244,12 @@ function createHomeCard(entry, rank = 0, eager = false) {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  const artwork = media.backdrop_url || media.cover_url;
+  // Strikte Formattrennung: Top 10 zeigt TMDB-Poster, alle anderen Rails
+  // ausschließlich TMDB-Backdrops. Ein falsches Format wird nie eingesetzt.
+  const preferredArtwork = rank ? media.cover_url : media.backdrop_url;
+  const artwork = /^https:\/\/image\.tmdb\.org\//i.test(String(preferredArtwork || ""))
+    ? preferredArtwork
+    : "";
   if (artwork) {
     const image = document.createElement("img");
     image.src = api.coverUrl(artwork);
@@ -1443,6 +1463,120 @@ function syncSearchClearButtons() {
     const clear = document.getElementById(clearId);
     if (input && clear) clear.hidden = !input.value;
   });
+}
+
+function renderGlobalSearchResults() {
+  const page = document.getElementById("global-search-page");
+  const grid = document.getElementById("global-search-grid");
+  const status = document.getElementById("global-search-status");
+  const shell = document.getElementById("global-search-shell");
+  const input = document.getElementById("global-search-input");
+  const clear = document.getElementById("global-search-clear");
+  const toggle = document.getElementById("global-search-toggle");
+  if (!page || !grid || !status || !shell || !input || !clear || !toggle) return;
+
+  page.hidden = !state.globalSearch.active;
+  document.body.classList.toggle("global-search-open", state.globalSearch.active);
+  shell.classList.toggle("has-value", Boolean(input.value));
+  clear.hidden = !input.value;
+  toggle.setAttribute("aria-expanded", String(state.globalSearch.active || document.activeElement === input));
+  input.setAttribute("aria-expanded", String(state.globalSearch.active));
+  if (!state.globalSearch.active) return;
+
+  grid.replaceChildren();
+  status.textContent = state.globalSearch.loading
+    ? `Suche nach «${state.globalSearch.query}» …`
+    : `${state.globalSearch.results.length} Treffer für «${state.globalSearch.query}»`;
+  page.classList.toggle("is-loading", state.globalSearch.loading);
+  if (state.globalSearch.loading) {
+    for (let index = 0; index < 12; index += 1) {
+      const skeleton = document.createElement("span");
+      skeleton.className = "home-card-skeleton";
+      skeleton.setAttribute("aria-hidden", "true");
+      grid.appendChild(skeleton);
+    }
+    return;
+  }
+  if (!state.globalSearch.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "global-search-empty";
+    empty.innerHTML = "<strong>Nichts gefunden</strong><span>Versuche einen anderen Titel, Namen oder ein Genre.</span>";
+    grid.appendChild(empty);
+    return;
+  }
+  state.globalSearch.results.forEach((entry, index) => {
+    grid.appendChild(createHomeCard(entry, 0, index < 8));
+  });
+}
+
+async function performGlobalSearch(query, requestId) {
+  rememberSearch(query, "all");
+  const settled = await Promise.allSettled([
+    api.movies({ mode: "search", query }).then((data) => (data.results || []).map(homeMovieEntry)),
+    api.series({ mode: "search", query }).then((data) => (data.results || []).map(homeSeriesEntry)),
+  ]);
+  if (requestId !== state.globalSearch.requestSeq) return;
+  const groups = settled
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
+  state.globalSearch.results = groups.length > 1
+    ? interleaveHomeEntries(groups[0], groups[1], 60)
+    : uniqueHomeEntries(groups[0] || []).slice(0, 60);
+
+  await Promise.allSettled([
+    hydrateHomeMovieArtwork(
+      state.globalSearch.results
+        .filter((entry) => entry.kind === "movie")
+        .map((entry) => entry.item)
+        .slice(0, 30),
+    ),
+    hydrateHomeSeriesArtwork(
+      state.globalSearch.results
+        .filter((entry) => entry.kind === "series")
+        .map((entry) => entry.item)
+        .slice(0, 30),
+    ),
+  ]);
+  if (requestId !== state.globalSearch.requestSeq) return;
+  state.globalSearch.loading = false;
+  renderGlobalSearchResults();
+}
+
+function queueGlobalSearch(immediate = false) {
+  const input = document.getElementById("global-search-input");
+  const query = input.value.trim();
+  window.clearTimeout(state.globalSearch.debounceTimer);
+  const requestId = ++state.globalSearch.requestSeq;
+  state.globalSearch.query = query;
+  if (!query) {
+    state.globalSearch.active = false;
+    state.globalSearch.loading = false;
+    state.globalSearch.results = [];
+    renderGlobalSearchResults();
+    return;
+  }
+  state.globalSearch.active = true;
+  state.globalSearch.loading = true;
+  state.globalSearch.results = [];
+  renderGlobalSearchResults();
+  state.globalSearch.debounceTimer = window.setTimeout(
+    () => performGlobalSearch(query, requestId),
+    immediate ? 0 : 320,
+  );
+}
+
+function closeGlobalSearch({ restoreFocus = false } = {}) {
+  const input = document.getElementById("global-search-input");
+  if (!input) return;
+  window.clearTimeout(state.globalSearch.debounceTimer);
+  ++state.globalSearch.requestSeq;
+  state.globalSearch.query = "";
+  state.globalSearch.results = [];
+  state.globalSearch.active = false;
+  state.globalSearch.loading = false;
+  input.value = "";
+  renderGlobalSearchResults();
+  if (restoreFocus) document.getElementById("global-search-toggle")?.focus();
 }
 
 function renderHomeSearchResults() {
@@ -5851,6 +5985,35 @@ async function initApp() {
       track?.scrollBy({ left: direction * Math.max(280, track.clientWidth * 0.82), behavior: "smooth" });
     });
   });
+  const globalSearchInput = document.getElementById("global-search-input");
+  const globalSearchToggle = document.getElementById("global-search-toggle");
+  globalSearchToggle.addEventListener("click", () => globalSearchInput.focus());
+  globalSearchInput.addEventListener("focus", () => {
+    document.getElementById("global-search-shell").classList.add("is-expanded");
+    globalSearchToggle.setAttribute("aria-expanded", "true");
+  });
+  globalSearchInput.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (globalSearchInput.value || document.getElementById("global-search-shell").contains(document.activeElement)) return;
+      document.getElementById("global-search-shell").classList.remove("is-expanded");
+      globalSearchToggle.setAttribute("aria-expanded", "false");
+    }, 0);
+  });
+  globalSearchInput.addEventListener("input", () => queueGlobalSearch());
+  globalSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      queueGlobalSearch(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeGlobalSearch({ restoreFocus: true });
+      document.getElementById("global-search-shell").classList.remove("is-expanded");
+    }
+  });
+  document.getElementById("global-search-clear").addEventListener("click", () => {
+    closeGlobalSearch({ restoreFocus: true });
+    document.getElementById("global-search-shell").classList.remove("is-expanded");
+  });
   document.getElementById("home-search-btn").addEventListener("click", homeSearch);
   document.getElementById("home-search-close").addEventListener("click", closeHomeSearch);
   document.getElementById("home-search-clear").addEventListener("click", closeHomeSearch);
@@ -6059,11 +6222,10 @@ async function initApp() {
       || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "")
       || document.activeElement?.isContentEditable
     ) return;
-    const input = document.getElementById(
-      state.tab === "filme" ? "fp-search" : state.tab === "serien" ? "series-search" : "home-search",
-    );
+    const input = document.getElementById("global-search-input");
     if (!input) return;
     event.preventDefault();
+    document.getElementById("global-search-shell").classList.add("is-expanded");
     input.focus();
   });
   document.getElementById("anime-search-btn").addEventListener("click", () => animeBrowse("search", 1));

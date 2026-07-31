@@ -31,6 +31,17 @@
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
       <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
     </nav>
+    <div id="global-search-shell" class="global-search-shell">
+      <button id="global-search-toggle" class="global-search-toggle" type="button"
+          aria-label="Suche öffnen" aria-controls="global-search-page" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16.5 16.5 4 4"></path></svg>
+      </button>
+      <input id="global-search-input" type="search" autocomplete="off"
+          placeholder="Titel, Personen, Genres" aria-label="Filme und Serien durchsuchen"
+          aria-controls="global-search-page" aria-expanded="false">
+      <button id="global-search-clear" class="global-search-clear" type="button"
+          aria-label="Suche schließen" hidden>×</button>
+    </div>
     <div class="bell-wrap">
       <button id="notif-bell" class="inbox-trigger" type="button" aria-label="Abo-Postfach öffnen" aria-expanded="false" aria-controls="notif-dropdown">
         <span class="inbox-trigger-icon" aria-hidden="true">
@@ -65,6 +76,17 @@
     </button>
     <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
   </header>
+
+  <section id="global-search-page" class="global-search-page" aria-labelledby="global-search-title" hidden>
+    <header class="global-search-head">
+      <div>
+        <span class="global-search-kicker">ROYAL SUCHE</span>
+        <h1 id="global-search-title">Suchergebnisse</h1>
+        <p id="global-search-status" aria-live="polite">Titel, Personen oder Genres eingeben.</p>
+      </div>
+    </header>
+    <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
+  </section>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
     <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
