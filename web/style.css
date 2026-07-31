@@ -12406,15 +12406,31 @@ body.global-search-open { overflow: hidden; }
 .home-card-preview { display: none; }
 
 @media (hover: hover) and (pointer: fine) {
+  #tab-home .home-track,
+  #tab-home .home-top-track {
+    margin-block: -14px -13px;
+    padding-top: 17px;
+    padding-bottom: 25px;
+  }
+
   #tab-home .home-card {
     z-index: 1;
-    transition: z-index 0s .32s;
+    transform-origin: center;
+    transition: transform .3s cubic-bezier(.2, .8, .2, 1) .12s, z-index 0s .32s;
   }
+
+  #tab-home .home-card:first-child { transform-origin: left center; }
 
   #tab-home .home-card:hover,
   #tab-home .home-card:focus-visible {
     z-index: 20;
+    transform: scale(1.14);
     transition-delay: 0s;
+  }
+
+  #tab-home .home-card.is-ranked:hover,
+  #tab-home .home-card.is-ranked:focus-visible {
+    transform: scale(1.075);
   }
 
   #tab-home .home-card .home-card-art {
@@ -12425,13 +12441,11 @@ body.global-search-open { overflow: hidden; }
       border-color .2s ease;
   }
 
-  #tab-home .home-card:first-child .home-card-art { transform-origin: left center; }
-
   #tab-home .home-card:hover .home-card-art,
   #tab-home .home-card:focus-visible .home-card-art {
     border-color: rgba(255, 255, 255, .28);
     box-shadow: 0 24px 48px -12px rgba(0, 0, 0, .96);
-    transform: scale(1.095);
+    transform: none;
   }
 
   #tab-home .home-card-art img {
