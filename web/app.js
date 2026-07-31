@@ -1281,7 +1281,7 @@ function createHomeCard(entry, rank = 0, eager = false) {
     rank ? media.cover_url : media.backdrop_url,
     rank ? media.backdrop_url : media.cover_url,
   ]
-    .map((url) => api.coverUrl(url))
+    .flatMap((url) => api.coverCandidates(url))
     .filter((url, index, urls) => url && urls.indexOf(url) === index);
   if (artworkCandidates.length) {
     const image = document.createElement("img");
@@ -1880,11 +1880,12 @@ async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
   const targets = [
     ...new Map(
       items
-        .filter((item) => item?.base_slug && !item.backdrop_url)
+        .filter((item) => item?.base_slug && (!item.cover_url || !item.backdrop_url))
         .map((item) => [item.base_slug, item]),
     ).values(),
   ];
-  if (!targets.length) return;
+  if (!targets.length) return [];
+  const hydratedBaseSlugs = [];
   try {
     const response = await api.tmdbSeries(targets.map((item) => ({
       base_slug: item.base_slug,
@@ -1893,12 +1894,22 @@ async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
     })));
     for (const item of targets) {
       const metadata = response.series?.[item.base_slug];
-      if (metadata?.backdrop_url) Object.assign(item, metadata);
+      if (!metadata) continue;
+      const hadCover = Boolean(item.cover_url);
+      const hadBackdrop = Boolean(item.backdrop_url);
+      Object.assign(item, metadata, {
+        cover_url: metadata.cover_url || item.cover_url || "",
+        backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+      });
+      if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
+        hydratedBaseSlugs.push(item.base_slug);
+      }
     }
     if (render) renderHome();
   } catch (error) {
     console.warn("Serien-Wallpaper konnten nicht ergänzt werden:", error);
   }
+  return hydratedBaseSlugs;
 }
 
 function fpStatusMessage() {
@@ -2172,7 +2183,8 @@ function createResultCardVisual(media, title, kind, inJellyfin = false) {
   fallback.textContent = mediaCardInitials(title);
   visual.appendChild(fallback);
 
-  if (media?.cover_url) {
+  const coverCandidates = api.coverCandidates(media?.cover_url);
+  if (coverCandidates.length) {
     const image = document.createElement("img");
     image.className = "result-card-poster";
     image.alt = "";
@@ -2180,8 +2192,13 @@ function createResultCardVisual(media, title, kind, inJellyfin = false) {
     image.loading = "lazy";
     image.fetchPriority = "low";
     image.decoding = "async";
-    image.src = api.coverUrl(media.cover_url);
-    image.addEventListener("error", () => image.remove(), { once: true });
+    let coverIndex = 0;
+    image.src = coverCandidates[coverIndex];
+    image.addEventListener("error", () => {
+      coverIndex += 1;
+      if (coverIndex < coverCandidates.length) image.src = coverCandidates[coverIndex];
+      else image.remove();
+    });
     visual.appendChild(image);
   }
 
@@ -3710,6 +3727,15 @@ function findSeriesResultCard(baseSlug) {
     .find((row) => row.dataset.baseSlug === baseSlug) || null;
 }
 
+function updateSeriesResultArtwork(baseSlug) {
+  const result = state.series.results.find((item) => item.base_slug === baseSlug);
+  const row = findSeriesResultCard(baseSlug);
+  if (!result || !row) return;
+  row.querySelector(".result-card-visual")?.replaceWith(
+    createResultCardVisual(result, result.title, "series"),
+  );
+}
+
 function updateSeriesResultSelection() {
   const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
   document.querySelectorAll("#series-results .series-row").forEach((row) => {
@@ -3739,7 +3765,8 @@ function applySeriesResults(data, { append = false } = {}) {
   state.series.loadError = "";
   renderSeriesResults(appendFrom);
   renderSeriesCatalogHero();
-  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(() => {
+  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then((hydratedBaseSlugs) => {
+    for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
     renderSeriesCatalogHero();
   });
   updateSeriesInfiniteState();

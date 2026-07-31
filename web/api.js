@@ -150,10 +150,25 @@ const api = {
     if (!url) return "";
     try {
       const parsed = new URL(url, location.origin);
+      if (parsed.origin === location.origin) return parsed.href;
       if (parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org") return parsed.href;
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
       url = parsed.href;
     } catch (e) { return ""; }
     return "/api/cover?" + new URLSearchParams({ url });
+  },
+
+  coverProxyUrl(url) {
+    if (!url) return "";
+    try {
+      const parsed = new URL(url, location.origin);
+      if (parsed.origin === location.origin) return parsed.href;
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+      return "/api/cover?" + new URLSearchParams({ url: parsed.href });
+    } catch (e) { return ""; }
+  },
+
+  coverCandidates(url) {
+    return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
   },
 };
