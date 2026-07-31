@@ -10400,7 +10400,11 @@ async def api_cover(url: str):
     if not data:
         raise HTTPException(502, "Cover konnte nicht geladen werden.")
     content, content_type = data
-    return Response(content=content, media_type=content_type)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
+    )
 
 
 # ── Film-Abonnements ─────────────────────────────────────────────────────────

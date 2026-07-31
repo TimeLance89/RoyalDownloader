@@ -11897,3 +11897,453 @@ body.global-search-open { overflow: hidden; }
   .global-search-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .global-search-head h1 { font-size: 23px; }
 }
+
+/* ── Series detail: cinematic hero + episode browser ──────────────── */
+.media-modal .series-detail-panel {
+  --series-surface: #181818;
+  width: min(1180px, calc(100vw - 40px));
+  height: min(90dvh, 860px);
+  max-height: none;
+  padding: 0 46px 56px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: #fff;
+  background: var(--series-surface);
+  border-radius: 9px;
+  scrollbar-gutter: stable;
+}
+
+.media-modal .series-detail-panel::before {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: 520px;
+  background-image:
+    linear-gradient(90deg, rgba(15, 15, 17, .98) 0%, rgba(15, 15, 17, .7) 43%, rgba(15, 15, 17, .08) 79%),
+    linear-gradient(0deg, var(--series-surface) 0%, rgba(24, 24, 24, .18) 54%, transparent 76%),
+    var(--series-backdrop-image, linear-gradient(125deg, #241214, #181818 62%));
+  background-position: center 22%;
+  background-size: cover;
+}
+
+.media-modal .series-detail-panel.has-no-art::before {
+  background-image:
+    radial-gradient(circle at 74% 25%, rgba(229, 9, 20, .2), transparent 24%),
+    linear-gradient(115deg, #111 0%, #271113 55%, #181818 100%);
+}
+
+.media-modal .series-hero-copy,
+.media-modal .series-action-bar,
+.media-modal .series-episode-browser {
+  position: relative;
+  z-index: 2;
+}
+
+.media-modal .series-hero-copy {
+  display: flex;
+  min-height: 442px;
+  justify-content: flex-end;
+  flex-direction: column;
+  width: min(790px, calc(100% - 50px));
+  padding: 112px 0 42px;
+}
+
+.media-modal .series-detail-kicker,
+.media-modal .series-section-kicker {
+  color: #ef3340;
+  font: 750 10px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .2em;
+}
+
+.media-modal .series-hero-copy h2 {
+  display: -webkit-box;
+  max-width: 15ch;
+  margin: 14px 0 16px;
+  overflow: hidden;
+  color: #fff;
+  font: 800 clamp(48px, 5.5vw, 76px)/.94 "Archivo", sans-serif;
+  letter-spacing: -.06em;
+  text-shadow: 0 5px 26px rgba(0, 0, 0, .8);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.media-modal .series-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-bottom: 18px;
+}
+
+.media-modal .series-detail-meta span {
+  color: rgba(255, 255, 255, .82);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.media-modal .series-detail-meta span + span::before {
+  content: "·";
+  margin: 0 8px;
+  color: rgba(255, 255, 255, .42);
+}
+
+.media-modal #series-desc {
+  display: -webkit-box;
+  max-width: 760px;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .78);
+  font-size: 15px;
+  line-height: 1.55;
+  text-shadow: 0 2px 16px #000;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.media-modal .series-hero-poster { display: none; }
+
+.media-modal .series-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 70px;
+  padding: 12px;
+  background: rgba(18, 18, 20, .78);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 7px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.media-modal #series-watch-btn,
+.media-modal #series-add-btn {
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 17px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.media-modal #series-watch-btn {
+  color: #f1f1f1;
+  background: rgba(255, 255, 255, .1);
+  border-color: rgba(255, 255, 255, .24);
+}
+
+.media-modal #series-watch-btn.btn-accent,
+.media-modal #series-add-btn {
+  color: #fff;
+  background: #e50914;
+  border-color: #e50914;
+}
+
+.media-modal #series-add-btn:hover:not(:disabled),
+.media-modal #series-watch-btn.btn-accent:hover {
+  background: #f6121d;
+  border-color: #f6121d;
+}
+
+.media-modal .series-selection-status {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0 8px;
+}
+
+.media-modal .series-selection-status span {
+  color: rgba(255, 255, 255, .42);
+  font: 700 8px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .13em;
+}
+
+.media-modal .series-selection-status strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.media-modal .series-episode-browser {
+  margin-top: 38px;
+}
+
+.media-modal .series-episodes-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+
+.media-modal .series-episodes-head h3 {
+  margin: 6px 0 0;
+  color: #fff;
+  font: 750 28px/1 "Archivo", sans-serif;
+  letter-spacing: -.035em;
+}
+
+.media-modal .series-detail-panel .toolbar {
+  display: flex;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.media-modal .series-detail-panel .toolbar .btn {
+  min-height: 36px;
+  color: rgba(255, 255, 255, .76);
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 255, 255, .14);
+  border-radius: 4px;
+}
+
+.media-modal .series-state-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 13px;
+  padding: 14px 2px 12px;
+  color: rgba(255, 255, 255, .48);
+  font: 600 9px/1 "JetBrains Mono", Consolas, monospace;
+}
+
+.media-modal .series-state-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.media-modal .series-state-legend i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(255, 255, 255, .36);
+  border-radius: 50%;
+  background: #343434;
+}
+
+.media-modal .series-state-legend .is-queued { background: #caa648; border-color: #e1c46f; }
+.media-modal .series-state-legend .is-downloaded { background: #46d369; border-color: #70e58b; }
+.media-modal .series-state-legend .is-selected { background: #e50914; border-color: #ff5860; }
+.media-modal .series-state-legend .is-jellyfin { background: #6fa8dc; border-color: #9ac8ef; }
+
+.media-modal .series-detail-panel .tiles-scroll {
+  min-height: 180px;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.media-modal .series-detail-panel .season-row {
+  display: grid;
+  grid-template-columns: 126px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  padding: 16px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.media-modal .series-detail-panel .season-btn {
+  display: flex;
+  min-height: 66px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  padding: 10px 13px;
+  color: #fff;
+  text-align: left;
+  background: linear-gradient(145deg, #2c2c2c, #202020);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 5px;
+}
+
+.media-modal .season-btn span,
+.media-modal .ep-tile span {
+  color: rgba(255, 255, 255, .42);
+  font: 700 7px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .12em;
+}
+
+.media-modal .season-btn strong {
+  margin: 4px 0 3px;
+  font: 750 21px/1 "Archivo", sans-serif;
+}
+
+.media-modal .season-btn small {
+  color: rgba(255, 255, 255, .56);
+  font-size: 8px;
+}
+
+.media-modal .series-detail-panel .ep-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 7px;
+}
+
+.media-modal .series-detail-panel .ep-tile {
+  display: flex;
+  width: auto;
+  height: 66px;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-direction: column;
+  padding: 9px 10px;
+  color: rgba(255, 255, 255, .82);
+  background: #242424;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 4px;
+  box-shadow: none;
+  transition: transform .18s ease, background .18s, border-color .18s;
+}
+
+.media-modal .ep-tile strong {
+  margin-top: 5px;
+  font: 750 17px/1 "Archivo", sans-serif;
+}
+
+.media-modal .series-detail-panel .ep-tile:hover:not(:disabled) {
+  z-index: 1;
+  transform: translateY(-2px);
+  color: #fff;
+  background: #303030;
+  border-color: rgba(255, 255, 255, .34);
+}
+
+.media-modal .series-detail-panel .ep-tile.queued {
+  color: #f5df9c;
+  background: rgba(202, 166, 72, .14);
+  border-color: rgba(225, 196, 111, .52);
+}
+
+.media-modal .series-detail-panel .ep-tile.downloaded {
+  color: #9aefad;
+  background: rgba(70, 211, 105, .12);
+  border-color: rgba(70, 211, 105, .42);
+}
+
+.media-modal .series-detail-panel .ep-tile.selected {
+  color: #fff;
+  background: #e50914;
+  border-color: #ff4f58;
+  box-shadow: 0 9px 24px -14px rgba(229, 9, 20, .9);
+}
+
+.media-modal .series-detail-panel .ep-tile.in-jellyfin::after {
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  background: #83b9e8;
+  box-shadow: 0 0 0 2px rgba(111, 168, 220, .16);
+}
+
+.media-modal .series-detail-panel .series-loading {
+  margin: 10px 0;
+  padding: 13px 15px;
+  color: rgba(255, 255, 255, .68);
+  background: rgba(255, 255, 255, .045);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 820px) {
+  .media-modal .series-detail-panel {
+    width: 100%;
+    height: 94dvh;
+    padding: 0 20px 38px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .media-modal .series-detail-panel::before { height: 450px; }
+
+  .media-modal .series-hero-copy {
+    min-height: 390px;
+    width: calc(100% - 24px);
+    padding: 100px 0 34px;
+  }
+
+  .media-modal .series-hero-copy h2 {
+    margin-top: 10px;
+    font-size: clamp(38px, 10vw, 54px);
+  }
+
+  .media-modal #series-desc {
+    font-size: 13px;
+    -webkit-line-clamp: 4;
+  }
+
+  .media-modal .series-action-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .media-modal .series-selection-status {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    align-items: flex-start;
+    margin: 0;
+    padding: 2px 3px 6px;
+  }
+
+  .media-modal #series-watch-btn,
+  .media-modal #series-add-btn { width: 100%; }
+
+  .media-modal .series-episodes-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .media-modal .series-detail-panel .season-row {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .media-modal .series-detail-panel .season-btn {
+    min-height: 54px;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .media-modal .season-btn strong { margin: 0; }
+  .media-modal .season-btn small { margin-left: auto; }
+}
+
+@media (max-width: 520px) {
+  .media-modal .series-detail-panel { padding-inline: 16px; }
+  .media-modal .series-detail-panel::before { height: 420px; }
+  .media-modal .series-hero-copy { min-height: 370px; }
+  .media-modal .series-detail-kicker { font-size: 8px; }
+  .media-modal .series-detail-meta span { font-size: 10px; }
+
+  .media-modal .series-action-bar { grid-template-columns: 1fr; }
+  .media-modal .series-selection-status,
+  .media-modal #series-watch-btn,
+  .media-modal #series-add-btn { grid-column: 1; }
+
+  .media-modal .series-detail-panel .toolbar {
+    width: 100%;
+  }
+
+  .media-modal .series-detail-panel .toolbar .btn { flex: 1; }
+  .media-modal .series-state-legend { gap: 9px; }
+  .media-modal .series-detail-panel .ep-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  }
+}

@@ -131,6 +131,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   state.tab = name;
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
   if (name === "home") renderHome();
+  if (name === "filme" && autoLoad) ensureFpResults();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
   if (name === "filme") scheduleMovieFeatureRotation();
@@ -1337,6 +1338,62 @@ function renderHome() {
 }
 
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
+const HOME_CACHE_KEY = "royal-home-cache-v2";
+const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function restoreHomeCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(HOME_CACHE_KEY) || "null");
+    if (
+      !cached
+      || Date.now() - Number(cached.savedAt || 0) > HOME_CACHE_MAX_AGE_MS
+      || !cached.home
+    ) return false;
+    const keys = [
+      "newMovies", "topMovies", "trendingSeries", "newSeries",
+      "discoveryMovies", "discoverySeries",
+    ];
+    if (!keys.some((key) => Array.isArray(cached.home[key]) && cached.home[key].length)) return false;
+    keys.forEach((key) => {
+      state.home[key] = Array.isArray(cached.home[key]) ? cached.home[key] : [];
+    });
+    Object.assign(state.fp.metadataCache, cached.movieMetadata || {});
+    state.home.loading = false;
+    renderHome();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function saveHomeCache() {
+  try {
+    const movieSlugs = new Set([
+      ...state.home.newMovies,
+      ...state.home.topMovies,
+      ...state.home.discoveryMovies,
+    ].map((item) => item?.slug).filter(Boolean));
+    const movieMetadata = Object.fromEntries(
+      [...movieSlugs]
+        .filter((slug) => state.fp.metadataCache[slug])
+        .map((slug) => [slug, state.fp.metadataCache[slug]]),
+    );
+    localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      home: {
+        newMovies: state.home.newMovies,
+        topMovies: state.home.topMovies,
+        trendingSeries: state.home.trendingSeries,
+        newSeries: state.home.newSeries,
+        discoveryMovies: state.home.discoveryMovies,
+        discoverySeries: state.home.discoverySeries,
+      },
+      movieMetadata,
+    }));
+  } catch {
+    // Ein voller oder gesperrter Browser-Speicher darf die Startseite nicht blockieren.
+  }
+}
 
 function searchHistory() {
   try {
@@ -1529,11 +1586,13 @@ async function performGlobalSearch(query, requestId) {
       state.globalSearch.results
         .filter((entry) => entry.kind === "movie")
         .map((entry) => entry.item),
+      { render: false },
     ),
     hydrateHomeSeriesArtwork(
       state.globalSearch.results
         .filter((entry) => entry.kind === "series")
         .map((entry) => entry.item),
+      { render: false },
     ),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
@@ -1639,9 +1698,11 @@ async function homeSearch() {
   renderHomeSearchResults();
   hydrateHomeMovieArtwork(
     state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+    { render: false },
   ).then(renderHomeSearchResults);
   hydrateHomeSeriesArtwork(
     state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+    { render: false },
   ).then(renderHomeSearchResults);
 }
 
@@ -1657,37 +1718,21 @@ function closeHomeSearch() {
 
 async function loadHomeData() {
   state.home.loading = true;
-  renderHome();
-  const newMoviesRequest = fpShowList("new").then(() => {
-    state.home.newMovies = state.fp.results.slice();
-    renderHome();
-  });
-  const trendingSeriesRequest = seriesBrowse("trending", 1).then(() => {
-    state.home.trendingSeries = state.series.results.slice();
-    renderHome();
-  });
-  const topMoviesRequest = api.movies({ mode: "top", page: 1 }).then((data) => {
-    state.home.topMovies = data.results || [];
-    renderHome();
-  });
-  const newSeriesRequest = api.series({ mode: "new", page: 1 }).then((data) => {
-    state.home.newSeries = data.results || [];
-    renderHome();
-  });
+  if (!homeAllEntries().length) renderHome();
+  const newMoviesRequest = api.movies({ mode: "new", page: 1 });
+  const trendingSeriesRequest = api.series({ mode: "trending", page: 1 });
+  const topMoviesRequest = api.movies({ mode: "top", page: 1 });
+  const newSeriesRequest = api.series({ mode: "new", page: 1 });
   const discoveryMoviesRequest = Promise.allSettled([
     api.movies({ mode: "new", page: 2 }),
     api.movies({ mode: "top", page: 2 }),
   ]).then((results) => {
-    state.home.discoveryMovies = results
+    return results
       .filter((result) => result.status === "fulfilled")
       .flatMap((result) => result.value.results || []);
-    renderHome();
   });
-  const discoverySeriesRequest = api.series({ mode: "discover", page: 1 }).then((data) => {
-    state.home.discoverySeries = data.results || [];
-    renderHome();
-  });
-  await Promise.allSettled([
+  const discoverySeriesRequest = api.series({ mode: "discover", page: 1 });
+  const results = await Promise.allSettled([
     newMoviesRequest,
     trendingSeriesRequest,
     topMoviesRequest,
@@ -1695,29 +1740,43 @@ async function loadHomeData() {
     discoveryMoviesRequest,
     discoverySeriesRequest,
   ]);
+  if (results[0].status === "fulfilled") state.home.newMovies = results[0].value.results || [];
+  if (results[1].status === "fulfilled") state.home.trendingSeries = results[1].value.results || [];
+  if (results[2].status === "fulfilled") state.home.topMovies = results[2].value.results || [];
+  if (results[3].status === "fulfilled") state.home.newSeries = results[3].value.results || [];
+  if (results[4].status === "fulfilled" && results[4].value.length) {
+    state.home.discoveryMovies = results[4].value;
+  }
+  if (results[5].status === "fulfilled") state.home.discoverySeries = results[5].value.results || [];
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+  renderHome();
   await Promise.allSettled([
     hydrateHomeMovieArtwork([
       ...state.home.newMovies,
       ...state.home.topMovies,
       ...state.home.discoveryMovies,
-    ]),
+    ], { render: false }),
     hydrateHomeSeriesArtwork([
       ...state.home.trendingSeries,
       ...state.home.newSeries,
       ...state.home.discoverySeries,
-    ]),
+    ], { render: false }),
   ]);
   state.home.loading = false;
+  saveHomeCache();
   renderHome();
 }
 
-async function hydrateHomeMovieArtwork(items) {
+async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
   const targets = [
     ...new Map(
       items
-        .filter((item) => item?.slug && (!item.cover_url || !item.backdrop_url))
+        .filter((item) => {
+          if (!item?.slug) return false;
+          const known = { ...item, ...(state.fp.metadataCache[item.slug] || {}) };
+          return !known.cover_url || !known.backdrop_url;
+        })
         .map((item) => [item.slug, item]),
     ).values(),
   ];
@@ -1729,15 +1788,17 @@ async function hydrateHomeMovieArtwork(items) {
       year: item.year || "",
     })));
     for (const [slug, metadata] of Object.entries(response.movies || {})) {
-      if (metadata) state.fp.metadataCache[slug] = metadata;
+      if (metadata) {
+        state.fp.metadataCache[slug] = { ...(state.fp.metadataCache[slug] || {}), ...metadata };
+      }
     }
-    renderHome();
+    if (render) renderHome();
   } catch (error) {
     console.warn("Startseitenbilder konnten nicht ergänzt werden:", error);
   }
 }
 
-async function hydrateHomeSeriesArtwork(items) {
+async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
   const targets = [
     ...new Map(
       items
@@ -1756,7 +1817,7 @@ async function hydrateHomeSeriesArtwork(items) {
       const metadata = response.series?.[item.base_slug];
       if (metadata?.backdrop_url) Object.assign(item, metadata);
     }
-    renderHome();
+    if (render) renderHome();
   } catch (error) {
     console.warn("Serien-Wallpaper konnten nicht ergänzt werden:", error);
   }
@@ -2428,6 +2489,11 @@ async function fpShowList(category) {
     updateFpInfiniteState();
     document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
   }
+}
+
+function ensureFpResults() {
+  if (state.fp.results.length || state.fp.loadingMore) return;
+  fpShowList("new");
 }
 
 async function fpGenreChange(genre) {
@@ -3632,7 +3698,7 @@ function showSeriesLoading(result) {
     .filter(Boolean);
   const previewMeta = [result.year, ...sourceLabels].filter(Boolean);
   if (!sourceLabels.length && result.provider_label) previewMeta.push(result.provider_label);
-  document.getElementById("series-genres").textContent = previewMeta.join(" · ");
+  renderSeriesDetailMeta(previewMeta);
   document.getElementById("series-desc").textContent =
     "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
   const tiles = document.getElementById("series-tiles");
@@ -3646,6 +3712,16 @@ function showSeriesLoading(result) {
   document.getElementById("series-select-all").disabled = true;
   document.getElementById("series-select-none").disabled = true;
   document.getElementById("series-add-btn").disabled = true;
+}
+
+function renderSeriesDetailMeta(values) {
+  const container = document.getElementById("series-genres");
+  container.replaceChildren();
+  for (const value of values.filter(Boolean)) {
+    const item = document.createElement("span");
+    item.textContent = value;
+    container.appendChild(item);
+  }
 }
 
 function updateWatchBtn() {
@@ -3696,7 +3772,7 @@ function showSeriesDetail(series, sampleSlug) {
     `${series.episode_count} ${series.episode_count === 1 ? "Episode" : "Episoden"}`
   );
   if (series.metadata_source) seriesMeta.push(`Metadaten: ${series.metadata_source}`);
-  document.getElementById("series-genres").textContent = seriesMeta.join(" · ");
+  renderSeriesDetailMeta(seriesMeta);
   document.getElementById("series-desc").textContent = series.description || "(keine Beschreibung verfügbar)";
   document.getElementById("series-watch-btn").disabled = false;
   document.getElementById("series-select-all").disabled = false;
@@ -3739,7 +3815,14 @@ function renderSeriesTiles() {
     row.className = "season-row";
     const seasonBtn = document.createElement("button");
     seasonBtn.className = "season-btn";
-    seasonBtn.textContent = `Staffel ${String(seasonObj.season).padStart(2, "0")}  ·  ${pickedCount}/${seasonObj.episodes.length}`;
+    seasonBtn.setAttribute("aria-label", `Staffel ${seasonObj.season}: ${pickedCount} von ${seasonObj.episodes.length} ausgewählt`);
+    const seasonLabel = document.createElement("span");
+    seasonLabel.textContent = "STAFFEL";
+    const seasonNumber = document.createElement("strong");
+    seasonNumber.textContent = String(seasonObj.season).padStart(2, "0");
+    const seasonCount = document.createElement("small");
+    seasonCount.textContent = `${pickedCount}/${seasonObj.episodes.length} gewählt`;
+    seasonBtn.append(seasonLabel, seasonNumber, seasonCount);
     seasonBtn.disabled = !seasonObj.episodes.some(isEpisodeSelectable);
     seasonBtn.addEventListener("click", () => toggleSeasonTiles(seasonObj.season));
     row.appendChild(seasonBtn);
@@ -3748,7 +3831,12 @@ function renderSeriesTiles() {
     for (const ep of seasonObj.episodes) {
       const tile = document.createElement("button");
       tile.className = "ep-tile " + tileClass(ep) + (ep.in_jellyfin ? " in-jellyfin" : "");
-      tile.textContent = String(ep.episode).padStart(2, "0");
+      tile.setAttribute("aria-label", `Folge ${ep.episode}`);
+      const episodeLabel = document.createElement("span");
+      episodeLabel.textContent = "FOLGE";
+      const episodeNumber = document.createElement("strong");
+      episodeNumber.textContent = String(ep.episode).padStart(2, "0");
+      tile.append(episodeLabel, episodeNumber);
       tile.disabled = !isEpisodeSelectable(ep);
       if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
       else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
@@ -5901,6 +5989,7 @@ function initCatalogInfiniteScroll() {
 function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
+  restoreHomeCache();
   refreshGenres().catch((e) => {
     document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
     console.error("Genres konnten nicht geladen werden:", e);

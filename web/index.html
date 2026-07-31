@@ -555,26 +555,42 @@
         <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
           <div class="media-modal-backdrop" data-modal-close="series-detail-modal" aria-hidden="true"></div>
           <div class="panel series-detail-panel media-modal-panel" tabindex="-1">
-          <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen">×</button>
-          <div class="panel-head">
-            <span id="series-detail-title" class="panel-title">(keine Serie ausgewählt)</span>
-            <span id="series-pick-count" class="dim">0 ausgewählt</span>
-          </div>
-          <div class="series-cover-card">
-            <img id="series-cover" class="cover cover-sm" alt="">
-            <div class="series-cover-text">
-              <div id="series-genres" class="italic dim"></div>
-              <button id="series-watch-btn" class="btn btn-ghost btn-sm">+ Abonnieren</button>
+            <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen">×</button>
+            <section class="series-hero-copy" aria-label="Serieninformationen">
+              <span class="series-detail-kicker">AUS DEM ROYAL ARCHIV · SERIE</span>
+              <h2 id="series-detail-title">(keine Serie ausgewählt)</h2>
+              <div id="series-genres" class="series-detail-meta"></div>
+              <p id="series-desc" class="series-desc"></p>
+              <img id="series-cover" class="series-hero-poster" alt="">
+            </section>
+            <div class="series-action-bar">
+              <button id="series-watch-btn" class="btn btn-ghost">+ Abonnieren</button>
+              <div class="series-selection-status" aria-live="polite">
+                <span>EPISODENAUSWAHL</span>
+                <strong id="series-pick-count">0 ausgewählt</strong>
+              </div>
+              <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
             </div>
-            <p id="series-desc" class="series-desc"></p>
-          </div>
-          <div class="toolbar">
-            <button id="series-select-all" class="btn btn-ghost btn-sm">Alle Staffeln</button>
-            <button id="series-select-none" class="btn btn-ghost btn-sm">Keine</button>
-            <span class="dim legend">grau = verfügbar · gold = in Warteschlange · grün = geladen · pink = ausgewählt · blauer Punkt = in Jellyfin</span>
-          </div>
-          <div id="series-tiles" class="tiles-scroll"></div>
-          <button id="series-add-btn" class="btn btn-accent" disabled>Auswahl herunterladen</button>
+            <section class="series-episode-browser" aria-labelledby="series-episodes-title">
+              <header class="series-episodes-head">
+                <div>
+                  <span class="series-section-kicker">STAFFELN &amp; FOLGEN</span>
+                  <h3 id="series-episodes-title">Episoden</h3>
+                </div>
+                <div class="toolbar">
+                  <button id="series-select-all" class="btn btn-ghost btn-sm">Alle auswählen</button>
+                  <button id="series-select-none" class="btn btn-ghost btn-sm">Auswahl löschen</button>
+                </div>
+              </header>
+              <div class="series-state-legend" aria-label="Episodenstatus">
+                <span><i class="is-available"></i>Verfügbar</span>
+                <span><i class="is-queued"></i>Warteschlange</span>
+                <span><i class="is-downloaded"></i>Geladen</span>
+                <span><i class="is-selected"></i>Ausgewählt</span>
+                <span><i class="is-jellyfin"></i>Jellyfin</span>
+              </div>
+              <div id="series-tiles" class="tiles-scroll"></div>
+            </section>
           </div>
         </div>
       </div>
