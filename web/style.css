@@ -8240,13 +8240,9 @@ body.setup-open #dir-modal { z-index: 120; }
   padding: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  background-attachment: local;
-  background-image:
-    linear-gradient(90deg, rgba(10, 7, 15, 0.98) 0%, rgba(10, 7, 15, 0.93) 38%, rgba(10, 7, 15, 0.80) 100%),
-    radial-gradient(circle at 82% 18%, rgba(216, 183, 102, 0.18), transparent 38%),
-    var(--detail-backdrop-image, linear-gradient(145deg, #1d1527, #08060d));
-  background-position: center;
-  background-size: cover;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(216, 183, 102, 0.12), transparent 38%),
+    #0a070f;
   border-color: rgba(216, 183, 102, 0.32);
   border-radius: 24px;
 }
@@ -8256,8 +8252,25 @@ body.setup-open #dir-modal { z-index: 120; }
   height: 1px;
   background: linear-gradient(90deg, transparent 4%, rgba(240, 216, 144, 0.72) 34%, rgba(216, 183, 102, 0.12) 76%, transparent 96%);
 }
+.media-modal .detail-panel::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  display: block;
+  inset: 0 0 auto;
+  width: 100%;
+  height: min(780px, calc(100dvh - 48px));
+  background-image:
+    linear-gradient(90deg, rgba(10, 7, 15, 0.98) 0%, rgba(10, 7, 15, 0.93) 38%, rgba(10, 7, 15, 0.80) 100%),
+    linear-gradient(0deg, #0a070f 0%, transparent 34%),
+    var(--detail-backdrop-image, linear-gradient(145deg, #1d1527, #08060d));
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
 .detail-panel-head {
   position: relative;
+  z-index: 1;
   top: auto;
   min-height: 80px;
   margin: 0;
@@ -8322,6 +8335,8 @@ body.setup-open #dir-modal { z-index: 120; }
 }
 .detail-availability::before { width: 5px; height: 5px; }
 .media-modal .detail-body {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: none;
   min-height: 0;
@@ -10414,5 +10429,39 @@ body.login-open #app {
 
   .login-panel .login-submit {
     min-height: 50px;
+  }
+}
+
+/* Täglich wechselnde Entdecker-Reihen tragen ihre Funktion über Farbe,
+   ohne das ruhige Streaming-Raster aufzubrechen. */
+#tab-home .home-discovery-rail.is-exploration .home-rail-eyebrow {
+  color: #73cde3;
+}
+
+#tab-home .home-discovery-rail.is-gems .home-rail-eyebrow {
+  color: #f1b956;
+}
+
+#tab-home .home-discovery-rail .home-rail-head > div:first-child {
+  position: relative;
+}
+
+#tab-home .home-discovery-rail .home-rail-head > div:first-child::after {
+  content: "TÄGLICH NEU";
+  position: absolute;
+  top: 1px;
+  left: calc(100% + 10px);
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 3px;
+  color: #777;
+  font: 600 5.5px/1 "JetBrains Mono", monospace;
+  letter-spacing: .09em;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  #tab-home .home-discovery-rail .home-rail-head > div:first-child::after {
+    display: none;
   }
 }

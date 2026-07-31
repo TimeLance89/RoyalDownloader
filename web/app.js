@@ -2,7 +2,7 @@ const state = {
   tab: "home",
   home: {
     newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
-    heroIndex: 0, heroTimer: null, loading: true,
+    heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "",
     search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
   },
   fp: {
@@ -124,7 +124,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "einstellungen") setQueueDockExpanded(false);
   state.tab = name;
   if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
-  if (name === "home") scheduleHomeHeroRotation();
+  if (name === "home") renderHome();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
   if (name === "filme") scheduleMovieFeatureRotation();
@@ -854,12 +854,154 @@ function homeSeriesEntry(item) {
   return { kind: "series", item };
 }
 
+const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
+const HOME_WEEKLY_TOP_KEY = "royal-home-weekly-top-v1";
+
+function homeEntryKey(entry) {
+  if (!entry?.item) return "";
+  return `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+}
+
+function homeEntryMedia(entry) {
+  if (!entry?.item) return {};
+  const metadata = entry.kind === "movie"
+    ? (state.fp.metadataCache[entry.item.slug] || {})
+    : {};
+  return { ...entry.item, ...metadata };
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localWeekKey(date = new Date()) {
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const weekday = monday.getDay() || 7;
+  monday.setDate(monday.getDate() - weekday + 1);
+  return localDateKey(monday);
+}
+
+function stableDiscoveryHash(value) {
+  let hash = 2166136261;
+  for (const char of String(value)) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function stableDailyOrder(entries, lane) {
+  const seed = `${localDateKey()}|${lane}`;
+  return entries.slice().sort((a, b) =>
+    stableDiscoveryHash(`${seed}|${homeEntryKey(a)}`)
+    - stableDiscoveryHash(`${seed}|${homeEntryKey(b)}`));
+}
+
+function loadDiscoveryProfile() {
+  let profile = null;
+  try {
+    profile = JSON.parse(localStorage.getItem(HOME_DISCOVERY_PROFILE_KEY) || "null");
+  } catch {
+    profile = null;
+  }
+  if (!profile || typeof profile !== "object") {
+    profile = { genres: {}, kinds: {}, recent: [], interactions: 0, updatedAt: Date.now() };
+  }
+  profile.genres = profile.genres && typeof profile.genres === "object" ? profile.genres : {};
+  profile.kinds = profile.kinds && typeof profile.kinds === "object" ? profile.kinds : {};
+  profile.recent = Array.isArray(profile.recent) ? profile.recent.slice(0, 60) : [];
+  profile.interactions = Number(profile.interactions || 0);
+  const elapsedDays = Math.floor((Date.now() - Number(profile.updatedAt || Date.now())) / 86400000);
+  if (elapsedDays > 0) {
+    const factor = Math.pow(0.985, Math.min(elapsedDays, 120));
+    Object.keys(profile.genres).forEach((genre) => {
+      profile.genres[genre] = Number(profile.genres[genre] || 0) * factor;
+    });
+    Object.keys(profile.kinds).forEach((kind) => {
+      profile.kinds[kind] = Number(profile.kinds[kind] || 0) * factor;
+    });
+    profile.updatedAt = Date.now();
+  }
+  return profile;
+}
+
+function saveDiscoveryProfile(profile) {
+  try {
+    localStorage.setItem(HOME_DISCOVERY_PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    // Private Modi können lokalen Speicher blockieren; Entdecken bleibt nutzbar.
+  }
+}
+
+function trackDiscoveryPreference(kind, item, weight = 1, action = "open") {
+  if (!item) return;
+  const entry = kind === "movie" ? homeMovieEntry(item) : homeSeriesEntry(item);
+  const media = homeEntryMedia(entry);
+  const key = homeEntryKey(entry);
+  const profile = loadDiscoveryProfile();
+  const cleanGenres = [...new Set((media.genres || [])
+    .map((genre) => String(genre || "").trim())
+    .filter(Boolean))].slice(0, 5);
+  for (const genre of cleanGenres) {
+    profile.genres[genre] = Math.min(80, Number(profile.genres[genre] || 0) + weight);
+  }
+  profile.kinds[kind] = Math.min(80, Number(profile.kinds[kind] || 0) + weight * 0.45);
+  profile.recent = [
+    { key, action, at: Date.now() },
+    ...profile.recent.filter((event) => event?.key !== key),
+  ].slice(0, 60);
+  profile.interactions += 1;
+  profile.updatedAt = Date.now();
+  saveDiscoveryProfile(profile);
+}
+
+function homeAllEntries() {
+  return uniqueHomeEntries([
+    ...state.home.topMovies.map(homeMovieEntry),
+    ...state.home.newMovies.map(homeMovieEntry),
+    ...state.home.trendingSeries.map(homeSeriesEntry),
+    ...state.home.newSeries.map(homeSeriesEntry),
+  ]);
+}
+
+function weeklyStableEntries(entries, limit = 10) {
+  const period = localWeekKey();
+  const available = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(HOME_WEEKLY_TOP_KEY) || "null");
+  } catch {
+    stored = null;
+  }
+  const previousKeys = stored?.period === period && Array.isArray(stored.keys) ? stored.keys : [];
+  const ordered = previousKeys.map((key) => available.get(key)).filter(Boolean);
+  const known = new Set(ordered.map(homeEntryKey));
+  const fill = entries
+    .filter((entry) => !known.has(homeEntryKey(entry)))
+    .sort((a, b) =>
+      stableDiscoveryHash(`${period}|top|${homeEntryKey(a)}`)
+      - stableDiscoveryHash(`${period}|top|${homeEntryKey(b)}`));
+  const selected = [...ordered, ...fill].slice(0, limit);
+  try {
+    localStorage.setItem(HOME_WEEKLY_TOP_KEY, JSON.stringify({
+      period,
+      keys: selected.map(homeEntryKey),
+    }));
+  } catch {
+    // Die Reihenfolge bleibt für diese Sitzung trotzdem stabil.
+  }
+  return selected;
+}
+
 function homeTopEntries() {
-  return interleaveHomeEntries(
+  return weeklyStableEntries(interleaveHomeEntries(
     state.home.topMovies.map(homeMovieEntry),
     state.home.trendingSeries.map(homeSeriesEntry),
-    10,
-  );
+    20,
+  ), 10);
 }
 
 function homeNewEntries() {
@@ -870,12 +1012,81 @@ function homeNewEntries() {
   );
 }
 
+function homePersonalizedEntries() {
+  const profile = loadDiscoveryProfile();
+  const recent = new Set(profile.recent.slice(0, 18).map((event) => event.key));
+  const pool = homeAllEntries();
+  if (profile.interactions < 2 || !Object.keys(profile.genres).length) {
+    return stableDailyOrder(pool.filter((entry) => !recent.has(homeEntryKey(entry))), "starter").slice(0, 24);
+  }
+  return pool
+    .filter((entry) => !recent.has(homeEntryKey(entry)))
+    .map((entry) => {
+      const media = homeEntryMedia(entry);
+      const genreScore = (media.genres || []).reduce(
+        (sum, genre) => sum + Number(profile.genres[String(genre)] || 0),
+        0,
+      );
+      const kindScore = Number(profile.kinds[entry.kind] || 0);
+      const rating = Number(media.rating || 0);
+      const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|personal|${homeEntryKey(entry)}`) / 4294967295;
+      return { entry, score: genreScore * 1.4 + kindScore + rating * 0.12 + discoveryNoise * 2.2 };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(({ entry }) => entry)
+    .slice(0, 24);
+}
+
+function favoriteDiscoveryGenre(profile = loadDiscoveryProfile()) {
+  return Object.entries(profile.genres)
+    .filter(([, score]) => Number(score) > 0.25)
+    .sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0], "de"))[0]?.[0] || "";
+}
+
+function homeGenreEntries() {
+  const profile = loadDiscoveryProfile();
+  const favorite = favoriteDiscoveryGenre(profile);
+  const pool = homeAllEntries();
+  if (!favorite) return stableDailyOrder(pool, "genre-starter").slice(0, 24);
+  const matching = pool.filter((entry) =>
+    (homeEntryMedia(entry).genres || []).some((genre) =>
+      String(genre).localeCompare(favorite, "de", { sensitivity: "base" }) === 0));
+  return stableDailyOrder(matching.length >= 6 ? matching : pool, `genre-${favorite}`).slice(0, 24);
+}
+
+function homeExploreEntries() {
+  const profile = loadDiscoveryProfile();
+  const avoidedGenres = new Set(Object.entries(profile.genres)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 2)
+    .map(([genre]) => genre.toLocaleLowerCase()));
+  const recent = new Set(profile.recent.slice(0, 30).map((event) => event.key));
+  const pool = homeAllEntries().filter((entry) => {
+    if (recent.has(homeEntryKey(entry))) return false;
+    const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
+    return !genres.some((genre) => avoidedGenres.has(genre));
+  });
+  return stableDailyOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore").slice(0, 24);
+}
+
+function homeGemEntries() {
+  const topKeys = new Set(homeTopEntries().map(homeEntryKey));
+  const candidates = homeAllEntries()
+    .filter((entry) => !topKeys.has(homeEntryKey(entry)))
+    .map((entry) => ({ entry, rating: Number(homeEntryMedia(entry).rating || 0) }))
+    .filter(({ rating }) => !rating || rating >= 6.4)
+    .sort((a, b) => b.rating - a.rating
+      || stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(a.entry)}`)
+      - stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(b.entry)}`))
+    .map(({ entry }) => entry);
+  return candidates.slice(0, 24);
+}
+
 function homeHeroCandidates() {
-  const entries = interleaveHomeEntries(
-    state.home.topMovies.slice(0, 4).map(homeMovieEntry),
-    state.home.trendingSeries.slice(0, 4).map(homeSeriesEntry),
-    7,
-  );
+  const entries = uniqueHomeEntries([
+    ...homePersonalizedEntries().slice(0, 4),
+    ...stableDailyOrder(homeTopEntries(), "hero").slice(0, 3),
+  ]).slice(0, 7);
   return entries.map((entry) => {
     const metadata = entry.kind === "movie"
       ? (state.fp.metadataCache[entry.item.slug] || {})
@@ -1062,10 +1273,28 @@ function renderHomeRail(trackId, entries, { ranked = false } = {}) {
 }
 
 function renderHome() {
+  state.home.discoveryDay = localDateKey();
+  const profile = loadDiscoveryProfile();
+  const favoriteGenre = favoriteDiscoveryGenre(profile);
+  const personalTitle = document.getElementById("home-movies-title");
+  const genreTitle = document.getElementById("home-genre-title");
+  const genreEyebrow = document.getElementById("home-genre-eyebrow");
+  if (personalTitle) {
+    personalTitle.textContent = profile.interactions >= 2 ? "Für dich ausgewählt" : "Heute für dich";
+  }
+  if (genreTitle) {
+    genreTitle.textContent = favoriteGenre ? `Weil dir ${favoriteGenre} gefällt` : "Genres zum Entdecken";
+  }
+  if (genreEyebrow) {
+    genreEyebrow.textContent = favoriteGenre ? "Aus deinen Klicks und Downloads" : "Zum Kennenlernen";
+  }
   renderHomeHero();
   renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
-  renderHomeRail("home-movies-track", state.home.topMovies.map(homeMovieEntry));
+  renderHomeRail("home-movies-track", homePersonalizedEntries());
   renderHomeRail("home-series-track", state.home.trendingSeries.map(homeSeriesEntry));
+  renderHomeRail("home-genre-track", homeGenreEntries());
+  renderHomeRail("home-explore-track", homeExploreEntries());
+  renderHomeRail("home-gems-track", homeGemEntries());
   renderHomeRail("home-new-track", homeNewEntries());
   scheduleHomeHeroRotation();
 }
@@ -2062,6 +2291,13 @@ async function toggleFpPick(slug) {
     return;
   }
   const resp = await api.queueAdd([slug]);
+  if (Number(resp.added || 0) > 0) {
+    const item = state.fp.moviesCache[slug]
+      || state.fp.metadataCache[slug]
+      || state.fp.results.find((movie) => movie.slug === slug)
+      || homeMovieBySlug(slug);
+    trackDiscoveryPreference("movie", { ...item, slug }, 5, "download");
+  }
   if (!state.fp.moviesCache[slug]) {
     try {
       state.fp.moviesCache[slug] = await api.movie(slug);
@@ -2078,6 +2314,7 @@ async function selectFpRow(slug) {
   const item = state.fp.results.find((r) => r.slug === slug) || homeMovieBySlug(slug);
   if (!item) return;
   const metadata = state.fp.metadataCache[slug];
+  trackDiscoveryPreference("movie", { ...item, ...metadata, slug }, 0.8, "open");
   if (movie) showFpDetail(slug, movie);
   else if (metadata) showFpDetail(slug, metadataPreviewMovie(metadata), true);
   else {
@@ -2309,6 +2546,9 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
       const resp = shouldRemove
         ? await api.queueRemove(slug)
         : await api.queueAdd([slug], selection ? { [slug]: selection } : {});
+      if (!shouldRemove && Number(resp.added || 0) > 0) {
+        trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
+      }
       refreshQueueUiAfterChange(resp);
       if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
     } catch (error) {
@@ -3054,6 +3294,7 @@ async function loadNextSeriesPage() {
 async function loadSeries(result) {
   const cacheKey = result.base_slug || result.sample_slug;
   if (state.series.pendingBaseSlug === cacheKey) return;
+  trackDiscoveryPreference("series", result, 0.8, "open");
   const requestId = ++state.series.requestSeq;
   state.series.pendingBaseSlug = cacheKey;
   updateSeriesResultSelection();
@@ -3287,6 +3528,9 @@ async function seriesAddSelected() {
   addButton.disabled = true;
   try {
     const resp = await api.queueAdd(slugs);
+    if (Number(resp.added || 0) > 0 && state.series.current) {
+      trackDiscoveryPreference("series", state.series.current, 5, "download");
+    }
     refreshQueueUiAfterChange(resp);
     document.getElementById("series-status").textContent =
       `${resp.added}/${slugs.length} Episode(n) automatisch gestartet`;
@@ -3969,6 +4213,18 @@ function renderWatchlist() {
   document.getElementById("wl-total-count").textContent = String(state.wl.items.length);
   document.getElementById("wl-attention-count").textContent = String(attentionCount);
   document.getElementById("wl-selected-count").textContent = String(state.wl.selected.size);
+  const heroEntry = state.wl.items.find((entry) =>
+    entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed"
+  ) || state.wl.items[0];
+  const heroArt = document.getElementById("library-hero-art");
+  const heroArtwork = api.coverUrl(heroEntry?.backdrop_url || heroEntry?.cover_url || "").replace(/"/g, "%22");
+  heroArt.style.backgroundImage = heroArtwork ? `url("${heroArtwork}")` : "";
+  heroArt.classList.toggle("has-artwork", Boolean(heroArtwork));
+  document.getElementById("library-hero-description").textContent = heroEntry
+    ? (attentionCount
+      ? `${attentionCount} ${attentionCount === 1 ? "Update wartet" : "Updates warten"} auf dich.`
+      : "Alles, was du verfolgst – vollständig und startklar.")
+    : "Füge Serien hinzu und baue deine persönliche Sammlung auf.";
   document.getElementById("wl-check-all").disabled = state.wl.items.length === 0;
   for (const id of ["wl-check-selected", "wl-open", "wl-remove"]) {
     document.getElementById(id).disabled = state.wl.selected.size === 0;
@@ -3978,9 +4234,9 @@ function renderWatchlist() {
     const empty = document.createElement("div");
     empty.className = "library-empty";
     empty.innerHTML = `
-      <span class="library-empty-mark" aria-hidden="true">◇</span>
-      <strong>Dein Serienarchiv ist noch leer</strong>
-      <span>Öffne eine Serie und wähle „Abonnieren“, um sie hier zu verwalten.</span>
+      <span class="library-empty-mark" aria-hidden="true">＋</span>
+      <strong>Deine Liste ist noch leer</strong>
+      <span>Öffne eine Serie und wähle „Meine Liste“, um sie hier zu sehen.</span>
     `;
     container.appendChild(empty);
     return;
@@ -4026,9 +4282,22 @@ function renderWatchlist() {
 
     const identity = document.createElement("div");
     identity.className = "library-card-identity";
+    const artwork = document.createElement("span");
+    artwork.className = "library-card-artwork";
+    if (entry.cover_url) {
+      const image = document.createElement("img");
+      image.src = api.coverUrl(entry.cover_url);
+      image.alt = "";
+      image.loading = "lazy";
+      image.addEventListener("error", () => artwork.classList.add("is-fallback"), { once: true });
+      artwork.appendChild(image);
+    } else {
+      artwork.classList.add("is-fallback");
+    }
     const monogram = document.createElement("span");
     monogram.className = "library-card-monogram";
     monogram.textContent = subscriptionMonogram(entry.title);
+    artwork.appendChild(monogram);
     const copy = document.createElement("span");
     copy.className = "library-card-copy";
     const title = document.createElement("strong");
@@ -4039,7 +4308,7 @@ function renderWatchlist() {
     statusText.className = "library-card-status";
     statusText.textContent = watchlistStatusText(entry);
     copy.append(title, statusText);
-    identity.append(monogram, copy);
+    identity.append(artwork, copy);
 
     const episodeStatus = document.createElement("div");
     episodeStatus.className = "library-episode-status";
@@ -5456,6 +5725,11 @@ async function initApp() {
       closeSearchSuggestions("home-search-suggestions", "home-search");
     }
   });
+  window.setInterval(() => {
+    if (state.tab !== "home" || state.home.discoveryDay === localDateKey()) return;
+    state.home.heroIndex = 0;
+    renderHome();
+  }, 5 * 60 * 1000);
   document.querySelectorAll("[data-home-search-scope]").forEach((button) => {
     button.addEventListener("click", () => {
       state.home.search.scope = button.dataset.homeSearchScope;

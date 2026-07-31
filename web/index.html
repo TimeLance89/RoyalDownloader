@@ -150,7 +150,7 @@
         <section class="home-rail is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
-              <span class="home-rail-eyebrow">Heute in deiner Auswahl</span>
+              <span class="home-rail-eyebrow">Diese Woche</span>
               <h2 id="home-top-title">Top 10</h2>
             </div>
             <div class="home-rail-controls">
@@ -163,13 +163,16 @@
 
         <section class="home-rail" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
-            <h2 id="home-movies-title">Empfehlungen für dich</h2>
+            <div>
+              <span class="home-rail-eyebrow">Lernt aus deiner Auswahl</span>
+              <h2 id="home-movies-title">Für dich ausgewählt</h2>
+            </div>
             <div class="home-rail-controls">
-              <button type="button" data-home-scroll="home-movies-track" data-direction="-1" aria-label="Beliebte Filme nach links scrollen">‹</button>
-              <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Beliebte Filme nach rechts scrollen">›</button>
+              <button type="button" data-home-scroll="home-movies-track" data-direction="-1" aria-label="Empfehlungen nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Empfehlungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-movies-track" class="home-track" aria-label="Beliebte Filme"></div>
+          <div id="home-movies-track" class="home-track" aria-label="Persönliche Empfehlungen"></div>
         </section>
 
         <section class="home-rail" aria-labelledby="home-series-title">
@@ -181,6 +184,48 @@
             </div>
           </header>
           <div id="home-series-track" class="home-track" aria-label="Angesagte Serien"></div>
+        </section>
+
+        <section class="home-rail home-discovery-rail" aria-labelledby="home-genre-title">
+          <header class="home-rail-head">
+            <div>
+              <span id="home-genre-eyebrow" class="home-rail-eyebrow">Nach deinem Geschmack</span>
+              <h2 id="home-genre-title">Ein Genre für dich</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-genre-track" data-direction="-1" aria-label="Genre-Empfehlungen nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-genre-track" data-direction="1" aria-label="Genre-Empfehlungen nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-genre-track" class="home-track" aria-label="Empfehlungen nach Genre"></div>
+        </section>
+
+        <section class="home-rail home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
+          <header class="home-rail-head">
+            <div>
+              <span class="home-rail-eyebrow">Raus aus der Komfortzone</span>
+              <h2 id="home-explore-title">Heute mal etwas anderes</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-explore-track" data-direction="-1" aria-label="Neue Entdeckungen nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-explore-track" data-direction="1" aria-label="Neue Entdeckungen nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-explore-track" class="home-track" aria-label="Unerwartete Entdeckungen"></div>
+        </section>
+
+        <section class="home-rail home-discovery-rail is-gems" aria-labelledby="home-gems-title">
+          <header class="home-rail-head">
+            <div>
+              <span class="home-rail-eyebrow">Abseits der ersten Reihe</span>
+              <h2 id="home-gems-title">Verborgene Schätze</h2>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-gems-track" data-direction="-1" aria-label="Verborgene Schätze nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-gems-track" data-direction="1" aria-label="Verborgene Schätze nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-gems-track" class="home-track" aria-label="Verborgene Schätze"></div>
         </section>
 
         <section class="home-rail" aria-labelledby="home-new-title">
@@ -588,37 +633,29 @@
 
     <section class="tab-content" id="tab-bibliothek">
       <header class="library-hero">
+        <div id="library-hero-art" class="library-hero-art" aria-hidden="true"></div>
         <div class="library-hero-copy">
-          <span class="library-kicker">ROYAL SERIENARCHIV</span>
-          <h1>Deine Bibliothek</h1>
-          <p>Abos, fehlende Episoden und Regeln an einem Ort.</p>
-        </div>
-        <div class="library-overview" aria-label="Bibliotheksübersicht">
-          <div class="library-stat">
-            <span>Abos</span>
-            <strong id="wl-total-count">0</strong>
-          </div>
-          <div class="library-stat is-attention">
-            <span>Offen</span>
-            <strong id="wl-attention-count">0</strong>
-          </div>
-          <div class="library-stat is-selected">
-            <span>Ausgewählt</span>
-            <strong id="wl-selected-count">0</strong>
+          <span class="library-kicker"><i aria-hidden="true"></i> DEINE SERIEN</span>
+          <h1>Meine Liste</h1>
+          <p id="library-hero-description">Alles, was du verfolgst – bereit, wenn du es bist.</p>
+          <div class="library-hero-meta" aria-label="Status deiner Liste">
+            <span><strong id="wl-total-count">0</strong> Serien</span>
+            <span><strong id="wl-attention-count">0</strong> offen</span>
           </div>
         </div>
       </header>
-      <div class="panel library-panel">
+      <div class="library-panel">
         <div class="library-commandbar">
           <div class="library-command-copy">
-            <span class="library-command-label">ABONNEMENTS</span>
+            <h2>Deine Bibliothek</h2>
             <span id="wl-status" class="dim" role="status" aria-live="polite">Bereit zur Prüfung</span>
           </div>
           <div class="library-actions">
-            <button id="wl-check-all" class="btn btn-accent btn-sm">↻ Alle prüfen</button>
-            <button id="wl-check-selected" class="btn btn-ghost btn-sm">Auswahl prüfen</button>
-            <button id="wl-open" class="btn btn-ghost btn-sm">Serie öffnen</button>
-            <button id="wl-remove" class="btn btn-ghost btn-sm library-remove">Entfernen</button>
+            <span class="library-selection-count"><strong id="wl-selected-count">0</strong> ausgewählt</span>
+            <button id="wl-check-all" class="library-action is-primary">↻ <span>Alle prüfen</span></button>
+            <button id="wl-check-selected" class="library-action"><span>Auswahl prüfen</span></button>
+            <button id="wl-open" class="library-action"><span>Öffnen</span></button>
+            <button id="wl-remove" class="library-action library-remove"><span>Entfernen</span></button>
           </div>
         </div>
         <div id="wl-list" class="list library-grid" aria-label="Abonnierte Serien"></div>
