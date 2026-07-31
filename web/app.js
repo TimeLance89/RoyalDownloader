@@ -2,6 +2,7 @@ const state = {
   tab: "home",
   home: {
     newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
+    discoveryMovies: [], discoverySeries: [],
     heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "",
     search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
   },
@@ -811,6 +812,7 @@ function homeMovieBySlug(slug) {
   return [
     ...state.home.newMovies,
     ...state.home.topMovies,
+    ...state.home.discoveryMovies,
     ...state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
   ]
     .find((item) => item.slug === slug) || null;
@@ -820,6 +822,7 @@ function homeSeriesBySlug(baseSlug) {
   return [
     ...state.home.trendingSeries,
     ...state.home.newSeries,
+    ...state.home.discoverySeries,
     ...state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
   ]
     .find((item) => item.base_slug === baseSlug) || null;
@@ -924,6 +927,7 @@ function loadDiscoveryProfile() {
       profile.kinds[kind] = Number(profile.kinds[kind] || 0) * factor;
     });
     profile.updatedAt = Date.now();
+    saveDiscoveryProfile(profile);
   }
   return profile;
 }
@@ -962,8 +966,10 @@ function homeAllEntries() {
   return uniqueHomeEntries([
     ...state.home.topMovies.map(homeMovieEntry),
     ...state.home.newMovies.map(homeMovieEntry),
+    ...state.home.discoveryMovies.map(homeMovieEntry),
     ...state.home.trendingSeries.map(homeSeriesEntry),
     ...state.home.newSeries.map(homeSeriesEntry),
+    ...state.home.discoverySeries.map(homeSeriesEntry),
   ]);
 }
 
@@ -1329,11 +1335,13 @@ function searchCandidates(kind) {
     ...state.fp.results.map(homeMovieEntry),
     ...state.home.topMovies.map(homeMovieEntry),
     ...state.home.newMovies.map(homeMovieEntry),
+    ...state.home.discoveryMovies.map(homeMovieEntry),
   ]);
   const series = uniqueHomeEntries([
     ...state.series.results.map(homeSeriesEntry),
     ...state.home.trendingSeries.map(homeSeriesEntry),
     ...state.home.newSeries.map(homeSeriesEntry),
+    ...state.home.discoverySeries.map(homeSeriesEntry),
   ]);
   if (kind === "movie") return movies;
   if (kind === "series") return series;
@@ -1522,11 +1530,27 @@ async function loadHomeData() {
     state.home.newSeries = data.results || [];
     renderHome();
   });
+  const discoveryMoviesRequest = Promise.allSettled([
+    api.movies({ mode: "new", page: 2 }),
+    api.movies({ mode: "top", page: 2 }),
+  ]).then((results) => {
+    state.home.discoveryMovies = results
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => result.value.results || []);
+    renderHome();
+    return hydrateHomeMovieArtwork(state.home.discoveryMovies.slice(0, 18));
+  });
+  const discoverySeriesRequest = api.series({ mode: "discover", page: 1 }).then((data) => {
+    state.home.discoverySeries = data.results || [];
+    renderHome();
+  });
   await Promise.allSettled([
     newMoviesRequest,
     trendingSeriesRequest,
     topMoviesRequest,
     newSeriesRequest,
+    discoveryMoviesRequest,
+    discoverySeriesRequest,
   ]);
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
