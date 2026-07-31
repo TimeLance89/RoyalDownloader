@@ -559,7 +559,14 @@ function openMediaModal(modalId, trigger = null) {
   modal.hidden = false;
   modal.classList.add("is-open");
   document.body.classList.add("media-modal-open");
-  requestAnimationFrame(() => modal.querySelector(".media-modal-close")?.focus());
+  const scrollContainers = modal.querySelectorAll(
+    ".media-modal-panel, .detail-body, .tiles-scroll, .anime-detail-content",
+  );
+  scrollContainers.forEach((element) => { element.scrollTop = 0; element.scrollLeft = 0; });
+  requestAnimationFrame(() => {
+    scrollContainers.forEach((element) => { element.scrollTop = 0; element.scrollLeft = 0; });
+    modal.querySelector(".media-modal-close")?.focus();
+  });
 }
 
 function closeMediaModal(modalId, restoreFocus = true) {
