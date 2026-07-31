@@ -11089,7 +11089,7 @@ body.login-open #app {
 .media-modal .detail-body {
   height: auto;
   min-height: 100%;
-  padding: clamp(230px, 31vh, 330px) 52px 60px;
+  padding: clamp(250px, 37vh, 390px) 52px 60px;
   overflow: visible;
 }
 
@@ -11145,7 +11145,7 @@ body.login-open #app {
   box-shadow: 0 15px 40px rgba(0, 0, 0, .25);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  margin-bottom: clamp(90px, 12vh, 145px);
+  margin-bottom: 0;
 }
 
 .media-modal .detail-download-btn { order: 1; }
