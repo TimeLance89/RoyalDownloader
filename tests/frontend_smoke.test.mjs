@@ -32,3 +32,15 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /queueAdd\(slugs/);
   assert.match(api, /configGet\(\)/);
 });
+
+test("movie and series catalogs lazy-load for mobile document scrolling", () => {
+  for (const id of ["tab-filme", "fp-infinite", "tab-serien", "series-infinite"]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.match(app, /window\.addEventListener\("scroll", schedule, \{ passive: true \}\)/);
+  assert.match(app, /sentinel\.getBoundingClientRect\(\)\.top <= viewportHeight \+ CATALOG_PRELOAD_PX/);
+  assert.match(app, /container\.classList\.contains\("active"\)/);
+  assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
+  assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
+  assert.match(html, /app\.js\?v=royal-20260801-2/);
+});

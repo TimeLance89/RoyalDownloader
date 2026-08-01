@@ -12,6 +12,8 @@
 - Reject media destinations in Docker's ephemeral container layer, prefer the
   configured persistent movie/series mounts, and recover completed media from
   an unsafe legacy path without deleting the original files.
+- Restore automatic catalog pagination on mobile by observing document scrolls
+  for both the movie and series tabs in addition to desktop tab scrolling.
 
 ## 2026-08-01 – Runtime hardening and modularization
 

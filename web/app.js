@@ -28,10 +28,10 @@ const WATCH_CLEANUP_LABELS = {
 };
 const FP_METADATA_BATCH_SIZE = 4;
 const FP_METADATA_BATCH_CONCURRENCY = 3;
-// Auto-Nachladen ist ueber einen simplen Scroll-Listener am tatsaechlichen
-// Scroll-Container geloest (siehe initCatalogInfiniteScroll). Das funktioniert
-// in allen Zielbrowsern; die Konstante bleibt fuer die Retry-Button-Logik als
-// "Auto-Nachladen verfuegbar" erhalten.
+// Auto-Nachladen beobachtet sowohl intern scrollende Desktop-Tabs als auch den
+// Dokument-Viewport der mobilen Ansicht (siehe initCatalogInfiniteScroll).
+// Die Konstante bleibt fuer die Retry-Button-Logik als "Auto-Nachladen
+// verfuegbar" erhalten.
 const catalogInfiniteObserverSupported = true;
 // Erneuter Naehe-Check je Tab (nach jedem Laden aufgerufen, damit ein noch zu
 // kurzer Container automatisch bis zum Fuellstand nachlaedt).
@@ -82,6 +82,8 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "filme") scheduleMovieFeatureRotation();
   else stopMovieFeatureRotation();
   if (name !== "home") stopHomeHeroRotation();
+  if (name === "filme") recheckFpInfinite();
+  if (name === "serien") recheckSeriesInfinite();
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
@@ -2565,6 +2567,7 @@ function applyFpResults(data, { append = false } = {}) {
   renderFpResults(appendFrom);
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
+  recheckFpInfinite();
   if (pendingSlugs.size) void preloadTmdbMetadata(state.fp.requestSeq);
 }
 
@@ -3920,6 +3923,7 @@ function applySeriesResults(data, { append = false } = {}) {
     renderSeriesCatalogHero();
   });
   updateSeriesInfiniteState();
+  recheckSeriesInfinite();
   const sourceCount = state.series.sources.length;
   document.getElementById("series-status").textContent =
     state.series.results.length
@@ -6518,28 +6522,38 @@ function retrySeriesInfiniteLoad() {
 }
 
 // Vorlauf in Pixeln: sobald weniger als so viel bis zum unteren Rand des
-// intern scrollenden Tabs fehlt, wird die naechste Seite geladen. Grosszuegig
-// genug gewaehlt, dass die Folge-Eintraege laengst da sind, bevor man das Ende
-// sieht – aber kleiner als eine typische Seite an Inhalt, damit nie mehrere
-// Seiten auf einmal in einem Schwall nachgeladen werden.
+// intern scrollenden Tabs oder bis zum Sentinel im Dokument fehlt, wird die
+// naechste Seite geladen. Grosszuegig genug gewaehlt, dass die Folge-Eintraege
+// laengst da sind, bevor man das Ende sieht.
 const CATALOG_PRELOAD_PX = 1400;
 
 function initCatalogInfiniteScroll() {
   document.getElementById("fp-infinite-retry").addEventListener("click", retryFpInfiniteLoad);
   document.getElementById("series-infinite-retry").addEventListener("click", retrySeriesInfiniteLoad);
 
-  // Ein Scroll-Listener direkt am echten Scroll-Container ist zuverlaessiger
-  // als ein IntersectionObserver: dessen rootMargin greift bei verschachtelten
-  // Scroll-Containern (Tab scrollt intern, Dokument nicht) je nach Browser
-  // nicht sauber, wodurch der Vorlauf verpuffte oder in Schueben nachlud.
-  const bind = (containerId, loadNext) => {
+  // Desktop scrollt innerhalb des aktiven Tabs, mobil dagegen das Dokument.
+  // Darum werden beide Quellen beobachtet und je nach Layout entweder die
+  // verbleibende Containerstrecke oder die Sentinel-Position ausgewertet.
+  const bind = (containerId, sentinelId, loadNext) => {
     const container = document.getElementById(containerId);
-    if (!container) return () => {};
+    const sentinel = document.getElementById(sentinelId);
+    if (!container || !sentinel) return () => {};
     let scheduled = false;
     const run = () => {
       scheduled = false;
-      const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
-      if (remaining <= CATALOG_PRELOAD_PX) loadNext();
+      if (!container.classList.contains("active") || sentinel.classList.contains("hidden")) return;
+
+      const overflowY = window.getComputedStyle(container).overflowY;
+      const scrollsInternally = /(auto|scroll|overlay)/.test(overflowY)
+        && container.scrollHeight > container.clientHeight + 1;
+      if (scrollsInternally) {
+        const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (remaining <= CATALOG_PRELOAD_PX) loadNext();
+        return;
+      }
+
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      if (sentinel.getBoundingClientRect().top <= viewportHeight + CATALOG_PRELOAD_PX) loadNext();
     };
     const schedule = () => {
       if (scheduled) return;
@@ -6547,11 +6561,13 @@ function initCatalogInfiniteScroll() {
       requestAnimationFrame(run);
     };
     container.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
     return schedule;
   };
 
-  recheckFpInfinite = bind("tab-filme", loadNextFpPage);
-  recheckSeriesInfinite = bind("tab-serien", loadNextSeriesPage);
+  recheckFpInfinite = bind("tab-filme", "fp-infinite", loadNextFpPage);
+  recheckSeriesInfinite = bind("tab-serien", "series-infinite", loadNextSeriesPage);
 }
 
 function startInitialData() {
