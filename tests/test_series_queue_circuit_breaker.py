@@ -258,6 +258,21 @@ def test_cooldown_queue_distinguishes_fallback_checks_from_provider_waits():
     assert status["waiting_episode_count"] == 1
 
 
+def test_healthy_provider_marks_the_current_episode_as_preparing():
+    slug = "serienstream:exact-show-s02e04"
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.preparing_queue_slugs.add(slug)
+    server.state.fp_movies[slug] = episode_movie(
+        "serienstream", slug, hosters=False,
+    )
+
+    payload = server.build_queue_payload()
+    item = payload["groups"][0]["items"][0]
+
+    assert item["status"] == "preparing_source"
+
+
 def test_waiting_episode_retries_fallback_without_serienstream_probe(
     monkeypatch, tmp_path,
 ):

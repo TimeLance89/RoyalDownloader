@@ -3369,13 +3369,16 @@ def build_queue_payload() -> dict:
             label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
             provider = _movie_provider(movie, slug)
             waiting_provider = slug in state.provider_waiting_jobs
+            preparing_source = (
+                not waiting_provider
+                and slug in preparing_slugs
+                and slug in state.counted_queue_slugs
+            )
             checking_fallback = (
                 serienstream_paused
-                and not waiting_provider
-                and slug in preparing_slugs
+                and preparing_source
                 and parse_episode_slug(slug) is not None
                 and provider_for_value(slug) == "serienstream"
-                and slug in state.counted_queue_slugs
             )
             queued_fallback = (
                 serienstream_paused
@@ -3397,6 +3400,7 @@ def build_queue_payload() -> dict:
                     else "download_ready" if slug in pending_download_slugs
                     else "waiting_provider" if waiting_provider
                     else "checking_fallback" if checking_fallback
+                    else "preparing_source" if preparing_source
                     else "queued_fallback" if queued_fallback
                     else "waiting"
                 ),
