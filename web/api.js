@@ -92,6 +92,8 @@ const api = {
   configSet(savePath, seriesPath) { return this.post("/api/config", { save_path: savePath, series_path: seriesPath }); },
   providerPriorityGet() { return this.get("/api/providers/config"); },
   providerPrioritySet(cfg) { return this.post("/api/providers/config", cfg); },
+  providerStatusGet() { return this.get("/api/providers/status"); },
+  serienstreamRetry() { return this.post("/api/providers/serienstream/retry"); },
 
   jellyfinConfigGet() { return this.get("/api/jellyfin/config"); },
   jellyfinConfigSet(url, apiKey, userId = "", userName = "", cleanupDefault = "keep") {

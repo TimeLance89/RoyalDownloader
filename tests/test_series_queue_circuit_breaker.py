@@ -1,0 +1,222 @@
+import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import server
+from provider_health import ProviderHealth
+from providers.models import (
+    FilmpalastMovie,
+    FilmpalastSeries,
+    FilmpalastSeriesResult,
+    HosterInfo,
+    SeriesEpisode,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolated_state(monkeypatch, tmp_path):
+    server.state.provider_health = ProviderHealth(
+        tmp_path / "provider-health.json",
+        initial_cooldown=10,
+        maximum_cooldown=40,
+    )
+    server.state.picked.clear()
+    server.state.fp_movies.clear()
+    server.state.counted_queue_slugs.clear()
+    server.state.provider_waiting_jobs.clear()
+    server.state.queue_content_keys.clear()
+    server.state.fallback_series_cache.clear()
+    server.state.done_slugs.clear()
+    server.state.total_jobs = 0
+    server.state.done_jobs = 0
+    monkeypatch.setattr(server, "broadcast", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: None)
+    monkeypatch.setattr(server, "_ensure_provider_retry_worker", lambda: None)
+
+
+def episode_movie(provider, slug, title="Exact Show S02E04", hosters=True):
+    url = (
+        f"https://serienstream.to/{slug}"
+        if provider == "serienstream"
+        else f"https://{provider}.invalid/{slug}"
+    )
+    return FilmpalastMovie(
+        title=title,
+        url=url,
+        provider=provider,
+        hosters=[HosterInfo("Direct", f"https://cdn.invalid/{slug}.m3u8")] if hosters else [],
+    )
+
+
+def test_serienstream_remains_first_source(monkeypatch):
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
+    ordered = server._ordered_episode_sources([
+        episode_movie("filmpalast", "fallback"),
+        episode_movie("serienstream", "primary"),
+    ])
+    assert ordered[0].provider == "serienstream"
+
+
+def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
+    slugs = [f"serienstream:exact-show-s01e{i:02d}" for i in range(1, 21)]
+    calls = []
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda slug: calls.append(slug))
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs)))
+    assert response["added"] == 20
+    assert calls == []
+    assert all(not server.state.fp_movies[slug].hosters for slug in slugs)
+
+
+def test_jellyfin_duplicate_protection_still_rejects_episode(monkeypatch):
+    slug = "serienstream:exact-show-s01e01"
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (True, "in Jellyfin vorhanden"))
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+    assert response["added"] == 0
+    assert response["skipped_details"][slug] == "in Jellyfin vorhanden"
+    assert slug not in server.state.picked
+
+
+def test_fallback_uses_exact_series_season_episode_and_ttl_cache(monkeypatch):
+    result = FilmpalastSeriesResult(
+        title="Exact Show", base_slug="filmpalast:exact", sample_slug="filmpalast:exact",
+        sample_url="https://filmpalast.to/serien/exact",
+    )
+    series = FilmpalastSeries(
+        title="Exact Show", base_slug="filmpalast:exact", url=result.sample_url,
+        seasons={2: [SeriesEpisode(2, 4, "filmpalast:exact-show-s02e04", "https://x")]},
+    )
+    calls = {"search": 0, "load": 0}
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_args: (
+        calls.__setitem__("search", calls["search"] + 1) or [
+            FilmpalastSeriesResult("Exact Show Extra", "wrong", "wrong", "https://wrong"), result,
+        ]
+    ))
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *_args: (
+        calls.__setitem__("load", calls["load"] + 1) or series
+    ))
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda slug: episode_movie("filmpalast", slug))
+    first = server.find_episode_fallbacks("Exact Show", 2, 4, source_slug="serienstream:x-s02e04")
+    second = server.find_episode_fallbacks("Exact Show", 2, 4, source_slug="serienstream:x-s02e04")
+    missing = server.find_episode_fallbacks("Exact Show", 2, 5, source_slug="serienstream:x-s02e05")
+    assert len(first) == len(second) == 1
+    assert missing == []
+    assert calls == {"search": 1, "load": 1}
+
+
+def test_network_error_is_not_negative_cached(monkeypatch):
+    calls = {"count": 0}
+
+    def fail(*_args):
+        calls["count"] += 1
+        raise ConnectionError("temporary")
+
+    monkeypatch.setattr(server, "_search_series_for_provider", fail)
+    assert server._fallback_get_series("filmpalast", "Exact Show") is None
+    assert server._fallback_get_series("filmpalast", "Exact Show") is None
+    assert calls["count"] == 2
+
+
+def test_without_fallback_episode_stays_waiting_not_failed():
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.total_jobs = 1
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    assert server._defer_provider_episode(movie, slug, Path("/tmp"))
+    payload = server.build_queue_payload()
+    item = payload["groups"][0]["items"][0]
+    assert item["status"] == "waiting_provider"
+    assert slug in server.state.picked
+    assert server.state.done_jobs == 0
+
+
+def test_waiting_episode_claim_survives_queue_persistence(monkeypatch, tmp_path):
+    slug = "serienstream:exact-show-s02e04"
+    queue_file = tmp_path / "download_queue.json"
+    monkeypatch.setattr(server.appconfig, "_queue_file", lambda: queue_file)
+    monkeypatch.setattr(server.appconfig, "_config_dir", lambda: tmp_path)
+    assert server.appconfig.save_queue({slug})
+    assert server.appconfig.load_queue() == [slug]
+
+
+def test_remove_waiting_episode_removes_delayed_retry():
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_waiting_jobs[slug] = {"slug": slug, "movie": movie}
+    server._release_removed_queue_slugs({slug})
+    assert slug not in server.state.picked
+    assert slug not in server.state.provider_waiting_jobs
+    assert slug not in server.state.counted_queue_slugs
+
+
+def test_successful_probe_reuses_resolved_url(monkeypatch):
+    slug = "serienstream:exact-show-s02e04"
+    movie = FilmpalastMovie(
+        title="Exact Show S02E04",
+        url="https://serienstream.to/episode",
+        provider="serienstream",
+        hosters=[HosterInfo("VOE", "https://serienstream.to/r?t=one")],
+    )
+    calls = {"count": 0}
+    scraper = SimpleNamespace(
+        reset_gate=lambda: None,
+        is_redirect_url=server.SerienstreamScraper.is_redirect_url,
+        resolve_play_url=lambda *_args, **_kwargs: (
+            calls.__setitem__("count", calls["count"] + 1) or "https://voe.invalid/e/one"
+        ),
+        last_block_reason="",
+    )
+    monkeypatch.setattr(server, "get_sto_scraper", lambda: scraper)
+    item = {"slug": slug, "movie": movie}
+    assert server._probe_serienstream_once(item)
+    assert calls["count"] == 1
+    assert movie.hosters[0].url == "https://voe.invalid/e/one"
+
+
+def test_manual_retry_rejects_parallel_probe():
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    assert server.state.provider_health.begin_probe("serienstream", force=True)
+    with pytest.raises(server.HTTPException) as error:
+        asyncio.run(server.api_serienstream_retry())
+    assert error.value.status_code == 409
+
+
+def test_successful_fallback_is_enqueued_normally(monkeypatch, tmp_path):
+    slug = "serienstream:exact-show-s02e04"
+    primary = episode_movie("serienstream", slug, hosters=False)
+    fallback = episode_movie("filmpalast", "fallback-s02e04")
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "find_episode_fallbacks", lambda *_args, **_kwargs: [fallback])
+    def extract(movie, *_args, **_kwargs):
+        return SimpleNamespace(
+            stream_info=("https://cdn.invalid/video.m3u8", "hls") if movie.provider == "filmpalast" else None,
+            gated=movie.provider == "serienstream",
+            provider=movie.provider,
+            content_language="de",
+            hoster_used="Direct",
+            hoster_url_used="https://cdn.invalid/video.m3u8",
+            source_hoster_url="https://cdn.invalid/video.m3u8",
+            referer=movie.url,
+            origin="https://cdn.invalid",
+            quality="HD",
+        )
+
+    monkeypatch.setattr(server, "_extract_from_movie", extract)
+    enqueued = []
+    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: enqueued.append(kwargs["movie"]) or True)
+    queued = server.run_download_queue([(primary, slug)], tmp_path, start_queue=False)
+    assert queued == {slug}
+    assert enqueued[0].provider == "filmpalast"
+    assert slug not in server.state.provider_waiting_jobs

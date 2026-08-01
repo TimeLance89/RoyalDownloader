@@ -38,7 +38,6 @@
 *.code-workspace
 
 # Python and tests
-/tests/*
 __pycache__/
 *.py[cod]
 .pytest_cache/

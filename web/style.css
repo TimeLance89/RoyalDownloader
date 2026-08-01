@@ -4465,6 +4465,23 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+.provider-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  color: #f0c98c;
+  background: rgba(224, 149, 64, 0.1);
+  border: 1px solid rgba(224, 149, 64, 0.28);
+  border-radius: 10px;
+  font-size: 10px;
+}
+.provider-health > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.provider-health strong { color: #ffd8a0; font-size: 11px; }
+.provider-health span { color: var(--text-dim); line-height: 1.35; }
+.queue-item:has(.queue-item-status) .queue-item-status { white-space: nowrap; }
 @keyframes queue-in {
   from { opacity: 0; transform: translateX(18px); }
   to   { opacity: 1; transform: translateX(0); }

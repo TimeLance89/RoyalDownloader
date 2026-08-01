@@ -27,6 +27,35 @@ from providers.catalog import (
     provider_keys,
     provider_language_keys,
 )
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_positive_float(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS = _env_positive_int(
+    "SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS", 15 * 60,
+)
+SERIES_PROVIDER_COOLDOWN_MAX_SECONDS = max(
+    SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS,
+    _env_positive_int("SERIES_PROVIDER_COOLDOWN_MAX_SECONDS", 6 * 60 * 60),
+)
+SERIES_PROVIDER_COOLDOWN_MULTIPLIER = _env_positive_float(
+    "SERIES_PROVIDER_COOLDOWN_MULTIPLIER", 2.0,
+)
+SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS = _env_positive_int(
+    "SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS", 30 * 60,
+)
 from ui_translator import DEFAULT_UI_LANGUAGE, normalize_ui_language
 from watchlist_policy import (
     CLEANUP_MODE_DEFAULT,

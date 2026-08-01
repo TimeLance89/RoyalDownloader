@@ -387,6 +387,8 @@ function connectWs() {
     } else if (data.type === "queue_update") {
       if (data.queue) renderQueue(data.queue);
       else syncQueueSnapshot("Queue-Live-Synchronisierung");
+    } else if (data.type === "provider_status") {
+      renderSerienstreamHealth(data.provider || {});
     } else if (data.type === "queue_done") {
       state.download.completed = data.done_jobs;
       state.download.total = data.total_jobs;
@@ -433,6 +435,7 @@ function connectWs() {
 function renderQueue(payload) {
   queueSnapshotGeneration += 1;
   state.queue = { ...payload, loaded: true };
+  renderSerienstreamHealth(payload.providers?.serienstream || {});
   state.queuedSlugs = new Set();
   for (const g of payload.groups) for (const it of g.items) state.queuedSlugs.add(it.slug);
   syncSeriesQueueFlags();
@@ -480,7 +483,9 @@ function renderQueue(payload) {
       content.append(label, route);
       const status = document.createElement("span");
       status.className = "queue-item-status";
-      status.textContent = it.done ? "Fertig" : "Wartet";
+      status.textContent = it.done
+        ? "Fertig"
+        : (it.status === "waiting_provider" ? "Provider-Pause" : "Wartet");
       const removeBtn = document.createElement("button");
       removeBtn.className = "remove-btn";
       removeBtn.type = "button";
@@ -501,6 +506,29 @@ function renderQueue(payload) {
     }
   }
   syncFpQueueIndicators();
+}
+
+function renderSerienstreamHealth(provider) {
+  const box = document.getElementById("serienstream-health");
+  if (!box) return;
+  const paused = ["cooldown", "probing", "blocked"].includes(provider.state);
+  box.classList.toggle("hidden", !paused);
+  if (!paused) return;
+  const reasonLabels = {
+    captcha_gate: "CAPTCHA/Rate-Limit",
+    rate_limit: "Rate-Limit",
+    provider_error: "Provider vorübergehend nicht erreichbar",
+    probe_failed: "Testanfrage fehlgeschlagen",
+  };
+  const remaining = Math.max(0, Number(provider.remaining_seconds) || 0);
+  const minutes = Math.max(1, Math.ceil(remaining / 60));
+  const waiting = Math.max(0, Number(provider.waiting_episode_count) || 0);
+  const probeText = provider.state === "probing"
+    ? "Automatischer Test läuft"
+    : `Nächster automatischer Test: in ${minutes} Minuten`;
+  document.getElementById("serienstream-health-detail").textContent =
+    `Grund: ${reasonLabels[provider.reason] || provider.reason || "Schutzsperre"} · ${probeText} · ${waiting} ${waiting === 1 ? "Episode wartet" : "Episoden warten"}`;
+  document.getElementById("serienstream-retry").disabled = provider.state === "probing";
 }
 
 function setQueueDockExpanded(expanded) {
@@ -6835,6 +6863,18 @@ async function initApp() {
   document.getElementById("queue-clear").addEventListener("click", async () => {
     const resp = await api.queueClear();
     refreshQueueUiAfterChange(resp);
+  });
+  document.getElementById("serienstream-retry").addEventListener("click", async () => {
+    const button = document.getElementById("serienstream-retry");
+    button.disabled = true;
+    try {
+      const response = await api.serienstreamRetry();
+      renderSerienstreamHealth(response.provider || {});
+    } catch (error) {
+      console.warn("SerienStream-Probe konnte nicht gestartet werden:", error);
+    } finally {
+      setTimeout(() => { button.disabled = false; }, 1500);
+    }
   });
   document.getElementById("cancel-btn").addEventListener("click", async () => {
     const resp = await api.downloadCancel();

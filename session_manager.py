@@ -86,8 +86,21 @@ def _looks_blocked(html: str, status: int) -> bool:
 
 # Sentinel: der Redirect wurde von einem Anti-Scraping-Gate mit Captcha
 # abgefangen (serienstream.to „redirect gate" / frameBridge + Cloudflare
-# Turnstile). Kein Retry per Cookie-Clearance möglich – nur Captcha lösen hilft.
+# Turnstile). Der Aufrufer pausiert den Provider; es gibt keinen Umgehungsretry.
 GATE_BLOCKED = "__redirect_gate_blocked__"
+
+
+class ProviderBlockedError(ConnectionError):
+    """Antwort wurde von Rate-Limit/CAPTCHA/Cloudflare blockiert.
+
+    Der Fehler ist absichtlich kein Signal für einen Browser- oder Cookie-
+    Umgehungsversuch. Der Aufrufer muss den Provider pausieren.
+    """
+
+    def __init__(self, reason: str, status: int = 0):
+        self.reason = str(reason or "provider_blocked")
+        self.status = int(status or 0)
+        super().__init__(f"Provider blockiert ({self.reason}, HTTP {self.status or 'unbekannt'})")
 
 # Marker der serienstream frameBridge-/Redirect-Gate-Seite.
 _GATE_MARKERS = ("framebridge", "episode-redirect-gate", "player-prepare-token",
@@ -159,6 +172,9 @@ class SessionManager:
         html, status = self._curl_get(url)
 
         if _is_cf_challenge(html, status):
+            if self.TARGET_DOMAIN == "serienstream.to":
+                reason = "rate_limit" if status == 429 else "captcha_gate"
+                raise ProviderBlockedError(reason, status)
             self._log(f"Cloudflare erkannt (Status {status}) → Browser wird gestartet…")
             html = self._nodriver_get(url)
             if html is None:
@@ -207,6 +223,8 @@ class SessionManager:
             return GATE_BLOCKED
 
         if _looks_blocked(body, status):
+            if self.TARGET_DOMAIN == "serienstream.to":
+                return GATE_BLOCKED
             self._log(f"Captcha/Block bei Redirect (Status {status}) → Browser holt Clearance …")
             # Challenge auf der Startseite lösen -> gültige Cookies -> retry.
             self._nodriver_get(f"https://{self.TARGET_DOMAIN}/")
@@ -216,6 +234,8 @@ class SessionManager:
             target = _extract_redirect_target(body)
             if target:
                 return target
+            if _looks_gated(body) or _looks_blocked(body, status):
+                return GATE_BLOCKED
         return None
 
     # ------------------------------------------------------------------

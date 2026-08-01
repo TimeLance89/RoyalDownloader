@@ -1204,6 +1204,13 @@
               </div>
               <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
             </div>
+            <div id="serienstream-health" class="provider-health hidden" role="status" aria-live="polite">
+              <div>
+                <strong>SerienStream vorübergehend pausiert</strong>
+                <span id="serienstream-health-detail"></span>
+              </div>
+              <button id="serienstream-retry" class="btn btn-ghost btn-sm" type="button">Jetzt einmal testen</button>
+            </div>
             <div id="queue-list" class="queue-list"></div>
             <div class="download-actions queue-drawer-actions">
               <button id="queue-clear" class="btn btn-ghost">Queue leeren</button>

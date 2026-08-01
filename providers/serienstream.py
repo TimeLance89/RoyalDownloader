@@ -2,10 +2,9 @@
 Scraper für serienstream.to (s.to) – NUR Serien.
 
 serienstream.to ist die zuverlässigste deutsche Serien-Quelle (großer Katalog,
-stabile Hoster), hat aber eine Anti-Bot-Hürde: nach wenigen ungeschützten
-Abrufen zeigt die Seite ein Captcha. Deshalb läuft ALLES hier über den
-zweistufigen SessionManager (curl_cffi TLS-Impersonation + Rate-Limiting,
-nodriver-Browser-Fallback bei Captcha) – exakt wie bei filmpalast.to.
+stabile Hoster), hat aber eine Anti-Bot-Hürde: nach mehreren Abrufen kann die
+Seite ein Captcha zeigen. Antworten dieser Art werden an den persistenten
+Circuit-Breaker gemeldet; es findet ausdrücklich keine CAPTCHA-Umgehung statt.
 
 URL-Schema (Stand 2026-07):
   Suche:    /suche?term=<query>                         -> .card.cover-card
@@ -82,7 +81,7 @@ class SerienstreamScraper:
                  session: Optional[SessionManager] = None):
         self._log = progress_cb or logger.info
         # Session kann von aussen (server.py-Singleton) injiziert werden, damit
-        # Cookies/Rate-Limiting/Captcha-Clearance über Aufrufe hinweg erhalten
+        # Cookies/Rate-Limiting über Aufrufe hinweg erhalten
         # bleiben. Sonst eigene Session anlegen.
         self.session = session or SessionManager(
             target_domain="serienstream.to", log_cb=self._log,
@@ -94,6 +93,7 @@ class SerienstreamScraper:
         # True sobald serienstream das Captcha-Gate (Turnstile) aktiviert hat –
         # dann sind ALLE /r?t=-Auflösungen blockiert; nicht weiter hämmern.
         self.gated: bool = False
+        self.last_block_reason: str = ""
 
     # ------------------------------------------------------------------
     # Low-level
@@ -512,6 +512,7 @@ class SerienstreamScraper:
             if not self.gated:
                 self._log("  serienstream Captcha-Gate (Turnstile) aktiv – IP vorübergehend geflaggt.")
             self.gated = True
+            self.last_block_reason = "captcha_gate"
             return None
         if target:
             self._log(f"  S.to -> {target[:70]}")
@@ -519,6 +520,7 @@ class SerienstreamScraper:
 
     def reset_gate(self) -> None:
         self.gated = False
+        self.last_block_reason = ""
 
     # ------------------------------------------------------------------
     # Metadaten-Helfer

@@ -61,8 +61,10 @@ from downloader import (
     probe_stream_url, validate_media_file, cleanup_stale_staging,
     _sanitize as sanitize_filename,
 )
-from session_manager import _cookie_file_for
+from session_manager import ProviderBlockedError, _cookie_file_for
 from hoster_intel import HosterIntel
+from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
+from runtime_paths import data_dir
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
     FilmFrei24Scraper,
@@ -449,6 +451,12 @@ class AppState:
         self.provider_enabled: dict = appconfig.load_provider_enabled()
         self.content_languages: set[str] = set(appconfig.load_content_languages())
         self.provider_priority_lock = threading.RLock()
+        self.provider_health = ProviderHealth(
+            data_dir() / "provider_health.json",
+            initial_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS,
+            maximum_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_MAX_SECONDS,
+            multiplier=appconfig.SERIES_PROVIDER_COOLDOWN_MULTIPLIER,
+        )
         self.jellyfin_library: Optional[List[dict]] = None
         self.jellyfin_library_time: float = 0.0
         self.jellyfin_library_available: bool = False
@@ -502,7 +510,7 @@ class AppState:
         self.hoster_extract_lock = threading.Lock()
 
         # serienstream.to – eigener Singleton, damit SessionManager (Cookies /
-        # Rate-Limiting / Captcha-Clearance) über alle Aufrufe erhalten bleibt.
+        # Rate-Limiting) über alle Aufrufe erhalten bleibt.
         self.sto_scraper: Optional[SerienstreamScraper] = None
         self.sto_lock = threading.Lock()
         self.mkissa_scraper: Optional[MkissaScraper] = None
@@ -525,10 +533,10 @@ class AppState:
         self.media_validation_lock = threading.Lock()
         self.series_page_size_ref: int = 1
 
-        # Pro Download-Lauf: gematchte Serie beim Fallback-Anbieter (Filmpalast/
-        # Moflix), damit bei serienstream-Gate nicht jede Episode neu gesucht wird.
-        # Key: "<provider>:<norm_title>", Value: FilmpalastSeries oder None.
-        self.fallback_series_cache: Dict[str, Optional[FilmpalastSeries]] = {}
+        # Provider/Serie-Strukturen werden laufübergreifend mit TTL wiederverwendet.
+        # Netzwerk-/Cloudflare-Fehler werden bewusst nicht negativ gecacht.
+        self.fallback_series_cache: Dict[str, tuple[float, Optional[FilmpalastSeries]]] = {}
+        self.fallback_series_cache_lock = threading.RLock()
 
         self.watchlist_new_slugs: Dict[str, set] = {}
 
@@ -542,16 +550,11 @@ class AppState:
         self.total_jobs = 0
         self.done_jobs = 0
         self.counted_queue_slugs: set[str] = set()
-        # True während zwischen Captcha-Wellen noch Episoden nachgezogen werden –
-        # dann darf on_queue_done NICHT „fertig" melden / Browser-Pools schließen.
-        self.gated_retry_pending = False
-        self.gated_retry_slugs: set[str] = set()
-        # Zentraler Cooldown-Puffer fuer serienstream-Episoden. Einzelne
-        # _QueuePreparationJobs duerfen nicht je einen eigenen Retry-Thread
-        # starten, sonst treffen nach dem Cooldown alle gleichzeitig erneut auf
-        # das Redirect-Gate.
-        self.gated_retry_jobs: Dict[str, dict] = {}
-        self.gated_retry_worker_running = False
+        # Logische Queue-Jobs, die auf den persistenten Provider-Circuit-Breaker
+        # warten. Sie bleiben in ``picked`` und werden nicht terminal gezählt.
+        self.provider_waiting_jobs: Dict[str, dict] = {}
+        self.provider_retry_worker_running = False
+        self.provider_retry_wake_event = threading.Event()
         self.ytdlp_update_active = False
 
         self.cover_cache: "OrderedDict[str, tuple]" = OrderedDict()
@@ -782,7 +785,7 @@ def _update_block_reason_locked() -> str:
     if state.queue_prepare_lock.locked():
         return "Downloadvorbereitung oder Wiederholungsversuch läuft"
     _reconcile_idle_queue_state_locked()
-    if state.gated_retry_pending:
+    if state.provider_waiting_jobs:
         return "Downloadvorbereitung oder Wiederholungsversuch läuft"
     return ""
 
@@ -800,7 +803,7 @@ def _start_update_when_idle(target_sha: str) -> dict:
         queued = bool(
             state.dl_queue.active_count()
             or state.dl_queue.pending_count()
-            or state.gated_retry_pending
+            or bool(state.provider_waiting_jobs)
         )
         result = UPDATE_INSTALLER.start(target_sha)
     if queued:
@@ -1451,8 +1454,14 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SERIENSTREAM_PREFIX):
+        if not state.provider_health.request_allowed("serienstream"):
+            raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
         with state.sto_lock:
-            movie = get_sto_scraper().get_movie(slug)
+            try:
+                movie = get_sto_scraper().get_movie(slug)
+            except ProviderBlockedError as exc:
+                _mark_serienstream_blocked(exc.reason, str(exc))
+                raise
     elif slug.startswith(MOFLIX_PREFIX):
         movie = MoflixScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(EINSCHALTEN_PREFIX):
@@ -2065,13 +2074,25 @@ def warm_home_movie_cache():
 
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
+    if not state.provider_health.request_allowed("serienstream"):
+        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
     with state.sto_lock:
-        return get_sto_scraper().get_series(value)
+        try:
+            return get_sto_scraper().get_series(value)
+        except ProviderBlockedError as exc:
+            _mark_serienstream_blocked(exc.reason, str(exc))
+            raise
 
 
 def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
+    if not state.provider_health.request_allowed("serienstream"):
+        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
     with state.sto_lock:
-        return get_sto_scraper().search_series(query)
+        try:
+            return get_sto_scraper().search_series(query)
+        except ProviderBlockedError as exc:
+            _mark_serienstream_blocked(exc.reason, str(exc))
+            raise
 
 
 def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
@@ -2347,20 +2368,26 @@ def _fetch_series_provider_page(
         return []
 
     if provider == "serienstream":
+        if not state.provider_health.request_allowed("serienstream"):
+            return []
         with state.sto_lock:
             scraper = get_sto_scraper()
-            if mode == "alpha":
-                return list(scraper.list_series_alpha(letter, source_page))
-            if source_page != 1:
+            try:
+                if mode == "alpha":
+                    return list(scraper.list_series_alpha(letter, source_page))
+                if source_page != 1:
+                    return []
+                if mode == "new":
+                    return list(scraper.list_new(1))
+                if mode == "trending":
+                    return list(scraper.list_trending(1))
+                return _interleave_series_lists(
+                    list(scraper.list_trending(1)),
+                    list(scraper.list_new(1)),
+                )
+            except ProviderBlockedError as exc:
+                _mark_serienstream_blocked(exc.reason, str(exc))
                 return []
-            if mode == "new":
-                return list(scraper.list_new(1))
-            if mode == "trending":
-                return list(scraper.list_trending(1))
-            return _interleave_series_lists(
-                list(scraper.list_trending(1)),
-                list(scraper.list_new(1)),
-            )
 
     if provider == "filmpalast":
         with state.fp_lock:
@@ -3178,11 +3205,23 @@ def _queue_slug_claimed(slug: str) -> bool:
         return slug in state.picked
 
 
+def serienstream_provider_status() -> dict:
+    with state.queue_claim_lock:
+        waiting = len(set(state.provider_waiting_jobs) & set(state.picked))
+    return state.provider_health.status(
+        "serienstream", waiting_episode_count=waiting,
+    )
+
+
 def build_queue_payload() -> dict:
     with state.queue_claim_lock:
         slugs = sorted(state.picked)
     if not slugs:
-        return {"count": 0, "groups": []}
+        return {
+            "count": 0,
+            "groups": [],
+            "providers": {"serienstream": serienstream_provider_status()},
+        }
     groups: "OrderedDict[str, List[str]]" = OrderedDict()
     for slug in slugs:
         groups.setdefault(queue_group_name(slug), []).append(slug)
@@ -3194,14 +3233,24 @@ def build_queue_payload() -> dict:
             title = movie.title if movie else slug
             label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
             provider = _movie_provider(movie, slug)
+            waiting_provider = slug in state.provider_waiting_jobs
             items.append({
                 "slug": slug, "title": title, "hoster_label": label,
                 "provider": provider,
                 "content_language": _movie_content_language(movie, fallback=slug),
                 "done": slug in state.done_slugs,
+                "status": "waiting_provider" if waiting_provider else "waiting",
+                "next_probe_at": (
+                    state.provider_health.next_probe_at("serienstream")
+                    if waiting_provider else 0
+                ),
             })
         result_groups.append({"name": name, "items": items})
-    return {"count": len(slugs), "groups": result_groups}
+    return {
+        "count": len(slugs),
+        "groups": result_groups,
+        "providers": {"serienstream": serienstream_provider_status()},
+    }
 
 
 def watchlist_payload() -> dict:
@@ -3342,9 +3391,7 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
             if slug and slug not in state.counted_queue_slugs:
                 return False
             if slug:
-                state.gated_retry_jobs.pop(slug, None)
-                state.gated_retry_slugs.discard(slug)
-                state.gated_retry_pending = bool(state.gated_retry_slugs)
+                state.provider_waiting_jobs.pop(slug, None)
             if ok and slug:
                 state.done_slugs.add(slug)
             state.done_jobs += 1
@@ -3564,21 +3611,14 @@ def _reconcile_idle_queue_state_locked() -> int:
         with state.download_state_lock:
             counted = set(state.counted_queue_slugs)
         claimed = set(state.picked)
-        queued_retries = set(state.gated_retry_jobs) & counted & claimed
-        running_retries = set()
-        if state.gated_retry_worker_running:
-            running_retries = set(state.gated_retry_slugs) & counted & claimed
-        valid_retries = queued_retries | running_retries
-
-        for slug in set(state.gated_retry_jobs) - valid_retries:
-            state.gated_retry_jobs.pop(slug, None)
-        state.gated_retry_slugs.intersection_update(valid_retries)
-        state.gated_retry_pending = bool(valid_retries)
+        valid_retries = set(state.provider_waiting_jobs) & counted & claimed
+        for slug in set(state.provider_waiting_jobs) - valid_retries:
+            state.provider_waiting_jobs.pop(slug, None)
         orphaned = counted - valid_retries
-        restart_retry_worker = bool(queued_retries) and not state.gated_retry_worker_running
+        restart_retry_worker = bool(valid_retries) and not state.provider_retry_worker_running
 
     if restart_retry_worker:
-        _ensure_gated_retry_worker()
+        _ensure_provider_retry_worker()
 
     for slug in sorted(orphaned):
         movie = state.fp_movies.get(slug)
@@ -3600,10 +3640,10 @@ def _on_queue_done_locked():
     if state.dl_queue.active_count() or state.dl_queue.pending_count():
         return
     _reconcile_idle_queue_state_locked()
-    # Zwischen Captcha-Wellen: noch nicht „fertig" melden und Browser-Pools offen
-    # lassen (die nächste Welle zieht die verzögerten Episoden gleich nach).
-    if state.gated_retry_pending:
-        log("Welle abgeschlossen – warte auf serienstream-Cooldown für die nächste …")
+    # Während eines Provider-Cooldowns noch nicht „fertig" melden: Die offenen
+    # Claims werden nach einer einzelnen erfolgreichen Probe fortgesetzt.
+    if state.provider_waiting_jobs:
+        log("Downloadlauf pausiert – Episoden warten auf den SerienStream-Provider.")
         return
     if state.voe_pool is not None:
         log("Schließe Browser-Pool …")
@@ -3648,9 +3688,7 @@ def _pause_downloads_for_update_restart() -> int:
                 # Abbruch-Callbacks dürfen die gespeicherten Slugs nicht als
                 # fachlich abgeschlossen verbuchen.
                 state.counted_queue_slugs.clear()
-            state.gated_retry_jobs.clear()
-            state.gated_retry_slugs.clear()
-            state.gated_retry_pending = False
+            state.provider_waiting_jobs.clear()
             _persist_queue_state()
         state.dl_queue.cancel_all()
 
@@ -3707,123 +3745,167 @@ def _canonical_hoster_name(provider_name: str, resolved_url: str) -> str:
     return p
 
 
-# Automatische Wiederholung für am serienstream-Captcha hängende Episoden.
-SERIES_MAX_WAVES = 3            # max. Anzahl Wellen (Sicherheitskappe)
-SERIES_WAVE_COOLDOWN = 90      # zusätzl. Pause (s) nach Leeren der Queue, bevor
-                               # die nächste Welle das Rate-Fenster erneut testet
+def _mark_serienstream_blocked(reason: str, error: str = "") -> dict:
+    current = state.provider_health.status("serienstream")
+    if current["state"] == COOLDOWN and current["remaining_seconds"] > 0:
+        return current
+    updated = state.provider_health.mark_blocked("serienstream", reason, error)
+    minutes = max(1, int((updated["next_probe_at"] - time.time() + 59) // 60))
+    label = "erneut blockiert" if int(updated["failure_count"]) > 1 else "Gate erkannt"
+    log(f"SerienStream-{label} – Provider für {minutes} Minuten pausiert.", "warn")
+    broadcast({"type": "provider_status", "provider": serienstream_provider_status()})
+    return updated
 
-def _gated_retry_worker() -> None:
-    """Fuehrt alle Gate-Retries seriell nach echter Queue-Ruhe aus."""
+
+def _probe_serienstream_once(item: Optional[dict]) -> bool:
+    """Führt genau einen kontrollierten SerienStream-Netzwerkrequest aus."""
+    try:
+        sto = get_sto_scraper()
+        sto.reset_gate()
+        if item is not None:
+            movie = item["movie"]
+            redirect = next(
+                (hoster for hoster in movie.hosters if sto.is_redirect_url(hoster.url)),
+                None,
+            )
+            if redirect is not None:
+                target = sto.resolve_play_url(redirect.url, referer=movie.url)
+                if not target:
+                    _mark_serienstream_blocked(
+                        sto.last_block_reason or "captcha_gate", "Provider-Probe blockiert",
+                    )
+                    return False
+                # Das erfolgreiche Probe-Ergebnis wiederverwenden: Der folgende
+                # Download benötigt keinen zweiten SerienStream-Redirect-Request.
+                redirect.url = target
+                item["probe_verified_redirect"] = True
+                state.fp_movies[item["slug"]] = movie
+                return True
+            with state.sto_lock:
+                movie = _apply_provider_metadata(
+                    sto.get_movie(item["slug"]), "serienstream",
+                )
+            if movie and movie.hosters:
+                item["movie"] = movie
+                state.fp_movies[item["slug"]] = movie
+                return True
+            raise RuntimeError("Episodenseite lieferte keine Hoster")
+        html = sto.session.get("https://serienstream.to/", fast=True)
+        if not html:
+            raise RuntimeError("Leere Provider-Antwort")
+        return True
+    except ProviderBlockedError as exc:
+        _mark_serienstream_blocked(exc.reason, str(exc))
+    except Exception as exc:
+        _mark_serienstream_blocked("probe_failed", str(exc))
+    return False
+
+
+def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
+    preferred = first_item
+    while state.provider_health.request_allowed("serienstream"):
+        with state.queue_claim_lock:
+            item = preferred
+            preferred = None
+            if item is None:
+                item = next(iter(state.provider_waiting_jobs.values()), None)
+            if item is None:
+                return
+            slug = item["slug"]
+            state.provider_waiting_jobs.pop(slug, None)
+            claimed = slug in state.picked and slug in state.counted_queue_slugs
+        if not claimed:
+            continue
+        try:
+            with state.queue_prepare_lock:
+                run_download_queue(
+                    [(item["movie"], slug)],
+                    item["out_root"],
+                    movie_fallbacks=item["movie_fallbacks"],
+                )
+        except Exception as exc:
+            log(f"Provider-Retry für «{slug}» fehlgeschlagen: {exc}", "warn")
+            _mark_serienstream_blocked("probe_failed", str(exc))
+            _defer_provider_episode(
+                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
+            )
+            return
+
+
+def _execute_provider_probe(item: Optional[dict]) -> None:
+    log("SerienStream-Probe gestartet.")
+    with state.queue_prepare_lock:
+        successful = _probe_serienstream_once(item)
+    if not successful:
+        return
+    state.provider_health.mark_success(
+        "serienstream",
+        reset_failures=bool(item and item.pop("probe_verified_redirect", False)),
+    )
+    log("SerienStream-Probe erfolgreich – Provider wieder verfügbar.")
+    broadcast({"type": "provider_status", "provider": serienstream_provider_status()})
+    _resume_waiting_provider_jobs(item)
+
+
+def _provider_retry_worker() -> None:
     try:
         while True:
-            # Der Cooldown beginnt erst, wenn weder Vorbereitungen noch echte
-            # Downloads laufen. Neue Queue-Aktivitaet startet ihn erneut.
-            while state.dl_queue.active_count() or state.dl_queue.pending_count():
-                time.sleep(1)
             with state.queue_claim_lock:
-                if not state.gated_retry_jobs:
-                    return
-
-            deadline = time.monotonic() + SERIES_WAVE_COOLDOWN
-            restart_cooldown = False
-            while time.monotonic() < deadline:
-                with state.queue_claim_lock:
-                    if not state.gated_retry_jobs:
-                        return
-                if state.dl_queue.active_count() or state.dl_queue.pending_count():
-                    restart_cooldown = True
-                    break
-                time.sleep(min(1, max(0.05, deadline - time.monotonic())))
-            if restart_cooldown:
+                item = next(iter(state.provider_waiting_jobs.values()), None)
+            if item is None:
+                return
+            status = state.provider_health.status("serienstream")
+            if status["state"] == HEALTHY:
+                _resume_waiting_provider_jobs()
                 continue
-
-            with state.queue_claim_lock:
-                pending = list(state.gated_retry_jobs.values())
-                state.gated_retry_jobs.clear()
-            if not pending:
+            if status["state"] == PROBING:
+                state.provider_retry_wake_event.wait(1)
+                state.provider_retry_wake_event.clear()
                 continue
-
-            if state.sto_scraper is not None:
-                state.sto_scraper.reset_gate()
-            log(f"🔄 serienstream-Cooldown beendet: {len(pending)} Episode(n) erneut versuchen.")
-
-            for item in pending:
-                movie = item["movie"]
-                slug = item["slug"]
-                with state.queue_claim_lock:
-                    claimed = (
-                        slug in state.picked
-                        and slug in state.counted_queue_slugs
-                        and slug in state.gated_retry_slugs
-                    )
-                if not claimed:
-                    continue
-                try:
-                    run_download_queue(
-                        [(movie, slug)],
-                        item["out_root"],
-                        wave=item["wave"],
-                        movie_fallbacks=item["movie_fallbacks"],
-                    )
-                except Exception as exc:
-                    log(f"Gate-Retry fuer «{slug}» fehlgeschlagen: {exc}", "warn")
-                    if not _defer_gated_episode(
-                        movie,
-                        slug,
-                        item["out_root"],
-                        item["wave"],
-                        item["movie_fallbacks"],
-                    ):
-                        on_job_done(
-                            False,
-                            f"Gate-Retry fehlgeschlagen: {exc}",
-                            movie.title,
-                            Path(""),
-                            slug=slug,
-                        )
+            if status["remaining_seconds"] > 0:
+                state.provider_retry_wake_event.wait(min(30, status["remaining_seconds"]))
+                state.provider_retry_wake_event.clear()
+                continue
+            if state.provider_health.begin_probe("serienstream"):
+                _execute_provider_probe(item)
+            else:
+                state.provider_retry_wake_event.wait(1)
+                state.provider_retry_wake_event.clear()
     finally:
         with state.queue_claim_lock:
-            state.gated_retry_worker_running = False
-            restart = bool(state.gated_retry_jobs)
+            state.provider_retry_worker_running = False
+            restart = bool(state.provider_waiting_jobs)
         if restart:
-            _ensure_gated_retry_worker()
+            _ensure_provider_retry_worker()
 
 
-def _ensure_gated_retry_worker() -> None:
+def _ensure_provider_retry_worker() -> None:
     with state.queue_claim_lock:
-        if state.gated_retry_worker_running or not state.gated_retry_jobs:
+        if state.provider_retry_worker_running or not state.provider_waiting_jobs:
             return
-        state.gated_retry_worker_running = True
-    threading.Thread(target=_gated_retry_worker, daemon=True).start()
+        state.provider_retry_worker_running = True
+    threading.Thread(target=_provider_retry_worker, daemon=True).start()
 
 
-def _defer_gated_episode(
+def _defer_provider_episode(
     movie: FilmpalastMovie,
     slug: str,
     out_root: Path,
-    wave: int,
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
 ) -> bool:
-    """Merkt eine Episode fuer die naechste Gate-Welle vor."""
-    if wave >= SERIES_MAX_WAVES:
-        return False
+    """Behält eine Episode bis zur nächsten einzelnen Provider-Probe offen."""
     with state.queue_claim_lock:
         if slug not in state.picked or slug not in state.counted_queue_slugs:
             return False
-        next_wave = wave + 1
-        existing = state.gated_retry_jobs.get(slug)
-        if existing:
-            next_wave = min(next_wave, int(existing.get("wave", next_wave)))
-        state.gated_retry_jobs[slug] = {
+        state.provider_waiting_jobs[slug] = {
             "movie": movie,
             "slug": slug,
             "out_root": Path(out_root),
-            "wave": next_wave,
             "movie_fallbacks": movie_fallbacks,
         }
-        state.gated_retry_slugs.add(slug)
-        state.gated_retry_pending = True
-    _ensure_gated_retry_worker()
+    _persist_queue_state()
+    broadcast({"type": "queue_update", "queue": build_queue_payload()})
+    _ensure_provider_retry_worker()
     return True
 
 
@@ -3876,26 +3958,38 @@ def _fallback_get_series(provider: str, title: str) -> Optional[FilmpalastSeries
     Ergebnis (auch None) wird pro Download-Lauf gecacht, damit nicht jede Episode
     denselben Anbieter erneut durchsucht."""
     key = f"{provider}:{_norm_title(title)}"
-    if key in state.fallback_series_cache:
-        return state.fallback_series_cache[key]
+    now = time.time()
+    with state.fallback_series_cache_lock:
+        cached = state.fallback_series_cache.get(key)
+        if cached and cached[0] > now:
+            return cached[1]
+        state.fallback_series_cache.pop(key, None)
     series: Optional[FilmpalastSeries] = None
     matched = False
     try:
         results = _search_series_for_provider(provider, title)
-        best = _best_title_match(title, results)
+        wanted = _norm_title(title)
+        best = next(
+            (result for result in results if _norm_title(result.title) == wanted),
+            None,
+        )
         matched = best is not None
         series = _load_series_for_provider(provider, best.sample_slug) if best else None
     except Exception as exc:
         log(f"  {provider}-Fallback-Suche fehlgeschlagen: {exc}", "warn")
         # Netzwerk-/Cloudflare-Fehler sind kein bestaetigtes "nicht vorhanden".
-        # Kein Negativcache, damit eine spaetere Episode/Welle erneut versucht.
+        # Kein Negativcache, damit eine spätere Episode erneut versucht.
         return None
     if series and not series.seasons:
         return None
     if matched and series is None:
         # Treffer vorhanden, Detailseite aber temporaer nicht ladbar.
         return None
-    state.fallback_series_cache[key] = series
+    with state.fallback_series_cache_lock:
+        state.fallback_series_cache[key] = (
+            now + appconfig.SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS,
+            series,
+        )
     return series
 
 
@@ -4047,19 +4141,32 @@ def _extract_from_movie(
         was_sto = SerienstreamScraper.is_redirect_url(hoster.url)
         play_url = hoster.url
         if was_sto:
+            if not state.provider_health.request_allowed("serienstream"):
+                res.gated = True
+                break
             sto = get_sto_scraper()
             # Ist das Captcha-Gate aktiv, sind ALLE Hoster blockiert – nicht
             # weiter hämmern (das vertieft nur den IP-Flag), sofort abbrechen.
             if sto.gated:
+                _mark_serienstream_blocked(
+                    sto.last_block_reason or "captcha_gate",
+                    "SerienStream-Gate ist bereits aktiv",
+                )
                 res.gated = True
                 break
             play_url = sto.resolve_play_url(hoster.url, referer=movie.url)
             if not play_url:
                 if sto.gated:
+                    _mark_serienstream_blocked(
+                        sto.last_block_reason or "captcha_gate",
+                        "SerienStream-Redirect-Gate blockiert",
+                    )
                     res.gated = True
                     break
                 log(f"  {hoster.name}: S.to-Link nicht auflösbar – nächster Hoster", "warn")
                 continue
+            if state.provider_health.status("serienstream")["failure_count"]:
+                state.provider_health.mark_success("serienstream")
             name = _canonical_hoster_name(hoster.name, play_url)
             if play_url in unsupported_domains:
                 log(f"  Überspringe {hoster.name}: Link nicht unterstützt", "warn")
@@ -4954,7 +5061,6 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
 def run_download_queue(
     jobs: List[tuple],
     out_root: Path,
-    wave: int = 1,
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
     start_queue: bool = True,
     cancelled: Optional[Callable[[], bool]] = None,
@@ -4965,8 +5071,8 @@ def run_download_queue(
     ist das letzte URL-Segment 'episode-1'/'1' und würde die Serie fälschlich als
     Film in den Wurzelordner legen.
 
-    `wave` zählt die automatischen Wiederholungswellen für Episoden, die am
-    serienstream-Captcha-Gate hingen (siehe Ende der Funktion)."""
+    SerienStream-Episoden werden erst hier unmittelbar vor der Verarbeitung
+    geladen. Provider-Sperren lassen ihren logischen Queue-Claim offen."""
     out_root.mkdir(parents=True, exist_ok=True)
     unsupported_domains: set = set()
     gated_jobs: List[tuple] = []   # (movie, slug) die am Captcha-Gate hingen
@@ -5003,11 +5109,23 @@ def run_download_queue(
             # Katalog-Fallbacks und bei Serienstream gegebenenfalls Cooldowns.
             primary_unavailable = False
             if not movie.hosters:
-                try:
-                    refreshed_movie = load_movie_for_slug(movie_slug)
-                except Exception as exc:
-                    log(f"  Episodenseite noch nicht ladbar: {exc}", "warn")
-                    refreshed_movie = None
+                refreshed_movie = None
+                is_sto = provider_for_value(movie_slug) == "serienstream"
+                if is_sto and not state.provider_health.request_allowed("serienstream"):
+                    log(
+                        f"SerienStream befindet sich im Cooldown – Episode "
+                        f"S{ep_info[1]:02d}E{ep_info[2]:02d} bleibt vorgemerkt."
+                    )
+                else:
+                    try:
+                        refreshed_movie = load_movie_for_slug(movie_slug)
+                    except ProviderBlockedError as exc:
+                        _mark_serienstream_blocked(exc.reason, str(exc))
+                        log(f"  Episodenseite blockiert: {exc}", "warn")
+                    except Exception as exc:
+                        log(f"  Episodenseite noch nicht ladbar: {exc}", "warn")
+                        if is_sto:
+                            _mark_serienstream_blocked("provider_error", str(exc))
                 if refreshed_movie and refreshed_movie.hosters:
                     movie = refreshed_movie
                     state.fp_movies[movie_slug] = refreshed_movie
@@ -5069,6 +5187,10 @@ def run_download_queue(
         if primary_unavailable:
             # Eine temporaer nicht lesbare s.to-Episodenseite wird wie das
             # Redirect-Gate behandelt und nicht sofort terminal gezaehlt.
+            if state.provider_health.request_allowed("serienstream"):
+                _mark_serienstream_blocked(
+                    "provider_error", "SerienStream-Episodenseite nicht ladbar",
+                )
             result.gated = True
         gate_seen = [bool(result.gated)]
 
@@ -5112,8 +5234,8 @@ def run_download_queue(
 
         if not result.stream_info:
             if gate_seen[0]:
-                # s.to-Gate aktiv UND kein Fallback nutzbar – für die spätere
-                # Welle zurückstellen (NICHT als erledigt zählen).
+                # s.to-Gate aktiv UND kein Fallback nutzbar – bis zur nächsten
+                # Provider-Probe zurückstellen (NICHT als erledigt zählen).
                 gated_jobs.append((source_movies[0], movie_slug))
                 log("  Zurückgestellt – serienstream Captcha-Gate aktiv (Fallback erfolglos)", "warn")
             else:
@@ -5148,50 +5270,35 @@ def run_download_queue(
             barren_hoster_urls=barren_hoster_urls,
             cancelled=cancelled,
             gate_seen=gate_seen,
-            gate_retry=lambda primary=source_movies[0], slug=movie_slug: _defer_gated_episode(
-                primary,
-                slug,
-                out_root,
-                wave,
-                movie_fallbacks,
+            gate_retry=lambda primary=source_movies[0], slug=movie_slug: _defer_provider_episode(
+                primary, slug, out_root, movie_fallbacks,
             ),
         )
         if enqueued:
             queued_slugs.add(movie_slug)
 
-    # Am Captcha-Gate haengengebliebene Episoden zentral sammeln. Das gilt auch
-    # fuer einen einzelnen Vorbereitungsjob ohne Erfolg in derselben Welle.
+    # Am Captcha-Gate hängengebliebene Episoden zentral sammeln. Das gilt auch
+    # für einen einzelnen Vorbereitungsjob ohne Erfolg.
     if gated_jobs:
         deferred = 0
         for gated_movie, gated_slug in gated_jobs:
             if (cancelled and cancelled()) or not _queue_slug_claimed(gated_slug):
                 continue
-            if _defer_gated_episode(
-                gated_movie,
-                gated_slug,
-                out_root,
-                wave,
-                movie_fallbacks,
+            if _defer_provider_episode(
+                gated_movie, gated_slug, out_root, movie_fallbacks,
             ):
                 deferred += 1
                 queued_slugs.add(gated_slug)
                 continue
-            on_job_done(
-                False,
-                "serienstream-Captcha blieb trotz aller Wiederholungen aktiv",
-                gated_movie.title,
-                Path(""),
-                slug=gated_slug,
-            )
+            # Ein zurückgestellter Provider-Job ist nie ein terminaler Fehler.
         if deferred:
             log(
-                f"⏳ {deferred} Episode(n) durch serienstream-Captcha verzoegert "
-                f"– automatische Wiederholung nach Cooldown (max. {SERIES_MAX_WAVES} Wellen)."
+                f"⏳ {deferred} Episode(n) warten auf die nächste einzelne "
+                f"SerienStream-Probe."
             )
 
-    # Erst nach der Gate-Entscheidung starten. Bei einer leeren Retry-Welle
-    # sieht on_queue_done dadurch entweder den gesetzten Pending-Marker oder
-    # den bereits terminal gezaehlten letzten Versuch.
+    # Erst nach der Gate-Entscheidung starten. on_queue_done sieht dadurch
+    # entweder den wartenden Provider-Job oder einen terminalen Versuch.
     if start_queue:
         log("─── Starte Queue (max. 2 parallel) ───")
         state.dl_queue.start()
@@ -8889,7 +8996,7 @@ def _enqueue_automatic_downloads(
         }
         with state.queue_claim_lock:
             state.queue_content_keys.update(content_keys)
-            queue_idle = queue_idle and not state.gated_retry_pending
+            queue_idle = queue_idle and not state.provider_waiting_jobs
             with state.download_state_lock:
                 if queue_idle:
                     state.total_jobs = 0
@@ -8947,11 +9054,6 @@ def _enqueue_automatic_downloads(
                     done_jobs = state.done_jobs
                     total_jobs = state.total_jobs
 
-                if queue_idle:
-                    if state.sto_scraper is not None:
-                        state.sto_scraper.reset_gate()
-                    state.fallback_series_cache.clear()
-
                 # Ein Vorbereitungsjob pro Inhalt: Dadurch werden signierte Stream-URLs
                 # erst kurz vor ihrem echten Queue-Slot extrahiert statt stapelweise.
                 for job in jobs:
@@ -9003,12 +9105,11 @@ def restore_persisted_queue():
                     unresolved.discard(slug)
                     continue
             try:
-                try:
-                    movie = load_movie_for_slug(slug)
-                except Exception:
-                    if not parse_episode_slug(slug):
-                        raise
-                    movie = None
+                movie = (
+                    _episode_placeholder(slug)
+                    if parse_episode_slug(slug)
+                    else load_movie_for_slug(slug)
+                )
                 if movie is None or not movie.hosters:
                     if parse_episode_slug(slug):
                         movie = _episode_placeholder(slug)
@@ -9097,12 +9198,11 @@ async def api_queue_add(body: QueueAddBody):
             try:
                 movie = state.fp_movies.get(slug)
                 if movie is None:
-                    try:
-                        movie = load_movie_for_slug(slug)
-                    except Exception:
-                        if not parse_episode_slug(slug):
-                            raise
-                        movie = None
+                    movie = (
+                        _episode_placeholder(slug)
+                        if parse_episode_slug(slug)
+                        else load_movie_for_slug(slug)
+                    )
                 if movie is None or not movie.hosters:
                     if parse_episode_slug(slug):
                         movie = _episode_placeholder(slug)
@@ -9180,9 +9280,8 @@ def _drop_queue_claims(slugs: set[str]) -> None:
     with state.queue_claim_lock:
         state.picked.difference_update(slugs)
         for slug in slugs:
-            state.gated_retry_jobs.pop(slug, None)
-        state.gated_retry_slugs.difference_update(slugs)
-        state.gated_retry_pending = bool(state.gated_retry_slugs)
+            state.provider_waiting_jobs.pop(slug, None)
+        state.provider_retry_wake_event.set()
     _persist_queue_state()
 
 
@@ -9193,9 +9292,8 @@ def _release_removed_queue_slugs(slugs: set[str]) -> None:
         with state.queue_claim_lock:
             state.picked.difference_update(slugs)
             for slug in slugs:
-                state.gated_retry_jobs.pop(slug, None)
-            state.gated_retry_slugs.difference_update(slugs)
-            state.gated_retry_pending = bool(state.gated_retry_slugs)
+                state.provider_waiting_jobs.pop(slug, None)
+            state.provider_retry_wake_event.set()
             with state.download_state_lock:
                 counted = slugs & state.counted_queue_slugs
                 state.counted_queue_slugs.difference_update(counted)
@@ -9313,9 +9411,8 @@ async def api_download_cancel():
                 cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
                 refresh_partial_success = bool(had_queue_activity and state.done_slugs)
             state.picked.clear()
-            state.gated_retry_jobs.clear()
-            state.gated_retry_slugs.clear()
-            state.gated_retry_pending = False
+            state.provider_waiting_jobs.clear()
+            state.provider_retry_wake_event.set()
             with state.download_state_lock:
                 state.counted_queue_slugs.clear()
                 state.total_jobs = state.done_jobs
@@ -9843,6 +9940,32 @@ def _provider_priority_payload(saved: bool = False) -> dict:
         ],
         "languages": provider_language_payload(),
         "saved": saved,
+    }
+
+
+@app.get("/api/v1/providers/status")
+@app.get("/api/providers/status")
+async def api_provider_status_get():
+    return {"providers": {"serienstream": serienstream_provider_status()}}
+
+
+@app.post("/api/v1/providers/serienstream/retry")
+@app.post("/api/providers/serienstream/retry")
+async def api_serienstream_retry():
+    if not state.provider_health.begin_probe("serienstream", force=True):
+        raise HTTPException(409, "Eine SerienStream-Probe läuft bereits.")
+    with state.queue_claim_lock:
+        item = next(iter(state.provider_waiting_jobs.values()), None)
+    threading.Thread(
+        target=_execute_provider_probe,
+        args=(item,),
+        name="serienstream-manual-probe",
+        daemon=True,
+    ).start()
+    state.provider_retry_wake_event.set()
+    return {
+        "started": True,
+        "provider": serienstream_provider_status(),
     }
 
 
