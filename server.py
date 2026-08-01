@@ -5912,15 +5912,11 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
         if _existing_valid_episode_path(series_title, episode_info[1], episode_info[2]):
             return True, "lokal vorhanden"
         if jf_client.configured:
-            items = get_jellyfin_episodes()
             jf_series = get_jellyfin_series()
             with state.jellyfin_cache_lock:
                 config_generation = state.jellyfin_config_generation
                 data_generation = state.jellyfin_episode_data_generation
-                episodes_available = state.jellyfin_episodes_available
                 series_available = state.jellyfin_series_available
-            if items is None or not episodes_available:
-                return True, "Jellyfin nicht erreichbar"
             if jf_series is None or not series_available:
                 return True, "Jellyfin-Serienindex nicht verfügbar"
             try:
@@ -5929,6 +5925,11 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
                 )
             except RuntimeError as exc:
                 return True, str(exc)
+            items, live_available, _stale, _checked_at = get_jellyfin_targeted_episodes(
+                series_ids,
+            )
+            if items is None or not live_available:
+                return True, "Jellyfin nicht erreichbar"
             with state.jellyfin_cache_lock:
                 if (
                     config_generation != state.jellyfin_config_generation

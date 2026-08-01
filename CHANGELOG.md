@@ -7,6 +7,8 @@
 - Migrate mounted-folder Docker installations to the persistent, versioned
   runtime on restart so subsequent updates are isolated, smoke-tested, and
   rollback-capable.
+- Reconcile restored episode queues against the same targeted Jellyfin series
+  lookup as the detail view, removing already-owned episodes before resuming.
 
 ## 2026-08-01 – Runtime hardening and modularization
 

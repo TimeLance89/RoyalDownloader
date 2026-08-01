@@ -1,6 +1,6 @@
 import server
 from jellyfin_client import JellyfinClient
-from providers.models import FilmpalastSeries, SeriesEpisode
+from providers.models import FilmpalastMovie, FilmpalastSeries, SeriesEpisode
 
 
 def _series(base_slug="moflix:house-of-the-dragon"):
@@ -150,3 +150,49 @@ def test_fast_jellyfin_status_route_has_web_and_v1_aliases():
     }
     assert ("POST", "/api/series/jellyfin-status") in routes
     assert ("POST", "/api/v1/series/jellyfin-status") in routes
+
+
+def test_queue_duplicate_check_uses_same_targeted_episode_index_as_detail(monkeypatch):
+    class FakeClient:
+        configured = True
+
+        def series_ids_for(self, *_args, **_kwargs):
+            return {"jf-chicago-pd"}
+
+        def has_episode(self, _title, season, episode, items=None, **_kwargs):
+            return any(
+                item["season"] == season and item["episode"] == episode
+                for item in (items or [])
+            )
+
+    monkeypatch.setattr(server, "get_jellyfin_client", lambda: FakeClient())
+    monkeypatch.setattr(
+        server, "get_jellyfin_series",
+        lambda force=False: [{"id": "jf-chicago-pd", "name": "Chicago P.D."}],
+    )
+    monkeypatch.setattr(server.state, "jellyfin_series_available", True)
+    monkeypatch.setattr(
+        server, "get_jellyfin_targeted_episodes",
+        lambda _ids, force=False: ([
+            {"series_id": "jf-chicago-pd", "season": 1, "episode": 3},
+        ], True, False, 123.0),
+    )
+    monkeypatch.setattr(
+        server, "get_jellyfin_episodes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("global episode index used")
+        ),
+    )
+    monkeypatch.setattr(server, "get_tmdb_series", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_existing_valid_episode_path", lambda *_args: None)
+    monkeypatch.setattr(server.state, "watchlist", [])
+
+    movie = FilmpalastMovie(
+        title="Chicago P.D. S01E03",
+        url="https://example.test/chicago-pd-s01e03",
+    )
+    result = server._content_already_available(
+        movie, "serienstream:chicago-pd-s01e03",
+    )
+
+    assert result == (True, "in Jellyfin vorhanden")
