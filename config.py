@@ -89,7 +89,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 2
+PROVIDER_CATALOG_REVISION = 3
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -340,13 +340,14 @@ def _migrate_provider_catalog(values: dict) -> dict:
         movie_order = normalize_provider_order(
             movie_priority_raw, MOVIE_PROVIDER_DEFAULTS,
         )
-        # Revision 2: Huhu wird primaere Filmquelle, FilmFrei24 bewusst letzte
-        # Reserve. Die relative Benutzerreihenfolge aller anderen Quellen
-        # bleibt bei der einmaligen Migration erhalten.
-        for provider in ("huhu", "filmfrei24"):
+        # Revision 3: Filmpalast wird primaere Filmquelle, Huhu folgt als
+        # breit aufgestellter Aggregator und FilmFrei24 bleibt letzte Reserve.
+        # Die relative Reihenfolge aller anderen Quellen bleibt erhalten.
+        for provider in ("filmpalast", "huhu", "filmfrei24"):
             if provider in movie_order:
                 movie_order.remove(provider)
-        movie_order.insert(0, "huhu")
+        movie_order.insert(0, "filmpalast")
+        movie_order.insert(1, "huhu")
         movie_order.append("filmfrei24")
         updates["movie_provider_priority"] = ",".join(movie_order)
 

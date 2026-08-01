@@ -155,13 +155,15 @@ def test_existing_installation_enables_huhu_once_and_keeps_it_configurable(monke
     assert len(writes) == 1
 
 
-def test_movie_provider_migration_puts_huhu_first_and_filmfrei_last(monkeypatch):
+def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(
+    monkeypatch,
+):
     writes = []
     monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
     old = {
-        "provider_catalog_revision": "1",
+        "provider_catalog_revision": "2",
         "movie_provider_priority": (
-            "filmfrei24,filmpalast,megakino,moflix,einschalten,kinox,"
+            "huhu,filmpalast,megakino,moflix,einschalten,kinox,"
             "kinoger,xcine,sflix,ridomovies"
         ),
         "movie_provider_enabled": (
@@ -173,18 +175,18 @@ def test_movie_provider_migration_puts_huhu_first_and_filmfrei_last(monkeypatch)
     migrated = config._migrate_provider_catalog(old)
     order = migrated["movie_provider_priority"].split(",")
 
-    assert order[0] == "huhu"
+    assert order[:2] == ["filmpalast", "huhu"]
     assert order[-1] == "filmfrei24"
     assert "huhu" in migrated["movie_provider_enabled"].split(",")
     assert writes == [{
-        "provider_catalog_revision": "2",
+        "provider_catalog_revision": "3",
         "movie_provider_priority": migrated["movie_provider_priority"],
         "movie_provider_enabled": migrated["movie_provider_enabled"],
     }]
 
 
-def test_new_install_movie_defaults_start_with_huhu_and_end_with_filmfrei():
-    assert config.MOVIE_PROVIDER_DEFAULTS[0] == "huhu"
+def test_new_install_movie_defaults_start_with_filmpalast_then_huhu():
+    assert config.MOVIE_PROVIDER_DEFAULTS[:2] == ("filmpalast", "huhu")
     assert config.MOVIE_PROVIDER_DEFAULTS[-1] == "filmfrei24"
 
 
