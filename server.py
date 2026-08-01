@@ -64,6 +64,7 @@ from downloader import (
 from session_manager import ProviderBlockedError, _cookie_file_for
 from hoster_intel import HosterIntel
 from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
+from resolved_link_cache import ResolvedLinkCache
 from runtime_paths import data_dir
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
@@ -456,6 +457,11 @@ class AppState:
             initial_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS,
             maximum_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_MAX_SECONDS,
             multiplier=appconfig.SERIES_PROVIDER_COOLDOWN_MULTIPLIER,
+        )
+        self.resolved_link_cache = ResolvedLinkCache(
+            data_dir() / "resolved_provider_links.json",
+            ttl_seconds=appconfig.SERIES_RESOLVED_LINK_CACHE_TTL_SECONDS,
+            max_entries=appconfig.SERIES_RESOLVED_LINK_CACHE_MAX_ENTRIES,
         )
         self.jellyfin_library: Optional[List[dict]] = None
         self.jellyfin_library_time: float = 0.0
@@ -3208,9 +3214,11 @@ def _queue_slug_claimed(slug: str) -> bool:
 def serienstream_provider_status() -> dict:
     with state.queue_claim_lock:
         waiting = len(set(state.provider_waiting_jobs) & set(state.picked))
-    return state.provider_health.status(
+    status = state.provider_health.status(
         "serienstream", waiting_episode_count=waiting,
     )
+    status["cached_redirect_count"] = state.resolved_link_cache.count()
+    return status
 
 
 def build_queue_payload() -> dict:
@@ -3761,7 +3769,6 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
     """Führt genau einen kontrollierten SerienStream-Netzwerkrequest aus."""
     try:
         sto = get_sto_scraper()
-        sto.reset_gate()
         if item is not None:
             movie = item["movie"]
             redirect = next(
@@ -3769,19 +3776,24 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
                 None,
             )
             if redirect is not None:
-                target = sto.resolve_play_url(redirect.url, referer=movie.url)
+                with state.sto_lock:
+                    sto.reset_gate()
+                    target = sto.resolve_play_url(redirect.url, referer=movie.url)
+                    if target:
+                        state.resolved_link_cache.put(redirect.url, target)
                 if not target:
                     _mark_serienstream_blocked(
                         sto.last_block_reason or "captcha_gate", "Provider-Probe blockiert",
                     )
                     return False
-                # Das erfolgreiche Probe-Ergebnis wiederverwenden: Der folgende
-                # Download benötigt keinen zweiten SerienStream-Redirect-Request.
-                redirect.url = target
+                # Das erfolgreiche Probe-Ergebnis wiederverwenden, ohne die
+                # Quell-URL im Movie zu verlieren. Ein Download-Retry kann den
+                # Cache dadurch gezielt verwerfen und genau einmal neu auflösen.
                 item["probe_verified_redirect"] = True
                 state.fp_movies[item["slug"]] = movie
                 return True
             with state.sto_lock:
+                sto.reset_gate()
                 movie = _apply_provider_metadata(
                     sto.get_movie(item["slug"]), "serienstream",
                 )
@@ -3790,7 +3802,9 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
                 state.fp_movies[item["slug"]] = movie
                 return True
             raise RuntimeError("Episodenseite lieferte keine Hoster")
-        html = sto.session.get("https://serienstream.to/", fast=True)
+        with state.sto_lock:
+            sto.reset_gate()
+            html = sto.session.get("https://serienstream.to/", fast=True)
         if not html:
             raise RuntimeError("Leere Provider-Antwort")
         return True
@@ -4057,6 +4071,7 @@ class _HosterResult:
     __slots__ = (
         "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
         "referer", "origin", "gated", "provider", "content_language", "quality",
+        "resolved_from_cache",
     )
 
     def __init__(self):
@@ -4070,6 +4085,7 @@ class _HosterResult:
         self.provider = ""
         self.content_language = ""
         self.quality = ""
+        self.resolved_from_cache = False
 
 
 def _extract_from_movie(
@@ -4084,6 +4100,13 @@ def _extract_from_movie(
     Hoster einfach ihre direkte URL verwenden."""
     res = _HosterResult()
     res.provider = _movie_provider(movie)
+    if (
+        res.provider == "serienstream"
+        and not state.provider_health.request_allowed("serienstream")
+    ):
+        # Direkte/cached Hoster duerfen weiterlaufen. Falls sie scheitern, muss
+        # der logische Job aber bis zur Provider-Probe vorgemerkt bleiben.
+        res.gated = True
     res.content_language = _movie_content_language(movie)
     session = state.fp_scraper.session._curl if state.fp_scraper else None
     excluded_hoster_urls = excluded_hoster_urls or set()
@@ -4140,33 +4163,68 @@ def _extract_from_movie(
         # nächste aufgelöst.
         was_sto = SerienstreamScraper.is_redirect_url(hoster.url)
         play_url = hoster.url
+        resolved_by_provider = False
         if was_sto:
-            if not state.provider_health.request_allowed("serienstream"):
-                res.gated = True
-                break
-            sto = get_sto_scraper()
-            # Ist das Captcha-Gate aktiv, sind ALLE Hoster blockiert – nicht
-            # weiter hämmern (das vertieft nur den IP-Flag), sofort abbrechen.
-            if sto.gated:
-                _mark_serienstream_blocked(
-                    sto.last_block_reason or "captcha_gate",
-                    "SerienStream-Gate ist bereits aktiv",
-                )
-                res.gated = True
-                break
-            play_url = sto.resolve_play_url(hoster.url, referer=movie.url)
-            if not play_url:
-                if sto.gated:
-                    _mark_serienstream_blocked(
-                        sto.last_block_reason or "captcha_gate",
-                        "SerienStream-Redirect-Gate blockiert",
-                    )
+            cached_target = state.resolved_link_cache.get(hoster.url)
+            if cached_target:
+                play_url = cached_target
+                res.resolved_from_cache = True
+                # Der bekannte Ziel-Link ist weiterhin nutzbar, obwohl keine
+                # neue Provider-Anfrage erlaubt ist. Merken, dass ein spaeterer
+                # Fehlschlag trotzdem bis zur naechsten Probe warten muss.
+                if not state.provider_health.request_allowed("serienstream"):
+                    res.gated = True
+                log(f"  {hoster.name}: bereits aufgelösten Hoster-Link verwenden")
+            else:
+                # Ein Cache-Treffer benötigt keinen Provider-Request und darf
+                # deshalb auch im Cooldown weiter zum Hoster. Nur Cache-Misses
+                # durchlaufen den Circuit-Breaker.
+                if not state.provider_health.request_allowed("serienstream"):
                     res.gated = True
                     break
-                log(f"  {hoster.name}: S.to-Link nicht auflösbar – nächster Hoster", "warn")
-                continue
-            if state.provider_health.status("serienstream")["failure_count"]:
-                state.provider_health.mark_success("serienstream")
+                sto = get_sto_scraper()
+                with state.sto_lock:
+                    # Double-check nach dem Lock: Ein paralleler Worker kann
+                    # denselben Redirect inzwischen bereits aufgeloest haben.
+                    locked_target = state.resolved_link_cache.get(hoster.url)
+                    if locked_target:
+                        play_url = locked_target
+                        res.resolved_from_cache = True
+                    else:
+                        # Zwischen Statusprüfung und Lock kann eine andere
+                        # Anfrage das Gate erkannt haben. Vor dem Redirect
+                        # deshalb atomar noch einmal prüfen.
+                        if not state.provider_health.request_allowed("serienstream"):
+                            res.gated = True
+                            break
+                        # Ist das Captcha-Gate aktiv, sind ALLE Hoster blockiert
+                        # – nicht weiter hämmern, sondern sofort abbrechen.
+                        if sto.gated:
+                            _mark_serienstream_blocked(
+                                sto.last_block_reason or "captcha_gate",
+                                "SerienStream-Gate ist bereits aktiv",
+                            )
+                            res.gated = True
+                            break
+                        play_url = sto.resolve_play_url(hoster.url, referer=movie.url)
+                        if play_url:
+                            resolved_by_provider = True
+                            state.resolved_link_cache.put(hoster.url, play_url)
+                if not play_url:
+                    if sto.gated:
+                        _mark_serienstream_blocked(
+                            sto.last_block_reason or "captcha_gate",
+                            "SerienStream-Redirect-Gate blockiert",
+                        )
+                        res.gated = True
+                        break
+                    log(f"  {hoster.name}: S.to-Link nicht auflösbar – nächster Hoster", "warn")
+                    continue
+                if (
+                    resolved_by_provider
+                    and state.provider_health.status("serienstream")["failure_count"]
+                ):
+                    state.provider_health.mark_success("serienstream")
             name = _canonical_hoster_name(hoster.name, play_url)
             if play_url in unsupported_domains:
                 log(f"  Überspringe {hoster.name}: Link nicht unterstützt", "warn")
@@ -4656,6 +4714,12 @@ def _enqueue_hoster_attempt(
         if not is_slow and source_url and source_url not in refreshed_hoster_urls:
             refreshed_hoster_urls.add(source_url)
             log(f"  {hoster_used}: Link wird einmal frisch aufgelöst …", "warn")
+            # Ein abgelaufener Hoster-/CDN-Link darf genau einen Cache-Miss
+            # erzeugen. Bei aktivem SerienStream-Cooldown bricht die folgende
+            # Extraktion vor jedem Provider-Request ab und nutzt Fallbacks.
+            state.resolved_link_cache.invalidate(
+                source_url, result.hoster_url_used,
+            )
             with state.hoster_extract_lock:
                 refreshed = _extract_from_movie(
                     movie,

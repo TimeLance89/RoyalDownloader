@@ -1,11 +1,15 @@
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import server
+from hoster_intel import HosterIntel
 from provider_health import ProviderHealth
+from resolved_link_cache import ResolvedLinkCache
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSeries,
@@ -22,6 +26,10 @@ def isolated_state(monkeypatch, tmp_path):
         initial_cooldown=10,
         maximum_cooldown=40,
     )
+    server.state.resolved_link_cache = ResolvedLinkCache(
+        tmp_path / "resolved-links.json", ttl_seconds=60,
+    )
+    server.state.hoster_intel = HosterIntel(tmp_path / "hoster-intel.json")
     server.state.picked.clear()
     server.state.fp_movies.clear()
     server.state.counted_queue_slugs.clear()
@@ -179,7 +187,98 @@ def test_successful_probe_reuses_resolved_url(monkeypatch):
     item = {"slug": slug, "movie": movie}
     assert server._probe_serienstream_once(item)
     assert calls["count"] == 1
-    assert movie.hosters[0].url == "https://voe.invalid/e/one"
+    assert movie.hosters[0].url == "https://serienstream.to/r?t=one"
+    assert server.state.resolved_link_cache.get(movie.hosters[0].url) == (
+        "https://voe.invalid/e/one"
+    )
+
+
+def test_cached_redirect_works_during_provider_cooldown(monkeypatch):
+    redirect = "https://serienstream.to/r?t=one"
+    target = "https://hoster.invalid/embed/one"
+    movie = FilmpalastMovie(
+        title="Exact Show S02E04",
+        url="https://serienstream.to/episode",
+        provider="serienstream",
+        hosters=[HosterInfo("Generic", redirect)],
+    )
+    server.state.resolved_link_cache.put(redirect, target)
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    monkeypatch.setattr(
+        server,
+        "get_sto_scraper",
+        lambda: (_ for _ in ()).throw(AssertionError("SerienStream requested")),
+    )
+    monkeypatch.setattr(server, "probe_stream_url", lambda *_args, **_kwargs: (True, "ok"))
+    result = server._extract_from_movie(movie, set())
+    assert result.stream_info == (target, "web")
+    assert result.resolved_from_cache
+    assert result.gated
+
+
+def test_redirect_is_resolved_once_then_reused(monkeypatch):
+    redirect = "https://serienstream.to/r?t=once"
+    target = "https://hoster.invalid/embed/once"
+    movie = FilmpalastMovie(
+        title="Exact Show S02E05",
+        url="https://serienstream.to/episode-5",
+        provider="serienstream",
+        hosters=[HosterInfo("Generic", redirect)],
+    )
+    calls = {"count": 0}
+    scraper = SimpleNamespace(
+        gated=False,
+        last_block_reason="",
+        resolve_play_url=lambda *_args, **_kwargs: (
+            calls.__setitem__("count", calls["count"] + 1) or target
+        ),
+    )
+    monkeypatch.setattr(server, "get_sto_scraper", lambda: scraper)
+    monkeypatch.setattr(server, "probe_stream_url", lambda *_args, **_kwargs: (True, "ok"))
+    first = server._extract_from_movie(movie, set())
+    second = server._extract_from_movie(movie, set())
+    assert first.stream_info == second.stream_info == (target, "web")
+    assert not first.resolved_from_cache
+    assert second.resolved_from_cache
+    assert calls["count"] == 1
+
+
+def test_parallel_redirect_attempts_share_one_resolution(monkeypatch):
+    redirect = "https://serienstream.to/r?t=parallel"
+    target = "https://hoster.invalid/embed/parallel"
+    movie = FilmpalastMovie(
+        title="Exact Show S02E06",
+        url="https://serienstream.to/episode-6",
+        provider="serienstream",
+        hosters=[HosterInfo("Generic", redirect)],
+    )
+    calls = {"count": 0}
+    scraper = SimpleNamespace(
+        gated=False,
+        last_block_reason="",
+        resolve_play_url=lambda *_args, **_kwargs: (
+            calls.__setitem__("count", calls["count"] + 1) or target
+        ),
+    )
+    original_get = server.state.resolved_link_cache.get
+    first_reads = threading.local()
+    both_started = threading.Barrier(2)
+
+    def synchronized_get(url):
+        count = getattr(first_reads, "count", 0)
+        first_reads.count = count + 1
+        if count == 0:
+            both_started.wait(timeout=2)
+        return original_get(url)
+
+    monkeypatch.setattr(server.state.resolved_link_cache, "get", synchronized_get)
+    monkeypatch.setattr(server, "get_sto_scraper", lambda: scraper)
+    monkeypatch.setattr(server, "probe_stream_url", lambda *_args, **_kwargs: (True, "ok"))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: server._extract_from_movie(movie, set()), range(2)))
+
+    assert [result.stream_info for result in results] == [(target, "web")] * 2
+    assert calls["count"] == 1
 
 
 def test_manual_retry_rejects_parallel_probe():
