@@ -151,6 +151,35 @@ seasons[{season,episodes[{
 
 `defer_checks=true` liefert schnell die Providerstruktur. In diesem Zustand müssen Clients `availability_pending` beachten und dürfen anfängliche `false`-Werte nicht als abschließenden Bestand interpretieren.
 
+Für den schnellen Jellyfin-Abgleich einer bereits geöffneten Serie gibt es einen
+gezielten Endpunkt. Er lädt ausschließlich Episoden der eindeutig zugeordneten
+Jellyfin-Serie und blockiert daher nicht auf dem vollständigen Episodenindex:
+
+```text
+POST /api/series/jellyfin-status
+{
+  "title":"House of the Dragon",
+  "tmdb_id":94997,
+  "aliases":[],
+  "episodes":[{"slug":"...","season":1,"episode":1}],
+  "force":false
+}
+→ {
+  "configured":true,
+  "available":true,
+  "stale":false,
+  "checked_at":1785592800.0,
+  "episodes":{"...":true},
+  "count":1
+}
+```
+
+`available=false` bedeutet, dass kein aktueller, verlässlicher Jellyfin-Abruf
+möglich war. Falls ein letzter erfolgreicher Stand existiert, wird er mit
+`stale=true` zurückgegeben. Clients dürfen einen veralteten Stand anzeigen,
+aber nicht als Freigabe für einen erneuten Download verwenden. `force=true`
+umgeht den kurzlebigen Detailcache.
+
 ### Anime
 
 ```text
@@ -461,6 +490,7 @@ Sitzungen werden atomar persistiert. Schlägt das Speichern beim Erstellen oder 
 | `POST /api/v1/jellyfin/matches` | `/api/jellyfin/matches` |
 | `GET /api/v1/series` | `/api/series` |
 | `POST /api/v1/series/load` | `/api/series/load` |
+| `POST /api/v1/series/jellyfin-status` | `/api/series/jellyfin-status` |
 | `GET /api/v1/anime` | `/api/anime` |
 | `GET /api/v1/anime/{anime_id}` | `/api/anime/{anime_id}` |
 | `GET /api/v1/cover` | `/api/cover` |

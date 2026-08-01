@@ -529,6 +529,10 @@ class AppState:
         self.jellyfin_series_time: float = 0.0
         self.jellyfin_series_available: bool = False
         self.jellyfin_series_retry_after: float = 0.0
+        # Kleine, serienbezogene Episoden-Caches für die Detailansicht. Diese
+        # laufen unabhängig vom großen Watchlist-Gesamtindex und blockieren
+        # daher nicht hinter einer vollständigen Bibliotheksabfrage.
+        self.jellyfin_targeted_episodes: Dict[str, dict] = {}
         self.jellyfin_user_episodes: Optional[List[dict]] = None
         self.jellyfin_user_episodes_time: float = 0.0
         self.jellyfin_user_episodes_available: bool = False
@@ -541,6 +545,7 @@ class AppState:
         self.jellyfin_library_fetch_lock = threading.Lock()
         self.jellyfin_episodes_fetch_lock = threading.Lock()
         self.jellyfin_series_fetch_lock = threading.Lock()
+        self.jellyfin_targeted_fetch_lock = threading.Lock()
         self.jellyfin_user_fetch_lock = threading.Lock()
         self.jellyfin_refresh_lock = threading.Lock()
         self.jellyfin_refresh_request_lock = threading.Lock()
@@ -1167,6 +1172,7 @@ def _set_runtime_jellyfin_config(cfg: dict) -> None:
         state.jellyfin_series_time = 0.0
         state.jellyfin_series_available = False
         state.jellyfin_series_retry_after = 0.0
+        state.jellyfin_targeted_episodes.clear()
         state.jellyfin_user_episodes = None
         state.jellyfin_user_episodes_time = 0.0
         state.jellyfin_user_episodes_available = False
@@ -1234,6 +1240,8 @@ def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
 
 JELLYFIN_CACHE_TTL = 300  # Sekunden – wie lange die komplette Filmliste gecacht wird
 JELLYFIN_ERROR_RETRY_SECONDS = 30
+JELLYFIN_TARGETED_CACHE_TTL = 60
+JELLYFIN_TARGETED_ERROR_RETRY_SECONDS = 15
 
 
 def get_jellyfin_library(force: bool = False) -> Optional[List[dict]]:
@@ -1345,6 +1353,140 @@ def get_jellyfin_series(force: bool = False) -> Optional[List[dict]]:
                 state.jellyfin_series_available = False
                 state.jellyfin_series_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
             return state.jellyfin_series
+
+
+def get_jellyfin_targeted_episodes(
+    series_ids: set[str], force: bool = False,
+) -> tuple[Optional[List[dict]], bool, bool, float]:
+    """Liefert Episoden nur für die eindeutig erkannte Jellyfin-Serie.
+
+    Rückgabe: ``(items, live_available, stale, checked_at)``. Bei einem
+    Netzwerkfehler bleibt ein letzter bekannter Stand sichtbar, wird aber als
+    veraltet markiert und darf keine Downloadfreigabe vortäuschen.
+    """
+    clean_ids = tuple(sorted({str(value).strip() for value in series_ids if str(value).strip()}))
+    if not clean_ids:
+        return [], True, False, time.time()
+    key = "|".join(clean_ids)
+
+    def cached_result(now: float, allow_stale: bool = False):
+        record = state.jellyfin_targeted_episodes.get(key)
+        if not record:
+            return None
+        age = now - float(record.get("checked_at") or 0)
+        if not force and age <= JELLYFIN_TARGETED_CACHE_TTL:
+            return list(record.get("items") or []), True, False, float(record["checked_at"])
+        if not force and now < float(record.get("retry_after") or 0):
+            return (
+                list(record.get("items") or []), False, True,
+                float(record.get("checked_at") or 0),
+            )
+        if allow_stale:
+            return (
+                list(record.get("items") or []), False, True,
+                float(record.get("checked_at") or 0),
+            )
+        return None
+
+    with state.jellyfin_cache_lock:
+        jf_client = get_jellyfin_client()
+        generation = state.jellyfin_config_generation
+        if not jf_client.configured:
+            return None, False, False, 0.0
+        cached = cached_result(time.time())
+        if cached is not None:
+            return cached
+
+    with state.jellyfin_targeted_fetch_lock:
+        with state.jellyfin_cache_lock:
+            if generation != state.jellyfin_config_generation:
+                return None, False, False, 0.0
+            cached = cached_result(time.time())
+            if cached is not None:
+                return cached
+        fresh: List[dict] = []
+        succeeded = True
+        for series_id in clean_ids:
+            items = jf_client.list_episodes_for_series(series_id)
+            if items is None:
+                succeeded = False
+                break
+            fresh.extend(items)
+        now = time.time()
+        with state.jellyfin_cache_lock:
+            if generation != state.jellyfin_config_generation:
+                return None, False, False, 0.0
+            if succeeded:
+                state.jellyfin_targeted_episodes[key] = {
+                    "items": fresh,
+                    "checked_at": now,
+                    "retry_after": 0.0,
+                }
+                return list(fresh), True, False, now
+            previous = state.jellyfin_targeted_episodes.get(key)
+            if previous:
+                previous["retry_after"] = now + JELLYFIN_TARGETED_ERROR_RETRY_SECONDS
+                return cached_result(now, allow_stale=True)
+            return None, False, False, 0.0
+
+
+def _series_jellyfin_status(
+    title: str,
+    *,
+    tmdb_id="",
+    aliases=(),
+    episodes: List[dict],
+    force: bool = False,
+) -> dict:
+    """Schneller, eigenständiger Jellyfin-Status einer geöffneten Serie."""
+    client = get_jellyfin_client()
+    empty = {str(item.get("slug") or ""): False for item in episodes if item.get("slug")}
+    if not client.configured:
+        return {
+            "configured": False, "available": True, "stale": False,
+            "checked_at": 0.0, "episodes": empty, "count": 0,
+        }
+    series_items = get_jellyfin_series(force=force)
+    with state.jellyfin_cache_lock:
+        series_index_available = bool(
+            series_items is not None and state.jellyfin_series_available
+        )
+    if not series_index_available:
+        return {
+            "configured": True, "available": False, "stale": False,
+            "checked_at": 0.0, "episodes": empty, "count": 0,
+        }
+    series_ids = client.series_ids_for(
+        title, tmdb_id=tmdb_id, aliases=aliases, items=series_items,
+    )
+    if series_ids is None:
+        return {
+            "configured": True, "available": False, "stale": False,
+            "checked_at": time.time(), "episodes": empty, "count": 0,
+        }
+    targeted, live_available, stale, checked_at = get_jellyfin_targeted_episodes(
+        series_ids, force=force,
+    )
+    existing = (
+        client.episodes_for_series(
+            title, items=targeted, aliases=aliases, series_ids=series_ids,
+        )
+        if targeted is not None else set()
+    )
+    statuses = {
+        str(item.get("slug") or ""): (
+            int(item.get("season") or 0), int(item.get("episode") or 0)
+        ) in existing
+        for item in episodes if item.get("slug")
+    }
+    return {
+        "configured": True,
+        "available": live_available,
+        "stale": stale,
+        "checked_at": checked_at,
+        "episodes": statuses,
+        "count": sum(statuses.values()),
+    }
 
 
 def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
@@ -1532,6 +1674,41 @@ def movie_genre_aliases(value: str) -> tuple[str, ...]:
 
 def watchlist_lookup(base_slug: str) -> Optional[dict]:
     return next((w for w in state.watchlist if w["base_slug"] == base_slug), None)
+
+
+def watchlist_match_series(
+    base_slug: str, title: str = "", tmdb_id="", aliases=(),
+) -> Optional[dict]:
+    """Ordnet dieselbe Serie providerübergreifend ihrer Watchlist zu."""
+    exact = watchlist_lookup(base_slug)
+    if exact is not None:
+        return exact
+    wanted_tmdb = str(tmdb_id or "").strip()
+    if wanted_tmdb:
+        tmdb_matches = [
+            entry for entry in state.watchlist
+            if str(entry.get("tmdb_id") or "").strip() == wanted_tmdb
+        ]
+        if len(tmdb_matches) == 1:
+            return tmdb_matches[0]
+    wanted_titles = {
+        _norm_title(value) for value in (title, *aliases) if _norm_title(value)
+    }
+    if not wanted_titles:
+        return None
+    title_matches = []
+    for entry in state.watchlist:
+        stored_tmdb = str(entry.get("tmdb_id") or "").strip()
+        if wanted_tmdb and stored_tmdb and stored_tmdb != wanted_tmdb:
+            continue
+        stored_titles = {
+            _norm_title(value)
+            for value in (entry.get("title", ""), *(entry.get("aliases") or []))
+            if _norm_title(value)
+        }
+        if wanted_titles & stored_titles:
+            title_matches.append(entry)
+    return title_matches[0] if len(title_matches) == 1 else None
 
 
 def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
@@ -2775,6 +2952,19 @@ def warm_home_series_cache() -> None:
         log(f"Serien-Startansicht konnte nicht vorab geladen werden: {exc}", "warn")
 
 
+def warm_jellyfin_identity_cache() -> None:
+    """Bereitet den kleinen Serienindex für sofortige Detailabgleiche vor."""
+    if not get_jellyfin_client().configured:
+        return
+    started = time.monotonic()
+    items = get_jellyfin_series()
+    if items is not None:
+        logger.info(
+            "Jellyfin-Serienindex vorbereitet: %d Serie(n) in %.2fs",
+            len(items), time.monotonic() - started,
+        )
+
+
 def _norm_title(title: str) -> str:
     """Titel für Matching normalisieren: Provider-Suffix + Sonderzeichen weg."""
     t = re.sub(r"\s*\[[^\]]+\]\s*$", "", title or "")
@@ -3151,7 +3341,7 @@ def series_to_dict(
     """
     downloaded = set() if defer_checks else compute_downloaded_episodes(series)
     with state.watchlist_lock:
-        stored_entry = watchlist_lookup(series.base_slug)
+        stored_entry = watchlist_match_series(series.base_slug, series.title)
         watchlist_entry = dict(stored_entry) if stored_entry else None
     stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
     tmdb_client = get_tmdb_client()
@@ -3163,6 +3353,20 @@ def series_to_dict(
         tmdb.get("original_title", "") if tmdb else "",
     ))))
     tmdb_id = stored_tmdb_id or (tmdb or {}).get("tmdb_id")
+    with state.watchlist_lock:
+        refined_entry = watchlist_match_series(
+            series.base_slug, series.title, tmdb_id=tmdb_id, aliases=aliases,
+        )
+        if refined_entry is not None:
+            watchlist_entry = dict(refined_entry)
+    if watchlist_entry:
+        stored_tmdb_id = watchlist_entry.get("tmdb_id") or stored_tmdb_id
+        tmdb_id = stored_tmdb_id or tmdb_id
+        aliases = list(dict.fromkeys(filter(None, (
+            watchlist_entry.get("title", ""),
+            *(watchlist_entry.get("aliases") or []),
+            *aliases,
+        ))))
     season_episode_counts = (tmdb or {}).get("season_episode_counts") or (
         watchlist_entry.get("season_episode_counts", {}) if watchlist_entry else {}
     )
@@ -3177,36 +3381,27 @@ def series_to_dict(
     jellyfin_pending = bool(defer_checks and jf_client.configured)
     jf_identity_available: Optional[bool] = None if jellyfin_pending else True
     jf_existing: set[tuple[int, int]] = set()
+    jf_stale = False
+    jf_checked_at = 0.0
     if jf_client.configured and not jellyfin_pending:
-        with state.jellyfin_cache_lock:
-            jf_config_generation = state.jellyfin_config_generation
-        jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin)
-        jf_series = get_jellyfin_series(force=refresh_jellyfin)
-        with state.jellyfin_cache_lock:
-            jf_data_generation = state.jellyfin_episode_data_generation
-        jf_series_ids = jf_client.series_ids_for(
-            series.title, tmdb_id=tmdb_id, aliases=aliases, items=jf_series,
-        ) if jf_series is not None else set()
-        jf_identity_available = bool(
-            jf_episodes is not None
-            and state.jellyfin_episodes_available
-            and jf_series is not None
-            and state.jellyfin_series_available
-            and jf_series_ids is not None
+        quick_status = _series_jellyfin_status(
+            series.title,
+            tmdb_id=tmdb_id,
+            aliases=aliases,
+            episodes=[
+                {"slug": episode.slug, "season": episode.season, "episode": episode.episode}
+                for episode in series.all_episodes
+            ],
+            force=refresh_jellyfin,
         )
-        jf_existing = (
-            jf_client.episodes_for_series(
-                series.title, items=jf_episodes, aliases=aliases, series_ids=jf_series_ids,
-            )
-            if jf_identity_available and jf_episodes is not None else set()
-        )
-        with state.jellyfin_cache_lock:
-            if (
-                jf_config_generation != state.jellyfin_config_generation
-                or jf_data_generation != state.jellyfin_episode_data_generation
-            ):
-                jf_identity_available = False
-                jf_existing = set()
+        jf_identity_available = bool(quick_status["available"])
+        jf_stale = bool(quick_status["stale"])
+        jf_checked_at = float(quick_status["checked_at"] or 0)
+        jf_existing = {
+            (episode.season, episode.episode)
+            for episode in series.all_episodes
+            if quick_status["episodes"].get(episode.slug)
+        }
     seasons = []
     for s in series.season_numbers:
         episodes = []
@@ -3239,6 +3434,8 @@ def series_to_dict(
         "jellyfin_configured": jf_client.configured,
         "jellyfin_pending": jellyfin_pending,
         "jellyfin_available": jf_identity_available,
+        "jellyfin_stale": jf_stale,
+        "jellyfin_checked_at": jf_checked_at,
         "watch_mode": normalize_watch_mode(
             watchlist_entry.get("download_mode") if watchlist_entry else None
         ),
@@ -3726,6 +3923,10 @@ def _refresh_jellyfin_after_download_once():
             if user_id:
                 get_jellyfin_user_episodes(force=True)
             with state.jellyfin_cache_lock:
+                # Ein Bibliotheksscan kann die Episoden jeder einzelnen Serie
+                # verändert haben. Detail-Caches werden deshalb atomar
+                # verworfen und beim nächsten Öffnen gezielt neu aufgebaut.
+                state.jellyfin_targeted_episodes.clear()
                 if generation != state.jellyfin_config_generation:
                     log("Jellyfin-Aktualisierung verworfen: Konfiguration wurde geändert.", "warn")
                     return
@@ -8171,6 +8372,7 @@ def start_background_services():
             return
         _background_services_started = True
     threading.Thread(target=warm_home_movie_cache, daemon=True).start()
+    threading.Thread(target=warm_jellyfin_identity_cache, daemon=True).start()
     threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
     _recommender_stop_event.clear()
@@ -8299,6 +8501,7 @@ MOBILE_LEGACY_API_PATHS = frozenset({
     "/api/jellyfin/matches",
     "/api/series",
     "/api/series/load",
+    "/api/series/jellyfin-status",
     "/api/anime",
     "/api/queue",
     "/api/queue/add",
@@ -9232,6 +9435,33 @@ class SeriesLoadBody(BaseModel):
     base_slug: str = ""
     refresh_jellyfin: bool = False
     defer_checks: bool = False
+
+
+class SeriesJellyfinEpisodeBody(BaseModel):
+    slug: str = Field(min_length=1, max_length=240)
+    season: int = Field(ge=0, le=100)
+    episode: int = Field(ge=0, le=10000)
+
+
+class SeriesJellyfinStatusBody(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    tmdb_id: Optional[int] = None
+    aliases: List[str] = Field(default_factory=list, max_length=30)
+    episodes: List[SeriesJellyfinEpisodeBody] = Field(max_length=2000)
+    force: bool = False
+
+
+@app.post("/api/v1/series/jellyfin-status")
+@app.post("/api/series/jellyfin-status")
+async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
+    return await run_in_threadpool(
+        _series_jellyfin_status,
+        body.title,
+        tmdb_id=body.tmdb_id or "",
+        aliases=body.aliases,
+        episodes=[item.model_dump() for item in body.episodes],
+        force=body.force,
+    )
 
 
 @app.post("/api/v1/series/load")
@@ -12051,6 +12281,7 @@ def _execute_watchlist_cleanup(
                 ]
             state.jellyfin_episodes_time = 0.0
             state.jellyfin_user_episodes_time = 0.0
+            state.jellyfin_targeted_episodes.clear()
             state.jellyfin_episode_data_generation += 1
         log(f"Jellyfin-Aufräumen: {deleted_total} gesehene Episode(n) gelöscht.")
     return deleted_total

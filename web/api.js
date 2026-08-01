@@ -55,6 +55,18 @@ const api = {
       refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
     });
   },
+  seriesJellyfinStatus(series, force = false) {
+    return this.post("/api/series/jellyfin-status", {
+      title: series.title,
+      tmdb_id: series.tmdb_id || null,
+      aliases: series.aliases || [],
+      episodes: (series.seasons || []).flatMap((season) =>
+        (season.episodes || []).map((episode) => ({
+          slug: episode.slug, season: episode.season, episode: episode.episode,
+        }))),
+      force,
+    });
+  },
 
   anime(params) { return this.get("/api/anime?" + new URLSearchParams(params)); },
   animeDetail(id, translation = "", episodePage = 1) {

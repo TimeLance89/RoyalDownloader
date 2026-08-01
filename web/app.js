@@ -2313,9 +2313,16 @@ function updateSeriesJellyfinBadge(series, checking = false) {
   if (!badge) return;
   const label = badge.querySelector("strong");
   badge.className = "series-jellyfin-status";
-  if (checking || series?.availability_pending || series?.jellyfin_pending) {
+  if (checking || series?.jellyfin_pending) {
     badge.classList.add("is-checking");
     label.textContent = "Jellyfin wird geprüft";
+    return;
+  }
+  if (series?.jellyfin_stale) {
+    const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
+    const jellyfinCount = episodes.filter((episode) => episode.in_jellyfin).length;
+    badge.classList.add("is-unavailable");
+    label.textContent = `${jellyfinCount} Episoden · letzter Jellyfin-Stand`;
     return;
   }
   if (series?.availability_error || series?.jellyfin_available === false) {
@@ -2346,8 +2353,35 @@ async function refreshSeriesJellyfinStatus(force = false) {
   const viewGeneration = state.series.viewGeneration;
   const refreshGeneration = ++state.series.jellyfinRefreshSeq;
   state.series.jellyfinRefreshByBase.set(baseSlug, refreshGeneration);
+  const quickStatusPromise = api.seriesJellyfinStatus(current, force).then((status) => {
+    const isLatestForSeries = state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration;
+    const isSameView = state.series.viewGeneration === viewGeneration;
+    if (!isLatestForSeries || !isSameView || state.series.current?.base_slug !== baseSlug) return;
+    const live = state.series.current;
+    for (const season of live.seasons || []) {
+      for (const episode of season.episodes || []) {
+        if (Object.hasOwn(status.episodes || {}, episode.slug)) {
+          episode.in_jellyfin = Boolean(status.episodes[episode.slug]);
+        }
+      }
+    }
+    live.jellyfin_configured = Boolean(status.configured);
+    live.jellyfin_pending = false;
+    live.jellyfin_available = Boolean(status.available);
+    live.jellyfin_stale = Boolean(status.stale);
+    live.jellyfin_checked_at = Number(status.checked_at || 0);
+    state.series.cache[baseSlug] = live;
+    pruneSeriesEpisodeSelection();
+    renderSeriesTiles();
+    updateSeriesStatus(live);
+  }).catch((error) => {
+    console.warn("Schneller Jellyfin-Abgleich fehlgeschlagen:", error);
+  });
   try {
-    const refreshed = await api.seriesLoad(sampleSlug, baseSlug, force);
+    // Der gezielte Status oben übernimmt ein erzwungenes Live-Refresh. Das
+    // vollständige Enrichment nutzt danach denselben Cache und lädt nicht
+    // parallel erneut die komplette Jellyfin-Struktur.
+    const refreshed = await api.seriesLoad(sampleSlug, baseSlug, false);
     const isLatestForSeries = state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration;
     const isSameView = state.series.viewGeneration === viewGeneration;
     if (!isLatestForSeries || !isSameView || state.series.current?.base_slug !== baseSlug) return false;
@@ -2382,6 +2416,7 @@ async function refreshSeriesJellyfinStatus(force = false) {
     }
     return false;
   } finally {
+    await quickStatusPromise;
     if (state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration) {
       state.series.jellyfinRefreshByBase.delete(baseSlug);
     }
@@ -4915,11 +4950,41 @@ function closeWatchModeModal() {
   watchModeReturnFocus = null;
 }
 
+function normalizeSeriesIdentityTitle(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function watchlistEntryForSeries(series, items = state.wl.items) {
+  if (!series) return null;
+  const exact = items.find((item) => item.base_slug === series.base_slug);
+  if (exact) return exact;
+  const tmdbId = String(series.tmdb_id || "").trim();
+  if (tmdbId) {
+    const stable = items.filter((item) => String(item.tmdb_id || "").trim() === tmdbId);
+    if (stable.length === 1) return stable[0];
+  }
+  const wantedTitles = new Set([
+    series.title, series.original_title, ...(series.aliases || []),
+  ].map(normalizeSeriesIdentityTitle).filter(Boolean));
+  const matches = items.filter((item) => {
+    const storedTmdb = String(item.tmdb_id || "").trim();
+    if (tmdbId && storedTmdb && storedTmdb !== tmdbId) return false;
+    return [item.title, ...(item.aliases || [])]
+      .map(normalizeSeriesIdentityTitle)
+      .some((title) => wantedTitles.has(title));
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function openWatchModeModal(entry = null) {
   const series = state.series.current;
-  const baseSlug = entry?.base_slug || series?.base_slug;
+  const stored = entry || watchlistEntryForSeries(series);
+  const baseSlug = stored?.base_slug || series?.base_slug;
   if (!baseSlug) return;
-  const stored = entry || state.wl.items.find((item) => item.base_slug === baseSlug);
   const tracked = Boolean(stored || series?.watchlisted);
   const mode = stored?.download_mode || series?.watch_mode || WATCH_MODE_DEFAULT;
   const cleanupMode = tracked
@@ -5030,12 +5095,18 @@ function applyWatchlist(items) {
   state.wl.items = items;
   state.wl.loaded = true;
   for (const series of Object.values(state.series.cache)) {
-    const entry = items.find((item) => item.base_slug === series.base_slug);
+    const entry = watchlistEntryForSeries(series, items);
     series.watchlisted = Boolean(entry);
     series.watch_mode = entry?.download_mode || WATCH_MODE_DEFAULT;
     series.cleanup_mode = entry?.cleanup_mode || WATCH_CLEANUP_DEFAULT;
   }
-  if (state.series.current) updateWatchBtn();
+  if (state.series.current) {
+    const entry = watchlistEntryForSeries(state.series.current, items);
+    state.series.current.watchlisted = Boolean(entry);
+    state.series.current.watch_mode = entry?.download_mode || WATCH_MODE_DEFAULT;
+    state.series.current.cleanup_mode = entry?.cleanup_mode || WATCH_CLEANUP_DEFAULT;
+    updateWatchBtn();
+  }
   renderWatchlist();
   renderSeriesSubscriptions();
   renderNotifBell();

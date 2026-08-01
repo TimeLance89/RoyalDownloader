@@ -323,6 +323,50 @@ class JellyfinClient:
             })
         return result
 
+    def list_episodes_for_series(
+        self, series_id: str, limit: int = 1000,
+    ) -> Optional[List[dict]]:
+        """Lädt gezielt nur die Episoden einer Jellyfin-Serie.
+
+        Die Detailansicht darf nicht von einer Komplettabfrage aller Episoden
+        einer großen Bibliothek abhängen. ``ParentId`` plus ``Recursive`` nutzt
+        denselben stabilen Jellyfin-Index, begrenzt die Antwort aber auf genau
+        die zuvor eindeutig erkannte Serie.
+        """
+        series_id = str(series_id or "").strip()
+        if not self.configured or not series_id:
+            return None
+        items = self._list_items({
+            "ParentId": series_id,
+            "IncludeItemTypes": "Episode",
+            "Recursive": "true",
+            "ExcludeLocationTypes": "Virtual,Offline",
+            "IsMissing": "false",
+            "IsPlaceHolder": "false",
+            "Fields": "ParentIndexNumber,IndexNumber,SeriesName,SeriesId",
+        }, limit, f"Jellyfin-Episodenabruf für Serie {series_id}")
+        if items is None:
+            return None
+        result = []
+        for item in items:
+            season = item.get("ParentIndexNumber")
+            episode = item.get("IndexNumber")
+            if season is None or episode is None:
+                continue
+            try:
+                season = int(season)
+                episode = int(episode)
+            except (TypeError, ValueError):
+                continue
+            result.append({
+                "id": str(item.get("Id") or ""),
+                "series": str(item.get("SeriesName") or ""),
+                "series_id": str(item.get("SeriesId") or series_id),
+                "season": season,
+                "episode": episode,
+            })
+        return result
+
     def list_series(self, limit: int = 1000) -> Optional[List[dict]]:
         """Liefert Serien-IDs und Provider-IDs für stabile Zuordnungen."""
         items = self._list_items({
