@@ -281,6 +281,7 @@ async function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApp
   try {
     const response = await api.watchlistGet();
     if (snapshotGeneration !== watchlistSnapshotGeneration || (shouldApply && !shouldApply())) return false;
+    showPersistenceWarning("Serien-Abos", response.persistence);
     applyWatchlist(response.watchlist || []);
     return true;
   } catch (error) {
@@ -292,6 +293,7 @@ async function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApp
 async function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung") {
   try {
     const response = await api.movieSubscriptionsGet();
+    showPersistenceWarning("Film-Abos", response.persistence);
     applyMovieSubscriptions(response.movie_subscriptions || []);
     return true;
   } catch (error) {
@@ -406,10 +408,13 @@ function connectWs() {
     } else if (data.type === "jellyfin_update") {
       refreshFpJellyfinStatus();
       refreshSeriesJellyfinStatus();
+      showPersistenceWarning("Serien-Abos", data.persistence);
       if (data.watchlist) applyWatchlist(data.watchlist);
       } else if (data.type === "watchlist_update") {
+        showPersistenceWarning("Serien-Abos", data.persistence);
         applyWatchlist(data.watchlist || []);
       } else if (data.type === "movie_subscriptions_update") {
+        showPersistenceWarning("Film-Abos", data.persistence);
         applyMovieSubscriptions(data.movie_subscriptions || []);
       }
     } catch (error) {
@@ -432,9 +437,23 @@ function connectWs() {
 }
 
 // ── Queue (Warteschlange, gemeinsam für Filme + Serien) ───────────────────
+function showPersistenceWarning(label, persistence) {
+  if (!persistence || persistence.ok !== false) return;
+  const retry = persistence.pending_retry
+    ? "Automatischer Speicherversuch läuft"
+    : "Bitte Änderung erneut versuchen";
+  setDownloadState(
+    "error",
+    "Speicherung ausstehend",
+    `${label}: ${retry}`,
+    state.download.percent,
+  );
+}
+
 function renderQueue(payload) {
   queueSnapshotGeneration += 1;
   state.queue = { ...payload, loaded: true };
+  showPersistenceWarning("Downloadplan", payload.persistence);
   renderSerienstreamHealth(payload.providers?.serienstream || {});
   state.queuedSlugs = new Set();
   for (const g of payload.groups) for (const it of g.items) state.queuedSlugs.add(it.slug);

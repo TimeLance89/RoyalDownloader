@@ -24,6 +24,7 @@ import secrets
 import socket
 import sys
 import requests
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from collections import Counter, OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -479,6 +480,16 @@ class AppState:
         self.watchlist_lock = threading.RLock()
         self.movie_subscriptions: List[dict] = appconfig.load_movie_subscriptions()
         self.movie_subscriptions_lock = threading.RLock()
+        self.persistence_status_lock = threading.RLock()
+        self.persistence_write_locks = {
+            "queue": threading.RLock(),
+            "watchlist": threading.RLock(),
+            "movie_subscriptions": threading.RLock(),
+        }
+        self.persistence_pending: Dict[str, dict] = {}
+        self.persistence_errors: Dict[str, dict] = {}
+        self.persistence_generations: Dict[str, int] = {}
+        self.persistence_retrying: set[str] = set()
         self.movie_subscription_check_lock = threading.Lock()
         self.auto_download_lock = threading.Lock()
         self.hoster_intel = HosterIntel()
@@ -3516,13 +3527,205 @@ def episode_sort_key(slug: str):
     return (parsed[1], parsed[2]) if parsed else (0, 0)
 
 
-def _persist_queue_state() -> None:
+PERSISTENCE_RETRY_DELAYS = (1, 5, 15, 30, 60)
+
+
+def _persistence_saver(resource: str):
+    return {
+        "queue": appconfig.save_queue,
+        "watchlist": appconfig.save_watchlist,
+        "movie_subscriptions": appconfig.save_movie_subscriptions,
+    }[resource]
+
+
+def _persistence_status(resource: str) -> dict:
+    with state.persistence_status_lock:
+        error = dict(state.persistence_errors.get(resource) or {})
+        pending = resource in state.persistence_pending
+    return {
+        "ok": not error,
+        "pending_retry": pending,
+        "attempts": int(error.get("attempts") or 0),
+        "last_failed_at": float(error.get("last_failed_at") or 0),
+        "next_retry_at": float(error.get("next_retry_at") or 0),
+    }
+
+
+def _mark_persistence_success(resource: str) -> None:
+    with state.persistence_status_lock:
+        state.persistence_pending.pop(resource, None)
+        state.persistence_errors.pop(resource, None)
+
+
+def _mark_persistence_failure(resource: str, *, pending: bool) -> None:
+    now = time.time()
+    with state.persistence_status_lock:
+        previous = state.persistence_errors.get(resource) or {}
+        attempts = int(previous.get("attempts") or 0) + 1
+        delay = PERSISTENCE_RETRY_DELAYS[
+            min(attempts - 1, len(PERSISTENCE_RETRY_DELAYS) - 1)
+        ] if pending else 0
+        state.persistence_errors[resource] = {
+            "attempts": attempts,
+            "last_failed_at": now,
+            "next_retry_at": now + delay if pending else 0,
+        }
+
+
+def _write_persistent_snapshot(resource: str, snapshot) -> bool:
+    with state.persistence_write_locks[resource]:
+        try:
+            saved = bool(_persistence_saver(resource)(snapshot))
+        except Exception as exc:
+            log(f"{resource}: Persistenzfehler: {exc}", "warn")
+            saved = False
+    if saved:
+        _mark_persistence_success(resource)
+    return saved
+
+
+def _retry_persistence_once(resource: str) -> bool:
+    with state.persistence_status_lock:
+        pending = state.persistence_pending.get(resource)
+        if pending is None:
+            return True
+        generation = int(pending["generation"])
+        snapshot = deepcopy(pending["snapshot"])
+    with state.persistence_write_locks[resource]:
+        # Ein neuerer API-/Worker-Commit darf nie durch einen alten Retry
+        # überschrieben werden.
+        with state.persistence_status_lock:
+            current = state.persistence_pending.get(resource)
+            if current is None or int(current["generation"]) != generation:
+                return False
+        try:
+            saved = bool(_persistence_saver(resource)(snapshot))
+        except Exception as exc:
+            log(f"{resource}: Persistenz-Retry fehlgeschlagen: {exc}", "warn")
+            saved = False
+    if saved:
+        with state.persistence_status_lock:
+            current = state.persistence_pending.get(resource)
+            if current is not None and int(current["generation"]) == generation:
+                state.persistence_pending.pop(resource, None)
+                state.persistence_errors.pop(resource, None)
+        return True
+    _mark_persistence_failure(resource, pending=True)
+    return False
+
+
+def _persistence_retry_loop(resource: str) -> None:
+    try:
+        while True:
+            with state.persistence_status_lock:
+                pending = state.persistence_pending.get(resource)
+                if pending is None:
+                    return
+                retry_at = float(
+                    (state.persistence_errors.get(resource) or {}).get("next_retry_at")
+                    or time.time()
+                )
+            time.sleep(max(0.05, retry_at - time.time()))
+            _retry_persistence_once(resource)
+    finally:
+        with state.persistence_status_lock:
+            state.persistence_retrying.discard(resource)
+            restart = resource in state.persistence_pending
+            if restart:
+                state.persistence_retrying.add(resource)
+        if restart:
+            threading.Thread(
+                target=_persistence_retry_loop,
+                args=(resource,),
+                name=f"persistence-retry-{resource}",
+                daemon=True,
+            ).start()
+
+
+def _schedule_persistence_retry(resource: str, snapshot) -> None:
+    with state.persistence_status_lock:
+        generation = int(state.persistence_generations.get(resource) or 0) + 1
+        state.persistence_generations[resource] = generation
+        state.persistence_pending[resource] = {
+            "generation": generation,
+            "snapshot": deepcopy(snapshot),
+        }
+        should_start = resource not in state.persistence_retrying
+        if should_start:
+            state.persistence_retrying.add(resource)
+    _mark_persistence_failure(resource, pending=True)
+    if should_start:
+        threading.Thread(
+            target=_persistence_retry_loop,
+            args=(resource,),
+            name=f"persistence-retry-{resource}",
+            daemon=True,
+        ).start()
+
+
+def _persist_background_snapshot(resource: str, snapshot) -> bool:
+    if _write_persistent_snapshot(resource, snapshot):
+        return True
+    _schedule_persistence_retry(resource, snapshot)
+    log(
+        f"{resource}: Zustand konnte nicht gespeichert werden; Retry vorgemerkt.",
+        "warn",
+    )
+    return False
+
+
+def _persistence_unavailable(resource: str) -> HTTPException:
+    _mark_persistence_failure(resource, pending=False)
+    return HTTPException(
+        503,
+        detail={
+            "code": "state_persistence_failed",
+            "resource": resource,
+            "message": "Die Änderung konnte nicht dauerhaft gespeichert werden.",
+        },
+        headers={"Retry-After": "5"},
+    )
+
+
+def _require_persistent_snapshot(resource: str, snapshot) -> None:
+    if not _write_persistent_snapshot(resource, snapshot):
+        raise _persistence_unavailable(resource)
+
+
+def _persist_watchlist_background() -> bool:
+    with state.watchlist_lock:
+        snapshot = deepcopy(state.watchlist)
+    return _persist_background_snapshot("watchlist", snapshot)
+
+
+def _persist_movie_subscriptions_background() -> bool:
+    with state.movie_subscriptions_lock:
+        snapshot = deepcopy(state.movie_subscriptions)
+    return _persist_background_snapshot("movie_subscriptions", snapshot)
+
+
+def _persist_queue_state() -> bool:
     with state.queue_claim_lock:
         snapshot = set(state.picked)
         # Lock bis nach dem atomaren Replace halten. Sonst kann ein älterer
         # Snapshot einen neueren Abschluss nachträglich überschreiben.
-        if not appconfig.save_queue(snapshot):
-            log("Queue-Zustand konnte nicht gespeichert werden.", "warn")
+        return _persist_background_snapshot("queue", snapshot)
+
+
+def _persist_new_queue_claims(slugs) -> bool:
+    """Persistiert neue Claims oder gibt sie frei, bevor Jobs starten dürfen."""
+    claimed = set(slugs)
+    if not claimed or _persist_queue_state():
+        return True
+    with state.queue_claim_lock:
+        state.picked.difference_update(claimed)
+        state.preparing_queue_slugs.difference_update(claimed)
+        for slug in claimed:
+            state.provider_waiting_jobs.pop(slug, None)
+    # Der erste Fehlversuch enthielt noch die neuen Claims. Der Retry-Snapshot
+    # muss deshalb sofort durch den zurückgerollten Zustand ersetzt werden.
+    _persist_queue_state()
+    return False
 
 
 def _queue_slug_claimed(slug: str) -> bool:
@@ -3590,6 +3793,7 @@ def build_queue_payload() -> dict:
             "count": 0,
             "groups": [],
             "providers": {"serienstream": serienstream_provider_status()},
+            "persistence": _persistence_status("queue"),
             "activity": {
                 "active_preparations": 0,
                 "pending_preparations": 0,
@@ -3675,6 +3879,7 @@ def build_queue_payload() -> dict:
         "count": len(slugs),
         "groups": result_groups,
         "providers": {"serienstream": provider_status},
+        "persistence": _persistence_status("queue"),
         "activity": {
             # Auch der separate kontrollierte Fallback-Retry ist eine aktive
             # Vorbereitung, obwohl er nicht als DownloadQueue-Job läuft.
@@ -3742,7 +3947,10 @@ def watchlist_payload() -> dict:
                 "failed_count": failed_count,
                 "status": status,
             })
-    return {"watchlist": items}
+    return {
+        "watchlist": items,
+        "persistence": _persistence_status("watchlist"),
+    }
 
 
 def hydrate_watchlist_artwork() -> None:
@@ -3784,7 +3992,7 @@ def hydrate_watchlist_artwork() -> None:
                     entry[field] = images[field]
                     changed = True
         if changed:
-            appconfig.save_watchlist(state.watchlist)
+            _persist_watchlist_background()
 
 
 # ---------------------------------------------------------------------------
@@ -3870,7 +4078,7 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
                     failures.pop(slug, None)
                 watchlist_changed = True
             if watchlist_changed:
-                appconfig.save_watchlist(state.watchlist)
+                _persist_watchlist_background()
         if watchlist_changed:
             broadcast({"type": "watchlist_update", **watchlist_payload()})
         if not ok and not parse_episode_slug(slug):
@@ -3997,7 +4205,7 @@ def _refresh_jellyfin_after_download_once():
                                 withdrawn_slugs.update(
                                     _apply_watchlist_entry_state(entry, calculated)
                                 )
-                    appconfig.save_watchlist(state.watchlist)
+                    _persist_watchlist_background()
             if withdrawn_slugs:
                 _cancel_withdrawn_watchlist_slugs(
                     withdrawn_slugs,
@@ -4124,11 +4332,19 @@ def _pause_downloads_for_update_restart() -> int:
         with state.queue_claim_lock:
             preserved = set(state.picked)
             with state.download_state_lock:
+                previous_counted = set(state.counted_queue_slugs)
                 # Abbruch-Callbacks dürfen die gespeicherten Slugs nicht als
                 # fachlich abgeschlossen verbuchen.
                 state.counted_queue_slugs.clear()
+            previous_waiting = dict(state.provider_waiting_jobs)
             state.provider_waiting_jobs.clear()
-            _persist_queue_state()
+            if not _persist_queue_state():
+                with state.download_state_lock:
+                    state.counted_queue_slugs.update(previous_counted)
+                state.provider_waiting_jobs.update(previous_waiting)
+                raise RuntimeError(
+                    "Queue-Zustand konnte vor dem Update nicht gesichert werden."
+                )
         state.dl_queue.cancel_all()
 
     # Laufende yt-dlp-Prozesse und Browser-Tabs möglichst sauber beenden, bevor
@@ -5512,7 +5728,7 @@ def _movie_subscription_download_finished(
         subscription["last_upgraded"] = time.time()
         old_media_path = str(subscription.get("existing_path") or "")
         changed = True
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+        _persist_movie_subscriptions_background()
 
     # DownloadJob hat die neue Datei bereits atomar committed. Bei abweichender
     # Container-Endung bleibt die alte Datei daneben liegen; nur dann bereinigen.
@@ -5560,7 +5776,7 @@ def _movie_subscription_download_failed(movie_slug: str, message: str) -> None:
             entry["last_checked"] = time.time()
             changed = True
         if changed:
-            appconfig.save_movie_subscriptions(state.movie_subscriptions)
+            _persist_movie_subscriptions_background()
     if changed:
         broadcast({"type": "movie_subscriptions_update", **movie_subscriptions_payload()})
 
@@ -7080,7 +7296,11 @@ def _seerr_process_movie(request: SeerrRequest, metadata: dict) -> None:
         media_type="movie", tmdb_id=request.tmdb_id,
         seasons=[], is_4k=request.is_4k,
     )
-    _persist_queue_state()
+    if not already_queued and not _persist_new_queue_claims({chosen.slug}):
+        _seerr_terminal_without_job(
+            chosen.slug, False, "Queue-Zustand konnte nicht gespeichert werden", Path(""),
+        )
+        return
     if already_queued:
         log(f"Seerr #{request_id}: „{title}“ an laufenden Download angehängt.")
         return
@@ -7242,7 +7462,12 @@ def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
         media_type="tv", tmdb_id=request.tmdb_id,
         seasons=list(request.seasons), is_4k=request.is_4k,
     )
-    _persist_queue_state()
+    if new_slugs and not _persist_new_queue_claims(new_slugs):
+        for slug in new_slugs:
+            _seerr_terminal_without_job(
+                slug, False, "Queue-Zustand konnte nicht gespeichert werden", Path(""),
+            )
+        return
     if new_slugs:
         accepted = _enqueue_automatic_downloads(sorted(new_slugs), taste_source="seerr")
         for slug in new_slugs - set(accepted):
@@ -7748,7 +7973,12 @@ def _run_telegram_series_request(
                     "episode": ep.episode,
                 }
 
-        _persist_queue_state()
+        if not _persist_new_queue_claims(pending_slugs):
+            for slug in pending_slugs:
+                _telegram_terminal_without_job(
+                    slug, False, "Queue-Zustand konnte nicht gespeichert werden", Path(""),
+                )
+            return
         _telegram_send(chat_id, f"▶️ „{series.title}“ · {scope_label}: {len(jobs)} Download(s) starten.")
 
         try:
@@ -7862,7 +8092,12 @@ def _run_telegram_movie_request(
             return
 
         state.fp_movies[chosen_result.slug] = movie
-        _persist_queue_state()
+        if not _persist_new_queue_claims({chosen_result.slug}):
+            _telegram_send(
+                chat_id,
+                "❌ Download nicht gestartet: Queue-Zustand konnte nicht gespeichert werden.",
+            )
+            return
         with state.telegram_jobs_lock:
             state.telegram_jobs[chosen_result.slug] = {
                 "chat_id": chat_id,
@@ -8265,7 +8500,7 @@ def _auto_download_new_episodes():
 
         if not prepared_slugs:
             with state.watchlist_lock:
-                appconfig.save_watchlist(state.watchlist)
+                _persist_watchlist_background()
             broadcast({"type": "watchlist_update", **watchlist_payload()})
             return
 
@@ -8284,14 +8519,19 @@ def _auto_download_new_episodes():
         if not prepared_slugs:
             return
 
-        _persist_queue_state()
+        if not _persist_new_queue_claims(prepared_slugs):
+            log(
+                "Auto-Download pausiert: Queue-Zustand konnte nicht gespeichert werden.",
+                "warn",
+            )
+            return
         accepted = _enqueue_automatic_downloads(prepared_slugs, taste_source="watchlist")
         if len(accepted) != len(prepared_slugs):
             with state.queue_claim_lock:
                 state.picked.difference_update(set(prepared_slugs) - accepted)
             _persist_queue_state()
         with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
+            _persist_watchlist_background()
         log(f"⬇ Auto-Download: {len(accepted)} neue Episode(n) eingereiht …")
         broadcast({"type": "watchlist_update", **watchlist_payload()})
     except Exception as exc:
@@ -10102,7 +10342,14 @@ async def api_queue_add(body: QueueAddBody):
         return added_slugs, skipped, skipped_details, selected_fallbacks
 
     added_slugs, skipped, skipped_details, selected_fallbacks = await run_in_threadpool(_work)
-    _persist_queue_state()
+    with state.queue_claim_lock:
+        queue_snapshot = set(state.picked)
+    try:
+        _require_persistent_snapshot("queue", queue_snapshot)
+    except HTTPException:
+        with state.queue_claim_lock:
+            state.picked.difference_update(added_slugs)
+        raise
     accepted = _enqueue_automatic_downloads(
         added_slugs,
         movie_fallbacks=selected_fallbacks or None,
@@ -10157,7 +10404,7 @@ def _drop_queue_claims(slugs: set[str]) -> None:
     _persist_queue_state()
 
 
-def _release_removed_queue_slugs(slugs: set[str]) -> None:
+def _release_removed_queue_slugs(slugs: set[str], *, persist: bool = True) -> None:
     if not slugs:
         return
     with state.queue_lifecycle_lock:
@@ -10171,7 +10418,8 @@ def _release_removed_queue_slugs(slugs: set[str]) -> None:
                 counted = slugs & state.counted_queue_slugs
                 state.counted_queue_slugs.difference_update(counted)
                 state.total_jobs = max(state.done_jobs, state.total_jobs - len(counted))
-            _persist_queue_state()
+            if persist:
+                _persist_queue_state()
 
 
 def _cancel_queue_slugs(slugs: set[str], reason: str) -> None:
@@ -10217,6 +10465,9 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
 @app.post("/api/queue/remove")
 async def api_queue_remove(body: QueueRemoveBody):
     with state.queue_lifecycle_lock:
+        with state.queue_claim_lock:
+            candidate = set(state.picked) - {body.slug}
+        _require_persistent_snapshot("queue", candidate)
         removed = state.dl_queue.remove_pending(lambda job: body.slug in _job_queue_slugs(job))
         active = state.dl_queue.cancel_active(lambda job: body.slug in _job_queue_slugs(job))
         # Ein Vorbereitungsjob kann genau zwischen remove_pending() und
@@ -10229,7 +10480,7 @@ async def api_queue_remove(body: QueueRemoveBody):
         # Abbruch konsumiert das logische Abschlusstoken selbst. Ein alter
         # Hoster-Job kann bereits an einen Pending-Fallback übergeben haben und
         # würde dann keinen eigenen Terminalcallback mehr liefern.
-        _release_removed_queue_slugs({body.slug})
+        _release_removed_queue_slugs({body.slug}, persist=False)
         removed.extend(
             state.dl_queue.remove_pending(
                 lambda job: body.slug in _job_queue_slugs(job)
@@ -10249,14 +10500,18 @@ async def api_queue_remove(body: QueueRemoveBody):
 @app.post("/api/queue/clear")
 async def api_queue_clear():
     with state.queue_lifecycle_lock:
-        removed = state.dl_queue.remove_pending(lambda _job: True)
-        removed_slugs = {slug for job in removed for slug in _job_queue_slugs(job)}
         active_slugs = {
             slug for job in state.dl_queue.active_jobs() for slug in _job_queue_slugs(job)
         }
         with state.queue_claim_lock:
-            removed_slugs.update(state.picked - active_slugs)
-        _release_removed_queue_slugs(removed_slugs)
+            removed_slugs = set(state.picked) - active_slugs
+            candidate = set(state.picked) - removed_slugs
+        _require_persistent_snapshot("queue", candidate)
+        removed = state.dl_queue.remove_pending(lambda _job: True)
+        removed_slugs.update(
+            slug for job in removed for slug in _job_queue_slugs(job)
+        )
+        _release_removed_queue_slugs(removed_slugs, persist=False)
     for slug in removed_slugs:
         _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
         _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
@@ -10278,6 +10533,7 @@ async def api_download_cancel():
         had_queue_activity = bool(
             state.dl_queue.active_count() or state.dl_queue.pending_count()
         )
+        _require_persistent_snapshot("queue", set())
         state.dl_queue.cancel_all()
         with state.queue_claim_lock:
             with state.download_state_lock:
@@ -10290,7 +10546,6 @@ async def api_download_cancel():
             with state.download_state_lock:
                 state.counted_queue_slugs.clear()
                 state.total_jobs = state.done_jobs
-            _persist_queue_state()
         with state.hoster_extract_lock:
             if state.voe_pool is not None:
                 try:
@@ -11565,7 +11820,10 @@ def movie_subscriptions_payload() -> dict:
             else:
                 entry["status"] = "current"
             items.append(entry)
-    return {"movie_subscriptions": items}
+    return {
+        "movie_subscriptions": items,
+        "persistence": _persistence_status("movie_subscriptions"),
+    }
 
 
 def _movie_subscription_sources(entry: dict) -> List[FilmpalastMovie]:
@@ -11715,7 +11973,11 @@ def check_movie_subscriptions(entries: Optional[List[dict]] = None) -> int:
                     if slug in state.picked:
                         continue
                     state.picked.add(slug)
-            _persist_queue_state()
+            if not _persist_new_queue_claims({slug}):
+                with state.movie_subscriptions_lock:
+                    entry["pending_slug"] = ""
+                    entry["last_error"] = "Queue-Zustand konnte nicht gespeichert werden"
+                continue
             accepted = _enqueue_automatic_downloads(
                 [slug], movie_fallbacks={slug: fallbacks},
                 taste_source="movie-subscription",
@@ -11732,7 +11994,7 @@ def check_movie_subscriptions(entries: Optional[List[dict]] = None) -> int:
                     f"auf {label or f'{rank}p'} eingereiht."
                 )
         with state.movie_subscriptions_lock:
-            appconfig.save_movie_subscriptions(state.movie_subscriptions)
+            _persist_movie_subscriptions_background()
         payload = movie_subscriptions_payload()
         broadcast({"type": "movie_subscriptions_update", **payload})
         return checked
@@ -11760,7 +12022,8 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
         raise HTTPException(400, "Unbekannte Löschregel.")
     key = movie_subscription_key(body.tmdb_id, body.title, body.year)
     with state.movie_subscriptions_lock:
-        entry = movie_subscription_lookup(key)
+        candidate = deepcopy(state.movie_subscriptions)
+        entry = next((item for item in candidate if item.get("key") == key), None)
         if entry is None:
             entry = {
                 "key": key,
@@ -11776,7 +12039,7 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
                 "pending_slug": "",
                 "watched_deleted": False,
             }
-            state.movie_subscriptions.append(entry)
+            candidate.append(entry)
         entry.update({
             "source_slug": body.source_slug,
             "target_quality": normalize_movie_quality(body.target_quality),
@@ -11786,7 +12049,8 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
         if entry["cleanup_mode"] != MOVIE_CLEANUP_WATCHED:
             entry["watched_deleted"] = False
             entry["cleanup_last_error"] = ""
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+        _require_persistent_snapshot("movie_subscriptions", candidate)
+        state.movie_subscriptions = candidate
     movie = state.fp_movies.get(body.source_slug)
     state.taste_profile.record_event(
         "subscription",
@@ -11840,10 +12104,11 @@ async def api_movie_subscriptions_remove(body: MovieSubscriptionKeysBody):
             for entry in state.movie_subscriptions
             if entry.get("key") in keys and entry.get("pending_slug")
         }
-        state.movie_subscriptions = [
+        candidate = [
             entry for entry in state.movie_subscriptions if entry.get("key") not in keys
         ]
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
+        _require_persistent_snapshot("movie_subscriptions", candidate)
+        state.movie_subscriptions = candidate
     if pending:
         _cancel_queue_slugs(pending, "Film-Abo entfernt")
     return movie_subscriptions_payload()
@@ -11878,6 +12143,7 @@ async def api_watchlist_add(body: WatchlistAddBody):
         )
     entry = None
     with state.watchlist_lock:
+        previous_watchlist = deepcopy(state.watchlist)
         if watchlist_lookup(body.base_slug) is None:
             direct_incoming_titles = {
                 _norm_title(value)
@@ -11938,7 +12204,13 @@ async def api_watchlist_add(body: WatchlistAddBody):
                         duplicate["cover_url"] = incoming_tmdb["cover_url"]
                     if (incoming_tmdb or {}).get("backdrop_url"):
                         duplicate["backdrop_url"] = incoming_tmdb["backdrop_url"]
-                    appconfig.save_watchlist(state.watchlist)
+                    try:
+                        _require_persistent_snapshot(
+                            "watchlist", deepcopy(state.watchlist),
+                        )
+                    except HTTPException:
+                        state.watchlist = previous_watchlist
+                        raise
                 raise HTTPException(
                     409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
                 )
@@ -11967,7 +12239,11 @@ async def api_watchlist_add(body: WatchlistAddBody):
             entry["mode_generation"] = 0
             entry["check_generation"] = 0
             state.watchlist.append(entry)
-            appconfig.save_watchlist(state.watchlist)
+            try:
+                _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+            except HTTPException:
+                state.watchlist = previous_watchlist
+                raise
     if entry is not None:
         log(f"«{body.title}» zur Bibliothek hinzugefügt.")
         state.taste_profile.record_event(
@@ -12014,6 +12290,7 @@ async def api_watchlist_mode(body: WatchlistModeBody):
     if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Löschregel.")
     with state.watchlist_lock:
+        previous_watchlist = deepcopy(state.watchlist)
         entry = watchlist_lookup(body.base_slug)
         if entry is None:
             raise HTTPException(404, "Nicht in der Bibliothek.")
@@ -12032,7 +12309,11 @@ async def api_watchlist_mode(body: WatchlistModeBody):
             entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
         entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
         entry["last_error"] = "Abo-Regel wird geprüft – Auto-Download pausiert"
-        appconfig.save_watchlist(state.watchlist)
+        try:
+            _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+        except HTTPException:
+            state.watchlist = previous_watchlist
+            raise
 
     if previous_pending:
         _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
@@ -12069,10 +12350,15 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
     pending_slugs: set[str] = set()
     with state.watchlist_lock:
         for base_slug in body.base_slugs:
-            pending_slugs.update(state.watchlist_new_slugs.pop(base_slug, set()))
+            pending_slugs.update(state.watchlist_new_slugs.get(base_slug, set()))
+        candidate = [
+            w for w in state.watchlist if w["base_slug"] not in body.base_slugs
+        ]
+        _require_persistent_snapshot("watchlist", candidate)
+        state.watchlist = candidate
+        for base_slug in body.base_slugs:
+            state.watchlist_new_slugs.pop(base_slug, None)
             state.series_cache.pop(base_slug, None)
-        state.watchlist = [w for w in state.watchlist if w["base_slug"] not in body.base_slugs]
-        appconfig.save_watchlist(state.watchlist)
     with state.queue_lifecycle_lock:
         removed = state.dl_queue.remove_pending(
             lambda job: bool(pending_slugs & _job_queue_slugs(job))
@@ -12314,7 +12600,7 @@ def _execute_watchlist_cleanup(
 
     if changed:
         with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
+            _persist_watchlist_background()
     if deleted_ids:
         with state.jellyfin_cache_lock:
             if state.jellyfin_episodes is not None:
@@ -12389,14 +12675,14 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
         for entry, revision in tracked:
             _set_error(entry, revision, "Jellyfin nicht erreichbar – Auto-Download pausiert")
         with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
+            _persist_watchlist_background()
         log("Watchlist-Prüfung pausiert: Jellyfin ist nicht erreichbar.", "warn")
         return 0
     if jf_client.configured and (jf_series is None or not series_available):
         for entry, revision in tracked:
             _set_error(entry, revision, "Jellyfin-Serienindex nicht verfügbar")
         with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
+            _persist_watchlist_background()
         log("Watchlist-Prüfung pausiert: Jellyfin-Serienindex nicht verfügbar.", "warn")
         return 0
 
@@ -12515,7 +12801,7 @@ def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False)
         )
         if data_is_current:
             with state.watchlist_lock:
-                appconfig.save_watchlist(state.watchlist)
+                _persist_watchlist_background()
     if data_is_current and withdrawn_slugs:
         _cancel_withdrawn_watchlist_slugs(
             withdrawn_slugs,
@@ -12682,7 +12968,7 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                             "cleanup_mode": cleanup_mode,
                             "items": calculated["cleanup_items"],
                         })
-                appconfig.save_watchlist(state.watchlist)
+                _persist_watchlist_background()
         if withdrawn_slugs:
             _cancel_withdrawn_watchlist_slugs(
                 withdrawn_slugs,

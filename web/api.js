@@ -18,9 +18,14 @@ const api = {
       if (resp.status === 401 && !url.startsWith("/api/auth/") && this.onUnauthorized) {
         this.onUnauthorized();
       }
-      const msg = (data && (data.detail || data.error)) || `HTTP ${resp.status}`;
+      const detail = data && (data.detail || data.error);
+      const msg = typeof detail === "string"
+        ? detail
+        : (detail?.message || detail?.code || `HTTP ${resp.status}`);
       const error = new Error(msg);
       error.status = resp.status;
+      error.code = typeof detail === "object" ? detail?.code : "";
+      error.resource = typeof detail === "object" ? detail?.resource : "";
       throw error;
     }
     return data;
