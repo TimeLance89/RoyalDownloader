@@ -9,6 +9,9 @@
   rollback-capable.
 - Reconcile restored episode queues against the same targeted Jellyfin series
   lookup as the detail view, removing already-owned episodes before resuming.
+- Reject media destinations in Docker's ephemeral container layer, prefer the
+  configured persistent movie/series mounts, and recover completed media from
+  an unsafe legacy path without deleting the original files.
 
 ## 2026-08-01 – Runtime hardening and modularization
 

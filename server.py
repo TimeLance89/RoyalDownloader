@@ -17,6 +17,7 @@ import threading
 import time
 import tempfile
 import unicodedata
+import uuid
 import webbrowser
 import base64
 import ipaddress
@@ -69,7 +70,7 @@ from resolved_link_cache import ResolvedLinkCache
 from runtime_cache import BoundedTTLCache
 from api_system_router import create_system_router
 from api_domain_routers import install_domain_routers
-from runtime_paths import data_dir
+from runtime_paths import data_dir, in_container, persistent_container_path
 from network_guard import is_public_http_url
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
@@ -8755,6 +8756,27 @@ async def lifespan(app: FastAPI):
                 "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
                 "Konto einrichten oder APP_REQUIRE_AUTH=true setzen."
             )
+    corrections = appconfig.media_path_corrections()
+    recovery_results = []
+    for label, old_path, effective_path in corrections:
+        logger.error(
+            "Unsicherer alter %s-Pfad erkannt: %s; Wiederherstellung nach %s",
+            label, old_path, effective_path,
+        )
+        recovery_results.append(await asyncio.to_thread(
+            _recover_misplaced_media, label, old_path, effective_path,
+        ))
+    if corrections:
+        if not await asyncio.to_thread(
+            appconfig.save_media_paths, state.save_path, state.series_path,
+        ):
+            logger.error("Korrigierte Medienpfade konnten nicht gespeichert werden.")
+        for result in recovery_results:
+            logger.warning(
+                "%s-Wiederherstellung: %s Datei(en) von %s nach %s kopiert; %s Fehler",
+                result["label"], result["copied"], result["source"], result["target"],
+                len(result["errors"]),
+            )
     removed_staging = await asyncio.to_thread(
         cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
     )
@@ -10767,6 +10789,14 @@ class SetupCompleteBody(BaseModel):
 
 def _prepare_media_directory(raw_path: str, label: str) -> dict:
     path = Path(raw_path).expanduser()
+    if in_container() and not persistent_container_path(path):
+        env_name = "SERIES_DIR" if "Serie" in label else "DOWNLOAD_DIR"
+        expected = os.environ.get(env_name, "").strip()
+        suggestion = f" Verwende den gemounteten Containerpfad {expected}." if expected else ""
+        raise HTTPException(
+            400,
+            f"{label} liegt nicht auf einem persistenten Docker-Mount.{suggestion}",
+        )
     try:
         path.mkdir(parents=True, exist_ok=True)
         if not path.is_dir():
@@ -10781,6 +10811,79 @@ def _prepare_media_directory(raw_path: str, label: str) -> dict:
     if usage.free < 512 * 1024 * 1024:
         raise HTTPException(400, f"{label} hat weniger als 512 MB freien Speicher.")
     return {"path": str(path), "free": usage.free}
+
+
+def _recovery_destination(target: Path, relative: Path) -> Path:
+    destination = target / relative
+    if not destination.exists():
+        return destination
+    for number in range(1, 1000):
+        candidate = destination.with_name(
+            f"{destination.stem}~recovered-{number}{destination.suffix}"
+        )
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Kein freier Wiederherstellungsname für {relative}")
+
+
+def _recover_misplaced_media(label: str, old_path: str, effective_path: str) -> dict:
+    """Copy completed media out of an unsafe container layer without deleting it."""
+    source = Path(old_path).expanduser().resolve(strict=False)
+    target = Path(effective_path).expanduser().resolve(strict=False)
+    result = {"label": label, "source": str(source), "target": str(target), "copied": 0, "errors": []}
+    if (
+        source == target
+        or not source.is_dir()
+        or persistent_container_path(source)
+        or not persistent_container_path(target)
+    ):
+        return result
+    suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
+    episode_pattern = re.compile(
+        r"(?:^|[. _-])s\d{1,2}e\d{1,3}(?:$|[. _-])", re.IGNORECASE,
+    )
+    for media in source.rglob("*"):
+        try:
+            relative = media.relative_to(source)
+            looks_like_episode = bool(
+                episode_pattern.search(media.stem)
+                or any(
+                    re.match(r"^(?:staffel|season|s)\s*0*\d+\b", part, re.IGNORECASE)
+                    for part in relative.parts[:-1]
+                )
+            )
+            if (
+                not media.is_file()
+                or media.is_symlink()
+                or media.suffix.casefold() not in suffixes
+                or ".downloading" in relative.parts
+                or (label == "Serien" and not looks_like_episode)
+                or (label == "Filme" and looks_like_episode)
+            ):
+                continue
+            exact_destination = target / relative
+            if (
+                exact_destination.is_file()
+                and exact_destination.stat().st_size == media.stat().st_size
+            ):
+                continue
+            destination = _recovery_destination(target, relative)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp = destination.with_name(f".{destination.name}.recover-{uuid.uuid4().hex}")
+            try:
+                shutil.copy2(media, temp)
+                with temp.open("rb") as handle:
+                    os.fsync(handle.fileno())
+                if temp.stat().st_size != media.stat().st_size:
+                    raise OSError("Wiederherstellungskopie ist unvollständig")
+                os.link(temp, destination)
+                temp.unlink()
+                result["copied"] += 1
+            finally:
+                temp.unlink(missing_ok=True)
+        except OSError as exc:
+            result["errors"].append(f"{media}: {exc}")
+    return result
 
 
 @app.get("/api/setup/status")

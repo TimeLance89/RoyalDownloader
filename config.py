@@ -21,7 +21,7 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 
-from runtime_paths import data_dir
+from runtime_paths import data_dir, in_container, persistent_container_path
 from providers.catalog import (
     PROVIDER_CATALOG,
     provider_keys,
@@ -192,6 +192,22 @@ def _default_path() -> str:
     return str(Path.home() / "Downloads" / "Filme")
 
 
+def _effective_media_path(stored: str, env_name: str, label: str) -> str:
+    stored = str(stored or "").strip()
+    env_path = os.environ.get(env_name, "").strip()
+    if not stored:
+        return env_path
+    if not in_container() or persistent_container_path(Path(stored)):
+        return stored
+    if env_path and persistent_container_path(Path(env_path)):
+        logger.error(
+            "%s %s liegt nur in der flüchtigen Container-Schicht; verwende Mount %s",
+            label, stored, env_path,
+        )
+        return env_path
+    return stored
+
+
 # ---------------------------------------------------------------------------
 def _read_all() -> dict:
     """Liest alle key=value Zeilen der settings.ini in ein dict."""
@@ -257,7 +273,9 @@ def load() -> str:
     Lädt den gespeicherten Download-Pfad. Fallback: ~/Downloads/Filme.
     """
     values = _read_all()
-    save_path = values.get("save_path")
+    save_path = _effective_media_path(
+        values.get("save_path", ""), "DOWNLOAD_DIR", "Filmordner",
+    )
     if save_path:
         return save_path
     logger.info("Keine Config unter %s – Default wird genutzt.", _config_file())
@@ -276,7 +294,9 @@ def load_series_path() -> str:
     (UI) > Umgebungsvariable SERIES_DIR > Film-Pfad (Rückwärtskompatibilität:
     ohne eigene Serien-Einstellung landen Serien wie bisher im Film-Ordner)."""
     values = _read_all()
-    series_path = values.get("series_path") or os.environ.get("SERIES_DIR", "").strip()
+    series_path = _effective_media_path(
+        values.get("series_path", ""), "SERIES_DIR", "Serienordner",
+    )
     if series_path:
         return series_path
     return load()  # Fallback: gleicher Ordner wie Filme
@@ -284,6 +304,30 @@ def load_series_path() -> str:
 
 def save_series_path(series_path: str) -> bool:
     return _update_all({"series_path": series_path})
+
+
+def media_path_corrections() -> list[tuple[str, str, str]]:
+    """Return ``(label, old, effective)`` for unsafe legacy container paths."""
+    values = _read_all()
+    configured_movie = str(values.get("save_path") or "").strip()
+    configured_series = str(values.get("series_path") or configured_movie).strip()
+    effective_movie = load()
+    effective_series = load_series_path()
+    corrections = []
+    for label, configured, effective in (
+        ("Filme", configured_movie, effective_movie),
+        ("Serien", configured_series, effective_series),
+    ):
+        if configured and effective and Path(configured) != Path(effective):
+            corrections.append((label, configured, effective))
+    return corrections
+
+
+def save_media_paths(movie_path: str, series_path: str) -> bool:
+    return _update_all({
+        "save_path": str(movie_path).strip(),
+        "series_path": str(series_path).strip(),
+    }, ensure_save_path=False)
 
 
 # ---------------------------------------------------------------------------
