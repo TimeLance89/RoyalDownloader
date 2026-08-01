@@ -60,6 +60,14 @@ def episode_movie(provider, slug, title="Exact Show S02E04", hosters=True):
     )
 
 
+def test_series_preparations_share_one_scheduler_group():
+    first = server._QueuePreparationJob([], Path("/tmp/one"))
+    second = server._QueuePreparationJob([], Path("/tmp/two"))
+
+    assert first.is_preparation_job is True
+    assert first.host_group == second.host_group == "__series_preparation__"
+
+
 def test_serienstream_remains_first_source(monkeypatch):
     monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
     ordered = server._ordered_episode_sources([

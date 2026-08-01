@@ -80,7 +80,7 @@ services:
       DL_WINDOW_END: ${DL_WINDOW_END:-}
       # Media transfer: parallel HLS and ranged requests for throttled MP4 CDNs.
       # Sustained slow sources are replaced after the grace and sampling windows.
-      HLS_CONCURRENT_FRAGMENTS: ${HLS_CONCURRENT_FRAGMENTS:-4}
+      HLS_CONCURRENT_FRAGMENTS: ${HLS_CONCURRENT_FRAGMENTS:-8}
       MP4_HTTP_CHUNK_SIZE: ${MP4_HTTP_CHUNK_SIZE:-4M}
       SLOW_DOWNLOAD_MIN_KIBPS: ${SLOW_DOWNLOAD_MIN_KIBPS:-384}
       SLOW_DOWNLOAD_GRACE_SECONDS: ${SLOW_DOWNLOAD_GRACE_SECONDS:-45}

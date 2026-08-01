@@ -519,7 +519,20 @@ function renderQueue(payload) {
   const activeDownloads = Math.max(0, Number(activity.active_downloads) || 0);
   const activePreparations = Math.max(0, Number(activity.active_preparations) || 0);
   const pendingPreparations = Math.max(0, Number(activity.pending_preparations) || 0);
-  if (!activeDownloads && activePreparations) {
+  const pendingDownloads = Math.max(0, Number(activity.pending_downloads) || 0);
+  const downloadStage = document.getElementById("download-stage");
+  const hasLiveProgress = downloadStage?.dataset.state === "active"
+    && document.getElementById("dl-state-title")?.textContent !== "Bereit";
+  if (activeDownloads && !hasLiveProgress) {
+    setDownloadState(
+      "active",
+      activeDownloads === 1 ? "Download läuft" : `${activeDownloads} Downloads laufen`,
+      pendingDownloads
+        ? `${pendingDownloads} weiterer Download ist bereit`
+        : "Stream geladen · Download aktiv",
+      state.download.percent,
+    );
+  } else if (!activeDownloads && activePreparations) {
     setDownloadState(
       "active",
       "Ersatzquelle wird gesucht",
@@ -553,6 +566,8 @@ function renderSerienstreamHealth(provider) {
   const waiting = Math.max(0, Number(provider.waiting_episode_count) || 0);
   const checking = Math.max(0, Number(provider.checking_episode_count) || 0);
   const queued = Math.max(0, Number(provider.queued_fallback_episode_count) || 0);
+  const activeDownloads = Math.max(0, Number(provider.active_fallback_download_count) || 0);
+  const readyDownloads = Math.max(0, Number(provider.ready_fallback_download_count) || 0);
   const probeText = provider.state === "probing"
     ? "Automatischer Test läuft"
     : `Nächster automatischer Test: in ${minutes} Minuten`;
@@ -562,6 +577,12 @@ function renderSerienstreamHealth(provider) {
   }
   if (queued) {
     queueParts.push(`${queued} ${queued === 1 ? "Episode ist" : "Episoden sind"} vorgemerkt`);
+  }
+  if (activeDownloads) {
+    queueParts.push(`${activeDownloads} ${activeDownloads === 1 ? "Episode lädt" : "Episoden laden"}`);
+  }
+  if (readyDownloads) {
+    queueParts.push(`${readyDownloads} ${readyDownloads === 1 ? "Download ist" : "Downloads sind"} bereit`);
   }
   if (waiting || (!checking && !queued)) {
     queueParts.push(`${waiting} ${waiting === 1 ? "Episode wartet" : "Episoden warten"}`);

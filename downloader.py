@@ -51,10 +51,12 @@ def _env_number(name: str, default: float, minimum: float, maximum: float) -> fl
     return min(maximum, max(minimum, value))
 
 
-# HLS/DASH wird von yt-dlp sonst fragmentweise seriell geladen. Vier parallele
-# Fragmente sind schnell genug, ohne kleine Hoster mit zu vielen Verbindungen zu
-# ueberfahren.
-HLS_CONCURRENT_FRAGMENTS = int(_env_number("HLS_CONCURRENT_FRAGMENTS", 4, 1, 16))
+# HLS/DASH wird von yt-dlp sonst fragmentweise seriell geladen. Acht parallele
+# Fragmente nutzen typische CDN-Streams deutlich besser aus. Das betrifft nur
+# den bereits aufgeloesten Hoster/CDN-Link und erzeugt keine zusaetzlichen
+# SerienStream-Aufrufe. Bei Fragmentfehlern faellt der Job weiterhin einmalig
+# auf den vorhandenen seriellen Versuch zurueck.
+HLS_CONCURRENT_FRAGMENTS = int(_env_number("HLS_CONCURRENT_FRAGMENTS", 8, 1, 16))
 MP4_HTTP_CHUNK_SIZE = os.environ.get("MP4_HTTP_CHUNK_SIZE", "4M").strip()
 if not re.fullmatch(r"\d+(?:\.\d+)?[KMG]?", MP4_HTTP_CHUNK_SIZE, re.IGNORECASE):
     MP4_HTTP_CHUNK_SIZE = "4M"

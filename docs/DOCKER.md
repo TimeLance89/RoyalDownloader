@@ -175,7 +175,7 @@ All variables are optional and have operational defaults.
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
 | `DNS_SECONDARY` | `9.9.9.9` | Fallback container resolver |
 | `DNS_OVERRIDE` | `1` | `start.sh` only: set to `0` to keep Docker's existing `resolv.conf` |
-| `HLS_CONCURRENT_FRAGMENTS` | `4` | Parallel HLS/DASH fragments |
+| `HLS_CONCURRENT_FRAGMENTS` | `8` | Parallel HLS/DASH fragments (only on the resolved hoster/CDN URL) |
 | `MP4_HTTP_CHUNK_SIZE` | `4M` | HTTP range size used against throttled long-running MP4 connections |
 | `SLOW_DOWNLOAD_MIN_KIBPS` | `384` | Minimum sustained speed before switching source; `0` disables the check |
 | `SLOW_DOWNLOAD_GRACE_SECONDS` | `45` | Grace period before slow-source detection starts |

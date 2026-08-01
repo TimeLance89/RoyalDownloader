@@ -1,12337 +1,3584 @@
-"""
-Royal Downloader ‚Äì lokaler Webserver.
-
-Ersetzt die fr√ºhere customtkinter-GUI (main.py) durch eine HTML/CSS/JS-
-Oberfl√§che, die im Standardbrowser l√§uft. Anbieteradapter liegen geb√ºndelt im
-Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht dar√ºber.
-
-Start: python server.py  (√∂ffnet automatisch den Browser)
-"""
-
-import asyncio
-import logging
-import os
-import re
-import shutil
-import threading
-import time
-import tempfile
-import unicodedata
-import webbrowser
-import base64
-import ipaddress
-import secrets
-import socket
-import sys
-import requests
-from contextlib import asynccontextmanager
-from collections import Counter, OrderedDict, defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, replace
-from pathlib import Path
-from typing import Callable, Dict, List, Optional
-from urllib.parse import urljoin, urlparse
-
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
-
-from providers.filmpalast import FilmpalastScraper
-from providers.models import (
-    FilmpalastMovie, FilmpalastSearchResult,
-    FilmpalastSeries, FilmpalastSeriesResult,
-    parse_episode_slug, strip_episode_suffix,
-)
-from providers.catalog import (
-    PROVIDER_CATALOG,
-    normalize_content_language,
-    provider_catalog_payload,
-    provider_content_language,
-    provider_for_source,
-    provider_language_payload,
-)
-from extractor import (
-    VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
-    extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
-)
-from downloader import (
-    DownloadJob, DownloadQueue, build_filename, build_movie_filename,
-    probe_stream_url, validate_media_file, cleanup_stale_staging,
-    _sanitize as sanitize_filename,
-)
-from session_manager import ProviderBlockedError, _cookie_file_for
-from hoster_intel import HosterIntel
-from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
-from resolved_link_cache import ResolvedLinkCache
-from runtime_paths import data_dir
-from providers.filmfrei24 import (
-    BASE_URL as FILMFREI24_BASE_URL,
-    FilmFrei24Scraper,
-    SOURCE_PREFIX as FILMFREI24_PREFIX,
-)
-from providers.moflix import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
-from providers.huhu import (
-    HuhuScraper,
-    MOVIE_SOURCE_PREFIX as HUHU_MOVIE_PREFIX,
-    SOURCE_PREFIX as HUHU_PREFIX,
-)
-from providers.einschalten import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
-from providers.kinox import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
-from providers.kinoger import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
-from providers.megakino import MegaKinoScraper, SOURCE_PREFIX as MEGAKINO_PREFIX
-from providers.xcine import XcineScraper, SOURCE_PREFIX as XCINE_PREFIX
-from providers.sflix import (
-    BASE_URL as SFLIX_BASE_URL,
-    SflixScraper,
-    SOURCE_PREFIX as SFLIX_PREFIX,
-)
-from providers.ridomovies import (
-    BASE_URL as RIDOMOVIES_BASE_URL,
-    RidomoviesScraper,
-    SOURCE_PREFIX as RIDOMOVIES_PREFIX,
-)
-from providers.mkissa import (
-    BASE_URL as MKISSA_BASE_URL,
-    MkissaScraper,
-    SOURCE_PREFIX as MKISSA_PREFIX,
-    anime_episode_page,
-)
-from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
-from jellyfin_client import JellyfinClient
-from jellyfin_recommender import (
-    Config as JellyfinRecommenderConfig,
-    ConfigurationError as JellyfinRecommenderConfigurationError,
-    RecommenderError as JellyfinRecommenderError,
-    run_once as run_jellyfin_recommender_once,
-)
-from tmdb_client import SERIES_CACHE_TTL, TMDBClient
-from telegram_bot import TelegramBot
-from seerr_client import SeerrClient, SeerrRequest
-from update_checker import UpdateChecker, detect_local_commit
-from self_updater import SelfUpdater
-from ytdlp_updater import YtDlpRuntimeUpdater
-from ui_translator import (
-    SUPPORTED_UI_LANGUAGES,
-    UITranslator,
-    normalize_ui_language,
-)
-from watchlist_policy import (
-    CLEANUP_MODE_KEEP,
-    CLEANUP_MODE_LABELS,
-    WATCH_MODE_DEFAULT,
-    WATCH_MODE_LABELS,
-    WATCH_MODE_NEXT_SEASON,
-    normalize_cleanup_mode,
-    normalize_episode_history,
-    normalize_watch_mode,
-    select_cleanup_items,
-    select_missing_episode_slugs,
-    serialize_episode_history,
-)
-from movie_subscription_policy import (
-    MOVIE_CLEANUP_DEFAULT,
-    MOVIE_CLEANUP_LABELS,
-    MOVIE_CLEANUP_WATCHED,
-    MOVIE_QUALITY_DEFAULT,
-    MOVIE_QUALITY_LABELS,
-    MOVIE_QUALITY_TARGETS,
-    movie_quality_rank,
-    normalize_movie_cleanup,
-    normalize_movie_quality,
-    select_upgrade_quality,
-)
-import config as appconfig
-import auth as appauth
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-for noisy_logger in ("websockets", "nodriver", "urllib3"):
-    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-
-# nodriver 0.50.3 liefert cdp/network.py mit ung√ºltigem UTF-8 aus (siehe
-# nodriver_patch). Auf frischen Installationen (Docker/NAS) scheitert sonst
-# schon `import nodriver` ‚Üí VOE-Extraktion tot. Einmal beim Start reparieren,
-# BEVOR irgendein Codepfad nodriver importiert.
-import nodriver_patch  # noqa: E402 - Reparatur muss vor dem ersten nodriver-Import laufen.
-nodriver_patch.ensure_cdp_utf8()
-
-APP_DIR = Path(__file__).parent
-WEB_DIR = APP_DIR / "web"
-API_VERSION = 1
-EVENT_SCHEMA_VERSION = 1
-WEBSOCKET_AUTH_RECHECK_SECONDS = 30.0
-WEBSOCKET_CLIENT_QUEUE_SIZE = 128
-SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
-SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
-LOGIN_GUARD = appauth.LoginGuard()
-BASIC_AUTH_GUARD = appauth.LoginGuard()
-# Die Anmeldemaske wird wie die restliche Oberfl√§che √ºbersetzt; daf√ºr muss
-# /api/ui/translate vor der Anmeldung erreichbar sein. Ein Budget je IP
-# verhindert, dass daraus ein offener √úbersetzungsproxy wird.
-PUBLIC_TRANSLATE_LIMITER = appauth.RateLimiter(max_requests=60, window_seconds=300)
-UPDATE_CHECKER = UpdateChecker(
-    repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
-    branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
-    app_dir=APP_DIR,
-)
-UI_TRANSLATOR = UITranslator()
-PROVIDER_LABELS = {
-    key: definition.label
-    for key, definition in PROVIDER_CATALOG.items()
-}
-MOVIE_BROWSE_PAGE_SIZE = 32
-MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
-})
-MOVIE_LIST_CACHE_TTL = 300
-MOVIE_LIST_FAILURE_CACHE_TTL = 30
-MOVIE_LIST_CACHE_MAX_ENTRIES = 1000
-MOVIE_MAX_GLOBAL_PAGE = 50
-MOVIE_MAX_SOURCE_PAGE = 50
-MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
-TMDB_MOVIE_BATCH_MAX_WORKERS = 8
-TMDB_MOVIE_SEARCH_MAX_RESULTS = 40
-MOVIE_GENRE_GROUPS = {
-    "Animation": ("Animation", "Zeichentrick"),
-    "Biografie": ("Biografie", "Biographie"),
-    "Dokumentation": ("Dokumentation", "Dokumentarfilm"),
-    "Geschichte": ("Geschichte", "Historie"),
-    "Krieg": ("Krieg", "Kriegsfilm"),
-    "Romantik": ("Romantik", "Romance", "Liebesfilm"),
-    "Science-Fiction": ("Science-Fiction", "Science Fiction", "Sci-Fi"),
-}
-MOVIE_GENRE_CANONICAL_BY_KEY = {
-    alias.casefold(): canonical
-    for canonical, aliases in MOVIE_GENRE_GROUPS.items()
-    for alias in aliases
-}
-SERIES_BROWSE_PAGE_SIZE = 32
-SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
-})
-SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
-SERIES_LIST_CACHE_TTL = 300
-SERIES_LIST_FAILURE_CACHE_TTL = 30
-SERIES_LIST_CACHE_MAX_ENTRIES = 500
-SERIES_MAX_GLOBAL_PAGE = 50
-SERIES_MAX_SOURCE_PAGE = 50
-SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
-
-
-# ---------------------------------------------------------------------------
-# Anmeldung
-#
-# Es gibt genau EIN Administratorkonto; die App ist durchgehend auf einen
-# Nutzer ausgelegt (eine Watchlist, eine Queue, ein Jellyfin-Benutzer).
-# Die Weboberfl√§che nutzt ein Sitzungs-Cookie. Native Clients k√∂nnen dasselbe
-# widerrufbare, serverseitig gehashte Sitzungsformat als Bearer-Token verwenden.
-# HTTP-Basic bleibt f√ºr bestehende Skripte und Health-Checks zus√§tzlich g√ºltig.
-# ---------------------------------------------------------------------------
-def auth_account() -> dict:
-    """Aktuell hinterlegtes Konto (settings.ini oder APP_USERNAME/APP_PASSWORD)."""
-    return appconfig.load_auth()
-
-
-def auth_configured() -> bool:
-    return bool(auth_account().get("configured"))
-
-
-def fail_closed_auth_enabled() -> bool:
-    """Expliziter Schutz f√ºr √∂ffentlich angebundene Installationen.
-
-    Der Default bleibt f√ºr bestehende reine LAN-Installationen kompatibel. Wer
-    den Dienst √ºber einen Tunnel ver√∂ffentlicht, setzt `APP_REQUIRE_AUTH=1`;
-    eine verlorene oder besch√§digte Kontokonfiguration √∂ffnet die API dann
-    nicht stillschweigend.
-    """
-    return os.environ.get("APP_REQUIRE_AUTH", "").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
-
-
-def auth_required() -> bool:
-    """Ob Anfragen abgewiesen werden, wenn keine Anmeldung vorliegt.
-
-    Vor abgeschlossener Ersteinrichtung ist die Oberfl√§che offen ‚Äì sonst w√§re
-    der Assistent, der das Konto erst anlegt, selbst nicht erreichbar.
-    """
-    if fail_closed_auth_enabled():
-        return True
-    if not appconfig.is_initialized():
-        return False
-    return auth_configured()
-
-
-def verify_credentials(username: str, password: str) -> bool:
-    """Pr√ºft Zugangsdaten gegen das hinterlegte Konto (zeitkonstant)."""
-    account = auth_account()
-    if not account.get("configured"):
-        return False
-    if not secrets.compare_digest(str(username or ""), str(account.get("username", ""))):
-        # Trotzdem eine Hash-Runde rechnen, damit ein falscher Benutzername
-        # nicht sp√ºrbar schneller beantwortet wird als ein falsches Passwort.
-        appauth.verify_password(str(password or ""), account.get("password_hash", ""))
-        return False
-    if account.get("source") == "env":
-        return secrets.compare_digest(str(password or ""), str(account.get("env_password", "")))
-    return appauth.verify_password(str(password or ""), account.get("password_hash", ""))
-
-
-def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
-    """Erlaubt weiterhin `Authorization: Basic` f√ºr Skripte und Monitoring."""
-    if not value or not value.startswith("Basic "):
-        return False
-    try:
-        decoded = base64.b64decode(value[6:], validate=True).decode("utf-8")
-        username, password = decoded.split(":", 1)
-    except Exception:
-        return False
-    key = guard_key or "basic-global"
-    if BASIC_AUTH_GUARD.retry_after(key):
-        return False
-    authenticated = verify_credentials(username, password)
-    if authenticated:
-        BASIC_AUTH_GUARD.register_success(key)
-    else:
-        BASIC_AUTH_GUARD.register_failure(key)
-    return authenticated
-
-
-def _bearer_token(headers) -> str:
-    """Liest ein Bearer-Token, ohne es zu protokollieren oder umzuschreiben."""
-    value = str(headers.get("authorization", "") or "").strip()
-    scheme, separator, credential = value.partition(" ")
-    if not separator or scheme.casefold() != "bearer":
-        return ""
-    token = credential.strip()
-    if not token or any(char.isspace() for char in token):
-        return ""
-    return token
-
-
-def _session_token(scope_cookies: dict) -> str:
-    return str(scope_cookies.get(appauth.SESSION_COOKIE_NAME) or "")
-
-
-def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
-    """Gibt ausschlie√ülich ein g√ºltiges Mobile-Bearer-Token zur√ºck."""
-    bearer = _bearer_token(headers)
-    if bearer and SESSION_STORE.validate(
-        bearer, appauth.SESSION_KIND_MOBILE, touch=touch,
-    ):
-        return bearer
-    return ""
-
-
-def authenticated_web_token(cookies, *, touch: bool = True) -> str:
-    """Gibt ausschlie√ülich ein g√ºltiges Browser-Cookie-Token zur√ºck."""
-    cookie = _session_token(cookies)
-    if cookie and SESSION_STORE.validate(
-        cookie, appauth.SESSION_KIND_WEB, touch=touch,
-    ):
-        return cookie
-    return ""
-
-
-def request_auth_method(
-    headers,
-    cookies,
-    guard_key: str = "",
-    *,
-    versioned: bool = False,
-    allow_mobile_bearer: bool = True,
-    allow_basic: bool = True,
-    touch: bool = True,
-) -> str:
-    """Authentifizierungsweg f√ºr Statusantworten; enth√§lt nie Zugangsdaten."""
-    if allow_mobile_bearer and authenticated_mobile_token(headers, touch=touch):
-        return "bearer"
-    if not versioned and authenticated_web_token(cookies, touch=touch):
-        return "cookie"
-    if (
-        not versioned
-        and allow_basic
-        and _authorized_basic_header(headers.get("authorization", ""), guard_key)
-    ):
-        return "basic"
-    return "none"
-
-
-def request_is_authenticated(
-    headers,
-    cookies,
-    guard_key: str = "",
-    *,
-    versioned: bool = False,
-    allow_mobile_bearer: bool = True,
-    allow_basic: bool = True,
-    touch: bool = True,
-) -> bool:
-    """G√ºltiges Cookie-/Bearer-Token oder g√ºltiger Basic-Header?"""
-    if not auth_required():
-        return True
-    if allow_mobile_bearer and authenticated_mobile_token(headers, touch=touch):
-        return True
-    if not versioned and authenticated_web_token(cookies, touch=touch):
-        return True
-    return bool(
-        not versioned
-        and allow_basic
-        and _authorized_basic_header(headers.get("authorization", ""), guard_key)
-    )
-
-
-def trust_cloudflare_headers_enabled() -> bool:
-    """Nur explizit aktivieren, wenn der Origin ausschlie√ülich den Tunnel sieht."""
-    return os.environ.get("TRUST_CLOUDFLARE_HEADERS", "").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
-
-
-def client_key(request) -> str:
-    """Herkunfts-IP f√ºr Sperren und Budgets."""
-    client = getattr(request, "client", None)
-    peer = getattr(client, "host", "") or "unbekannt"
-    if not trust_cloudflare_headers_enabled():
-        return peer
-    raw = str(request.headers.get("cf-connecting-ip", "") or "").strip()
-    # CF-Connecting-IP enth√§lt exakt eine Adresse. Listen geh√∂ren zu XFF und
-    # werden hier absichtlich nicht akzeptiert, damit kein frei w√§hlbarer
-    # erster Eintrag zum Umgehen der Login-Sperre wird.
-    if not raw or "," in raw or len(raw) > 64:
-        return peer
-    try:
-        return str(ipaddress.ip_address(raw))
-    except ValueError:
-        return peer
-
-
-# ---------------------------------------------------------------------------
-# App-State (Ein-Nutzer, in-memory ‚Äì entspricht den Instanzvariablen der
-# fr√ºheren tkinter-App-Klasse)
-# ---------------------------------------------------------------------------
-class AppState:
-    def __init__(self):
-        self.save_path: str = appconfig.load()              # Zielordner Filme
-        self.series_path: str = appconfig.load_series_path()  # Zielordner Serien (getrennt)
-        self.ui_language: str = appconfig.load_ui_language()
-        self.ui_language_lock = threading.RLock()
-        self.watchlist: List[dict] = appconfig.load_watchlist()
-        self.watchlist_lock = threading.RLock()
-        self.movie_subscriptions: List[dict] = appconfig.load_movie_subscriptions()
-        self.movie_subscriptions_lock = threading.RLock()
-        self.movie_subscription_check_lock = threading.Lock()
-        self.auto_download_lock = threading.Lock()
-        self.hoster_intel = HosterIntel()
-
-        self.jellyfin_cfg: dict = appconfig.load_jellyfin()
-        self.tmdb_cfg: dict = appconfig.load_tmdb()
-        self.tmdb_client = TMDBClient(**self.tmdb_cfg)
-        self.telegram_cfg: dict = appconfig.load_telegram()
-        self.seerr_cfg: dict = appconfig.load_seerr()
-        self.seerr_requests: Dict[str, dict] = appconfig.load_seerr_requests()
-        self.seerr_requests_lock = threading.RLock()
-        self.seerr_jobs: Dict[str, List[dict]] = {}
-        self.seerr_jobs_lock = threading.RLock()
-        self.seerr_poll_lock = threading.Lock()
-        self.seerr_last_poll: float = 0.0
-        self.seerr_last_success: float = 0.0
-        self.seerr_last_error: str = ""
-        self.seerr_last_scan_retry: float = 0.0
-        self.seerr_scan_retry_lock = threading.Lock()
-        self.seerr_moonfin_configured: bool = False
-        self.seerr_moonfin_error: str = ""
-        # Automatik (24/7): Auto-Download abonnierter Serien + Zeitsteuerung.
-        self.automation: dict = appconfig.load_automation()
-        self.updater_cfg: dict = appconfig.load_updater()
-        self.updater_config_lock = threading.RLock()
-        self.updater_runtime_lock = threading.RLock()
-        self.updater_runtime: dict = {
-            "last_auto_check": None,
-            "auto_update_state": "idle",
-            "auto_update_message": "",
-        }
-        self.provider_priorities: dict = appconfig.load_provider_priorities()
-        self.provider_enabled: dict = appconfig.load_provider_enabled()
-        self.content_languages: set[str] = set(appconfig.load_content_languages())
-        self.provider_priority_lock = threading.RLock()
-        self.provider_health = ProviderHealth(
-            data_dir() / "provider_health.json",
-            initial_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_INITIAL_SECONDS,
-            maximum_cooldown=appconfig.SERIES_PROVIDER_COOLDOWN_MAX_SECONDS,
-            multiplier=appconfig.SERIES_PROVIDER_COOLDOWN_MULTIPLIER,
-        )
-        self.resolved_link_cache = ResolvedLinkCache(
-            data_dir() / "resolved_provider_links.json",
-            ttl_seconds=appconfig.SERIES_RESOLVED_LINK_CACHE_TTL_SECONDS,
-            max_entries=appconfig.SERIES_RESOLVED_LINK_CACHE_MAX_ENTRIES,
-        )
-        self.jellyfin_library: Optional[List[dict]] = None
-        self.jellyfin_library_time: float = 0.0
-        self.jellyfin_library_available: bool = False
-        self.jellyfin_library_retry_after: float = 0.0
-        self.jellyfin_episodes: Optional[List[dict]] = None
-        self.jellyfin_episodes_time: float = 0.0
-        self.jellyfin_episodes_available: bool = False
-        self.jellyfin_episodes_retry_after: float = 0.0
-        self.jellyfin_series: Optional[List[dict]] = None
-        self.jellyfin_series_time: float = 0.0
-        self.jellyfin_series_available: bool = False
-        self.jellyfin_series_retry_after: float = 0.0
-        self.jellyfin_user_episodes: Optional[List[dict]] = None
-        self.jellyfin_user_episodes_time: float = 0.0
-        self.jellyfin_user_episodes_available: bool = False
-        self.jellyfin_user_episodes_retry_after: float = 0.0
-        self.jellyfin_config_generation: int = 0
-        self.jellyfin_movie_data_generation: int = 0
-        self.jellyfin_episode_data_generation: int = 0
-        self.jellyfin_cache_lock = threading.RLock()
-        self.jellyfin_config_update_lock = threading.Lock()
-        self.jellyfin_library_fetch_lock = threading.Lock()
-        self.jellyfin_episodes_fetch_lock = threading.Lock()
-        self.jellyfin_series_fetch_lock = threading.Lock()
-        self.jellyfin_user_fetch_lock = threading.Lock()
-        self.jellyfin_refresh_lock = threading.Lock()
-        self.jellyfin_refresh_request_lock = threading.Lock()
-        self.jellyfin_refresh_running = False
-        self.jellyfin_refresh_pending = False
-
-        self.fp_movies: Dict[str, FilmpalastMovie] = {}
-        # Virtuelle ``tmdb:<id>``-Treffer b√ºndeln alle tats√§chlich gefundenen
-        # Anbieterquellen in Nutzerpriorit√§t. Index 0 ist die Prim√§rquelle,
-        # alle weiteren Eintr√§ge sind Download-Fallbacks.
-        self.movie_source_cache: Dict[str, List[FilmpalastMovie]] = {}
-        self.movie_source_cache_lock = threading.RLock()
-        self.movie_list_cache: Dict[tuple, tuple] = {}
-        self.movie_list_cache_lock = threading.Lock()
-        self.series_list_cache: Dict[tuple, tuple] = {}
-        self.series_list_cache_lock = threading.Lock()
-        self.series_catalog_lock = threading.Lock()
-        self.picked: set = set(appconfig.load_queue())
-        self.queue_content_keys: Dict[str, str] = {}
-        self.done_slugs: set = set()
-        self.queue_claim_lock = threading.RLock()
-
-        self.fp_scraper: Optional[FilmpalastScraper] = None
-        self.fp_lock = threading.Lock()
-        # Hoster-Aufl√∂sung nutzt gemeinsame Browser-/Session-Objekte und muss
-        # auch bei parallelen Download-Fallbacks seriell bleiben.
-        self.hoster_extract_lock = threading.Lock()
-
-        # serienstream.to ‚Äì eigener Singleton, damit SessionManager (Cookies /
-        # Rate-Limiting) √ºber alle Aufrufe erhalten bleibt.
-        self.sto_scraper: Optional[SerienstreamScraper] = None
-        self.sto_lock = threading.Lock()
-        self.moflix_scraper: Optional[MoflixScraper] = None
-        self.moflix_lock = threading.RLock()
-        self.huhu_scraper: Optional[HuhuScraper] = None
-        self.huhu_lock = threading.RLock()
-        self.mkissa_scraper: Optional[MkissaScraper] = None
-        self.mkissa_lock = threading.RLock()
-
-        self.fp_provider_genres: set = set()
-        self.filmfrei24_provider_genres: set = set()
-        self.moflix_provider_genres: set = set()
-        self.huhu_provider_genres: set = set()
-        self.einschalten_provider_genres: set = set()
-        self.kinox_provider_genres: set = set()
-        self.kinoger_provider_genres: set = set()
-        self.megakino_provider_genres: set = set()
-        self.xcine_provider_genres: set = set()
-        self.sflix_provider_genres: set = set()
-        self.ridomovies_provider_genres: set = set()
-
-        self.series_cache: Dict[str, FilmpalastSeries] = {}
-        self.series_dir_cache: Dict[tuple, Path] = {}
-        self.media_validation_cache: Dict[str, tuple] = {}
-        self.media_validation_lock = threading.Lock()
-        self.series_page_size_ref: int = 1
-
-        # Provider/Serie-Strukturen werden lauf√ºbergreifend mit TTL wiederverwendet.
-        # Netzwerk-/Cloudflare-Fehler werden bewusst nicht negativ gecacht.
-        self.fallback_series_cache: Dict[str, tuple[float, Optional[FilmpalastSeries]]] = {}
-        self.fallback_series_cache_lock = threading.RLock()
-        self.fallback_provider_errors: Dict[str, tuple[float, str]] = {}
-
-        self.watchlist_new_slugs: Dict[str, set] = {}
-
-        self.voe_pool: Optional[VOEBrowserPool] = None
-        self.embed_pool: Optional[VOEBrowserPool] = None
-
-        self.dl_queue = DownloadQueue(max_parallel=2)
-        self.download_state_lock = threading.Lock()
-        self.queue_prepare_lock = threading.Lock()
-        self.queue_lifecycle_lock = threading.RLock()
-        self.total_jobs = 0
-        self.done_jobs = 0
-        self.counted_queue_slugs: set[str] = set()
-        # Nur die Slugs, deren Katalog-/Hoster-Vorbereitung gerade wirklich
-        # l√§uft. Die UI darf nicht die komplette Staffel als gleichzeitig
-        # gepr√ºft darstellen.
-        self.preparing_queue_slugs: set[str] = set()
-        # Logische Queue-Jobs, die auf den persistenten Provider-Circuit-Breaker
-        # warten. Sie bleiben in ``picked`` und werden nicht terminal gez√§hlt.
-        self.provider_waiting_jobs: Dict[str, dict] = {}
-        self.provider_retry_worker_running = False
-        self.provider_retry_wake_event = threading.Event()
-        self.ytdlp_update_active = False
-
-        self.cover_cache: "OrderedDict[str, tuple]" = OrderedDict()
-        # Fehlschl√§ge nur kurz merken (Timestamp), damit transiente Fehler
-        # nicht bis zum Neustart als 502 h√§ngen bleiben.
-        self.cover_fail_cache: "OrderedDict[str, float]" = OrderedDict()
-        self.cover_cache_lock = threading.Lock()
-
-        # Telegram-Anfragen werden √ºber den Film-Slug bis zum Download-Ende
-        # verfolgt, damit anschlie√üend auf die Jellyfin-Erkennung gewartet wird.
-        self.telegram_jobs: Dict[str, dict] = {}
-        self.telegram_series_requests: Dict[str, dict] = {}
-        self.telegram_series_choices: Dict[str, dict] = {}
-        self.telegram_jobs_lock = threading.Lock()
-        self.telegram_choices_lock = threading.Lock()
-        self.telegram_choices_publish_lock = threading.Lock()
-        self.telegram_request_lock = threading.Lock()
-
-
-state = AppState()
-
-
-# ---------------------------------------------------------------------------
-# WebSocket-Broadcast (Log / Fortschritt / Queue-Events)
-# ---------------------------------------------------------------------------
-class _WSClient:
-    def __init__(self, websocket: WebSocket, queue_size: int):
-        self.websocket = websocket
-        self.queue: asyncio.Queue = asyncio.Queue(maxsize=queue_size)
-        self.sender_task: Optional[asyncio.Task] = None
-        self.close_task: Optional[asyncio.Task] = None
-        self.closing = False
-
-
-class WSManager:
-    """Serialisierte, begrenzte Auslieferung je WebSocket-Client."""
-
-    def __init__(self, queue_size: int = WEBSOCKET_CLIENT_QUEUE_SIZE):
-        self.clients: Dict[WebSocket, _WSClient] = {}
-        self.queue_size = max(1, int(queue_size))
-
-    async def connect(
-        self,
-        ws: WebSocket,
-        initial_payload: Optional[dict] = None,
-        initial_payload_factory: Optional[Callable[[], dict]] = None,
-    ):
-        await ws.accept()
-        client = _WSClient(ws, self.queue_size)
-        # Nach accept() bis zur Registrierung gibt es bewusst kein await. Ein
-        # parallel aus einem Worker-Thread angek√ºndigtes Event l√§uft erst danach
-        # auf dem Main-Loop und landet somit hinter dem initialen Snapshot.
-        if initial_payload_factory is not None:
-            initial_payload = initial_payload_factory()
-        if initial_payload is not None:
-            client.queue.put_nowait(initial_payload)
-        self.clients[ws] = client
-        client.sender_task = asyncio.create_task(self._sender(client))
-
-    def disconnect(self, ws: WebSocket):
-        client = self.clients.pop(ws, None)
-        if client is None:
-            return
-        client.closing = True
-        try:
-            current = asyncio.current_task()
-        except RuntimeError:
-            current = None
-        for task in (client.sender_task, client.close_task):
-            if task is not None and task is not current and not task.done():
-                task.cancel()
-
-    async def _sender(self, client: _WSClient):
-        try:
-            while True:
-                payload = await client.queue.get()
-                await client.websocket.send_json(payload)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            pass
-        finally:
-            self.disconnect(client.websocket)
-
-    async def _close_slow_client(self, client: _WSClient):
-        try:
-            await client.websocket.close(
-                code=1013,
-                reason="Live-Updates konnten nicht schnell genug zugestellt werden.",
-            )
-        except Exception:
-            pass
-        finally:
-            self.disconnect(client.websocket)
-
-    def publish(self, data: dict):
-        """Muss auf dem Main-Loop laufen; blockiert keinen Produzenten-Thread."""
-        for client in list(self.clients.values()):
-            if client.closing:
-                continue
-            try:
-                client.queue.put_nowait(data)
-            except asyncio.QueueFull:
-                # Keine strukturellen Events wegwerfen: Der Client wird getrennt
-                # und erh√§lt beim Reconnect einen vollst√§ndigen neuen Snapshot.
-                client.closing = True
-                client.close_task = asyncio.create_task(
-                    self._close_slow_client(client)
-                )
-
-    async def send_all(self, data: dict):
-        """Kompatibilit√§tswrapper f√ºr bestehende interne Tests/Aufrufer."""
-        self.publish(data)
-        await asyncio.sleep(0)
-
-
-ws_manager = WSManager()
-_main_loop = None  # wird in lifespan gesetzt
-_telegram_bot: Optional[TelegramBot] = None
-_background_services_started = False
-_background_services_lock = threading.Lock()
-_recommender_stop_event = threading.Event()
-_recommender_wake_event = threading.Event()
-_recommender_thread: Optional[threading.Thread] = None
-_seerr_stop_event = threading.Event()
-_seerr_wake_event = threading.Event()
-_seerr_thread: Optional[threading.Thread] = None
-_updater_stop_event = threading.Event()
-_updater_wake_event = threading.Event()
-_updater_thread: Optional[threading.Thread] = None
-_ytdlp_updater_stop_event = threading.Event()
-_ytdlp_updater_thread: Optional[threading.Thread] = None
-
-
-def broadcast(data: dict):
-    loop = _main_loop
-    if loop is None or loop.is_closed():
-        return
-    try:
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        if running_loop is loop:
-            ws_manager.publish(data)
-        else:
-            loop.call_soon_threadsafe(ws_manager.publish, data)
-    except RuntimeError:
-        pass
-
-
-def log(msg: str, level: str = ""):
-    logger.info(msg)
-    broadcast({"type": "log", "message": msg, "level": level})
-
-
-def _restart_after_update(queue_already_paused: bool = False) -> None:
-    def _restart():
-        preserved = 0 if queue_already_paused else _pause_downloads_for_update_restart()
-        if preserved:
-            log(
-                f"Update-Neustart: {preserved} offene Queue-Eintr√§ge gespeichert; "
-                "sie werden danach automatisch fortgesetzt."
-            )
-        time.sleep(1)
-        os.chdir(APP_DIR)
-        start_script = APP_DIR / "start.sh"
-        bash = shutil.which("bash")
-        if os.name != "nt" and Path("/.dockerenv").exists() and bash and start_script.is_file():
-            os.execv(bash, [bash, str(start_script)])
-        os.execv(sys.executable, [sys.executable, str(APP_DIR / "server.py")])
-
-    threading.Thread(target=_restart, daemon=True).start()
-
-
-UPDATE_INSTALLER = SelfUpdater(
-    repository=UPDATE_CHECKER.repository,
-    app_dir=APP_DIR,
-    on_state=lambda payload: broadcast({"type": "updater_install", "installer": payload}),
-    restart_callback=_restart_after_update,
-)
-YTDLP_UPDATER = YtDlpRuntimeUpdater()
-
-AUTO_UPDATE_START_DELAY_SECONDS = 30
-AUTO_UPDATE_DEFER_SECONDS = 5 * 60
-AUTO_UPDATE_ERROR_RETRY_SECONDS = 15 * 60
-
-
-def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.environ.get(name, str(default)) or default)
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(maximum, value))
-
-
-YTDLP_UPDATE_START_DELAY_SECONDS = _bounded_env_int(
-    "YTDLP_UPDATE_START_DELAY_SECONDS", 300, 30, 24 * 60 * 60,
-)
-YTDLP_UPDATE_INTERVAL_HOURS = _bounded_env_int(
-    "YTDLP_UPDATE_INTERVAL_HOURS", 24, 1, 168,
-)
-YTDLP_AUTO_UPDATE = os.environ.get(
-    "YTDLP_AUTO_UPDATE", "true",
-).strip().casefold() not in {"0", "false", "no", "off"}
-
-
-def _updater_config_payload() -> dict:
-    with state.updater_config_lock:
-        config = dict(state.updater_cfg)
-    with state.updater_runtime_lock:
-        runtime = dict(state.updater_runtime)
-    return {**config, **runtime}
-
-
-def _set_updater_runtime(result: str, message: str, *, checked: bool = False) -> None:
-    with state.updater_runtime_lock:
-        state.updater_runtime["auto_update_state"] = result
-        state.updater_runtime["auto_update_message"] = str(message or "")[:500]
-        if checked:
-            state.updater_runtime["last_auto_check"] = time.time()
-    broadcast({"type": "updater_config", "config": _updater_config_payload()})
-
-
-def _update_block_reason_locked() -> str:
-    if state.dl_queue.active_count() or state.dl_queue.pending_count():
-        return "Laufende oder wartende Downloads"
-    if state.queue_prepare_lock.locked():
-        return "Downloadvorbereitung oder Wiederholungsversuch l√§uft"
-    _reconcile_idle_queue_state_locked()
-    if state.provider_waiting_jobs:
-        return "Downloadvorbereitung oder Wiederholungsversuch l√§uft"
-    return ""
-
-
-def _start_update_when_idle(target_sha: str) -> dict:
-    """Startet das Update auch bei aktiver Queue.
-
-    Downloads d√ºrfen w√§hrend des Ladens weiterlaufen. Direkt vor dem Neustart
-    werden alle noch offenen Slugs persistent gesichert und die Prozesse sauber
-    gestoppt; der neue Server stellt sie automatisch wieder her.
-    """
-    with state.queue_lifecycle_lock:
-        if state.ytdlp_update_active:
-            raise RuntimeError("yt-dlp wird gerade aktualisiert")
-        queued = bool(
-            state.dl_queue.active_count()
-            or state.dl_queue.pending_count()
-            or bool(state.provider_waiting_jobs)
-        )
-        result = UPDATE_INSTALLER.start(target_sha)
-    if queued:
-        log("Update wird installiert; die aktive Queue wird erst zum Neustart pausiert.")
-    return result
-
-
-def _attempt_automatic_update() -> str:
-    with state.updater_config_lock:
-        if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
-            return "manual"
-
-    try:
-        update = UPDATE_CHECKER.check(True)
-    except Exception as exc:
-        message = f"GitHub-Pr√ºfung fehlgeschlagen: {exc}"
-        _set_updater_runtime("error", message, checked=True)
-        log(f"Automatische Updatepr√ºfung fehlgeschlagen: {exc}", "warn")
-        return "error"
-
-    if update.get("error"):
-        message = str(update.get("error"))
-        _set_updater_runtime("error", message, checked=True)
-        log(f"Automatische Updatepr√ºfung fehlgeschlagen: {message}", "warn")
-        return "error"
-    if update.get("update_available") is not True:
-        if update.get("comparison") in {"identical", "behind"}:
-            _set_updater_runtime("current", "Kein Update verf√ºgbar.", checked=True)
-            return "current"
-        _set_updater_runtime(
-            "unavailable",
-            "Lokaler Build konnte nicht sicher mit GitHub verglichen werden.",
-            checked=True,
-        )
-        return "unavailable"
-    if update.get("comparison") != "ahead":
-        _set_updater_runtime(
-            "manual_required",
-            "Lokaler und GitHub-Stand sind verzweigt; manuelle Best√§tigung erforderlich.",
-            checked=True,
-        )
-        return "manual_required"
-
-    target_sha = str(update.get("latest_sha") or "").strip()
-    if not target_sha:
-        _set_updater_runtime("error", "GitHub lieferte keine installierbare Revision.", checked=True)
-        return "error"
-
-    try:
-        with state.updater_config_lock:
-            if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
-                _set_updater_runtime("manual", "Automatische Installation wurde deaktiviert.", checked=True)
-                return "manual"
-        _start_update_when_idle(target_sha)
-    except (RuntimeError, ValueError) as exc:
-        message = str(exc)
-        result = "deferred" if "zur√ºckgestellt" in message else "error"
-        _set_updater_runtime(result, message, checked=True)
-        if result == "error":
-            log(f"Automatisches Update konnte nicht gestartet werden: {message}", "warn")
-        return result
-
-    _set_updater_runtime("installing", "Update wird automatisch installiert.", checked=True)
-    log(f"Automatisches Update auf Build {target_sha[:8]} gestartet.")
-    return "installing"
-
-
-def automatic_update_loop() -> None:
-    if _updater_stop_event.wait(AUTO_UPDATE_START_DELAY_SECONDS):
-        return
-    _updater_wake_event.clear()
-    while not _updater_stop_event.is_set():
-        with state.updater_config_lock:
-            config = dict(state.updater_cfg)
-        if config.get("update_mode") == appconfig.UPDATE_MODE_AUTOMATIC:
-            result = _attempt_automatic_update()
-            if result == "deferred":
-                delay = AUTO_UPDATE_DEFER_SECONDS
-            elif result == "error":
-                delay = AUTO_UPDATE_ERROR_RETRY_SECONDS
-            else:
-                delay = int(config.get("auto_update_interval_hours") or 6) * 60 * 60
-        else:
-            delay = 60 * 60
-        _updater_wake_event.wait(max(1, delay))
-        _updater_wake_event.clear()
-
-
-def _attempt_ytdlp_runtime_update() -> str:
-    """Aktualisiert yt-dlp stabil und erh√§lt dabei alle Queue-Claims."""
-    if not YTDLP_AUTO_UPDATE:
-        return "disabled"
-    if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
-        return "busy"
-    try:
-        update = YTDLP_UPDATER.check()
-    except Exception as exc:
-        log(f"yt-dlp-Updatepr√ºfung fehlgeschlagen: {exc}", "warn")
-        return "error"
-    if not update.get("update_available"):
-        logger.info("yt-dlp ist aktuell (%s).", update.get("current") or "unbekannt")
-        return "current"
-
-    current = str(update.get("current") or "nicht installiert")
-    latest = str(update.get("latest") or "")
-    log(f"yt-dlp-Update verf√ºgbar: {current} ‚Üí {latest}; Paket wird vorbereitet.")
-    paused = False
-    try:
-        with tempfile.TemporaryDirectory(prefix="seriendownloader-ytdlp-") as tmp:
-            wheel = YTDLP_UPDATER.download_wheel(latest, Path(tmp))
-            with state.queue_lifecycle_lock:
-                if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
-                    return "busy"
-                state.ytdlp_update_active = True
-            preserved = _pause_downloads_for_update_restart()
-            paused = True
-            if preserved:
-                log(
-                    f"yt-dlp-Update: {preserved} offene Queue-Eintr√§ge gespeichert; "
-                    "Fortsetzung nach Neustart."
-                )
-            YTDLP_UPDATER.install_wheel(wheel)
-    except Exception as exc:
-        if state.ytdlp_update_active:
-            # Auch bei einem pip-/Pause-Fehler neu starten, damit die Queue mit
-            # der bisherigen Version weiterl√§uft.
-            _restart_after_update(queue_already_paused=paused)
-        log(f"yt-dlp-Update fehlgeschlagen: {exc}", "warn")
-        return "error"
-
-    log(f"yt-dlp {latest} installiert ‚Äì Server startet neu.")
-    _restart_after_update(queue_already_paused=True)
-    return "restarting"
-
-
-def ytdlp_runtime_update_loop() -> None:
-    if not YTDLP_AUTO_UPDATE:
-        return
-    if _ytdlp_updater_stop_event.wait(YTDLP_UPDATE_START_DELAY_SECONDS):
-        return
-    while not _ytdlp_updater_stop_event.is_set():
-        result = _attempt_ytdlp_runtime_update()
-        delay = (
-            60 * 60
-            if result in {"busy", "error"}
-            else YTDLP_UPDATE_INTERVAL_HOURS * 60 * 60
-        )
-        if _ytdlp_updater_stop_event.wait(delay):
-            return
-
-
-# ---------------------------------------------------------------------------
-# Hilfsfunktionen (1:1 Logik aus der fr√ºheren main.py)
-# ---------------------------------------------------------------------------
-def get_fp_scraper() -> FilmpalastScraper:
-    if state.fp_scraper is None:
-        state.fp_scraper = FilmpalastScraper(progress_cb=log)
-    return state.fp_scraper
-
-
-def get_sto_scraper() -> SerienstreamScraper:
-    if state.sto_scraper is None:
-        state.sto_scraper = SerienstreamScraper(progress_cb=log)
-    return state.sto_scraper
-
-
-def get_moflix_scraper() -> MoflixScraper:
-    if state.moflix_scraper is None:
-        state.moflix_scraper = MoflixScraper(progress_cb=log)
-    return state.moflix_scraper
-
-
-def get_huhu_scraper() -> HuhuScraper:
-    if state.huhu_scraper is None:
-        state.huhu_scraper = HuhuScraper(progress_cb=log)
-    return state.huhu_scraper
-
-
-def get_mkissa_scraper() -> MkissaScraper:
-    if state.mkissa_scraper is None:
-        state.mkissa_scraper = MkissaScraper(progress_cb=log)
-    return state.mkissa_scraper
-
-
-def get_jellyfin_client() -> JellyfinClient:
-    with state.jellyfin_cache_lock:
-        cfg = dict(state.jellyfin_cfg)
-    return JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""))
-
-
-def _build_recommender_config() -> JellyfinRecommenderConfig:
-    """Baut die Laufkonfiguration aus der persistenten settings.ini."""
-    jellyfin = appconfig.load_jellyfin()
-    env = {
-        "JELLYFIN_URL": jellyfin.get("url", ""),
-        "JELLYFIN_API_KEY": jellyfin.get("api_key", ""),
-        "JELLYFIN_USER_ID": jellyfin.get("user_id", ""),
-        "COLLECTION_NAME": os.environ.get("COLLECTION_NAME", "F√ºr dich empfohlen"),
-        "TOP_N": os.environ.get("TOP_N", "20"),
-        "RECENCY_HALF_LIFE_DAYS": os.environ.get("RECENCY_HALF_LIFE_DAYS", "180"),
-        "REQUEST_TIMEOUT_SECONDS": os.environ.get("REQUEST_TIMEOUT_SECONDS", "120"),
-        "PAGE_SIZE": os.environ.get("PAGE_SIZE", "100"),
-        # Das Intervall steuert der Server-Worker, nicht das Standalone-Script.
-        "RUN_INTERVAL_SECONDS": "0",
-    }
-    return JellyfinRecommenderConfig.from_env(env)
-
-
-def _run_recommender_once() -> bool:
-    try:
-        config = _build_recommender_config()
-    except JellyfinRecommenderConfigurationError as exc:
-        logger.info("Jellyfin-Empfehlungen √ºbersprungen: %s", exc)
-        return False
-
-    try:
-        recommendations = run_jellyfin_recommender_once(config)
-    except JellyfinRecommenderError as exc:
-        logger.warning("Jellyfin-Empfehlungen fehlgeschlagen: %s", exc)
-        return False
-    except Exception:
-        logger.exception("Unerwarteter Fehler bei den Jellyfin-Empfehlungen")
-        return False
-
-    logger.info(
-        "Jellyfin-Empfehlungen aktualisiert: %d Eintrag/Eintr√§ge",
-        len(recommendations),
-    )
-    return True
-
-
-def _recommender_interval_seconds() -> int:
-    raw = os.environ.get("RECOMMENDER_INTERVAL_SECONDS", "86400").strip()
-    try:
-        interval = int(raw)
-    except ValueError:
-        logger.warning(
-            "RECOMMENDER_INTERVAL_SECONDS=%r ist ung√ºltig; nutze 86400", raw,
-        )
-        return 86400
-    if interval < 60:
-        logger.warning("RECOMMENDER_INTERVAL_SECONDS muss mindestens 60 sein; nutze 60")
-        return 60
-    return interval
-
-
-def jellyfin_recommender_loop() -> None:
-    while not _recommender_stop_event.is_set():
-        successful = _run_recommender_once()
-        regular_interval = _recommender_interval_seconds()
-        interval = regular_interval if successful else min(regular_interval, 900)
-        logger.info("N√§chster Jellyfin-Empfehlungslauf in %d Sekunden", interval)
-        _recommender_wake_event.wait(interval)
-        _recommender_wake_event.clear()
-
-
-def stop_jellyfin_recommender() -> None:
-    _recommender_stop_event.set()
-    _recommender_wake_event.set()
-    thread = _recommender_thread
-    if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-        thread.join(timeout=5)
-
-
-def _set_runtime_jellyfin_config(cfg: dict) -> None:
-    """Wechselt Konfiguration und Cache als eine atomare Generation."""
-    normalized_cfg = dict(cfg)
-    normalized_cfg["cleanup_default"] = normalize_cleanup_mode(
-        normalized_cfg.get("cleanup_default")
-    )
-    with state.jellyfin_cache_lock:
-        state.jellyfin_cfg = normalized_cfg
-        state.jellyfin_config_generation += 1
-        state.jellyfin_movie_data_generation += 1
-        state.jellyfin_episode_data_generation += 1
-        state.jellyfin_library = None
-        state.jellyfin_library_time = 0.0
-        state.jellyfin_library_available = False
-        state.jellyfin_library_retry_after = 0.0
-        state.jellyfin_episodes = None
-        state.jellyfin_episodes_time = 0.0
-        state.jellyfin_episodes_available = False
-        state.jellyfin_episodes_retry_after = 0.0
-        state.jellyfin_series = None
-        state.jellyfin_series_time = 0.0
-        state.jellyfin_series_available = False
-        state.jellyfin_series_retry_after = 0.0
-        state.jellyfin_user_episodes = None
-        state.jellyfin_user_episodes_time = 0.0
-        state.jellyfin_user_episodes_available = False
-        state.jellyfin_user_episodes_retry_after = 0.0
-        with state.watchlist_lock:
-            for entry in state.watchlist:
-                entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-                entry["last_error"] = "Jellyfin-Konfiguration wird gepr√ºft"
-
-
-def get_tmdb_client() -> TMDBClient:
-    return state.tmdb_client
-
-
-def get_tmdb_series(title: str, tmdb_id="", force: bool = False) -> Optional[dict]:
-    """Eine gespeicherte TMDB-ID bleibt autoritativ; Titelsuche nur initial."""
-    client = get_tmdb_client()
-    if tmdb_id:
-        return client.series_by_id(tmdb_id, title, force=force)
-    return client.series(title, force=force)
-
-
-def _unreleased_episode_keys(
-    tmdb_id, keys: set[tuple[int, int]],
-) -> set[tuple[int, int]]:
-    """(Staffel, Episode)-Paare aus ``keys``, die laut TMDB-Ausstrahlungsdatum
-    noch nicht erschienen sind oder unbekannt sind.
-
-    Liefert eine leere Menge, wenn TMDB nicht konfiguriert ist oder keine
-    Staffeldaten liefert (fail-open: dann bleibt das bisherige Verhalten
-    unver√§ndert, statt f√§lschlich alles zu sperren).
-    """
-    client = get_tmdb_client()
-    if not client.configured or not tmdb_id or not keys:
-        return set()
-    today = time.strftime("%Y-%m-%d", time.localtime())
-    unreleased: set[tuple[int, int]] = set()
-    for season_number in {season for season, _episode in keys}:
-        air_dates = client.season_air_dates(tmdb_id, season_number)
-        if air_dates is None:
-            continue
-        for season, episode in keys:
-            if season != season_number:
-                continue
-            air_date = air_dates.get(episode)
-            if not air_date or air_date > today:
-                unreleased.add((season, episode))
-    return unreleased
-
-
-def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
-    """Episoden, die laut TMDB-Ausstrahlungsdatum noch nicht erschienen sind.
-
-    Providerunabh√§ngig, da manche Anbieter geplante Episoden schon vor dem
-    eigentlichen Release listen.
-    """
-    by_key = {
-        (ep.season, ep.episode): ep.slug
-        for season_number in series.season_numbers
-        for ep in series.seasons.get(season_number, [])
-    }
-    unreleased_keys = _unreleased_episode_keys(tmdb_id, set(by_key))
-    return {by_key[key] for key in unreleased_keys}
-
-
-JELLYFIN_CACHE_TTL = 300  # Sekunden ‚Äì wie lange die komplette Filmliste gecacht wird
-JELLYFIN_ERROR_RETRY_SECONDS = 30
-
-
-def get_jellyfin_library(force: bool = False) -> Optional[List[dict]]:
-    """Liefert alle Filme aus Jellyfin (gecacht), damit auch Neu/Top/Genre-Listen
-    ohne einen Live-Request pro Aufruf auf Duplikate gepr√ºft werden k√∂nnen."""
-    with state.jellyfin_library_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_library is None
-                or (now - state.jellyfin_library_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_library_retry_after:
-                return state.jellyfin_library
-            needs_fetch = needs_fetch or not state.jellyfin_library_available
-            if not needs_fetch:
-                return state.jellyfin_library
-            state.jellyfin_movie_data_generation += 1
-        fresh = jf_client.list_movies()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_library
-            state.jellyfin_movie_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_library = fresh
-                state.jellyfin_library_time = time.time()
-                state.jellyfin_library_available = True
-                state.jellyfin_library_retry_after = 0.0
-            else:
-                state.jellyfin_library_available = False
-                state.jellyfin_library_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_library
-
-
-def get_jellyfin_episodes(force: bool = False) -> Optional[List[dict]]:
-    """Liefert alle Serien-Episoden aus Jellyfin (gecacht) ‚Äì damit die
-    Watchlist-Pr√ºfung wei√ü, ob eine neu gescrapete Episode tats√§chlich
-    noch fehlt oder bereits in der Bibliothek liegt."""
-    with state.jellyfin_episodes_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_episodes is None
-                or (now - state.jellyfin_episodes_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_episodes_retry_after:
-                return state.jellyfin_episodes
-            needs_fetch = needs_fetch or not state.jellyfin_episodes_available
-            if not needs_fetch:
-                return state.jellyfin_episodes
-            state.jellyfin_episode_data_generation += 1
-        fresh = jf_client.list_episodes()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_episodes
-            state.jellyfin_episode_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_episodes = fresh
-                state.jellyfin_episodes_time = time.time()
-                state.jellyfin_episodes_available = True
-                state.jellyfin_episodes_retry_after = 0.0
-            else:
-                state.jellyfin_episodes_available = False
-                state.jellyfin_episodes_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_episodes
-
-
-def get_jellyfin_series(force: bool = False) -> Optional[List[dict]]:
-    """Liefert Jellyfin-Serien inklusive Provider-IDs f√ºr stabiles Matching."""
-    with state.jellyfin_series_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_series is None
-                or (now - state.jellyfin_series_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured:
-                return None
-            if not force and now < state.jellyfin_series_retry_after:
-                return state.jellyfin_series
-            needs_fetch = needs_fetch or not state.jellyfin_series_available
-            if not needs_fetch:
-                return state.jellyfin_series
-            state.jellyfin_episode_data_generation += 1
-        fresh = jf_client.list_series()
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_series
-            state.jellyfin_episode_data_generation += 1
-            if fresh is not None:
-                state.jellyfin_series = fresh
-                state.jellyfin_series_time = time.time()
-                state.jellyfin_series_available = True
-                state.jellyfin_series_retry_after = 0.0
-            else:
-                state.jellyfin_series_available = False
-                state.jellyfin_series_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-            return state.jellyfin_series
-
-
-def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
-    """Liefert Episoden mit Gesehen-Status des konfigurierten Benutzers."""
-    with state.jellyfin_user_fetch_lock:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            user_id = state.jellyfin_cfg.get("user_id", "").strip()
-            now = time.time()
-            needs_fetch = (
-                force
-                or state.jellyfin_user_episodes is None
-                or (now - state.jellyfin_user_episodes_time) > JELLYFIN_CACHE_TTL
-            )
-            if not jf_client.configured or not user_id:
-                return None
-            if not force and now < state.jellyfin_user_episodes_retry_after:
-                return state.jellyfin_user_episodes
-            needs_fetch = needs_fetch or not state.jellyfin_user_episodes_available
-            if not needs_fetch:
-                return state.jellyfin_user_episodes
-            state.jellyfin_episode_data_generation += 1
-        items = jf_client.list_episodes_with_user_data(user_id)
-        with state.jellyfin_cache_lock:
-            if generation != state.jellyfin_config_generation:
-                return state.jellyfin_user_episodes
-            state.jellyfin_episode_data_generation += 1
-            if items is None:
-                state.jellyfin_user_episodes_available = False
-                state.jellyfin_user_episodes_retry_after = (
-                    time.time() + JELLYFIN_ERROR_RETRY_SECONDS
-                )
-                return state.jellyfin_user_episodes
-            state.jellyfin_user_episodes = items
-            state.jellyfin_user_episodes_time = time.time()
-            state.jellyfin_user_episodes_available = True
-            state.jellyfin_user_episodes_retry_after = 0.0
-            return state.jellyfin_user_episodes
-
-
-def strip_source_suffix(title: str) -> str:
-    """Entfernt die UI-Markierung ``[Anbieter]``."""
-    return re.sub(r"\s*\[[^\]]+\]\s*$", "", title or "").strip()
-
-
-def clean_movie_title(title: str) -> str:
-    """Bereinigt Filmtitel f√ºr Anzeige, TMDB und Jellyfin.
-
-    Quellseiten h√§ngen teils Editionen oder Sprachmarker an, etwa
-    ``(Black and Chrome Edition) [Moflix]`` oder ``ENGLISH\\Titel``.
-    """
-    value = " ".join(str(title or "").split()).strip()
-    language = r"(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI(?:LANGUAGE)?|OV|O-TON)"
-    previous = None
-    while value and value != previous:
-        previous = value
-        value = strip_source_suffix(value)
-        value = re.sub(r"\s*\([^()]*\)\s*$", "", value).strip()
-        value = re.sub(
-            rf"^[\\/|:_-]*\s*{language}(?:\s+(?:DUB|SUB|DL))?"
-            rf"\s*[\\/|:_-]+\s*",
-            "",
-            value,
-            flags=re.IGNORECASE,
-        ).strip()
-        value = re.sub(
-            rf"\s*[\\/|:_-]+\s*{language}(?:\s+(?:DUB|SUB|DL))?"
-            rf"\s*[\\/|:_-]*\s*$",
-            "",
-            value,
-            flags=re.IGNORECASE,
-        ).strip()
-        # Ein alleinstehender, gro√ügeschriebener Release-Marker am Ende ist
-        # ebenfalls kein Titelbestandteil. Normales ‚ÄûEnglish Movie‚Äú bleibt.
-        value = re.sub(
-            r"\s+(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI|OV|O-TON)"
-            r"(?:\s+(?:DUB|SUB|DL))?\s*$",
-            "",
-            value,
-        ).strip()
-    return value
-
-
-def provider_order(media_type: str) -> List[str]:
-    defaults = {
-        "movies": appconfig.MOVIE_PROVIDER_DEFAULTS,
-        "series": appconfig.SERIES_PROVIDER_DEFAULTS,
-        "anime": appconfig.ANIME_PROVIDER_DEFAULTS,
-    }.get(media_type, ())
-    with state.provider_priority_lock:
-        configured = state.provider_priorities.get(media_type, defaults)
-        return appconfig.normalize_provider_order(configured, defaults)
-
-
-def provider_priority(media_type: str) -> List[str]:
-    """Aktive, sprachlich passende Quellen in Benutzer-Reihenfolge."""
-    ordered = provider_order(media_type)
-    with state.provider_priority_lock:
-        configured = state.provider_enabled.get(media_type, ordered)
-        enabled = set(appconfig.normalize_provider_selection(configured, ordered))
-        languages = set(state.content_languages)
-    matching = [
-        provider
-        for provider in ordered
-        if provider_content_language(provider) in languages
-    ]
-    active = [provider for provider in matching if provider in enabled]
-    if media_type == "anime":
-        return active
-    return active or matching[:1] or ordered[:1]
-
-
-def provider_for_value(value: str) -> str:
-    """Erkennt die Katalogquelle an den zentral hinterlegten Merkmalen."""
-    return provider_for_source(value)
-
-
-def _apply_provider_metadata(item, provider: str):
-    """Erg√§nzt normalisierte Medienobjekte um Quelle und Standardsprache."""
-    if item is None:
-        return None
-    key = str(provider or "").strip().casefold()
-    if hasattr(item, "provider"):
-        item.provider = key
-    if hasattr(item, "content_language"):
-        item.content_language = provider_content_language(key)
-    return item
-
-
-def _apply_provider_metadata_many(items, provider: str) -> list:
-    return [
-        _apply_provider_metadata(item, provider)
-        for item in (items or [])
-        if item is not None
-    ]
-
-
-def _movie_provider(movie: Optional[FilmpalastMovie], fallback: str = "") -> str:
-    stored = str(getattr(movie, "provider", "") or "").strip().casefold()
-    if stored in PROVIDER_CATALOG:
-        return stored
-    value = getattr(movie, "url", "") if movie is not None else fallback
-    return provider_for_value(value or fallback)
-
-
-def _movie_content_language(
-    movie: Optional[FilmpalastMovie],
-    hoster_language: str = "",
-    fallback: str = "",
-) -> str:
-    explicit = normalize_content_language(hoster_language)
-    if explicit:
-        return explicit
-    if movie is not None:
-        stored = normalize_content_language(
-            str(getattr(movie, "content_language", "") or "")
-        )
-        if stored:
-            return stored
-    return provider_content_language(_movie_provider(movie, fallback))
-
-
-def _ordered_episode_sources(movies: List[FilmpalastMovie]) -> List[FilmpalastMovie]:
-    positions = {provider: index for index, provider in enumerate(provider_priority("series"))}
-    return sorted(
-        movies,
-        key=lambda movie: positions.get(provider_for_value(movie.url), len(positions)),
-    )
-
-
-def clean_genre(value: str) -> str:
-    return " ".join(str(value or "").split())
-
-
-def canonical_movie_genre(value: str) -> str:
-    genre = clean_genre(value)
-    return MOVIE_GENRE_CANONICAL_BY_KEY.get(genre.casefold(), genre)
-
-
-def movie_genre_aliases(value: str) -> tuple[str, ...]:
-    canonical = canonical_movie_genre(value)
-    return MOVIE_GENRE_GROUPS.get(canonical, (canonical,))
-
-
-def watchlist_lookup(base_slug: str) -> Optional[dict]:
-    return next((w for w in state.watchlist if w["base_slug"] == base_slug), None)
-
-
-def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
-    if re.fullmatch(r"tmdb:\d+", slug or "", flags=re.IGNORECASE):
-        sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
-        return sources[0] if sources else None
-    provider = provider_for_value(slug)
-    if slug.startswith(FILMFREI24_PREFIX):
-        movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(SERIENSTREAM_PREFIX):
-        if not state.provider_health.request_allowed("serienstream"):
-            raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-        with state.sto_lock:
-            try:
-                movie = get_sto_scraper().get_movie(slug)
-            except ProviderBlockedError as exc:
-                _mark_serienstream_blocked(exc.reason, str(exc))
-                raise
-    elif slug.startswith(MOFLIX_PREFIX):
-        with state.moflix_lock:
-            movie = get_moflix_scraper().get_movie(slug)
-    elif slug.startswith((HUHU_PREFIX, HUHU_MOVIE_PREFIX)):
-        with state.huhu_lock:
-            movie = get_huhu_scraper().get_movie(slug)
-    elif slug.startswith(EINSCHALTEN_PREFIX):
-        movie = EinschaltenScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(KINOX_PREFIX):
-        movie = KinoxScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(KINOGER_PREFIX):
-        movie = KinogerScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(MEGAKINO_PREFIX):
-        movie = MegaKinoScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(XCINE_PREFIX):
-        movie = XcineScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(SFLIX_PREFIX):
-        movie = SflixScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(RIDOMOVIES_PREFIX):
-        movie = RidomoviesScraper(progress_cb=log).get_movie(slug)
-    elif slug.startswith(MKISSA_PREFIX):
-        with state.mkissa_lock:
-            movie = get_mkissa_scraper().get_episode(slug)
-    else:
-        if slug.lower().startswith(("http://", "https://")):
-            host = (urlparse(slug).hostname or "").casefold()
-            if host != "filmpalast.to" and not host.endswith(".filmpalast.to"):
-                raise ValueError("Direkte URLs sind nur f√ºr Filmpalast erlaubt.")
-        scraper = get_fp_scraper()
-        with state.fp_lock:
-            movie = scraper.get_movie(slug)
-    return _apply_provider_metadata(movie, provider)
-
-
-def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
-    """Durchsucht alle Filmanbieter; gemeinsame Basis f√ºr Web und Telegram."""
-    q = query.strip()
-    if not q:
-        return []
-    def _fp():
-        with state.fp_lock:
-            return list(get_fp_scraper().search(q))
-
-    def _huhu():
-        with state.huhu_lock:
-            return list(get_huhu_scraper().search(q))
-
-    searches = {
-        "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).search(q),
-        "filmpalast": _fp,
-        "huhu": _huhu,
-        "moflix": lambda: MoflixScraper(progress_cb=log).search(q),
-        "einschalten": lambda: EinschaltenScraper(progress_cb=log).search(q),
-        "kinox": lambda: KinoxScraper(progress_cb=log).search(q),
-        "kinoger": lambda: KinogerScraper(progress_cb=log).search(q),
-        "megakino": lambda: MegaKinoScraper(progress_cb=log).search(q),
-        "xcine": lambda: XcineScraper(progress_cb=log).search(q),
-        "sflix": lambda: SflixScraper(progress_cb=log).search(q),
-        "ridomovies": lambda: RidomoviesScraper(progress_cb=log).search(q),
-    }
-    tasks = [
-        (key, PROVIDER_LABELS[key], searches[key])
-        for key in provider_priority("movies")
-    ]
-    results: List[FilmpalastSearchResult] = []
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = [(key, name, pool.submit(fn)) for key, name, fn in tasks]
-        for key, name, future in futures:
-            try:
-                results.extend(_apply_provider_metadata_many(future.result(), key))
-            except Exception as exc:
-                log(f"{name} Suche √ºbersprungen: {exc}", "warn")
-    return results
-
-
-def _tmdb_search_results(query: str) -> List[dict]:
-    """Formatiert TMDB-Treffer als providerunabh√§ngige Filmkarten."""
-    movies = get_tmdb_client().search_movies(
-        query, max_results=TMDB_MOVIE_SEARCH_MAX_RESULTS,
-    )
-    return [
-        {
-            **movie,
-            "slug": f"tmdb:{movie['tmdb_id']}",
-            "url": f"https://www.themoviedb.org/movie/{movie['tmdb_id']}",
-            "is_movie": True,
-            "provider": "",
-            "content_language": "",
-        }
-        for movie in movies
-    ]
-
-
-def _movie_title_match_keys(title: str) -> set[str]:
-    raw = re.sub(
-        r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$",
-        "",
-        clean_movie_title(title),
-    ).strip()
-    def _match_norm(value: str) -> str:
-        ascii_value = (
-            unicodedata.normalize("NFKD", value or "")
-            .encode("ascii", "ignore")
-            .decode("ascii")
-        )
-        return re.sub(r"[^a-z0-9]+", "", ascii_value.casefold())
-
-    keys = {_match_norm(raw)}
-    roman_to_number = {
-        "i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5",
-        "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10",
-    }
-    match = re.search(r"\b(i{1,3}|iv|v|vi{0,3}|ix|x|\d{1,2})$", raw, re.IGNORECASE)
-    if match:
-        suffix = match.group(1).casefold()
-        replacement = roman_to_number.get(suffix)
-        if replacement:
-            keys.add(_match_norm(raw[:match.start()] + replacement))
-        elif suffix.isdigit():
-            number_to_roman = {value: key for key, value in roman_to_number.items()}
-            roman = number_to_roman.get(str(int(suffix)))
-            if roman:
-                keys.add(_match_norm(raw[:match.start()] + roman))
-    keys.discard("")
-    return keys
-
-
-def _movie_matches_tmdb_choice(
-    title: str,
-    year: str,
-    aliases: set[str],
-    wanted_year: str,
-) -> bool:
-    if not (_movie_title_match_keys(title) & aliases):
-        return False
-    candidate_year = str(year or "").strip()
-    return not (wanted_year and candidate_year and candidate_year != wanted_year)
-
-
-def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
-    """Sucht einen gew√§hlten TMDB-Film bei allen aktiven Filmquellen.
-
-    Das Ergebnis bleibt ein logischer Inhalt. Die erste Quelle folgt der
-    Nutzerpriorit√§t; jede weitere Quelle wird als echter Download-Fallback
-    gespeichert und sp√§ter automatisch durchprobiert.
-    """
-    key = str(tmdb_id or "").strip()
-    if not key.isdigit():
-        raise ValueError("Ung√ºltige TMDB-Film-ID.")
-    virtual_slug = f"tmdb:{int(key)}"
-    with state.movie_source_cache_lock:
-        cached = state.movie_source_cache.get(virtual_slug)
-        if cached:
-            return list(cached)
-
-    tmdb = get_tmdb_client().movie_by_id(key)
-    if not tmdb:
-        raise LookupError("Der gew√§hlte TMDB-Film ist nicht verf√ºgbar.")
-    search_titles = []
-    for value in (tmdb.get("title"), tmdb.get("original_title")):
-        value = " ".join(str(value or "").split()).strip()
-        if value and _norm_title(value) not in {_norm_title(item) for item in search_titles}:
-            search_titles.append(value)
-    if not search_titles:
-        raise LookupError("TMDB liefert keinen suchbaren Filmtitel.")
-
-    aliases = {
-        key
-        for title in search_titles
-        for key in _movie_title_match_keys(title)
-    }
-    wanted_year = str(tmdb.get("year") or "").strip()
-    candidates: List[FilmpalastSearchResult] = []
-    seen_candidates: set[str] = set()
-    provider_candidate_counts: Counter = Counter()
-    for search_title in search_titles:
-        for candidate in search_movie_candidates(search_title):
-            provider = str(candidate.provider or provider_for_value(candidate.slug)).casefold()
-            if provider_candidate_counts[provider] >= 3 or candidate.slug in seen_candidates:
-                continue
-            if not candidate.is_movie or not _movie_matches_tmdb_choice(
-                candidate.title, candidate.year, aliases, wanted_year,
-            ):
-                continue
-            seen_candidates.add(candidate.slug)
-            candidates.append(candidate)
-            provider_candidate_counts[provider] += 1
-
-    def _load(candidate: FilmpalastSearchResult):
-        try:
-            loaded = state.fp_movies.get(candidate.slug) or load_movie_for_slug(candidate.slug)
-        except Exception as exc:
-            log(f"Filmquelle {candidate.title} nicht ladbar: {exc}", "warn")
-            return None
-        if not loaded or not loaded.hosters:
-            return None
-        if not _movie_matches_tmdb_choice(
-            loaded.title, loaded.year or candidate.year, aliases, wanted_year,
-        ):
-            return None
-        state.fp_movies[candidate.slug] = loaded
-        return loaded
-
-    loaded_sources: List[FilmpalastMovie] = []
-    if candidates:
-        with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as pool:
-            loaded_sources = [
-                movie for movie in pool.map(_load, candidates)
-                if movie is not None
-            ]
-
-    positions = {
-        provider: index for index, provider in enumerate(provider_priority("movies"))
-    }
-    loaded_sources.sort(
-        key=lambda movie: positions.get(_movie_provider(movie), len(positions)),
-    )
-    unique_sources: List[FilmpalastMovie] = []
-    seen_providers: set[str] = set()
-    for movie in loaded_sources:
-        provider = _movie_provider(movie)
-        if provider in seen_providers:
-            continue
-        seen_providers.add(provider)
-        unique_sources.append(movie)
-    if not unique_sources:
-        raise LookupError(
-            f"¬´{tmdb.get('title') or search_titles[0]}¬ª wurde bei keinem aktiven Anbieter gefunden."
-        )
-
-    primary = replace(
-        unique_sources[0],
-        title=tmdb.get("title") or unique_sources[0].title,
-        year=wanted_year or unique_sources[0].year,
-        runtime=tmdb.get("runtime") or unique_sources[0].runtime,
-        cover_url=tmdb.get("cover_url") or unique_sources[0].cover_url,
-        description=tmdb.get("description") or unique_sources[0].description,
-        genres=tmdb.get("genres") or unique_sources[0].genres,
-    )
-    sources = [primary, *unique_sources[1:]]
-    with state.movie_source_cache_lock:
-        existing = state.movie_source_cache.get(virtual_slug)
-        if existing:
-            return list(existing)
-        state.movie_source_cache[virtual_slug] = list(sources)
-        state.fp_movies[virtual_slug] = primary
-    log(
-        f"TMDB-Film ¬´{primary.title}¬ª: {len(sources)} Anbieterquelle(n) geb√ºndelt."
-    )
-    return sources
-
-
-class MovieCatalogColdLoadLimit(RuntimeError):
-    """Verhindert teure Spr√ºnge √ºber viele noch ungecachte Quellseiten."""
-
-
-def _cached_movie_provider_page(cache_key: tuple) -> Optional[List[FilmpalastSearchResult]]:
-    with state.movie_list_cache_lock:
-        cached = state.movie_list_cache.get(cache_key)
-        ttl = cached[2] if cached and len(cached) > 2 else MOVIE_LIST_CACHE_TTL
-        if cached and time.time() - cached[0] < ttl:
-            return list(cached[1])
-        if cached:
-            state.movie_list_cache.pop(cache_key, None)
-    return None
-
-
-def _cache_movie_provider_page(
-    cache_key: tuple,
-    results: List[FilmpalastSearchResult],
-    ttl: int = MOVIE_LIST_CACHE_TTL,
-) -> None:
-    now = time.time()
-    with state.movie_list_cache_lock:
-        expired = [
-            key for key, cached in state.movie_list_cache.items()
-            if now - cached[0] >= (
-                cached[2] if len(cached) > 2 else MOVIE_LIST_CACHE_TTL
-            )
-        ]
-        for key in expired:
-            state.movie_list_cache.pop(key, None)
-        while len(state.movie_list_cache) >= MOVIE_LIST_CACHE_MAX_ENTRIES:
-            oldest = min(state.movie_list_cache, key=lambda key: state.movie_list_cache[key][0])
-            state.movie_list_cache.pop(oldest, None)
-        state.movie_list_cache[cache_key] = (now, list(results), ttl)
-
-
-def _fetch_movie_provider_page(
-    provider: str,
-    mode: str,
-    genre: str,
-    source_page: int,
-) -> List[FilmpalastSearchResult]:
-    """L√§dt genau eine Quellseite; nur markierte Anbieter paginieren."""
-    if provider not in MOVIE_PAGINATED_PROVIDERS and source_page != 1:
-        return []
-    provider_genre = _movie_genre_for_provider(provider, genre) if mode == "genre" else genre
-
-    if provider == "filmpalast":
-        with state.fp_lock:
-            scraper = get_fp_scraper()
-            if mode == "genre":
-                results = scraper.list_by_genre(provider_genre, source_page)
-            else:
-                results = scraper.list_movies(mode, source_page)
-        return _apply_provider_metadata_many(results, provider)
-
-    if provider == "huhu":
-        with state.huhu_lock:
-            scraper = get_huhu_scraper()
-            results = (
-                scraper.list_by_genre(provider_genre, source_page)
-                if mode == "genre"
-                else scraper.list_movies(mode, source_page)
-            )
-        return _apply_provider_metadata_many(results, provider)
-
-    scraper_classes = {
-        "filmfrei24": FilmFrei24Scraper,
-        "moflix": MoflixScraper,
-        "einschalten": EinschaltenScraper,
-        "kinox": KinoxScraper,
-        "kinoger": KinogerScraper,
-        "megakino": MegaKinoScraper,
-        "xcine": XcineScraper,
-        "sflix": SflixScraper,
-        "ridomovies": RidomoviesScraper,
-    }
-    scraper_class = scraper_classes.get(provider)
-    if scraper_class is None:
-        return []
-    scraper = scraper_class(progress_cb=log)
-    if mode == "genre":
-        results = scraper.list_by_genre(provider_genre, source_page)
-    else:
-        results = scraper.list_movies(mode, source_page)
-    return _apply_provider_metadata_many(results, provider)
-
-
-def _load_movie_provider_pages(
-    mode: str,
-    genre: str,
-    requests_to_load: List[tuple[str, int]],
-    cold_wave_budget: Optional[List[int]] = None,
-) -> Dict[tuple[str, int], List[FilmpalastSearchResult]]:
-    """L√§dt mehrere Quellseiten parallel und cached sie unabh√§ngig voneinander."""
-    loaded: Dict[tuple[str, int], List[FilmpalastSearchResult]] = {}
-    missing: List[tuple[str, int, tuple]] = []
-    genre_key = clean_genre(genre).casefold()
-
-    for provider, source_page in dict.fromkeys(requests_to_load):
-        cache_key = ("provider", mode, genre_key, provider, int(source_page))
-        cached = _cached_movie_provider_page(cache_key)
-        if cached is None:
-            missing.append((provider, source_page, cache_key))
-        else:
-            loaded[(provider, source_page)] = cached
-
-    if not missing:
-        return loaded
-    if cold_wave_budget is not None:
-        if cold_wave_budget[0] <= 0:
-            raise MovieCatalogColdLoadLimit(
-                "Dieser Katalogabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
-            )
-        cold_wave_budget[0] -= 1
-
-    with ThreadPoolExecutor(max_workers=min(len(missing), len(PROVIDER_LABELS))) as pool:
-        futures = [
-            (
-                provider,
-                source_page,
-                cache_key,
-                pool.submit(_fetch_movie_provider_page, provider, mode, genre, source_page),
-            )
-            for provider, source_page, cache_key in missing
-        ]
-        for provider, source_page, cache_key, future in futures:
-            try:
-                results = list(future.result())
-            except Exception as exc:
-                label = PROVIDER_LABELS.get(provider, provider)
-                log(f"{label} Liste (Quellseite {source_page}) √ºbersprungen: {exc}", "warn")
-                results = []
-                _cache_movie_provider_page(
-                    cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
-                )
-            else:
-                _cache_movie_provider_page(cache_key, results)
-            loaded[(provider, source_page)] = results
-    return loaded
-
-
-def _movie_provider_genres(provider: str) -> set:
-    return {
-        "filmfrei24": state.filmfrei24_provider_genres,
-        "filmpalast": state.fp_provider_genres,
-        "huhu": state.huhu_provider_genres,
-        "moflix": state.moflix_provider_genres,
-        "einschalten": state.einschalten_provider_genres,
-        "kinox": state.kinox_provider_genres,
-        "kinoger": state.kinoger_provider_genres,
-        "megakino": state.megakino_provider_genres,
-        "xcine": state.xcine_provider_genres,
-        "sflix": state.sflix_provider_genres,
-        "ridomovies": state.ridomovies_provider_genres,
-    }.get(provider, set())
-
-
-def _movie_genre_for_provider(provider: str, genre: str) -> str:
-    known_by_key = {
-        clean_genre(item).casefold(): clean_genre(item)
-        for item in _movie_provider_genres(provider)
-    }
-    for alias in movie_genre_aliases(genre):
-        match = known_by_key.get(alias.casefold())
-        if match:
-            return match
-    return clean_genre(genre)
-
-
-def _provider_supports_movie_genre(provider: str, genre: str) -> bool:
-    known_genres = _movie_provider_genres(provider)
-    # Vor dem ersten Genre-Abruf sind die Mengen leer. Dann optimistisch laden;
-    # der jeweilige Scraper kann ein unbekanntes Genre g√ºnstig mit [] ablehnen.
-    if not known_genres:
-        return True
-    known_keys = {clean_genre(item).casefold() for item in known_genres}
-    return any(alias.casefold() in known_keys for alias in movie_genre_aliases(genre))
-
-
-def _movie_result_identity(
-    result: FilmpalastSearchResult,
-    provider: str,
-    years_by_title: Dict[str, set[str]],
-) -> tuple:
-    title_key = _norm_title(clean_movie_title(result.title))
-    if not title_key:
-        return ("source", provider, str(result.slug or result.url))
-    year = str(result.year or "").strip()
-    known_years = years_by_title.get(title_key, set())
-    # Fehlt bei nur einer Quelle das Jahr, kann sie sicher dem einzigen bekannten
-    # Jahr zugeordnet werden. Bei Remakes bleiben jahrlose Treffer separat.
-    if not year and len(known_years) == 1:
-        year = next(iter(known_years))
-    return ("movie", title_key, year)
-
-
-def _mix_movie_provider_results(
-    provider_results: Dict[str, List[FilmpalastSearchResult]],
-    priority: List[str],
-    claimed_identities: Optional[set[tuple]] = None,
-) -> List[tuple[str, FilmpalastSearchResult]]:
-    """Dedupliziert eine Quellwelle und mischt sie fair im Round-Robin."""
-    years_by_title: Dict[str, set[str]] = defaultdict(set)
-    for results in provider_results.values():
-        for result in results:
-            title_key = _norm_title(clean_movie_title(result.title))
-            year = str(result.year or "").strip()
-            if title_key and year:
-                years_by_title[title_key].add(year)
-
-    filtered: Dict[str, List[FilmpalastSearchResult]] = {provider: [] for provider in priority}
-    seen_identities = claimed_identities if claimed_identities is not None else set()
-    for provider in priority:
-        for result in provider_results.get(provider, []):
-            identity = _movie_result_identity(result, provider, years_by_title)
-            if identity in seen_identities:
-                continue
-            seen_identities.add(identity)
-            filtered[provider].append(result)
-
-    mixed: List[tuple[str, FilmpalastSearchResult]] = []
-    longest = max((len(results) for results in filtered.values()), default=0)
-    for index in range(longest):
-        for provider in priority:
-            results = filtered[provider]
-            if index < len(results):
-                mixed.append((provider, results[index]))
-    return mixed
-
-
-def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
-    """Erzeugt eine stabile globale 32er-Seite aus allen Filmkatalogen.
-
-    Einseitige Anbieter speisen ihren gesamten Startbestand in die globalen
-    Seiten ein. Weitere Quellseiten werden jeweils als abgeschlossene Welle
-    gemischt und nur hinten angeh√§ngt, damit fr√ºhere Seitengrenzen stabil bleiben.
-    """
-    page = max(1, min(int(page), MOVIE_MAX_GLOBAL_PAGE))
-    mode = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
-    genre = canonical_movie_genre(genre)
-    priority = provider_priority("movies")
-    active = [
-        provider for provider in priority
-        if mode != "genre" or _provider_supports_movie_genre(provider, genre)
-    ]
-    provider_seen: Dict[str, set[str]] = {provider: set() for provider in priority}
-
-    def unique_page(
-        provider: str,
-        results: List[FilmpalastSearchResult],
-    ) -> List[FilmpalastSearchResult]:
-        unique: List[FilmpalastSearchResult] = []
-        for result in results:
-            source_key = str(result.slug or result.url or result.title or "").strip()
-            key = f"{source_key}\0{str(result.year or '').strip()}"
-            if key in provider_seen[provider]:
-                continue
-            provider_seen[provider].add(key)
-            unique.append(result)
-        return unique
-
-    cold_wave_budget = [MOVIE_MAX_COLD_WAVES_PER_REQUEST]
-    first_pages = _load_movie_provider_pages(
-        mode, genre, [(provider, 1) for provider in active], cold_wave_budget,
-    )
-    first_wave = {
-        provider: unique_page(provider, first_pages.get((provider, 1), []))
-        for provider in active
-    }
-    # Priorit√§t entscheidet innerhalb derselben Quellwelle. Bereits katalogisierte
-    # Filme werden von sp√§teren Wellen nicht ersetzt; sonst w√ºrden Seiten springen.
-    claimed_identities: set[tuple] = set()
-    catalog_entries = _mix_movie_provider_results(
-        first_wave, priority, claimed_identities,
-    )
-
-    paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
-    exhausted = {provider for provider in paginated if not first_wave[provider]}
-    duplicate_only_pages = {provider: 0 for provider in paginated}
-    target_end = page * MOVIE_BROWSE_PAGE_SIZE
-    next_source_page = 2
-    has_more_unverified = False
-
-    while len(catalog_entries) <= target_end and next_source_page <= MOVIE_MAX_SOURCE_PAGE:
-        pending = [provider for provider in paginated if provider not in exhausted]
-        if not pending:
-            break
-        try:
-            next_pages = _load_movie_provider_pages(
-                mode, genre, [(provider, next_source_page) for provider in pending],
-                cold_wave_budget,
-            )
-        except MovieCatalogColdLoadLimit:
-            if len(catalog_entries) < target_end:
-                raise
-            # Die angeforderte Seite ist vollst√§ndig. Der n√§chste Klick darf die
-            # preiswerte Folgeseiten-Pr√ºfung in einem neuen Request fortsetzen.
-            has_more_unverified = True
-            break
-        wave: Dict[str, List[FilmpalastSearchResult]] = {}
-        for provider in pending:
-            results = next_pages.get((provider, next_source_page), [])
-            wave[provider] = unique_page(provider, results)
-            if not results:
-                exhausted.add(provider)
-            elif not wave[provider]:
-                duplicate_only_pages[provider] += 1
-                if duplicate_only_pages[provider] >= 2:
-                    exhausted.add(provider)
-            else:
-                duplicate_only_pages[provider] = 0
-        catalog_entries.extend(_mix_movie_provider_results(
-            wave, priority, claimed_identities,
-        ))
-        next_source_page += 1
-
-    start = (page - 1) * MOVIE_BROWSE_PAGE_SIZE
-    page_entries = catalog_entries[start:target_end]
-    source_counts = Counter(provider for provider, _result in page_entries)
-    sources = [
-        {
-            "key": provider,
-            "label": PROVIDER_LABELS[provider],
-            "content_language": provider_content_language(provider),
-            "language_label": PROVIDER_CATALOG[provider].language_label,
-            "count": source_counts[provider],
-        }
-        for provider in priority
-        if source_counts[provider]
-    ]
-    return {
-        "results": [result for _provider, result in page_entries],
-        "page": page,
-        "has_more": page < MOVIE_MAX_GLOBAL_PAGE and (
-            len(catalog_entries) > target_end or has_more_unverified
-        ),
-        "sources": sources,
-    }
-
-
-def list_movie_candidates(mode: str, page: int = 1) -> List[FilmpalastSearchResult]:
-    """Kompatibler Listen-Zugriff auf die globale, gemischte Katalogseite."""
-    return list(movie_catalog_page(mode, page)["results"])
-
-
-def warm_home_movie_cache():
-    """Bereitet Film- und Serien-Startansicht vor dem ersten Browser vor."""
-    try:
-        movies = list_movie_candidates("new", 1)
-        tmdb = get_tmdb_client()
-        if not tmdb.configured or not movies:
-            return
-
-        unique = {}
-        for movie in movies:
-            title = clean_movie_title(movie.title)
-            unique.setdefault((_norm_title(title), str(movie.year or "")), (title, movie.year or ""))
-        values = list(unique.values())
-        # Das erste sichtbare Detail hat Vorrang. Erst danach den Rest mit
-        # geringer Parallelit√§t laden, damit die Startansicht nicht verhungert.
-        tmdb.movie_summary(*values[0])
-        remaining = values[1:]
-        if remaining:
-            with ThreadPoolExecutor(max_workers=min(3, len(remaining))) as pool:
-                futures = [pool.submit(tmdb.movie_summary, title, year) for title, year in remaining]
-                for future in futures:
-                    try:
-                        future.result()
-                    except Exception as exc:
-                        log(f"TMDB-Startcache: {exc}", "warn")
-        log(f"Startansicht vorbereitet: {len(movies)} neue Filme.")
-    except Exception as exc:
-        log(f"Startansicht konnte nicht vorab geladen werden: {exc}", "warn")
-    finally:
-        warm_home_series_cache()
-
-
-# --- Serienanbieter ----------------------------------------------------------
-def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
-    if not state.provider_health.request_allowed("serienstream"):
-        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-    with state.sto_lock:
-        try:
-            return get_sto_scraper().get_series(value)
-        except ProviderBlockedError as exc:
-            _mark_serienstream_blocked(exc.reason, str(exc))
-            raise
-
-
-def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
-    if not state.provider_health.request_allowed("serienstream"):
-        raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
-    with state.sto_lock:
-        try:
-            return get_sto_scraper().search_series(query)
-        except ProviderBlockedError as exc:
-            _mark_serienstream_blocked(exc.reason, str(exc))
-            raise
-
-
-def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
-    if provider == "serienstream":
-        return _sto_search_series(query)
-    if provider == "filmpalast":
-        with state.fp_lock:
-            return get_fp_scraper().search_series(query)
-    if provider == "moflix":
-        with state.moflix_lock:
-            return get_moflix_scraper().search_series(query)
-    if provider == "huhu":
-        with state.huhu_lock:
-            return get_huhu_scraper().search_series(query)
-    if provider == "kinoger":
-        return KinogerScraper(progress_cb=log).search_series(query)
-    if provider == "megakino":
-        return MegaKinoScraper(progress_cb=log).search_series(query)
-    if provider == "xcine":
-        return XcineScraper(progress_cb=log).search_series(query)
-    if provider == "sflix":
-        return SflixScraper(progress_cb=log).search_series(query)
-    if provider == "ridomovies":
-        return RidomoviesScraper(progress_cb=log).search_series(query)
-    return []
-
-
-def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastSeries]:
-    if provider == "serienstream":
-        return _sto_get_series(value)
-    if provider == "filmpalast":
-        with state.fp_lock:
-            return get_fp_scraper().get_series(value)
-    if provider == "moflix":
-        with state.moflix_lock:
-            return get_moflix_scraper().get_series(value)
-    if provider == "huhu":
-        with state.huhu_lock:
-            return get_huhu_scraper().get_series(value)
-    if provider == "kinoger":
-        return KinogerScraper(progress_cb=log).get_series(value)
-    if provider == "megakino":
-        return MegaKinoScraper(progress_cb=log).get_series(value)
-    if provider == "xcine":
-        return XcineScraper(progress_cb=log).get_series(value)
-    if provider == "sflix":
-        return SflixScraper(progress_cb=log).get_series(value)
-    if provider == "ridomovies":
-        return RidomoviesScraper(progress_cb=log).get_series(value)
-    return None
-
-
-def _search_series_provider_results(
-    query: str,
-) -> Dict[str, List[FilmpalastSeriesResult]]:
-    """Durchsucht alle Serienkataloge parallel und trennt die Treffer je Quelle."""
-    q = query.strip()
-    if not q:
-        return {}
-    priority = provider_priority("series")
-    tasks = [
-        (provider, lambda key=provider: _search_series_for_provider(key, q))
-        for provider in priority
-    ]
-    provider_results: Dict[str, List[FilmpalastSeriesResult]] = {}
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = [(provider, pool.submit(fn)) for provider, fn in tasks]
-        for provider, future in futures:
-            try:
-                provider_results[provider] = list(future.result())
-            except Exception as exc:
-                log(f"{PROVIDER_LABELS[provider]} Seriensuche √ºbersprungen: {exc}", "warn")
-                provider_results[provider] = []
-    return provider_results
-
-
-def search_series_candidates(query: str) -> List[FilmpalastSeriesResult]:
-    """Durchsucht alle Serienkataloge und beh√§lt die konfigurierte Reihenfolge."""
-    provider_results = _search_series_provider_results(query)
-    results: List[FilmpalastSeriesResult] = []
-    for provider in provider_priority("series"):
-        results.extend(provider_results.get(provider, []))
-    return results
-
-
-@dataclass(frozen=True)
-class _SeriesCatalogEntry:
-    """Ein sichtbarer Serientreffer mit bevorzugter und alternativen Quellen."""
-
-    provider: str
-    result: FilmpalastSeriesResult
-    providers: tuple[str, ...]
-
-
-class SeriesCatalogColdLoadLimit(RuntimeError):
-    """Verhindert teure Spr√ºnge √ºber viele noch ungecachte Serienseiten."""
-
-
-def _series_result_identity(
-    result: FilmpalastSeriesResult,
-    provider: str,
-    years_by_title: Dict[str, set[str]],
-) -> tuple:
-    title_key = _norm_title(strip_source_suffix(result.title))
-    if not title_key:
-        return ("source", provider, str(result.base_slug or result.sample_slug or result.sample_url))
-    year = str(result.year or "").strip()
-    known_years = years_by_title.get(title_key, set())
-    if not year and len(known_years) == 1:
-        year = next(iter(known_years))
-    return ("series", title_key, year)
-
-
-def _claim_series_identity(identity: tuple, claimed: set[tuple]) -> bool:
-    """Reserviert eine Identit√§t; True bedeutet, dass sie bereits sichtbar ist."""
-    if identity in claimed:
-        return True
-    if len(identity) != 3 or identity[0] != "series":
-        claimed.add(identity)
-        return False
-
-    _kind, title_key, year = identity
-    unknown = ("series", title_key, "")
-    known = {
-        item for item in claimed
-        if len(item) == 3 and item[0] == "series" and item[1] == title_key and item[2]
-    }
-    if year and unknown in claimed:
-        # Ein fr√ºher jahrsloser Treffer wird durch den ersten eindeutigen
-        # Jahrgang konkretisiert. Weitere Remakes d√ºrfen danach sichtbar bleiben.
-        claimed.remove(unknown)
-        claimed.add(identity)
-        return True
-    if not year and len(known) == 1:
-        return True
-    claimed.add(identity)
-    return False
-
-
-def _mix_series_provider_results(
-    provider_results: Dict[str, List[FilmpalastSeriesResult]],
-    priority: List[str],
-    claimed_identities: Optional[set[tuple]] = None,
-) -> List[_SeriesCatalogEntry]:
-    """Dedupliziert Serien und mischt die Leitquelle im Verh√§ltnis 2:1 ein.
-
-    Die erste konfigurierte Quelle erh√§lt zwei Pl√§tze je Runde. So bleibt die
-    st√§rkste Quelle pr√§gend, w√§hrend jeder weitere Anbieter regelm√§√üig sichtbar
-    wird. Identische Titel werden als eine Serie mit mehreren Quellen gef√ºhrt.
-    """
-    years_by_title: Dict[str, set[str]] = defaultdict(set)
-    for results in provider_results.values():
-        for result in results:
-            title_key = _norm_title(strip_source_suffix(result.title))
-            year = str(result.year or "").strip()
-            if title_key and year:
-                years_by_title[title_key].add(year)
-
-    grouped: Dict[tuple, List[tuple[str, FilmpalastSeriesResult]]] = OrderedDict()
-    for provider in priority:
-        for result in provider_results.get(provider, []):
-            identity = _series_result_identity(result, provider, years_by_title)
-            grouped.setdefault(identity, []).append((provider, result))
-
-    seen = claimed_identities if claimed_identities is not None else set()
-    per_provider: Dict[str, List[_SeriesCatalogEntry]] = {provider: [] for provider in priority}
-    for identity, matches in grouped.items():
-        if _claim_series_identity(identity, seen):
-            continue
-        primary_provider, primary_result = matches[0]
-        source_set = {provider for provider, _result in matches}
-        sources = tuple(provider for provider in priority if provider in source_set)
-
-        # Fehlende Listenmetadaten d√ºrfen von einer alternativen Quelle erg√§nzt
-        # werden, ohne die bevorzugte, klickbare Quelle auszutauschen.
-        year = str(primary_result.year or "").strip()
-        cover_url = str(primary_result.cover_url or "").strip()
-        if not year:
-            year = next((str(result.year).strip() for _provider, result in matches if result.year), "")
-        if not cover_url:
-            cover_url = next(
-                (str(result.cover_url).strip() for _provider, result in matches if result.cover_url),
-                "",
-            )
-        visible_result = replace(primary_result, year=year, cover_url=cover_url)
-        per_provider[primary_provider].append(_SeriesCatalogEntry(
-            provider=primary_provider,
-            result=visible_result,
-            providers=sources or (primary_provider,),
-        ))
-
-    mixed: List[_SeriesCatalogEntry] = []
-    positions = {provider: 0 for provider in priority}
-    while True:
-        progressed = False
-        for index, provider in enumerate(priority):
-            quota = 2 if index == 0 else 1
-            entries = per_provider[provider]
-            start = positions[provider]
-            end = min(start + quota, len(entries))
-            if end > start:
-                mixed.extend(entries[start:end])
-                positions[provider] = end
-                progressed = True
-        if not progressed:
-            break
-    return mixed
-
-
-def _interleave_series_lists(
-    *lists: List[FilmpalastSeriesResult],
-) -> List[FilmpalastSeriesResult]:
-    """Verzahnt mehrere Signallisten stabil und entfernt Quell-Dubletten."""
-    merged: List[FilmpalastSeriesResult] = []
-    seen: set[str] = set()
-    longest = max((len(items) for items in lists), default=0)
-    for index in range(longest):
-        for items in lists:
-            if index >= len(items):
-                continue
-            result = items[index]
-            key = str(result.base_slug or result.sample_slug or result.sample_url or result.title)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(result)
-    return merged
-
-
-def _series_provider_is_paginated(provider: str, mode: str) -> bool:
-    if mode == "alpha":
-        return provider in SERIES_ALPHA_PROVIDERS
-    return provider in SERIES_PAGINATED_PROVIDERS
-
-
-def _cached_series_provider_page(
-    cache_key: tuple,
-) -> Optional[List[FilmpalastSeriesResult]]:
-    with state.series_list_cache_lock:
-        cached = state.series_list_cache.get(cache_key)
-        ttl = cached[2] if cached and len(cached) > 2 else SERIES_LIST_CACHE_TTL
-        if cached and time.time() - cached[0] < ttl:
-            return list(cached[1])
-        if cached:
-            state.series_list_cache.pop(cache_key, None)
-    return None
-
-
-def _cache_series_provider_page(
-    cache_key: tuple,
-    results: List[FilmpalastSeriesResult],
-    ttl: int = SERIES_LIST_CACHE_TTL,
-) -> None:
-    now = time.time()
-    with state.series_list_cache_lock:
-        expired = [
-            key for key, cached in state.series_list_cache.items()
-            if now - cached[0] >= (
-                cached[2] if len(cached) > 2 else SERIES_LIST_CACHE_TTL
-            )
-        ]
-        for key in expired:
-            state.series_list_cache.pop(key, None)
-        while len(state.series_list_cache) >= SERIES_LIST_CACHE_MAX_ENTRIES:
-            oldest = min(
-                state.series_list_cache,
-                key=lambda key: state.series_list_cache[key][0],
-            )
-            state.series_list_cache.pop(oldest, None)
-        state.series_list_cache[cache_key] = (now, list(results), ttl)
-
-
-def _fetch_series_provider_page(
-    provider: str,
-    mode: str,
-    letter: str,
-    source_page: int,
-) -> List[FilmpalastSeriesResult]:
-    """L√§dt eine Serien-Quellseite passend zum gew√ºnschten Entdeckungsmodus."""
-    if not _series_provider_is_paginated(provider, mode) and source_page != 1:
-        return []
-
-    if provider == "serienstream":
-        if not state.provider_health.request_allowed("serienstream"):
-            return []
-        with state.sto_lock:
-            scraper = get_sto_scraper()
-            try:
-                if mode == "alpha":
-                    return list(scraper.list_series_alpha(letter, source_page))
-                if source_page != 1:
-                    return []
-                if mode == "new":
-                    return list(scraper.list_new(1))
-                if mode == "trending":
-                    return list(scraper.list_trending(1))
-                return _interleave_series_lists(
-                    list(scraper.list_trending(1)),
-                    list(scraper.list_new(1)),
-                )
-            except ProviderBlockedError as exc:
-                _mark_serienstream_blocked(exc.reason, str(exc))
-                return []
-
-    if provider == "filmpalast":
-        with state.fp_lock:
-            scraper = get_fp_scraper()
-            if mode == "alpha":
-                return list(scraper.list_series_alpha(letter, source_page))
-            return list(scraper.list_series(source_page))
-
-    if mode == "alpha":
-        return []
-    scraper_classes = {
-        "moflix": MoflixScraper,
-        "kinoger": KinogerScraper,
-        "megakino": MegaKinoScraper,
-        "xcine": XcineScraper,
-        "sflix": SflixScraper,
-        "ridomovies": RidomoviesScraper,
-    }
-    if provider == "huhu":
-        with state.huhu_lock:
-            return list(get_huhu_scraper().list_series(source_page))
-    scraper_class = scraper_classes.get(provider)
-    if scraper_class is None:
-        return []
-    return list(scraper_class(progress_cb=log).list_series(source_page))
-
-
-def _load_series_provider_pages(
-    mode: str,
-    letter: str,
-    requests_to_load: List[tuple[str, int]],
-    cold_wave_budget: Optional[List[int]] = None,
-) -> Dict[tuple[str, int], List[FilmpalastSeriesResult]]:
-    loaded: Dict[tuple[str, int], List[FilmpalastSeriesResult]] = {}
-    missing: List[tuple[str, int, tuple]] = []
-    letter_key = str(letter or "").strip().upper()
-    for provider, source_page in dict.fromkeys(requests_to_load):
-        cache_mode = (
-            "updates"
-            if provider != "serienstream" and mode in {"discover", "new"}
-            else mode
-        )
-        cache_key = ("series-provider", cache_mode, letter_key, provider, int(source_page))
-        cached = _cached_series_provider_page(cache_key)
-        if cached is None:
-            missing.append((provider, source_page, cache_key))
-        else:
-            loaded[(provider, source_page)] = cached
-
-    if not missing:
-        return loaded
-    if cold_wave_budget is not None:
-        if cold_wave_budget[0] <= 0:
-            raise SeriesCatalogColdLoadLimit(
-                "Dieser Serienabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
-            )
-        cold_wave_budget[0] -= 1
-
-    with ThreadPoolExecutor(max_workers=min(len(missing), len(PROVIDER_LABELS))) as pool:
-        futures = [
-            (
-                provider,
-                source_page,
-                cache_key,
-                pool.submit(
-                    _fetch_series_provider_page,
-                    provider,
-                    mode,
-                    letter,
-                    source_page,
-                ),
-            )
-            for provider, source_page, cache_key in missing
-        ]
-        for provider, source_page, cache_key, future in futures:
-            try:
-                results = list(future.result())
-            except Exception as exc:
-                log(
-                    f"{PROVIDER_LABELS.get(provider, provider)} Serienliste "
-                    f"(Quellseite {source_page}) √ºbersprungen: {exc}",
-                    "warn",
-                )
-                results = []
-                _cache_series_provider_page(
-                    cache_key,
-                    results,
-                    ttl=SERIES_LIST_FAILURE_CACHE_TTL,
-                )
-            else:
-                _cache_series_provider_page(cache_key, results)
-            loaded[(provider, source_page)] = results
-    return loaded
-
-
-def _series_catalog_sources(entries: List[_SeriesCatalogEntry], priority: List[str]) -> List[dict]:
-    counts = Counter(provider for entry in entries for provider in entry.providers)
-    return [
-        {
-            "key": provider,
-            "label": PROVIDER_LABELS[provider],
-            "content_language": provider_content_language(provider),
-            "language_label": PROVIDER_CATALOG[provider].language_label,
-            "count": counts[provider],
-        }
-        for provider in priority
-        if counts[provider]
-    ]
-
-
-def _series_entry_to_dict(entry: _SeriesCatalogEntry) -> dict:
-    payload = asdict(entry.result)
-    payload["title"] = strip_source_suffix(entry.result.title)
-    payload["provider"] = entry.provider
-    payload["provider_label"] = PROVIDER_LABELS.get(entry.provider, entry.provider)
-    payload["content_language"] = provider_content_language(entry.provider)
-    payload["language_label"] = PROVIDER_CATALOG[entry.provider].language_label
-    payload["sources"] = [
-        {
-            "key": provider,
-            "label": PROVIDER_LABELS.get(provider, provider),
-            "content_language": provider_content_language(provider),
-        }
-        for provider in entry.providers
-    ]
-    return payload
-
-
-def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> dict:
-    """Erzeugt eine stabile, gemischte Serienseite aus den verf√ºgbaren Katalogen."""
-    page = max(1, min(int(page), SERIES_MAX_GLOBAL_PAGE))
-    mode = mode if mode in {"discover", "new", "trending", "alpha"} else "discover"
-    priority = provider_priority("series")
-    if mode == "trending":
-        # Nur Serienstream liefert ein echtes Popularit√§tssignal. Andere
-        # Aktualit√§tslisten werden bewusst nicht als ‚Äûangesagt‚Äú ausgegeben.
-        active = [provider for provider in priority if provider == "serienstream"]
-    elif mode == "alpha":
-        active = [provider for provider in priority if provider in SERIES_ALPHA_PROVIDERS]
-    else:
-        active = list(priority)
-
-    provider_seen: Dict[str, set[str]] = {provider: set() for provider in priority}
-
-    def unique_page(
-        provider: str,
-        results: List[FilmpalastSeriesResult],
-    ) -> List[FilmpalastSeriesResult]:
-        unique: List[FilmpalastSeriesResult] = []
-        for result in results:
-            source_key = str(
-                result.base_slug or result.sample_slug or result.sample_url or result.title
-            ).strip()
-            key = f"{source_key}\0{str(result.year or '').strip()}"
-            if key in provider_seen[provider]:
-                continue
-            provider_seen[provider].add(key)
-            unique.append(result)
-        return unique
-
-    cold_wave_budget = [SERIES_MAX_COLD_WAVES_PER_REQUEST]
-    first_pages = _load_series_provider_pages(
-        mode,
-        letter,
-        [(provider, 1) for provider in active],
-        cold_wave_budget,
-    )
-    first_wave = {
-        provider: unique_page(provider, first_pages.get((provider, 1), []))
-        for provider in active
-    }
-    claimed_identities: set[tuple] = set()
-    catalog_entries = _mix_series_provider_results(
-        first_wave,
-        priority,
-        claimed_identities,
-    )
-
-    paginated = [
-        provider for provider in active if _series_provider_is_paginated(provider, mode)
-    ]
-    exhausted = {provider for provider in paginated if not first_wave[provider]}
-    duplicate_only_pages = {provider: 0 for provider in paginated}
-    target_end = page * SERIES_BROWSE_PAGE_SIZE
-    next_source_page = 2
-    has_more_unverified = False
-
-    while len(catalog_entries) <= target_end and next_source_page <= SERIES_MAX_SOURCE_PAGE:
-        pending = [provider for provider in paginated if provider not in exhausted]
-        if not pending:
-            break
-        try:
-            next_pages = _load_series_provider_pages(
-                mode,
-                letter,
-                [(provider, next_source_page) for provider in pending],
-                cold_wave_budget,
-            )
-        except SeriesCatalogColdLoadLimit:
-            if len(catalog_entries) < target_end:
-                raise
-            has_more_unverified = True
-            break
-        wave: Dict[str, List[FilmpalastSeriesResult]] = {}
-        for provider in pending:
-            results = next_pages.get((provider, next_source_page), [])
-            wave[provider] = unique_page(provider, results)
-            if not results:
-                exhausted.add(provider)
-            elif not wave[provider]:
-                duplicate_only_pages[provider] += 1
-                if duplicate_only_pages[provider] >= 2:
-                    exhausted.add(provider)
-            else:
-                duplicate_only_pages[provider] = 0
-        catalog_entries.extend(_mix_series_provider_results(
-            wave,
-            priority,
-            claimed_identities,
-        ))
-        next_source_page += 1
-
-    start = (page - 1) * SERIES_BROWSE_PAGE_SIZE
-    page_entries = catalog_entries[start:target_end]
-    return {
-        "entries": page_entries,
-        "page": page,
-        "has_more": page < SERIES_MAX_GLOBAL_PAGE and (
-            len(catalog_entries) > target_end or has_more_unverified
-        ),
-        "sources": _series_catalog_sources(page_entries, priority),
-    }
-
-
-def series_catalog_page(mode: str, page: int = 1, letter: str = "") -> dict:
-    """Single-Flight-Wrapper f√ºr Warmup und gleichzeitig √∂ffnende Browser."""
-    with state.series_catalog_lock:
-        return _series_catalog_page_locked(mode, page, letter)
-
-
-def series_search_catalog(query: str) -> dict:
-    """Gruppiert die freie Suche nach Titel und zeigt alternative Quellen an."""
-    priority = provider_priority("series")
-    entries = _mix_series_provider_results(
-        _search_series_provider_results(query),
-        priority,
-    )
-    wanted = _norm_title(query)
-    entries.sort(key=lambda entry: (
-        _norm_title(entry.result.title) != wanted,
-        wanted not in _norm_title(entry.result.title),
-        abs(len(_norm_title(entry.result.title)) - len(wanted)),
-        strip_source_suffix(entry.result.title).casefold(),
-    ))
-    return {
-        "entries": entries,
-        "page": 1,
-        "has_more": False,
-        "sources": _series_catalog_sources(entries, priority),
-    }
-
-
-def warm_home_series_cache() -> None:
-    """Bereitet die gemischte Serien-Startansicht im Hintergrund vor."""
-    try:
-        catalog = series_catalog_page("discover", 1)
-        log(f"Serien-Startansicht vorbereitet: {len(catalog['entries'])} Serien.")
-    except Exception as exc:
-        log(f"Serien-Startansicht konnte nicht vorab geladen werden: {exc}", "warn")
-
-
-def _norm_title(title: str) -> str:
-    """Titel f√ºr Matching normalisieren: Provider-Suffix + Sonderzeichen weg."""
-    t = re.sub(r"\s*\[[^\]]+\]\s*$", "", title or "")
-    return re.sub(r"[^a-z0-9]+", "", t.casefold())
-
-
-def _series_search_title(value: str) -> str:
-    """Leitet aus einem Serien-Wert (Slug/URL) einen Such-Titel ab ‚Äì auch aus
-    Alt-/Fremdwerten (Moflix/Filmpalast), damit alte Watchlist-Eintr√§ge auf
-    serienstream.to gematcht werden k√∂nnen."""
-    v = value or ""
-    is_kinoger = v.startswith(KINOGER_PREFIX) or "kinoger.com" in v.casefold()
-    is_megakino = v.startswith(MEGAKINO_PREFIX) or "megakino.org" in v.casefold()
-    is_xcine = v.startswith(XCINE_PREFIX) or "xcine.ru" in v.casefold()
-    for pfx in (
-        SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
-        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
-        SFLIX_PREFIX, RIDOMOVIES_PREFIX,
-    ):
-        if v.startswith(pfx):
-            v = v[len(pfx):]
-            break
-    if ":" in v and v.split(":", 1)[0].isdigit():   # moflix "123:the-bear"
-        v = v.split(":", 1)[1]
-    if is_megakino:
-        v = re.sub(r"^[0-9a-f]{24}:", "", v, flags=re.I)
-    if v.startswith("http"):
-        m = re.search(r"/(?:serie|stream|titles|watch)/(?:stream/|\d+/)?([^/?#]+)", v)
-        v = m.group(1) if m else v
-    if is_kinoger:
-        v = re.sub(r"^\d+-", "", v)
-        v = re.sub(r"\.html$", "", v, flags=re.I)
-    if is_xcine and ":" in v:
-        v = v.split(":", 1)[1]
-    parsed = parse_episode_slug(v)
-    if parsed:
-        v = parsed[0]
-    return v.replace("-", " ").strip()
-
-
-def _episode_placeholder(slug: str, series_title: str = "") -> FilmpalastMovie:
-    """Beh√§lt eine vor√ºbergehend nicht ladbare Episode als Queue-Job."""
-    parsed = parse_episode_slug(slug)
-    if not parsed:
-        raise ValueError(f"Kein Episoden-Slug: {slug}")
-    base_slug, season, episode = parsed
-    if not series_title:
-        with state.watchlist_lock:
-            entry = watchlist_lookup(base_slug)
-            if entry:
-                series_title = str(entry.get("title") or "")
-    if not series_title:
-        cached = state.series_cache.get(base_slug)
-        if cached:
-            series_title = cached.title
-    if not series_title:
-        series_title = _series_search_title(base_slug).title() or "Unbekannte Serie"
-    return FilmpalastMovie(
-        title=f"{series_title} S{season:02d}E{episode:02d}",
-        url=slug,
-        hosters=[],
-    )
-
-
-def _best_title_match(title: str, results: List[FilmpalastSeriesResult]) -> Optional[FilmpalastSeriesResult]:
-    want = _norm_title(title)
-    if not want or not results:
-        return None
-    exact = [r for r in results if _norm_title(r.title) == want]
-    if exact:
-        return exact[0]
-    partial = [r for r in results if want in _norm_title(r.title) or _norm_title(r.title) in want]
-    return partial[0] if partial else None
-
-
-def _find_series_by_title(
-    value: str, providers: Optional[List[str]] = None,
-) -> Optional[FilmpalastSeries]:
-    """Sucht und l√§dt dieselbe Serie nach konfigurierter Anbieterpriorit√§t."""
-    title = _series_search_title(value)
-    if not title:
-        return None
-    for provider in providers or provider_priority("series"):
-        label = PROVIDER_LABELS[provider]
-        log(f"Serie nicht direkt ladbar ‚Äì suche ¬´{title}¬ª bei {label} ‚Ä¶")
-        try:
-            results = _search_series_for_provider(provider, title)
-            best = _best_title_match(title, results)
-            series = _load_series_for_provider(provider, best.sample_slug) if best else None
-        except Exception as exc:
-            log(f"  {label}-Suche/Laden fehlgeschlagen: {exc}", "warn")
-            continue
-        if series and series.seasons:
-            log(f"  Gefunden bei {label} ({len(series.all_episodes)} Episoden).")
-            return series
-    return None
-
-
-def _sto_find_by_title(value: str) -> Optional[FilmpalastSeries]:
-    """Kompatibilit√§tshelfer f√ºr gezielte Serienstream-Suche."""
-    return _find_series_by_title(value, ["serienstream"])
-
-
-def get_series_for_value(value: str) -> Optional[FilmpalastSeries]:
-    """L√§dt eine explizite Quelle direkt, danach greifen die Priorit√§ts-Fallbacks."""
-    provider = provider_for_value(value)
-    try:
-        series = _load_series_for_provider(provider, value)
-    except Exception as exc:
-        log(f"{PROVIDER_LABELS[provider]} Serien-Laden fehlgeschlagen: {exc}", "warn")
-        series = None
-    if series and series.seasons:
-        return series
-    fallbacks = [key for key in provider_priority("series") if key != provider]
-    if provider in appconfig.SERIES_PROVIDER_DEFAULTS:
-        fallbacks.append(provider)
-    return _find_series_by_title(value, fallbacks)
-
-
-def movie_to_dict(
-    movie: FilmpalastMovie,
-    tmdb_override: Optional[dict] = None,
-) -> dict:
-    ranked = state.hoster_intel.rank(movie.hosters) if movie.hosters else []
-    provider = _movie_provider(movie)
-    content_language = _movie_content_language(movie)
-    payload = {
-        "title": clean_movie_title(movie.title),
-        "url": movie.url, "year": movie.year,
-        "runtime": movie.runtime, "cover_url": movie.cover_url,
-        "description": movie.description, "genres": movie.genres,
-        "provider": provider,
-        "provider_label": PROVIDER_LABELS.get(provider, provider),
-        "content_language": content_language,
-        "language_label": PROVIDER_CATALOG[provider].language_label,
-        "hosters": [asdict(h) for h in movie.hosters],
-        "hoster_label": state.hoster_intel.best_label(movie.hosters) if movie.hosters else "kein Hoster",
-        "hoster_route": state.hoster_intel.route_text(movie.hosters) if movie.hosters else "keine Route",
-        "hoster_score": round(state.hoster_intel.score(ranked[0])) if ranked else None,
-        "hoster_fallback_count": max(0, len(ranked) - 1) if ranked else 0,
-        "metadata_source": "Anbieter",
-    }
-    tmdb = tmdb_override or get_tmdb_client().movie(
-        clean_movie_title(movie.title), movie.year,
-    )
-    if tmdb:
-        for field in (
-            "title", "year", "runtime", "cover_url", "backdrop_url", "description", "genres",
-            "original_title", "release_date", "rating", "vote_count", "tagline",
-            "certification", "certification_country", "status", "original_language",
-            "spoken_languages", "countries", "directors", "writers", "cast",
-            "production_companies", "keywords", "collection", "budget", "revenue",
-            "trailer", "tmdb_url",
-        ):
-            if tmdb.get(field):
-                payload[field] = tmdb[field]
-        payload["metadata_source"] = "TMDB"
-        payload["tmdb_id"] = tmdb["tmdb_id"]
-    return payload
-
-
-def movie_detail_to_dict(slug: str, movie: FilmpalastMovie) -> dict:
-    """Erg√§nzt einen Film um seine geb√ºndelten Anbieterquellen."""
-    tmdb_match = re.fullmatch(r"tmdb:(\d+)", slug or "", flags=re.IGNORECASE)
-    tmdb = (
-        get_tmdb_client().movie_by_id(tmdb_match.group(1))
-        if tmdb_match else None
-    )
-    payload = movie_to_dict(movie, tmdb_override=tmdb)
-    if tmdb_match:
-        if tmdb:
-            for field in (
-                "title", "year", "runtime", "cover_url", "backdrop_url",
-                "description", "genres", "original_title", "release_date",
-                "rating", "vote_count", "tagline", "certification",
-                "certification_country", "status", "original_language",
-                "spoken_languages", "countries", "directors", "writers", "cast",
-                "production_companies", "keywords", "collection", "budget",
-                "revenue", "trailer", "tmdb_url",
-            ):
-                if tmdb.get(field):
-                    payload[field] = tmdb[field]
-            payload["metadata_source"] = "TMDB"
-            payload["tmdb_id"] = tmdb["tmdb_id"]
-
-    with state.movie_source_cache_lock:
-        sources = list(state.movie_source_cache.get(slug) or [movie])
-    provider_sources = []
-    for source in sources:
-        provider = _movie_provider(source)
-        provider_sources.append({
-            "key": provider,
-            "label": PROVIDER_LABELS.get(provider, provider),
-            "content_language": _movie_content_language(source),
-            "hoster_count": len(source.hosters),
-            "hosters": [asdict(hoster) for hoster in source.hosters],
-        })
-    payload["source_providers"] = provider_sources
-    payload["provider_count"] = len(provider_sources)
-    payload["provider_fallback_count"] = max(0, len(provider_sources) - 1)
-    payload["hoster_total"] = sum(source["hoster_count"] for source in provider_sources)
-    payload["provider_route"] = " ‚Üí ".join(
-        source["label"] for source in provider_sources
-    )
-    return payload
-
-
-def cached_movie_source_fallbacks(slug: str) -> Optional[List[FilmpalastMovie]]:
-    with state.movie_source_cache_lock:
-        sources = state.movie_source_cache.get(slug)
-        return list(sources[1:]) if sources else None
-
-
-def _series_folder_key(name: str) -> str:
-    """Vergleichsschl√ºssel f√ºr vorhandene Serienordner.
-
-    Linux unterscheidet Gro√ü-/Kleinschreibung. Ohne diese Normalisierung w√ºrde
-    z.B. neben "The rookie" ein zweiter Ordner "The Rookie" entstehen.
-    """
-    without_year = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", name or "")
-    return re.sub(r"[^a-z0-9]+", "", without_year.casefold())
-
-
-def _existing_series_dir(out_root: Path, desired_name: str) -> Path:
-    desired = out_root / desired_name
-    if not out_root.is_dir():
-        return desired
-    wanted = _series_folder_key(desired_name)
-    cache_key = (str(out_root.resolve()), wanted)
-    cached = state.series_dir_cache.get(cache_key)
-    if cached is not None and cached.is_dir():
-        return cached
-    try:
-        matches = [
-            child for child in out_root.iterdir()
-            if child.is_dir() and _series_folder_key(child.name) == wanted
-        ]
-    except OSError:
-        return desired
-    if not matches:
-        return desired
-
-    # Gibt es durch eine fr√ºhere Gro√ü-/Kleinschreibungs-Abweichung bereits zwei
-    # Ordner, gewinnt der etablierte Ordner mit den meisten Mediendateien.
-    video_suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-
-    def _content_score(path: Path) -> tuple:
-        videos = 0
-        dirs = 0
-        try:
-            for child in path.rglob("*"):
-                if child.is_dir():
-                    dirs += 1
-                elif child.suffix.casefold() in video_suffixes:
-                    videos += 1
-        except OSError:
-            pass
-        return videos, dirs, path.name == desired_name
-
-    chosen = max(matches, key=_content_score)
-    state.series_dir_cache[cache_key] = chosen
-    return chosen
-
-
-def _season_output_dir(series_dir: Path, season: int) -> Path:
-    """√úbernimmt die vorhandene Staffelstruktur einer Serie.
-
-    Unterst√ºtzt "Staffel 8", "Staffel 08", "Season 08" und "S08". Liegen
-    vorhandene Episoden flach im Serienordner, bleibt auch die neue Episode dort.
-    """
-    preferred = series_dir / f"Staffel {season:02d}"
-    if preferred.exists() or not series_dir.is_dir():
-        return preferred
-
-    season_re = re.compile(r"^(?:staffel|season|s)\s*0*(\d+)\b", re.IGNORECASE)
-    season_dirs: List[tuple] = []
-    has_flat_episodes = False
-    episode_re = re.compile(r"(?:^|[. _-])s\d{1,2}e\d{1,3}(?:$|[. _-])", re.IGNORECASE)
-    try:
-        for child in series_dir.iterdir():
-            if child.is_dir():
-                match = season_re.match(child.name.strip())
-                if match:
-                    season_dirs.append((int(match.group(1)), child))
-            elif child.is_file() and episode_re.search(child.stem):
-                has_flat_episodes = True
-    except OSError:
-        return preferred
-
-    for number, folder in season_dirs:
-        if number == season:
-            return folder
-    if has_flat_episodes and not season_dirs:
-        return series_dir
-    return preferred
-
-
-def series_episode_out_path(series_title: str, season: int, episode: int) -> Path:
-    # Serien landen im SEPARATEN Serien-Ordner (state.series_path), Filme im
-    # Film-Ordner (state.save_path). Vorhandene NAS-Strukturen werden bewahrt.
-    out_root = Path(state.series_path)
-    desired_name = sanitize_filename(series_title).strip() or "Serie"
-    series_dir = _existing_series_dir(out_root, desired_name)
-    season_dir = _season_output_dir(series_dir, season)
-    return season_dir / build_filename(series_title, season, episode)
-
-
-def _valid_media_cached(path: Path) -> tuple[bool, str]:
-    """Validiert lokale Medien nur erneut, wenn Gr√∂√üe oder mtime sich √§ndern."""
-    try:
-        stat = path.stat()
-        signature = (stat.st_size, stat.st_mtime_ns)
-    except OSError as exc:
-        return False, f"Datei nicht lesbar: {exc}"
-    key = str(path.resolve(strict=False))
-    with state.media_validation_lock:
-        cached = state.media_validation_cache.get(key)
-        if cached and cached[:2] == signature:
-            return bool(cached[2]), str(cached[3])
-    valid, detail = validate_media_file(path)
-    with state.media_validation_lock:
-        state.media_validation_cache[key] = (*signature, valid, detail)
-    return valid, detail
-
-
-def compute_downloaded_episodes(series: FilmpalastSeries) -> set:
-    """Scannt den Serienordner einmal statt eines NAS-Glob pro Episode."""
-    out_root = Path(state.series_path)
-    desired_name = sanitize_filename(series.title).strip() or "Serie"
-    series_dir = _existing_series_dir(out_root, desired_name)
-    if not series_dir.is_dir():
-        return set()
-
-    video_suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-    candidates: List[tuple[Path, tuple[int, int]]] = []
-    try:
-        for path in series_dir.rglob("*"):
-            if not path.is_file() or path.suffix.casefold() not in video_suffixes:
-                continue
-            match = re.search(r"(?:^|[. _-])s(\d{1,2})e(\d{1,3})(?:$|[. _-])", path.stem, re.I)
-            if match:
-                candidates.append((path, (int(match.group(1)), int(match.group(2)))))
-    except OSError:
-        pass
-
-    existing: set[tuple[int, int]] = set()
-    if candidates:
-        with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
-            futures = [(pair, pool.submit(_valid_media_cached, path)) for path, pair in candidates]
-            for pair, future in futures:
-                try:
-                    valid, _detail = future.result()
-                except Exception:
-                    valid = False
-                if valid:
-                    existing.add(pair)
-
-    return {
-        ep.slug for ep in series.all_episodes
-        if (ep.season, ep.episode) in existing
-    }
-
-
-def series_to_dict(
-    series: FilmpalastSeries,
-    refresh_jellyfin: bool = False,
-    defer_checks: bool = False,
-) -> dict:
-    """Serialisiert eine Serie, optional ohne blockierende Verf√ºgbarkeitschecks.
-
-    Beim ersten √ñffnen werden damit Staffel- und Episodenstruktur sofort nach
-    dem Anbieterabruf ausgeliefert. Lokaler Bestand, TMDB und Jellyfin d√ºrfen
-    anschlie√üend in einem getrennten Request nachziehen.
-    """
-    downloaded = set() if defer_checks else compute_downloaded_episodes(series)
-    with state.watchlist_lock:
-        stored_entry = watchlist_lookup(series.base_slug)
-        watchlist_entry = dict(stored_entry) if stored_entry else None
-    stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
-    tmdb_client = get_tmdb_client()
-    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id)
-    aliases = list(dict.fromkeys(filter(None, (
-        watchlist_entry.get("title", "") if watchlist_entry else "",
-        *(watchlist_entry.get("aliases", []) if watchlist_entry else []),
-        tmdb.get("title", "") if tmdb else "",
-        tmdb.get("original_title", "") if tmdb else "",
-    ))))
-    tmdb_id = stored_tmdb_id or (tmdb or {}).get("tmdb_id")
-    season_episode_counts = (tmdb or {}).get("season_episode_counts") or (
-        watchlist_entry.get("season_episode_counts", {}) if watchlist_entry else {}
-    )
-    season_counts_checked_at = (tmdb or {}).get("season_counts_checked_at") or (
-        watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
-    )
-    unreleased_slugs = (
-        _unreleased_episode_slugs(series, tmdb_id)
-        if not defer_checks and tmdb_id else set()
-    )
-    jf_client = get_jellyfin_client()
-    jellyfin_pending = bool(defer_checks and jf_client.configured)
-    jf_identity_available: Optional[bool] = None if jellyfin_pending else True
-    jf_existing: set[tuple[int, int]] = set()
-    if jf_client.configured and not jellyfin_pending:
-        with state.jellyfin_cache_lock:
-            jf_config_generation = state.jellyfin_config_generation
-        jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin)
-        jf_series = get_jellyfin_series(force=refresh_jellyfin)
-        with state.jellyfin_cache_lock:
-            jf_data_generation = state.jellyfin_episode_data_generation
-        jf_series_ids = jf_client.series_ids_for(
-            series.title, tmdb_id=tmdb_id, aliases=aliases, items=jf_series,
-        ) if jf_series is not None else set()
-        jf_identity_available = bool(
-            jf_episodes is not None
-            and state.jellyfin_episodes_available
-            and jf_series is not None
-            and state.jellyfin_series_available
-            and jf_series_ids is not None
-        )
-        jf_existing = (
-            jf_client.episodes_for_series(
-                series.title, items=jf_episodes, aliases=aliases, series_ids=jf_series_ids,
-            )
-            if jf_identity_available and jf_episodes is not None else set()
-        )
-        with state.jellyfin_cache_lock:
-            if (
-                jf_config_generation != state.jellyfin_config_generation
-                or jf_data_generation != state.jellyfin_episode_data_generation
-            ):
-                jf_identity_available = False
-                jf_existing = set()
-    seasons = []
-    for s in series.season_numbers:
-        episodes = []
-        for ep in series.seasons[s]:
-            in_jellyfin = (ep.season, ep.episode) in jf_existing
-            episodes.append({
-                "season": ep.season, "episode": ep.episode, "slug": ep.slug,
-                "url": ep.url, "release_name": ep.release_name,
-                "queued": ep.slug in state.picked,
-                "downloaded": ep.slug in downloaded,
-                "in_jellyfin": in_jellyfin,
-                "unreleased": ep.slug in unreleased_slugs,
-            })
-        seasons.append({"season": s, "episodes": episodes})
-    provider = provider_for_value(series.url or series.base_slug)
-    payload = {
-        "title": series.title, "base_slug": series.base_slug, "url": series.url,
-        "cover_url": series.cover_url, "description": series.description,
-        "genres": series.genres, "seasons": seasons,
-        "provider": provider,
-        "provider_label": PROVIDER_LABELS.get(provider, provider),
-        "content_language": provider_content_language(provider),
-        "language_label": PROVIDER_CATALOG[provider].language_label,
-        "episode_count": len(series.all_episodes),
-        "watchlisted": watchlist_entry is not None,
-        "availability_pending": defer_checks,
-        "enrichment_pending": bool(
-            defer_checks and (tmdb_client.configured or jf_client.configured)
-        ),
-        "jellyfin_configured": jf_client.configured,
-        "jellyfin_pending": jellyfin_pending,
-        "jellyfin_available": jf_identity_available,
-        "watch_mode": normalize_watch_mode(
-            watchlist_entry.get("download_mode") if watchlist_entry else None
-        ),
-        "cleanup_mode": normalize_cleanup_mode(
-            watchlist_entry.get("cleanup_mode") if watchlist_entry else None
-        ),
-        "metadata_source": "Anbieter",
-    }
-    if tmdb:
-        for field in (
-            "title", "year", "first_air_date", "runtime", "cover_url",
-            "backdrop_url", "description", "genres", "original_title",
-            "rating", "vote_count", "status", "trailer", "cast", "creators",
-            "networks",
-        ):
-            if tmdb.get(field):
-                payload[field] = tmdb[field]
-        payload["metadata_source"] = "TMDB"
-        payload["tmdb_id"] = tmdb["tmdb_id"]
-    if tmdb_id:
-        payload["tmdb_id"] = tmdb_id
-    if aliases:
-        payload["aliases"] = aliases
-    if season_episode_counts:
-        payload["season_episode_counts"] = season_episode_counts
-    if season_counts_checked_at:
-        payload["season_counts_checked_at"] = season_counts_checked_at
-    return payload
-
-
-def queue_group_name(slug: str) -> str:
-    parsed = parse_episode_slug(slug)
-    if not parsed:
-        return "Filme"
-    movie = state.fp_movies.get(slug)
-    if movie and movie.title:
-        stripped = strip_episode_suffix(movie.title)
-        if stripped:
-            return stripped
-    return parsed[0]
-
-
-def queue_content_key(slug: str, movie: Optional[FilmpalastMovie] = None) -> str:
-    """Provider-unabh√§ngiger Schl√ºssel gegen doppelte logische Downloads."""
-    movie = movie or state.fp_movies.get(slug)
-    if movie is None:
-        return ""
-    parsed = parse_episode_slug(slug)
-    if parsed:
-        base_slug, season, episode = parsed
-        title = strip_episode_suffix(movie.title) or movie.title
-        with state.watchlist_lock:
-            entry = watchlist_lookup(base_slug)
-            tmdb_id = str((entry or {}).get("tmdb_id") or "")
-        if not tmdb_id:
-            tmdb = get_tmdb_series(title)
-            tmdb_id = str((tmdb or {}).get("tmdb_id") or "")
-        identity = f"tmdb:{tmdb_id}" if tmdb_id else f"title:{_norm_title(title)}"
-        return f"series:{identity}:s{season}:e{episode}"
-    title = clean_movie_title(movie.title)
-    tmdb = get_tmdb_client().movie_summary(title, movie.year)
-    tmdb_id = str((tmdb or {}).get("tmdb_id") or "")
-    identity = f"tmdb:{tmdb_id}" if tmdb_id else f"title:{_norm_title(title)}:{movie.year or ''}"
-    return f"movie:{identity}"
-
-
-def episode_sort_key(slug: str):
-    parsed = parse_episode_slug(slug)
-    return (parsed[1], parsed[2]) if parsed else (0, 0)
-
-
-def _persist_queue_state() -> None:
-    with state.queue_claim_lock:
-        snapshot = set(state.picked)
-        # Lock bis nach dem atomaren Replace halten. Sonst kann ein √§lterer
-        # Snapshot einen neueren Abschluss nachtr√§glich √ºberschreiben.
-        if not appconfig.save_queue(snapshot):
-            log("Queue-Zustand konnte nicht gespeichert werden.", "warn")
-
-
-def _queue_slug_claimed(slug: str) -> bool:
-    with state.queue_claim_lock:
-        return slug in state.picked
-
-
-def serienstream_provider_status() -> dict:
-    active_jobs = state.dl_queue.active_jobs()
-    pending_jobs = (
-        state.dl_queue.pending_jobs()
-        if hasattr(state.dl_queue, "pending_jobs") else []
-    )
-    download_slugs = {
-        slug
-        for job in (*active_jobs, *pending_jobs)
-        if not getattr(job, "is_preparation_job", False)
-        for slug in _job_queue_slugs(job)
-    }
-    with state.queue_claim_lock:
-        claimed = set(state.picked)
-        waiting_slugs = set(state.provider_waiting_jobs) & claimed
-        preparing_slugs = set(state.preparing_queue_slugs) & claimed
-        with state.download_state_lock:
-            counted = set(state.counted_queue_slugs)
-        fallback_slugs = {
-            slug for slug in claimed & counted
-            if slug not in waiting_slugs
-            and slug not in download_slugs
-            and parse_episode_slug(slug) is not None
-            and provider_for_value(slug) == "serienstream"
-        }
-    status = state.provider_health.status(
-        "serienstream", waiting_episode_count=len(waiting_slugs),
-    )
-    status["fallback_episode_count"] = len(fallback_slugs)
-    status["checking_episode_count"] = len(fallback_slugs & preparing_slugs)
-    status["queued_fallback_episode_count"] = len(fallback_slugs - preparing_slugs)
-    status["cached_redirect_count"] = state.resolved_link_cache.count()
-    return status
-
-
-def build_queue_payload() -> dict:
-    with state.queue_claim_lock:
-        slugs = sorted(state.picked)
-    if not slugs:
-        return {
-            "count": 0,
-            "groups": [],
-            "providers": {"serienstream": serienstream_provider_status()},
-            "activity": {
-                "active_preparations": 0,
-                "pending_preparations": 0,
-                "active_downloads": state.dl_queue.active_count(),
-            },
-        }
-    groups: "OrderedDict[str, List[str]]" = OrderedDict()
-    for slug in slugs:
-        groups.setdefault(queue_group_name(slug), []).append(slug)
-    active_jobs = state.dl_queue.active_jobs()
-    pending_jobs = (
-        state.dl_queue.pending_jobs()
-        if hasattr(state.dl_queue, "pending_jobs") else []
-    )
-    active_download_slugs = {
-        slug
-        for job in active_jobs
-        if not getattr(job, "is_preparation_job", False)
-        for slug in _job_queue_slugs(job)
-    }
-    pending_download_slugs = {
-        slug
-        for job in pending_jobs
-        if not getattr(job, "is_preparation_job", False)
-        for slug in _job_queue_slugs(job)
-    }
-    with state.queue_claim_lock:
-        preparing_slugs = set(state.preparing_queue_slugs)
-    result_groups = []
-    provider_status = serienstream_provider_status()
-    serienstream_paused = provider_status.get("state") != HEALTHY
-    for name, gslugs in groups.items():
-        items = []
-        for slug in sorted(gslugs, key=episode_sort_key):
-            movie = state.fp_movies.get(slug)
-            title = movie.title if movie else slug
-            label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "‚Äî"
-            provider = _movie_provider(movie, slug)
-            waiting_provider = slug in state.provider_waiting_jobs
-            checking_fallback = (
-                serienstream_paused
-                and not waiting_provider
-                and slug in preparing_slugs
-                and parse_episode_slug(slug) is not None
-                and provider_for_value(slug) == "serienstream"
-                and slug in state.counted_queue_slugs
-            )
-            queued_fallback = (
-                serienstream_paused
-                and not waiting_provider
-                and not checking_fallback
-                and slug not in active_download_slugs
-                and slug not in pending_download_slugs
-                and parse_episode_slug(slug) is not None
-                and provider_for_value(slug) == "serienstream"
-                and slug in state.counted_queue_slugs
-            )
-            items.append({
-                "slug": slug, "title": title, "hoster_label": label,
-                "provider": provider,
-                "content_language": _movie_content_language(movie, fallback=slug),
-                "done": slug in state.done_slugs,
-                "status": (
-                    "downloading" if slug in active_download_slugs
-                    else "download_ready" if slug in pending_download_slugs
-                    else "waiting_provider" if waiting_provider
-                    else "checking_fallback" if checking_fallback
-                    else "queued_fallback" if queued_fallback
-                    else "waiting"
-                ),
-                "next_probe_at": (
-                    state.provider_health.next_probe_at("serienstream")
-                    if waiting_provider else 0
-                ),
-            })
-        result_groups.append({"name": name, "items": items})
-    return {
-        "count": len(slugs),
-        "groups": result_groups,
-        "providers": {"serienstream": provider_status},
-        "activity": {
-            "active_preparations": sum(
-                bool(getattr(job, "is_preparation_job", False)) for job in active_jobs
-            ),
-            "pending_preparations": sum(
-                bool(getattr(job, "is_preparation_job", False)) for job in pending_jobs
-            ),
-            "active_downloads": len(active_jobs) - sum(
-                bool(getattr(job, "is_preparation_job", False)) for job in active_jobs
-            ),
-        },
-    }
-
-
-def watchlist_payload() -> dict:
-    items = []
-    with state.queue_claim_lock, state.watchlist_lock:
-        for w in state.watchlist:
-            pending = set(state.watchlist_new_slugs.get(w["base_slug"], set()))
-            queued_count = len(pending & state.picked)
-            failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
-            failed_count = len(set(failures) & pending)
-            mode = normalize_watch_mode(w.get("download_mode"))
-            cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
-            error = str(w.get("last_error") or "")
-            if error:
-                status = "blocked"
-            elif failed_count:
-                status = "failed"
-            elif queued_count:
-                status = "queued"
-            elif pending and state.automation.get("auto_download") and not is_within_download_window():
-                status = "waiting_window"
-            elif pending:
-                status = "missing"
-            else:
-                status = "current"
-            items.append({
-                **w,
-                "download_mode": mode,
-                "download_mode_label": WATCH_MODE_LABELS[mode],
-                "cleanup_mode": cleanup_mode,
-                "cleanup_mode_label": CLEANUP_MODE_LABELS[cleanup_mode],
-                "cleanup_mode_ready": (
-                    cleanup_mode == CLEANUP_MODE_KEEP
-                    or bool(
-                        state.jellyfin_cfg.get("url", "").strip()
-                        and state.jellyfin_cfg.get("api_key", "").strip()
-                        and state.jellyfin_cfg.get("user_id", "").strip()
-                        and state.jellyfin_user_episodes_available
-                        and not str(w.get("cleanup_last_error") or "")
-                    )
-                ),
-                "download_mode_ready": (
-                    mode != WATCH_MODE_NEXT_SEASON
-                    or bool(
-                        state.jellyfin_cfg.get("url", "").strip()
-                        and state.jellyfin_cfg.get("api_key", "").strip()
-                        and state.jellyfin_cfg.get("user_id", "").strip()
-                        and state.jellyfin_user_episodes_available
-                        and not error
-                    )
-                ),
-                "new_count": len(pending),
-                "queued_count": queued_count,
-                "failed_count": failed_count,
-                "status": status,
-            })
-    return {"watchlist": items}
-
-
-def hydrate_watchlist_artwork() -> None:
-    """Erg√§nzt Bilder alter Abo-Eintr√§ge unabh√§ngig von Jellyfin-Pr√ºfungen."""
-    if not get_tmdb_client().configured:
-        return
-    with state.watchlist_lock:
-        missing = [
-            {
-                "base_slug": str(entry.get("base_slug") or ""),
-                "title": str(entry.get("title") or ""),
-                "tmdb_id": entry.get("tmdb_id") or "",
-            }
-            for entry in state.watchlist
-            if not entry.get("backdrop_url") or not entry.get("cover_url")
-        ]
-    if not missing:
-        return
-
-    artwork = {}
-    for item in missing:
-        metadata = get_tmdb_series(item["title"], item["tmdb_id"])
-        if not metadata:
-            continue
-        artwork[item["base_slug"]] = {
-            "tmdb_id": metadata.get("tmdb_id"),
-            "cover_url": metadata.get("cover_url") or "",
-            "backdrop_url": metadata.get("backdrop_url") or "",
-        }
-
-    changed = False
-    with state.watchlist_lock:
-        for entry in state.watchlist:
-            images = artwork.get(str(entry.get("base_slug") or ""))
-            if not images:
-                continue
-            for field in ("tmdb_id", "cover_url", "backdrop_url"):
-                if not entry.get(field) and images.get(field):
-                    entry[field] = images[field]
-                    changed = True
-        if changed:
-            appconfig.save_watchlist(state.watchlist)
-
-
-# ---------------------------------------------------------------------------
-# Download-Pipeline (1:1 aus main.py._build_and_start_queue portiert)
-# ---------------------------------------------------------------------------
-def on_job_progress(pct: float, msg: str, label: str):
-    payload = {"type": "progress", "label": label, "msg": msg}
-    if pct >= 0:
-        payload["pct"] = pct
-    broadcast(payload)
-
-
-def _failure_record(previous, message: str) -> dict:
-    attempts = int(previous.get("attempts", 0)) if isinstance(previous, dict) else 0
-    attempts += 1
-    retry_delay = min(6 * 60 * 60, 5 * 60 * (2 ** min(attempts - 1, 6)))
-    return {
-        "message": str(message)[:240],
-        "attempts": attempts,
-        "next_retry": time.time() + retry_delay,
-    }
-
-
-def _watchlist_retry_allowed(slug: str) -> bool:
-    with state.watchlist_lock:
-        for entry in state.watchlist:
-            failure = (entry.get("failed_downloads") or {}).get(slug)
-            if isinstance(failure, dict):
-                return time.time() >= float(failure.get("next_retry", 0) or 0)
-    return True
-
-
-def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str = "", slug: str = ""):
-    # Der Counter-Eintrag ist das einmalige Abschlusstoken. Entfernen/Abbruch
-    # kann es vor einem versp√§teten Callback konsumieren; dieser wird dann
-    # vollst√§ndig ignoriert und kann done/total nicht mehr verf√§lschen.
-    with state.queue_claim_lock:
-        with state.download_state_lock:
-            if slug and slug not in state.counted_queue_slugs:
-                return False
-            if slug:
-                state.provider_waiting_jobs.pop(slug, None)
-            if ok and slug:
-                state.done_slugs.add(slug)
-            state.done_jobs += 1
-            if slug:
-                state.counted_queue_slugs.discard(slug)
-                state.picked.discard(slug)
-            done_jobs = state.done_jobs
-            total_jobs = state.total_jobs
-            successful_jobs = len(state.done_slugs)
-            failed_jobs = max(0, done_jobs - successful_jobs)
-    if hoster_url:
-        state.hoster_intel.record_download(hoster_url, ok)
-    if ok:
-        log(f"Fertig: {label} -> {out_path}")
-    else:
-        log(f"Fehler {label}: {msg}", "err")
-    if slug:
-        # `picked` bildet ausschlie√ülich noch offene Warteschlangen-Eintr√§ge ab.
-        # Erst hier entfernen: Laufzeit-Fallbacks erreichen diese Funktion erst
-        # nach Erfolg oder nachdem wirklich alle Anbieter ausgesch√∂pft sind.
-        _persist_queue_state()
-        watchlist_changed = False
-        with state.watchlist_lock:
-            for entry in state.watchlist:
-                base_slug = entry.get("base_slug", "")
-                pending = state.watchlist_new_slugs.get(base_slug, set())
-                failures = entry.get("failed_downloads")
-                if not isinstance(failures, dict):
-                    failures = {}
-                    entry["failed_downloads"] = failures
-                if slug not in pending and slug not in failures:
-                    continue
-                if ok:
-                    pending.discard(slug)
-                    failures.pop(slug, None)
-                    if not pending:
-                        state.watchlist_new_slugs.pop(base_slug, None)
-                elif msg != "Abgebrochen":
-                    failures[slug] = _failure_record(failures.get(slug), msg)
-                else:
-                    failures.pop(slug, None)
-                watchlist_changed = True
-            if watchlist_changed:
-                appconfig.save_watchlist(state.watchlist)
-        if watchlist_changed:
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-        if not ok and not parse_episode_slug(slug):
-            _movie_subscription_download_failed(slug, msg)
-        with state.telegram_jobs_lock:
-            telegram_job = state.telegram_jobs.pop(slug, None)
-        if telegram_job:
-            if telegram_job.get("kind") == "series":
-                _telegram_series_job_result(telegram_job, slug, ok, msg, out_path)
-            else:
-                threading.Thread(
-                    target=_telegram_finish_job,
-                    args=(telegram_job, ok, msg, out_path),
-                    daemon=True,
-                ).start()
-        with state.seerr_jobs_lock:
-            seerr_jobs = state.seerr_jobs.pop(slug, [])
-        for seerr_job in seerr_jobs:
-            _seerr_job_result(seerr_job, slug, ok, msg, out_path)
-    broadcast({
-        "type": "job_done", "ok": ok, "label": label, "slug": slug, "msg": msg,
-        "done_jobs": done_jobs, "total_jobs": total_jobs,
-        "successful_jobs": successful_jobs, "failed_jobs": failed_jobs,
-        "active": state.dl_queue.active_count(), "pending": state.dl_queue.pending_count(),
-    })
-    return True
-
-
-def _refresh_jellyfin_after_download_once():
-    """Scan ansto√üen und den UI-Cache w√§hrend des Jellyfin-Imports erneuern."""
-    if not state.jellyfin_refresh_lock.acquire(blocking=False):
-        log("Jellyfin-Aktualisierung l√§uft bereits.")
-        return
-    try:
-        with state.jellyfin_cache_lock:
-            jf_client = get_jellyfin_client()
-            generation = state.jellyfin_config_generation
-            user_id = state.jellyfin_cfg.get("user_id", "").strip()
-        if not jf_client.configured:
-            return
-        if not jf_client.refresh_library():
-            log("Jellyfin-Bibliotheksscan konnte nicht gestartet werden.", "warn")
-            return
-        log("Jellyfin-Bibliotheksscan gestartet.")
-        started = time.monotonic()
-        for deadline in (5, 15, 30, 60, 120):
-            time.sleep(max(0.0, deadline - (time.monotonic() - started)))
-            withdrawn_slugs: set[str] = set()
-            with state.jellyfin_cache_lock:
-                if generation != state.jellyfin_config_generation:
-                    log("Jellyfin-Aktualisierung verworfen: Konfiguration wurde ge√§ndert.", "warn")
-                    return
-
-            get_jellyfin_library(force=True)
-            # Der globale Bestand und der benutzerspezifische Gesehen-Status
-            # d√ºrfen sich nicht gegenseitig √ºberschreiben.
-            get_jellyfin_episodes(force=True)
-            get_jellyfin_series(force=True)
-            if user_id:
-                get_jellyfin_user_episodes(force=True)
-            with state.jellyfin_cache_lock:
-                if generation != state.jellyfin_config_generation:
-                    log("Jellyfin-Aktualisierung verworfen: Konfiguration wurde ge√§ndert.", "warn")
-                    return
-                global_episodes = state.jellyfin_episodes
-                global_series = state.jellyfin_series
-                global_available = state.jellyfin_episodes_available
-                global_series_available = state.jellyfin_series_available
-                user_episodes = state.jellyfin_user_episodes if user_id else None
-                user_available = state.jellyfin_user_episodes_available if user_id else False
-                data_generation = state.jellyfin_episode_data_generation
-
-            # NAS-Scan/Policy au√üerhalb des Watchlist-Locks berechnen. Sonst
-            # blockieren Bell, Abo-Aktionen und fertige Download-Callbacks.
-            with state.watchlist_lock:
-                snapshots = []
-                for entry in state.watchlist:
-                    entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-                    entry["last_error"] = "Pr√ºfung l√§uft ‚Äì Auto-Download pausiert"
-                    snapshots.append((
-                        entry,
-                        dict(entry),
-                        state.series_cache.get(entry["base_slug"]),
-                        entry["check_generation"],
-                    ))
-            calculated_updates = []
-            for entry, snapshot, series, revision in snapshots:
-                needs_user = normalize_watch_mode(snapshot.get("download_mode")) == WATCH_MODE_NEXT_SEASON
-                if global_episodes is None or not global_available:
-                    calculated_updates.append((entry, revision, None, "Jellyfin nicht erreichbar ‚Äì Auto-Download pausiert"))
-                elif global_series is None or not global_series_available:
-                    calculated_updates.append((entry, revision, None, "Jellyfin-Serienindex nicht verf√ºgbar"))
-                elif needs_user and (not user_id or user_episodes is None or not user_available):
-                    calculated_updates.append((entry, revision, None, "Jellyfin-Benutzerstatus nicht verf√ºgbar"))
-                elif series is not None:
-                    try:
-                        calculated = _calculate_watchlist_entry_state(
-                            snapshot, series, jf_client, global_episodes, user_episodes,
-                            global_series,
-                        )
-                        calculated_updates.append((entry, revision, calculated, ""))
-                    except Exception as exc:
-                        calculated_updates.append((entry, revision, None, str(exc)[:240]))
-            with state.jellyfin_cache_lock:
-                data_is_current = (
-                    generation == state.jellyfin_config_generation
-                    and data_generation == state.jellyfin_episode_data_generation
-                )
-                with state.watchlist_lock:
-                    if data_is_current:
-                        for entry, revision, calculated, error in calculated_updates:
-                            if not any(current is entry for current in state.watchlist):
-                                continue
-                            if int(entry.get("check_generation", 0)) != revision:
-                                continue
-                            if error:
-                                entry["last_checked"] = time.time()
-                                entry["last_error"] = error
-                            elif calculated is not None:
-                                withdrawn_slugs.update(
-                                    _apply_watchlist_entry_state(entry, calculated)
-                                )
-                    appconfig.save_watchlist(state.watchlist)
-            if withdrawn_slugs:
-                _cancel_withdrawn_watchlist_slugs(
-                    withdrawn_slugs,
-                    "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
-                )
-            broadcast({"type": "jellyfin_update", **watchlist_payload()})
-    finally:
-        state.jellyfin_refresh_lock.release()
-
-
-def refresh_jellyfin_after_download():
-    """Fasst parallele Scan-Anforderungen zusammen, ohne eine zu verlieren."""
-    with state.jellyfin_refresh_request_lock:
-        state.jellyfin_refresh_pending = True
-        if state.jellyfin_refresh_running:
-            log("Jellyfin-Aktualisierung wurde vorgemerkt.")
-            return
-        state.jellyfin_refresh_running = True
-    try:
-        while True:
-            with state.jellyfin_refresh_request_lock:
-                state.jellyfin_refresh_pending = False
-            _refresh_jellyfin_after_download_once()
-            with state.jellyfin_refresh_request_lock:
-                if state.jellyfin_refresh_pending:
-                    continue
-                state.jellyfin_refresh_running = False
-                return
-    except Exception:
-        with state.jellyfin_refresh_request_lock:
-            state.jellyfin_refresh_running = False
-        raise
-
-
-def on_queue_done():
-    with state.queue_lifecycle_lock:
-        _on_queue_done_locked()
-
-
-def _reconcile_idle_queue_state_locked() -> int:
-    """Beendet verwaiste Zaehltoken und entfernt alte Gate-Sperrmarker."""
-    if (
-        state.dl_queue.active_count()
-        or state.dl_queue.pending_count()
-        or state.queue_prepare_lock.locked()
-    ):
-        return 0
-
-    with state.queue_claim_lock:
-        with state.download_state_lock:
-            counted = set(state.counted_queue_slugs)
-        claimed = set(state.picked)
-        valid_retries = set(state.provider_waiting_jobs) & counted & claimed
-        for slug in set(state.provider_waiting_jobs) - valid_retries:
-            state.provider_waiting_jobs.pop(slug, None)
-        orphaned = counted - valid_retries
-        restart_retry_worker = bool(valid_retries) and not state.provider_retry_worker_running
-
-    if restart_retry_worker:
-        _ensure_provider_retry_worker()
-
-    for slug in sorted(orphaned):
-        movie = state.fp_movies.get(slug)
-        label = movie.title if movie is not None else slug
-        on_job_done(
-            False,
-            "Downloadvorbereitung ohne Abschluss beendet",
-            label,
-            Path(""),
-            slug=slug,
-        )
-    return len(orphaned)
-
-
-def _on_queue_done_locked():
-    # Ein alter Scheduler kann auslaufen, w√§hrend bereits ein neuer
-    # Vorbereitungsjob eingereiht wurde. Dann geh√∂rt dieses Done-Ereignis noch
-    # nicht zum tats√§chlichen Ende der gemeinsamen Auto-Queue.
-    if state.dl_queue.active_count() or state.dl_queue.pending_count():
-        return
-    _reconcile_idle_queue_state_locked()
-    # W√§hrend eines Provider-Cooldowns noch nicht ‚Äûfertig" melden: Die offenen
-    # Claims werden nach einer einzelnen erfolgreichen Probe fortgesetzt.
-    if state.provider_waiting_jobs:
-        log("Downloadlauf pausiert ‚Äì Episoden warten auf den SerienStream-Provider.")
-        return
-    if state.voe_pool is not None:
-        log("Schlie√üe Browser-Pool ‚Ä¶")
-        try:
-            state.voe_pool.close()
-        except Exception as exc:
-            log(f"Browser-Close Fehler: {exc}", "warn")
-        finally:
-            state.voe_pool = None
-    if state.embed_pool is not None:
-        log("Schlie√üe Embed-Pool ‚Ä¶")
-        try:
-            state.embed_pool.close()
-        except Exception as exc:
-            log(f"Embed-Close Fehler: {exc}", "warn")
-        finally:
-            state.embed_pool = None
-    successful_jobs = len(state.done_slugs)
-    failed_jobs = max(0, state.done_jobs - successful_jobs)
-    log(f"Downloadlauf beendet: {successful_jobs} erfolgreich, {failed_jobs} fehlgeschlagen.")
-    if successful_jobs:
-        threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
-    broadcast({
-        "type": "queue_done",
-        "done_jobs": state.done_jobs,
-        "total_jobs": state.total_jobs,
-        "successful_jobs": successful_jobs,
-        "failed_jobs": failed_jobs,
-    })
-    _updater_wake_event.set()
-
-
-state.dl_queue.on_queue_done = on_queue_done
-
-
-def _pause_downloads_for_update_restart() -> int:
-    """Stoppt die physische Queue, ohne ihre persistenten Claims zu verlieren."""
-    with state.queue_lifecycle_lock:
-        with state.queue_claim_lock:
-            preserved = set(state.picked)
-            with state.download_state_lock:
-                # Abbruch-Callbacks d√ºrfen die gespeicherten Slugs nicht als
-                # fachlich abgeschlossen verbuchen.
-                state.counted_queue_slugs.clear()
-            state.provider_waiting_jobs.clear()
-            _persist_queue_state()
-        state.dl_queue.cancel_all()
-
-    # Laufende yt-dlp-Prozesse und Browser-Tabs m√∂glichst sauber beenden, bevor
-    # execv den Server ersetzt. Nach sp√§testens 20 Sekunden √ºbernimmt der
-    # Prozessneustart; die Queue-Claims sind zu diesem Zeitpunkt bereits sicher.
-    deadline = time.monotonic() + 20
-    while state.dl_queue.active_count() and time.monotonic() < deadline:
-        time.sleep(0.1)
-
-    if state.hoster_extract_lock.acquire(timeout=10):
-        try:
-            for attr in ("voe_pool", "embed_pool"):
-                pool = getattr(state, attr)
-                if pool is None:
-                    continue
-                try:
-                    pool.close()
-                except Exception as exc:
-                    log(f"Browser-Close vor Update fehlgeschlagen: {exc}", "warn")
-                finally:
-                    setattr(state, attr, None)
-        finally:
-            state.hoster_extract_lock.release()
-    return len(preserved)
-
-
-def _canonical_hoster_name(provider_name: str, resolved_url: str) -> str:
-    """Bestimmt den Extraktor-Zweig (voe/doodstream/‚Ä¶) aus Provider-Label +
-    aufgel√∂ster Domain. VOE nutzt rotierende Mirror-Domains, daher z√§hlt hier
-    zuerst das Label."""
-    p = (provider_name or "").lower()
-    dom = urlparse(resolved_url or "").netloc.lower()
-    if "voe" in p or "voe" in dom:
-        return "voe"
-    if "dood" in p or any(k in dom for k in ("dood", "vide0", "d000d", "d0o0d", "dooood", "ds2play")):
-        return "doodstream"
-    if "vidara" in p or any(key in dom for key in (
-        "vidara", "vidmatrix", "vidchamp", "vidachamp", "vidavaca",
-        "viewdara", "thebesthost",
-    )):
-        return "vidara"
-    if "vidsonic" in p or "vidsonic" in dom:
-        return "vidsonic"
-    if "firestream" in p or "firestream" in dom:
-        return "firestream"
-    if (
-        "fsst" in p or "vidhide" in p or "embed4me" in p or "seekplays" in p
-        or any(key in dom for key in (
-            "fsst", "incvideo", "kinoger.be", "embed4me", "seekplays",
-        ))
-    ):
-        return "kinoger"
-    return p
-
-
-def _mark_serienstream_blocked(reason: str, error: str = "") -> dict:
-    current = state.provider_health.status("serienstream")
-    if current["state"] == COOLDOWN and current["remaining_seconds"] > 0:
-        return current
-    updated = state.provider_health.mark_blocked("serienstream", reason, error)
-    minutes = max(1, int((updated["next_probe_at"] - time.time() + 59) // 60))
-    label = "erneut blockiert" if int(updated["failure_count"]) > 1 else "Gate erkannt"
-    log(f"SerienStream-{label} ‚Äì Provider f√ºr {minutes} Minuten pausiert.", "warn")
-    broadcast({"type": "provider_status", "provider": serienstream_provider_status()})
-    return updated
-
-
-def _probe_serienstream_once(item: Optional[dict]) -> bool:
-    """F√ºhrt genau einen kontrollierten SerienStream-Netzwerkrequest aus."""
-    try:
-        sto = get_sto_scraper()
-        if item is not None:
-            movie = item["movie"]
-            redirect = next(
-                (hoster for hoster in movie.hosters if sto.is_redirect_url(hoster.url)),
-                None,
-            )
-            if redirect is not None:
-                with state.sto_lock:
-                    sto.reset_gate()
-                    target = sto.resolve_play_url(redirect.url, referer=movie.url)
-                    if target:
-                        state.resolved_link_cache.put(redirect.url, target)
-                if not target:
-                    _mark_serienstream_blocked(
-                        sto.last_block_reason or "captcha_gate", "Provider-Probe blockiert",
-                    )
-                    return False
-                # Das erfolgreiche Probe-Ergebnis wiederverwenden, ohne die
-                # Quell-URL im Movie zu verlieren. Ein Download-Retry kann den
-                # Cache dadurch gezielt verwerfen und genau einmal neu aufl√∂sen.
-                item["probe_verified_redirect"] = True
-                state.fp_movies[item["slug"]] = movie
-                return True
-            with state.sto_lock:
-                sto.reset_gate()
-                movie = _apply_provider_metadata(
-                    sto.get_movie(item["slug"]), "serienstream",
-                )
-            if movie and movie.hosters:
-                item["movie"] = movie
-                state.fp_movies[item["slug"]] = movie
-                return True
-            raise RuntimeError("Episodenseite lieferte keine Hoster")
-        with state.sto_lock:
-            sto.reset_gate()
-            html = sto.session.get("https://serienstream.to/", fast=True)
-        if not html:
-            raise RuntimeError("Leere Provider-Antwort")
-        return True
-    except ProviderBlockedError as exc:
-        _mark_serienstream_blocked(exc.reason, str(exc))
-    except Exception as exc:
-        _mark_serienstream_blocked("probe_failed", str(exc))
-    return False
-
-
-def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
-    preferred = first_item
-    while state.provider_health.request_allowed("serienstream"):
-        with state.queue_claim_lock:
-            item = preferred
-            preferred = None
-            if item is None:
-                item = next(iter(state.provider_waiting_jobs.values()), None)
-            if item is None:
-                return
-            slug = item["slug"]
-            state.provider_waiting_jobs.pop(slug, None)
-            claimed = slug in state.picked and slug in state.counted_queue_slugs
-        if not claimed:
-            continue
-        try:
-            with state.queue_prepare_lock:
-                run_download_queue(
-                    [(item["movie"], slug)],
-                    item["out_root"],
-                    movie_fallbacks=item["movie_fallbacks"],
-                )
-        except Exception as exc:
-            log(f"Provider-Retry f√ºr ¬´{slug}¬ª fehlgeschlagen: {exc}", "warn")
-            _mark_serienstream_blocked("probe_failed", str(exc))
-            _defer_provider_episode(
-                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
-            )
-            return
-
-
-def _execute_provider_probe(item: Optional[dict]) -> None:
-    log("SerienStream-Probe gestartet.")
-    with state.queue_prepare_lock:
-        successful = _probe_serienstream_once(item)
-    if not successful:
-        return
-    state.provider_health.mark_success(
-        "serienstream",
-        reset_failures=bool(item and item.pop("probe_verified_redirect", False)),
-    )
-    log("SerienStream-Probe erfolgreich ‚Äì Provider wieder verf√ºgbar.")
-    broadcast({"type": "provider_status", "provider": serienstream_provider_status()})
-    _resume_waiting_provider_jobs(item)
-
-
-def _retry_one_waiting_fallback() -> bool:
-    """Pr√ºft genau eine wartende Episode erneut ausschlie√ülich bei Fallbacks.
-
-    SerienStream bleibt dabei im Cooldown und wird von ``run_download_queue``
-    nicht angefragt. Das verhindert, dass ein kurzer Huhu-/Moflix-Aussetzer eine
-    Episode unn√∂tig bis zur deutlich sp√§teren SerienStream-Probe festh√§lt.
-    """
-    if not state.queue_prepare_lock.acquire(blocking=False):
-        return False
-    item = None
-    slug = ""
-    try:
-        if state.provider_health.status("serienstream")["state"] != COOLDOWN:
-            return False
-        with state.queue_claim_lock:
-            item = next(iter(state.provider_waiting_jobs.values()), None)
-            if item is None:
-                return False
-            slug = item["slug"]
-            state.provider_waiting_jobs.pop(slug, None)
-            if slug not in state.picked or slug not in state.counted_queue_slugs:
-                return False
-            state.preparing_queue_slugs.add(slug)
-        parsed = parse_episode_slug(slug)
-        label = (
-            f"S{parsed[1]:02d}E{parsed[2]:02d}" if parsed else slug
-        )
-        log(f"Fallback wird kontrolliert erneut gepr√ºft: {label}.")
-        broadcast({"type": "queue_update", "queue": build_queue_payload()})
-        run_download_queue(
-            [(item["movie"], slug)],
-            item["out_root"],
-            movie_fallbacks=item["movie_fallbacks"],
-        )
-        return True
-    except Exception as exc:
-        log(f"Fallback-Wiederholung f√ºr ¬´{slug}¬ª fehlgeschlagen: {exc}", "warn")
-        if item is not None and slug:
-            _defer_provider_episode(
-                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
-            )
-        return True
-    finally:
-        if slug:
-            with state.queue_claim_lock:
-                state.preparing_queue_slugs.discard(slug)
-            broadcast({"type": "queue_update", "queue": build_queue_payload()})
-        state.queue_prepare_lock.release()
-
-
-def _provider_retry_worker() -> None:
-    next_fallback_retry = time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
-    try:
-        while True:
-            with state.queue_claim_lock:
-                item = next(iter(state.provider_waiting_jobs.values()), None)
-            if item is None:
-                return
-            status = state.provider_health.status("serienstream")
-            if status["state"] == HEALTHY:
-                _resume_waiting_provider_jobs()
-                continue
-            if status["state"] == PROBING:
-                state.provider_retry_wake_event.wait(1)
-                state.provider_retry_wake_event.clear()
-                continue
-            if status["remaining_seconds"] > 0:
-                delay = max(0.0, next_fallback_retry - time.monotonic())
-                if delay <= 0:
-                    if _retry_one_waiting_fallback():
-                        next_fallback_retry = (
-                            time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
-                        )
-                    else:
-                        # Eine normale Episodenvorbereitung hat Vorrang. Kurz
-                        # danach erneut versuchen, ohne im Sekundentakt zu loggen.
-                        next_fallback_retry = time.monotonic() + 5
-                    continue
-                state.provider_retry_wake_event.wait(min(
-                    30, status["remaining_seconds"], delay,
-                ))
-                state.provider_retry_wake_event.clear()
-                continue
-            if state.provider_health.begin_probe("serienstream"):
-                _execute_provider_probe(item)
-            else:
-                state.provider_retry_wake_event.wait(1)
-                state.provider_retry_wake_event.clear()
-    finally:
-        with state.queue_claim_lock:
-            state.provider_retry_worker_running = False
-            restart = bool(state.provider_waiting_jobs)
-        if restart:
-            _ensure_provider_retry_worker()
-
-
-def _ensure_provider_retry_worker() -> None:
-    with state.queue_claim_lock:
-        if state.provider_retry_worker_running or not state.provider_waiting_jobs:
-            return
-        state.provider_retry_worker_running = True
-    threading.Thread(target=_provider_retry_worker, daemon=True).start()
-
-
-def _defer_provider_episode(
-    movie: FilmpalastMovie,
-    slug: str,
-    out_root: Path,
-    movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
-) -> bool:
-    """Beh√§lt eine Episode bis zur n√§chsten einzelnen Provider-Probe offen."""
-    with state.queue_claim_lock:
-        if slug not in state.picked or slug not in state.counted_queue_slugs:
-            return False
-        state.provider_waiting_jobs[slug] = {
-            "movie": movie,
-            "slug": slug,
-            "out_root": Path(out_root),
-            "movie_fallbacks": movie_fallbacks,
-        }
-    _persist_queue_state()
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    _ensure_provider_retry_worker()
-    return True
-
-
-def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
-    """Liefert alternative Katalogtitel fuer eine Episode.
-
-    serienstream zeigt haeufig den deutschen Titel, waehrend ein Backup den
-    Originaltitel fuehrt. Der Serien-Slug, Watchlist-Aliase und TMDB schliessen
-    diese Luecke, ohne unscharfe Episodenmatches zuzulassen.
-    """
-    values: List[str] = []
-    parsed = parse_episode_slug(movie_slug)
-    base_slug = parsed[0] if parsed else movie_slug
-    slug_title = _series_search_title(base_slug)
-    if slug_title:
-        values.append(slug_title)
-
-    tmdb_id = ""
-    with state.watchlist_lock:
-        entry = watchlist_lookup(base_slug)
-        if entry:
-            tmdb_id = str(entry.get("tmdb_id") or "")
-            values.append(str(entry.get("title") or ""))
-            values.extend(str(value or "") for value in entry.get("aliases") or [])
-    try:
-        tmdb = get_tmdb_series(title, tmdb_id)
-    except Exception as exc:
-        log(f"  TMDB-Aliase fuer Serien-Fallback nicht ladbar: {exc}", "warn")
-        tmdb = None
-    if tmdb:
-        values.extend((
-            str(tmdb.get("title") or ""),
-            str(tmdb.get("original_title") or ""),
-        ))
-
-    seen = {_norm_title(title)}
-    aliases: List[str] = []
-    for value in values:
-        value = " ".join(value.split()).strip()
-        key = _norm_title(value)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        aliases.append(value)
-    return tuple(aliases)
-
-
-def _fallback_get_series(
-    provider: str, title: str, tmdb_id: str = "",
-) -> Optional[FilmpalastSeries]:
-    """Sucht die Serie ¬´title¬ª beim Fallback-Anbieter per Titel-Match und l√§dt sie.
-    Ergebnis (auch None) wird pro Download-Lauf gecacht, damit nicht jede Episode
-    denselben Anbieter erneut durchsucht."""
-    exact_tmdb_id = str(tmdb_id or "").strip() if provider == "huhu" else ""
-    if exact_tmdb_id and not exact_tmdb_id.isdigit():
-        exact_tmdb_id = ""
-    key = (
-        f"{provider}:tmdb:{exact_tmdb_id}"
-        if exact_tmdb_id else f"{provider}:{_norm_title(title)}"
-    )
-    now = time.time()
-    with state.fallback_series_cache_lock:
-        provider_error = state.fallback_provider_errors.get(provider)
-        if provider_error and provider_error[0] > now:
-            return None
-        state.fallback_provider_errors.pop(provider, None)
-        cached = state.fallback_series_cache.get(key)
-        if cached and cached[0] > now:
-            return cached[1]
-        state.fallback_series_cache.pop(key, None)
-    series: Optional[FilmpalastSeries] = None
-    matched = False
-    try:
-        if exact_tmdb_id:
-            matched = True
-            series = _load_series_for_provider(
-                provider, f"{HUHU_PREFIX}{exact_tmdb_id}:tmdb",
-            )
-        else:
-            results = _search_series_for_provider(provider, title)
-            wanted = _norm_title(title)
-            best = next(
-                (result for result in results if _norm_title(result.title) == wanted),
-                None,
-            )
-            matched = best is not None
-            series = _load_series_for_provider(provider, best.sample_slug) if best else None
-    except Exception as exc:
-        label = PROVIDER_LABELS.get(provider, provider)
-        log(f"  {label}-Fallback-Suche vor√ºbergehend nicht erreichbar: {exc}", "warn")
-        # Netzwerk-/Cloudflare-Fehler sind kein bestaetigtes "nicht vorhanden".
-        # Nur eine kurze providerweite Sperre verhindert, dass derselbe Fehler
-        # fuer jeden Alias und jede Episode sofort erneut ausgel√∂st wird.
-        with state.fallback_series_cache_lock:
-            state.fallback_provider_errors[provider] = (
-                now + appconfig.SERIES_PROVIDER_TRANSIENT_ERROR_TTL_SECONDS,
-                str(exc),
-            )
-        return None
-    with state.fallback_series_cache_lock:
-        state.fallback_provider_errors.pop(provider, None)
-    if series and not series.seasons:
-        return None
-    if matched and series is None:
-        # Treffer vorhanden, Detailseite aber temporaer nicht ladbar.
-        return None
-    with state.fallback_series_cache_lock:
-        state.fallback_series_cache[key] = (
-            now + appconfig.SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS,
-            series,
-        )
-    return series
-
-
-# Nur als √ºberschreibbarer Kompatibilit√§tspunkt f√ºr bestehende Integrationen;
-# None bedeutet: immer die live konfigurierte Reihenfolge verwenden.
-SERIES_FALLBACK_PROVIDERS: Optional[tuple[str, ...]] = None
-
-
-def find_episode_fallbacks(
-    title: str,
-    season: int,
-    episode: int,
-    aliases: tuple[str, ...] = (),
-    source_slug: str = "",
-    excluded_providers: Optional[set[str]] = None,
-    limit: int = 0,
-) -> List[FilmpalastMovie]:
-    """L√§dt dieselbe Episode bei allen passenden Fallback-Katalogen.
-
-    ``limit=1`` startet den ersten exakten Treffer sofort. Weitere Kataloge
-    werden erst bei einem Laufzeitfehler dieses Treffers nachgeladen; so h√§lt
-    ein langsamer oder gesperrter sp√§terer Anbieter den Download nicht auf.
-    """
-    movies: List[FilmpalastMovie] = []
-    seen_urls: set[str] = set()
-    search_titles: List[str] = []
-    seen_titles: set[str] = set()
-    for candidate in (title, *aliases):
-        candidate = " ".join(str(candidate or "").split()).strip()
-        key = _norm_title(candidate)
-        if not key or key in seen_titles:
-            continue
-        seen_titles.add(key)
-        search_titles.append(candidate)
-
-    source_provider = provider_for_value(source_slug) if source_slug else ""
-    skipped_providers = {
-        str(provider or "").strip().casefold()
-        for provider in (excluded_providers or set())
-        if str(provider or "").strip()
-    }
-    tmdb_id = ""
-    parsed_source = parse_episode_slug(source_slug)
-    source_base_slug = parsed_source[0] if parsed_source else source_slug
-    with state.watchlist_lock:
-        watch_entry = watchlist_lookup(source_base_slug)
-        if watch_entry:
-            tmdb_id = str(watch_entry.get("tmdb_id") or "").strip()
-    fallback_providers = SERIES_FALLBACK_PROVIDERS or tuple(provider_priority("series"))
-    searched_labels = [
-        PROVIDER_LABELS.get(provider, provider)
-        for provider in fallback_providers
-        if provider != source_provider
-    ]
-    if searched_labels:
-        log(
-            f"  Fallback-Suche S{season:02d}E{episode:02d}: "
-            + " ‚Üí ".join(searched_labels)
-        )
-    for provider in fallback_providers:
-        if provider == source_provider or provider in skipped_providers:
-            continue
-        series = None
-        for search_title in search_titles:
-            series = _fallback_get_series(provider, search_title, tmdb_id=tmdb_id)
-            if series:
-                break
-        if not series:
-            continue
-        ep = next((e for e in series.seasons.get(season, []) if e.episode == episode), None)
-        if not ep:
-            label = PROVIDER_LABELS.get(provider, provider)
-            log(f"  {label}: S{season:02d}E{episode:02d} nicht im Katalog", "warn")
-            continue
-        label = PROVIDER_LABELS.get(provider, provider)
-        log(f"  ‚Üí Fallback {label}: S{season:02d}E{episode:02d} gefunden, lade Hoster ‚Ä¶")
-        try:
-            movie = load_movie_for_slug(ep.slug)
-        except Exception as exc:
-            log(f"  {label}-Fallback Laden fehlgeschlagen: {exc}", "warn")
-            movie = None
-        if movie and movie.hosters and movie.url not in seen_urls:
-            seen_urls.add(movie.url)
-            movies.append(movie)
-            if limit > 0 and len(movies) >= limit:
-                break
-            continue
-        log(f"  {label}: keine nutzbaren Hoster f√ºr die Episode", "warn")
-    return movies
-
-
-class _HosterResult:
-    """Ergebnis eines Hoster-Extraktionsversuchs f√ºr genau einen Movie/Episode."""
-    __slots__ = (
-        "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
-        "referer", "origin", "gated", "provider", "content_language", "quality",
-        "resolved_from_cache",
-    )
-
-    def __init__(self):
-        self.stream_info = None
-        self.hoster_used = ""
-        self.hoster_url_used = ""
-        self.source_hoster_url = ""
-        self.referer = "https://filmpalast.to/"
-        self.origin = ""
-        self.gated = False   # serienstream Captcha-Gate war aktiv
-        self.provider = ""
-        self.content_language = ""
-        self.quality = ""
-        self.resolved_from_cache = False
-
-
-def _extract_from_movie(
-    movie: FilmpalastMovie,
-    unsupported_domains: set,
-    excluded_hoster_urls: Optional[set] = None,
-    barren_hoster_urls: Optional[set] = None,
-) -> _HosterResult:
-    """Probiert der Reihe nach die Hoster eines Movies (nach hoster_intel-Ranking)
-    durch, l√∂st serienstream-Redirects lazy auf und liefert den ersten nutzbaren
-    Stream. Funktioniert f√ºr alle konfigurierten Katalogquellen, da Nicht-s.to-
-    Hoster einfach ihre direkte URL verwenden."""
-    res = _HosterResult()
-    res.provider = _movie_provider(movie)
-    if (
-        res.provider == "serienstream"
-        and not state.provider_health.request_allowed("serienstream")
-    ):
-        # Direkte/cached Hoster duerfen weiterlaufen. Falls sie scheitern, muss
-        # der logische Job aber bis zur Provider-Probe vorgemerkt bleiben.
-        res.gated = True
-    res.content_language = _movie_content_language(movie)
-    session = state.fp_scraper.session._curl if state.fp_scraper else None
-    excluded_hoster_urls = excluded_hoster_urls or set()
-    # Ergebnislose Extraktionen dieses Laufs. Ein Embed, das schon einmal die
-    # komplette Browser-Kette ohne Stream-URL durchlaufen hat, liefert Sekunden
-    # sp√§ter dasselbe Nichts ‚Äì kostet aber erneut die volle Wartezeit.
-    if barren_hoster_urls is None:
-        barren_hoster_urls = set()
-
-    ranked_hosters = state.hoster_intel.rank(movie.hosters)
-    preferred_quality_value = getattr(movie, "_preferred_quality", None)
-    if preferred_quality_value is not None:
-        preferred_quality = str(preferred_quality_value or "").strip().casefold()
-        ranked_hosters.sort(
-            key=lambda hoster: str(hoster.quality or "").strip().casefold() != preferred_quality
-        )
-    for hoster in ranked_hosters:
-        if not hoster.url:
-            continue
-        if hoster.url in excluded_hoster_urls:
-            log(f"  √úberspringe {hoster.name}: Download zuvor fehlgeschlagen", "warn")
-            continue
-        if hoster.url in barren_hoster_urls:
-            log(f"  √úberspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
-            continue
-        name = hoster.name.lower()
-        if hoster.url in unsupported_domains:
-            log(f"  √úberspringe {hoster.name}: Link nicht unterst√ºtzt", "warn")
-            continue
-        cooldown, _reason = state.hoster_intel.cooldown(
-            hoster.url, hoster_name=hoster.name,
-        )
-        if cooldown:
-            minutes = max(1, (cooldown + 59) // 60)
-            log(
-                f"  √úberspringe {hoster.name}: nach Ausf√§llen noch "
-                f"{minutes} Min. pausiert",
-                "warn",
-            )
-            continue
-        res.hoster_used = hoster.name
-        res.quality = str(getattr(hoster, "quality", "") or "").strip()
-        res.source_hoster_url = hoster.url
-        res.content_language = _movie_content_language(
-            movie,
-            str(getattr(hoster, "language", "") or ""),
-        )
-        log(f"  Versuche Hoster: {hoster.name}")
-
-        # serienstream.to liefert Hoster als lazy /r?t=-Redirect. Erst JETZT,
-        # f√ºr genau diesen Versuch, zur echten Embed-URL aufl√∂sen. So bleibt
-        # die Zahl der s.to-Requests minimal (meist genau 1) und das Captcha
-        # wird gar nicht erst provoziert. F√§llt ein Hoster durch, wird nur der
-        # n√§chste aufgel√∂st.
-        was_sto = SerienstreamScraper.is_redirect_url(hoster.url)
-        play_url = hoster.url
-        resolved_by_provider = False
-        if was_sto:
-            cached_target = state.resolved_link_cache.get(hoster.url)
-            if cached_target:
-                play_url = cached_target
-                res.resolved_from_cache = True
-                # Der bekannte Ziel-Link ist weiterhin nutzbar, obwohl keine
-                # neue Provider-Anfrage erlaubt ist. Merken, dass ein spaeterer
-                # Fehlschlag trotzdem bis zur naechsten Probe warten muss.
-                if not state.provider_health.request_allowed("serienstream"):
-                    res.gated = True
-                log(f"  {hoster.name}: bereits aufgel√∂sten Hoster-Link verwenden")
-            else:
-                # Ein Cache-Treffer ben√∂tigt keinen Provider-Request und darf
-                # deshalb auch im Cooldown weiter zum Hoster. Nur Cache-Misses
-                # durchlaufen den Circuit-Breaker.
-                if not state.provider_health.request_allowed("serienstream"):
-                    res.gated = True
-                    break
-                sto = get_sto_scraper()
-                with state.sto_lock:
-                    # Double-check nach dem Lock: Ein paralleler Worker kann
-                    # denselben Redirect inzwischen bereits aufgeloest haben.
-                    locked_target = state.resolved_link_cache.get(hoster.url)
-                    if locked_target:
-                        play_url = locked_target
-                        res.resolved_from_cache = True
-                    else:
-                        # Zwischen Statuspr√ºfung und Lock kann eine andere
-                        # Anfrage das Gate erkannt haben. Vor dem Redirect
-                        # deshalb atomar noch einmal pr√ºfen.
-                        if not state.provider_health.request_allowed("serienstream"):
-                            res.gated = True
-                            break
-                        # Ist das Captcha-Gate aktiv, sind ALLE Hoster blockiert
-                        # ‚Äì nicht weiter h√§mmern, sondern sofort abbrechen.
-                        if sto.gated:
-                            _mark_serienstream_blocked(
-                                sto.last_block_reason or "captcha_gate",
-                                "SerienStream-Gate ist bereits aktiv",
-                            )
-                            res.gated = True
-                            break
-                        play_url = sto.resolve_play_url(hoster.url, referer=movie.url)
-                        if play_url:
-                            resolved_by_provider = True
-                            state.resolved_link_cache.put(hoster.url, play_url)
-                if not play_url:
-                    if sto.gated:
-                        _mark_serienstream_blocked(
-                            sto.last_block_reason or "captcha_gate",
-                            "SerienStream-Redirect-Gate blockiert",
-                        )
-                        res.gated = True
-                        break
-                    log(f"  {hoster.name}: S.to-Link nicht aufl√∂sbar ‚Äì n√§chster Hoster", "warn")
-                    continue
-                if (
-                    resolved_by_provider
-                    and state.provider_health.status("serienstream")["failure_count"]
-                ):
-                    state.provider_health.mark_success("serienstream")
-            name = _canonical_hoster_name(hoster.name, play_url)
-            if play_url in unsupported_domains:
-                log(f"  √úberspringe {hoster.name}: Link nicht unterst√ºtzt", "warn")
-                continue
-            if play_url in barren_hoster_urls:
-                # s.to rotiert die Redirect-URLs, das Embed-Ziel bleibt gleich.
-                log(f"  √úberspringe {hoster.name}: lieferte zuvor keine Stream-URL", "warn")
-                continue
-        name = _canonical_hoster_name(hoster.name, play_url)
-        res.hoster_url_used = play_url
-        cooldown, _reason = state.hoster_intel.cooldown(
-            play_url, hoster_name=hoster.name,
-        )
-        if cooldown:
-            minutes = max(1, (cooldown + 59) // 60)
-            log(
-                f"  √úberspringe {hoster.name}: Zielhost noch "
-                f"{minutes} Min. pausiert",
-                "warn",
-            )
-            continue
-
-        if name == "voe":
-            if state.voe_pool is None:
-                log("Starte Browser-Pool f√ºr VOE-Fallback ‚Ä¶")
-                try:
-                    state.voe_pool = VOEBrowserPool(log_cb=log)
-                except Exception as exc:
-                    log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                    state.voe_pool = None
-                    continue
-            check = pre_check_voe(play_url, session=session)
-            if check == VOE_NOT_FOUND:
-                log("  VOE 404 ‚Äì n√§chster Hoster", "warn")
-                continue
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=state.voe_pool,
-                )
-            except Exception as exc:
-                log(f"  VOE-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = play_url
-            res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "https://voe.sx"
-        elif (
-            name.startswith("filmfrei24")
-            or provider_for_value(movie.url) == "filmfrei24"
-        ):
-            # Eigener √∂ffentlicher VOD-HLS-Stream; kein Embed- oder
-            # Browser-Extraktor n√∂tig. Der Scraper liefert zuerst den offiziellen
-            # Proxy und danach den direkten TV-Endpunkt als Ausweichroute.
-            res.stream_info = (play_url, "hls")
-            res.referer = movie.url or f"{FILMFREI24_BASE_URL}/"
-            res.origin = FILMFREI24_BASE_URL
-        elif name in ("moflix", "veev"):
-            embed_referer = (
-                movie.url if provider_for_value(movie.url) == "megakino"
-                else "https://moflix-stream.xyz/"
-            )
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
-                    referer=embed_referer,
-                )
-                if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool f√ºr Embed-Fallback ‚Ä¶")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                            continue
-                    res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=state.embed_pool,
-                        referer=embed_referer,
-                        browser_wait_seconds=12,
-                    )
-            except Exception as exc:
-                log(f"  Embed-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = play_url
-            res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
-        elif name == "kinoger":
-            referer = movie.url or "https://kinoger.com/"
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
-                    referer=referer,
-                )
-                if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool f√ºr KinoGer-Mirror ‚Ä¶")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                            continue
-                    res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=state.embed_pool,
-                        referer=referer,
-                        browser_wait_seconds=12,
-                    )
-            except Exception as exc:
-                log(f"  KinoGer-Mirror fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = play_url
-            res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
-        elif name == "doodstream":
-            try:
-                res.stream_info = extract_doodstream_url(play_url, session=session, log_cb=log)
-            except Exception as exc:
-                log(f"  Doodstream-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
-            res.origin = f"{parsed.scheme}://{parsed.netloc}"
-        elif name == "vidara":
-            # VIDARA (vidmatrixa.com u.a.) ‚Äì von yt-dlp nicht unterst√ºtzt, eigener
-            # Extraktor (POST /api/stream ‚Üí streaming_url, HLS).
-            try:
-                res.stream_info = extract_vidara_url(play_url, session=session, log_cb=log)
-            except Exception as exc:
-                log(f"  VIDARA-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
-            res.origin = f"{parsed.scheme}://{parsed.netloc}"
-        elif name == "vidsonic":
-            # Vidsonic (vidsonic.net) ‚Äì von yt-dlp nicht unterst√ºtzt, eigener
-            # Extraktor (hex-kodierte + umgekehrte URL im HTML, HLS).
-            try:
-                res.stream_info = extract_vidsonic_url(play_url, session=session, log_cb=log)
-            except Exception as exc:
-                log(f"  Vidsonic-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
-            res.origin = f"{parsed.scheme}://{parsed.netloc}"
-        elif name == "firestream":
-            try:
-                res.stream_info = extract_firestream_url(play_url, session=session, log_cb=log)
-            except Exception as exc:
-                log(f"  FireStream-Extraktion fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            parsed = urlparse(play_url)
-            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
-            res.origin = f"{parsed.scheme}://{parsed.netloc}"
-        elif provider_for_value(movie.url) == "megakino":
-            # MegaKino nimmt regelmaessig neue Player-Domains auf. Erst wird
-            # ohne Browser nach direkten HLS-/MP4-Quellen gesucht, danach faengt
-            # der gemeinsame Embed-Pool Medienrequests ab. Als letzter Weg darf
-            # yt-dlp die unveraenderte Player-URL versuchen.
-            referer = movie.url or "https://megakino.org/"
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
-                    referer=referer,
-                )
-                if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool f√ºr MegaKino-Hoster ‚Ä¶")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
-                        res.stream_info = extract_stream_url(
-                            play_url, session=session, log_cb=log, pool=state.embed_pool,
-                            referer=referer,
-                            browser_wait_seconds=10,
-                        )
-            except Exception as exc:
-                log(f"  MegaKino-Hoster fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            if res.stream_info is None:
-                res.stream_info = (play_url, "web")
-            parsed = urlparse(play_url)
-            res.referer = play_url
-            res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
-        elif provider_for_value(movie.url) == "sflix":
-            # Die SFlix-Player (UpCloud/Vidsrc/‚Ä¶) sind generische Embed-Seiten.
-            # Direkte Regex-Aufl√∂sung bleibt billig; der gemeinsame Browser-Pool
-            # f√§ngt als Fallback den signierten HLS-Request des Players ab.
-            referer = movie.url or f"{SFLIX_BASE_URL}/"
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url,
-                    session=session,
-                    log_cb=log,
-                    pool=None,
-                    referer=referer,
-                )
-                if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool f√ºr SFlix-Hoster ‚Ä¶")
-                        try:
-                            state.embed_pool = VOEBrowserPool(
-                                log_cb=log,
-                                setup_voe=False,
-                            )
-                        except Exception as exc:
-                            log(
-                                f"Browser-Pool konnte nicht starten: {exc}",
-                                "warn",
-                            )
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
-                        res.stream_info = extract_stream_url(
-                            play_url,
-                            session=session,
-                            log_cb=log,
-                            pool=state.embed_pool,
-                            referer=referer,
-                            browser_wait_seconds=12,
-                        )
-            except Exception as exc:
-                log(f"  SFlix-Hoster fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            if res.stream_info is None:
-                res.stream_info = (play_url, "web")
-            res.referer = referer
-            res.origin = SFLIX_BASE_URL
-        elif provider_for_value(movie.url) == "ridomovies":
-            # Closeload/Rapidrame sind generische Embed-Player. Erst die
-            # g√ºnstige HTML-Aufl√∂sung probieren, dann den gemeinsamen
-            # Browser-Pool f√ºr signierte Medienrequests verwenden.
-            referer = movie.url or f"{RIDOMOVIES_BASE_URL}/"
-            try:
-                res.stream_info = extract_stream_url(
-                    play_url,
-                    session=session,
-                    log_cb=log,
-                    pool=None,
-                    referer=referer,
-                )
-                if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool f√ºr Ridomovies-Hoster ‚Ä¶")
-                        try:
-                            state.embed_pool = VOEBrowserPool(
-                                log_cb=log,
-                                setup_voe=False,
-                            )
-                        except Exception as exc:
-                            log(
-                                f"Browser-Pool konnte nicht starten: {exc}",
-                                "warn",
-                            )
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
-                        res.stream_info = extract_stream_url(
-                            play_url,
-                            session=session,
-                            log_cb=log,
-                            pool=state.embed_pool,
-                            referer=referer,
-                            browser_wait_seconds=12,
-                        )
-            except Exception as exc:
-                log(f"  Ridomovies-Hoster fehlgeschlagen: {exc}", "warn")
-                res.stream_info = None
-            if res.stream_info is None:
-                res.stream_info = (play_url, "web")
-            res.referer = referer
-            res.origin = RIDOMOVIES_BASE_URL
-        elif provider_for_value(movie.url) == "mkissa":
-            # MKissa liefert direkte Streams und generische Anime-Embeds.
-            # Direkte Medien bleiben unangetastet; Embed-Player durchlaufen
-            # zun√§chst die billige Extraktion und danach den Browser-Pool.
-            referer = f"{MKISSA_BASE_URL}/"
-            parsed = urlparse(play_url)
-            if parsed.path.casefold().endswith((".m3u8", ".mp4")):
-                res.stream_info = (play_url, "web")
-            else:
-                try:
-                    res.stream_info = extract_stream_url(
-                        play_url,
-                        session=session,
-                        log_cb=log,
-                        pool=None,
-                        referer=referer,
-                    )
-                    if res.stream_info is None:
-                        if state.embed_pool is None:
-                            log("Starte Browser-Pool f√ºr MKissa-Hoster ‚Ä¶")
-                            try:
-                                state.embed_pool = VOEBrowserPool(
-                                    log_cb=log,
-                                    setup_voe=False,
-                                )
-                            except Exception as exc:
-                                log(
-                                    f"Browser-Pool konnte nicht starten: {exc}",
-                                    "warn",
-                                )
-                                state.embed_pool = None
-                        if state.embed_pool is not None:
-                            res.stream_info = extract_stream_url(
-                                play_url,
-                                session=session,
-                                log_cb=log,
-                                pool=state.embed_pool,
-                                referer=referer,
-                                browser_wait_seconds=12,
-                            )
-                except Exception as exc:
-                    log(f"  MKissa-Hoster fehlgeschlagen: {exc}", "warn")
-                    res.stream_info = None
-                if res.stream_info is None:
-                    res.stream_info = (play_url, "web")
-            res.referer = referer
-            res.origin = "https://mkissa.to"
-        else:
-            # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/‚Ä¶):
-            # yt-dlp probieren lassen. Referer = eigene Hoster-Domain
-            # (bei s.to-Aufl√∂sung), sonst filmpalast wie gehabt.
-            res.stream_info = (play_url, "web")
-            if was_sto:
-                parsed = urlparse(play_url)
-                res.referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.netloc else "https://filmpalast.to/"
-            else:
-                res.referer = "https://filmpalast.to/"
-            res.origin = ""
-
-        if res.stream_info:
-            stream_url, _stream_type = res.stream_info
-            log(f"  Pr√ºfe Hoster: {hoster.name}")
-            ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin)
-            state.hoster_intel.record_probe(
-                play_url, ok, probe_msg, hoster_name=hoster.name,
-            )
-            if not ok:
-                log(f"  {hoster.name} nicht nutzbar: {probe_msg}", "warn")
-                if "unsupported url" in probe_msg.lower():
-                    unsupported_domains.add(play_url)
-                res.stream_info = None
-                continue
-            break
-        else:
-            # Der Extraktor lief vollst√§ndig durch, ohne eine Stream-URL zu
-            # finden. Innerhalb dieses Laufs nicht erneut versuchen.
-            barren_hoster_urls.add(hoster.url)
-            if play_url:
-                barren_hoster_urls.add(play_url)
-
-    return res
-
-
-def find_movie_source_fallbacks(
-    movie: FilmpalastMovie,
-    selected_slug: str,
-    excluded_urls: set,
-) -> List[FilmpalastMovie]:
-    """Sucht denselben Film erst dann bei anderen Katalogquellen, wenn alle
-    Hoster des ausgew√§hlten Treffers zur Laufzeit gescheitert sind."""
-    title = clean_movie_title(movie.title)
-    wanted = _norm_title(title)
-    wanted_year = str(movie.year or "")
-    if not wanted:
-        return []
-    log(f"  Suche alternative Filmquellen f√ºr ¬´{title}¬ª ‚Ä¶", "warn")
-    alternatives: List[FilmpalastMovie] = []
-    seen_urls = set(excluded_urls)
-    try:
-        candidates = search_movie_candidates(title)
-    except Exception as exc:
-        log(f"  Alternative Filmquellen nicht durchsuchbar: {exc}", "warn")
-        return []
-
-    for candidate in candidates:
-        if not candidate.is_movie or candidate.slug == selected_slug:
-            continue
-        if _norm_title(candidate.title) != wanted:
-            continue
-        candidate_year = str(candidate.year or "")
-        if wanted_year and candidate_year and candidate_year != wanted_year:
-            continue
-        if candidate.url in seen_urls:
-            continue
-        try:
-            loaded = state.fp_movies.get(candidate.slug) or load_movie_for_slug(candidate.slug)
-        except Exception as exc:
-            log(f"  Filmquelle {candidate.title} nicht ladbar: {exc}", "warn")
-            continue
-        if not loaded or not loaded.hosters or _norm_title(loaded.title) != wanted:
-            continue
-        loaded_year = str(loaded.year or candidate_year or "")
-        if wanted_year and loaded_year and loaded_year != wanted_year:
-            continue
-        if loaded.url in seen_urls:
-            continue
-        state.fp_movies[candidate.slug] = loaded
-        seen_urls.add(loaded.url)
-        alternatives.append(loaded)
-        if len(alternatives) >= 6:
-            break
-
-    if alternatives:
-        log(f"  {len(alternatives)} alternative Filmquelle(n) vorbereitet.")
-    else:
-        log("  Keine weitere Filmquelle mit exakt passendem Titel/Jahr gefunden.", "warn")
-    return alternatives
-
-
-def _enqueue_hoster_attempt(
-    movie: FilmpalastMovie,
-    movie_slug: str,
-    out_path: Path,
-    result: _HosterResult,
-    unsupported_domains: set,
-    failed_hoster_urls: set,
-    attempt_errors: List[str],
-    source_movies: List[FilmpalastMovie],
-    source_index: int,
-    source_fallbacks_loaded: List[bool],
-    refreshed_hoster_urls: set,
-    barren_hoster_urls: Optional[set] = None,
-    cancelled: Optional[Callable[[], bool]] = None,
-    gate_seen: Optional[List[bool]] = None,
-    gate_retry: Optional[Callable[[], bool]] = None,
-    slow_candidates: Optional[List[tuple]] = None,
-    last_resort: bool = False,
-):
-    """Startet einen Downloadversuch und schaltet bei Laufzeitfehlern auf den
-    n√§chsten Hoster um. Ein logischer Job wird erst nach Erfolg oder nach dem
-    letzten Anbieter als abgeschlossen gemeldet."""
-    if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
-        return False
-    gate_seen = gate_seen or [bool(result.gated)]
-    gate_seen[0] = gate_seen[0] or bool(result.gated)
-    if barren_hoster_urls is None:
-        barren_hoster_urls = set()
-    if slow_candidates is None:
-        slow_candidates = []
-    stream_url, stream_type = result.stream_info
-    hoster_used = result.hoster_used
-    label = f"{movie.title}  ({hoster_used})"
-    log(f"  Stream bereit ({hoster_used}): {stream_url[:60]}‚Ä¶")
-
-    def _attempt_done(ok: bool, msg: str):
-        if result.hoster_url_used:
-            state.hoster_intel.record_download(
-                result.hoster_url_used,
-                ok,
-                hoster_name=hoster_used,
-                speed_bps=getattr(job, "average_speed_bps", 0),
-                failure_kind=getattr(job, "failure_kind", ""),
-            )
-        if ok:
-            if not parse_episode_slug(movie_slug):
-                _movie_subscription_download_finished(movie_slug, out_path, result.quality)
-            on_job_done(True, msg, label, out_path, slug=movie_slug)
-            return
-        if msg == "Abgebrochen":
-            on_job_done(False, msg, label, out_path, slug=movie_slug)
-            return
-        if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
-            return
-
-        is_slow = getattr(job, "failure_kind", "") == "slow"
-        if last_resort:
-            final_msg = "; ".join(attempt_errors + [f"Letzte langsame Reserve: {msg}"])
-            on_job_done(False, final_msg, label, out_path, slug=movie_slug)
-            return
-        if is_slow:
-            source_key = result.source_hoster_url or result.hoster_url_used
-            if not any(
-                (candidate_result.source_hoster_url or candidate_result.hoster_url_used) == source_key
-                for _candidate_movie, candidate_result, _speed in slow_candidates
-            ):
-                slow_candidates.append((
-                    movie,
-                    result,
-                    float(getattr(job, "average_speed_bps", 0) or 0),
-                ))
-
-        # Signierte CDN-Links k√∂nnen zwischen Probe und Download ablaufen. Den
-        # gleichen Hoster genau einmal frisch extrahieren, bevor er ausscheidet.
-        source_url = result.source_hoster_url
-        if not is_slow and source_url and source_url not in refreshed_hoster_urls:
-            refreshed_hoster_urls.add(source_url)
-            log(f"  {hoster_used}: Link wird einmal frisch aufgel√∂st ‚Ä¶", "warn")
-            # Ein abgelaufener Hoster-/CDN-Link darf genau einen Cache-Miss
-            # erzeugen. Bei aktivem SerienStream-Cooldown bricht die folgende
-            # Extraktion vor jedem Provider-Request ab und nutzt Fallbacks.
-            state.resolved_link_cache.invalidate(
-                source_url, result.hoster_url_used,
-            )
-            with state.hoster_extract_lock:
-                refreshed = _extract_from_movie(
-                    movie,
-                    unsupported_domains,
-                    excluded_hoster_urls=failed_hoster_urls,
-                    barren_hoster_urls=barren_hoster_urls,
-                )
-            gate_seen[0] = gate_seen[0] or bool(refreshed.gated)
-            if refreshed.stream_info and refreshed.stream_info[0] == stream_url:
-                # Identischer Link: die Signatur war nicht abgelaufen, der Fehler
-                # lag am Abruf selbst. Ein zweiter Versuch scheitert genauso.
-                log(
-                    f"  {hoster_used}: unver√§nderter Link ‚Äì kein zweiter Versuch",
-                    "warn",
-                )
-            elif refreshed.stream_info:
-                if _enqueue_hoster_attempt(
-                    movie, movie_slug, out_path, refreshed, unsupported_domains,
-                    failed_hoster_urls, attempt_errors, source_movies, source_index,
-                    source_fallbacks_loaded, refreshed_hoster_urls,
-                    barren_hoster_urls, cancelled,
-                    gate_seen, gate_retry, slow_candidates, last_resort,
-                ):
-                    return
-                on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
-                return
-
-        attempt_errors.append(f"{hoster_used}: {msg}")
-        if result.source_hoster_url:
-            failed_hoster_urls.add(result.source_hoster_url)
-        log(f"  {hoster_used}-Download fehlgeschlagen ‚Äì versuche n√§chsten Anbieter", "warn")
-        on_job_progress(-1, f"{hoster_used} ausgefallen ¬∑ wechsle Anbieter ‚Ä¶", label)
-
-        with state.hoster_extract_lock:
-            next_result = _extract_from_movie(
-                movie,
-                unsupported_domains,
-                excluded_hoster_urls=failed_hoster_urls,
-                barren_hoster_urls=barren_hoster_urls,
-            )
-        gate_seen[0] = gate_seen[0] or bool(next_result.gated)
-        if next_result.stream_info:
-            if _enqueue_hoster_attempt(
-                movie, movie_slug, out_path, next_result, unsupported_domains,
-                failed_hoster_urls, attempt_errors, source_movies, source_index,
-                source_fallbacks_loaded, refreshed_hoster_urls,
-                barren_hoster_urls, cancelled,
-                gate_seen, gate_retry, slow_candidates, last_resort,
-            ):
-                return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
-            return
-
-        # Alle Hoster dieses Katalogtreffers sind verbraucht. Nun denselben Inhalt
-        # bei weiteren Katalogquellen testen ‚Äì f√ºr Filme UND Episoden.
-        ep_info = parse_episode_slug(movie_slug)
-        if not source_fallbacks_loaded[0]:
-            source_fallbacks_loaded[0] = True
-            on_job_progress(-1, "Hoster ersch√∂pft ¬∑ suche alternative Quellen ‚Ä¶", label)
-            if ep_info:
-                series_title = strip_episode_suffix(source_movies[0].title) or source_movies[0].title
-                tried_providers = {
-                    _movie_provider(candidate, movie_slug)
-                    for candidate in source_movies
-                }
-                tried_providers.discard("")
-                alternatives = find_episode_fallbacks(
-                    series_title,
-                    ep_info[1],
-                    ep_info[2],
-                    aliases=_episode_fallback_aliases(movie_slug, series_title),
-                    source_slug=movie_slug,
-                    excluded_providers=tried_providers,
-                )
-                seen = {m.url for m in source_movies}
-                source_movies.extend(m for m in alternatives if m.url not in seen)
-            else:
-                source_movies.extend(find_movie_source_fallbacks(
-                    source_movies[0], movie_slug, {m.url for m in source_movies},
-                ))
-        for next_index in range(source_index + 1, len(source_movies)):
-            next_movie = source_movies[next_index]
-            log(f"  Wechsle Filmquelle: {clean_movie_title(next_movie.title)}", "warn")
-            with state.hoster_extract_lock:
-                source_result = _extract_from_movie(
-                    next_movie,
-                    unsupported_domains,
-                    excluded_hoster_urls=failed_hoster_urls,
-                    barren_hoster_urls=barren_hoster_urls,
-                )
-            gate_seen[0] = gate_seen[0] or bool(source_result.gated)
-            if not source_result.stream_info:
-                continue
-            if _enqueue_hoster_attempt(
-                next_movie, movie_slug, out_path, source_result, unsupported_domains,
-                failed_hoster_urls, attempt_errors, source_movies, next_index,
-                source_fallbacks_loaded, refreshed_hoster_urls,
-                barren_hoster_urls, cancelled,
-                gate_seen, gate_retry, slow_candidates, last_resort,
-            ):
-                return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
-            return
-
-        if ep_info and gate_seen[0] and gate_retry and gate_retry():
-            log("  serienstream-Captcha aktiv ‚Äì Episode nach Cooldown erneut versuchen.", "warn")
-            on_job_progress(-1, "Captcha-Cooldown ¬∑ Wiederholung vorgemerkt ‚Ä¶", label)
-            return
-
-        if slow_candidates:
-            reserve_movie, reserve_result, _reserve_speed = max(
-                slow_candidates,
-                key=lambda candidate: candidate[2],
-            )
-            reserve_label = reserve_result.hoster_used or "langsame Quelle"
-            log(
-                f"  Alle schnelleren Quellen erschoepft ‚Äì {reserve_label} "
-                "wird als langsame Reserve ohne Speed-Limit fortgesetzt.",
-                "warn",
-            )
-            on_job_progress(
-                -1,
-                f"Keine schnellere Quelle ¬∑ nutze {reserve_label} als Reserve ‚Ä¶",
-                label,
-            )
-            if _enqueue_hoster_attempt(
-                reserve_movie,
-                movie_slug,
-                out_path,
-                reserve_result,
-                unsupported_domains,
-                failed_hoster_urls,
-                attempt_errors,
-                source_movies,
-                source_index,
-                source_fallbacks_loaded,
-                refreshed_hoster_urls,
-                barren_hoster_urls,
-                cancelled,
-                gate_seen,
-                gate_retry,
-                [],
-                True,
-            ):
-                return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
-            return
-
-        reason = "serienstream-Captcha aktiv" if gate_seen[0] else "alle Anbieter und Filmquellen ausgesch√∂pft"
-        final_msg = "; ".join(attempt_errors + [reason])
-        on_job_done(False, final_msg, label, out_path, slug=movie_slug)
-
-    job = DownloadJob(
-        stream_url=stream_url,
-        stream_type=stream_type,
-        out_path=out_path,
-        queue_slug=movie_slug,
-        provider=result.provider or _movie_provider(movie, movie_slug),
-        content_language=(
-            result.content_language
-            or _movie_content_language(movie, fallback=movie_slug)
-        ),
-        referer=result.referer,
-        origin=result.origin,
-        on_progress=lambda pct, msg: on_job_progress(pct, msg, label),
-        on_done=_attempt_done,
-        allow_slow=last_resort,
-    )
-    with state.queue_lifecycle_lock:
-        with state.queue_claim_lock:
-            if (cancelled and cancelled()) or movie_slug not in state.picked:
-                return False
-            add_front = getattr(state.dl_queue, "add_front", None)
-            # Langsame Reserven ohne Speed-Limit koennen stundenlang kriechen.
-            # Sie kommen ans Queue-Ende, damit schnelle Downloads nicht hinter
-            # ihnen verhungern; normale Folgeversuche behalten ihren Slot vorn.
-            if add_front and not last_resort:
-                add_front(job)
-            else:
-                state.dl_queue.add(job)
-    return True
-
-
-def _existing_valid_movie_path(out_root: Path, movie: FilmpalastMovie) -> Optional[Path]:
-    """Findet eine bereits vollst√§ndig geladene Filmdatei dieses Titels."""
-    titles = [clean_movie_title(movie.title)]
-    if movie.title not in titles:
-        titles.append(movie.title)
-    checked: set = set()
-    video_suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-    for title in titles:
-        expected = out_root / build_movie_filename(title, movie.year)
-        try:
-            candidates = expected.parent.glob(expected.stem + ".*")
-            for candidate in candidates:
-                if candidate in checked or candidate.suffix.casefold() not in video_suffixes:
-                    continue
-                checked.add(candidate)
-                valid, detail = validate_media_file(candidate)
-                if valid:
-                    log(f"  Bereits vollst√§ndig vorhanden: {candidate.name} ({detail})")
-                    return candidate
-                log(f"  Vorhandene Datei ist ung√ºltig und wird ersetzt: {candidate.name} ({detail})", "warn")
-        except OSError as exc:
-            log(f"  Vorhandene Filmdatei konnte nicht gepr√ºft werden: {exc}", "warn")
-    return None
-
-
-def _movie_subscription_download_finished(
-    movie_slug: str, out_path: Path, quality: str,
-) -> None:
-    """Bucht ein erfolgreiches Upgrade und entfernt erst danach die alte Datei."""
-    changed = False
-    subscription = None
-    old_media_path = ""
-    with state.movie_subscriptions_lock:
-        subscription = next(
-            (
-                entry for entry in state.movie_subscriptions
-                if entry.get("pending_slug") == movie_slug
-                or entry.get("source_slug") == movie_slug
-            ),
-            None,
-        )
-        if subscription is None:
-            return
-        rank = movie_quality_rank(quality)
-        subscription["current_quality_rank"] = max(
-            int(subscription.get("current_quality_rank") or 0), rank,
-        )
-        subscription["current_quality"] = quality or (
-            f"{rank}p" if rank else "Qualit√§t unbekannt"
-        )
-        subscription["pending_slug"] = ""
-        subscription["last_error"] = ""
-        subscription["upgrade_available_rank"] = 0
-        subscription["upgrade_available_quality"] = ""
-        subscription["last_upgraded"] = time.time()
-        old_media_path = str(subscription.get("existing_path") or "")
-        changed = True
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
-
-    # DownloadJob hat die neue Datei bereits atomar committed. Bei abweichender
-    # Container-Endung bleibt die alte Datei daneben liegen; nur dann bereinigen.
-    try:
-        candidates = [
-            path for path in out_path.parent.glob(out_path.stem + ".*")
-            if path.suffix.casefold() in {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-            and path.is_file()
-        ]
-        valid_candidates = [
-            path for path in candidates if validate_media_file(path)[0]
-        ]
-        if valid_candidates:
-            newest = max(valid_candidates, key=lambda path: path.stat().st_mtime_ns)
-            old_path = Path(old_media_path)
-            if old_path.is_absolute():
-                root = Path(state.save_path).expanduser().resolve(strict=False)
-                resolved_old = old_path.expanduser().resolve(strict=False)
-                try:
-                    resolved_old.relative_to(root)
-                    old_is_safe = True
-                except ValueError:
-                    old_is_safe = False
-                if old_is_safe and resolved_old != newest.resolve(strict=False):
-                    resolved_old.unlink(missing_ok=True)
-                    log(f"Qualit√§ts-Upgrade: alte Filmdatei gel√∂scht: {resolved_old.name}")
-            for candidate in candidates:
-                if candidate != newest:
-                    candidate.unlink(missing_ok=True)
-                    log(f"Qualit√§ts-Upgrade: alte Filmdatei gel√∂scht: {candidate.name}")
-    except OSError as exc:
-        log(f"Qualit√§ts-Upgrade: alte Filmdatei konnte nicht bereinigt werden: {exc}", "warn")
-    if changed:
-        broadcast({"type": "movie_subscriptions_update", **movie_subscriptions_payload()})
-
-
-def _movie_subscription_download_failed(movie_slug: str, message: str) -> None:
-    changed = False
-    with state.movie_subscriptions_lock:
-        for entry in state.movie_subscriptions:
-            if entry.get("pending_slug") != movie_slug:
-                continue
-            entry["pending_slug"] = ""
-            entry["last_error"] = "" if message == "Abgebrochen" else str(message)[:240]
-            entry["last_checked"] = time.time()
-            changed = True
-        if changed:
-            appconfig.save_movie_subscriptions(state.movie_subscriptions)
-    if changed:
-        broadcast({"type": "movie_subscriptions_update", **movie_subscriptions_payload()})
-
-
-def _existing_valid_episode_path(series_title: str, season: int, episode: int) -> Optional[Path]:
-    expected = series_episode_out_path(series_title, season, episode)
-    if not expected.parent.exists():
-        return None
-    video_suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-    for candidate in expected.parent.glob(expected.stem + ".*"):
-        if candidate.suffix.casefold() not in video_suffixes:
-            continue
-        valid, detail = _valid_media_cached(candidate)
-        if valid:
-            return candidate
-        log(f"  Vorhandene Episode ist ung√ºltig und wird ersetzt: {candidate.name} ({detail})", "warn")
-    return None
-
-
-def _episode_jellyfin_identity(
-    base_slug: str,
-    series_title: str,
-    jf_client: JellyfinClient,
-    jf_series: Optional[List[dict]],
-) -> tuple[tuple[str, ...], set[str], str]:
-    """Ermittelt eine eindeutige Serienidentit√§t; Mehrdeutigkeit blockiert."""
-    with state.watchlist_lock:
-        stored = watchlist_lookup(base_slug)
-        entry = dict(stored) if stored else {}
-    tmdb_id = str(entry.get("tmdb_id") or "")
-    aliases = list(dict.fromkeys(filter(None, (
-        series_title,
-        entry.get("title", ""),
-        *(entry.get("aliases") or []),
-    ))))
-    tmdb = get_tmdb_series(series_title, tmdb_id)
-    if tmdb:
-        tmdb_id = str(tmdb_id or tmdb.get("tmdb_id") or "")
-        aliases = list(dict.fromkeys(filter(None, (
-            *aliases,
-            tmdb.get("title", ""),
-            tmdb.get("original_title", ""),
-        ))))
-    series_ids = jf_client.series_ids_for(
-        series_title, tmdb_id=tmdb_id, aliases=aliases, items=jf_series,
-    )
-    if series_ids is None:
-        raise RuntimeError("Jellyfin-Zuordnung mehrdeutig")
-    return tuple(aliases), series_ids, tmdb_id
-
-
-def _is_jellyfin_safety_block(reason: str) -> bool:
-    return str(reason or "").startswith("Jellyfin")
-
-
-def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool, str]:
-    """Serverseitiger Duplikatschutz f√ºr manuelle und automatische Queue-Adds."""
-    episode_info = parse_episode_slug(slug)
-    jf_client = get_jellyfin_client()
-    if episode_info:
-        series_title = strip_episode_suffix(movie.title) or movie.title
-        if _existing_valid_episode_path(series_title, episode_info[1], episode_info[2]):
-            return True, "lokal vorhanden"
-        if jf_client.configured:
-            items = get_jellyfin_episodes()
-            jf_series = get_jellyfin_series()
-            with state.jellyfin_cache_lock:
-                config_generation = state.jellyfin_config_generation
-                data_generation = state.jellyfin_episode_data_generation
-                episodes_available = state.jellyfin_episodes_available
-                series_available = state.jellyfin_series_available
-            if items is None or not episodes_available:
-                return True, "Jellyfin nicht erreichbar"
-            if jf_series is None or not series_available:
-                return True, "Jellyfin-Serienindex nicht verf√ºgbar"
-            try:
-                aliases, series_ids, _tmdb_id = _episode_jellyfin_identity(
-                    episode_info[0], series_title, jf_client, jf_series,
-                )
-            except RuntimeError as exc:
-                return True, str(exc)
-            with state.jellyfin_cache_lock:
-                if (
-                    config_generation != state.jellyfin_config_generation
-                    or data_generation != state.jellyfin_episode_data_generation
-                ):
-                    return True, "Jellyfin-Daten werden gerade aktualisiert"
-            if jf_client.has_episode(
-                series_title, episode_info[1], episode_info[2], items=items,
-                aliases=aliases, series_ids=series_ids,
-            ):
-                return True, "in Jellyfin vorhanden"
-        return False, ""
-
-    if _existing_valid_movie_path(Path(state.save_path), movie) is not None:
-        return True, "lokal vorhanden"
-    if jf_client.configured:
-        items = get_jellyfin_library()
-        with state.jellyfin_cache_lock:
-            config_generation = state.jellyfin_config_generation
-            data_generation = state.jellyfin_movie_data_generation
-            library_available = state.jellyfin_library_available
-        if items is None or not library_available:
-            return True, "Jellyfin nicht erreichbar"
-        title = clean_movie_title(movie.title)
-        tmdb = get_tmdb_client().movie_summary(title, movie.year)
-        with state.jellyfin_cache_lock:
-            if (
-                config_generation != state.jellyfin_config_generation
-                or data_generation != state.jellyfin_movie_data_generation
-            ):
-                return True, "Jellyfin-Daten werden gerade aktualisiert"
-        if jf_client.match(
-            title, movie.year, items=items, tmdb_id=(tmdb or {}).get("tmdb_id", ""),
-        ):
-            return True, "in Jellyfin vorhanden"
-    return False, ""
-
-
-def run_download_queue(
-    jobs: List[tuple],
-    out_root: Path,
-    movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
-    start_queue: bool = True,
-    cancelled: Optional[Callable[[], bool]] = None,
-):
-    """jobs: Liste von (movie, slug)-Paaren. Der slug ist der Queue-Schl√ºssel
-    (z.B. 'serienstream:the-last-of-us-s01e01') ‚Äì daraus wird die Serie/Staffel/
-    Episode erkannt. Wichtig: NICHT aus movie.url ableiten, denn bei s.to/moflix
-    ist das letzte URL-Segment 'episode-1'/'1' und w√ºrde die Serie f√§lschlich als
-    Film in den Wurzelordner legen.
-
-    SerienStream-Episoden werden erst hier unmittelbar vor der Verarbeitung
-    geladen. Provider-Sperren lassen ihren logischen Queue-Claim offen."""
-    out_root.mkdir(parents=True, exist_ok=True)
-    unsupported_domains: set = set()
-    gated_jobs: List[tuple] = []   # (movie, slug) die am Captcha-Gate hingen
-    queued_slugs: set = set()
-
-    for movie, movie_slug in jobs:
-        if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
-            continue
-        log(f"‚îÄ‚îÄ‚îÄ {movie.title} ‚îÄ‚îÄ‚îÄ")
-
-        # Bereits vorhandene Episode NICHT erneut aufl√∂sen/laden. Spart /r?t=-
-        # Requests (wichtig f√ºrs Gate) und macht das erneute Ansto√üen nach einem
-        # Captcha-Cooldown praktikabel: nur die noch fehlenden Folgen werden
-        # verarbeitet statt der ganzen Staffel.
-        ep_info = parse_episode_slug(movie_slug)
-        if ep_info:
-            # Originalen Serientitel EIN EINZIGES MAL festhalten (vor einem
-            # etwaigen Hoster-Refresh oder Fallback), damit der "schon
-            # vorhanden?"-Check und der tats√§chliche Zielordner garantiert
-            # denselben Serien-/Staffel-Ordner verwenden. W√ºrde man den Titel
-            # sp√§ter aus einem inzwischen ersetzten movie-Objekt neu ableiten,
-            # k√∂nnte eine leicht abweichende Anbieter-Formatierung die Episode
-            # in einem zweiten, abweichenden Ordner landen lassen.
-            orig_series_title = strip_episode_suffix(movie.title) or movie.title
-            existing_file = _existing_valid_episode_path(orig_series_title, ep_info[1], ep_info[2])
-            if existing_file is not None:
-                if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
-                    on_job_done(True, "bereits vorhanden", movie.title, existing_file, slug=movie_slug)
-                continue
-
-            # Konnte bereits die Episodenseite w√§hrend der Vorbereitung nicht
-            # geladen werden, bleibt der logische Job trotzdem erhalten. Vor
-            # jedem Versuch die gew√§hlte Quelle erneut laden; danach folgen die
-            # Katalog-Fallbacks und bei Serienstream gegebenenfalls Cooldowns.
-            primary_unavailable = False
-            if not movie.hosters:
-                refreshed_movie = None
-                is_sto = provider_for_value(movie_slug) == "serienstream"
-                if is_sto and not state.provider_health.request_allowed("serienstream"):
-                    log(
-                        f"SerienStream befindet sich im Cooldown ‚Äì Episode "
-                        f"S{ep_info[1]:02d}E{ep_info[2]:02d} bleibt vorgemerkt."
-                    )
-                else:
-                    try:
-                        refreshed_movie = load_movie_for_slug(movie_slug)
-                    except ProviderBlockedError as exc:
-                        _mark_serienstream_blocked(exc.reason, str(exc))
-                        log(f"  Episodenseite blockiert: {exc}", "warn")
-                    except Exception as exc:
-                        log(f"  Episodenseite noch nicht ladbar: {exc}", "warn")
-                        if is_sto:
-                            _mark_serienstream_blocked("provider_error", str(exc))
-                if refreshed_movie and refreshed_movie.hosters:
-                    movie = refreshed_movie
-                    state.fp_movies[movie_slug] = refreshed_movie
-                elif movie_slug.startswith(SERIENSTREAM_PREFIX):
-                    primary_unavailable = True
-        else:
-            primary_unavailable = False
-            existing_movie = (
-                None
-                if bool(getattr(movie, "_allow_quality_upgrade", False))
-                else _existing_valid_movie_path(out_root, movie)
-            )
-            if existing_movie is not None:
-                if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
-                    on_job_done(True, "bereits vorhanden", movie.title, existing_movie, slug=movie_slug)
-                continue
-
-        source_movies = [movie]
-        seen_source_urls = {movie.url}
-        known_fallbacks = (movie_fallbacks or {}).get(movie_slug, [])
-        for fallback_movie in known_fallbacks:
-            if fallback_movie.url in seen_source_urls:
-                continue
-            source_movies.append(fallback_movie)
-            seen_source_urls.add(fallback_movie.url)
-        # Ein leerer, fr√ºher aufgebauter Episoden-Fallback-Eintrag beweist
-        # nicht, dass alle Anbieter im jetzigen Moment erfolglos sind. Gerade
-        # bei einer sp√§teren SerienStream-Sperre muss die exakte Laufzeitsuche
-        # (Moflix/Huhu/weitere) noch einmal stattfinden d√ºrfen. Erst dieser
-        # Lauf markiert die Suche f√ºr den aktuellen Versuch als vollst√§ndig.
-        source_fallbacks_loaded = [
-            movie_fallbacks is not None and movie_slug in movie_fallbacks
-            if not ep_info else False
-        ]
-        # Gilt f√ºr den kompletten Versuch dieses Slugs, quellen√ºbergreifend:
-        # ein Embed ohne Stream-URL bleibt f√ºr diesen Lauf ausgeschlossen.
-        barren_hoster_urls: set = set()
-        # Watchlist-Eintr√§ge behalten ihren urspr√ºnglichen Katalog-Slug. Wurde
-        # sp√§ter eine andere Prim√§rquelle konfiguriert, laden wir deren Treffer
-        # vorab und sortieren die tats√§chlich nutzbaren Quellen neu.
-        if (
-            ep_info
-            and provider_for_value(movie_slug) != provider_priority("series")[0]
-            and not source_fallbacks_loaded[0]
-        ):
-            source_fallbacks_loaded[0] = True
-            alternatives = find_episode_fallbacks(
-                orig_series_title,
-                ep_info[1],
-                ep_info[2],
-                aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                source_slug=movie_slug,
-            )
-            for candidate in alternatives:
-                if candidate.url not in seen_source_urls:
-                    source_movies.append(candidate)
-                    seen_source_urls.add(candidate.url)
-        if ep_info:
-            source_movies = _ordered_episode_sources(source_movies)
-            movie = source_movies[0]
-        source_index = 0
-
-        with state.hoster_extract_lock:
-            result = _extract_from_movie(
-                movie, unsupported_domains, barren_hoster_urls=barren_hoster_urls,
-            )
-        if primary_unavailable:
-            # Eine temporaer nicht lesbare s.to-Episodenseite wird wie das
-            # Redirect-Gate behandelt und nicht sofort terminal gezaehlt.
-            if state.provider_health.request_allowed("serienstream"):
-                _mark_serienstream_blocked(
-                    "provider_error", "SerienStream-Episodenseite nicht ladbar",
-                )
-            result.gated = True
-        gate_seen = [bool(result.gated)]
-
-        # Scheitert bereits die Extraktion/Probe, denselben Inhalt sofort beim
-        # ersten exakten Katalog-Fallback versuchen. Das gilt nicht nur bei Captcha.
-        if not result.stream_info:
-            if not source_fallbacks_loaded[0]:
-                if ep_info:
-                    alternatives = find_episode_fallbacks(
-                        orig_series_title,
-                        ep_info[1],
-                        ep_info[2],
-                        aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                        source_slug=movie_slug,
-                        limit=1,
-                    )
-                    source_movies.extend(
-                        candidate for candidate in alternatives
-                        if candidate.url not in {m.url for m in source_movies}
-                    )
-                    # Ein erster exakter Treffer wird sofort versucht. Erst
-                    # wenn dessen Extraktion oder Download scheitert, werden
-                    # die √ºbrigen Kataloge geladen.
-                    source_fallbacks_loaded[0] = not bool(alternatives)
-                else:
-                    source_fallbacks_loaded[0] = True
-                    source_movies.extend(find_movie_source_fallbacks(
-                        source_movies[0], movie_slug, {m.url for m in source_movies},
-                    ))
-            next_index = 1
-            while next_index < len(source_movies):
-                next_movie = source_movies[next_index]
-                log(f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}", "warn")
-                with state.hoster_extract_lock:
-                    source_result = _extract_from_movie(
-                        next_movie,
-                        unsupported_domains,
-                        barren_hoster_urls=barren_hoster_urls,
-                    )
-                gate_seen[0] = gate_seen[0] or bool(source_result.gated)
-                next_index += 1
-                if not source_result.stream_info:
-                    continue
-                movie = next_movie
-                result = source_result
-                source_index = next_index - 1
-                break
-
-            # Der schnellste Katalogtreffer hatte zwar Hoster, lie√ü sich aber
-            # nicht extrahieren. Jetzt erst die restlichen Provider laden und
-            # in derselben Vorbereitung weiterprobieren.
-            if ep_info and not result.stream_info and not source_fallbacks_loaded[0]:
-                source_fallbacks_loaded[0] = True
-                tried_providers = {
-                    _movie_provider(candidate, movie_slug)
-                    for candidate in source_movies
-                }
-                tried_providers.discard("")
-                alternatives = find_episode_fallbacks(
-                    orig_series_title,
-                    ep_info[1],
-                    ep_info[2],
-                    aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
-                    source_slug=movie_slug,
-                    excluded_providers=tried_providers,
-                )
-                known_urls = {candidate.url for candidate in source_movies}
-                source_movies.extend(
-                    candidate for candidate in alternatives
-                    if candidate.url not in known_urls
-                )
-                while next_index < len(source_movies):
-                    next_movie = source_movies[next_index]
-                    log(
-                        f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}",
-                        "warn",
-                    )
-                    with state.hoster_extract_lock:
-                        source_result = _extract_from_movie(
-                            next_movie,
-                            unsupported_domains,
-                            barren_hoster_urls=barren_hoster_urls,
-                        )
-                    gate_seen[0] = gate_seen[0] or bool(source_result.gated)
-                    next_index += 1
-                    if not source_result.stream_info:
-                        continue
-                    movie = next_movie
-                    result = source_result
-                    source_index = next_index - 1
-                    break
-
-        if not result.stream_info:
-            if gate_seen[0]:
-                # s.to-Gate aktiv UND kein Fallback nutzbar ‚Äì bis zur n√§chsten
-                # Provider-Probe zur√ºckstellen (NICHT als erledigt z√§hlen).
-                gated_jobs.append((source_movies[0], movie_slug))
-                log("  Zur√ºckgestellt ‚Äì serienstream Captcha-Gate aktiv (Fallback erfolglos)", "warn")
-            else:
-                if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
-                    on_job_done(False, "kein Hoster extrahierbar", movie.title, Path(""), slug=movie_slug)
-            continue
-
-        # Episode vs. Film aus dem Queue-Slug erkennen (NICHT aus movie.url ‚Äì
-        # s.to/moflix haben dort 'episode-1'/'1' als letztes Segment).
-        episode_info = parse_episode_slug(movie_slug)
-        if episode_info:
-            _base_slug, season, episode = episode_info
-            out_path = series_episode_out_path(orig_series_title, season, episode)
-        else:
-            primary_movie = source_movies[0]
-            out_path = out_root / build_movie_filename(
-                clean_movie_title(primary_movie.title), primary_movie.year,
-            )
-
-        enqueued = _enqueue_hoster_attempt(
-            movie=movie,
-            movie_slug=movie_slug,
-            out_path=out_path,
-            result=result,
-            unsupported_domains=unsupported_domains,
-            failed_hoster_urls=set(),
-            attempt_errors=[],
-            source_movies=source_movies,
-            source_index=source_index,
-            source_fallbacks_loaded=source_fallbacks_loaded,
-            refreshed_hoster_urls=set(),
-            barren_hoster_urls=barren_hoster_urls,
-            cancelled=cancelled,
-            gate_seen=gate_seen,
-            gate_retry=lambda primary=source_movies[0], slug=movie_slug: _defer_provider_episode(
-                primary, slug, out_root, movie_fallbacks,
-            ),
-        )
-        if enqueued:
-            queued_slugs.add(movie_slug)
-
-    # Am Captcha-Gate h√§ngengebliebene Episoden zentral sammeln. Das gilt auch
-    # f√ºr einen einzelnen Vorbereitungsjob ohne Erfolg.
-    if gated_jobs:
-        deferred = 0
-        for gated_movie, gated_slug in gated_jobs:
-            if (cancelled and cancelled()) or not _queue_slug_claimed(gated_slug):
-                continue
-            if _defer_provider_episode(
-                gated_movie, gated_slug, out_root, movie_fallbacks,
-            ):
-                deferred += 1
-                queued_slugs.add(gated_slug)
-                continue
-            # Ein zur√ºckgestellter Provider-Job ist nie ein terminaler Fehler.
-        if deferred:
-            log(
-                f"‚è≥ {deferred} Episode(n) warten auf die n√§chste einzelne "
-                f"SerienStream-Probe."
-            )
-
-    # Erst nach der Gate-Entscheidung starten. on_queue_done sieht dadurch
-    # entweder den wartenden Provider-Job oder einen terminalen Versuch.
-    if start_queue:
-        log("‚îÄ‚îÄ‚îÄ Starte Queue (max. 2 parallel) ‚îÄ‚îÄ‚îÄ")
-        state.dl_queue.start()
-
-    # Telegram ben√∂tigt die konkreten Slugs, um bei Mehrfachanfragen sofort zu
-    # erkennen, welche Episoden tats√§chlich gestartet/zur√ºckgestellt wurden.
-    return queued_slugs
-
-
-# ---------------------------------------------------------------------------
-# Telegram-Filmw√ºnsche
-# ---------------------------------------------------------------------------
-TELEGRAM_JELLYFIN_WAIT_SECONDS = 30 * 60
-TELEGRAM_SERIES_CHOICE_TTL_SECONDS = 10 * 60
-TELEGRAM_SERIES_LOADING_TTL_SECONDS = 30 * 60
-TELEGRAM_SERIES_PAGE_SIZE = 6
-TELEGRAM_SERIES_MAX_PENDING = 20
-
-
-def _telegram_send(chat_id: str, text: str):
-    if _telegram_bot is not None:
-        _telegram_bot.send(chat_id, text)
-
-
-def _rank_telegram_series_results(
-    query: str, results: List[FilmpalastSeriesResult],
-) -> List[FilmpalastSeriesResult]:
-    wanted = _norm_title(query)
-    unique: Dict[str, FilmpalastSeriesResult] = {}
-    for result in results:
-        key = result.base_slug or result.sample_slug
-        if key and key not in unique:
-            unique[key] = result
-    ranked = sorted(
-        unique.values(),
-        key=lambda result: (
-            _norm_title(result.title) != wanted,
-            wanted not in _norm_title(result.title),
-            abs(len(_norm_title(result.title)) - len(wanted)),
-            not _norm_title(result.title).startswith(wanted),
-            clean_movie_title(result.title).casefold(),
-        ),
-    )
-    # Identische Titel verschiedener Anbieter sind keine Auswahlvarianten. Der
-    # erste Treffer folgt der Nutzerpriorit√§t; weitere Quellen bleiben Fallbacks.
-    deduped: List[FilmpalastSeriesResult] = []
-    seen_titles: set[str] = set()
-    for result in ranked:
-        title_key = _norm_title(result.title)
-        if title_key in seen_titles:
-            continue
-        seen_titles.add(title_key)
-        deduped.append(result)
-    return deduped
-
-
-def _prune_telegram_series_choices_locked(
-    now: float, reserve_slot: bool = False,
-) -> None:
-    expired = [
-        token for token, entry in state.telegram_series_choices.items()
-        if float(entry.get("expires_at", 0)) <= now
-    ]
-    for token in expired:
-        state.telegram_series_choices.pop(token, None)
-    limit = TELEGRAM_SERIES_MAX_PENDING - (1 if reserve_slot else 0)
-    while len(state.telegram_series_choices) > limit:
-        oldest = min(
-            state.telegram_series_choices,
-            key=lambda token: float(
-                state.telegram_series_choices[token].get("created_at", 0),
-            ),
-        )
-        state.telegram_series_choices.pop(oldest, None)
-
-
-def _telegram_series_choice_markup(token: str, index: int) -> dict:
-    return {"inline_keyboard": [[{
-        "text": "Diese Serie ausw√§hlen",
-        "callback_data": f"sr:{token}:{index}",
-    }]]}
-
-
-def _telegram_series_next_markup(token: str, next_index: int) -> dict:
-    return {"inline_keyboard": [[{
-        "text": "Weitere Treffer anzeigen",
-        "callback_data": f"srn:{token}:{next_index}",
-    }]]}
-
-
-def _telegram_movie_choice_markup(token: str, index: int) -> dict:
-    return {"inline_keyboard": [[{
-        "text": "Diesen Film ausw√§hlen",
-        "callback_data": f"mr:{token}:{index}",
-    }]]}
-
-
-def _telegram_movie_next_markup(token: str, next_index: int) -> dict:
-    return {"inline_keyboard": [[{
-        "text": "Weitere Treffer anzeigen",
-        "callback_data": f"mrn:{token}:{next_index}",
-    }]]}
-
-
-def _send_telegram_series_choice_page_locked(token: str, entry: dict) -> bool:
-    bot = _telegram_bot
-    if bot is None:
-        return False
-    chat_id = entry["chat_id"]
-    candidates = entry["candidates"]
-    start = int(entry.get("next_index", 0))
-    end = min(start + TELEGRAM_SERIES_PAGE_SIZE, len(candidates))
-    sent_message_ids = []
-    sent_candidate_count = 0
-
-    for index in range(start, end):
-        with state.telegram_choices_lock:
-            if state.telegram_series_choices.get(token) is not entry:
-                break
-        candidate = candidates[index]
-        title = clean_movie_title(candidate.title) or candidate.title
-        caption = f"{index + 1}. {title}"
-        if candidate.year:
-            caption += f" ({candidate.year})"
-        caption = caption[:1024]
-        markup = _telegram_series_choice_markup(token, index)
-        message_id = None
-        cover_data = _fetch_cover_data(candidate.cover_url) if candidate.cover_url else None
-        if cover_data:
-            content, content_type = cover_data
-            message_id = bot.send_photo(
-                chat_id, content, caption, markup, content_type,
-            )
-        if message_id is None and candidate.cover_url:
-            message_id = bot.send_photo(
-                chat_id, candidate.cover_url, caption, markup,
-            )
-        if message_id is None:
-            message_id = bot.send_message(
-                chat_id, f"üñºÔ∏è {caption}\n(Cover nicht verf√ºgbar)", markup,
-            )
-        if message_id is not None:
-            sent_message_ids.append(message_id)
-            sent_candidate_count += 1
-
-    with state.telegram_choices_lock:
-        current = state.telegram_series_choices.get(token)
-    if current is not entry:
-        for message_id in sent_message_ids:
-            bot.clear_inline_keyboard(chat_id, message_id)
-        return False
-
-    if sent_candidate_count and end < len(candidates):
-        remaining = len(candidates) - end
-        message_id = bot.send_message(
-            chat_id,
-            f"Noch {remaining} Treffer.",
-            _telegram_series_next_markup(token, end),
-        )
-        if message_id is not None:
-            sent_message_ids.append(message_id)
-
-    with state.telegram_choices_lock:
-        if state.telegram_series_choices.get(token) is not entry:
-            stale = True
-        else:
-            stale = False
-            entry["message_ids"].extend(sent_message_ids)
-            entry["next_index"] = end if sent_candidate_count else start
-            entry["ready"] = True
-            entry["expires_at"] = (
-                time.monotonic() + TELEGRAM_SERIES_CHOICE_TTL_SECONDS
-            )
-    if stale:
-        for message_id in sent_message_ids:
-            bot.clear_inline_keyboard(chat_id, message_id)
-        return False
-    return bool(sent_candidate_count)
-
-
-def _publish_telegram_series_choices_locked(
-    chat_id: str,
-    request: dict,
-    results: List[FilmpalastSeriesResult],
-) -> None:
-    candidates = list(results)
-    if not candidates or _telegram_bot is None:
-        _telegram_send(chat_id, "‚ùå Telegram-Auswahl konnte nicht erstellt werden.")
-        return
-
-    now = time.monotonic()
-    token = secrets.token_urlsafe(9)
-    entry = {
-        "kind": "series",
-        "chat_id": chat_id,
-        "request": dict(request),
-        "candidates": candidates,
-        "created_at": now,
-        "expires_at": now + TELEGRAM_SERIES_LOADING_TTL_SECONDS,
-        "message_ids": [],
-        "next_index": 0,
-        "ready": False,
-    }
-    old_message_ids = []
-    with state.telegram_choices_lock:
-        _prune_telegram_series_choices_locked(now)
-        for old_token, old_entry in list(state.telegram_series_choices.items()):
-            if old_entry.get("chat_id") == chat_id:
-                old_message_ids.extend(old_entry.get("message_ids", []))
-                state.telegram_series_choices.pop(old_token, None)
-        _prune_telegram_series_choices_locked(now, reserve_slot=True)
-        state.telegram_series_choices[token] = entry
-    if old_message_ids:
-        threading.Thread(
-            target=_clear_telegram_choice_keyboards,
-            args=(chat_id, old_message_ids),
-            daemon=True,
-        ).start()
-
-    _telegram_send(
-        chat_id,
-        f"üîé {len(results)} Serien gefunden. Bitte die richtige ausw√§hlen:",
-    )
-    if not _send_telegram_series_choice_page_locked(token, entry):
-        with state.telegram_choices_lock:
-            if state.telegram_series_choices.get(token) is entry:
-                state.telegram_series_choices.pop(token, None)
-        _telegram_send(chat_id, "‚ùå Treffer konnten nicht an Telegram gesendet werden.")
-
-
-def _publish_telegram_series_choices(
-    chat_id: str,
-    request: dict,
-    results: List[FilmpalastSeriesResult],
-) -> None:
-    with state.telegram_choices_publish_lock:
-        _publish_telegram_series_choices_locked(chat_id, request, results)
-
-
-def _consume_telegram_series_choice(
-    chat_id: str, token: str, index: int,
-) -> tuple[str, Optional[dict], Optional[FilmpalastSeriesResult]]:
-    now = time.monotonic()
-    with state.telegram_choices_lock:
-        _prune_telegram_series_choices_locked(now)
-        entry = state.telegram_series_choices.get(token)
-        if not entry:
-            return "expired", None, None
-        if entry.get("chat_id") != chat_id:
-            return "forbidden", None, None
-        if entry.get("kind", "series") != "series":
-            return "invalid", None, None
-        if not entry.get("ready"):
-            return "loading", None, None
-        candidates = entry.get("candidates") or []
-        if index < 0 or index >= len(candidates):
-            return "invalid", None, None
-        state.telegram_series_choices.pop(token, None)
-        return "ok", entry, candidates[index]
-
-
-def _prepare_telegram_series_next_page(
-    chat_id: str, token: str, next_index: int,
-) -> tuple[str, Optional[dict]]:
-    now = time.monotonic()
-    with state.telegram_choices_lock:
-        _prune_telegram_series_choices_locked(now)
-        entry = state.telegram_series_choices.get(token)
-        if not entry:
-            return "expired", None
-        if entry.get("chat_id") != chat_id:
-            return "forbidden", None
-        if entry.get("kind", "series") != "series":
-            return "invalid", None
-        if not entry.get("ready"):
-            return "loading", None
-        candidates = entry.get("candidates") or []
-        if next_index != entry.get("next_index") or next_index >= len(candidates):
-            return "invalid", None
-        entry["ready"] = False
-        entry["expires_at"] = now + TELEGRAM_SERIES_LOADING_TTL_SECONDS
-        return "ok", entry
-
-
-def _build_telegram_movie_options(
-    query: str, results: List[FilmpalastSearchResult],
-) -> List[dict]:
-    """L√§dt Film-Treffer und b√ºndelt identische Titel/Jahre als Fallbacks."""
-    grouped: Dict[tuple, dict] = {}
-    seen_urls: set[str] = set()
-    for candidate in _telegram_best_result(query, results):
-        if not candidate.is_movie:
-            continue
-        try:
-            loaded = load_movie_for_slug(candidate.slug)
-        except Exception as exc:
-            log(f"Telegram-Filmtreffer nicht ladbar ({candidate.slug}): {exc}", "warn")
-            continue
-        if not loaded or not loaded.hosters or loaded.url in seen_urls:
-            continue
-        seen_urls.add(loaded.url)
-        title = clean_movie_title(loaded.title) or clean_movie_title(candidate.title)
-        year = str(loaded.year or candidate.year or "")
-        key = (_norm_title(title), year)
-        option = grouped.get(key)
-        if option is None:
-            grouped[key] = {
-                "result": candidate,
-                "movie": loaded,
-                "fallback_movies": [],
-                "title": title,
-                "year": year,
-                "cover_url": loaded.cover_url,
-            }
-        else:
-            option["fallback_movies"].append(loaded)
-            if not option.get("cover_url") and loaded.cover_url:
-                option["cover_url"] = loaded.cover_url
-    return list(grouped.values())
-
-
-def _filter_existing_telegram_movie_options(
-    options: List[dict],
-) -> tuple[Optional[List[dict]], List[dict], str]:
-    """Entfernt vorhandene Filme, bevor Telegram Download-Buttons anzeigt."""
-    jf_items = get_jellyfin_library(force=True)
-    with state.jellyfin_cache_lock:
-        library_available = state.jellyfin_library_available
-    if jf_items is None or not library_available:
-        return None, [], "Jellyfin ist nicht erreichbar"
-
-    downloadable = []
-    existing = []
-    for option in options:
-        movie = option["movie"]
-        result = option["result"]
-        already_available, reason = _content_already_available(movie, result.slug)
-        if already_available:
-            if _is_jellyfin_safety_block(reason):
-                return None, existing, reason
-            existing.append(option)
-        else:
-            downloadable.append(option)
-    return downloadable, existing, ""
-
-
-def _send_telegram_movie_choice_page_locked(token: str, entry: dict) -> bool:
-    bot = _telegram_bot
-    if bot is None:
-        return False
-    chat_id = entry["chat_id"]
-    candidates = entry["candidates"]
-    start = int(entry.get("next_index", 0))
-    end = min(start + TELEGRAM_SERIES_PAGE_SIZE, len(candidates))
-    sent_message_ids = []
-    sent_candidate_count = 0
-
-    for index in range(start, end):
-        with state.telegram_choices_lock:
-            if state.telegram_series_choices.get(token) is not entry:
-                break
-        option = candidates[index]
-        caption = f"{index + 1}. {option['title']}"
-        if option.get("year"):
-            caption += f" ({option['year']})"
-        source_count = 1 + len(option.get("fallback_movies", []))
-        if source_count > 1:
-            caption += f" ¬∑ {source_count} Quellen"
-        markup = _telegram_movie_choice_markup(token, index)
-        message_id = None
-        cover_url = str(option.get("cover_url") or "")
-        cover_data = _fetch_cover_data(cover_url) if cover_url else None
-        if cover_data:
-            content, content_type = cover_data
-            message_id = bot.send_photo(chat_id, content, caption[:1024], markup, content_type)
-        if message_id is None and cover_url:
-            message_id = bot.send_photo(chat_id, cover_url, caption[:1024], markup)
-        if message_id is None:
-            message_id = bot.send_message(
-                chat_id, f"üñºÔ∏è {caption}\n(Cover nicht verf√ºgbar)", markup,
-            )
-        if message_id is not None:
-            sent_message_ids.append(message_id)
-            sent_candidate_count += 1
-
-    with state.telegram_choices_lock:
-        current = state.telegram_series_choices.get(token)
-    if current is not entry:
-        for message_id in sent_message_ids:
-            bot.clear_inline_keyboard(chat_id, message_id)
-        return False
-
-    if sent_candidate_count and end < len(candidates):
-        remaining = len(candidates) - end
-        message_id = bot.send_message(
-            chat_id,
-            f"Noch {remaining} Treffer.",
-            _telegram_movie_next_markup(token, end),
-        )
-        if message_id is not None:
-            sent_message_ids.append(message_id)
-
-    with state.telegram_choices_lock:
-        if state.telegram_series_choices.get(token) is not entry:
-            stale = True
-        else:
-            stale = False
-            entry["message_ids"].extend(sent_message_ids)
-            entry["next_index"] = end if sent_candidate_count else start
-            entry["ready"] = True
-            entry["expires_at"] = time.monotonic() + TELEGRAM_SERIES_CHOICE_TTL_SECONDS
-    if stale:
-        for message_id in sent_message_ids:
-            bot.clear_inline_keyboard(chat_id, message_id)
-        return False
-    return bool(sent_candidate_count)
-
-
-def _publish_telegram_movie_choices(
-    chat_id: str, query: str, options: List[dict],
-) -> None:
-    with state.telegram_choices_publish_lock:
-        if not options or _telegram_bot is None:
-            _telegram_send(chat_id, "‚ùå Telegram-Auswahl konnte nicht erstellt werden.")
-            return
-        now = time.monotonic()
-        token = secrets.token_urlsafe(9)
-        entry = {
-            "kind": "movie",
-            "chat_id": chat_id,
-            "query": query,
-            "candidates": list(options),
-            "created_at": now,
-            "expires_at": now + TELEGRAM_SERIES_LOADING_TTL_SECONDS,
-            "message_ids": [],
-            "next_index": 0,
-            "ready": False,
-        }
-        old_message_ids = []
-        with state.telegram_choices_lock:
-            _prune_telegram_series_choices_locked(now)
-            for old_token, old_entry in list(state.telegram_series_choices.items()):
-                if old_entry.get("chat_id") == chat_id:
-                    old_message_ids.extend(old_entry.get("message_ids", []))
-                    state.telegram_series_choices.pop(old_token, None)
-            _prune_telegram_series_choices_locked(now, reserve_slot=True)
-            state.telegram_series_choices[token] = entry
-        if old_message_ids:
-            threading.Thread(
-                target=_clear_telegram_choice_keyboards,
-                args=(chat_id, old_message_ids),
-                daemon=True,
-            ).start()
-        _telegram_send(
-            chat_id,
-            f"üîé {len(options)} Filme gefunden. Bitte den richtigen ausw√§hlen:",
-        )
-        if not _send_telegram_movie_choice_page_locked(token, entry):
-            with state.telegram_choices_lock:
-                if state.telegram_series_choices.get(token) is entry:
-                    state.telegram_series_choices.pop(token, None)
-            _telegram_send(chat_id, "‚ùå Treffer konnten nicht an Telegram gesendet werden.")
-
-
-def _consume_telegram_movie_choice(
-    chat_id: str, token: str, index: int,
-) -> tuple[str, Optional[dict], Optional[dict]]:
-    now = time.monotonic()
-    with state.telegram_choices_lock:
-        _prune_telegram_series_choices_locked(now)
-        entry = state.telegram_series_choices.get(token)
-        if not entry:
-            return "expired", None, None
-        if entry.get("chat_id") != chat_id:
-            return "forbidden", None, None
-        if entry.get("kind") != "movie":
-            return "invalid", None, None
-        if not entry.get("ready"):
-            return "loading", None, None
-        candidates = entry.get("candidates") or []
-        if index < 0 or index >= len(candidates):
-            return "invalid", None, None
-        state.telegram_series_choices.pop(token, None)
-        return "ok", entry, candidates[index]
-
-
-def _prepare_telegram_movie_next_page(
-    chat_id: str, token: str, next_index: int,
-) -> tuple[str, Optional[dict]]:
-    now = time.monotonic()
-    with state.telegram_choices_lock:
-        _prune_telegram_series_choices_locked(now)
-        entry = state.telegram_series_choices.get(token)
-        if not entry:
-            return "expired", None
-        if entry.get("chat_id") != chat_id:
-            return "forbidden", None
-        if entry.get("kind") != "movie":
-            return "invalid", None
-        if not entry.get("ready"):
-            return "loading", None
-        candidates = entry.get("candidates") or []
-        if next_index != entry.get("next_index") or next_index >= len(candidates):
-            return "invalid", None
-        entry["ready"] = False
-        entry["expires_at"] = now + TELEGRAM_SERIES_LOADING_TTL_SECONDS
-        return "ok", entry
-
-
-def _telegram_finish_job(job: dict, ok: bool, message: str, out_path: Path):
-    chat_id = job["chat_id"]
-    title = job["title"]
-    year = job.get("year", "")
-    if not ok:
-        _telegram_send(chat_id, f"‚ùå Download von ‚Äû{title}‚Äú fehlgeschlagen: {message}")
-        return
-
-    jf_client = get_jellyfin_client()
-    with state.jellyfin_cache_lock:
-        jellyfin_generation = state.jellyfin_config_generation
-    if not jf_client.configured:
-        _telegram_send(chat_id, f"‚úÖ ‚Äû{title}‚Äú wurde geladen: {out_path}\nJellyfin ist nicht konfiguriert.")
-        return
-
-    log(f"Telegram: Jellyfin-Scan f√ºr ¬´{title}¬ª gestartet.")
-    jf_client.refresh_library()
-    deadline = time.monotonic() + TELEGRAM_JELLYFIN_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        items = get_jellyfin_library(force=True)
-        with state.jellyfin_cache_lock:
-            data_generation = state.jellyfin_movie_data_generation
-            library_available = state.jellyfin_library_available
-            current_generation = state.jellyfin_config_generation
-        if current_generation != jellyfin_generation:
-            jellyfin_generation = current_generation
-            jf_client = get_jellyfin_client()
-            if not jf_client.configured:
-                _telegram_send(
-                    chat_id,
-                    f"‚úÖ ‚Äû{title}‚Äú wurde geladen: {out_path}\nJellyfin ist nicht konfiguriert.",
-                )
-                return
-            jf_client.refresh_library()
-        if items is None or not library_available:
-            time.sleep(15)
-            continue
-        if jf_client.match(
-            title, year, items=items, tmdb_id=job.get("tmdb_id", ""),
-        ):
-            with state.jellyfin_cache_lock:
-                stale = (
-                    jellyfin_generation != state.jellyfin_config_generation
-                    or data_generation != state.jellyfin_movie_data_generation
-                )
-            if stale:
-                continue
-            _telegram_send(chat_id, f"‚úÖ ‚Äû{title}‚Äú ist jetzt in Jellyfin verf√ºgbar.")
-            return
-        time.sleep(15)
-
-    _telegram_send(
-        chat_id,
-        f"‚ö†Ô∏è ‚Äû{title}‚Äú wurde nach {out_path} geladen, ist aber nach 30 Minuten noch nicht in Jellyfin erschienen.",
-    )
-
-
-def _telegram_series_job_result(job: dict, slug: str, ok: bool, message: str, out_path: Path):
-    """Sammelt Einzelergebnisse einer Telegram-Serienanfrage."""
-    finished_group = None
-    with state.telegram_jobs_lock:
-        group = state.telegram_series_requests.get(job.get("request_id", ""))
-        if not group:
-            return
-        group["pending_slugs"].discard(slug)
-        label = f"S{job['season']:02d}E{job['episode']:02d}"
-        if ok:
-            group["completed"].append({
-                "season": job["season"], "episode": job["episode"],
-                "label": label, "path": str(out_path),
-            })
-        else:
-            group["failed"].append(f"{label}: {message}")
-        if not group["pending_slugs"]:
-            finished_group = state.telegram_series_requests.pop(job["request_id"], None)
-    if finished_group:
-        threading.Thread(
-            target=_telegram_finish_series_request,
-            args=(finished_group,),
-            daemon=True,
-        ).start()
-
-
-def _telegram_terminal_without_job(slug: str, ok: bool, message: str, out_path: Path):
-    """Beendet Telegram-Tracking, wenn kein DownloadJob erzeugt wurde."""
-    with state.queue_claim_lock:
-        state.picked.discard(slug)
-    _persist_queue_state()
-    with state.telegram_jobs_lock:
-        job = state.telegram_jobs.pop(slug, None)
-    if not job:
-        return
-    if job.get("kind") == "series":
-        _telegram_series_job_result(job, slug, ok, message, out_path)
-    elif ok:
-        threading.Thread(
-            target=_telegram_finish_job,
-            args=(job, True, message, out_path),
-            daemon=True,
-        ).start()
-    else:
-        _telegram_send(job["chat_id"], f"‚ùå Download von ‚Äû{job['title']}‚Äú fehlgeschlagen: {message}")
-
-
-def _telegram_finish_series_request(group: dict):
-    chat_id = group["chat_id"]
-    title = group["title"]
-    completed = group["completed"]
-    failed = group["failed"]
-    if not completed:
-        detail = f"\n{failed[0]}" if failed else ""
-        _telegram_send(chat_id, f"‚ùå F√ºr ‚Äû{title}‚Äú konnte keine Episode geladen werden.{detail}")
-        return
-
-    jf_client = get_jellyfin_client()
-    with state.jellyfin_cache_lock:
-        jellyfin_generation = state.jellyfin_config_generation
-    if not jf_client.configured:
-        suffix = f" ¬∑ {len(failed)} fehlgeschlagen" if failed else ""
-        _telegram_send(chat_id, f"‚úÖ {len(completed)} Episode(n) von ‚Äû{title}‚Äú geladen{suffix}.")
-        return
-
-    log(f"Telegram: Jellyfin-Scan f√ºr Serie ¬´{title}¬ª gestartet.")
-    jf_client.refresh_library()
-    deadline = time.monotonic() + TELEGRAM_JELLYFIN_WAIT_SECONDS
-    while time.monotonic() < deadline:
-        items = get_jellyfin_episodes(force=True)
-        series_items = get_jellyfin_series(force=True)
-        with state.jellyfin_cache_lock:
-            data_generation = state.jellyfin_episode_data_generation
-            current_generation = state.jellyfin_config_generation
-            episodes_available = state.jellyfin_episodes_available
-            series_available = state.jellyfin_series_available
-        if current_generation != jellyfin_generation:
-            jellyfin_generation = current_generation
-            jf_client = get_jellyfin_client()
-            if not jf_client.configured:
-                suffix = f" ¬∑ {len(failed)} fehlgeschlagen" if failed else ""
-                _telegram_send(
-                    chat_id,
-                    f"‚úÖ {len(completed)} Episode(n) von ‚Äû{title}‚Äú geladen{suffix}. "
-                    "Jellyfin ist nicht konfiguriert.",
-                )
-                return
-            jf_client.refresh_library()
-        if (
-            items is None or series_items is None
-            or not episodes_available
-            or not series_available
-        ):
-            time.sleep(15)
-            continue
-        series_ids = jf_client.series_ids_for(
-            title,
-            tmdb_id=group.get("tmdb_id", ""),
-            aliases=group.get("aliases", ()),
-            items=series_items,
-        )
-        if series_ids is None:
-            time.sleep(15)
-            continue
-        if all(
-            jf_client.has_episode(
-                title, item["season"], item["episode"], items=items,
-                aliases=group.get("aliases", ()), series_ids=series_ids,
-            )
-            for item in completed
-        ):
-            with state.jellyfin_cache_lock:
-                stale = (
-                    jellyfin_generation != state.jellyfin_config_generation
-                    or data_generation != state.jellyfin_episode_data_generation
-                )
-            if stale:
-                continue
-            suffix = f" ¬∑ {len(failed)} fehlgeschlagen" if failed else ""
-            _telegram_send(
-                chat_id,
-                f"‚úÖ ‚Äû{title}‚Äú: {len(completed)} Episode(n) sind jetzt in Jellyfin verf√ºgbar{suffix}.",
-            )
-            return
-        time.sleep(15)
-
-    suffix = f" {len(failed)} Download(s) sind fehlgeschlagen." if failed else ""
-    _telegram_send(
-        chat_id,
-        f"‚ö†Ô∏è {len(completed)} Episode(n) von ‚Äû{title}‚Äú wurden geladen, sind aber nach 30 Minuten noch nicht vollst√§ndig in Jellyfin erschienen.{suffix}",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Seerr-Anfragen (Moonfin/Fire TV -> Seerr -> Royal Downloader)
-# ---------------------------------------------------------------------------
-SEERR_MEDIA_AVAILABLE = 5
-SEERR_SCAN_RETRY_SECONDS = 5 * 60
-
-
-def configure_moonfin_seerr(seerr_url: str, enabled: bool) -> dict:
-    """Konfiguriert Plugin 1.9.1 und aktuelle Versionen ohne andere Werte zu l√∂schen."""
-    jf_url = str(state.jellyfin_cfg.get("url") or "").strip().rstrip("/")
-    api_key = str(state.jellyfin_cfg.get("api_key") or "").strip()
-    user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()
-    if not jf_url or not api_key:
-        return {"configured": False, "detail": "Jellyfin ist nicht konfiguriert."}
-    session = requests.Session()
-    headers = {"X-Emby-Token": api_key, "Accept": "application/json"}
-    try:
-        response = session.get(f"{jf_url}/Plugins", headers=headers, timeout=10)
-        response.raise_for_status()
-        plugins = response.json()
-        plugin = next(
-            (item for item in plugins if str(item.get("Name") or "").casefold() == "moonfin"),
-            None,
-        )
-        if not plugin or not plugin.get("Id"):
-            return {"configured": False, "detail": "Moonfin-Plugin ist nicht installiert."}
-        plugin_id = plugin["Id"]
-        config_url = f"{jf_url}/Plugins/{plugin_id}/Configuration"
-        response = session.get(config_url, headers=headers, timeout=10)
-        response.raise_for_status()
-        plugin_config = response.json()
-        if "SeerrEnabled" in plugin_config or "SeerrUrl" in plugin_config:
-            plugin_config.update({
-                "SeerrEnabled": bool(enabled),
-                "SeerrUrl": seerr_url,
-                "SeerrDisplayName": "Seerr",
-            })
-        else:
-            plugin_config.update({
-                "JellyseerrEnabled": bool(enabled),
-                "JellyseerrUrl": seerr_url,
-                "JellyseerrDisplayName": "Seerr",
-            })
-        # Benutzerprofil zuerst speichern. Das anschlie√üende Admin-Config-POST
-        # kann das Plugin kurz neu laden; umgekehrt w√§re das Profil-POST racy.
-        if user_id:
-            settings_url = f"{jf_url}/Moonfin/Settings/{user_id}"
-            response = session.get(settings_url, headers=headers, timeout=10)
-            current = response.json() if response.status_code == 200 else {}
-            settings = dict(current) if isinstance(current, dict) else {}
-            settings["schemaVersion"] = 2
-            settings["syncEnabled"] = True
-            for profile_name in ("global", "tv"):
-                profile = settings.get(profile_name)
-                profile = dict(profile) if isinstance(profile, dict) else {}
-                profile["jellyseerrEnabled"] = bool(enabled)
-                settings[profile_name] = profile
-            response = session.post(
-                settings_url,
-                headers={**headers, "Content-Type": "application/json"},
-                json={
-                    "settings": settings,
-                    "clientId": "royal-downloader",
-                    "mergeMode": "merge",
-                },
-                timeout=10,
-            )
-            response.raise_for_status()
-        response = session.post(
-            config_url, headers={**headers, "Content-Type": "application/json"},
-            json=plugin_config, timeout=10,
-        )
-        response.raise_for_status()
-        return {"configured": True, "detail": "Moonfin wurde konfiguriert."}
-    except (requests.RequestException, ValueError, TypeError) as exc:
-        return {"configured": False, "detail": f"Moonfin-Konfiguration fehlgeschlagen: {exc}"}
-
-
-def _seerr_client() -> SeerrClient:
-    return SeerrClient(
-        state.seerr_cfg.get("url", ""),
-        state.seerr_cfg.get("api_key", ""),
-    )
-
-
-def _save_seerr_requests_locked() -> bool:
-    snapshot = {key: dict(value) for key, value in state.seerr_requests.items()}
-    return appconfig.save_seerr_requests(snapshot)
-
-
-def _seerr_update_record(request_id, **updates) -> dict:
-    key = str(request_id)
-    with state.seerr_requests_lock:
-        record = state.seerr_requests.setdefault(key, {"request_id": int(request_id)})
-        record.update(updates)
-        record["updated_at"] = time.time()
-        _save_seerr_requests_locked()
-        return dict(record)
-
-
-def _seerr_mark_failure(request_id, message: str, status: str = "failed") -> None:
-    key = str(request_id)
-    with state.seerr_requests_lock:
-        record = state.seerr_requests.setdefault(key, {"request_id": int(request_id)})
-        attempts = int(record.get("attempts", 0) or 0) + 1
-        retry_delay = min(6 * 60 * 60, 5 * 60 * (2 ** min(attempts - 1, 6)))
-        if status == "needs_review":
-            retry_delay = max(retry_delay, 24 * 60 * 60)
-        record.update({
-            "status": status,
-            "message": str(message)[:400],
-            "attempts": attempts,
-            "next_retry": time.time() + retry_delay,
-            "pending_slugs": [],
-            "updated_at": time.time(),
-        })
-        _save_seerr_requests_locked()
-    log(f"Seerr #{request_id}: {message}", "warn")
-
-
-def _seerr_job_result(job: dict, slug: str, ok: bool, message: str, out_path: Path) -> None:
-    request_id = str(job.get("request_id", ""))
-    if not request_id:
-        return
-    with state.seerr_requests_lock:
-        record = state.seerr_requests.get(request_id)
-        if not record:
-            return
-        pending = [value for value in record.get("pending_slugs", []) if value != slug]
-        completed = list(record.get("completed_slugs", []))
-        failures = list(record.get("failures", []))
-        if ok:
-            if slug not in completed:
-                completed.append(slug)
-        else:
-            failures.append({"slug": slug, "message": str(message)[:240]})
-        record.update({
-            "pending_slugs": pending,
-            "completed_slugs": completed,
-            "failures": failures[-50:],
-            "updated_at": time.time(),
-        })
-        if not pending:
-            if failures:
-                record["status"] = "partial" if completed else "failed"
-                attempts = int(record.get("attempts", 0) or 0) + 1
-                record["attempts"] = attempts
-                record["next_retry"] = time.time() + min(
-                    6 * 60 * 60, 5 * 60 * (2 ** min(attempts - 1, 6)),
-                )
-                record["message"] = (
-                    f"{len(completed)} erfolgreich, {len(failures)} fehlgeschlagen"
-                    if completed else str(message)[:400]
-                )
-            else:
-                record["status"] = "completed"
-                record["message"] = "Download abgeschlossen; Seerr wartet auf den Jellyfin-Scan."
-                record["next_retry"] = 0
-        _save_seerr_requests_locked()
-    if not record.get("pending_slugs"):
-        log(
-            f"Seerr #{request_id}: {record.get('status')} "
-            f"({len(record.get('completed_slugs', []))} Download(s))"
-        )
-
-
-def _seerr_terminal_without_job(slug: str, ok: bool, message: str, out_path: Path) -> None:
-    with state.queue_claim_lock:
-        state.picked.discard(slug)
-    _persist_queue_state()
-    with state.seerr_jobs_lock:
-        jobs = state.seerr_jobs.pop(slug, [])
-    for job in jobs:
-        _seerr_job_result(job, slug, ok, message, out_path)
-
-
-def _seerr_register_request_jobs(request_id, items: dict, title: str, **record_values) -> None:
-    pending_slugs = list(items)
-    _seerr_update_record(
-        request_id,
-        status="queued",
-        title=title,
-        pending_slugs=pending_slugs,
-        slugs=sorted(set(record_values.pop("slugs", [])) | set(pending_slugs)),
-        items=items,
-        failures=[],
-        message=f"{len(pending_slugs)} Download(s) eingeplant.",
-        **record_values,
-    )
-    with state.seerr_jobs_lock:
-        for slug, item in items.items():
-            job = {
-                "request_id": str(request_id),
-                "title": title,
-                **item,
-            }
-            jobs = state.seerr_jobs.setdefault(slug, [])
-            jobs[:] = [
-                existing for existing in jobs
-                if str(existing.get("request_id", "")) != str(request_id)
-            ]
-            jobs.append(job)
-
-
-def _seerr_movie_title_key(value: str) -> str:
-    """Normalisiert Quelltitel inklusive optional angeh√§ngtem Erscheinungsjahr."""
-    title = clean_movie_title(str(value or "").strip())
-    title = re.sub(r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$", "", title).strip()
-    return _norm_title(title)
-
-
-def _seerr_movie_aliases(title: str, original_title: str) -> List[tuple[str, str]]:
-    """Liefert nur Aliase, die von den √ºberwiegend lateinischen Katalogen suchbar sind."""
-    aliases: List[tuple[str, str]] = []
-    seen: set[str] = set()
-    for raw_value in (title, original_title):
-        value = " ".join(str(raw_value or "").split()).strip()
-        key = _seerr_movie_title_key(value)
-        # CJK-/sonstige Originaltitel wurden bisher zu einem leeren Schl√ºssel
-        # und lie√üen dadurch beliebige Treffer wie exakte Matches aussehen.
-        if not value or not key or key in seen:
-            continue
-        seen.add(key)
-        aliases.append((value, key))
-    return aliases
-
-
-def _seerr_http_status(exc: Exception) -> int:
-    response = getattr(exc, "response", None)
-    for value in (getattr(response, "status_code", None), getattr(exc, "code", None)):
-        try:
-            return int(value)
-        except (TypeError, ValueError, OverflowError):
-            continue
-    return 0
-
-
-def _seerr_explicitly_non_german(movie: FilmpalastMovie) -> bool:
-    """True, wenn jeder Hoster explizit oder √ºber seinen Anbieter nichtdeutsch ist."""
-    hosters = list(movie.hosters or [])
-    return bool(hosters) and all(
-        (
-            language := _movie_content_language(
-                movie,
-                str(getattr(hoster, "language", "") or ""),
-            )
-        )
-        and language != "de"
-        for hoster in hosters
-    )
-
-
-def _seerr_find_movie_sources(metadata: dict, tmdb_id: int) -> List[tuple]:
-    """Findet wenige, exakt passende und TMDB-best√§tigte deutsche Filmquellen."""
-    title = str(metadata.get("title") or "").strip()
-    original_title = str(metadata.get("original_title") or "").strip()
-    year = str(metadata.get("year") or "").strip()
-    aliases = _seerr_movie_aliases(title, original_title)
-    if not aliases:
-        raise RuntimeError(f"Kein durchsuchbarer Titel f√ºr ‚Äû{title or tmdb_id}‚Äú vorhanden")
-
-    movie_options: List[tuple] = []
-    attempted_slugs: set[str] = set()
-    seen_urls: set[str] = set()
-    rate_limited = False
-    non_german_found = False
-    tmdb_client = get_tmdb_client()
-    max_detail_requests = 8
-
-    for query, query_key in aliases:
-        candidates = []
-        for candidate in search_movie_candidates(query):
-            if not candidate.is_movie or candidate.slug in attempted_slugs:
-                continue
-            if _seerr_movie_title_key(candidate.title) != query_key:
-                continue
-            candidate_year = str(candidate.year or "").strip()
-            if year and candidate_year and candidate_year != year:
-                continue
-            candidates.append(candidate)
-        candidates.sort(key=lambda candidate: (
-            bool(year) and str(candidate.year or "").strip() != year,
-            not bool(str(candidate.year or "").strip()),
-            clean_movie_title(candidate.title).casefold(),
-        ))
-
-        for candidate in candidates:
-            if len(attempted_slugs) >= max_detail_requests:
-                break
-            # Vor dem Netzaufruf markieren, damit derselbe Slug √ºber einen
-            # zweiten Alias nicht erneut geladen wird.
-            attempted_slugs.add(candidate.slug)
-            try:
-                loaded = load_movie_for_slug(candidate.slug)
-            except Exception as exc:
-                status = _seerr_http_status(exc)
-                rate_limited = rate_limited or status == 429
-                suffix = f" (HTTP {status})" if status else f": {exc}"
-                log(f"Seerr-Filmquelle √ºbersprungen: {candidate.slug}{suffix}", "warn")
-                continue
-            if not loaded or not loaded.hosters:
-                continue
-
-            loaded_title = clean_movie_title(loaded.title)
-            loaded_key = _seerr_movie_title_key(loaded_title)
-            if loaded_key not in {key for _value, key in aliases}:
-                continue
-            loaded_year = str(loaded.year or candidate.year or "").strip()
-            if year and loaded_year and loaded_year != year:
-                continue
-            try:
-                summary = tmdb_client.movie_summary(loaded_title, loaded_year or year)
-            except Exception as exc:
-                status = _seerr_http_status(exc)
-                rate_limited = rate_limited or status == 429
-                log(f"TMDB-Pr√ºfung f√ºr ‚Äû{loaded_title}‚Äú √ºbersprungen: {exc}", "warn")
-                continue
-            if not summary or int(summary.get("tmdb_id") or 0) != int(tmdb_id):
-                continue
-            if _seerr_explicitly_non_german(loaded):
-                non_german_found = True
-                log(f"Seerr-Filmquelle ohne deutsche Tonspur √ºbersprungen: {loaded_title}", "warn")
-                continue
-            if loaded.url in seen_urls:
-                continue
-            seen_urls.add(loaded.url)
-            movie_options.append((candidate, loaded))
-
-        # Der lokalisierte Titel hatte best√§tigte Quellen. Den Originaltitel
-        # nicht zus√§tzlich √ºber alle vier Anbieter schicken.
-        if movie_options:
-            break
-        if len(attempted_slugs) >= max_detail_requests:
-            break
-
-    if movie_options:
-        movie_options.sort(key=lambda value: not any(
-            bool(getattr(hoster, "is_de", False))
-            for hoster in (value[1].hosters or [])
-        ))
-        return movie_options
-    if rate_limited:
-        raise RuntimeError("Filmquellen vor√ºbergehend begrenzt (HTTP 429); neuer Versuch folgt")
-    if non_german_found:
-        raise RuntimeError(f"‚Äû{title}‚Äú gefunden, aber derzeit ohne deutsche Tonspur")
-    raise RuntimeError(f"Keine eindeutige Downloadquelle f√ºr ‚Äû{title}‚Äú gefunden")
-
-
-def _seerr_process_movie(request: SeerrRequest, metadata: dict) -> None:
-    request_id = request.request_id
-    jf_client = get_jellyfin_client()
-    jf_items = get_jellyfin_library(force=True)
-    with state.jellyfin_cache_lock:
-        library_available = state.jellyfin_library_available
-    if not jf_client.configured or jf_items is None or not library_available:
-        raise RuntimeError("Jellyfin ist f√ºr den sicheren Duplikat-Check nicht erreichbar")
-
-    title = str(metadata.get("title") or "").strip()
-    year = str(metadata.get("year") or "")
-    if jf_client.match(title, year, items=jf_items, tmdb_id=request.tmdb_id):
-        _seerr_update_record(
-            request_id, status="available", title=title,
-            message="Bereits in Jellyfin vorhanden.", next_retry=0,
-        )
-        return
-
-    movie_options = _seerr_find_movie_sources(metadata, request.tmdb_id)
-
-    chosen, movie = movie_options[0]
-    fallbacks = [value for _candidate, value in movie_options[1:]]
-    already_available, reason = _content_already_available(movie, chosen.slug)
-    if already_available:
-        if _is_jellyfin_safety_block(reason):
-            raise RuntimeError(reason)
-        _seerr_update_record(
-            request_id, status="completed", title=title,
-            message=f"Bereits {reason}.", next_retry=0,
-        )
-        return
-
-    with state.queue_lifecycle_lock:
-        active = any(chosen.slug in _job_queue_slugs(job) for job in state.dl_queue.active_jobs())
-        with state.queue_claim_lock:
-            with state.download_state_lock:
-                already_queued = (
-                    chosen.slug in state.picked
-                    or chosen.slug in state.counted_queue_slugs
-                    or active
-                )
-            if not already_queued:
-                state.picked.add(chosen.slug)
-    state.fp_movies[chosen.slug] = movie
-    item = {
-        "kind": "movie", "year": year,
-        "tmdb_id": request.tmdb_id,
-    }
-    _seerr_register_request_jobs(
-        request_id, {chosen.slug: item}, title,
-        media_type="movie", tmdb_id=request.tmdb_id,
-        seasons=[], is_4k=request.is_4k,
-    )
-    _persist_queue_state()
-    if already_queued:
-        log(f"Seerr #{request_id}: ‚Äû{title}‚Äú an laufenden Download angeh√§ngt.")
-        return
-    accepted = _enqueue_automatic_downloads(
-        [chosen.slug], movie_fallbacks={chosen.slug: fallbacks},
-    )
-    if chosen.slug not in accepted:
-        _seerr_terminal_without_job(
-            chosen.slug, False, "Downloadstart fehlgeschlagen", Path(""),
-        )
-
-
-def _seerr_find_series(metadata: dict) -> Optional[FilmpalastSeries]:
-    titles = list(dict.fromkeys(filter(None, (
-        str(metadata.get("title") or "").strip(),
-        str(metadata.get("original_title") or "").strip(),
-    ))))
-    wanted = {_norm_title(value) for value in titles if _norm_title(value)}
-    matches: Dict[str, FilmpalastSeriesResult] = {}
-    for query in titles:
-        for candidate in search_series_candidates(query):
-            if _norm_title(candidate.title) in wanted:
-                matches.setdefault(candidate.sample_slug, candidate)
-    if not matches:
-        return None
-    candidates = list(matches.values())
-    year = str(metadata.get("year") or "")
-    if year:
-        same_year = [candidate for candidate in candidates if str(candidate.year or "") == year]
-        if same_year:
-            candidates = same_year
-        else:
-            unknown_year = [candidate for candidate in candidates if not candidate.year]
-            if unknown_year:
-                candidates = unknown_year
-            else:
-                raise RuntimeError(
-                    "Serientreffer hat ein abweichendes Erscheinungsjahr und muss gepr√ºft werden"
-                )
-    wanted_tmdb_id = str(metadata.get("tmdb_id") or "").strip()
-    tmdb = get_tmdb_client()
-    verified = [
-        candidate for candidate in candidates
-        if tmdb.series_matches_id(
-            strip_source_suffix(candidate.title), wanted_tmdb_id, year,
-        )
-    ]
-    if not verified:
-        raise RuntimeError(
-            "Serientreffer ist ohne best√§tigte TMDB-ID mehrdeutig und muss gepr√ºft werden"
-        )
-    # Mehrere best√§tigte Treffer derselben TMDB-Serie sind Anbieter-Fallbacks;
-    # search_series_candidates liefert sie bereits in Nutzerpriorit√§t.
-    return get_series_for_value(verified[0].sample_slug)
-
-
-def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
-    request_id = request.request_id
-    jf_client = get_jellyfin_client()
-    if not jf_client.configured:
-        raise RuntimeError("Jellyfin ist nicht konfiguriert")
-    series = _seerr_find_series(metadata)
-    if series is None or not series.all_episodes:
-        raise RuntimeError(
-            f"Keine eindeutige Downloadquelle f√ºr ‚Äû{metadata.get('title') or request.tmdb_id}‚Äú gefunden"
-        )
-
-    requested_seasons = set(request.seasons)
-    unreleased_slugs = _unreleased_episode_slugs(series, request.tmdb_id)
-    selected = [
-        episode for episode in series.all_episodes
-        if (not requested_seasons or episode.season in requested_seasons)
-        and episode.slug not in unreleased_slugs
-    ]
-    if not selected:
-        raise RuntimeError("Die angeforderten Staffeln sind beim Anbieter nicht vorhanden")
-
-    downloaded = compute_downloaded_episodes(series)
-    jf_episodes = get_jellyfin_episodes(force=True)
-    jf_series = get_jellyfin_series(force=True)
-    with state.jellyfin_cache_lock:
-        jf_available = state.jellyfin_episodes_available and state.jellyfin_series_available
-    if jf_episodes is None or jf_series is None or not jf_available:
-        raise RuntimeError("Jellyfin ist f√ºr den sicheren Duplikat-Check nicht erreichbar")
-    aliases = tuple(dict.fromkeys(filter(None, (
-        series.title,
-        metadata.get("title", ""),
-        metadata.get("original_title", ""),
-    ))))
-    series_ids = jf_client.series_ids_for(
-        series.title, tmdb_id=request.tmdb_id, aliases=aliases, items=jf_series,
-    )
-    if series_ids is None:
-        raise RuntimeError("Jellyfin-Zuordnung der Serie ist mehrdeutig")
-    missing = [
-        episode for episode in selected
-        if episode.slug not in downloaded
-        and not jf_client.has_episode(
-            series.title, episode.season, episode.episode,
-            items=jf_episodes, aliases=aliases, series_ids=series_ids,
-        )
-    ]
-    if not missing:
-        pending_unreleased = sum(
-            1 for episode in series.all_episodes
-            if (not requested_seasons or episode.season in requested_seasons)
-            and episode.slug in unreleased_slugs
-        )
-        if pending_unreleased:
-            _seerr_update_record(
-                request_id, status="queued", title=series.title,
-                message=(
-                    f"{pending_unreleased} Episode(n) noch nicht erschienen ‚Äì "
-                    "wird automatisch nachgeladen, sobald verf√ºgbar."
-                ),
-                next_retry=0,
-            )
-        else:
-            _seerr_update_record(
-                request_id, status="available", title=series.title,
-                message="Alle angeforderten Episoden sind bereits vorhanden.", next_retry=0,
-            )
-        return
-
-    movies: Dict[str, FilmpalastMovie] = {}
-    episode_items: Dict[str, dict] = {}
-    for episode in missing:
-        try:
-            movie = load_movie_for_slug(episode.slug)
-        except Exception as exc:
-            movie = None
-            log(f"Seerr-Serie: {episode.label} nicht direkt ladbar: {exc}", "warn")
-        if not movie or not movie.hosters:
-            movie = _episode_placeholder(episode.slug, series.title)
-        movies[episode.slug] = movie
-        episode_items[episode.slug] = {
-            "kind": "series", "season": episode.season,
-            "episode": episode.episode, "tmdb_id": request.tmdb_id,
-        }
-
-    candidate_slugs = set(movies)
-    with state.queue_lifecycle_lock:
-        active_slugs = {
-            slug for job in state.dl_queue.active_jobs() for slug in _job_queue_slugs(job)
-        }
-        with state.queue_claim_lock:
-            with state.download_state_lock:
-                existing = candidate_slugs & (
-                    set(state.picked) | set(state.counted_queue_slugs) | active_slugs
-                )
-                new_slugs = candidate_slugs - existing
-            state.picked.update(new_slugs)
-    tracked_slugs = existing | new_slugs
-    for slug in tracked_slugs:
-        state.fp_movies[slug] = movies[slug]
-    items = {slug: episode_items[slug] for slug in tracked_slugs}
-    _seerr_register_request_jobs(
-        request_id, items, series.title,
-        media_type="tv", tmdb_id=request.tmdb_id,
-        seasons=list(request.seasons), is_4k=request.is_4k,
-    )
-    _persist_queue_state()
-    if new_slugs:
-        accepted = _enqueue_automatic_downloads(sorted(new_slugs))
-        for slug in new_slugs - set(accepted):
-            _seerr_terminal_without_job(
-                slug, False, "Downloadstart fehlgeschlagen", Path(""),
-            )
-    if existing:
-        log(f"Seerr #{request_id}: {len(existing)} Episode(n) an laufende Downloads angeh√§ngt.")
-
-
-def _seerr_retry_completed_scan(request: SeerrRequest, previous: dict) -> None:
-    """St√∂√üt den Jellyfin-Scan erneut an, bis Seerr das Medium als verf√ºgbar meldet."""
-    now = time.time()
-    last_retry = float(previous.get("last_scan_retry", 0) or 0)
-    if now - last_retry < SEERR_SCAN_RETRY_SECONDS:
-        return
-    with state.seerr_scan_retry_lock:
-        if now - state.seerr_last_scan_retry < SEERR_SCAN_RETRY_SECONDS:
-            return
-        state.seerr_last_scan_retry = now
-    jellyfin = get_jellyfin_client()
-    started = bool(jellyfin.configured and jellyfin.refresh_library())
-    message = (
-        "Download abgeschlossen; Jellyfin-Scan erneut gestartet."
-        if started
-        else "Download abgeschlossen; Jellyfin-Scan konnte nicht gestartet werden."
-    )
-    _seerr_update_record(
-        request.request_id,
-        status="completed",
-        last_scan_retry=now,
-        message=message,
-    )
-    if not started:
-        log(f"Seerr #{request.request_id}: {message}", "warn")
-
-
-def _seerr_record_matches_request(record: dict, request: SeerrRequest) -> bool:
-    required = {"media_type", "tmdb_id", "seasons", "is_4k"}
-    if not required.issubset(record):
-        return False
-    try:
-        stored_seasons = tuple(sorted(int(value) for value in record.get("seasons", [])))
-    except (TypeError, ValueError, OverflowError):
-        return False
-    stored_4k = record.get("is_4k")
-    if isinstance(stored_4k, str):
-        stored_4k = stored_4k.strip().casefold() in {"1", "true", "yes", "on"}
-    return (
-        str(record.get("media_type") or "").casefold() == request.media_type
-        and str(record.get("tmdb_id") or "") == str(request.tmdb_id)
-        and stored_seasons == tuple(request.seasons)
-        and bool(stored_4k) == request.is_4k
-    )
-
-
-def _seerr_reset_reused_request(request_id: str) -> None:
-    """Entkoppelt lokalen Altzustand, wenn Seerr eine Request-ID neu verwendet."""
-    with state.seerr_jobs_lock:
-        for slug, jobs in list(state.seerr_jobs.items()):
-            remaining = [
-                job for job in jobs
-                if str(job.get("request_id", "")) != request_id
-            ]
-            if remaining:
-                state.seerr_jobs[slug] = remaining
-            else:
-                state.seerr_jobs.pop(slug, None)
-    with state.seerr_requests_lock:
-        state.seerr_requests.pop(request_id, None)
-        _save_seerr_requests_locked()
-    log(f"Seerr #{request_id}: ge√§nderte Anfrage erkannt; Altzustand verworfen.")
-
-
-def _seerr_process_request(request: SeerrRequest) -> None:
-    request_id = str(request.request_id)
-    with state.seerr_requests_lock:
-        previous = dict(state.seerr_requests.get(request_id, {}))
-    if previous and not _seerr_record_matches_request(previous, request):
-        _seerr_reset_reused_request(request_id)
-        previous = {}
-    status = previous.get("status", "")
-    if request.media_status == SEERR_MEDIA_AVAILABLE:
-        if status != "available":
-            _seerr_update_record(
-                request.request_id, status="available", media_type=request.media_type,
-                tmdb_id=request.tmdb_id, seasons=list(request.seasons),
-                is_4k=request.is_4k, message="In Jellyfin verf√ºgbar.", next_retry=0,
-            )
-        return
-    if request.is_4k:
-        if previous.get("seerr_declined"):
-            return
-        now = time.time()
-        if status == "unsupported" and now < float(previous.get("next_retry", 0) or 0):
-            return
-        try:
-            client = _seerr_client()
-            declined = client.decline_request(request.request_id)
-            decline_error = getattr(client, "last_error", "")
-        except Exception as exc:
-            declined = False
-            decline_error = str(exc)
-        message = (
-            "4K-Anfrage in Seerr abgelehnt: Die Downloadquelle garantiert keine 4K-Qualit√§t."
-            if declined
-            else (
-                "4K wird nicht geladen; Seerr-Ablehnung wird erneut versucht"
-                + (f": {decline_error}" if decline_error else ".")
-            )
-        )
-        _seerr_update_record(
-            request.request_id,
-            status="unsupported",
-            media_type=request.media_type,
-            tmdb_id=request.tmdb_id,
-            seasons=list(request.seasons),
-            is_4k=True,
-            seerr_declined=declined,
-            message=message,
-            next_retry=0 if declined else now + SEERR_SCAN_RETRY_SECONDS,
-        )
-        if not declined:
-            log(f"Seerr #{request.request_id}: {message}", "warn")
-        return
-    if status == "completed":
-        _seerr_retry_completed_scan(request, previous)
-        return
-    if status in ("available", "unsupported"):
-        return
-    if status == "queued":
-        pending = set(previous.get("pending_slugs", []))
-        with state.queue_claim_lock:
-            active = pending & set(state.picked)
-        if active:
-            return
-    if status in ("failed", "partial", "needs_review"):
-        if time.time() < float(previous.get("next_retry", 0) or 0):
-            return
-
-    _seerr_update_record(
-        request.request_id,
-        status="resolving",
-        media_type=request.media_type,
-        tmdb_id=request.tmdb_id,
-        seasons=list(request.seasons),
-        is_4k=request.is_4k,
-        message="Quelle und Jellyfin-Bestand werden gepr√ºft.",
-        pending_slugs=[],
-    )
-    try:
-        tmdb = get_tmdb_client()
-        if not tmdb.configured:
-            raise RuntimeError("TMDB ist nicht konfiguriert")
-        if request.media_type == "movie":
-            metadata = tmdb.movie_by_id(request.tmdb_id)
-            if not metadata:
-                raise RuntimeError(f"TMDB-Film {request.tmdb_id} wurde nicht gefunden")
-            _seerr_process_movie(request, metadata)
-        else:
-            metadata = tmdb.series_by_id(request.tmdb_id)
-            if not metadata:
-                raise RuntimeError(f"TMDB-Serie {request.tmdb_id} wurde nicht gefunden")
-            _seerr_process_series(request, metadata)
-    except Exception as exc:
-        detail = str(exc).casefold()
-        kind = (
-            "needs_review"
-            if "mehrdeutig" in detail or "abweichendes erscheinungsjahr" in detail
-            else "failed"
-        )
-        _seerr_mark_failure(request.request_id, str(exc), kind)
-
-
-def _hydrate_seerr_jobs() -> None:
-    """Verkn√ºpft persistierte Seerr-W√ºnsche wieder mit der Queue."""
-    stale = []
-    with state.seerr_requests_lock:
-        records = [(key, dict(value)) for key, value in state.seerr_requests.items()]
-    with state.queue_claim_lock:
-        picked = set(state.picked)
-    with state.seerr_jobs_lock:
-        for request_id, record in records:
-            if record.get("status") != "queued":
-                continue
-            pending = set(record.get("pending_slugs", []))
-            active = pending & picked
-            item_map = record.get("items") if isinstance(record.get("items"), dict) else {}
-            for slug in active:
-                item = item_map.get(slug) if isinstance(item_map.get(slug), dict) else {}
-                job = {
-                    "request_id": request_id,
-                    "title": record.get("title", ""),
-                    **item,
-                }
-                jobs = state.seerr_jobs.setdefault(slug, [])
-                if not any(
-                    str(existing.get("request_id", "")) == str(request_id)
-                    for existing in jobs
-                ):
-                    jobs.append(job)
-            if pending and not active:
-                stale.append(request_id)
-    for request_id in stale:
-        _seerr_mark_failure(request_id, "Offene Queue-Zuordnung nach Neustart verloren")
-
-
-def seerr_poll_once() -> dict:
-    if not state.seerr_poll_lock.acquire(blocking=False):
-        return {"ok": False, "detail": "Seerr-Abgleich l√§uft bereits."}
-    try:
-        state.seerr_last_poll = time.time()
-        cfg = dict(state.seerr_cfg)
-        client = _seerr_client()
-        if not cfg.get("enabled"):
-            return {"ok": False, "detail": "Seerr-Integration ist deaktiviert."}
-        if not client.configured:
-            state.seerr_last_error = "Seerr-URL oder API-Schl√ºssel fehlt."
-            return {"ok": False, "detail": state.seerr_last_error}
-        if not client.test_connection():
-            state.seerr_last_error = (
-                getattr(client, "last_error", "")
-                or "Seerr ist nicht erreichbar oder der API-Schl√ºssel ist ung√ºltig."
-            )
-            return {"ok": False, "detail": state.seerr_last_error}
-        requests = client.approved_requests()
-        if getattr(client, "last_error", ""):
-            state.seerr_last_error = client.last_error
-            return {"ok": False, "detail": state.seerr_last_error}
-        state.seerr_last_success = time.time()
-        state.seerr_last_error = ""
-        for request in requests:
-            _seerr_process_request(request)
-        if requests:
-            log(f"Seerr-Abgleich: {len(requests)} genehmigte Anfrage(n) gepr√ºft.")
-        return {"ok": True, "requests": len(requests)}
-    except Exception as exc:
-        state.seerr_last_error = str(exc)[:300]
-        log(f"Seerr-Abgleich fehlgeschlagen: {exc}", "warn")
-        return {"ok": False, "detail": state.seerr_last_error}
-    finally:
-        state.seerr_poll_lock.release()
-
-
-def seerr_poll_loop() -> None:
-    _hydrate_seerr_jobs()
-    while not _seerr_stop_event.is_set():
-        if state.seerr_cfg.get("enabled"):
-            seerr_poll_once()
-        interval = max(15, int(state.seerr_cfg.get("poll_interval_seconds", 60) or 60))
-        _seerr_wake_event.wait(interval)
-        _seerr_wake_event.clear()
-
-
-def _parse_telegram_series_request(text: str) -> Optional[dict]:
-    if re.match(r"^/film(?:\s|$)", text.strip(), flags=re.IGNORECASE):
-        return None
-    value = re.sub(r"^/serie\s+", "", text.strip(), flags=re.IGNORECASE)
-    match = re.match(
-        r"^(?P<title>.+?)\s+(?:(?P<all>alles)|staffel\s*0*(?P<season>\d+)"
-        r"(?:\s*(?:ep|e|episode|folge)\s*0*(?P<episode>\d+))?)\s*$",
-        value,
-        flags=re.IGNORECASE,
-    )
-    if not match:
-        return None
-    title = match.group("title").strip().strip('"‚Äû‚Äú')
-    if not title:
-        return None
-    if match.group("all"):
-        return {"title": title, "mode": "all", "season": None, "episode": None}
-    season = int(match.group("season"))
-    episode = int(match.group("episode")) if match.group("episode") else None
-    return {
-        "title": title,
-        "mode": "episode" if episode is not None else "season",
-        "season": season,
-        "episode": episode,
-    }
-
-
-def _telegram_series_scope_label(request: dict) -> str:
-    if request["mode"] == "all":
-        return "alle fehlenden Episoden"
-    if request["mode"] == "season":
-        return f"Staffel {request['season']}"
-    return f"Staffel {request['season']} Episode {request['episode']}"
-
-
-def _telegram_best_result(query: str, results: List[FilmpalastSearchResult]) -> List[FilmpalastSearchResult]:
-    wanted = _norm_title(query)
-    return sorted(
-        results,
-        key=lambda result: (
-            _norm_title(result.title) != wanted,
-            wanted not in _norm_title(result.title),
-            strip_source_suffix(result.title).casefold(),
-        ),
-    )
-
-
-def _format_storage_size(value: int) -> str:
-    size = float(value)
-    for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
-        if size < 1024 or unit == "PiB":
-            return f"{size:.0f} {unit}" if unit in ("B", "KiB", "MiB") else f"{size:.2f} {unit}"
-        size /= 1024
-    return f"{size:.2f} PiB"
-
-
-def _telegram_storage_text() -> str:
-    lines = ["üíæ NAS-Speicher"]
-    seen_volumes = {}
-    for label, raw_path in (("Filme", state.save_path), ("Serien", state.series_path)):
-        path = Path(raw_path)
-        try:
-            usage = shutil.disk_usage(path)
-            device = os.stat(path).st_dev
-            if device in seen_volumes:
-                lines.append(f"{label}: gemeinsames Volume mit {seen_volumes[device]} ({path})")
-                continue
-            seen_volumes[device] = label
-            percent = (usage.used / usage.total * 100) if usage.total else 0
-            lines.append(
-                f"{label} ({path})\n"
-                f"  {_format_storage_size(usage.free)} frei von {_format_storage_size(usage.total)} ¬∑ {percent:.1f}% belegt"
-            )
-        except OSError as exc:
-            lines.append(f"{label} ({path}): nicht erreichbar ({exc})")
-    return "\n".join(lines)
-
-
-def _telegram_paths_text() -> str:
-    lines = ["üìÅ Speicherpfade"]
-    for label, raw_path in (("Filme", state.save_path), ("Serien", state.series_path)):
-        path = Path(raw_path)
-        status = "erreichbar" if path.is_dir() else "nicht erreichbar"
-        lines.append(f"{label}: {path} ¬∑ {status}")
-    return "\n".join(lines)
-
-
-def _telegram_watchlist_text() -> str:
-    if not state.watchlist:
-        return "üì∫ Keine Serien abonniert."
-    lines = [f"üì∫ Abonnierte Serien: {len(state.watchlist)}"]
-    for entry in state.watchlist[:25]:
-        new_count = len(state.watchlist_new_slugs.get(entry["base_slug"], set()))
-        suffix = f" ¬∑ {new_count} neu" if new_count else ""
-        lines.append(f"‚Ä¢ {entry['title']}{suffix}")
-    if len(state.watchlist) > 25:
-        lines.append(f"‚Ä¶ und {len(state.watchlist) - 25} weitere")
-    return "\n".join(lines)
-
-
-def _telegram_help_text() -> str:
-    return (
-        "Royal Downloader\n"
-        "Filmtitel ‚Äì Film pr√ºfen und herunterladen\n"
-        "/film Filmtitel ‚Äì Film ausdr√ºcklich ausw√§hlen\n"
-        "Serientitel ALLES\n"
-        "Serientitel Staffel 2\n"
-        "Serientitel Staffel 2 EP 5\n"
-        "Mehrere Film- und Serientreffer werden mit Cover zur Auswahl angezeigt.\n"
-        "/status ‚Äì laufende Downloads\n"
-        "/speicher ‚Äì freier NAS-Speicher\n"
-        "/pfade ‚Äì Film- und Serienpfad\n"
-        "/abos ‚Äì abonnierte Serien\n"
-        "/jellyfin ‚Äì Bibliotheksstatus\n"
-        "/hilfe ‚Äì diese √úbersicht"
-    )
-
-
-def _run_telegram_series_request(
-    chat_id: str,
-    request: dict,
-    series_value: str,
-    wait_for_lock: bool = False,
-):
-    if not state.telegram_request_lock.acquire(blocking=wait_for_lock):
-        _telegram_send(chat_id, "Ein anderer Telegram-Wunsch wird gerade verarbeitet. Versuche es gleich erneut.")
-        return
-    try:
-        jf_client = get_jellyfin_client()
-        if not jf_client.configured:
-            _telegram_send(chat_id, "Jellyfin-URL oder API-Schl√ºssel fehlt in den Einstellungen.")
-            return
-
-        scope_label = _telegram_series_scope_label(request)
-        _telegram_send(chat_id, f"üîé Lade Serie ‚Äû{request['title']}‚Äú ¬∑ {scope_label} ‚Ä¶")
-        series = get_series_for_value(series_value)
-        if series is None or not series.all_episodes:
-            _telegram_send(chat_id, f"‚ùå Serie ‚Äû{request['title']}‚Äú nicht gefunden.")
-            return
-
-        selected = list(series.all_episodes)
-        if request["mode"] in ("season", "episode"):
-            selected = [ep for ep in selected if ep.season == request["season"]]
-        if request["mode"] == "episode":
-            selected = [ep for ep in selected if ep.episode == request["episode"]]
-        if not selected:
-            _telegram_send(chat_id, f"‚ùå ‚Äû{series.title}‚Äú enth√§lt {scope_label} nicht.")
-            return
-
-        downloaded = compute_downloaded_episodes(series)
-        jf_episodes = get_jellyfin_episodes(force=True)
-        jf_series = get_jellyfin_series(force=True)
-        with state.jellyfin_cache_lock:
-            jf_available = (
-                state.jellyfin_episodes_available and state.jellyfin_series_available
-            )
-        if jf_episodes is None or jf_series is None or not jf_available:
-            _telegram_send(chat_id, "Jellyfin ist nicht erreichbar. Download wurde zum Duplikatschutz nicht gestartet.")
-            return
-        try:
-            aliases, series_ids, tmdb_id = _episode_jellyfin_identity(
-                series.base_slug, series.title, jf_client, jf_series,
-            )
-        except RuntimeError as exc:
-            _telegram_send(chat_id, f"{exc}. Download wurde zum Duplikatschutz nicht gestartet.")
-            return
-        missing = [
-            ep for ep in selected
-            if ep.slug not in downloaded
-            and not jf_client.has_episode(
-                series.title, ep.season, ep.episode, items=jf_episodes,
-                aliases=aliases, series_ids=series_ids,
-            )
-        ]
-        if not missing:
-            _telegram_send(chat_id, f"‚úÖ ‚Äû{series.title}‚Äú ¬∑ {scope_label} ist bereits vollst√§ndig vorhanden.")
-            return
-
-        _telegram_send(chat_id, f"‚¨áÔ∏è {len(missing)} fehlende Episode(n) werden vorbereitet ‚Ä¶")
-        jobs: List[tuple] = []
-        initial_failures: List[str] = []
-        episode_by_slug = {ep.slug: ep for ep in missing}
-        for ep in missing:
-            try:
-                movie = load_movie_for_slug(ep.slug)
-            except Exception as exc:
-                movie = None
-                log(f"Telegram-Serie: {ep.label} nicht ladbar: {exc}", "warn")
-            if not movie or not movie.hosters:
-                movie = _episode_placeholder(ep.slug, series.title)
-                log(
-                    f"Telegram-Serie: {ep.label} wird trotz blockierter "
-                    "Episodenseite fuer Fallback/Retry eingeplant.",
-                    "warn",
-                )
-            already_available, reason = _content_already_available(movie, ep.slug)
-            if already_available:
-                initial_failures.append(f"{ep.label}: {reason}")
-                continue
-            state.fp_movies[ep.slug] = movie
-            jobs.append((movie, ep.slug))
-
-        if not jobs:
-            _telegram_send(
-                chat_id,
-                f"‚ùå F√ºr ‚Äû{series.title}‚Äú konnte keine der {len(missing)} fehlenden Episoden gestartet werden.",
-            )
-            return
-
-        request_id = f"{chat_id}:{time.time_ns()}"
-        candidate_slugs = {slug for _movie, slug in jobs}
-        with state.queue_lifecycle_lock:
-            active_slugs = {
-                slug for job in state.dl_queue.active_jobs() for slug in _job_queue_slugs(job)
-            }
-            with state.queue_claim_lock:
-                with state.download_state_lock:
-                    pending_slugs = {
-                        slug for slug in candidate_slugs
-                        if slug not in state.picked
-                        and slug not in state.counted_queue_slugs
-                        and slug not in active_slugs
-                    }
-                state.picked.update(pending_slugs)
-        jobs = [(movie, slug) for movie, slug in jobs if slug in pending_slugs]
-        if not jobs:
-            _telegram_send(chat_id, "Alle fehlenden Episoden sind bereits eingeplant.")
-            return
-        group = {
-            "chat_id": chat_id,
-            "title": series.title,
-            "scope_label": scope_label,
-            "pending_slugs": set(pending_slugs),
-            "completed": [],
-            "failed": list(initial_failures),
-            "aliases": list(aliases),
-            "tmdb_id": tmdb_id,
-        }
-        with state.telegram_jobs_lock:
-            state.telegram_series_requests[request_id] = group
-            for _movie, slug in jobs:
-                ep = episode_by_slug[slug]
-                state.telegram_jobs[slug] = {
-                    "kind": "series",
-                    "request_id": request_id,
-                    "chat_id": chat_id,
-                    "title": series.title,
-                    "season": ep.season,
-                    "episode": ep.episode,
-                }
-
-        _persist_queue_state()
-        _telegram_send(chat_id, f"‚ñ∂Ô∏è ‚Äû{series.title}‚Äú ¬∑ {scope_label}: {len(jobs)} Download(s) starten.")
-
-        try:
-            accepted = _enqueue_automatic_downloads(list(pending_slugs))
-        except Exception:
-            for slug in pending_slugs:
-                _telegram_terminal_without_job(slug, False, "Downloadstart fehlgeschlagen", Path(""))
-            raise
-        for slug in pending_slugs - set(accepted):
-            _telegram_terminal_without_job(slug, False, "kein Stream startbar", Path(""))
-    except Exception as exc:
-        log(f"Telegram-Serienwunsch fehlgeschlagen: {exc}", "warn")
-        _telegram_send(chat_id, f"‚ùå Serienwunsch fehlgeschlagen: {exc}")
-    finally:
-        state.telegram_request_lock.release()
-
-
-def _handle_telegram_series_request(chat_id: str, request: dict):
-    title = str(request.get("title") or "").strip()
-    if (
-        title.startswith((
-            SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX,
-            KINOX_PREFIX, KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
-        ))
-        or title.startswith("http://")
-        or title.startswith("https://")
-    ):
-        _run_telegram_series_request(chat_id, request, title)
-        return
-
-    if not state.telegram_request_lock.acquire(blocking=False):
-        _telegram_send(chat_id, "Ein anderer Telegram-Wunsch wird gerade verarbeitet. Versuche es gleich erneut.")
-        return
-    try:
-        if not get_jellyfin_client().configured:
-            _telegram_send(chat_id, "Jellyfin-URL oder API-Schl√ºssel fehlt in den Einstellungen.")
-            return
-        scope_label = _telegram_series_scope_label(request)
-        _telegram_send(chat_id, f"üîé Suche Serie ‚Äû{title}‚Äú ¬∑ {scope_label} ‚Ä¶")
-        results = _rank_telegram_series_results(title, search_series_candidates(title))
-        if not results:
-            _telegram_send(chat_id, f"‚ùå Serie ‚Äû{title}‚Äú nicht gefunden.")
-            return
-        if len(results) > 1:
-            _publish_telegram_series_choices(chat_id, request, results)
-            return
-        selected_value = results[0].sample_slug
-    except Exception as exc:
-        log(f"Telegram-Seriensuche fehlgeschlagen: {exc}", "warn")
-        _telegram_send(chat_id, f"‚ùå Seriensuche fehlgeschlagen: {exc}")
-        return
-    finally:
-        state.telegram_request_lock.release()
-
-    _run_telegram_series_request(chat_id, request, selected_value)
-
-
-def _run_telegram_movie_request(
-    chat_id: str,
-    query: str,
-    option: dict,
-    wait_for_lock: bool = False,
-):
-    if not state.telegram_request_lock.acquire(blocking=wait_for_lock):
-        _telegram_send(chat_id, "Ein anderer Telegram-Wunsch wird gerade verarbeitet. Versuche es gleich erneut.")
-        return
-    try:
-        jf_client = get_jellyfin_client()
-        if not jf_client.configured:
-            _telegram_send(chat_id, "Jellyfin-URL oder API-Schl√ºssel fehlt in den Einstellungen.")
-            return
-
-        movie = option["movie"]
-        chosen_result = option["result"]
-        fallback_movies = list(option.get("fallback_movies", []))
-        title = str(option.get("title") or clean_movie_title(movie.title)).strip()
-        year = str(option.get("year") or movie.year or chosen_result.year or "")
-        _telegram_send(chat_id, f"üîé Pr√ºfe ‚Äû{title}‚Äú{f' ({year})' if year else ''} ‚Ä¶")
-
-        jf_items = get_jellyfin_library(force=True)
-        if jf_items is None or not state.jellyfin_library_available:
-            _telegram_send(chat_id, "Jellyfin ist nicht erreichbar. Download wurde zum Duplikatschutz nicht gestartet.")
-            return
-        tmdb = get_tmdb_client().movie_summary(title, year)
-        if jf_client.match(
-            title, year, items=jf_items, tmdb_id=(tmdb or {}).get("tmdb_id", ""),
-        ):
-            _telegram_send(chat_id, f"‚úÖ ‚Äû{title}‚Äú ist bereits in Jellyfin vorhanden.")
-            return
-        already_available, reason = _content_already_available(movie, chosen_result.slug)
-        if already_available:
-            _telegram_send(chat_id, f"Download nicht gestartet: ‚Äû{title}‚Äú ist {reason}.")
-            return
-
-        with state.queue_lifecycle_lock:
-            physically_active = any(
-                chosen_result.slug in _job_queue_slugs(job)
-                for job in state.dl_queue.active_jobs()
-            )
-            with state.queue_claim_lock:
-                with state.download_state_lock:
-                    already_queued = (
-                        chosen_result.slug in state.picked
-                        or chosen_result.slug in state.counted_queue_slugs
-                        or physically_active
-                    )
-                if not already_queued:
-                    state.picked.add(chosen_result.slug)
-        if already_queued:
-            _telegram_send(chat_id, f"‚Äû{title}‚Äú ist bereits eingeplant.")
-            return
-
-        state.fp_movies[chosen_result.slug] = movie
-        _persist_queue_state()
-        with state.telegram_jobs_lock:
-            state.telegram_jobs[chosen_result.slug] = {
-                "chat_id": chat_id,
-                "query": query,
-                "title": title,
-                "year": year,
-                "tmdb_id": (tmdb or {}).get("tmdb_id", ""),
-            }
-
-        source_count = 1 + len(fallback_movies)
-        source_note = f" ¬∑ {source_count} Filmquellen" if source_count > 1 else ""
-        _telegram_send(
-            chat_id,
-            f"‚¨áÔ∏è Gefunden: ‚Äû{title}‚Äú{f' ({year})' if year else ''}{source_note}. Download startet.",
-        )
-        try:
-            accepted = _enqueue_automatic_downloads(
-                [chosen_result.slug],
-                movie_fallbacks={chosen_result.slug: fallback_movies},
-            )
-        except Exception:
-            _telegram_terminal_without_job(
-                chosen_result.slug, False, "Downloadstart fehlgeschlagen", Path(""),
-            )
-            raise
-        if chosen_result.slug not in accepted:
-            _telegram_terminal_without_job(
-                chosen_result.slug, False, "Downloadstart fehlgeschlagen", Path(""),
-            )
-    except Exception as exc:
-        log(f"Telegram-Filmwunsch fehlgeschlagen: {exc}", "warn")
-        _telegram_send(chat_id, f"‚ùå Filmwunsch fehlgeschlagen: {exc}")
-    finally:
-        state.telegram_request_lock.release()
-
-
-def _handle_telegram_movie_request(chat_id: str, query: str):
-    if not state.telegram_request_lock.acquire(blocking=False):
-        _telegram_send(chat_id, "Ein anderer Telegram-Filmwunsch wird gerade verarbeitet. Versuche es gleich erneut.")
-        return
-    selected = None
-    try:
-        if not get_jellyfin_client().configured:
-            _telegram_send(chat_id, "Jellyfin-URL oder API-Schl√ºssel fehlt in den Einstellungen.")
-            return
-        _telegram_send(chat_id, f"üîé Suche Film ‚Äû{query}‚Äú ‚Ä¶")
-        results = search_movie_candidates(query)
-        if not results:
-            _telegram_send(chat_id, f"‚ùå Kein Film zu ‚Äû{query}‚Äú gefunden.")
-            return
-        options = _build_telegram_movie_options(query, results)
-        if not options:
-            _telegram_send(
-                chat_id,
-                f"‚ùå ‚Äû{query}‚Äú wurde gefunden, aber kein funktionierender Hoster ist verf√ºgbar.",
-            )
-            return
-        requires_selection = len(options) > 1
-        options, existing_options, check_error = _filter_existing_telegram_movie_options(options)
-        if options is None:
-            _telegram_send(
-                chat_id,
-                f"{check_error}. Download wurde zum Duplikatschutz nicht angeboten.",
-            )
-            return
-        if not options:
-            _telegram_send(chat_id, f"‚úÖ ‚Äû{query}‚Äú ist bereits vorhanden.")
-            return
-        if existing_options:
-            count = len(existing_options)
-            message = (
-                "‚úÖ 1 bereits vorhandener Treffer wird nicht zum Download angeboten."
-                if count == 1
-                else f"‚úÖ {count} bereits vorhandene Treffer werden nicht zum Download angeboten."
-            )
-            _telegram_send(chat_id, message)
-        if requires_selection or len(options) > 1:
-            _publish_telegram_movie_choices(chat_id, query, options)
-            return
-        selected = options[0]
-    except Exception as exc:
-        log(f"Telegram-Filmsuche fehlgeschlagen: {exc}", "warn")
-        _telegram_send(chat_id, f"‚ùå Filmsuche fehlgeschlagen: {exc}")
-        return
-    finally:
-        state.telegram_request_lock.release()
-
-    _run_telegram_movie_request(chat_id, query, selected)
-
-
-def _clear_telegram_choice_keyboards(chat_id: str, message_ids: List[int]) -> None:
-    bot = _telegram_bot
-    if bot is None:
-        return
-    for message_id in message_ids:
-        bot.clear_inline_keyboard(chat_id, message_id)
-
-
-def handle_telegram_callback(
-    chat_id: str, callback_query_id: str, data: str, sender_name: str = "",
-):
-    bot = _telegram_bot
-    if bot is None:
-        return
-    allowed_chat = str(state.telegram_cfg.get("chat_id", "")).strip()
-    if not allowed_chat or chat_id != allowed_chat:
-        bot.answer_callback(callback_query_id, "Nicht erlaubt.")
-        log(f"Telegram-Callback von nicht erlaubter Chat-ID {chat_id} verworfen.", "warn")
-        return
-
-    movie_next_match = re.fullmatch(r"mrn:([A-Za-z0-9_-]{8,32}):(\d{1,4})", data or "")
-    if movie_next_match:
-        token, raw_index = movie_next_match.groups()
-        status, entry = _prepare_telegram_movie_next_page(chat_id, token, int(raw_index))
-        if status == "loading":
-            bot.answer_callback(callback_query_id, "Treffer werden noch geladen.")
-            return
-        if status == "forbidden":
-            bot.answer_callback(callback_query_id, "Diese Auswahl geh√∂rt zu einem anderen Chat.")
-            return
-        if status != "ok" or entry is None:
-            bot.answer_callback(callback_query_id, "Seite abgelaufen oder bereits geladen.")
-            return
-        bot.answer_callback(callback_query_id, "Weitere Treffer werden geladen.")
-        with state.telegram_choices_publish_lock:
-            if not _send_telegram_movie_choice_page_locked(token, entry):
-                _telegram_send(chat_id, "‚ùå Weitere Treffer konnten nicht gesendet werden.")
-        return
-
-    movie_match = re.fullmatch(r"mr:([A-Za-z0-9_-]{8,32}):(\d{1,4})", data or "")
-    if movie_match:
-        token, raw_index = movie_match.groups()
-        status, entry, option = _consume_telegram_movie_choice(
-            chat_id, token, int(raw_index),
-        )
-        if status == "loading":
-            bot.answer_callback(callback_query_id, "Treffer werden noch geladen.")
-            return
-        if status == "forbidden":
-            bot.answer_callback(callback_query_id, "Diese Auswahl geh√∂rt zu einem anderen Chat.")
-            return
-        if status != "ok" or entry is None or option is None:
-            bot.answer_callback(callback_query_id, "Auswahl abgelaufen oder bereits verwendet.")
-            return
-        title = str(option.get("title") or "Film")
-        bot.answer_callback(callback_query_id, f"Ausgew√§hlt: {title}")
-        threading.Thread(
-            target=_clear_telegram_choice_keyboards,
-            args=(chat_id, list(entry.get("message_ids", []))),
-            daemon=True,
-        ).start()
-        _telegram_send(chat_id, f"‚úÖ Ausgew√§hlt: ‚Äû{title}‚Äú.")
-        _run_telegram_movie_request(
-            chat_id, entry["query"], option, wait_for_lock=True,
-        )
-        return
-
-    next_match = re.fullmatch(r"srn:([A-Za-z0-9_-]{8,32}):(\d{1,4})", data or "")
-    if next_match:
-        token, raw_index = next_match.groups()
-        status, entry = _prepare_telegram_series_next_page(
-            chat_id, token, int(raw_index),
-        )
-        if status == "loading":
-            bot.answer_callback(callback_query_id, "Treffer werden noch geladen.")
-            return
-        if status == "forbidden":
-            bot.answer_callback(callback_query_id, "Diese Auswahl geh√∂rt zu einem anderen Chat.")
-            return
-        if status != "ok" or entry is None:
-            bot.answer_callback(callback_query_id, "Seite abgelaufen oder bereits geladen.")
-            return
-        bot.answer_callback(callback_query_id, "Weitere Treffer werden geladen.")
-        with state.telegram_choices_publish_lock:
-            if not _send_telegram_series_choice_page_locked(token, entry):
-                _telegram_send(chat_id, "‚ùå Weitere Treffer konnten nicht gesendet werden.")
-        return
-
-    match = re.fullmatch(r"sr:([A-Za-z0-9_-]{8,32}):(\d{1,4})", data or "")
-    if not match:
-        bot.answer_callback(callback_query_id, "Unbekannte Auswahl.")
-        return
-    token, raw_index = match.groups()
-    status, entry, candidate = _consume_telegram_series_choice(
-        chat_id, token, int(raw_index),
-    )
-    if status == "loading":
-        bot.answer_callback(callback_query_id, "Treffer werden noch geladen.")
-        return
-    if status == "forbidden":
-        bot.answer_callback(callback_query_id, "Diese Auswahl geh√∂rt zu einem anderen Chat.")
-        return
-    if status != "ok" or entry is None or candidate is None:
-        bot.answer_callback(callback_query_id, "Auswahl abgelaufen oder bereits verwendet.")
-        return
-
-    title = strip_source_suffix(candidate.title).strip() or candidate.title
-    bot.answer_callback(callback_query_id, f"Ausgew√§hlt: {title}")
-    threading.Thread(
-        target=_clear_telegram_choice_keyboards,
-        args=(chat_id, list(entry.get("message_ids", []))),
-        daemon=True,
-    ).start()
-    _telegram_send(chat_id, f"‚úÖ Ausgew√§hlt: ‚Äû{title}‚Äú.")
-    _run_telegram_series_request(
-        chat_id,
-        entry["request"],
-        candidate.sample_slug,
-        wait_for_lock=True,
-    )
-
-
-def handle_telegram_message(chat_id: str, text: str, sender_name: str = ""):
-    cfg = state.telegram_cfg
-    allowed_chat = str(cfg.get("chat_id", "")).strip()
-
-    # Sicherer Einrichtungsmodus: Ohne Whitelist werden keine Downloads erlaubt,
-    # der Bot verr√§t dem Absender lediglich dessen Chat-ID.
-    if not allowed_chat:
-        _telegram_send(
-            chat_id,
-            f"Deine Chat-ID ist {chat_id}. Trage sie in Royal Downloader ‚Üí Einstellungen ‚Üí Telegram ein.",
-        )
-        return
-    if chat_id != allowed_chat:
-        log(f"Telegram-Zugriff von nicht erlaubter Chat-ID {chat_id} verworfen.", "warn")
-        return
-
-    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold()
-    if command in ("/start", "/help", "/hilfe"):
-        _telegram_send(chat_id, _telegram_help_text())
-        return
-    if command == "/status":
-        active = state.dl_queue.active_count()
-        pending = state.dl_queue.pending_count()
-        with state.telegram_jobs_lock:
-            titles = sorted({job["title"] for job in state.telegram_jobs.values()})
-        detail = f"\nTelegram: {', '.join(titles)}" if titles else ""
-        _telegram_send(chat_id, f"‚¨áÔ∏è Downloader: {active} aktiv, {pending} wartend.{detail}")
-        return
-    if command in ("/speicher", "/storage", "/disk"):
-        _telegram_send(chat_id, _telegram_storage_text())
-        return
-    if command == "/pfade":
-        _telegram_send(chat_id, _telegram_paths_text())
-        return
-    if command in ("/abos", "/serien"):
-        _telegram_send(chat_id, _telegram_watchlist_text())
-        return
-    if command == "/jellyfin":
-        jf_client = get_jellyfin_client()
-        if not jf_client.configured:
-            _telegram_send(chat_id, "Jellyfin ist nicht konfiguriert.")
-            return
-        movies = jf_client.list_movies()
-        episodes = jf_client.list_episodes()
-        if movies is None or episodes is None:
-            _telegram_send(chat_id, "‚ö†Ô∏è Jellyfin ist derzeit nicht erreichbar.")
-            return
-        _telegram_send(
-            chat_id,
-            f"üéûÔ∏è Jellyfin\n{len(movies)} Filme ¬∑ {len(episodes)} Episoden\n{jf_client.base_url}",
-        )
-        return
-
-    series_request = _parse_telegram_series_request(text)
-    if series_request:
-        _handle_telegram_series_request(chat_id, series_request)
-        return
-    if command == "/serie":
-        _telegram_send(
-            chat_id,
-            "Format: /serie The Rookie ALLES ¬∑ /serie The Rookie Staffel 8 ¬∑ /serie The Rookie Staffel 8 EP 3",
-        )
-        return
-
-    query = re.sub(r"^/film\s+", "", text, flags=re.IGNORECASE).strip()
-    if not query or query.startswith("/"):
-        _telegram_send(chat_id, "Sende einen Filmtitel oder nutze /status.")
-        return
-
-    _handle_telegram_movie_request(chat_id, query)
-
-
-# ---------------------------------------------------------------------------
-# Automatische Bibliotheks-Pr√ºfung (Benachrichtigungs-Glocke)
-# ---------------------------------------------------------------------------
-def is_within_download_window() -> bool:
-    """True, wenn die aktuelle Uhrzeit im konfigurierten Download-Zeitfenster
-    liegt. Ist kein Fenster gesetzt (start/end None), gilt: jederzeit. start>end
-    bedeutet √ºber Mitternacht (z.B. 1‚Äì7 Uhr = nachts)."""
-    start = state.automation.get("dl_window_start")
-    end = state.automation.get("dl_window_end")
-    if start is None or end is None:
-        return True
-    now_h = time.localtime().tm_hour   # nutzt die Container-Zeitzone (TZ)
-    if start == end:
-        return True
-    if start < end:
-        return start <= now_h < end
-    return now_h >= start or now_h < end   # Fenster √ºber Mitternacht
-
-
-def _auto_download_new_episodes():
-    """L√§dt alle als neu erkannten Episoden abonnierter Serien automatisch
-    herunter (nutzt dieselbe Pipeline wie der manuelle Download inkl.
-    konfigurierter Anbieter-Fallbacks). Neue Jobs werden auch
-    w√§hrend eines laufenden Downloads an dieselbe 2-Slot-Queue angeh√§ngt."""
-    # Trigger nicht verwerfen: Ein direkt danach abgeschlossener Abo-/JF-Check
-    # kann zus√§tzliche Slugs geliefert haben, die der erste Snapshot nicht sah.
-    state.auto_download_lock.acquire()
-    claimed: List[str] = []
-    try:
-        if not state.automation.get("auto_download"):
-            return
-        if not is_within_download_window():
-            log("Auto-Download: au√üerhalb des Zeitfensters ‚Äì warte.")
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-            return
-        with state.watchlist_lock:
-            pending = sorted(
-                {
-                    slug
-                    for entry in state.watchlist
-                    if not entry.get("last_error")
-                    for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
-                },
-                key=episode_sort_key,
-            )
-        if not pending:
-            return
-
-        prepared_slugs: List[str] = []
-        for slug in pending:
-            if not _watchlist_retry_allowed(slug):
-                continue
-            with state.watchlist_lock:
-                if not any(
-                    not entry.get("last_error")
-                    and slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
-                    for entry in state.watchlist
-                ):
-                    continue
-            with state.queue_lifecycle_lock:
-                physically_active = any(
-                    slug in _job_queue_slugs(job) for job in state.dl_queue.active_jobs()
-                )
-                with state.queue_claim_lock:
-                    with state.download_state_lock:
-                        already_owned = (
-                            slug in state.picked or slug in state.counted_queue_slugs
-                        )
-                    if physically_active or already_owned:
-                        continue
-                    state.picked.add(slug)
-                    claimed.append(slug)
-            try:
-                movie = load_movie_for_slug(slug)
-            except Exception as exc:
-                log(f"Auto-Download: ¬´{slug}¬ª nicht ladbar: {exc}", "warn")
-                movie = None
-            if not movie or not movie.hosters:
-                movie = _episode_placeholder(slug)
-                log(
-                    f"Auto-Download: ¬´{slug}¬ª wird trotz blockierter "
-                    "Episodenseite fuer Fallback/Retry eingeplant.",
-                    "warn",
-                )
-
-            already_available, reason = _content_already_available(movie, slug)
-            if already_available:
-                with state.queue_claim_lock:
-                    state.picked.discard(slug)
-                claimed.remove(slug)
-                with state.watchlist_lock:
-                    for entry in state.watchlist:
-                        base_slug = entry.get("base_slug", "")
-                        pending_for_entry = state.watchlist_new_slugs.get(base_slug, set())
-                        if slug not in pending_for_entry:
-                            continue
-                        if _is_jellyfin_safety_block(reason):
-                            entry["last_error"] = f"{reason} ‚Äì Auto-Download pausiert"
-                            continue
-                        pending_for_entry.discard(slug)
-                        failures = entry.get("failed_downloads")
-                        if isinstance(failures, dict):
-                            failures.pop(slug, None)
-                        if not pending_for_entry:
-                            state.watchlist_new_slugs.pop(base_slug, None)
-                log(f"Auto-Download √ºbersprungen: ¬´{slug}¬ª ist {reason}.")
-                continue
-            state.fp_movies[slug] = movie
-            prepared_slugs.append(slug)
-            with state.watchlist_lock:
-                for entry in state.watchlist:
-                    failures = entry.get("failed_downloads")
-                    if isinstance(failures, dict):
-                        failures.pop(slug, None)
-
-        if not prepared_slugs:
-            with state.watchlist_lock:
-                appconfig.save_watchlist(state.watchlist)
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-            return
-
-        with state.watchlist_lock:
-            still_pending = {
-                slug
-                for entry in state.watchlist
-                if not entry.get("last_error")
-                for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
-            }
-        withdrawn = set(prepared_slugs) - still_pending
-        if withdrawn:
-            with state.queue_claim_lock:
-                state.picked.difference_update(withdrawn)
-            prepared_slugs = [slug for slug in prepared_slugs if slug in still_pending]
-        if not prepared_slugs:
-            return
-
-        _persist_queue_state()
-        accepted = _enqueue_automatic_downloads(prepared_slugs)
-        if len(accepted) != len(prepared_slugs):
-            with state.queue_claim_lock:
-                state.picked.difference_update(set(prepared_slugs) - accepted)
-            _persist_queue_state()
-        with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
-        log(f"‚¨á Auto-Download: {len(accepted)} neue Episode(n) eingereiht ‚Ä¶")
-        broadcast({"type": "watchlist_update", **watchlist_payload()})
-    except Exception as exc:
-        with state.download_state_lock:
-            counted = set(state.counted_queue_slugs)
-        with state.queue_claim_lock:
-            state.picked.difference_update(slug for slug in claimed if slug not in counted)
-        _persist_queue_state()
-        log(f"Auto-Download konnte nicht eingeplant werden: {exc}", "err")
-    finally:
-        state.auto_download_lock.release()
-
-
-WATCHLIST_JELLYFIN_RETRY_SECONDS = 15
-WATCHLIST_QUICK_RETRY_ERRORS = (
-    "Jellyfin nicht erreichbar",
-    "Jellyfin-Serienindex nicht verf√ºgbar",
-    "Jellyfin-Benutzerstatus nicht verf√ºgbar",
-    "Jellyfin-Konfiguration wird gepr√ºft",
-    "Pr√ºfung l√§uft",
-)
-
-
-def _watchlist_auto_check_once() -> tuple[int, int]:
-    with state.watchlist_lock:
-        entries = list(state.watchlist)
-        before = {slug: set(eps) for slug, eps in state.watchlist_new_slugs.items()}
-    if not entries:
-        return 0, 0
-
-    checked = check_watchlist_entries(entries, refresh_jellyfin=True)
-    with state.watchlist_lock:
-        found_new = any(
-            state.watchlist_new_slugs.get(slug, set()) - before.get(slug, set())
-            for slug in state.watchlist_new_slugs
-        )
-    broadcast({"type": "watchlist_update", **watchlist_payload()})
-    if found_new:
-        log("Neue Episode(n) in der Bibliothek verf√ºgbar.")
-    _auto_download_new_episodes()
-    return checked, len(entries)
-
-
-def _watchlist_auto_check_delay(checked: int, total: int, interval_min: int) -> int:
-    if checked < total:
-        with state.watchlist_lock:
-            retry_jellyfin = any(
-                any(
-                    str(entry.get("last_error") or "").startswith(prefix)
-                    for prefix in WATCHLIST_QUICK_RETRY_ERRORS
-                )
-                for entry in state.watchlist
-            )
-        if retry_jellyfin:
-            return WATCHLIST_JELLYFIN_RETRY_SECONDS
-    return max(5, int(interval_min)) * 60
-
-
-def watchlist_auto_check_loop():
-    """Pr√ºft abonnierte Serien periodisch im Hintergrund auf neue Episoden,
-    pusht das Ergebnis per WebSocket (Glocke) und l√§dt ‚Äì falls Auto-Download
-    aktiv ist und wir im Zeitfenster sind ‚Äì die neuen Folgen direkt herunter.
-    Das Intervall ist √ºber die Automatik-Einstellungen konfigurierbar."""
-    while True:
-        interval_min = state.automation.get("check_interval_min", 30)
-        checked = total = 0
-        try:
-            checked, total = _watchlist_auto_check_once()
-        except Exception as exc:
-            log(f"Automatische Bibliotheks-Pr√ºfung fehlgeschlagen: {exc}", "warn")
-        try:
-            check_movie_subscriptions()
-        except Exception as exc:
-            log(f"Automatische Film-Abo-Pr√ºfung fehlgeschlagen: {exc}", "warn")
-        time.sleep(_watchlist_auto_check_delay(checked, total, interval_min))
-
-
-# ---------------------------------------------------------------------------
-# FastAPI-App
-# ---------------------------------------------------------------------------
-def start_background_services():
-    """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
-    global _background_services_started, _recommender_thread, _seerr_thread
-    global _updater_thread, _ytdlp_updater_thread
-    with _background_services_lock:
-        if _background_services_started:
-            return
-        _background_services_started = True
-    threading.Thread(target=warm_home_movie_cache, daemon=True).start()
-    threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
-    threading.Thread(target=restore_persisted_queue, daemon=True).start()
-    _recommender_stop_event.clear()
-    _recommender_wake_event.clear()
-    _recommender_thread = threading.Thread(
-        target=jellyfin_recommender_loop,
-        name="jellyfin-recommender",
-        daemon=True,
-    )
-    _recommender_thread.start()
-    _seerr_stop_event.clear()
-    _seerr_wake_event.clear()
-    _seerr_thread = threading.Thread(
-        target=seerr_poll_loop,
-        name="seerr-request-bridge",
-        daemon=True,
-    )
-    _seerr_thread.start()
-    _updater_stop_event.clear()
-    _updater_wake_event.clear()
-    _updater_thread = threading.Thread(
-        target=automatic_update_loop,
-        name="automatic-updater",
-        daemon=True,
-    )
-    _updater_thread.start()
-    _ytdlp_updater_stop_event.clear()
-    _ytdlp_updater_thread = threading.Thread(
-        target=ytdlp_runtime_update_loop,
-        name="ytdlp-runtime-updater",
-        daemon=True,
-    )
-    _ytdlp_updater_thread.start()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _main_loop, _telegram_bot
-    import asyncio
-    _main_loop = asyncio.get_event_loop()
-    bind_host = os.environ.get("HOST", "127.0.0.1")
-    # Bewusst nur eine Warnung, kein Startabbruch: der Dienst l√§uft im
-    # Container 24/7 und darf sich nach einem Update nicht selbst aussperren.
-    # Die Oberfl√§che weist zus√§tzlich sichtbar auf das fehlende Konto hin.
-    if bind_host not in ("127.0.0.1", "localhost", "::1") and not auth_configured():
-        if fail_closed_auth_enabled():
-            raise RuntimeError(
-                "APP_REQUIRE_AUTH ist aktiv, aber es ist kein Konto konfiguriert."
-            )
-        logger.warning(
-            "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
-            "Konto in den Einstellungen unter ‚ÄûAnmeldung‚Äú anlegen."
-        )
-    removed_staging = await asyncio.to_thread(
-        cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
-    )
-    if removed_staging:
-        logger.info("%s altes Staging-Artefakt(e) entfernt.", removed_staging)
-    if appconfig.is_initialized():
-        start_background_services()
-    _telegram_bot = TelegramBot(
-        lambda: state.telegram_cfg,
-        handle_telegram_message,
-        log,
-        callback_cb=handle_telegram_callback,
-    )
-    _telegram_bot.start()
-    yield
-    # Ab hier d√ºrfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
-    # den auslaufenden Event-Loop einstellen.
-    _main_loop = None
-    _seerr_stop_event.set()
-    _seerr_wake_event.set()
-    _updater_stop_event.set()
-    _updater_wake_event.set()
-    _ytdlp_updater_stop_event.set()
-    stop_jellyfin_recommender()
-    if _telegram_bot is not None:
-        _telegram_bot.stop()
-    if state.voe_pool is not None:
-        try:
-            state.voe_pool.close()
-        except Exception:
-            pass
-    if state.embed_pool is not None:
-        try:
-            state.embed_pool.close()
-        except Exception:
-            pass
-    try:
-        if appconfig.is_initialized():
-            appconfig.save(state.save_path)
-    except Exception:
-        pass
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-# Ohne Anmeldung erreichbar. Die statischen Dateien geh√∂ren dazu, weil die
-# Anmeldemaske Teil der Oberfl√§che ist ‚Äì sie enthalten keine Nutzerdaten,
-# alle Inhalte kommen √ºber die gesch√ºtzten /api-Routen.
-PUBLIC_API_PATHS = frozenset({
-    "/api/health",
-    "/api/auth/status",
-    "/api/auth/login",
-    "/api/auth/logout",
-    "/api/ui/config",
-    "/api/ui/translate",
-    "/api/v1/capabilities",
-    "/api/v1/health",
-    "/api/v1/auth/status",
-    "/api/v1/auth/login",
-    "/api/v1/auth/logout",
-})
-# √úbergang f√ºr fr√ºhe native Clients: Ein Mobile-Bearer darf nur die fachlichen
-# Legacy-Gegenst√ºcke der v1-Kern-API verwenden, nie Einstellungen, Updater,
-# Setup oder andere Browser-Administrationsrouten.
-MOBILE_LEGACY_API_PATHS = frozenset({
-    "/api/genres",
-    "/api/movies",
-    "/api/movies/preload",
-    "/api/tmdb/movie",
-    "/api/tmdb/movies",
-    "/api/tmdb/series",
-    "/api/jellyfin/matches",
-    "/api/series",
-    "/api/series/load",
-    "/api/anime",
-    "/api/queue",
-    "/api/queue/add",
-    "/api/queue/remove",
-    "/api/queue/clear",
-    "/api/download/cancel",
-    "/api/watchlist",
-    "/api/watchlist/add",
-    "/api/watchlist/mode",
-    "/api/watchlist/remove",
-    "/api/watchlist/check",
-    "/api/watchlist/open",
-    "/api/movie-subscriptions",
-    "/api/movie-subscriptions/check",
-    "/api/movie-subscriptions/remove",
-})
-# Zustands√§ndernde Methoden: ein fremder Ursprung darf sie nicht ausl√∂sen.
-UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-
-
-def _same_origin(request: Request) -> bool:
-    """Pr√ºft den Origin-Header gegen den eigenen Host.
-
-    Zusammen mit `SameSite=Lax` am Sitzungscookie ist das der CSRF-Schutz:
-    Lax verhindert, dass das Cookie bei einem fremden Formular-POST √ºberhaupt
-    mitgeschickt wird, die Origin-Pr√ºfung f√§ngt den Rest ab. Fehlt der Header
-    (klassische API-Clients wie curl senden ihn nicht), greift sie nicht ‚Äì
-    solche Clients weisen sich per Bearer oder weiterhin per Basic aus.
-    """
-    origin = request.headers.get("origin", "")
-    if not origin:
-        return True
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    host = request.headers.get("host", "").casefold()
-    effective_scheme = "https" if _request_is_secure(request) else "http"
-    return bool(parsed.netloc) and (
-        parsed.netloc.casefold() == host
-        and parsed.scheme.casefold() == effective_scheme
-    )
-
-
-def _is_public_path(path: str) -> bool:
-    if path in PUBLIC_API_PATHS:
-        return True
-    # Vor abgeschlossener Ersteinrichtung braucht der Assistent seine Routen.
-    if path.startswith("/api/setup/") and not appconfig.is_initialized():
-        return True
-    return not path.startswith("/api/")
-
-
-def _is_mobile_legacy_path(path: str) -> bool:
-    return (
-        path in MOBILE_LEGACY_API_PATHS
-        or path.startswith("/api/movie/")
-        or path.startswith("/api/anime/")
-    )
-
-
-def _harden_http_response(request: Request, response: Response, path: str) -> Response:
-    """Einheitliche Browser- und Cloudflare-H√§rtung f√ºr jede HTTP-Antwort."""
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
-    if path.startswith("/api/"):
-        # Auch bei versehentlich aktivierter Cloudflare-Cache-Regel d√ºrfen
-        # authentifizierte oder konfigurationsabh√§ngige DTOs nie am Edge landen.
-        response.headers["Cache-Control"] = "no-store"
-        response.headers.setdefault("Pragma", "no-cache")
-    if _request_is_secure(request):
-        # Kein includeSubDomains: Der Betreiber kontrolliert m√∂glicherweise
-        # nicht jede Subdomain derselben Zone.
-        response.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000",
-        )
-    return response
-
-
-@app.middleware("http")
-async def require_authentication(request: Request, call_next):
-    path = request.url.path
-    is_v1 = path.startswith("/api/v1/")
-    if request.method in UNSAFE_METHODS and not _same_origin(request):
-        return _harden_http_response(request, JSONResponse(
-            status_code=403,
-            content={"detail": "Anfrage von einem fremden Ursprung wurde abgewiesen."},
-        ), path)
-    if path == "/api/ui/translate" and not request_is_authenticated(
-        request.headers, request.cookies, client_key(request),
-    ):
-        if not PUBLIC_TRANSLATE_LIMITER.allow(client_key(request)):
-            return _harden_http_response(request, JSONResponse(
-                status_code=429,
-                content={"detail": "Zu viele √úbersetzungsanfragen. Bitte kurz warten."},
-                headers={"Retry-After": "60"},
-            ), path)
-    if _is_public_path(path) or request_is_authenticated(
-        request.headers,
-        request.cookies,
-        client_key(request),
-        versioned=is_v1,
-        allow_mobile_bearer=is_v1 or _is_mobile_legacy_path(path),
-        allow_basic=not is_v1,
-    ):
-        response = await call_next(request)
-        return _harden_http_response(request, response, path)
-    if (
-        not is_v1
-        and not _is_mobile_legacy_path(path)
-        and authenticated_mobile_token(request.headers, touch=False)
-    ):
-        return _harden_http_response(request, JSONResponse(
-            status_code=403,
-            content={
-                "detail": "Diese Route ist f√ºr Mobile-Sitzungen nicht freigegeben.",
-                "code": "access_denied",
-            },
-            headers={"Cache-Control": "no-store"},
-        ), path)
-    supplied_session = bool(
-        _bearer_token(request.headers)
-        if is_v1
-        else (_bearer_token(request.headers) or _session_token(request.cookies))
-    )
-    return _harden_http_response(request, JSONResponse(
-        status_code=401,
-        content={
-            "detail": (
-                "Die Sitzung ist abgelaufen oder wurde widerrufen."
-                if supplied_session
-                else "Anmeldung erforderlich."
-            ),
-            "code": "session_expired" if supplied_session else "auth_required",
-        },
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    ), path)
-
-
-@app.get("/api/v1/capabilities")
-async def api_v1_capabilities():
-    """Stabiler, √∂ffentlicher Kompatibilit√§ts-Handshake f√ºr native Clients."""
-    return {
-        "name": "Royal Downloader",
-        "api_version": API_VERSION,
-        "supported_api_versions": [API_VERSION],
-        "minimum_api_version": API_VERSION,
-        "build": SERVER_BUILD or None,
-        "initialized": appconfig.is_initialized(),
-        "setup_required": not appconfig.is_initialized(),
-        "authentication": {
-            "configured": auth_configured(),
-            "required": auth_required(),
-            "methods": ["bearer"],
-            "legacy_methods": ["cookie", "basic"],
-            "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
-            "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
-        },
-        "features": {
-            "movies": True,
-            "series": True,
-            "anime": True,
-            "queue": True,
-            "watchlist": True,
-            "jellyfin_matching": True,
-            "tmdb_metadata": True,
-            "cover_proxy": True,
-            "websocket": True,
-            "settings": True,
-        },
-        "websocket": {
-            "path": "/api/v1/ws",
-            "legacy_path": "/ws",
-            "event_schema_version": EVENT_SCHEMA_VERSION,
-            "initial_snapshot": True,
-            "authorization_header": True,
-            "authentication": ["bearer"],
-        },
-    }
-
-
-@app.get("/api/v1/health")
-async def api_v1_health():
-    """√ñffentliche Liveness-Antwort ohne Queue- oder Konfigurationsdaten."""
-    return {"status": "ok", "api_version": API_VERSION}
-
-
-@app.get("/api/health")
-async def api_health():
-    return {
-        "status": "ok",
-        "initialized": appconfig.is_initialized(),
-        "queue_active": state.dl_queue.active_count(),
-        "queue_pending": state.dl_queue.pending_count(),
-    }
-
-
-@app.exception_handler(Exception)
-async def handle_exc(request, exc):
-    log(f"Serverfehler: {exc}", "err")
-    return JSONResponse(status_code=500, content={"error": "Interner Serverfehler."})
-
-
-@app.exception_handler(appauth.SessionPersistenceError)
-async def handle_session_persistence_error(request, exc):
-    return JSONResponse(
-        status_code=503,
-        content={
-            "detail": "Die Sitzungsverwaltung ist vor√ºbergehend nicht verf√ºgbar.",
-            "code": "session_store_unavailable",
-        },
-        headers={"Retry-After": "30", "Cache-Control": "no-store"},
-    )
-
-
-# ‚îÄ‚îÄ Anmeldung ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-class LoginBody(BaseModel):
-    username: str = Field(max_length=appauth.MAX_USERNAME_LENGTH)
-    password: str = Field(max_length=appauth.MAX_PASSWORD_LENGTH)
-
-
-class ApiV1LoginBody(LoginBody):
-    device_label: str = Field(default="", max_length=120)
-    # Fr√ºhe Mobile-Prototypen verwendeten diesen Namen. Additiv akzeptieren,
-    # im dokumentierten v1-Vertrag bleibt `device_label` kanonisch.
-    device_name: str = Field(default="", max_length=120)
-
-
-class AuthConfigBody(BaseModel):
-    username: str
-    password: str
-    current_password: Optional[str] = ""
-
-
-def _request_is_secure(request: Request) -> bool:
-    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    return forwarded == "https" or request.url.scheme == "https"
-
-
-def _set_session_cookie(response: Response, request: Request, token: str) -> None:
-    response.set_cookie(
-        appauth.SESSION_COOKIE_NAME,
-        token,
-        max_age=appauth.DEFAULT_SESSION_TTL_SECONDS,
-        httponly=True,
-        samesite="lax",
-        # Hinter einem HTTPS-Reverse-Proxy wird das Cookie auf `Secure`
-        # gesetzt; im reinen LAN-Betrieb √ºber http w√ºrde das Flag verhindern,
-        # dass der Browser das Cookie √ºberhaupt speichert.
-        secure=_request_is_secure(request),
-        path="/",
-    )
-
-
-def _auth_status_payload(request: Request, auth_method: Optional[str] = None) -> dict:
-    account = auth_account()
-    configured = bool(account.get("configured"))
-    authenticated = (
-        request_is_authenticated(request.headers, request.cookies, client_key(request))
-        if auth_method is None
-        else (not auth_required() or auth_method != "none")
-    )
-    return {
-        "configured": configured,
-        "required": auth_required(),
-        "authenticated": authenticated,
-        "username": account.get("username", "") if authenticated or not configured else "",
-        "source": account.get("source", "none"),
-        "setup_required": not appconfig.is_initialized(),
-        # Bestandsinstallation ohne Konto: die Oberfl√§che zeigt daf√ºr einen
-        # Hinweis mit direktem Weg in die Konto-Einstellungen.
-        "prompt_setup": appconfig.is_initialized() and not configured,
-        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
-        "min_username_length": appauth.MIN_USERNAME_LENGTH,
-    }
-
-
-@app.get("/api/auth/status")
-async def api_auth_status(request: Request):
-    return JSONResponse(
-        _auth_status_payload(request),
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-@app.get("/api/v1/auth/status")
-async def api_v1_auth_status(request: Request):
-    auth_method = request_auth_method(
-        request.headers,
-        request.cookies,
-        client_key(request),
-        versioned=True,
-        allow_basic=False,
-    )
-    payload = _auth_status_payload(request, auth_method=auth_method)
-    payload.update({
-        "api_version": API_VERSION,
-        "auth_method": auth_method,
-        "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
-    })
-    return JSONResponse(
-        payload,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-async def _create_login_session(
-    username: str,
-    password: str,
-    request: Request,
-    label: str,
-    session_kind: str,
-) -> tuple[str, dict, str]:
-    """Gemeinsame Login-Pr√ºfung f√ºr Web-Cookie und v1-Bearer-Token."""
-    key = client_key(request)
-    blocked = LOGIN_GUARD.retry_after(key)
-    if blocked:
-        raise HTTPException(
-            429,
-            f"Zu viele Fehlversuche. Bitte {blocked} Sekunden warten.",
-            headers={"Retry-After": str(blocked)},
-        )
-    if not auth_configured():
-        raise HTTPException(400, "Es ist kein Konto eingerichtet.")
-    ok = await run_in_threadpool(
-        verify_credentials, username.strip(), password,
-    )
-    if not ok:
-        lockout = LOGIN_GUARD.register_failure(key)
-        log(f"Fehlgeschlagene Anmeldung von {key}.", "warn")
-        if lockout:
-            raise HTTPException(
-                429,
-                f"Zu viele Fehlversuche. Bitte {lockout} Sekunden warten.",
-                headers={"Retry-After": str(lockout)},
-            )
-        remaining = LOGIN_GUARD.remaining_attempts(key)
-        raise HTTPException(
-            401,
-            f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
-        )
-    LOGIN_GUARD.register_success(key)
-    session_label = str(label or "").strip()[:120]
-    token = SESSION_STORE.create(label=session_label, kind=session_kind)
-    payload = _auth_status_payload(request)
-    payload.update({"authenticated": True, "username": auth_account().get("username", "")})
-    log("Anmeldung erfolgreich.")
-    return token, payload, session_label
-
-
-@app.post("/api/auth/login")
-async def api_auth_login(body: LoginBody, request: Request):
-    token, payload, _label = await _create_login_session(
-        body.username,
-        body.password,
-        request,
-        request.headers.get("user-agent", ""),
-        appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse(payload)
-    _set_session_cookie(response, request, token)
-    return response
-
-
-@app.post("/api/v1/auth/login")
-async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):
-    requested_label = (
-        body.device_label
-        or body.device_name
-        or request.headers.get("user-agent", "")
-        or "API client"
-    )
-    token, payload, session_label = await _create_login_session(
-        body.username,
-        body.password,
-        request,
-        requested_label,
-        appauth.SESSION_KIND_MOBILE,
-    )
-    payload.update({
-        "api_version": API_VERSION,
-        "auth_method": "bearer",
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
-        "device_label": session_label,
-    })
-    return JSONResponse(
-        payload,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-@app.post("/api/auth/logout")
-async def api_auth_logout(request: Request):
-    SESSION_STORE.revoke(
-        _session_token(request.cookies), kind=appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse({"ok": True})
-    response.delete_cookie(appauth.SESSION_COOKIE_NAME, path="/")
-    return response
-
-
-@app.post("/api/v1/auth/logout")
-async def api_v1_auth_logout(request: Request):
-    token = _bearer_token(request.headers)
-    revoked = int(bool(
-        token and SESSION_STORE.revoke(token, kind=appauth.SESSION_KIND_MOBILE)
-    ))
-    response = JSONResponse({"ok": True, "revoked": revoked})
-    return response
-
-
-@app.get("/api/v1/auth/config")
-@app.get("/api/auth/config")
-async def api_auth_config_get(request: Request):
-    account = auth_account()
-    session_kind = (
-        appauth.SESSION_KIND_MOBILE
-        if request.url.path.startswith("/api/v1/")
-        else appauth.SESSION_KIND_WEB
-    )
-    return {
-        "configured": bool(account.get("configured")),
-        "username": account.get("username", ""),
-        "source": account.get("source", "none"),
-        "active_sessions": SESSION_STORE.count(session_kind),
-        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
-        "min_username_length": appauth.MIN_USERNAME_LENGTH,
-    }
-
-
-@app.post("/api/auth/config")
-async def api_auth_config_set(body: AuthConfigBody, request: Request):
-    account = auth_account()
-    configured = bool(account.get("configured"))
-    # Ist bereits ein Konto vorhanden, muss das aktuelle Passwort best√§tigt
-    # werden ‚Äì sonst k√∂nnte eine gekaperte Sitzung das Konto stillschweigend
-    # √ºbernehmen. Ohne Konto (Bestandsinstallation) ist das die Ersteinrichtung.
-    if configured:
-        confirmed = await run_in_threadpool(
-            verify_credentials, account.get("username", ""), body.current_password or "",
-        )
-        if not confirmed:
-            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
-    try:
-        username = appauth.validate_username(body.username)
-        password = appauth.validate_password(body.password)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    password_hash = await run_in_threadpool(appauth.hash_password, password)
-    # Alle bestehenden Sitzungen verlieren ihre G√ºltigkeit; das aufrufende
-    # Ger√§t bekommt nach erfolgreicher Kontospeicherung sofort eine neue. Der
-    # Widerruf geschieht zuerst dauerhaft: So kann ein Fehler beim Schreiben
-    # der Sitzungsdatei nicht nach einem Neustart alte Tokens wiederbeleben.
-    SESSION_STORE.revoke_all()
-    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
-        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
-    token = SESSION_STORE.create(
-        label=request.headers.get("user-agent", "")[:120],
-        kind=appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse({
-        "ok": True,
-        "configured": True,
-        "username": username,
-        "source": "settings",
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
-    })
-    _set_session_cookie(response, request, token)
-    log(f"Zugangsdaten aktualisiert (Benutzer ‚Äû{username}‚Äú).")
-    return response
-
-
-@app.post("/api/v1/auth/config")
-async def api_v1_auth_config_set(body: AuthConfigBody, request: Request):
-    account = auth_account()
-    if bool(account.get("configured")):
-        confirmed = await run_in_threadpool(
-            verify_credentials, account.get("username", ""), body.current_password or "",
-        )
-        if not confirmed:
-            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
-    try:
-        username = appauth.validate_username(body.username)
-        password = appauth.validate_password(body.password)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    password_hash = await run_in_threadpool(appauth.hash_password, password)
-    SESSION_STORE.revoke_all()
-    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
-        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
-    session_label = (request.headers.get("user-agent", "") or "Android")[:120]
-    token = SESSION_STORE.create(
-        label=session_label,
-        kind=appauth.SESSION_KIND_MOBILE,
-    )
-    log(f"Zugangsdaten √ºber die Android-App aktualisiert (Benutzer ‚Äû{username}‚Äú).")
-    return {
-        "ok": True,
-        "configured": True,
-        "username": username,
-        "source": "settings",
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "device_label": session_label,
-    }
-
-
-@app.post("/api/auth/sessions/revoke")
-async def api_auth_sessions_revoke(request: Request):
-    removed = SESSION_STORE.revoke_all(
-        keep_token=authenticated_web_token(request.cookies),
-        kind=appauth.SESSION_KIND_WEB,
-    )
-    log(f"{removed} andere Sitzung(en) beendet.")
-    return {
-        "ok": True,
-        "revoked": removed,
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
-    }
-
-
-@app.post("/api/v1/auth/sessions/revoke")
-async def api_v1_auth_sessions_revoke(request: Request):
-    keep_token = authenticated_mobile_token(request.headers)
-    removed = SESSION_STORE.revoke_all(
-        keep_token=keep_token, kind=appauth.SESSION_KIND_MOBILE,
-    )
-    log(f"{removed} andere Sitzung(en) beendet.")
-    return {
-        "ok": True,
-        "revoked": removed,
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
-        "current_session_preserved": bool(keep_token),
-    }
-
-
-# ‚îÄ‚îÄ Genres ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-@app.get("/api/v1/genres")
-@app.get("/api/genres")
-async def api_genres():
-    def _work():
-        loaders = {
-            "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).list_genres(),
-            "filmpalast": lambda: get_fp_scraper().list_genres(),
-            "huhu": lambda: get_huhu_scraper().list_genres(),
-            "moflix": lambda: MoflixScraper(progress_cb=log).list_genres(),
-            "einschalten": lambda: EinschaltenScraper(progress_cb=log).list_genres(),
-            "kinox": lambda: KinoxScraper(progress_cb=log).list_genres(),
-            "kinoger": lambda: KinogerScraper(progress_cb=log).list_genres(),
-            "megakino": lambda: MegaKinoScraper(progress_cb=log).list_genres(),
-            "xcine": lambda: XcineScraper(progress_cb=log).list_genres(),
-            "sflix": lambda: SflixScraper(progress_cb=log).list_genres(),
-            "ridomovies": lambda: RidomoviesScraper(progress_cb=log).list_genres(),
-        }
-        cleaned = {provider: set() for provider in appconfig.MOVIE_PROVIDER_DEFAULTS}
-        for provider in provider_priority("movies"):
-            try:
-                values = loaders[provider]()
-            except Exception as exc:
-                log(f"{PROVIDER_LABELS[provider]} Genres √ºbersprungen: {exc}", "warn")
-                continue
-            cleaned[provider] = {
-                clean_genre(genre)
-                for genre in values
-                if clean_genre(genre)
-            }
-        return cleaned
-
-    provider_genres = await run_in_threadpool(_work)
-    ff_c = provider_genres["filmfrei24"]
-    fp_c = provider_genres["filmpalast"]
-    hh_c = provider_genres["huhu"]
-    mx_c = provider_genres["moflix"]
-    es_c = provider_genres["einschalten"]
-    kx_c = provider_genres["kinox"]
-    kg_c = provider_genres["kinoger"]
-    mk_c = provider_genres["megakino"]
-    xc_c = provider_genres["xcine"]
-    sf_c = provider_genres["sflix"]
-    rm_c = provider_genres["ridomovies"]
-    state.filmfrei24_provider_genres = ff_c
-    state.fp_provider_genres = fp_c
-    state.huhu_provider_genres = hh_c
-    state.moflix_provider_genres = mx_c
-    state.einschalten_provider_genres = es_c
-    state.kinox_provider_genres = kx_c
-    state.kinoger_provider_genres = kg_c
-    state.megakino_provider_genres = mk_c
-    state.xcine_provider_genres = xc_c
-    state.sflix_provider_genres = sf_c
-    state.ridomovies_provider_genres = rm_c
-    genres = sorted(
-        {
-            canonical_movie_genre(genre)
-            for genre in (
-                ff_c | fp_c | hh_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
-                | rm_c
-            )
-        },
-        key=str.casefold,
-    )
-    return {"genres": genres}
-
-
-# ‚îÄ‚îÄ Filme: Suche / Listen / Genre ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-@app.get("/api/v1/movies")
-@app.get("/api/movies")
-async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):
-    if page < 1 or page > MOVIE_MAX_GLOBAL_PAGE:
-        raise HTTPException(400, f"Seite muss zwischen 1 und {MOVIE_MAX_GLOBAL_PAGE} liegen.")
-
-    def _work():
-        if mode == "search":
-            q = query.strip()
-            if not q:
-                return {
-                    "results": [], "category": None, "page": 1,
-                    "has_more": False, "sources": [],
-                }
-            if not get_tmdb_client().configured:
-                raise HTTPException(
-                    503,
-                    "F√ºr die eindeutige Filmsuche muss TMDB in den Einstellungen konfiguriert sein.",
-                )
-            results = _tmdb_search_results(q)
-            return {
-                "results": results, "category": None, "page": 1,
-                "has_more": False, "sources": [],
-            }
-
-        category = "genre" if mode == "genre" else mode if mode in {"new", "top"} else "new"
-        try:
-            catalog = movie_catalog_page(category, page, genre if category == "genre" else "")
-        except MovieCatalogColdLoadLimit as exc:
-            raise HTTPException(409, str(exc)) from exc
-        return {**catalog, "category": category}
-
-    data = await run_in_threadpool(_work)
-    result_dicts = [
-        dict(result) if isinstance(result, dict) else asdict(result)
-        for result in data["results"]
-    ]
-    for result in result_dicts:
-        if result.get("provider"):
-            result["title"] = clean_movie_title(result.get("title", ""))
-    jf_items = await run_in_threadpool(get_jellyfin_library)
-    with state.jellyfin_cache_lock:
-        jf_available = state.jellyfin_library_available
-    if jf_items is not None and jf_available:
-        jf_client = get_jellyfin_client()
-        for rd in result_dicts:
-            rd["in_jellyfin"] = jf_client.match(
-                clean_movie_title(rd["title"]), rd.get("year", ""), items=jf_items,
-            )
-    return {
-        "results": result_dicts,
-        "category": data["category"],
-        "page": data["page"],
-        "has_more": data["has_more"],
-        # R√ºckw√§rtskompatibel f√ºr √§ltere Web-Builds. Semantisch ist dies jetzt
-        # korrekt: Eine weitere globale Seite ist tats√§chlich vorhanden.
-        "last_page_full": data["has_more"],
-        "sources": data["sources"],
-    }
-
-
-@app.get("/api/v1/movie/{slug:path}")
-@app.get("/api/movie/{slug:path}")
-async def api_movie(slug: str):
-    def _work():
-        movie = state.fp_movies.get(slug)
-        if movie is None:
-            movie = load_movie_for_slug(slug)
-        if movie is not None:
-            state.fp_movies[slug] = movie
-            return movie_detail_to_dict(slug, movie)
-        return None
-
-    try:
-        payload = await run_in_threadpool(_work)
-    except (LookupError, ValueError) as exc:
-        raise HTTPException(404, str(exc)) from exc
-    if payload is None:
-        raise HTTPException(404, "Film nicht gefunden oder kein Hoster.")
-    return payload
-
-
-class PreloadBody(BaseModel):
-    slugs: List[str]
-
-
-@app.post("/api/v1/movies/preload")
-@app.post("/api/movies/preload")
-async def api_movies_preload(body: PreloadBody):
-    def _work():
-        payloads = {}
-        for slug in body.slugs:
-            movie = state.fp_movies.get(slug)
-            if movie is None:
-                movie = load_movie_for_slug(slug)
-            if movie is not None:
-                state.fp_movies[slug] = movie
-                payloads[slug] = movie_detail_to_dict(slug, movie)
-        return payloads
-
-    payloads = await run_in_threadpool(_work)
-    return {"movies": payloads}
-
-
-class MovieMetadataItem(BaseModel):
-    slug: str
-    title: str
-    year: str = ""
-    tmdb_id: Optional[int] = None
-
-
-class MovieMetadataBody(BaseModel):
-    items: List[MovieMetadataItem]
-
-
-class SeriesMetadataItem(BaseModel):
-    base_slug: str
-    title: str
-    year: str = ""
-
-
-class SeriesMetadataBody(BaseModel):
-    items: List[SeriesMetadataItem]
-
-
-@app.post("/api/v1/tmdb/movie")
-@app.post("/api/tmdb/movie")
-async def api_tmdb_movie(item: MovieMetadataItem):
-    """Vollst√§ndige TMDB-Details eines Films ‚Äì ohne Anbieter-/Hoster-Aufruf."""
-    if not get_tmdb_client().configured:
-        return {"movie": None}
-    title = clean_movie_title(item.title)
-    if item.tmdb_id:
-        movie = await run_in_threadpool(
-            get_tmdb_client().movie_by_id, item.tmdb_id, title,
-        )
-    else:
-        movie = await run_in_threadpool(get_tmdb_client().movie, title, item.year)
-    return {"movie": movie}
-
-
-@app.post("/api/v1/jellyfin/matches")
-@app.post("/api/jellyfin/matches")
-async def api_jellyfin_matches(body: MovieMetadataBody):
-    """Aktualisiert nur die JF-Badges, ohne Anbieter oder Streams neu zu laden."""
-    def _work():
-        items = get_jellyfin_library()
-        with state.jellyfin_cache_lock:
-            library_available = state.jellyfin_library_available
-        if items is None or not library_available:
-            return {}
-        client = get_jellyfin_client()
-        return {
-            item.slug: client.match(
-                clean_movie_title(item.title), item.year,
-                items=items, tmdb_id=item.tmdb_id,
-            )
-            for item in body.items[:100]
-        }
-    return {"matches": await run_in_threadpool(_work)}
-
-
-@app.post("/api/v1/tmdb/movies")
-@app.post("/api/tmdb/movies")
-async def api_tmdb_movies(body: MovieMetadataBody):
-    """L√§dt schnelle TMDB-Listenmetadaten parallel, ohne Hoster-Seiten."""
-    if not get_tmdb_client().configured or not body.items:
-        return {"movies": {}}
-
-    def _work():
-        now_playing_ids = get_tmdb_client().now_playing_ids()
-        unique = {}
-        for item in body.items[:100]:
-            title = clean_movie_title(item.title)
-            key = (_norm_title(title), str(item.year or ""))
-            group = unique.setdefault(key, {"title": title, "year": item.year, "slugs": []})
-            group["slugs"].append(item.slug)
-
-        result = {}
-        groups = list(unique.values())
-        with ThreadPoolExecutor(max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups))) as pool:
-            futures = [(group, pool.submit(get_tmdb_client().movie_summary, group["title"], group["year"])) for group in groups]
-            for group, future in futures:
-                try:
-                    metadata = future.result()
-                except Exception as exc:
-                    log(f"TMDB-Vorladen fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    metadata = None
-                if metadata:
-                    metadata = {
-                        **metadata,
-                        "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
-                    }
-                    for slug in group["slugs"]:
-                        result[slug] = metadata
-        return result
-
-    return {"movies": await run_in_threadpool(_work)}
-
-
-@app.post("/api/v1/tmdb/series")
-@app.post("/api/tmdb/series")
-async def api_tmdb_series(body: SeriesMetadataBody):
-    """L√§dt schnelle TMDB-Backdrops f√ºr Serien-Rails ohne Seriendetails."""
-    if not get_tmdb_client().configured or not body.items:
-        return {"series": {}}
-
-    def _work():
-        unique = {}
-        for item in body.items[:100]:
-            title = strip_source_suffix(item.title)
-            key = (_norm_title(title), str(item.year or ""))
-            group = unique.setdefault(
-                key,
-                {"title": title, "year": item.year, "base_slugs": []},
-            )
-            group["base_slugs"].append(item.base_slug)
-
-        result = {}
-        groups = list(unique.values())
-        with ThreadPoolExecutor(
-            max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups)),
-        ) as pool:
-            futures = [
-                (
-                    group,
-                    pool.submit(
-                        get_tmdb_client().series_summary,
-                        group["title"],
-                        group["year"],
-                    ),
-                )
-                for group in groups
-            ]
-            for group, future in futures:
-                try:
-                    metadata = future.result()
-                except Exception as exc:
-                    log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    metadata = None
-                if metadata:
-                    for base_slug in group["base_slugs"]:
-                        result[base_slug] = metadata
-        return result
-
-    return {"series": await run_in_threadpool(_work)}
-
-
-# ‚îÄ‚îÄ Serien ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-@app.get("/api/v1/series")
-@app.get("/api/series")
-async def api_series(mode: str = "search", query: str = "", letter: str = "", page: int = 1):
-    if page < 1 or page > SERIES_MAX_GLOBAL_PAGE:
-        raise HTTPException(400, f"Seite muss zwischen 1 und {SERIES_MAX_GLOBAL_PAGE} liegen.")
-
-    def _work():
-        if mode == "search":
-            q = query.strip()
-            if not q:
-                return {
-                    "entries": [], "direct_series": None, "mode": "search",
-                    "page": 1, "has_more": False, "sources": [],
-                }
-            if q.startswith("http"):
-                series = get_series_for_value(q)
-                if series is None:
-                    return {
-                        "entries": [], "direct_series": None, "mode": "search",
-                        "page": 1, "has_more": False, "sources": [],
-                    }
-                stub = FilmpalastSeriesResult(
-                    title=series.title, base_slug=series.base_slug,
-                    sample_slug=series.all_episodes[0].slug if series.all_episodes else "",
-                    sample_url=series.url,
-                )
-                state.series_cache[series.base_slug] = series
-                provider = provider_for_value(stub.sample_slug or stub.base_slug or stub.sample_url)
-                entry = _SeriesCatalogEntry(provider, stub, (provider,))
-                return {
-                    "entries": [entry],
-                    "direct_series": series_to_dict(series, defer_checks=True),
-                    "mode": "search", "page": 1, "has_more": False,
-                    "sources": _series_catalog_sources(
-                        [entry], provider_priority("series"),
-                    ),
-                }
-            try:
-                catalog = series_search_catalog(q)
-            except Exception as exc:
-                log(f"Serien-Suche fehlgeschlagen: {exc}", "warn")
-                catalog = {
-                    "entries": [], "page": 1, "has_more": False, "sources": [],
-                }
-            return {**catalog, "direct_series": None, "mode": "search"}
-
-        browse_mode = mode if mode in {"discover", "new", "trending", "alpha"} else "discover"
-        try:
-            catalog = series_catalog_page(browse_mode, page, letter)
-        except SeriesCatalogColdLoadLimit as exc:
-            raise HTTPException(409, str(exc)) from exc
-        return {**catalog, "direct_series": None, "mode": browse_mode}
-
-    data = await run_in_threadpool(_work)
-    return {
-        "results": [_series_entry_to_dict(entry) for entry in data["entries"]],
-        "direct_series": data["direct_series"],
-        "mode": data["mode"],
-        "page": data["page"],
-        "has_more": data["has_more"],
-        "last_page_full": data["has_more"],
-        "sources": data["sources"],
-    }
-
-
-class SeriesLoadBody(BaseModel):
-    sample_slug: str
-    base_slug: str = ""
-    refresh_jellyfin: bool = False
-    defer_checks: bool = False
-
-
-@app.post("/api/v1/series/load")
-@app.post("/api/series/load")
-async def api_series_load(body: SeriesLoadBody):
-    def _work():
-        series = state.series_cache.get(body.base_slug) if body.base_slug else None
-        if series is None:
-            series = get_series_for_value(body.sample_slug)
-        if series is None:
-            return None, None
-        state.series_cache[series.base_slug] = series
-        return series, series_to_dict(
-            series,
-            refresh_jellyfin=body.refresh_jellyfin,
-            defer_checks=body.defer_checks,
-        )
-
-    series, payload = await run_in_threadpool(_work)
-    if series is None:
-        raise HTTPException(404, "Serie nicht gefunden.")
-    return payload
-
-
-# ‚îÄ‚îÄ Anime ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-@app.get("/api/v1/anime")
-@app.get("/api/anime")
-async def api_anime(
-    mode: str = "latest",
-    query: str = "",
-    page: int = 1,
-):
-    if page < 1 or page > 50:
-        raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
-    if "mkissa" not in provider_priority("anime"):
-        return {
-            "results": [],
-            "mode": mode,
-            "page": 1,
-            "has_more": False,
-            "total": 0,
-            "disabled": True,
-            "disabled_reason": (
-                "MKissa ist pausiert. Aktiviere englische Inhalte und die "
-                "Anime-Quelle in den Einstellungen."
-            ),
-        }
-    browse_mode = mode if mode in {"search", "latest", "popular", "trending"} else "latest"
-    if browse_mode == "search" and not query.strip():
-        return {
-            "results": [],
-            "mode": browse_mode,
-            "page": 1,
-            "has_more": False,
-            "total": 0,
-            "disabled": False,
-        }
-
-    def _work():
-        with state.mkissa_lock:
-            return get_mkissa_scraper().browse(
-                mode=browse_mode,
-                query=query,
-                page=page,
-                limit=50,
-            )
-
-    try:
-        payload = await run_in_threadpool(_work)
-    except Exception as exc:
-        log(f"MKissa-Katalog fehlgeschlagen: {exc}", "warn")
-        raise HTTPException(502, f"MKissa ist gerade nicht erreichbar: {exc}") from exc
-    return {
-        **payload,
-        "mode": browse_mode,
-        "disabled": False,
-        "provider": "mkissa",
-        "provider_label": PROVIDER_LABELS["mkissa"],
-        "content_language": provider_content_language("mkissa"),
-    }
-
-
-@app.get("/api/v1/anime/{anime_id}")
-@app.get("/api/anime/{anime_id}")
-async def api_anime_detail(
-    anime_id: str,
-    translation: str = "",
-    episode_page: int = 1,
-):
-    if "mkissa" not in provider_priority("anime"):
-        raise HTTPException(
-            409,
-            "MKissa ist in den Quellen oder √ºber die Inhaltssprache deaktiviert.",
-        )
-    requested_track = str(translation or "").strip().casefold()
-
-    def _work():
-        with state.mkissa_lock:
-            anime = get_mkissa_scraper().get_anime(anime_id)
-        available = anime.translations
-        track = requested_track if requested_track in available else (
-            "dub" if available.get("dub") else
-            "sub" if available.get("sub") else
-            next(iter(available), "")
-        )
-        if not track:
-            raise LookupError("MKissa meldet keine verf√ºgbaren Episoden.")
-        episodes = anime_episode_page(
-            anime,
-            track,
-            page=episode_page,
-            page_size=100,
-        )
-        for episode in episodes["episodes"]:
-            slug = episode["slug"]
-            episode["queued"] = slug in state.picked
-            episode["downloaded"] = bool(
-                _existing_valid_episode_path(
-                    anime.title,
-                    1,
-                    int(episode["number"]),
-                )
-            )
-        return {
-            **anime.public_dict(),
-            "translation": track,
-            "translation_labels": {
-                "dub": "English Dub",
-                "sub": "English Sub",
-                "raw": "Japanese Raw",
-            },
-            **episodes,
-        }
-
-    try:
-        return await run_in_threadpool(_work)
-    except (LookupError, ValueError) as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except Exception as exc:
-        log(f"MKissa-Details fehlgeschlagen: {exc}", "warn")
-        raise HTTPException(502, f"MKissa-Details sind nicht verf√ºgbar: {exc}") from exc
-
-
-# ‚îÄ‚îÄ Warteschlange ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-class _QueuePreparationJob:
-    """L√∂st neu hinzugef√ºgte Inhalte innerhalb derselben 2-Slot-Queue auf.
-
-    Dadurch starten neue Eintr√§ge automatisch, ohne neben der bestehenden
-    Queue einen zweiten Scheduler oder mehr als zwei parallele Jobs zu √∂ffnen.
-    """
-
-    is_preparation_job = True
-
-    def __init__(
-        self, jobs: List[tuple], out_root: Path,
-        movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
-    ):
-        self.jobs = jobs
-        self.out_root = out_root
-        self.movie_fallbacks = movie_fallbacks or {}
-        self.queue_slugs = {slug for _movie, slug in jobs}
-        self.queue_slug = next(iter(self.queue_slugs)) if len(self.queue_slugs) == 1 else ""
-        self._cancelled = threading.Event()
-
-    def start(self):
-        thread = threading.Thread(target=self._run, daemon=True)
-        thread.start()
-        return thread
-
-    def cancel(self):
-        self._cancelled.set()
-
-    def _run(self):
-        queued_slugs: set[str] = set()
-        marked_preparing = False
-        try:
-            with state.queue_prepare_lock:
-                if self._cancelled.is_set():
-                    return
-                with state.queue_claim_lock:
-                    state.preparing_queue_slugs.update(self.queue_slugs & state.picked)
-                    marked_preparing = True
-                broadcast({"type": "queue_update", "queue": build_queue_payload()})
-                queued_slugs = run_download_queue(
-                    self.jobs,
-                    self.out_root,
-                    start_queue=False,
-                    cancelled=self._cancelled.is_set,
-                    movie_fallbacks=self.movie_fallbacks,
-                ) or set()
-        except Exception as exc:
-            log(f"Automatische Downloadvorbereitung fehlgeschlagen: {exc}", "err")
-            for movie, slug in self.jobs:
-                on_job_done(
-                    False, f"Vorbereitung fehlgeschlagen: {exc}",
-                    movie.title, Path(""), slug=slug,
-                )
-        finally:
-            if marked_preparing:
-                with state.queue_claim_lock:
-                    state.preparing_queue_slugs.difference_update(self.queue_slugs)
-            if not self._cancelled.is_set():
-                for movie, slug in self.jobs:
-                    if slug not in queued_slugs and _queue_slug_claimed(slug):
-                        on_job_done(
-                            False,
-                            "Downloadvorbereitung ohne Abschluss beendet",
-                            movie.title,
-                            Path(""),
-                            slug=slug,
-                        )
-            # Falls w√§hrend einer laufenden Extraktion abgebrochen wurde, d√ºrfen
-            # danach erzeugte echte DownloadJobs nicht liegenbleiben/anlaufen.
-            if self._cancelled.is_set():
-                remove_pending = getattr(state.dl_queue, "remove_pending", None)
-                if remove_pending:
-                    remove_pending(
-                        lambda job: bool(self.queue_slugs & set(getattr(job, "queue_slugs", [])))
-                        or getattr(job, "queue_slug", "") in self.queue_slugs
-                    )
-            if marked_preparing:
-                broadcast({"type": "queue_update", "queue": build_queue_payload()})
-
-
-def _enqueue_automatic_downloads(
-    slugs: List[str],
-    movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
-) -> set[str]:
-    if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
-        log("Downloadstart pausiert: Ein Systemupdate l√§uft.", "warn")
-        return set()
-    content_keys = {
-        slug: queue_content_key(slug, state.fp_movies.get(slug))
-        for slug in slugs if slug in state.fp_movies
-    }
-    with state.queue_lifecycle_lock:
-        # Zweite Pr√ºfung unter demselben Lock, den auch der Updater beim Start
-        # h√§lt. So kann zwischen Vorpr√ºfung und Queue-Aufbau kein Update starten.
-        if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
-            log("Downloadstart pausiert: Ein Systemupdate l√§uft.", "warn")
-            return set()
-        queue_idle = (
-            state.dl_queue.active_count() == 0
-            and state.dl_queue.pending_count() == 0
-        )
-        active_slugs = {
-            active_slug
-            for active_job in state.dl_queue.active_jobs()
-            for active_slug in _job_queue_slugs(active_job)
-        }
-        with state.queue_claim_lock:
-            state.queue_content_keys.update(content_keys)
-            queue_idle = queue_idle and not state.provider_waiting_jobs
-            with state.download_state_lock:
-                if queue_idle:
-                    state.total_jobs = 0
-                    state.done_jobs = 0
-                    state.done_slugs.clear()
-                    state.counted_queue_slugs.clear()
-                already_counted = set(state.counted_queue_slugs)
-
-            # Ein bereits gez√§hlter oder noch physisch aktiver Slug geh√∂rt zu
-            # einem √§lteren/aktiven Queue-Eintrag. Dessen Claim darf beim
-            # Bereinigen neu abgelehnter Cross-Provider-Duplikate nicht fallen.
-            protected_slugs = already_counted | active_slugs
-            retained_key_slugs = protected_slugs | set(content_keys)
-            for stale_slug in set(state.queue_content_keys) - retained_key_slugs:
-                state.queue_content_keys.pop(stale_slug, None)
-            occupied_keys = {
-                state.queue_content_keys.get(existing_slug, "")
-                for existing_slug in protected_slugs
-            }
-            occupied_keys.discard("")
-
-            # Claim nach allen langsamen Provider-Aufrufen erneut pr√ºfen. Ein
-            # zwischenzeitliches Entfernen oder ein paralleler Trigger darf
-            # keinen ungetrackten beziehungsweise doppelten Job starten.
-            jobs = []
-            for slug in slugs:
-                movie = state.fp_movies.get(slug)
-                key = content_keys.get(slug, "")
-                if (
-                    slug not in state.picked
-                    or slug in already_counted
-                    or slug in active_slugs
-                    or movie is None
-                    or (not movie.hosters and parse_episode_slug(slug) is None)
-                    or (key and key in occupied_keys)
-                ):
-                    continue
-                jobs.append((movie, slug))
-                if key:
-                    occupied_keys.add(key)
-
-            newly_counted = {slug for _movie, slug in jobs}
-            rejected_claims = {
-                slug for slug in set(slugs)
-                if slug in state.picked
-                and slug not in newly_counted
-                and slug not in protected_slugs
-            }
-            state.picked.difference_update(rejected_claims)
-
-            if jobs:
-                with state.download_state_lock:
-                    state.counted_queue_slugs.update(newly_counted)
-                    state.total_jobs += len(newly_counted)
-                    done_jobs = state.done_jobs
-                    total_jobs = state.total_jobs
-
-                # Ein Vorbereitungsjob pro Inhalt: Dadurch werden signierte Stream-URLs
-                # erst kurz vor ihrem echten Queue-Slot extrahiert statt stapelweise.
-                for job in jobs:
-                    slug = job[1]
-                    # Vorbereitete Quellen sind Hinweise. Bei Episoden gilt
-                    # selbst ein leerer Key nicht als endg√ºltige Anbietersuche,
-                    # weil sich Verf√ºgbarkeit und Provider-Cooldowns √§ndern.
-                    fallbacks = {}
-                    if movie_fallbacks is not None and slug in movie_fallbacks:
-                        fallbacks[slug] = list(movie_fallbacks[slug])
-                    else:
-                        cached_fallbacks = cached_movie_source_fallbacks(slug)
-                        if cached_fallbacks is not None:
-                            fallbacks[slug] = cached_fallbacks
-                    state.dl_queue.add(_QueuePreparationJob(
-                        [job], Path(state.save_path), movie_fallbacks=fallbacks,
-                    ))
-                state.dl_queue.start()
-
-    if rejected_claims:
-        _persist_queue_state()
-    if not jobs:
-        if rejected_claims:
-            broadcast({"type": "queue_update", "queue": build_queue_payload()})
-        return set()
-    log(f"Automatisch eingeplant: {len(jobs)} Download(s) (max. 2 parallel)")
-    broadcast({
-        "type": "queue_started",
-        "added": len(jobs),
-        "done_jobs": done_jobs,
-        "total_jobs": total_jobs,
-        "queue": build_queue_payload(),
-    })
-    return {slug for _movie, slug in jobs}
-
-
-def restore_persisted_queue():
-    """Stellt nach einem Neustart noch offene Queue-Eintr√§ge sicher wieder her."""
-    with state.queue_claim_lock:
-        unresolved = set(state.picked)
-    if not unresolved:
-        return
-    log(f"Stelle {len(unresolved)} gespeicherte Queue-Eintr√§ge wieder her ‚Ä¶")
-    while unresolved:
-        prepared: List[str] = []
-        for slug in list(unresolved):
-            with state.queue_claim_lock:
-                if slug not in state.picked:
-                    unresolved.discard(slug)
-                    continue
-            try:
-                movie = (
-                    _episode_placeholder(slug)
-                    if parse_episode_slug(slug)
-                    else load_movie_for_slug(slug)
-                )
-                if movie is None or not movie.hosters:
-                    if parse_episode_slug(slug):
-                        movie = _episode_placeholder(slug)
-                    else:
-                        continue
-                already, reason = _content_already_available(movie, slug)
-                if already and _is_jellyfin_safety_block(reason):
-                    continue
-                if already:
-                    _release_removed_queue_slugs({slug})
-                    unresolved.discard(slug)
-                    continue
-                state.fp_movies[slug] = movie
-                prepared.append(slug)
-                unresolved.discard(slug)
-            except Exception as exc:
-                log(f"Queue-Wiederherstellung f√ºr ¬´{slug}¬ª wartet: {exc}", "warn")
-        if prepared:
-            _enqueue_automatic_downloads(prepared)
-        if unresolved:
-            time.sleep(60)
-
-
-class MovieDownloadPreference(BaseModel):
-    provider: str = ""
-    quality: str = ""
-    hoster_url: str = ""
-
-
-class QueueAddBody(BaseModel):
-    slugs: List[str]
-    preferences: Dict[str, MovieDownloadPreference] = Field(default_factory=dict)
-
-
-def _preferred_movie_sources(
-    slug: str,
-    movie: FilmpalastMovie,
-    preference: Optional[MovieDownloadPreference],
-) -> tuple[FilmpalastMovie, Optional[List[FilmpalastMovie]]]:
-    """Sortiert die gew√§hlte Quelle/Qualit√§t vor, beh√§lt aber alle Fallbacks."""
-    if preference is None or parse_episode_slug(slug):
-        return movie, None
-    provider = str(preference.provider or "").strip().casefold()
-    quality = str(preference.quality or "").strip()
-    hoster_url = str(preference.hoster_url or "").strip()
-    with state.movie_source_cache_lock:
-        sources = list(state.movie_source_cache.get(slug) or [movie])
-    chosen_index = next(
-        (index for index, source in enumerate(sources) if _movie_provider(source) == provider),
-        None,
-    )
-    if chosen_index is None:
-        return movie, None
-    chosen_source = sources.pop(chosen_index)
-    chosen = replace(chosen_source, hosters=list(chosen_source.hosters))
-    setattr(chosen, "_preferred_quality", quality)
-    if hoster_url:
-        chosen.hosters.sort(key=lambda hoster: str(hoster.url or "").strip() != hoster_url)
-    return chosen, sources
-
-
-@app.post("/api/v1/queue/add")
-@app.post("/api/queue/add")
-async def api_queue_add(body: QueueAddBody):
-    def _work():
-        added_slugs: List[str] = []
-        selected_fallbacks: Dict[str, List[FilmpalastMovie]] = {}
-        skipped = 0
-        skipped_details: Dict[str, str] = {}
-        for slug in body.slugs:
-            with state.queue_lifecycle_lock:
-                physically_active = any(
-                    slug in _job_queue_slugs(job) for job in state.dl_queue.active_jobs()
-                )
-                with state.queue_claim_lock:
-                    if slug in state.picked:
-                        skipped += 1
-                        skipped_details[slug] = "bereits eingeplant"
-                        continue
-                    with state.download_state_lock:
-                        if slug in state.counted_queue_slugs or physically_active:
-                            skipped += 1
-                            skipped_details[slug] = "Abbruch l√§uft noch"
-                            continue
-                    state.picked.add(slug)
-            try:
-                movie = state.fp_movies.get(slug)
-                if movie is None:
-                    movie = (
-                        _episode_placeholder(slug)
-                        if parse_episode_slug(slug)
-                        else load_movie_for_slug(slug)
-                    )
-                if movie is None or not movie.hosters:
-                    if parse_episode_slug(slug):
-                        movie = _episode_placeholder(slug)
-                    else:
-                        raise RuntimeError("kein Hoster verf√ºgbar")
-                already_available, reason = _content_already_available(movie, slug)
-                if already_available:
-                    skipped += 1
-                    skipped_details[slug] = reason
-                    with state.queue_claim_lock:
-                        state.picked.discard(slug)
-                    continue
-                state.fp_movies[slug] = movie
-                preferred, fallbacks = _preferred_movie_sources(
-                    slug, movie, body.preferences.get(slug),
-                )
-                if fallbacks is not None:
-                    movie = preferred
-                    state.fp_movies[slug] = movie
-                    selected_fallbacks[slug] = fallbacks
-                added_slugs.append(slug)
-            except Exception as exc:
-                with state.queue_claim_lock:
-                    state.picked.discard(slug)
-                skipped += 1
-                skipped_details[slug] = str(exc)[:180]
-        return added_slugs, skipped, skipped_details, selected_fallbacks
-
-    added_slugs, skipped, skipped_details, selected_fallbacks = await run_in_threadpool(_work)
-    _persist_queue_state()
-    accepted = _enqueue_automatic_downloads(
-        added_slugs,
-        movie_fallbacks=selected_fallbacks or None,
-    )
-    duplicate_rejected = set(added_slugs) - accepted
-    if len(accepted) < len(added_slugs):
-        with state.queue_claim_lock:
-            not_started = {
-                slug for slug in added_slugs if slug in state.picked and slug not in accepted
-            }
-            state.picked.difference_update(not_started)
-        _persist_queue_state()
-        skipped += len(duplicate_rejected)
-        for slug in duplicate_rejected:
-            skipped_details.setdefault(slug, "gleicher Inhalt bereits eingeplant")
-    with state.download_state_lock:
-        done_jobs = state.done_jobs
-        total_jobs = state.total_jobs
-    return {
-        "added": len(accepted),
-        "skipped": skipped,
-        "skipped_details": skipped_details,
-        "auto_started": len(accepted),
-        "done_jobs": done_jobs,
-        "total_jobs": total_jobs,
-        "queue": build_queue_payload(),
-    }
-
-
-class QueueRemoveBody(BaseModel):
-    slug: str
-
-
-def _job_queue_slugs(job) -> set[str]:
-    slugs = set(getattr(job, "queue_slugs", set()) or set())
-    slug = getattr(job, "queue_slug", "")
-    if slug:
-        slugs.add(slug)
-    return slugs
-
-
-def _drop_queue_claims(slugs: set[str]) -> None:
-    if not slugs:
-        return
-    with state.queue_claim_lock:
-        state.picked.difference_update(slugs)
-        state.preparing_queue_slugs.difference_update(slugs)
-        for slug in slugs:
-            state.provider_waiting_jobs.pop(slug, None)
-        state.provider_retry_wake_event.set()
-    _persist_queue_state()
-
-
-def _release_removed_queue_slugs(slugs: set[str]) -> None:
-    if not slugs:
-        return
-    with state.queue_lifecycle_lock:
-        with state.queue_claim_lock:
-            state.picked.difference_update(slugs)
-            state.preparing_queue_slugs.difference_update(slugs)
-            for slug in slugs:
-                state.provider_waiting_jobs.pop(slug, None)
-            state.provider_retry_wake_event.set()
-            with state.download_state_lock:
-                counted = slugs & state.counted_queue_slugs
-                state.counted_queue_slugs.difference_update(counted)
-                state.total_jobs = max(state.done_jobs, state.total_jobs - len(counted))
-            _persist_queue_state()
-
-
-def _cancel_queue_slugs(slugs: set[str], reason: str) -> None:
-    if not slugs:
-        return
-    with state.queue_lifecycle_lock:
-        state.dl_queue.remove_pending(lambda job: bool(slugs & _job_queue_slugs(job)))
-        state.dl_queue.cancel_active(lambda job: bool(slugs & _job_queue_slugs(job)))
-        state.dl_queue.remove_pending(lambda job: bool(slugs & _job_queue_slugs(job)))
-        _release_removed_queue_slugs(slugs)
-    for slug in slugs:
-        _telegram_terminal_without_job(slug, False, reason, Path(""))
-        _seerr_terminal_without_job(slug, False, reason, Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-
-
-def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
-    """Bricht nur Slugs ab, die kein aktueller Abo-Stand mehr ben√∂tigt."""
-    if not slugs:
-        return set()
-    # Der Auto-Scheduler darf zwischen Recheck und Abbruch keinen veralteten
-    # Snapshot neu einreihen. Die Watchlist bleibt bis nach dem Queue-Abbruch
-    # gesperrt, damit ein neuerer Check denselben Slug nicht wieder freigibt.
-    with state.auto_download_lock:
-        # Globale Reihenfolge: Queue-Lebenszyklus ‚Üí Claim ‚Üí Watchlist. Damit
-        # bleibt die Entscheidung atomar, ohne mit watchlist_payload()
-        # (Claim ‚Üí Watchlist) eine Lock-Inversion zu erzeugen.
-        with state.queue_lifecycle_lock:
-            with state.queue_claim_lock:
-                with state.watchlist_lock:
-                    currently_required = {
-                        slug
-                        for pending in state.watchlist_new_slugs.values()
-                        for slug in pending
-                    }
-                    cancellable = set(slugs) - currently_required
-                    if cancellable:
-                        _cancel_queue_slugs(cancellable, reason)
-    return cancellable
-
-
-@app.post("/api/v1/queue/remove")
-@app.post("/api/queue/remove")
-async def api_queue_remove(body: QueueRemoveBody):
-    with state.queue_lifecycle_lock:
-        removed = state.dl_queue.remove_pending(lambda job: body.slug in _job_queue_slugs(job))
-        active = state.dl_queue.cancel_active(lambda job: body.slug in _job_queue_slugs(job))
-        # Ein Vorbereitungsjob kann genau zwischen remove_pending() und
-        # cancel_active() noch einen echten Download eingereiht haben.
-        removed.extend(
-            state.dl_queue.remove_pending(
-                lambda job: body.slug in _job_queue_slugs(job)
-            )
-        )
-        # Abbruch konsumiert das logische Abschlusstoken selbst. Ein alter
-        # Hoster-Job kann bereits an einen Pending-Fallback √ºbergeben haben und
-        # w√ºrde dann keinen eigenen Terminalcallback mehr liefern.
-        _release_removed_queue_slugs({body.slug})
-        removed.extend(
-            state.dl_queue.remove_pending(
-                lambda job: body.slug in _job_queue_slugs(job)
-            )
-        )
-    _telegram_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
-    _seerr_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    return {
-        "removed": len(removed),
-        "cancelled": len(active),
-        "queue": build_queue_payload(),
-    }
-
-
-@app.post("/api/v1/queue/clear")
-@app.post("/api/queue/clear")
-async def api_queue_clear():
-    with state.queue_lifecycle_lock:
-        removed = state.dl_queue.remove_pending(lambda _job: True)
-        removed_slugs = {slug for job in removed for slug in _job_queue_slugs(job)}
-        active_slugs = {
-            slug for job in state.dl_queue.active_jobs() for slug in _job_queue_slugs(job)
-        }
-        with state.queue_claim_lock:
-            removed_slugs.update(state.picked - active_slugs)
-        _release_removed_queue_slugs(removed_slugs)
-    for slug in removed_slugs:
-        _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    return {"removed": len(removed_slugs), "queue": build_queue_payload()}
-
-
-@app.get("/api/v1/queue")
-@app.get("/api/queue")
-async def api_queue_get():
-    return {"queue": build_queue_payload()}
-
-
-# ‚îÄ‚îÄ Downloads ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-@app.post("/api/v1/download/cancel")
-@app.post("/api/download/cancel")
-async def api_download_cancel():
-    with state.queue_lifecycle_lock:
-        had_queue_activity = bool(
-            state.dl_queue.active_count() or state.dl_queue.pending_count()
-        )
-        state.dl_queue.cancel_all()
-        with state.queue_claim_lock:
-            with state.download_state_lock:
-                cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
-                refresh_partial_success = bool(had_queue_activity and state.done_slugs)
-            state.picked.clear()
-            state.preparing_queue_slugs.clear()
-            state.provider_waiting_jobs.clear()
-            state.provider_retry_wake_event.set()
-            with state.download_state_lock:
-                state.counted_queue_slugs.clear()
-                state.total_jobs = state.done_jobs
-            _persist_queue_state()
-        with state.hoster_extract_lock:
-            if state.voe_pool is not None:
-                try:
-                    state.voe_pool.close()
-                except Exception:
-                    pass
-                state.voe_pool = None
-            if state.embed_pool is not None:
-                try:
-                    state.embed_pool.close()
-                except Exception:
-                    pass
-                state.embed_pool = None
-    for slug in cancelled_slugs:
-        _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    log("Download abgebrochen.")
-    if refresh_partial_success:
-        threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
-    return {"cancelled": True, "queue": build_queue_payload()}
-
-
-# ‚îÄ‚îÄ Einstellungen ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-
-
-@app.get("/api/v1/updater/status")
-@app.get("/api/updater/status")
-async def api_updater_status(force: bool = False):
-    payload = await run_in_threadpool(UPDATE_CHECKER.check, force)
-    payload["installer"] = UPDATE_INSTALLER.status()
-    payload["config"] = _updater_config_payload()
-    return payload
-
-
-class UpdateInstallBody(BaseModel):
-    target_sha: str
-
-
-@app.post("/api/v1/updater/install")
-@app.post("/api/updater/install")
-async def api_updater_install(body: UpdateInstallBody):
-    update = await run_in_threadpool(UPDATE_CHECKER.check, True)
-    target_sha = str(update.get("latest_sha") or "")
-    if not target_sha or target_sha != body.target_sha.strip():
-        raise HTTPException(409, "Der angebotene GitHub-Stand hat sich ge√§ndert; bitte erneut pr√ºfen.")
-    if update.get("update_available") is not True:
-        raise HTTPException(409, "F√ºr diesen Build ist kein installierbares Update verf√ºgbar.")
-    try:
-        installer = _start_update_when_idle(target_sha)
-    except (RuntimeError, ValueError) as exc:
-        raise HTTPException(409, str(exc)) from exc
-    return {"installer": installer}
-
-
-@app.get("/api/v1/updater/install/status")
-@app.get("/api/updater/install/status")
-async def api_updater_install_status():
-    return {"installer": UPDATE_INSTALLER.status()}
-
-
-class UpdaterConfigBody(BaseModel):
-    update_mode: str = appconfig.UPDATE_MODE_MANUAL
-    auto_update_interval_hours: int = 6
-
-
-@app.get("/api/v1/updater/config")
-@app.get("/api/updater/config")
-async def api_updater_config_get():
-    return _updater_config_payload()
-
-
-@app.post("/api/v1/updater/config")
-@app.post("/api/updater/config")
-async def api_updater_config_set(body: UpdaterConfigBody):
-    mode = str(body.update_mode or "").strip().lower()
-    if mode not in appconfig.UPDATE_MODES:
-        raise HTTPException(400, "Update-Modus muss 'manual' oder 'automatic' sein.")
-    interval = max(1, min(168, int(body.auto_update_interval_hours or 6)))
-    if not appconfig.save_updater(mode, interval):
-        raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
-    with state.updater_config_lock:
-        state.updater_cfg = appconfig.load_updater()
-    if mode == appconfig.UPDATE_MODE_AUTOMATIC:
-        _set_updater_runtime("scheduled", "Automatische Updatepr√ºfung wird gestartet.")
-    else:
-        _set_updater_runtime("manual", "Updates werden nur manuell installiert.")
-    _updater_wake_event.set()
-    return {**_updater_config_payload(), "saved": True}
-
-
-class SetupCompleteBody(BaseModel):
-    save_path: str
-    series_path: str = ""
-    ui_language: str = "de"
-    jellyfin_url: str = ""
-    jellyfin_api_key: str = ""
-    jellyfin_user_id: str = ""
-    jellyfin_user_name: str = ""
-    tmdb_api_key: str = ""
-    telegram_enabled: bool = False
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    auto_download: bool = False
-    check_interval_min: int = 30
-    dl_window_start: Optional[int] = None
-    dl_window_end: Optional[int] = None
-    movie_provider_order: Optional[List[str]] = None
-    series_provider_order: Optional[List[str]] = None
-    anime_provider_order: Optional[List[str]] = None
-    movie_providers: Optional[List[str]] = None
-    series_providers: Optional[List[str]] = None
-    anime_providers: Optional[List[str]] = None
-    content_languages: Optional[List[str]] = None
-    auth_username: str = ""
-    auth_password: str = ""
-
-
-def _prepare_media_directory(raw_path: str, label: str) -> dict:
-    path = Path(raw_path).expanduser()
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        if not path.is_dir():
-            raise OSError("Pfad ist kein Ordner")
-        with tempfile.NamedTemporaryFile(prefix=".royal-write-test-", dir=path, delete=True) as probe:
-            probe.write(b"ok")
-            probe.flush()
-            os.fsync(probe.fileno())
-        usage = shutil.disk_usage(path)
-    except OSError as exc:
-        raise HTTPException(400, f"{label} ist nicht beschreibbar: {exc}") from exc
-    if usage.free < 512 * 1024 * 1024:
-        raise HTTPException(400, f"{label} hat weniger als 512 MB freien Speicher.")
-    return {"path": str(path), "free": usage.free}
-
-
-@app.get("/api/setup/status")
-async def api_setup_status():
-    return {
-        "required": not appconfig.is_initialized(),
-        "config_path": str(appconfig.config_path()),
-        "defaults": {
-            "save_path": state.save_path,
-            "series_path": state.series_path,
-            "ui_language": state.ui_language,
-            "ui_language_configured": appconfig.ui_language_configured(),
-            "providers": _provider_priority_payload(),
-            "jellyfin": {
-                "url": state.jellyfin_cfg.get("url", ""),
-                "api_key": "",
-                "has_api_key": bool(state.jellyfin_cfg.get("api_key")),
-                "user_id": state.jellyfin_cfg.get("user_id", ""),
-                "user_name": state.jellyfin_cfg.get("user_name", ""),
-                "cleanup_default": normalize_cleanup_mode(
-                    state.jellyfin_cfg.get("cleanup_default")
-                ),
-            },
-            "tmdb": {
-                "api_key": "",
-                "has_api_key": bool(state.tmdb_cfg.get("api_key")),
-                "language": state.tmdb_cfg.get("language", "de-DE"),
-            },
-            "telegram": {
-                "enabled": bool(state.telegram_cfg.get("enabled")),
-                "bot_token": "",
-                "has_bot_token": bool(state.telegram_cfg.get("bot_token")),
-                "chat_id": state.telegram_cfg.get("chat_id", ""),
-            },
-            "automation": state.automation,
-        },
-    }
-
-
-@app.post("/api/setup/complete")
-async def api_setup_complete(body: SetupCompleteBody, request: Request):
-    # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
-    # √ºberschreiben, nur ein Angemeldeter darf hier √ºberhaupt landen.
-    already_initialized = appconfig.is_initialized()
-    if already_initialized and not request_is_authenticated(
-        request.headers, request.cookies, client_key(request),
-    ):
-        raise HTTPException(401, "Anmeldung erforderlich.")
-    account_hash = ""
-    account_user = ""
-    if not auth_configured():
-        # Neuinstallation: ohne Konto wird nicht abgeschlossen.
-        try:
-            account_user = appauth.validate_username(body.auth_username)
-            account_password = appauth.validate_password(body.auth_password)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        account_hash = await run_in_threadpool(appauth.hash_password, account_password)
-    movie_path = body.save_path.strip()
-    series_path = body.series_path.strip() or movie_path
-    jellyfin_url = body.jellyfin_url.strip()
-    with state.jellyfin_cache_lock:
-        previous_jellyfin = dict(state.jellyfin_cfg)
-    same_jellyfin = (
-        jellyfin_url.rstrip("/")
-        and jellyfin_url.rstrip("/") == previous_jellyfin.get("url", "").rstrip("/")
-    )
-    jellyfin_api_key = body.jellyfin_api_key.strip() or (
-        previous_jellyfin.get("api_key", "") if same_jellyfin else ""
-    )
-    jellyfin_user_id = body.jellyfin_user_id.strip()
-    jellyfin_user_name = body.jellyfin_user_name.strip()
-    movie_order = (
-        [str(value).strip().casefold() for value in body.movie_provider_order]
-        if body.movie_provider_order is not None
-        else provider_order("movies")
-    )
-    series_order = (
-        [str(value).strip().casefold() for value in body.series_provider_order]
-        if body.series_provider_order is not None
-        else provider_order("series")
-    )
-    anime_order = (
-        [str(value).strip().casefold() for value in body.anime_provider_order]
-        if body.anime_provider_order is not None
-        else provider_order("anime")
-    )
-    movie_providers = (
-        [str(value).strip().casefold() for value in body.movie_providers]
-        if body.movie_providers is not None
-        else list(state.provider_enabled.get("movies", appconfig.MOVIE_PROVIDER_DEFAULTS))
-    )
-    series_providers = (
-        [str(value).strip().casefold() for value in body.series_providers]
-        if body.series_providers is not None
-        else list(state.provider_enabled.get("series", appconfig.SERIES_PROVIDER_DEFAULTS))
-    )
-    anime_providers = (
-        [str(value).strip().casefold() for value in body.anime_providers]
-        if body.anime_providers is not None
-        else list(state.provider_enabled.get("anime", appconfig.ANIME_PROVIDER_DEFAULTS))
-    )
-    content_languages = (
-        appconfig.normalize_content_languages(body.content_languages)
-        if body.content_languages is not None
-        else list(state.content_languages)
-    )
-    if not movie_path:
-        raise HTTPException(400, "Ein Speicherordner f√ºr Filme fehlt.")
-    if (
-        len(movie_order) != len(set(movie_order))
-        or set(movie_order) != set(appconfig.MOVIE_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Die Reihenfolge der Filmquellen ist ung√ºltig.")
-    if (
-        len(series_order) != len(set(series_order))
-        or set(series_order) != set(appconfig.SERIES_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Die Reihenfolge der Serienquellen ist ung√ºltig.")
-    if (
-        len(anime_order) != len(set(anime_order))
-        or set(anime_order) != set(appconfig.ANIME_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Die Reihenfolge der Anime-Quellen ist ung√ºltig.")
-    if (
-        not movie_providers
-        or len(movie_providers) != len(set(movie_providers))
-        or not set(movie_providers).issubset(appconfig.MOVIE_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Mindestens eine g√ºltige Filmquelle muss aktiv sein.")
-    if (
-        not series_providers
-        or len(series_providers) != len(set(series_providers))
-        or not set(series_providers).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Mindestens eine g√ºltige Serienquelle muss aktiv sein.")
-    if (
-        len(anime_providers) != len(set(anime_providers))
-        or not set(anime_providers).issubset(appconfig.ANIME_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Die Auswahl der Anime-Quellen ist ung√ºltig.")
-    if not content_languages:
-        raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
-    if any(
-        provider_content_language(provider) not in content_languages
-        for provider in movie_providers + series_providers + anime_providers
-    ):
-        raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
-    if jellyfin_url and not jellyfin_api_key:
-        raise HTTPException(400, "F√ºr Jellyfin fehlt der API-Schl√ºssel.")
-    if jellyfin_url:
-        users = await run_in_threadpool(JellyfinClient(jellyfin_url, jellyfin_api_key).list_users)
-        if users is None:
-            raise HTTPException(502, "Jellyfin ist nicht erreichbar; Einstellungen wurden nicht gespeichert.")
-        if jellyfin_user_id:
-            selected = next((user for user in users if user["id"] == jellyfin_user_id), None)
-            if selected is None:
-                raise HTTPException(400, "Der gew√§hlte Jellyfin-Benutzer ist nicht verf√ºgbar.")
-            jellyfin_user_name = selected["name"]
-    if body.telegram_enabled and not (body.telegram_bot_token.strip() or state.telegram_cfg.get("bot_token", "")):
-        raise HTTPException(400, "F√ºr Telegram fehlt der Bot-Token.")
-    for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
-        await run_in_threadpool(_prepare_media_directory, value, label)
-
-    ok = await run_in_threadpool(
-        appconfig.save_initial_setup,
-        movie_path,
-        series_path,
-        jellyfin_url,
-        jellyfin_api_key,
-        jellyfin_user_id,
-        jellyfin_user_name,
-        body.tmdb_api_key or state.tmdb_cfg.get("api_key", ""),
-        body.telegram_enabled,
-        body.telegram_bot_token or state.telegram_cfg.get("bot_token", ""),
-        body.telegram_chat_id,
-        body.auto_download,
-        body.check_interval_min,
-        body.dl_window_start,
-        body.dl_window_end,
-        body.ui_language,
-        movie_order,
-        series_order,
-        movie_providers,
-        series_providers,
-        content_languages,
-        anime_order,
-        anime_providers,
-        account_user,
-        account_hash,
-    )
-    if not ok:
-        raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
-
-    state.save_path = appconfig.load()
-    state.series_path = appconfig.load_series_path()
-    with state.ui_language_lock:
-        state.ui_language = appconfig.load_ui_language()
-    with state.provider_priority_lock:
-        state.provider_priorities = appconfig.load_provider_priorities()
-        state.provider_enabled = appconfig.load_provider_enabled()
-        state.content_languages = set(appconfig.load_content_languages())
-    _set_runtime_jellyfin_config(appconfig.load_jellyfin())
-    state.tmdb_cfg = appconfig.load_tmdb()
-    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    state.telegram_cfg = appconfig.load_telegram()
-    state.automation = appconfig.load_automation()
-    start_background_services()
-    payload = {
-        "saved": True,
-        "required": False,
-        "config_path": str(appconfig.config_path()),
-        "save_path": state.save_path,
-        "series_path": state.series_path,
-        "ui_language": state.ui_language,
-        "auth_configured": auth_configured(),
-    }
-    if not account_hash:
-        return payload
-    # Ab jetzt greift die Anmeldepflicht. Der Browser, der gerade die
-    # Einrichtung abgeschlossen hat, bekommt direkt eine Sitzung ‚Äì sonst
-    # st√ºnde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
-    response = JSONResponse(payload)
-    _set_session_cookie(
-        response,
-        request,
-        SESSION_STORE.create(
-            label=request.headers.get("user-agent", "")[:120],
-            kind=appauth.SESSION_KIND_WEB,
-        ),
-    )
-    return response
-
-
-class UILanguageBody(BaseModel):
-    language: str = "de"
-
-
-class UITranslationBody(BaseModel):
-    target_language: str
-    texts: List[str]
-
-
-def _ui_language_payload(saved: bool = False) -> dict:
-    with state.ui_language_lock:
-        language = state.ui_language
-    return {
-        "language": language,
-        "configured": appconfig.ui_language_configured(),
-        "languages": SUPPORTED_UI_LANGUAGES,
-        "translator": {
-            "browser_preferred": True,
-            "fallback_engine": UI_TRANSLATOR.engine,
-        },
-        "saved": saved,
-    }
-
-
-@app.get("/api/v1/ui/config")
-@app.get("/api/ui/config")
-async def api_ui_config_get():
-    return _ui_language_payload()
-
-
-@app.post("/api/v1/ui/config")
-@app.post("/api/ui/config")
-async def api_ui_config_set(body: UILanguageBody):
-    language = normalize_ui_language(body.language)
-    if not appconfig.save_ui_language(language):
-        raise HTTPException(500, "Die Sprache konnte nicht gespeichert werden.")
-    with state.ui_language_lock:
-        state.ui_language = language
-    tmdb_language = appconfig.tmdb_language_for_ui(language)
-    state.tmdb_cfg = {
-        **state.tmdb_cfg,
-        "language": tmdb_language,
-    }
-    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
-    return _ui_language_payload(saved=True)
-
-
-@app.post("/api/ui/translate")
-async def api_ui_translate(body: UITranslationBody):
-    target = normalize_ui_language(body.target_language)
-    texts = [str(value or "") for value in body.texts]
-    requested = str(body.target_language or "").strip().replace("_", "-").casefold()
-    if target != requested.split("-", 1)[0]:
-        raise HTTPException(400, "Nicht unterst√ºtzte Zielsprache.")
-    if len(texts) > 120:
-        raise HTTPException(400, "Pro Anfrage sind h√∂chstens 120 Texte erlaubt.")
-    if any(len(text) > 600 for text in texts) or sum(map(len, texts)) > 30_000:
-        raise HTTPException(400, "Die √úbersetzungsanfrage ist zu gro√ü.")
-    translated = await run_in_threadpool(
-        UI_TRANSLATOR.translate_many,
-        texts,
-        target,
-    )
-    return {
-        "source_language": "de",
-        "target_language": target,
-        "translations": translated,
-        "engine": UI_TRANSLATOR.engine,
-    }
-
-
-class ConfigBody(BaseModel):
-    save_path: str
-    series_path: Optional[str] = None
-
-
-@app.get("/api/v1/config")
-@app.get("/api/config")
-async def api_config_get():
-    return {"save_path": state.save_path, "series_path": state.series_path}
-
-
-@app.post("/api/v1/config")
-@app.post("/api/config")
-async def api_config_set(body: ConfigBody):
-    movie_path = body.save_path.strip()
-    series = (body.series_path or "").strip() or movie_path
-    if not movie_path:
-        raise HTTPException(400, "Ein Speicherordner f√ºr Filme fehlt.")
-    await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
-    await run_in_threadpool(_prepare_media_directory, series, "Serienordner")
-    ok = appconfig.save(movie_path)
-    # Serien-Pfad optional: leer/None -> gleicher Ordner wie Filme (Fallback).
-    ok_series = appconfig.save_series_path(series)
-    if not (ok and ok_series):
-        raise HTTPException(500, "Speicherorte konnten nicht gespeichert werden.")
-    state.save_path = movie_path
-    state.series_path = appconfig.load_series_path()
-    return {"save_path": state.save_path, "series_path": state.series_path, "saved": True}
-
-
-class ProviderPriorityBody(BaseModel):
-    movies: List[str]
-    series: List[str]
-    anime: Optional[List[str]] = None
-    enabled_movies: Optional[List[str]] = None
-    enabled_series: Optional[List[str]] = None
-    enabled_anime: Optional[List[str]] = None
-    content_languages: Optional[List[str]] = None
-
-
-def _provider_priority_payload(saved: bool = False) -> dict:
-    movie_order = provider_order("movies")
-    series_order = provider_order("series")
-    anime_order = provider_order("anime")
-    with state.provider_priority_lock:
-        enabled_movie_ids = set(state.provider_enabled.get(
-            "movies", appconfig.MOVIE_PROVIDER_DEFAULTS,
-        ))
-        enabled_series_ids = set(state.provider_enabled.get(
-            "series", appconfig.SERIES_PROVIDER_DEFAULTS,
-        ))
-        enabled_anime_ids = set(state.provider_enabled.get(
-            "anime", appconfig.ANIME_PROVIDER_DEFAULTS,
-        ))
-        content_languages = set(state.content_languages)
-    return {
-        "movies": movie_order,
-        "series": series_order,
-        "anime": anime_order,
-        "enabled_movies": [
-            provider for provider in movie_order if provider in enabled_movie_ids
-        ],
-        "enabled_series": [
-            provider for provider in series_order if provider in enabled_series_ids
-        ],
-        "enabled_anime": [
-            provider for provider in anime_order if provider in enabled_anime_ids
-        ],
-        "labels": PROVIDER_LABELS,
-        "catalog": provider_catalog_payload(),
-        "content_languages": [
-            language
-            for language in appconfig.CONTENT_LANGUAGE_DEFAULTS
-            if language in content_languages
-        ],
-        "languages": provider_language_payload(),
-        "saved": saved,
-    }
-
-
-@app.get("/api/v1/providers/status")
-@app.get("/api/providers/status")
-async def api_provider_status_get():
-    return {"providers": {"serienstream": serienstream_provider_status()}}
-
-
-@app.post("/api/v1/providers/serienstream/retry")
-@app.post("/api/providers/serienstream/retry")
-async def api_serienstream_retry():
-    if not state.provider_health.begin_probe("serienstream", force=True):
-        raise HTTPException(409, "Eine SerienStream-Probe l√§uft bereits.")
-    with state.queue_claim_lock:
-        item = next(iter(state.provider_waiting_jobs.values()), None)
-    threading.Thread(
-        target=_execute_provider_probe,
-        args=(item,),
-        name="serienstream-manual-probe",
-        daemon=True,
-    ).start()
-    state.provider_retry_wake_event.set()
-    return {
-        "started": True,
-        "provider": serienstream_provider_status(),
-    }
-
-
-@app.get("/api/v1/providers/config")
-@app.get("/api/providers/config")
-async def api_provider_priority_get():
-    return _provider_priority_payload()
-
-
-@app.post("/api/v1/providers/config")
-@app.post("/api/providers/config")
-async def api_provider_priority_set(body: ProviderPriorityBody):
-    movie_ids = [str(value).strip().casefold() for value in body.movies]
-    series_ids = [str(value).strip().casefold() for value in body.series]
-    anime_ids = (
-        [str(value).strip().casefold() for value in body.anime]
-        if body.anime is not None
-        else provider_order("anime")
-    )
-    if len(movie_ids) != len(set(movie_ids)) or set(movie_ids) != set(appconfig.MOVIE_PROVIDER_DEFAULTS):
-        raise HTTPException(400, "Die Film-Anbieterliste ist unvollst√§ndig oder ung√ºltig.")
-    if len(series_ids) != len(set(series_ids)) or set(series_ids) != set(appconfig.SERIES_PROVIDER_DEFAULTS):
-        raise HTTPException(400, "Die Serien-Anbieterliste ist unvollst√§ndig oder ung√ºltig.")
-    if len(anime_ids) != len(set(anime_ids)) or set(anime_ids) != set(appconfig.ANIME_PROVIDER_DEFAULTS):
-        raise HTTPException(400, "Die Anime-Anbieterliste ist unvollst√§ndig oder ung√ºltig.")
-    current_enabled = appconfig.load_provider_enabled()
-    enabled_movies = [
-        str(value).strip().casefold()
-        for value in (
-            body.enabled_movies
-            if body.enabled_movies is not None
-            else current_enabled["movies"]
-        )
-    ]
-    enabled_series = [
-        str(value).strip().casefold()
-        for value in (
-            body.enabled_series
-            if body.enabled_series is not None
-            else current_enabled["series"]
-        )
-    ]
-    enabled_anime = [
-        str(value).strip().casefold()
-        for value in (
-            body.enabled_anime
-            if body.enabled_anime is not None
-            else current_enabled["anime"]
-        )
-    ]
-    content_languages = (
-        appconfig.normalize_content_languages(body.content_languages)
-        if body.content_languages is not None
-        else appconfig.load_content_languages()
-    )
-    if (
-        not enabled_movies
-        or len(enabled_movies) != len(set(enabled_movies))
-        or not set(enabled_movies).issubset(appconfig.MOVIE_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Mindestens eine g√ºltige Filmquelle muss aktiv sein.")
-    if (
-        not enabled_series
-        or len(enabled_series) != len(set(enabled_series))
-        or not set(enabled_series).issubset(appconfig.SERIES_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Mindestens eine g√ºltige Serienquelle muss aktiv sein.")
-    if (
-        len(enabled_anime) != len(set(enabled_anime))
-        or not set(enabled_anime).issubset(appconfig.ANIME_PROVIDER_DEFAULTS)
-    ):
-        raise HTTPException(400, "Die Auswahl der Anime-Quellen ist ung√ºltig.")
-    if not content_languages:
-        raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
-    if any(
-        provider_content_language(provider) not in content_languages
-        for provider in enabled_movies + enabled_series + enabled_anime
-    ):
-        raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
-    if not appconfig.save_provider_priorities(
-        movie_ids,
-        series_ids,
-        enabled_movies,
-        enabled_series,
-        content_languages=content_languages,
-        anime=anime_ids,
-        enabled_anime=enabled_anime,
-    ):
-        raise HTTPException(500, "Anbieter-Priorit√§ten konnten nicht gespeichert werden.")
-    with state.provider_priority_lock:
-        state.provider_priorities = appconfig.load_provider_priorities()
-        state.provider_enabled = appconfig.load_provider_enabled()
-        state.content_languages = set(appconfig.load_content_languages())
-    with state.movie_list_cache_lock:
-        state.movie_list_cache.clear()
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
-    with state.series_list_cache_lock:
-        state.series_list_cache.clear()
-    state.fallback_series_cache.clear()
-    return _provider_priority_payload(saved=True)
-
-
-class JellyfinConfigBody(BaseModel):
-    url: str
-    api_key: str
-    user_id: str = ""
-    user_name: str = ""
-    cleanup_default: Optional[str] = None
-
-
-@app.get("/api/v1/jellyfin/config")
-@app.get("/api/jellyfin/config")
-async def api_jellyfin_config_get():
-    return {
-        "url": state.jellyfin_cfg.get("url", ""),
-        "api_key": "",
-        "has_api_key": bool(state.jellyfin_cfg.get("api_key")),
-        "user_id": state.jellyfin_cfg.get("user_id", ""),
-        "user_name": state.jellyfin_cfg.get("user_name", ""),
-        "cleanup_default": normalize_cleanup_mode(
-            state.jellyfin_cfg.get("cleanup_default")
-        ),
-    }
-
-
-@app.post("/api/v1/jellyfin/config")
-@app.post("/api/jellyfin/config")
-async def api_jellyfin_config_set(body: JellyfinConfigBody):
-    url = body.url.strip()
-    with state.jellyfin_cache_lock:
-        previous = dict(state.jellyfin_cfg)
-    same_server = bool(url) and url.rstrip("/") == previous.get("url", "").rstrip("/")
-    api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
-    user_id = body.user_id.strip()
-    user_name = body.user_name.strip()
-    if body.cleanup_default is not None and body.cleanup_default not in CLEANUP_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte Standard-L√∂schregel.")
-    cleanup_default = normalize_cleanup_mode(
-        body.cleanup_default
-        if body.cleanup_default is not None
-        else previous.get("cleanup_default")
-    )
-    if url and not api_key:
-        raise HTTPException(400, "F√ºr Jellyfin fehlt der API-Schl√ºssel.")
-    if url and api_key:
-        users = await run_in_threadpool(JellyfinClient(url, api_key).list_users)
-        if users is None:
-            raise HTTPException(502, "Jellyfin ist nicht erreichbar; Einstellungen wurden nicht ge√§ndert.")
-        if user_id:
-            selected = next((user for user in users if user["id"] == user_id), None)
-            if selected is None:
-                raise HTTPException(400, "Der gew√§hlte Jellyfin-Benutzer ist nicht verf√ºgbar.")
-            user_name = selected["name"]
-    with state.jellyfin_config_update_lock:
-        ok = appconfig.save_jellyfin(
-            url, api_key, user_id, user_name, cleanup_default,
-        )
-        if not ok:
-            raise HTTPException(500, "Jellyfin-Einstellungen konnten nicht gespeichert werden.")
-        _set_runtime_jellyfin_config({
-            "url": url,
-            "api_key": api_key,
-            "user_id": user_id,
-            "user_name": user_name,
-            "cleanup_default": cleanup_default,
-        })
-        _recommender_wake_event.set()
-
-    def _recheck():
-        with state.watchlist_lock:
-            entries = list(state.watchlist)
-        check_watchlist_entries(entries, refresh_jellyfin=True)
-        broadcast({"type": "jellyfin_update", **watchlist_payload()})
-        _auto_download_new_episodes()
-
-    threading.Thread(target=_recheck, daemon=True).start()
-    return {
-        "url": url,
-        "api_key": "",
-        "has_api_key": bool(api_key),
-        "user_id": user_id,
-        "user_name": user_name,
-        "cleanup_default": cleanup_default,
-        "saved": True,
-    }
-
-
-class JellyfinUsersBody(BaseModel):
-    url: str
-    api_key: str
-
-
-@app.post("/api/v1/jellyfin/users")
-@app.post("/api/jellyfin/users")
-async def api_jellyfin_users(body: JellyfinUsersBody):
-    url = body.url.strip() or state.jellyfin_cfg.get("url", "")
-    key = body.api_key.strip()
-    if not key and url.rstrip("/") == state.jellyfin_cfg.get("url", "").rstrip("/"):
-        key = state.jellyfin_cfg.get("api_key", "")
-    client = JellyfinClient(url, key)
-    if not client.configured:
-        raise HTTPException(400, "Jellyfin-Adresse oder API-Schl√ºssel fehlt.")
-    users = await run_in_threadpool(client.list_users)
-    if users is None:
-        raise HTTPException(502, "Jellyfin-Benutzer konnten nicht geladen werden.")
-    return {"users": users}
-
-
-class TMDBConfigBody(BaseModel):
-    api_key: str = ""
-    language: str = "de-DE"
-
-
-@app.get("/api/v1/tmdb/config")
-@app.get("/api/tmdb/config")
-async def api_tmdb_config_get():
-    return {
-        "api_key": "",
-        "has_api_key": bool(state.tmdb_cfg.get("api_key")),
-        "language": state.tmdb_cfg.get("language", "de-DE"),
-        "configured": bool(state.tmdb_cfg.get("api_key")),
-    }
-
-
-@app.post("/api/v1/tmdb/config")
-@app.post("/api/tmdb/config")
-async def api_tmdb_config_set(body: TMDBConfigBody):
-    language = appconfig.tmdb_language_for_ui(state.ui_language)
-    api_key = body.api_key.strip() or state.tmdb_cfg.get("api_key", "")
-    ok = appconfig.save_tmdb(api_key, language)
-    if not ok:
-        raise HTTPException(500, "TMDB-Einstellungen konnten nicht gespeichert werden.")
-    state.tmdb_cfg = appconfig.load_tmdb()
-    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
-    valid = await run_in_threadpool(state.tmdb_client.validate) if api_key else False
-    return {
-        "api_key": "",
-        "has_api_key": bool(api_key),
-        "language": language,
-        "configured": bool(api_key),
-        "valid": valid,
-        "saved": True,
-    }
-
-
-class AutomationConfigBody(BaseModel):
-    auto_download: bool = False
-    check_interval_min: int = 30
-    dl_window_start: Optional[int] = None
-    dl_window_end: Optional[int] = None
-
-
-@app.get("/api/v1/automation/config")
-@app.get("/api/automation/config")
-async def api_automation_config_get():
-    return {**state.automation, "in_window": is_within_download_window()}
-
-
-@app.post("/api/v1/automation/config")
-@app.post("/api/automation/config")
-async def api_automation_config_set(body: AutomationConfigBody):
-    ok = appconfig.save_automation(
-        body.auto_download, body.check_interval_min,
-        body.dl_window_start, body.dl_window_end,
-    )
-    if not ok:
-        raise HTTPException(500, "Automatik-Einstellungen konnten nicht gespeichert werden.")
-    state.automation = appconfig.load_automation()
-    if state.automation.get("auto_download"):
-        threading.Thread(target=_auto_download_new_episodes, daemon=True).start()
-        threading.Thread(target=check_movie_subscriptions, daemon=True).start()
-    return {**state.automation, "in_window": is_within_download_window(), "saved": True}
-
-
-class TelegramConfigBody(BaseModel):
-    enabled: bool = False
-    bot_token: str = ""
-    chat_id: str = ""
-
-
-@app.get("/api/v1/telegram/config")
-@app.get("/api/telegram/config")
-async def api_telegram_config_get():
-    return {
-        "enabled": bool(state.telegram_cfg.get("enabled")),
-        "bot_token": "",
-        "has_bot_token": bool(state.telegram_cfg.get("bot_token")),
-        "chat_id": state.telegram_cfg.get("chat_id", ""),
-    }
-
-
-@app.post("/api/v1/telegram/config")
-@app.post("/api/telegram/config")
-async def api_telegram_config_set(body: TelegramConfigBody):
-    token = body.bot_token.strip() or state.telegram_cfg.get("bot_token", "")
-    if body.enabled and not token:
-        raise HTTPException(400, "F√ºr Telegram fehlt der Bot-Token.")
-    ok = appconfig.save_telegram(body.enabled, token, body.chat_id)
-    if not ok:
-        raise HTTPException(500, "Telegram-Einstellungen konnten nicht gespeichert werden.")
-    state.telegram_cfg = appconfig.load_telegram()
-    return {
-        "enabled": bool(state.telegram_cfg.get("enabled")),
-        "bot_token": "",
-        "has_bot_token": bool(token),
-        "chat_id": state.telegram_cfg.get("chat_id", ""),
-        "saved": True,
-    }
-
-
-class SeerrConfigBody(BaseModel):
-    enabled: bool = False
-    url: str = ""
-    api_key: str = ""
-    poll_interval_seconds: int = 60
-
-
-def _seerr_config_payload() -> dict:
-    with state.seerr_requests_lock:
-        records = list(state.seerr_requests.values())
-    counts: Dict[str, int] = {}
-    for record in records:
-        status = str(record.get("status") or "unknown")
-        counts[status] = counts.get(status, 0) + 1
-    return {
-        "enabled": bool(state.seerr_cfg.get("enabled")),
-        "url": state.seerr_cfg.get("url", ""),
-        "api_key": "",
-        "has_api_key": bool(state.seerr_cfg.get("api_key")),
-        "poll_interval_seconds": int(state.seerr_cfg.get("poll_interval_seconds", 60)),
-        "connected": bool(state.seerr_last_success and not state.seerr_last_error),
-        "last_poll": state.seerr_last_poll or None,
-        "last_success": state.seerr_last_success or None,
-        "last_error": state.seerr_last_error,
-        "moonfin_configured": state.seerr_moonfin_configured,
-        "moonfin_error": state.seerr_moonfin_error,
-        "requests": counts,
-    }
-
-
-@app.get("/api/v1/seerr/config")
-@app.get("/api/seerr/config")
-async def api_seerr_config_get():
-    return _seerr_config_payload()
-
-
-@app.post("/api/v1/seerr/config")
-@app.post("/api/seerr/config")
-async def api_seerr_config_set(body: SeerrConfigBody):
-    url = body.url.strip().rstrip("/")
-    previous = dict(state.seerr_cfg)
-    same_server = bool(url) and url.casefold() == str(previous.get("url") or "").rstrip("/").casefold()
-    api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
-    interval = max(15, min(3600, int(body.poll_interval_seconds or 60)))
-    if body.enabled and not url and not api_key:
-        raise HTTPException(400, "F√ºr Seerr fehlen Adresse und API-Schl√ºssel.")
-    if body.enabled and not url:
-        raise HTTPException(400, "F√ºr Seerr fehlt die Adresse.")
-    if body.enabled and not api_key:
-        raise HTTPException(
-            400,
-            "F√ºr Seerr fehlt der API-Schl√ºssel: Es ist keiner gespeichert. "
-            "Bitte aus Seerr ‚Üí Einstellungen ‚Üí Allgemein kopieren und einmal "
-            "eintragen; danach darf das Feld wieder leer bleiben.",
-        )
-    if body.enabled:
-        valid = await run_in_threadpool(SeerrClient(url, api_key).test_connection)
-        if not valid:
-            raise HTTPException(
-                502,
-                "Seerr ist nicht erreichbar oder der API-Schl√ºssel ist ung√ºltig; Einstellungen wurden nicht ge√§ndert.",
-            )
-    if not appconfig.save_seerr(body.enabled, url, api_key, interval):
-        raise HTTPException(500, "Seerr-Einstellungen konnten nicht gespeichert werden.")
-    state.seerr_cfg = appconfig.load_seerr()
-    state.seerr_last_error = ""
-    if url:
-        moonfin = await run_in_threadpool(configure_moonfin_seerr, url, body.enabled)
-        state.seerr_moonfin_configured = bool(moonfin.get("configured"))
-        state.seerr_moonfin_error = "" if state.seerr_moonfin_configured else str(moonfin.get("detail") or "")
-    _seerr_wake_event.set()
-    payload = _seerr_config_payload()
-    payload["saved"] = True
-    return payload
-
-
-@app.post("/api/v1/seerr/sync")
-@app.post("/api/seerr/sync")
-async def api_seerr_sync():
-    result = await run_in_threadpool(seerr_poll_once)
-    if not result.get("ok"):
-        raise HTTPException(502, result.get("detail") or "Seerr-Abgleich fehlgeschlagen.")
-    return {**result, **_seerr_config_payload()}
-
-
-@app.get("/api/seerr/requests")
-async def api_seerr_requests():
-    with state.seerr_requests_lock:
-        records = [dict(record) for record in state.seerr_requests.values()]
-    records.sort(key=lambda record: float(record.get("updated_at", 0) or 0), reverse=True)
-    return {"requests": records[:100]}
-
-
-@app.get("/api/v1/browse-dir")
-@app.get("/api/browse-dir")
-async def api_browse_dir(path: str = ""):
-    def _work():
-        p = Path(path) if path else Path(state.save_path)
-        if not p.exists():
-            p = Path.home()
-        p = p.resolve()
-        try:
-            dirs = sorted(
-                (d for d in p.iterdir() if d.is_dir() and not d.name.startswith(".")),
-                key=lambda d: d.name.casefold(),
-            )
-        except OSError as exc:
-            return {"path": str(p), "parent": None, "dirs": [], "error": str(exc)}
-        parent = str(p.parent) if p.parent != p else None
-        return {
-            "path": str(p), "parent": parent,
-            "dirs": [{"name": d.name, "path": str(d)} for d in dirs],
-        }
-
-    return await run_in_threadpool(_work)
-
-
-@app.post("/api/session/clear-cookies")
-async def api_clear_cookies():
-    f = _cookie_file_for("filmpalast.to")
-    cleared = False
-    if f.exists():
-        f.unlink()
-        cleared = True
-    if state.fp_scraper is not None:
-        state.fp_scraper.session.clear_cookies()
-    log("Cookies gel√∂scht." if cleared else "Keine Cookies vorhanden.")
-    return {"cleared": cleared}
-
-
-# ‚îÄ‚îÄ Cover-Proxy ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-def _safe_public_http_url(raw_url: str) -> bool:
-    try:
-        parsed = urlparse(raw_url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-            return False
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        if port not in (80, 443):
-            return False
-        addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-        if not addresses:
-            return False
-        for _family, _socktype, _proto, _canonname, sockaddr in addresses:
-            if not ipaddress.ip_address(sockaddr[0]).is_global:
-                return False
-        return True
-    except (OSError, ValueError):
-        return False
-
-
-COVER_FAIL_RETRY_SECONDS = 180.0
-COVER_MAX_BYTES = 10 * 1024 * 1024
-COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
-COVER_CACHE_MAX_ENTRIES = 256
-COVER_MAX_REDIRECTS = 3
-COVER_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-COVER_IMAGE_TYPES = frozenset({
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/x-png",
-    "image/webp",
-    "image/gif",
-    "image/avif",
-})
-
-
-def _cover_log_target(raw_url: str) -> str:
-    """Loggt nie Query, Fragment oder Zugangsdaten einer Bild-URL."""
-    try:
-        parsed = urlparse(raw_url)
-        host = parsed.hostname or "unbekannter-host"
-        path = (parsed.path or "/")[:160]
-        return f"{host}{path}"
-    except (TypeError, ValueError):
-        return "ung√ºltige-url"
-
-
-def _close_cover_response(response) -> None:
-    close = getattr(response, "close", None)
-    if callable(close):
-        try:
-            close()
-        except Exception:
-            pass
-
-
-def _fetch_cover_data(url: str) -> Optional[tuple]:
-    if not _safe_public_http_url(url):
-        return None
-    with state.cover_cache_lock:
-        if url in state.cover_cache:
-            state.cover_cache.move_to_end(url)
-            return state.cover_cache[url]
-        failed_at = state.cover_fail_cache.get(url)
-        if failed_at is not None:
-            if time.time() - failed_at < COVER_FAIL_RETRY_SECONDS:
-                return None
-            del state.cover_fail_cache[url]
-    try:
-        def _download(manager, curl_session, referer: str) -> tuple:
-            current_url = url
-            current_referer = referer
-            for redirect_index in range(COVER_MAX_REDIRECTS + 1):
-                # Jeden Hop vor dem Request erneut pr√ºfen. Damit kann ein
-                # √∂ffentlicher Bildhost nicht auf localhost/private Netze umleiten.
-                if not _safe_public_http_url(current_url):
-                    raise RuntimeError("unsicheres Bildziel")
-                headers = manager._browser_headers(current_url, current_referer)
-                headers.update({
-                    "Accept": "image/webp,image/png,image/jpeg,image/gif,*/*;q=0.1",
-                    "Sec-Fetch-Dest": "image",
-                    "Sec-Fetch-Mode": "no-cors",
-                })
-                headers.pop("Sec-Fetch-User", None)
-                headers.pop("Upgrade-Insecure-Requests", None)
-                resp = curl_session.get(
-                    current_url,
-                    headers=headers,
-                    timeout=20,
-                    stream=True,
-                    allow_redirects=False,
-                )
-                try:
-                    peer_ip = str(getattr(resp, "primary_ip", "") or "").strip()
-                    if not peer_ip or not ipaddress.ip_address(peer_ip).is_global:
-                        raise RuntimeError("unsichere Zieladresse nach DNS-Aufl√∂sung")
-                    if resp.status_code in COVER_REDIRECT_STATUSES:
-                        location = str(resp.headers.get("Location") or "").strip()
-                        if not location or redirect_index >= COVER_MAX_REDIRECTS:
-                            raise RuntimeError("ung√ºltige oder zu tiefe Bildweiterleitung")
-                        next_url = urljoin(current_url, location)
-                        if not _safe_public_http_url(next_url):
-                            raise RuntimeError("unsicheres Weiterleitungsziel")
-                        current_referer = current_url
-                        current_url = next_url
-                        continue
-                    if resp.status_code != 200:
-                        raise RuntimeError(f"HTTP {resp.status_code}")
-                    content_type = (
-                        resp.headers.get("Content-Type") or ""
-                    ).split(";", 1)[0].strip().lower()
-                    if content_type not in COVER_IMAGE_TYPES:
-                        raise RuntimeError("nicht unterst√ºtztes Bildformat")
-                    declared = int(resp.headers.get("Content-Length", 0) or 0)
-                    if declared > COVER_MAX_BYTES:
-                        raise RuntimeError("Bild ist gr√∂√üer als 10 MB")
-                    content = bytearray()
-                    for chunk in resp.iter_content(chunk_size=128 * 1024):
-                        content.extend(chunk)
-                        if len(content) > COVER_MAX_BYTES:
-                            raise RuntimeError("Bild ist gr√∂√üer als 10 MB")
-                    return bytes(content), content_type
-                finally:
-                    _close_cover_response(resp)
-            raise RuntimeError("zu viele Bildweiterleitungen")
-
-        parsed_url = urlparse(url)
-        hostname = (parsed_url.hostname or "").casefold()
-        referer = f"{parsed_url.scheme}://{parsed_url.netloc}/"
-        manager = (
-            get_sto_scraper().session
-            if hostname == "serienstream.to" or hostname.endswith(".serienstream.to")
-            else get_fp_scraper().session
-        )
-        # Eine eigene Curl-Session pro Bild verhindert Datenrennen mit parallel
-        # laufenden Provider-Scrapes und √ºbernimmt dennoch gespeicherte Cookies.
-        curl_session = manager._make_curl_session()
-        try:
-            data = _download(manager, curl_session, referer)
-        finally:
-            _close_cover_response(curl_session)
-    except Exception as exc:
-        reason = str(exc)[:160] if isinstance(exc, RuntimeError) else type(exc).__name__
-        log(f"Cover-Laden fehlgeschlagen ({_cover_log_target(url)}): {reason}", "warn")
-        with state.cover_cache_lock:
-            state.cover_fail_cache[url] = time.time()
-            state.cover_fail_cache.move_to_end(url)
-            while len(state.cover_fail_cache) > 512:
-                state.cover_fail_cache.popitem(last=False)
-        return None
-    with state.cover_cache_lock:
-        state.cover_cache[url] = data
-        state.cover_cache.move_to_end(url)
-        cached_bytes = sum(len(item[0]) for item in state.cover_cache.values())
-        while state.cover_cache and (
-            len(state.cover_cache) > COVER_CACHE_MAX_ENTRIES
-            or cached_bytes > COVER_CACHE_MAX_BYTES
-        ):
-            _old_url, old_data = state.cover_cache.popitem(last=False)
-            cached_bytes -= len(old_data[0])
-        state.cover_fail_cache.pop(url, None)
-    return data
-
-
-@app.get("/api/v1/cover")
-@app.get("/api/cover")
-async def api_cover(url: str):
-    data = await run_in_threadpool(_fetch_cover_data, url)
-    if not data:
-        raise HTTPException(502, "Cover konnte nicht geladen werden.")
-    content, content_type = data
-    return Response(
-        content=content,
-        media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
-    )
-
-
-# ‚îÄ‚îÄ Film-Abonnements ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-def movie_subscription_key(tmdb_id="", title: str = "", year: str = "") -> str:
-    tmdb = str(tmdb_id or "").strip()
-    if tmdb:
-        return f"tmdb:{tmdb}"
-    return f"title:{_norm_title(title)}:{str(year or '').strip()}"
-
-
-def movie_subscription_lookup(key: str) -> Optional[dict]:
-    return next(
-        (entry for entry in state.movie_subscriptions if entry.get("key") == key),
-        None,
-    )
-
-
-def _movie_subscription_jellyfin_item(entry: dict, items: Optional[List[dict]]) -> Optional[dict]:
-    if not items:
-        return None
-    tmdb_id = str(entry.get("tmdb_id") or "").strip()
-    if tmdb_id:
-        exact = next(
-            (item for item in items if str(item.get("tmdb_id") or "") == tmdb_id),
-            None,
-        )
-        if exact:
-            return exact
-    wanted = _norm_title(entry.get("title", ""))
-    year = str(entry.get("year") or "")
-    for item in items:
-        aliases = (
-            item.get("name", ""), item.get("original_title", ""), item.get("sort_name", ""),
-        )
-        if wanted not in {_norm_title(value) for value in aliases if value}:
-            continue
-        item_year = str(item.get("year") or "")
-        if year and item_year and year != item_year:
-            continue
-        return item
-    return None
-
-
-def movie_subscriptions_payload() -> dict:
-    with state.queue_claim_lock, state.movie_subscriptions_lock:
-        items = []
-        for stored in state.movie_subscriptions:
-            entry = dict(stored)
-            entry["cleanup_mode"] = normalize_movie_cleanup(entry.get("cleanup_mode"))
-            entry["cleanup_mode_label"] = MOVIE_CLEANUP_LABELS[entry["cleanup_mode"]]
-            entry["target_quality"] = normalize_movie_quality(entry.get("target_quality"))
-            entry["target_quality_label"] = MOVIE_QUALITY_LABELS[entry["target_quality"]]
-            entry["queued"] = bool(entry.get("pending_slug") in state.picked)
-            if entry.get("watched_deleted"):
-                entry["status"] = "watched_deleted"
-            elif entry["queued"]:
-                entry["status"] = "queued"
-            elif entry.get("last_error"):
-                entry["status"] = "failed"
-            elif entry.get("upgrade_available_rank"):
-                entry["status"] = "upgrade"
-            else:
-                entry["status"] = "current"
-            items.append(entry)
-    return {"movie_subscriptions": items}
-
-
-def _movie_subscription_sources(entry: dict) -> List[FilmpalastMovie]:
-    tmdb_id = str(entry.get("tmdb_id") or "").strip()
-    if tmdb_id:
-        return resolve_tmdb_movie_sources(tmdb_id)
-    slug = str(entry.get("source_slug") or "").strip()
-    if not slug:
-        return []
-    movie = state.fp_movies.get(slug) or load_movie_for_slug(slug)
-    if not movie:
-        return []
-    state.fp_movies[slug] = movie
-    return [movie, *find_movie_source_fallbacks(movie, slug, {movie.url})]
-
-
-def _prepare_movie_subscription_upgrade(
-    entry: dict, sources: List[FilmpalastMovie],
-) -> tuple[Optional[FilmpalastMovie], List[FilmpalastMovie], int, str]:
-    current_rank = max(0, int(entry.get("current_quality_rank") or 0))
-    target = normalize_movie_quality(entry.get("target_quality"))
-    qualities = [
-        hoster.quality
-        for source in sources
-        for hoster in source.hosters
-    ]
-    selected = select_upgrade_quality(qualities, current_rank, target)
-    if not selected:
-        return None, [], 0, ""
-    selected_rank, selected_label = selected
-    ceiling = MOVIE_QUALITY_TARGETS[target]
-    prepared = []
-    for source in sources:
-        hosters = [
-            hoster for hoster in source.hosters
-            if current_rank < movie_quality_rank(hoster.quality) <= ceiling
-        ]
-        if not hosters:
-            continue
-        clone = replace(source, hosters=list(hosters))
-        clone.hosters.sort(
-            key=lambda hoster: (
-                movie_quality_rank(hoster.quality) != selected_rank,
-                -movie_quality_rank(hoster.quality),
-            )
-        )
-        setattr(clone, "_preferred_quality", selected_label)
-        setattr(clone, "_allow_quality_upgrade", True)
-        prepared.append(clone)
-    prepared.sort(
-        key=lambda movie: max(
-            (movie_quality_rank(hoster.quality) for hoster in movie.hosters),
-            default=0,
-        ) != selected_rank
-    )
-    return (prepared[0] if prepared else None), prepared[1:], selected_rank, selected_label
-
-
-def check_movie_subscriptions(entries: Optional[List[dict]] = None) -> int:
-    """Pr√ºft Gesehen-Regeln und reiht ausschlie√ülich echte Upgrades ein."""
-    if not state.movie_subscription_check_lock.acquire(blocking=False):
-        return 0
-    try:
-        with state.movie_subscriptions_lock:
-            selected_entries = list(entries if entries is not None else state.movie_subscriptions)
-        jf_client = get_jellyfin_client()
-        user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()
-        user_movies = (
-            jf_client.list_movies_with_user_data(user_id)
-            if jf_client.configured and user_id else None
-        )
-        library_movies = get_jellyfin_library(force=True) if jf_client.configured else None
-        checked = 0
-        for entry in selected_entries:
-            with state.movie_subscriptions_lock:
-                if not any(current is entry for current in state.movie_subscriptions):
-                    continue
-                if entry.get("pending_slug") in state.picked:
-                    continue
-            checked += 1
-            now = time.time()
-            jf_item = _movie_subscription_jellyfin_item(
-                entry, user_movies if user_movies is not None else library_movies,
-            )
-            with state.movie_subscriptions_lock:
-                if jf_item:
-                    entry["current_quality_rank"] = max(
-                        int(entry.get("current_quality_rank") or 0),
-                        int(jf_item.get("quality_rank") or 0),
-                    )
-                    entry["existing_path"] = str(jf_item.get("path") or "")
-                entry["last_checked"] = now
-
-            if (
-                normalize_movie_cleanup(entry.get("cleanup_mode")) == MOVIE_CLEANUP_WATCHED
-                and jf_item and jf_item.get("played") and not entry.get("watched_deleted")
-            ):
-                if jf_client.delete_item(jf_item.get("id", "")):
-                    with state.movie_subscriptions_lock:
-                        entry["watched_deleted"] = True
-                        entry["last_error"] = ""
-                        entry["cleanup_last_error"] = ""
-                        entry["cleanup_deleted_at"] = now
-                    log(f"Film-Abo: ¬´{entry['title']}¬ª nach dem Ansehen gel√∂scht.")
-                else:
-                    with state.movie_subscriptions_lock:
-                        entry["last_error"] = "Gesehener Film konnte in Jellyfin nicht gel√∂scht werden"
-                continue
-            if (
-                normalize_movie_cleanup(entry.get("cleanup_mode")) == MOVIE_CLEANUP_WATCHED
-                and jf_client.configured and not user_id
-            ):
-                with state.movie_subscriptions_lock:
-                    entry["cleanup_last_error"] = "Jellyfin-Profil f√ºr den Gesehen-Status fehlt"
-            elif user_id or normalize_movie_cleanup(entry.get("cleanup_mode")) != MOVIE_CLEANUP_WATCHED:
-                with state.movie_subscriptions_lock:
-                    entry["cleanup_last_error"] = ""
-
-            if entry.get("watched_deleted") or not entry.get("upgrade_enabled", True):
-                continue
-            if jf_item and int(jf_item.get("quality_rank") or 0) <= 0:
-                with state.movie_subscriptions_lock:
-                    entry["last_error"] = "Jellyfin konnte die vorhandene Filmqualit√§t nicht ermitteln"
-                continue
-            try:
-                sources = _movie_subscription_sources(entry)
-                primary, fallbacks, rank, label = _prepare_movie_subscription_upgrade(entry, sources)
-            except Exception as exc:
-                with state.movie_subscriptions_lock:
-                    entry["last_error"] = str(exc)[:240]
-                continue
-            with state.movie_subscriptions_lock:
-                entry["upgrade_available_rank"] = rank
-                entry["upgrade_available_quality"] = label
-                if not primary:
-                    entry["last_error"] = ""
-                    continue
-                if not state.automation.get("auto_download") or not is_within_download_window():
-                    entry["last_error"] = ""
-                    continue
-                slug = str(entry.get("source_slug") or entry.get("key") or "")
-                entry["pending_slug"] = slug
-                entry["last_error"] = ""
-            state.fp_movies[slug] = primary
-            with state.queue_lifecycle_lock:
-                with state.queue_claim_lock:
-                    if slug in state.picked:
-                        continue
-                    state.picked.add(slug)
-            _persist_queue_state()
-            accepted = _enqueue_automatic_downloads(
-                [slug], movie_fallbacks={slug: fallbacks},
-            )
-            if slug not in accepted:
-                with state.queue_claim_lock:
-                    state.picked.discard(slug)
-                with state.movie_subscriptions_lock:
-                    entry["pending_slug"] = ""
-                    entry["last_error"] = "Upgrade konnte nicht eingereiht werden"
-            else:
-                log(
-                    f"Film-Abo: Qualit√§ts-Upgrade f√ºr ¬´{entry['title']}¬ª "
-                    f"auf {label or f'{rank}p'} eingereiht."
-                )
-        with state.movie_subscriptions_lock:
-            appconfig.save_movie_subscriptions(state.movie_subscriptions)
-        payload = movie_subscriptions_payload()
-        broadcast({"type": "movie_subscriptions_update", **payload})
-        return checked
-    finally:
-        state.movie_subscription_check_lock.release()
-
-
-class MovieSubscriptionBody(BaseModel):
-    source_slug: str
-    title: str
-    year: str = ""
-    tmdb_id: Optional[int] = None
-    cover_url: str = ""
-    target_quality: str = MOVIE_QUALITY_DEFAULT
-    cleanup_mode: str = MOVIE_CLEANUP_DEFAULT
-    upgrade_enabled: bool = True
-
-
-@app.post("/api/v1/movie-subscriptions")
-@app.post("/api/movie-subscriptions")
-async def api_movie_subscription_save(body: MovieSubscriptionBody):
-    if body.target_quality not in MOVIE_QUALITY_LABELS:
-        raise HTTPException(400, "Unbekannte Zielqualit√§t.")
-    if body.cleanup_mode not in MOVIE_CLEANUP_LABELS:
-        raise HTTPException(400, "Unbekannte L√∂schregel.")
-    key = movie_subscription_key(body.tmdb_id, body.title, body.year)
-    with state.movie_subscriptions_lock:
-        entry = movie_subscription_lookup(key)
-        if entry is None:
-            entry = {
-                "key": key,
-                "source_slug": body.source_slug,
-                "title": body.title.strip(),
-                "year": body.year.strip(),
-                "tmdb_id": body.tmdb_id,
-                "cover_url": body.cover_url,
-                "current_quality_rank": 0,
-                "current_quality": "",
-                "last_error": "",
-                "cleanup_last_error": "",
-                "pending_slug": "",
-                "watched_deleted": False,
-            }
-            state.movie_subscriptions.append(entry)
-        entry.update({
-            "source_slug": body.source_slug,
-            "target_quality": normalize_movie_quality(body.target_quality),
-            "cleanup_mode": normalize_movie_cleanup(body.cleanup_mode),
-            "upgrade_enabled": bool(body.upgrade_enabled),
-        })
-        if entry["cleanup_mode"] != MOVIE_CLEANUP_WATCHED:
-            entry["watched_deleted"] = False
-            entry["cleanup_last_error"] = ""
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
-    threading.Thread(
-        target=check_movie_subscriptions, args=([entry],), daemon=True,
-    ).start()
-    return movie_subscriptions_payload()
-
-
-@app.get("/api/v1/movie-subscriptions")
-@app.get("/api/movie-subscriptions")
-async def api_movie_subscriptions_get():
-    return movie_subscriptions_payload()
-
-
-class MovieSubscriptionKeysBody(BaseModel):
-    keys: Optional[List[str]] = None
-
-
-@app.post("/api/v1/movie-subscriptions/check")
-@app.post("/api/movie-subscriptions/check")
-async def api_movie_subscriptions_check(body: MovieSubscriptionKeysBody):
-    with state.movie_subscriptions_lock:
-        entries = (
-            list(state.movie_subscriptions)
-            if not body.keys
-            else [entry for entry in state.movie_subscriptions if entry.get("key") in body.keys]
-        )
-    checked = await run_in_threadpool(check_movie_subscriptions, entries)
-    return {"checked": checked, **movie_subscriptions_payload()}
-
-
-@app.post("/api/v1/movie-subscriptions/remove")
-@app.post("/api/movie-subscriptions/remove")
-async def api_movie_subscriptions_remove(body: MovieSubscriptionKeysBody):
-    keys = set(body.keys or [])
-    pending = set()
-    with state.movie_subscriptions_lock:
-        pending = {
-            str(entry.get("pending_slug") or "")
-            for entry in state.movie_subscriptions
-            if entry.get("key") in keys and entry.get("pending_slug")
-        }
-        state.movie_subscriptions = [
-            entry for entry in state.movie_subscriptions if entry.get("key") not in keys
-        ]
-        appconfig.save_movie_subscriptions(state.movie_subscriptions)
-    if pending:
-        _cancel_queue_slugs(pending, "Film-Abo entfernt")
-    return movie_subscriptions_payload()
-
-
-# ‚îÄ‚îÄ Bibliothek (Watchlist) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-class WatchlistAddBody(BaseModel):
-    base_slug: str
-    title: str
-    sample_url: str
-    known_slugs: List[str]
-    download_mode: str = WATCH_MODE_DEFAULT
-    cleanup_mode: Optional[str] = None
-    tmdb_id: Optional[int] = None
-    aliases: Optional[List[str]] = None
-    season_episode_counts: Optional[Dict[str, int]] = None
-    season_counts_checked_at: float = 0.0
-
-
-@app.post("/api/v1/watchlist/add")
-@app.post("/api/watchlist/add")
-async def api_watchlist_add(body: WatchlistAddBody):
-    if body.download_mode not in WATCH_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte Abo-Regel.")
-    if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte L√∂schregel.")
-    incoming_id = str(body.tmdb_id or "").strip()
-    incoming_tmdb = None
-    if incoming_id:
-        incoming_tmdb = await run_in_threadpool(
-            get_tmdb_series, body.title, incoming_id,
-        )
-    entry = None
-    with state.watchlist_lock:
-        if watchlist_lookup(body.base_slug) is None:
-            direct_incoming_titles = {
-                _norm_title(value)
-                for value in (body.title, *(body.aliases or []))
-                if _norm_title(value)
-            }
-            canonical_incoming_titles = {
-                _norm_title(value)
-                for value in (
-                    (incoming_tmdb or {}).get("title", ""),
-                    (incoming_tmdb or {}).get("original_title", ""),
-                )
-                if _norm_title(value)
-            }
-            incoming_titles = direct_incoming_titles | canonical_incoming_titles
-            duplicate = None
-            duplicate_can_migrate = False
-            for current in state.watchlist:
-                current_id = str(current.get("tmdb_id") or "").strip()
-                if incoming_id and current_id:
-                    if incoming_id == current_id:
-                        duplicate = current
-                        break
-                    continue
-                current_titles = {
-                    _norm_title(value)
-                    for value in (current.get("title", ""), *(current.get("aliases") or []))
-                    if _norm_title(value)
-                }
-                if incoming_titles & current_titles:
-                    duplicate = current
-                    duplicate_can_migrate = bool(
-                        incoming_id
-                        and not current_id
-                        and not (direct_incoming_titles & current_titles)
-                        and (canonical_incoming_titles & current_titles)
-                    )
-                    break
-            if duplicate is not None:
-                if duplicate_can_migrate:
-                    duplicate["tmdb_id"] = body.tmdb_id
-                    duplicate["aliases"] = list(dict.fromkeys(filter(None, (
-                        duplicate.get("title", ""),
-                        *(duplicate.get("aliases") or []),
-                        body.title,
-                        *(body.aliases or []),
-                        (incoming_tmdb or {}).get("title", ""),
-                        (incoming_tmdb or {}).get("original_title", ""),
-                    ))))
-                    if (incoming_tmdb or {}).get("season_episode_counts"):
-                        duplicate["season_episode_counts"] = incoming_tmdb[
-                            "season_episode_counts"
-                        ]
-                        duplicate["season_counts_checked_at"] = float(
-                            incoming_tmdb.get("season_counts_checked_at") or 0
-                        )
-                    if (incoming_tmdb or {}).get("cover_url"):
-                        duplicate["cover_url"] = incoming_tmdb["cover_url"]
-                    if (incoming_tmdb or {}).get("backdrop_url"):
-                        duplicate["backdrop_url"] = incoming_tmdb["backdrop_url"]
-                    appconfig.save_watchlist(state.watchlist)
-                raise HTTPException(
-                    409, f"Serie ist bereits als ¬´{duplicate.get('title', body.title)}¬ª abonniert.",
-                )
-            entry = body.model_dump()
-            entry["aliases"] = list(dict.fromkeys(
-                alias.strip() for alias in (body.aliases or []) if alias and alias.strip()
-            ))
-            entry["season_episode_counts"] = {
-                str(season): max(0, int(count))
-                for season, count in (body.season_episode_counts or {}).items()
-            }
-            entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
-            entry["cover_url"] = (incoming_tmdb or {}).get("cover_url", "")
-            entry["backdrop_url"] = (incoming_tmdb or {}).get("backdrop_url", "")
-            entry["download_mode"] = normalize_watch_mode(body.download_mode)
-            entry["cleanup_mode"] = normalize_cleanup_mode(
-                body.cleanup_mode
-                if body.cleanup_mode is not None
-                else state.jellyfin_cfg.get("cleanup_default")
-            )
-            entry["cleanup_history"] = []
-            entry["cleanup_deleted_count"] = 0
-            entry["cleanup_last_error"] = ""
-            entry["failed_downloads"] = {}
-            entry["last_error"] = ""
-            entry["mode_generation"] = 0
-            entry["check_generation"] = 0
-            state.watchlist.append(entry)
-            appconfig.save_watchlist(state.watchlist)
-    if entry is not None:
-        log(f"¬´{body.title}¬ª zur Bibliothek hinzugef√ºgt.")
-
-        # Nicht erst bis zum n√§chsten 30-Minuten-Intervall warten: sofort pr√ºfen
-        # und bei eingeschalteter Automatik den Download ansto√üen. Die Arbeit
-        # l√§uft au√üerhalb des API-Requests, damit die Oberfl√§che direkt reagiert.
-        def _initial_watchlist_check():
-            try:
-                with state.watchlist_lock:
-                    if entry not in state.watchlist:
-                        return
-                check_watchlist_entries([entry])
-                broadcast({"type": "watchlist_update", **watchlist_payload()})
-                _auto_download_new_episodes()
-            except Exception as exc:
-                log(f"Erstpr√ºfung von ¬´{body.title}¬ª fehlgeschlagen: {exc}", "warn")
-
-        threading.Thread(target=_initial_watchlist_check, daemon=True).start()
-    return watchlist_payload()
-
-
-class WatchlistModeBody(BaseModel):
-    base_slug: str
-    download_mode: str
-    cleanup_mode: Optional[str] = None
-
-
-@app.post("/api/v1/watchlist/mode")
-@app.post("/api/watchlist/mode")
-async def api_watchlist_mode(body: WatchlistModeBody):
-    if body.download_mode not in WATCH_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte Abo-Regel.")
-    if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte L√∂schregel.")
-    with state.watchlist_lock:
-        entry = watchlist_lookup(body.base_slug)
-        if entry is None:
-            raise HTTPException(404, "Nicht in der Bibliothek.")
-        previous_mode = normalize_watch_mode(entry.get("download_mode"))
-        mode_changed = previous_mode != body.download_mode
-        previous_pending = (
-            set(state.watchlist_new_slugs.get(body.base_slug, set()))
-            if mode_changed else set()
-        )
-        entry["download_mode"] = body.download_mode
-        if body.cleanup_mode is not None:
-            entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
-            if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
-                entry["cleanup_last_error"] = ""
-        if mode_changed:
-            entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
-        entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-        entry["last_error"] = "Abo-Regel wird gepr√ºft ‚Äì Auto-Download pausiert"
-        appconfig.save_watchlist(state.watchlist)
-
-    if previous_pending:
-        _cancel_queue_slugs(previous_pending, "Abo-Regel ge√§ndert")
-
-    def _mode_watchlist_check():
-        try:
-            check_watchlist_entries([entry])
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-            _auto_download_new_episodes()
-            if previous_pending:
-                def _reconcile_after_reap():
-                    while any(
-                        previous_pending & _job_queue_slugs(job)
-                        for job in state.dl_queue.active_jobs()
-                    ):
-                        time.sleep(0.2)
-                    _auto_download_new_episodes()
-
-                threading.Thread(target=_reconcile_after_reap, daemon=True).start()
-        except Exception as exc:
-            log(f"Abo-Regel f√ºr ¬´{entry['title']}¬ª konnte nicht gepr√ºft werden: {exc}", "warn")
-
-    threading.Thread(target=_mode_watchlist_check, daemon=True).start()
-    return watchlist_payload()
-
-
-class WatchlistRemoveBody(BaseModel):
-    base_slugs: List[str]
-
-
-@app.post("/api/v1/watchlist/remove")
-@app.post("/api/watchlist/remove")
-async def api_watchlist_remove(body: WatchlistRemoveBody):
-    pending_slugs: set[str] = set()
-    with state.watchlist_lock:
-        for base_slug in body.base_slugs:
-            pending_slugs.update(state.watchlist_new_slugs.pop(base_slug, set()))
-            state.series_cache.pop(base_slug, None)
-        state.watchlist = [w for w in state.watchlist if w["base_slug"] not in body.base_slugs]
-        appconfig.save_watchlist(state.watchlist)
-    with state.queue_lifecycle_lock:
-        removed = state.dl_queue.remove_pending(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        )
-        state.dl_queue.cancel_active(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        )
-        # Fallbacks, die ein gerade abbrechender Callback noch kurz eingereiht hat.
-        removed.extend(state.dl_queue.remove_pending(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        ))
-        _release_removed_queue_slugs(pending_slugs)
-    for slug in pending_slugs:
-        _telegram_terminal_without_job(slug, False, "Abo entfernt", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abo entfernt", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    return watchlist_payload()
-
-
-@app.get("/api/v1/watchlist")
-@app.get("/api/watchlist")
-async def api_watchlist_get():
-    await run_in_threadpool(hydrate_watchlist_artwork)
-    return watchlist_payload()
-
-
-class WatchlistCheckBody(BaseModel):
-    base_slugs: Optional[List[str]] = None
-
-
-def _calculate_watchlist_entry_state(
-    entry: dict,
-    series: FilmpalastSeries,
-    jf_client: JellyfinClient,
-    jf_episodes: Optional[List[dict]],
-    jf_user_episodes: Optional[List[dict]],
-    jf_series: Optional[List[dict]] = None,
-) -> dict:
-    """Berechnet den Zustand ohne globale Watchlist-Daten zu ver√§ndern."""
-    previous_keys = {
-        parsed[1:]
-        for slug in entry.get("known_slugs", [])
-        if (parsed := parse_episode_slug(slug)) is not None
-    }
-    current_keys = {(episode.season, episode.episode) for episode in series.all_episodes}
-    vanished_keys = previous_keys - current_keys
-    if vanished_keys:
-        # Verschwundene Episoden sind nur dann unbedenklich, wenn TMDB
-        # best√§tigt, dass sie ohnehin noch nicht ausgestrahlt wurden (z.B. weil
-        # ein Anbieter sie zuvor f√§lschlich als bereits verf√ºgbar gelistet
-        # hatte). Ohne diese Best√§tigung bleibt der Schutz vor einer
-        # unvollst√§ndigen Anbieterantwort bestehen.
-        explained = _unreleased_episode_keys(entry.get("tmdb_id", ""), vanished_keys)
-        if vanished_keys - explained:
-            raise RuntimeError("Anbieterantwort unvollst√§ndig ‚Äì bisher bekannte Episoden fehlen")
-
-    downloaded = compute_downloaded_episodes(series)
-    aliases = tuple(dict.fromkeys([
-        entry.get("title", ""),
-        *(entry.get("aliases") or []),
-    ]))
-    series_ids = jf_client.series_ids_for(
-        series.title,
-        tmdb_id=entry.get("tmdb_id", ""),
-        aliases=aliases,
-        items=jf_series,
-    ) if jf_series is not None else set()
-    if jf_client.configured and jf_series is None:
-        raise RuntimeError("Jellyfin-Serienindex nicht verf√ºgbar")
-    if series_ids is None:
-        raise RuntimeError("Jellyfin-Zuordnung mehrdeutig")
-    jf_existing = (
-        jf_client.episodes_for_series(
-            series.title, items=jf_episodes, aliases=aliases, series_ids=series_ids,
-        )
-        if jf_episodes is not None else set()
-    )
-    cleanup_history = normalize_episode_history(entry.get("cleanup_history"))
-    jf_existing.update(cleanup_history)
-    jf_watched = (
-        jf_client.watched_episodes_for_series(
-            series.title, jf_user_episodes, aliases=aliases, series_ids=series_ids,
-        )
-        if jf_user_episodes is not None else None
-    )
-    if jf_watched is not None:
-        jf_watched.update(cleanup_history)
-    cleanup_mode = normalize_cleanup_mode(entry.get("cleanup_mode"))
-    cleanup_items = []
-    if cleanup_mode != CLEANUP_MODE_KEEP and jf_user_episodes is not None:
-        cleanup_items = select_cleanup_items(
-            jf_client.episode_items_for_series(
-                series.title,
-                jf_user_episodes,
-                aliases=aliases,
-                series_ids=series_ids,
-            ),
-            cleanup_mode,
-            entry.get("season_episode_counts") or {},
-            cleanup_history,
-        )
-    mode = normalize_watch_mode(entry.get("download_mode"))
-    if mode == WATCH_MODE_NEXT_SEASON:
-        counts_checked_at = float(entry.get("season_counts_checked_at") or 0)
-        if (
-            counts_checked_at <= 0
-            or time.time() - counts_checked_at > SERIES_CACHE_TTL + 60
-        ):
-            raise RuntimeError("Staffelumfang nicht aktuell verifiziert ‚Äì Auto-Download pausiert")
-        expected_counts = {
-            int(season): int(count)
-            for season, count in (entry.get("season_episode_counts") or {}).items()
-            if str(season).lstrip("-").isdigit() and str(count).isdigit()
-        }
-        source_seasons = sorted({episode.season for episode in series.all_episodes})
-        regular_seasons = [season for season in source_seasons if season > 0]
-        required_seasons = regular_seasons or source_seasons
-        if any(expected_counts.get(season, 0) <= 0 for season in required_seasons):
-            raise RuntimeError("Staffelumfang nicht verifizierbar ‚Äì Auto-Download pausiert")
-    unreleased_slugs = _unreleased_episode_slugs(series, entry.get("tmdb_id", ""))
-    missing_slugs = select_missing_episode_slugs(
-        series.all_episodes,
-        mode,
-        downloaded_slugs=downloaded,
-        jellyfin_existing=jf_existing,
-        jellyfin_watched=jf_watched,
-        season_episode_counts=entry.get("season_episode_counts") or {},
-        unreleased_slugs=unreleased_slugs,
-    )
-    return {
-        "mode": mode,
-        "cleanup_mode": cleanup_mode,
-        "known_slugs": [episode.slug for episode in series.all_episodes],
-        "missing_slugs": missing_slugs,
-        "cleanup_items": cleanup_items,
-    }
-
-
-def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
-    """√úbernimmt ein Ergebnis und meldet nicht mehr ben√∂tigte Queue-Slugs."""
-    entry["download_mode"] = calculated["mode"]
-    entry["cleanup_mode"] = calculated["cleanup_mode"]
-    entry["known_slugs"] = calculated["known_slugs"]
-    previous_slugs = set(state.watchlist_new_slugs.get(entry["base_slug"], set()))
-    missing_slugs = set(calculated["missing_slugs"])
-    if missing_slugs:
-        state.watchlist_new_slugs[entry["base_slug"]] = missing_slugs
-    else:
-        state.watchlist_new_slugs.pop(entry["base_slug"], None)
-    failed = entry.get("failed_downloads")
-    if not isinstance(failed, dict):
-        failed = {}
-    entry["failed_downloads"] = {
-        slug: failure for slug, failure in failed.items() if slug in missing_slugs
-    }
-    entry["last_checked"] = time.time()
-    entry["last_error"] = ""
-    return previous_slugs - missing_slugs
-
-
-def _update_watchlist_entry_state(
-    entry: dict,
-    series: FilmpalastSeries,
-    jf_client: JellyfinClient,
-    jf_episodes: Optional[List[dict]],
-    jf_user_episodes: Optional[List[dict]],
-    jf_series: Optional[List[dict]] = None,
-) -> set[str]:
-    calculated = _calculate_watchlist_entry_state(
-        entry, series, jf_client, jf_episodes, jf_user_episodes, jf_series,
-    )
-    return _apply_watchlist_entry_state(entry, calculated)
-
-
-def _execute_watchlist_cleanup(
-    jobs: List[dict], jf_client: JellyfinClient, jellyfin_generation: int,
-) -> int:
-    """L√∂scht freigegebene Jellyfin-Episoden und merkt ihren Abo-Fortschritt.
-
-    Die Historie verhindert, dass absichtlich gel√∂schte Folgen beim n√§chsten
-    Abo-Lauf wieder als fehlend erkannt werden. Vor jedem externen DELETE wird
-    gepr√ºft, ob die L√∂schregel noch unver√§ndert aktiv ist.
-    """
-    deleted_total = 0
-    deleted_ids: set[str] = set()
-    changed = False
-    for job in jobs:
-        entry = job["entry"]
-        revision = int(job["revision"])
-        cleanup_mode = normalize_cleanup_mode(job["cleanup_mode"])
-        successful_pairs: set[tuple[int, int]] = set()
-        failed = 0
-        seen_ids: set[str] = set()
-
-        for item in job.get("items") or []:
-            item_id = str(item.get("id") or "").strip()
-            if not item_id or item_id in seen_ids:
-                continue
-            seen_ids.add(item_id)
-            with state.jellyfin_cache_lock:
-                config_is_current = jellyfin_generation == state.jellyfin_config_generation
-                with state.watchlist_lock:
-                    rule_is_current = bool(
-                        any(current is entry for current in state.watchlist)
-                        and int(entry.get("check_generation", 0)) == revision
-                        and normalize_cleanup_mode(entry.get("cleanup_mode")) == cleanup_mode
-                        and cleanup_mode != CLEANUP_MODE_KEEP
-                    )
-            if not config_is_current or not rule_is_current:
-                break
-            if jf_client.delete_item(item_id):
-                successful_pairs.add((int(item["season"]), int(item["episode"])))
-                deleted_ids.add(item_id)
-                deleted_total += 1
-            else:
-                failed += 1
-
-        with state.watchlist_lock:
-            if not any(current is entry for current in state.watchlist):
-                continue
-            if successful_pairs:
-                history = normalize_episode_history(entry.get("cleanup_history"))
-                history.update(successful_pairs)
-                entry["cleanup_history"] = serialize_episode_history(history)
-                entry["cleanup_deleted_count"] = int(entry.get("cleanup_deleted_count", 0)) + len(
-                    successful_pairs
-                )
-                changed = True
-            if (
-                int(entry.get("check_generation", 0)) == revision
-                and normalize_cleanup_mode(entry.get("cleanup_mode")) == cleanup_mode
-            ):
-                entry["cleanup_last_run"] = time.time()
-                entry["cleanup_last_error"] = (
-                    f"{failed} Jellyfin-Element(e) konnten nicht gel√∂scht werden"
-                    if failed else ""
-                )
-                changed = True
-
-    if changed:
-        with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
-    if deleted_ids:
-        with state.jellyfin_cache_lock:
-            if state.jellyfin_episodes is not None:
-                state.jellyfin_episodes = [
-                    item for item in state.jellyfin_episodes
-                    if str(item.get("id") or "") not in deleted_ids
-                ]
-            if state.jellyfin_user_episodes is not None:
-                state.jellyfin_user_episodes = [
-                    item for item in state.jellyfin_user_episodes
-                    if str(item.get("id") or "") not in deleted_ids
-                ]
-            state.jellyfin_episodes_time = 0.0
-            state.jellyfin_user_episodes_time = 0.0
-            state.jellyfin_episode_data_generation += 1
-        log(f"Jellyfin-Aufr√§umen: {deleted_total} gesehene Episode(n) gel√∂scht.")
-    return deleted_total
-
-
-def check_watchlist_entries(entries: List[dict], refresh_jellyfin: bool = False) -> int:
-    """Pr√ºft die √ºbergebenen Watchlist-Eintr√§ge auf fehlende Episoden und
-    aktualisiert state.watchlist_new_slugs. Gibt die Anzahl erfolgreich
-    gepr√ºfter Eintr√§ge zur√ºck. Wird sowohl vom manuellen Check-Endpoint
-    als auch vom automatischen Hintergrund-Check genutzt.
-
-    Welche fehlenden Episoden ber√ºcksichtigt werden, bestimmt die pro Serie
-    gespeicherte Abo-Regel. Jellyfin und lokale Videodateien werden immer als
-    bereits vorhanden behandelt."""
-    with state.watchlist_lock:
-        tracked = []
-        for entry in entries:
-            if not any(current is entry for current in state.watchlist):
-                continue
-            entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-            entry["last_error"] = "Pr√ºfung l√§uft ‚Äì Auto-Download pausiert"
-            tracked.append((entry, entry["check_generation"]))
-    if not tracked:
-        return 0
-
-    with state.jellyfin_cache_lock:
-        jellyfin_generation = state.jellyfin_config_generation
-        cfg = dict(state.jellyfin_cfg)
-    jf_client = JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""))
-    jf_episodes = get_jellyfin_episodes(force=refresh_jellyfin) if jf_client.configured else None
-    jf_series = get_jellyfin_series(force=refresh_jellyfin) if jf_client.configured else None
-    with state.jellyfin_cache_lock:
-        if jellyfin_generation != state.jellyfin_config_generation:
-            return 0
-        episodes_available = state.jellyfin_episodes_available
-        series_available = state.jellyfin_series_available
-        jellyfin_data_generation = state.jellyfin_episode_data_generation
-
-    def _set_error(entry: dict, revision: int, message: str) -> bool:
-        with state.jellyfin_cache_lock:
-            if (
-                jellyfin_generation != state.jellyfin_config_generation
-                or jellyfin_data_generation != state.jellyfin_episode_data_generation
-            ):
-                return False
-            with state.watchlist_lock:
-                if (
-                    not any(current is entry for current in state.watchlist)
-                    or int(entry.get("check_generation", 0)) != revision
-                ):
-                    return False
-                entry["last_checked"] = time.time()
-                entry["last_error"] = message[:240]
-                return True
-
-    if jf_client.configured and (jf_episodes is None or not episodes_available):
-        for entry, revision in tracked:
-            _set_error(entry, revision, "Jellyfin nicht erreichbar ‚Äì Auto-Download pausiert")
-        with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
-        log("Watchlist-Pr√ºfung pausiert: Jellyfin ist nicht erreichbar.", "warn")
-        return 0
-    if jf_client.configured and (jf_series is None or not series_available):
-        for entry, revision in tracked:
-            _set_error(entry, revision, "Jellyfin-Serienindex nicht verf√ºgbar")
-        with state.watchlist_lock:
-            appconfig.save_watchlist(state.watchlist)
-        log("Watchlist-Pr√ºfung pausiert: Jellyfin-Serienindex nicht verf√ºgbar.", "warn")
-        return 0
-
-    needs_watched_status = any(
-        normalize_watch_mode(entry.get("download_mode")) == WATCH_MODE_NEXT_SEASON
-        or normalize_cleanup_mode(entry.get("cleanup_mode")) != CLEANUP_MODE_KEEP
-        for entry, _revision in tracked
-    )
-    jf_user_episodes = get_jellyfin_user_episodes(force=refresh_jellyfin) if needs_watched_status else None
-    with state.jellyfin_cache_lock:
-        if jellyfin_generation != state.jellyfin_config_generation:
-            return 0
-        user_available = state.jellyfin_user_episodes_available
-        jellyfin_data_generation = state.jellyfin_episode_data_generation
-
-    checked = 0
-    withdrawn_slugs: set[str] = set()
-    cleanup_jobs: List[dict] = []
-    for entry, revision in tracked:
-        with state.jellyfin_cache_lock:
-            if (
-                jellyfin_generation != state.jellyfin_config_generation
-                or jellyfin_data_generation != state.jellyfin_episode_data_generation
-            ):
-                break
-            with state.watchlist_lock:
-                if (
-                    not any(current is entry for current in state.watchlist)
-                    or int(entry.get("check_generation", 0)) != revision
-                ):
-                    continue
-                entry_snapshot = dict(entry)
-        mode = normalize_watch_mode(entry_snapshot.get("download_mode"))
-        cleanup_mode = normalize_cleanup_mode(entry_snapshot.get("cleanup_mode"))
-        cleanup_status_missing = bool(
-            cleanup_mode != CLEANUP_MODE_KEEP
-            and (jf_user_episodes is None or not user_available)
-        )
-        if mode == WATCH_MODE_NEXT_SEASON and (jf_user_episodes is None or not user_available):
-            _set_error(entry, revision, "Jellyfin-Benutzerstatus nicht verf√ºgbar")
-            continue
-        try:
-            series = get_series_for_value(entry_snapshot["sample_url"])
-            if series is None:
-                _set_error(entry, revision, "Serie beim Anbieter nicht abrufbar")
-                log(f"¬´{entry_snapshot['title']}¬ª: konnte nicht gepr√ºft werden.", "warn")
-                continue
-            tmdb = get_tmdb_series(
-                series.title, entry_snapshot.get("tmdb_id", ""),
-            )
-            if tmdb:
-                if not entry_snapshot.get("tmdb_id"):
-                    entry_snapshot["tmdb_id"] = tmdb.get("tmdb_id")
-                entry_snapshot["aliases"] = list(dict.fromkeys(filter(None, (
-                    entry_snapshot.get("title", ""),
-                    series.title,
-                    tmdb.get("title", ""),
-                    tmdb.get("original_title", ""),
-                ))))
-                entry_snapshot["season_episode_counts"] = tmdb.get("season_episode_counts") or {}
-                entry_snapshot["season_counts_checked_at"] = float(
-                    tmdb.get("season_counts_checked_at") or 0
-                )
-                entry_snapshot["cover_url"] = tmdb.get("cover_url") or series.cover_url
-                entry_snapshot["backdrop_url"] = tmdb.get("backdrop_url") or ""
-            elif series.cover_url:
-                entry_snapshot["cover_url"] = series.cover_url
-            calculated = _calculate_watchlist_entry_state(
-                entry_snapshot, series, jf_client, jf_episodes, jf_user_episodes, jf_series,
-            )
-            with state.jellyfin_cache_lock:
-                if (
-                    jellyfin_generation != state.jellyfin_config_generation
-                    or jellyfin_data_generation != state.jellyfin_episode_data_generation
-                ):
-                    break
-                with state.watchlist_lock:
-                    if (
-                        not any(current is entry for current in state.watchlist)
-                        or int(entry.get("check_generation", 0)) != revision
-                    ):
-                        continue
-                    if entry_snapshot.get("tmdb_id"):
-                        entry["tmdb_id"] = entry_snapshot["tmdb_id"]
-                        entry["aliases"] = entry_snapshot.get("aliases", [])
-                        entry["season_episode_counts"] = entry_snapshot.get("season_episode_counts", {})
-                        entry["season_counts_checked_at"] = entry_snapshot.get(
-                            "season_counts_checked_at", 0,
-                        )
-                    entry["cover_url"] = entry_snapshot.get("cover_url", "")
-                    entry["backdrop_url"] = entry_snapshot.get("backdrop_url", "")
-                    entry["cleanup_mode"] = cleanup_mode
-                    entry["cleanup_last_error"] = (
-                        "Jellyfin-Benutzerstatus nicht verf√ºgbar"
-                        if cleanup_status_missing else ""
-                    )
-                    state.series_cache[entry["base_slug"]] = series
-                    withdrawn_slugs.update(
-                        _apply_watchlist_entry_state(entry, calculated)
-                    )
-                    if not cleanup_status_missing and calculated.get("cleanup_items"):
-                        cleanup_jobs.append({
-                            "entry": entry,
-                            "revision": revision,
-                            "cleanup_mode": cleanup_mode,
-                            "items": calculated["cleanup_items"],
-                        })
-                    checked += 1
-        except Exception as exc:
-            _set_error(entry, revision, str(exc))
-            log(f"Fehler beim Pr√ºfen von ¬´{entry_snapshot.get('title', '')}¬ª: {exc}", "warn")
-    with state.jellyfin_cache_lock:
-        data_is_current = (
-            jellyfin_generation == state.jellyfin_config_generation
-            and jellyfin_data_generation == state.jellyfin_episode_data_generation
-        )
-        if data_is_current:
-            with state.watchlist_lock:
-                appconfig.save_watchlist(state.watchlist)
-    if data_is_current and withdrawn_slugs:
-        _cancel_withdrawn_watchlist_slugs(
-            withdrawn_slugs,
-            "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
-        )
-    if data_is_current and cleanup_jobs:
-        _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
-    return checked
-
-
-@app.post("/api/v1/watchlist/check")
-@app.post("/api/watchlist/check")
-async def api_watchlist_check(body: WatchlistCheckBody):
-    def _work():
-        with state.watchlist_lock:
-            entries = list(state.watchlist) if not body.base_slugs else [
-                w for w in state.watchlist if w["base_slug"] in body.base_slugs
-            ]
-        checked = check_watchlist_entries(entries, refresh_jellyfin=True)
-        return checked, len(entries)
-
-    checked, total = await run_in_threadpool(_work)
-    payload = watchlist_payload()
-    payload["checked"] = checked
-    payload["total"] = total
-    broadcast({"type": "watchlist_update", **payload})
-    return payload
-
-
-class WatchlistOpenBody(BaseModel):
-    base_slug: str
-
-
-@app.post("/api/v1/watchlist/open")
-@app.post("/api/watchlist/open")
-async def api_watchlist_open(body: WatchlistOpenBody):
-    with state.watchlist_lock:
-        entry = watchlist_lookup(body.base_slug)
-        if not entry:
-            raise HTTPException(404, "Nicht in der Bibliothek.")
-        entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-        entry["last_error"] = "Pr√ºfung l√§uft ‚Äì Auto-Download pausiert"
-        open_revision = entry["check_generation"]
-
-    def _work():
-        series = state.series_cache.get(body.base_slug)
-        if series is None:
-            try:
-                series = get_series_for_value(entry["sample_url"])
-            except Exception as exc:
-                log(f"Fehler beim Laden von ¬´{entry['title']}¬ª: {exc}", "warn")
-                series = None
-        return series
-
-    series = await run_in_threadpool(_work)
-    if series is None:
-        raise HTTPException(500, "Serie konnte nicht geladen werden.")
-
-    with state.watchlist_lock:
-        if not any(current is entry for current in state.watchlist):
-            raise HTTPException(404, "Nicht mehr in der Bibliothek.")
-        state.series_cache[body.base_slug] = series
-
-    payload = await run_in_threadpool(series_to_dict, series, True)
-    with state.watchlist_lock:
-        if (
-            any(current is entry for current in state.watchlist)
-            and int(entry.get("check_generation", 0)) == open_revision
-        ):
-            if payload.get("tmdb_id"):
-                entry["tmdb_id"] = payload["tmdb_id"]
-            if payload.get("aliases"):
-                entry["aliases"] = payload["aliases"]
-            if payload.get("season_episode_counts"):
-                entry["season_episode_counts"] = payload["season_episode_counts"]
-                entry["season_counts_checked_at"] = float(
-                    payload.get("season_counts_checked_at") or 0
-                )
-            if payload.get("cover_url"):
-                entry["cover_url"] = payload["cover_url"]
-            if payload.get("backdrop_url"):
-                entry["backdrop_url"] = payload["backdrop_url"]
-
-    def _sync_entry_from_loaded_series():
-        withdrawn_slugs: set[str] = set()
-        cleanup_jobs: List[dict] = []
-        with state.jellyfin_cache_lock:
-            jellyfin_generation = state.jellyfin_config_generation
-        jf_client = get_jellyfin_client()
-        jf_episodes = get_jellyfin_episodes() if jf_client.configured else None
-        jf_series = get_jellyfin_series() if jf_client.configured else None
-        with state.watchlist_lock:
-            if (
-                not any(current is entry for current in state.watchlist)
-                or int(entry.get("check_generation", 0)) != open_revision
-            ):
-                return
-            snapshot = dict(entry)
-        mode = normalize_watch_mode(snapshot.get("download_mode"))
-        cleanup_mode = normalize_cleanup_mode(snapshot.get("cleanup_mode"))
-        needs_user_status = (
-            mode == WATCH_MODE_NEXT_SEASON or cleanup_mode != CLEANUP_MODE_KEEP
-        )
-        user_episodes = get_jellyfin_user_episodes() if needs_user_status else None
-        with state.jellyfin_cache_lock:
-            jellyfin_data_generation = state.jellyfin_episode_data_generation
-            episodes_available = state.jellyfin_episodes_available
-            series_available = state.jellyfin_series_available
-            user_available = state.jellyfin_user_episodes_available
-        if jf_client.configured and (jf_episodes is None or not episodes_available):
-            error = "Jellyfin nicht erreichbar ‚Äì Auto-Download pausiert"
-            calculated = None
-        elif jf_client.configured and (
-            jf_series is None or not series_available
-        ):
-            error = "Jellyfin-Serienindex nicht verf√ºgbar"
-            calculated = None
-        else:
-            if mode == WATCH_MODE_NEXT_SEASON and (
-                user_episodes is None or not user_available
-            ):
-                error = "Jellyfin-Benutzerstatus nicht verf√ºgbar"
-                calculated = None
-            else:
-                try:
-                    calculated = _calculate_watchlist_entry_state(
-                        snapshot, series, jf_client, jf_episodes, user_episodes,
-                        jf_series,
-                    )
-                    error = ""
-                except Exception as exc:
-                    calculated = None
-                    error = str(exc)[:240]
-        with state.jellyfin_cache_lock:
-            if (
-                jellyfin_generation != state.jellyfin_config_generation
-                or jellyfin_data_generation != state.jellyfin_episode_data_generation
-            ):
-                return
-            with state.watchlist_lock:
-                if (
-                    not any(current is entry for current in state.watchlist)
-                    or int(entry.get("check_generation", 0)) != open_revision
-                    or normalize_watch_mode(entry.get("download_mode")) != mode
-                ):
-                    return
-                if error:
-                    entry["last_checked"] = time.time()
-                    entry["last_error"] = error
-                elif calculated is not None:
-                    withdrawn_slugs.update(
-                        _apply_watchlist_entry_state(entry, calculated)
-                    )
-                    entry["cleanup_last_error"] = (
-                        "Jellyfin-Benutzerstatus nicht verf√ºgbar"
-                        if cleanup_mode != CLEANUP_MODE_KEEP
-                        and (user_episodes is None or not user_available)
-                        else ""
-                    )
-                    if not entry["cleanup_last_error"] and calculated.get("cleanup_items"):
-                        cleanup_jobs.append({
-                            "entry": entry,
-                            "revision": open_revision,
-                            "cleanup_mode": cleanup_mode,
-                            "items": calculated["cleanup_items"],
-                        })
-                appconfig.save_watchlist(state.watchlist)
-        if withdrawn_slugs:
-            _cancel_withdrawn_watchlist_slugs(
-                withdrawn_slugs,
-                "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
-            )
-        if cleanup_jobs:
-            _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
-
-    await run_in_threadpool(_sync_entry_from_loaded_series)
-    with state.watchlist_lock:
-        new_slugs = set(state.watchlist_new_slugs.get(body.base_slug, set()))
-    known_now = {episode.slug for episode in series.all_episodes}
-    preselect = sorted(new_slugs & known_now)
-    payload["preselect_slugs"] = preselect
-    return payload
-
-
-# ‚îÄ‚îÄ WebSocket (Log / Fortschritt / Queue-Events) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-def websocket_snapshot_payload() -> dict:
-    """Konsistenter Startzustand f√ºr neue v1-WebSocket-Verbindungen."""
-    with state.download_state_lock:
-        download = {
-            "done_jobs": state.done_jobs,
-            "total_jobs": state.total_jobs,
-            "successful_jobs": len(state.done_slugs),
-            "failed_jobs": max(0, state.done_jobs - len(state.done_slugs)),
-            "active": state.dl_queue.active_count(),
-            "pending": state.dl_queue.pending_count(),
-        }
-    return {
-        "type": "snapshot",
-        "api_version": API_VERSION,
-        "event_schema_version": EVENT_SCHEMA_VERSION,
-        "timestamp": time.time(),
-        "queue": build_queue_payload(),
-        "watchlist": watchlist_payload()["watchlist"],
-        "download": download,
-    }
-
-
-def _websocket_origin_allowed(websocket: WebSocket) -> bool:
-    """Cookie-WebSockets akzeptieren nur den Ursprung der eigenen Oberfl√§che."""
-    origin = websocket.headers.get("origin", "")
-    if not origin:
-        # Native Clients und nicht-browserbasierte Werkzeuge senden keinen
-        # Origin-Header. Sie ben√∂tigen ohnehin ein explizites Bearer-Token.
-        return True
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    forwarded = (
-        websocket.headers.get("x-forwarded-proto", "")
-        .split(",")[0]
-        .strip()
-        .casefold()
-    )
-    if forwarded in {"https", "wss"}:
-        effective_scheme = "https"
-    elif forwarded in {"http", "ws"}:
-        effective_scheme = "http"
-    else:
-        effective_scheme = (
-            "https" if websocket.url.scheme.casefold() in {"https", "wss"} else "http"
-        )
-    return bool(parsed.netloc) and (
-        parsed.netloc.casefold() == websocket.headers.get("host", "").casefold()
-        and parsed.scheme.casefold() == effective_scheme
-    )
-
-
-def _websocket_is_authenticated(
-    websocket: WebSocket,
-    *,
-    versioned: bool,
-    touch: bool,
-) -> bool:
-    if not auth_required():
-        return True
-    if authenticated_mobile_token(websocket.headers, touch=touch):
-        return True
-    if versioned:
-        return False
-    return bool(
-        _websocket_origin_allowed(websocket)
-        and authenticated_web_token(websocket.cookies, touch=touch)
-    )
-
-
-@app.websocket("/api/v1/ws")
-@app.websocket("/ws")
-async def ws_endpoint(websocket: WebSocket):
-    # JavaScript kann beim WebSocket-Handshake keinen Authorization-Header
-    # setzen, und Browser h√§ngen gespeicherte Basic-Zugangsdaten dort nicht an.
-    # Das Sitzungscookie wird dagegen mitgeschickt ‚Äì erst damit funktionieren
-    # Live-Log, Fortschritt und Queue-Updates bei aktivierter Anmeldung. Native
-    # Clients d√ºrfen dasselbe Sitzungsformat als Bearer-Header senden.
-    is_v1 = websocket.scope.get("path") == "/api/v1/ws"
-    if not _websocket_is_authenticated(
-        websocket, versioned=is_v1, touch=True,
-    ):
-        await websocket.close(code=1008, reason="Anmeldung erforderlich")
-        return
-    await ws_manager.connect(
-        websocket,
-        initial_payload_factory=websocket_snapshot_payload if is_v1 else None,
-    )
-    loop = asyncio.get_running_loop()
-    recheck_interval = max(0.01, float(WEBSOCKET_AUTH_RECHECK_SECONDS))
-    next_auth_check = loop.time() + recheck_interval
-    try:
-        while True:
-            try:
-                await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=max(0.0, next_auth_check - loop.time()),
-                )
-            except asyncio.TimeoutError:
-                pass
-            now = loop.time()
-            if now >= next_auth_check:
-                if not _websocket_is_authenticated(
-                    websocket, versioned=is_v1, touch=False,
-                ):
-                    await websocket.close(code=1008, reason="Sitzung abgelaufen")
-                    break
-                next_auth_check = now + recheck_interval
-    except WebSocketDisconnect:
-        pass
-    finally:
-        ws_manager.disconnect(websocket)
-
-
-# Statische Web-Oberfl√§che (muss NACH allen /api- und /ws-Routen gemountet
-# werden, sonst w√ºrde der Catch-all-Mount sie verdecken).
-class NoCacheStaticFiles(StaticFiles):
-    """Liefert die Oberfl√§che mit `Cache-Control: no-cache` aus. Grund: die
-    Dateien (index.html/app.js/style.css) werden bei Updates einfach im
-    gemounteten Ordner √ºberschrieben. Ohne no-cache serviert der Browser die
-    ALTE app.js aus dem Cache (Button da, aber Handler fehlt) ‚Üí ‚ÄûEinstellungen
-    √∂ffnen sich nicht". `no-cache` erzwingt eine Revalidierung (per ETag/
-    Last-Modified ‚Üí 304 wenn unver√§ndert), sodass Updates sofort greifen."""
-
-    async def get_response(self, path, scope):
-        response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-        return response
-
-
-app.mount("/", NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
-
-
-def _open_browser(port: int):
-    time.sleep(1.0)
-    webbrowser.open(f"http://127.0.0.1:{port}")
-
-
-if __name__ == "__main__":
-    import os
-    import uvicorn
-    # Env-gesteuert, damit dieselbe Datei lokal (Windows: Browser √∂ffnet sich,
-    # nur lokal erreichbar) UND im Docker-Container (kein Browser, im Netzwerk
-    # erreichbar) l√§uft.
-    PORT = int(os.environ.get("PORT", "8765"))
-    HOST = os.environ.get("HOST", "127.0.0.1")
-    open_browser = os.environ.get("OPEN_BROWSER", "1").lower() not in ("0", "false", "no")
-    if open_browser:
-        threading.Thread(target=_open_browser, args=(PORT,), daemon=True).start()
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+Y™Áäx-ÆÈ‹j◊ù¢Îi∫⁄+äßj[hëÈ‹¢ÈÌ◊ØwÔ‘Ëµ©h∫⁄n∂XßzÕHààÇîõﬁX[›€õÿY\à8†$»⁄ÿ[\àŸXúŸ\ùô\ãÇÇë\úŸ]ùYHú∞Ô\ôH›\›€]⁄[ù\ãQ’RH
+XZ[ãúJH\ò⁄Z[ôHS–‘‘À“îÀBìÿô\ôõ0È⁄KYH[H›[ô\ôúõ›‹Ÿ\à0ÈYùà[òöY]\òY\\àYYŸ[àŸX∞Ôô[[BîZŸ]õ›öY\úÿ»Y\Ÿ\àŸ\ùô\àö[]YHëT’K’ŸXî€ÿ⁄Ÿ]Tÿ⁄X⁄\∞Ôô\ãÇÇî›\ùà]€àŸ\ùô\ãúH
+0Ìôôõô]]]€X]\ÿ⁄[àúõ›‹Ÿ\äBàààÇÇö[\‹ù\ﬁ[ò⁄[¬ö[\‹ùŸŸ⁄[ô¬ö[\‹ù‹¬ö[\‹ùôBö[\‹ù⁄][ö[\‹ùôXY[ô¬ö[\‹ù[YBö[\‹ù[\ö[Bö[\‹ù[öX€ŸY]Bö[\‹ùŸXòúõ›‹Ÿ\Çö[\‹ùò\ŸMçö[\‹ù\Yô\‹¬ö[\‹ùŸX‹ô]¬ö[\‹ù€ÿ⁄Ÿ]ö[\‹ùﬁ\¬ö[\‹ùô\]Y\›¬ôúõ€H€€ù^Xà[\‹ù\ﬁ[òÿ€€ù^X[òYŸ\Çôúõ€H€€X›[€ú»[\‹ù€›[ù\ã‹ô\ôYX›Yò][X›ôúõ€H€€ò›\úô[ùôù]\ô\»[\‹ùôXY€€^X›]‹Çôúõ€H]X€\‹Ÿ\»[\‹ù\ŸX›]X€\‹Àô\XŸBôúõ€H]Xà[\‹ù]ôúõ€H\[ô»[\‹ùÿ[XõKX›\›‹[€ò[ôúõ€H\õXãú\úŸH[\‹ù\õõ⁄[ã\õ\úŸBÇôúõ€Hò\›\H[\‹ùò\›TK^Ÿ\[€ãŸXî€ÿ⁄Ÿ]ŸXî€ÿ⁄Ÿ]\ÿ€€õôX›ô\‹€úŸKô\]Y\›ôúõ€Hò\›\Kú›]XŸö[\»[\‹ù›]X—ö[\¬ôúõ€Hò\›\Kúô\‹€úŸ\»[\‹ùî””îô\‹€úŸBôúõ€HY[ùX»[\‹ùò\ŸS[Ÿ[öY[ôúõ€H›\õ]Kò€€ò›\úô[òﬁH[\‹ùù[ó⁄[ó›ôXY€€Çôúõ€Hõ›öY\úÀôö[\[\›[\‹ùö[\[\›ÿ‹ò\\Çôúõ€Hõ›öY\úÀõ[Ÿ[»[\‹ù
+àö[\[\›[›öYKö[\[\›ŸX\ò⁄ô\›[àö[\[\›Ÿ\öY\Àö[\[\›Ÿ\öY\‘ô\›[à\úŸWŸ\\€ŸW‹€YÀ›ö\Ÿ\\€ŸW‹›Yôö^äBôúõ€Hõ›öY\úÀòÿ][Ÿ»[\‹ù
+àì’íQTó––US—Ààõ‹õX[^ôWÿ€€ù[ù€[ô›XYŸKàõ›öY\óÿÿ][Ÿ◊‹^[ÿYàõ›öY\óÿ€€ù[ù€[ô›XYŸKàõ›öY\óŸõ‹ó‹€›\òŸKàõ›öY\ó€[ô›XYŸW‹^[ÿYäBôúõ€H^òX›‹à[\‹ù
+àì—Púõ›‹Ÿ\î€€^òX›‹›ôX[W›\õôWÿ⁄X⁄◊›õŸKì—W”ì’—ì’Së^òX›Ÿ€Ÿ›ôX[W›\õà^òX›Ÿö\ô\›ôX[W›\õ^òX››öY\òW›\õ^òX››öY€€öX◊›\õäBôúõ€H›€õÿY\à[\‹ù
+à›€õÿYõÿã›€õÿY]Y]YKùZ[Ÿö[[ò[YKùZ[€[›öYWŸö[[ò[YKàõÿôW‹›ôX[W›\õò[Y]W€YYXWŸö[K€X[ù\‹›[W‹›Y⁄[ôÀà‹ÿ[ö]^ôH\»ÿ[ö]^ôWŸö[[ò[YKäBôúõ€HŸ\‹⁄[€ó€X[òYŸ\à[\‹ùõ›öY\êõÿ⁄ŸY\úõ‹ãÿ€€⁄⁄YWŸö[WŸõ‹Çôúõ€H‹›\ó⁄[ù[[\‹ù‹›\í[ù[ôúõ€Hõ›öY\ó⁄X[[\‹ù”””’”ãPSKì–íSëÀõ›öY\íX[ôúõ€Hô\€€ôY€[ö◊ÿÿX⁄H[\‹ùô\€€ôY[ö–ÿX⁄Bôúõ€Hù[ù[YW‹]»[\‹ù]WŸ\Çôúõ€Hõ›öY\úÀôö[YúôZLç[\‹ù
+àêT—W’Tì\»íSQîëRLç–êT—W’Tìàö[QúôZLçÿ‹ò\\ãà”’Tê—W‘ëQíV\»íSQîëRLç‘ëQíVäBôúõ€Hõ›öY\úÀõ[Ÿõ^[\‹ù[Ÿõ^ÿ‹ò\\ã”’Tê—W‘ëQíV\»S—ìV‘ëQíVôúõ€Hõ›öY\úÀöZH[\‹ù
+àZTÿ‹ò\\ãàS’íQW‘”’Tê—W‘ëQíV\»RW”S’íQW‘ëQíVà”’Tê—W‘ëQíV\»RW‘ëQíVäBôúõ€Hõ›öY\úÀôZ[úÿ⁄[[à[\‹ùZ[úÿ⁄[[îÿ‹ò\\ã”’Tê—W‘ëQíV\»RSî–“SSó‘ëQíVôúõ€Hõ›öY\úÀö⁄[õﬁ[\‹ù⁄[õﬁÿ‹ò\\ã”’Tê—W‘ëQíV\»“Sì÷‘ëQíVôúõ€Hõ›öY\úÀö⁄[õŸŸ\à[\‹ù⁄[õŸŸ\îÿ‹ò\\ã”’Tê—W‘ëQíV\»“Sì——Tó‘ëQíVôúõ€Hõ›öY\úÀõYYÿZ⁄[õ»[\‹ùYYÿR⁄[õ‘ÿ‹ò\\ã”’Tê—W‘ëQíV\»QQ–R“Sì◊‘ëQíVôúõ€Hõ›öY\úÀû⁄[ôH[\‹ù⁄[ôTÿ‹ò\\ã”’Tê—W‘ëQíV\»“SëW‘ëQíVôúõ€Hõ›öY\úÀúŸõ^[\‹ù
+àêT—W’Tì\»—ìV–êT—W’TìàŸõ^ÿ‹ò\\ãà”’Tê—W‘ëQíV\»—ìV‘ëQíVäBôúõ€Hõ›öY\úÀúöY€[›öY\»[\‹ù
+àêT—W’Tì\»íQ”S’íQT◊–êT—W’TìàöY€[›öY\‘ÿ‹ò\\ãà”’Tê—W‘ëQíV\»íQ”S’íQT◊‘ëQíVäBôúõ€Hõ›öY\úÀõZ⁄\‹ÿH[\‹ù
+àêT—W’Tì\»R“T‘–W–êT—W’TìàZ⁄\‹ÿTÿ‹ò\\ãà”’Tê—W‘ëQíV\»R“T‘–W‘ëQíVà[ö[YWŸ\\€ŸW‹YŸKäBôúõ€Hõ›öY\úÀúŸ\öY[ú›ôX[H[\‹ùŸ\öY[ú›ôX[Tÿ‹ò\\ã”’Tê—W‘ëQíV\»—TíQSî’ëPSW‘ëQíVôúõ€Hô[Yö[óÿ€Y[ù[\‹ùô[Yö[ê€Y[ùôúõ€Hô[Yö[ó‹ôX€€[Y[ô\à[\‹ù
+à€€ôöY»\»ô[Yö[îôX€€[Y[ô\ê€€ôöYÀà€€ôöY›\ò][€ë\úõ‹à\»ô[Yö[îôX€€[Y[ô\ê€€ôöY›\ò][€ë\úõ‹ãàôX€€[Y[ô\ë\úõ‹à\»ô[Yö[îôX€€[Y[ô\ë\úõ‹ãàù[ó€€òŸH\»ù[ó⁄ô[Yö[ó‹ôX€€[Y[ô\ó€€òŸKäBôúõ€HYóÿ€Y[ù[\‹ù—TíQT◊––P“W’Qê€Y[ùôúõ€H[Y‹ò[Wÿõ›[\‹ù[Y‹ò[Põ›ôúõ€HŸY\úóÿ€Y[ù[\‹ùŸY\úê€Y[ùŸY\úîô\]Y\›ôúõ€H\]Wÿ⁄X⁄Ÿ\à[\‹ù\]P⁄X⁄Ÿ\ã]X›€ÿÿ[ÿ€€[Z]ôúõ€HŸ[ó›\]\à[\‹ùŸ[ï\]\Çôúõ€H]›\]\à[\‹ù]ù[ù[YU\]\Çôúõ€HZW›ò[ú€]‹à[\‹ù
+à’T‘ïQ’RW”Së’PQ—TÀàRUò[ú€]‹ãàõ‹õX[^ôW›ZW€[ô›XYŸKäBôúõ€Hÿ]⁄\›‹€XﬁH[\‹ù
+à”PSïT”S—W“—QTà”PSïT”S—W”PëSÀà–U“”S—W—QêUSà–U“”S—W”PëSÀà–U“”S—W”ëV‘—PT””ãàõ‹õX[^ôWÿ€X[ù\€[ŸKàõ‹õX[^ôWŸ\\€ŸW⁄\›‹ûKàõ‹õX[^ôW›ÿ]⁄€[ŸKàŸ[X›ÿ€X[ù\⁄][\ÀàŸ[X›€Z\‹⁄[ô◊Ÿ\\€ŸW‹€Y‹ÀàŸ\öX[^ôWŸ\\€ŸW⁄\›‹ûKäBôúõ€H[›öYW‹›Xúÿ‹ö\[€ó‹€XﬁH[\‹ù
+àS’íQW–”PSïT—QêUSàS’íQW–”PSïT”PëSÀàS’íQW–”PSïT’–U“QàS’íQW‘UPSUW—QêUSàS’íQW‘UPSUW”PëSÀàS’íQW‘UPSUW’Të—UÀà[›öYW‹]X[]W‹ò[öÀàõ‹õX[^ôW€[›öYWÿ€X[ù\àõ‹õX[^ôW€[›öYW‹]X[]KàŸ[X››\‹òYW‹]X[]KäBö[\‹ù€€ôöY»\»\€€ôöY¬ö[\‹ù]]\»\]]ÇõŸŸ⁄[ôÀòò\⁄X–€€ôöY ]ô[[ŸŸ⁄[ôÀíSëìÀõ‹õX]HâJ]ô[ò[YJ\»	JY\‹ÿYŸJ\»äBôõ‹àõ⁄\ﬁW€ŸŸŸ\à[à
+ùŸXú€ÿ⁄Ÿ]»ãõõŸö]ô\àãù\õXå»äNÇàŸŸ⁄[ôÀôŸ]ŸŸŸ\äõ⁄\ﬁW€ŸŸŸ\äKúŸ]]ô[
+ŸŸ⁄[ôÀï–TìíSë BõŸŸŸ\àHŸŸ⁄[ôÀôŸ]ŸŸŸ\ä◊€ò[YW◊ BÇà»õŸö]ô\àçLå»YYô\ùŸ€ô]€‹öÀúHZ][ôÔYŸ[HUãN]\»
+⁄YZBà»õŸö]ô\ó‹]⁄
+Kà]Yàúö\ÿ⁄[à[ú›[][€ô[à
+ÿ⁄Ÿ\ã”êT Hÿ⁄Z]\ù€€ú›à»ÿ⁄€à[\‹ùõŸö]ô\ò8°§àì—KQ^òZ›[€à›àZ[õX[ôZ[H›\ùô\\öY\ô[ãà»ëUì‘à\ôŸ[ôZ[à€Ÿ\òYõŸö]ô\à[\‹ùY\ùÇö[\‹ùõŸö]ô\ó‹]⁄»õ‹XNàMàHô\\ò]\à]\‹»õ‹à[H\ú›[àõŸö]ô\ãR[\‹ù]Yô[ãÇõõŸö]ô\ó‹]⁄ô[ú›\ôWÿŸ›]é
+
+BÇêT—TàH]
+◊Ÿö[W◊ Kú\ô[ùï—Pó—TàHT—Tà»ùŸXàÇêTW’ëTî“S”àHBëUëSï‘–“SPW’ëTî“S”àHBï—Pî”–“—U–UU‘ëP“P“◊‘—P””ë»HÃåï—Pî”–“—U–”QSï‘UQUQW‘“VëHHLéî—TïëTó–ïRSH]X›€ÿÿ[ÿ€€[Z]
+T—TäVŒåLóBî—T‘“S”ó‘’‘ëHH\]]îŸ\‹⁄[€î›‹ôJ]X\€€ôöYÀúŸ\‹⁄[€ú◊Ÿö[J
+JBì—“Só—’PTëH\]]ìŸ⁄[ë›X\ô
+
+BêêT“P◊–UU—’PTëH\]]ìŸ⁄[ë›X\ô
+
+Bà»YH[õY[[X\⁄ŸH⁄\ô⁄YHYHô\›X⁄Hÿô\ôõ0È⁄H0Ôô\úŸ]ù»Y∞Ôà]\‹¬à»ÿ\K›ZK›ò[ú€]Hõ‹à\à[õY[[ô»\úôZX⁄ò\àŸZ[ãàZ[àùYŸ]ôHTà»ô\ö[ô\ù\‹»\ò]\»Z[àŸôô[ô\à0Áô\úŸ]ù[ô‹‹õﬁH⁄\ôÇîPìP◊’êSî”UW”SRUTàH\]]îò]S[Z]\äX^‹ô\]Y\›œMå⁄[ô›◊‹ŸX€€ôœLÃ
+BïTUW–“P“—TàH\]P⁄X⁄Ÿ\äàô\‹⁄]‹ûO[‹Àô[ùö\õ€ãôŸ]
+ïTUW—“UPó‘ëT‘“U‘ñHãï[YS[òŸNK‘õﬁX[›€õÿY\àäKàúò[ò⁄[‹Àô[ùö\õ€ãôŸ]
+ïTUW—“UPó–îêSê“ãõXZ[àäKà\Ÿ\èPT—TãäBïRW’êSî”U‘àHRUò[ú€]‹ä
+Bîì’íQTó”PëS»H¬àŸ^NàYö[ö][€ãõXô[àõ‹àŸ^KYö[ö][€à[àì’íQTó––US—Àö][\ 
+BüBìS’íQW–îì’‘—W‘Q—W‘“VëHHÃÇìS’íQW‘Q“SêUQ‘ì’íQTî»Húõﬁô[úŸ]
+¬àôö[\[\›ãõYYÿZ⁄[õ»ãö⁄[õŸŸ\àãû⁄[ôHãúŸõ^ãúöY€[›öY\»ãüJBìS’íQW”T’––P“W’HÃìS’íQW”T’—êRSTëW––P“W’HÃìS’íQW”T’––P“W”PV—SïíQT»HLìS’íQW”PV—”–êS‘Q—HHLìS’íQW”PV‘”’Tê—W‘Q—HHLìS’íQW”PV–””’–UëT◊‘Tó‘ëTUQT’HÇïQó”S’íQW–êU“”PV’”‘í—Tî»HïQó”S’íQW‘—PTê“”PV‘ëT’S»HìS’íQW——SîëW—‘ì’T»H¬àê[ö[X][€àéà
+ê[ö[X][€àãñôZX⁄[ùöX⁄»äKàêö[Ÿ‹òYöYHéà
+êö[Ÿ‹òYöYHãêö[Ÿ‹ò\YHäKàë⁄›[Y[ù][€àéà
+ë⁄›[Y[ù][€àãë⁄›[Y[ù\ôö[HäKàëŸ\ÿ⁄X⁄Héà
+ëŸ\ÿ⁄X⁄Hãí\›‹öYHäKàí‹öYY»éà
+í‹öYY»ãí‹öYY‹Ÿö[HäKàîõ€X[ùZ»éà
+îõ€X[ùZ»ãîõ€X[òŸHãìYXô\Ÿö[HäKàîÿ⁄Y[òŸKQöX›[€àéà
+îÿ⁄Y[òŸKQöX›[€àãîÿ⁄Y[òŸHöX›[€àãîÿ⁄KQöHäKüBìS’íQW——SîëW––Sì”íP–S–ñW“—VHH¬à[X\Àòÿ\ŸYõ€
+
+Nàÿ[õ€öXÿ[àõ‹àÿ[õ€öXÿ[[X\Ÿ\»[àS’íQW——SîëW—‘ì’TÀö][\ 
+Bàõ‹à[X\»[à[X\Ÿ\¬üBî—TíQT◊–îì’‘—W‘Q—W‘“VëHHÃÇî—TíQT◊‘Q“SêUQ‘ì’íQTî»Húõﬁô[úŸ]
+¬àôö[\[\›ãõYYÿZ⁄[õ»ãö⁄[õŸŸ\àãû⁄[ôHãúŸõ^ãúöY€[›öY\»ãüJBî—TíQT◊–SW‘ì’íQTî»Húõﬁô[úŸ]
+»úŸ\öY[ú›ôX[Hãôö[\[\›üJBî—TíQT◊”T’––P“W’HÃî—TíQT◊”T’—êRSTëW––P“W’HÃî—TíQT◊”T’––P“W”PV—SïíQT»HLî—TíQT◊”PV—”–êS‘Q—HHLî—TíQT◊”PV‘”’Tê—W‘Q—HHLî—TíQT◊”PV–””’–UëT◊‘Tó‘ëTUQT’HÇÇÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBà»[õY[[ô¬à¬à»\»⁄XùŸ[ò]HRSàYZ[ö\›ò]‹ö€€ùŒ»YH\\›\ò⁄ŸZ[ô]YàZ[ô[Çà»ù]ô\à]\ŸŸ[Y›
+Z[ôHÿ]⁄\›Z[ôH]Y]YKZ[àô[Yö[ãPô[ù]ô\äKÇà»YHŸXõÿô\ôõ0È⁄Hù]ùZ[à⁄]ù[ô‹ÀP€€⁄⁄YKàò]]ôH€Y[ù»Ìõõô[à\‹Ÿ[ôBà»⁄Y\úùYòò\ôKŸ\ùô\úŸZ]Y»ŸZ\⁄H⁄]ù[ô‹Ÿõ‹õX][»ôX\ô\ãU⁄Ÿ[àô\ùŸ[ô[ãÇà»Pò\⁄X»õZXù∞Ôàô\›Z[ôH⁄‹ö\H[ôX[P⁄X⁄‹»ù\ÈõX⁄ÔYÀÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBôYà]]ÿXÿ€›[ù
+
+HOàX›ÇàààêZ›Y[[ù\õY›\»€€ù»
+Ÿ][ô‹Àö[öHŸ\àT’T—TìêSQK–T‘T‘’”‘ë
+KàààÇàô]\õà\€€ôöYÀõÿYÿ]]
+
+BÇÇôYà]]ÿ€€ôöY›\ôY
+
+HOàõ€€Çàô]\õàõ€€
+]]ÿXÿ€›[ù
+
+KôŸ]
+ò€€ôöY›\ôYäJBÇÇôYàòZ[ÿ€‹ŸYÿ]]Ÿ[òXõY
+
+HOàõ€€Çàààë^^ö]\àÿ⁄]à∞Ôà0Ìôôô[ùX⁄[ôŸXù[ô[ôH[ú›[][€ô[ãÇÇà\àYò][õZXù∞Ôàô\›Z[ôHôZ[ôHSãR[ú›[][€ô[à€€\]Xô[àŸ\Çà[àY[ú›0Ôô\àZ[ô[à[õô[ô\∞Ìôôô[ùX⁄Ÿ]ùT‘ëTURTëW–UULX¬àZ[ôHô\õ‹ô[ôHŸ\àô\ÿ⁄0ÈY›H€€ù⁄€€ôöY›\ò][€à0Ìôôõô]YHTH[õÇàöX⁄›[ÿ⁄ŸZYŸ[ôÇàààÇàô]\õà‹Àô[ùö\õ€ãôŸ]
+êT‘ëTURTëW–UUãàäKú›ö\
+
+Kòÿ\ŸYõ€
+
+H[à¬àåHãùùYHãûY\»ãõ€àãàBÇÇôYà]]‹ô\]Z\ôY
+
+HOàõ€€Çàààìÿà[ôúòYŸ[àXôŸ]⁄Y\Ÿ[àŸ\ô[ãŸ[õàŸZ[ôH[õY[[ô»õ‹õYY›ÇÇàõ‹àXôŸ\ÿ⁄‹‹Ÿ[ô\à\ú›Z[úöX⁄[ô»\›YHÿô\ôõ0È⁄HŸôô[à8†$»€€ú›ÈôBà\à\‹⁄\›[ù\à\»€€ù»\ú›[õY›Ÿ[ú›öX⁄\úôZX⁄ò\ãÇàààÇàYàòZ[ÿ€‹ŸYÿ]]Ÿ[òXõY
+
+NÇàô]\õàùYBàYàõ›\€€ôöYÀö\◊⁄[ö]X[^ôY
+
+NÇàô]\õàò[ŸBàô]\õà]]ÿ€€ôöY›\ôY
+
+BÇÇôYàô\öYûWÿ‹ôY[ùX[ \Ÿ\õò[YNà›ã\‹›€‹ôà›äHOàõ€€Çàààî∞ÔùùYÿ[ô‹Ÿ][àŸYŸ[à\»[ù\õY›H€€ù»
+ôZ]€€ú›[ù
+KàààÇàXÿ€›[ùH]]ÿXÿ€›[ù
+
+BàYàõ›Xÿ€›[ùôŸ]
+ò€€ôöY›\ôYäNÇàô]\õàò[ŸBàYàõ›ŸX‹ô]Àò€€\\ôWŸYŸ\›
+›ä\Ÿ\õò[YH‹ààäK›äXÿ€›[ùôŸ]
+ù\Ÿ\õò[YHãàäJJNÇà»õ›ô[HZ[ôH\⁄Tù[ôHôX⁄ô[ã[Z]Z[àò[ÿ⁄\àô[ù]ô\õò[YBà»öX⁄‹0Ôòò\àÿ⁄ô[\àôX[ù€‹ù]⁄\ô[»Z[àò[ÿ⁄\»\‹›€‹ùÇà\]]ùô\öYûW‹\‹›€‹ô
+›ä\‹›€‹ô‹ààäKXÿ€›[ùôŸ]
+ú\‹›€‹ô⁄\⁄ãàäJBàô]\õàò[ŸBàYàXÿ€›[ùôŸ]
+ú€›\òŸHäHOHô[ùàéÇàô]\õàŸX‹ô]Àò€€\\ôWŸYŸ\›
+›ä\‹›€‹ô‹ààäK›äXÿ€›[ùôŸ]
+ô[ùó‹\‹›€‹ôãàäJJBàô]\õà\]]ùô\öYûW‹\‹›€‹ô
+›ä\‹›€‹ô‹ààäKXÿ€›[ùôŸ]
+ú\‹›€‹ô⁄\⁄ãàäJBÇÇôYàÿ]]‹ö^ôYÿò\⁄X◊⁄XY\äò[YNà›ã›X\ô⁄Ÿ^Nà›àHàäHOàõ€€Çàààë\õ]XùŸZ]\ö[à]]‹ö^ò][€éàò\⁄Xÿ∞Ôà⁄‹ö\H[ô[€ö]‹ö[ôÀàààÇàYàõ›ò[YH‹àõ›ò[YKú›\ù›⁄]
+êò\⁄X»äNÇàô]\õàò[ŸBàûNÇàX€ŸYHò\ŸMçòççX€ŸJò[YVÕéóKò[Y]OUùYJKôX€ŸJù]ãNäBà\Ÿ\õò[YK\‹›€‹ôHX€ŸYú‹]
+éàãJBà^Ÿ\^Ÿ\[€éÇàô]\õàò[ŸBàŸ^HH›X\ô⁄Ÿ^H‹àòò\⁄XÀY€ÿò[ÇàYàêT“P◊–UU—’PTëúô]ûWÿYù\äŸ^JNÇàô]\õàò[ŸBà]][ùXÿ]YHô\öYûWÿ‹ôY[ùX[ \Ÿ\õò[YK\‹›€‹ô
+BàYà]][ùXÿ]YÇàêT“P◊–UU—’PTëúôY⁄\›\ó‹›XÿŸ\‹ Ÿ^JBà[ŸNÇàêT“P◊–UU—’PTëúôY⁄\›\óŸòZ[\ôJŸ^JBàô]\õà]][ùXÿ]YÇÇôYàÿôX\ô\ó›⁄Ÿ[äXY\ú HOà›éÇàààìY\›Z[àôX\ô\ãU⁄Ÿ[ã⁄ôH\»ùHõ›⁄€€Y\ô[àŸ\à[^ù\ÿ⁄ôZXô[ãàààÇàò[YHH›äXY\úÀôŸ]
+ò]]‹ö^ò][€àãàäH‹ààäKú›ö\
+
+Bàÿ⁄[YKŸ\\ò]‹ã‹ôY[ùX[Hò[YKú\ù][€äàäBàYàõ›Ÿ\\ò]‹à‹àÿ⁄[YKòÿ\ŸYõ€
+
+HOHòôX\ô\àéÇàô]\õààÇà⁄Ÿ[àH‹ôY[ùX[ú›ö\
+
+BàYàõ›⁄Ÿ[à‹à[ûJ⁄\ãö\‹‹XŸJ
+Hõ‹à⁄\à[à⁄Ÿ[äNÇàô]\õààÇàô]\õà⁄Ÿ[ÇÇÇôYà‹Ÿ\‹⁄[€ó›⁄Ÿ[äÿ€‹Wÿ€€⁄⁄Y\ŒàX›
+HOà›éÇàô]\õà›äÿ€‹Wÿ€€⁄⁄Y\ÀôŸ]
+\]]î—T‘“S”ó–””““QW”êSQJH‹ààäBÇÇôYà]][ùXÿ]Y€[ÿö[W›⁄Ÿ[äXY\úÀ
+ã›X⁄àõ€€HùYJHOà›éÇàààë⁄Xù]\‹ÿ⁄YpÁ€X⁄Z[àÔYŸ\»[ÿö[KPôX\ô\ãU⁄Ÿ[àù\∞Ô⁄ÀàààÇàôX\ô\àHÿôX\ô\ó›⁄Ÿ[äXY\ú BàYàôX\ô\à[ô—T‘“S”ó‘’‘ëKùò[Y]JàôX\ô\ã\]]î—T‘“S”ó““Së”S–íSK›X⁄]›X⁄à
+NÇàô]\õàôX\ô\Çàô]\õààÇÇÇôYà]][ùXÿ]Y›ŸXó›⁄Ÿ[ä€€⁄⁄Y\À
+ã›X⁄àõ€€HùYJHOà›éÇàààë⁄Xù]\‹ÿ⁄YpÁ€X⁄Z[àÔYŸ\»úõ›‹Ÿ\ãP€€⁄⁄YKU⁄Ÿ[àù\∞Ô⁄ÀàààÇà€€⁄⁄YHH‹Ÿ\‹⁄[€ó›⁄Ÿ[ä€€⁄⁄Y\ BàYà€€⁄⁄YH[ô—T‘“S”ó‘’‘ëKùò[Y]Jà€€⁄⁄YK\]]î—T‘“S”ó““Së’—Pã›X⁄]›X⁄à
+NÇàô]\õà€€⁄⁄YBàô]\õààÇÇÇôYàô\]Y\›ÿ]]€Y]Ÿ
+àXY\úÀà€€⁄⁄Y\Àà›X\ô⁄Ÿ^Nà›àHàãà
+ãàô\ú⁄[€ôYàõ€€Hò[ŸKà[›◊€[ÿö[WÿôX\ô\éàõ€€HùYKà[›◊ÿò\⁄XŒàõ€€HùYKà›X⁄àõ€€HùYKäHOà›éÇàààê]][ùYö^öY\ù[ô‹›ŸY»∞Ôà›]\ÿ[ù€‹ù[é»[ù0ÈöYHùYÿ[ô‹Ÿ][ãàààÇàYà[›◊€[ÿö[WÿôX\ô\à[ô]][ùXÿ]Y€[ÿö[W›⁄Ÿ[äXY\úÀ›X⁄]›X⁄
+NÇàô]\õàòôX\ô\àÇàYàõ›ô\ú⁄[€ôY[ô]][ùXÿ]Y›ŸXó›⁄Ÿ[ä€€⁄⁄Y\À›X⁄]›X⁄
+NÇàô]\õàò€€⁄⁄YHÇàYà
+àõ›ô\ú⁄[€ôYà[ô[›◊ÿò\⁄X¬à[ôÿ]]‹ö^ôYÿò\⁄X◊⁄XY\äXY\úÀôŸ]
+ò]]‹ö^ò][€àãàäK›X\ô⁄Ÿ^JBà
+NÇàô]\õàòò\⁄X»Çàô]\õàõõ€ôHÇÇÇôYàô\]Y\›⁄\◊ÿ]][ùXÿ]Y
+àXY\úÀà€€⁄⁄Y\Àà›X\ô⁄Ÿ^Nà›àHàãà
+ãàô\ú⁄[€ôYàõ€€Hò[ŸKà[›◊€[ÿö[WÿôX\ô\éàõ€€HùYKà[›◊ÿò\⁄XŒàõ€€HùYKà›X⁄àõ€€HùYKäHOàõ€€ÇàààëÔYŸ\»€€⁄⁄YKK–ôX\ô\ãU⁄Ÿ[àŸ\àÔYŸ\àò\⁄XÀRXY\è»ààÇàYàõ›]]‹ô\]Z\ôY
+
+NÇàô]\õàùYBàYà[›◊€[ÿö[WÿôX\ô\à[ô]][ùXÿ]Y€[ÿö[W›⁄Ÿ[äXY\úÀ›X⁄]›X⁄
+NÇàô]\õàùYBàYàõ›ô\ú⁄[€ôY[ô]][ùXÿ]Y›ŸXó›⁄Ÿ[ä€€⁄⁄Y\À›X⁄]›X⁄
+NÇàô]\õàùYBàô]\õàõ€€
+àõ›ô\ú⁄[€ôYà[ô[›◊ÿò\⁄X¬à[ôÿ]]‹ö^ôYÿò\⁄X◊⁄XY\äXY\úÀôŸ]
+ò]]‹ö^ò][€àãàäK›X\ô⁄Ÿ^JBà
+BÇÇôYàù\›ÿ€›Yõ\ôW⁄XY\ú◊Ÿ[òXõY
+
+HOàõ€€Çàààìù\à^^ö]Z›]öY\ô[ãŸ[õà\à‹öY⁄[à]\‹ÿ⁄YpÁ€X⁄[à[õô[⁄YZàààÇàô]\õà‹Àô[ùö\õ€ãôŸ]
+ïïT’–”’QìTëW“PQTî»ãàäKú›ö\
+
+Kòÿ\ŸYõ€
+
+H[à¬àåHãùùYHãûY\»ãõ€àãàBÇÇôYà€Y[ù⁄Ÿ^Jô\]Y\›
+HOà›éÇàààí\ö›[ôùÀRT∞Ôà‹\úô[à[ôùYŸ]ÀàààÇà€Y[ùHŸ]]äô\]Y\›ò€Y[ùãõ€ôJBàY\àHŸ]]ä€Y[ùö‹›ãàäH‹àù[òôZÿ[õùÇàYàõ›ù\›ÿ€›Yõ\ôW⁄XY\ú◊Ÿ[òXõY
+
+NÇàô]\õàY\Çàò]»H›äô\]Y\›öXY\úÀôŸ]
+òŸãX€€õôX›[ôÀZ\ãàäH‹ààäKú›ö\
+
+Bà»—ãP€€õôX›[ôÀRT[ù0È^Z›Z[ôHYô\‹ŸKà\›[àŸZ0Ìúô[àùHëà[ôà»Ÿ\ô[àY\àXú⁄X⁄X⁄öX⁄Zﬁô\Y\ù[Z]ŸZ[àúôZHÈò\ô\Çà»\ú›\àZ[ùòY»ù[H[YŸZ[à\àŸ⁄[ãT‹\úôH⁄\ôÇàYàõ›ò]»‹àãà[àò]»‹à[äò] HàçÇàô]\õàY\ÇàûNÇàô]\õà›ä\Yô\‹Àö\ÿYô\‹ ò] JBà^Ÿ\ò[YQ\úõ‹éÇàô]\õàY\ÇÇÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBà»\T›]H
+Z[ãSù]ô\ã[ã[Y[[‹ûH8†$»[ù‹öX⁄[à[ú›[ûùò\öXXõ[à\Çà»ú∞Ô\ô[à⁄[ù\ãP\R€\‹ŸJBà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBò€\‹»\›]NÇàYà◊⁄[ö]◊ Ÿ[äNÇàŸ[ãúÿ]ôW‹]à›àH\€€ôöYÀõÿY
+
+H»öY[‹ôô\àö[YBàŸ[ãúŸ\öY\◊‹]à›àH\€€ôöYÀõÿY‹Ÿ\öY\◊‹]
+
+H»öY[‹ôô\àŸ\öY[à
+Ÿ]ô[õù
+BàŸ[ãùZW€[ô›XYŸNà›àH\€€ôöYÀõÿY›ZW€[ô›XYŸJ
+BàŸ[ãùZW€[ô›XYŸW€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãùÿ]⁄\›à\›ŸX›HH\€€ôöYÀõÿY›ÿ]⁄\›
+
+BàŸ[ãùÿ]⁄\›€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãõ[›öYW‹›Xúÿ‹ö\[€úŒà\›ŸX›HH\€€ôöYÀõÿY€[›öYW‹›Xúÿ‹ö\[€ú 
+BàŸ[ãõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãõ[›öYW‹›Xúÿ‹ö\[€óÿ⁄X⁄◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãò]]◊Ÿ›€õÿY€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãö‹›\ó⁄[ù[H‹›\í[ù[
+
+BÇàŸ[ãöô[Yö[óÿŸôŒàX›H\€€ôöYÀõÿY⁄ô[Yö[ä
+BàŸ[ãùYóÿŸôŒàX›H\€€ôöYÀõÿY›Yä
+BàŸ[ãùYóÿ€Y[ùHQê€Y[ù
+
+äúŸ[ãùYóÿŸô BàŸ[ãù[Y‹ò[WÿŸôŒàX›H\€€ôöYÀõÿY›[Y‹ò[J
+BàŸ[ãúŸY\úóÿŸôŒàX›H\€€ôöYÀõÿY‹ŸY\úä
+BàŸ[ãúŸY\úó‹ô\]Y\›ŒàX›‹›ãX›HH\€€ôöYÀõÿY‹ŸY\úó‹ô\]Y\› 
+BàŸ[ãúŸY\úó‹ô\]Y\›◊€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãúŸY\úó⁄õÿúŒàX›‹›ã\›ŸX›WHHﬂBàŸ[ãúŸY\úó⁄õÿú◊€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãúŸY\úó‹€€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúŸY\úó€\›‹€àõÿ]HåàŸ[ãúŸY\úó€\›‹›XÿŸ\‹Œàõÿ]HåàŸ[ãúŸY\úó€\›Ÿ\úõ‹éà›àHàÇàŸ[ãúŸY\úó€\›‹ÿÿ[ó‹ô]ûNàõÿ]HåàŸ[ãúŸY\úó‹ÿÿ[ó‹ô]ûW€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúŸY\úó€[€€ôö[óÿ€€ôöY›\ôYàõ€€Hò[ŸBàŸ[ãúŸY\úó€[€€ôö[óŸ\úõ‹éà›àHàÇà»]]€X]Z»
+çÕ Nà]]ÀQ›€õÿYXõ€õöY\ù\àŸ\öY[à
+»ôZ]›]Y\ù[ôÀÇàŸ[ãò]]€X][€éàX›H\€€ôöYÀõÿYÿ]]€X][€ä
+BàŸ[ãù\]\óÿŸôŒàX›H\€€ôöYÀõÿY›\]\ä
+BàŸ[ãù\]\óÿ€€ôöY◊€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãù\]\ó‹ù[ù[YW€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãù\]\ó‹ù[ù[YNàX›H¬àõ\›ÿ]]◊ÿ⁄X⁄»éàõ€ôKàò]]◊›\]W‹›]HéàöYHãàò]]◊›\]W€Y\‹ÿYŸHéààãàBàŸ[ãúõ›öY\ó‹ö[‹ö]Y\ŒàX›H\€€ôöYÀõÿY‹õ›öY\ó‹ö[‹ö]Y\ 
+BàŸ[ãúõ›öY\óŸ[òXõYàX›H\€€ôöYÀõÿY‹õ›öY\óŸ[òXõY
+
+BàŸ[ãò€€ù[ù€[ô›XYŸ\ŒàŸ]‹›óHHŸ]
+\€€ôöYÀõÿYÿ€€ù[ù€[ô›XYŸ\ 
+JBàŸ[ãúõ›öY\ó‹ö[‹ö]W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãúõ›öY\ó⁄X[Hõ›öY\íX[
+à]WŸ\ä
+H»úõ›öY\ó⁄X[öú€€àãà[ö]X[ÿ€€€›€èX\€€ôöYÀî—TíQT◊‘ì’íQTó–”””’”ó“SíUPS‘—P””ëÀàX^[][Wÿ€€€›€èX\€€ôöYÀî—TíQT◊‘ì’íQTó–”””’”ó”PV‘—P””ëÀà][\Y\èX\€€ôöYÀî—TíQT◊‘ì’íQTó–”””’”ó”USTQTãà
+BàŸ[ãúô\€€ôY€[ö◊ÿÿX⁄HHô\€€ôY[ö–ÿX⁄Jà]WŸ\ä
+H»úô\€€ôY‹õ›öY\ó€[ö‹Àöú€€àãà‹ŸX€€ôœX\€€ôöYÀî—TíQT◊‘ëT””ëQ”Sí◊––P“W’‘—P””ëÀàX^Ÿ[ùöY\œX\€€ôöYÀî—TíQT◊‘ëT””ëQ”Sí◊––P“W”PV—SïíQTÀà
+BàŸ[ãöô[Yö[ó€Xúò\ûNà‹[€ò[”\›ŸX›WHHõ€ôBàŸ[ãöô[Yö[ó€Xúò\ûW›[YNàõÿ]HåàŸ[ãöô[Yö[ó€Xúò\ûWÿ]òZ[XõNàõ€€Hò[ŸBàŸ[ãöô[Yö[ó€Xúò\ûW‹ô]ûWÿYù\éàõÿ]HåàŸ[ãöô[Yö[óŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WHHõ€ôBàŸ[ãöô[Yö[óŸ\\€Ÿ\◊›[YNàõÿ]HåàŸ[ãöô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõNàõ€€Hò[ŸBàŸ[ãöô[Yö[óŸ\\€Ÿ\◊‹ô]ûWÿYù\éàõÿ]HåàŸ[ãöô[Yö[ó‹Ÿ\öY\Œà‹[€ò[”\›ŸX›WHHõ€ôBàŸ[ãöô[Yö[ó‹Ÿ\öY\◊›[YNàõÿ]HåàŸ[ãöô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõNàõ€€Hò[ŸBàŸ[ãöô[Yö[ó‹Ÿ\öY\◊‹ô]ûWÿYù\éàõÿ]HåàŸ[ãöô[Yö[ó›\Ÿ\óŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WHHõ€ôBàŸ[ãöô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊›[YNàõÿ]HåàŸ[ãöô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõNàõ€€Hò[ŸBàŸ[ãöô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊‹ô]ûWÿYù\éàõÿ]HåàŸ[ãöô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éà[ùHàŸ[ãöô[Yö[ó€[›öYWŸ]WŸŸ[ô\ò][€éà[ùHàŸ[ãöô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€éà[ùHàŸ[ãöô[Yö[óÿÿX⁄W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãöô[Yö[óÿ€€ôöY◊›\]W€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó€Xúò\ûWŸô]⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[óŸ\\€Ÿ\◊Ÿô]⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó‹Ÿ\öY\◊Ÿô]⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó›\Ÿ\óŸô]⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó‹ôYúô\⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó‹ôYúô\⁄‹ô\]Y\›€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãöô[Yö[ó‹ôYúô\⁄‹ù[õö[ô»Hò[ŸBàŸ[ãöô[Yö[ó‹ôYúô\⁄‹[ô[ô»Hò[ŸBÇàŸ[ãôú€[›öY\ŒàX›‹›ãö[\[\›[›öYWHHﬂBà»ö\ùY[HYéèYòUôYôô\à∞Ôô[à[H]È⁄X⁄ŸYù[ô[ô[Çà»[òöY]\ú]Y[[à[àù]ô\úö[‹ö]0Èà[ô^\›YHö[pÈú]Y[Kà»[HŸZ]\ô[àZ[ù∞ÈŸH⁄[ô›€õÿYQò[òX⁄‹ÀÇàŸ[ãõ[›öYW‹€›\òŸWÿÿX⁄NàX›‹›ã\›—ö[\[\›[›öYWWHHﬂBàŸ[ãõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãõ[›öYW€\›ÿÿX⁄NàX››\K\WHHﬂBàŸ[ãõ[›öYW€\›ÿÿX⁄W€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúŸ\öY\◊€\›ÿÿX⁄NàX››\K\WHHﬂBàŸ[ãúŸ\öY\◊€\›ÿÿX⁄W€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúŸ\öY\◊ÿÿ][Ÿ◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúX⁄ŸYàŸ]HŸ]
+\€€ôöYÀõÿY‹]Y]YJ
+JBàŸ[ãú]Y]YWÿ€€ù[ù⁄Ÿ^\ŒàX›‹›ã›óHHﬂBàŸ[ãô€ôW‹€Y‹ŒàŸ]HŸ]
+
+BàŸ[ãú]Y]YWÿ€Z[W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BÇàŸ[ãôú‹ÿ‹ò\\éà‹[€ò[—ö[\[\›ÿ‹ò\\óHHõ€ôBàŸ[ãôú€ÿ⁄»HôXY[ôÀìÿ⁄ 
+Bà»‹›\ãP]Yõ0Ìú›[ô»ù]ùŸ[YZ[úÿ[YHúõ›‹Ÿ\ãK‘Ÿ\‹⁄[€ãSÿöôZ›H[ô]\‹¬à»]X⁄ôZH\ò[[[à›€õÿYQò[òX⁄‹»Ÿ\öY[õZXô[ãÇàŸ[ãö‹›\óŸ^òX›€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BÇà»Ÿ\öY[ú›ôX[Kù»8†$»ZYŸ[ô\à⁄[ô€]€ã[Z]Ÿ\‹⁄[€ìX[òYŸ\à
+€€⁄⁄Y\»¬à»ò]KS[Z][ô H0Ôô\à[H]YúùYôH\ö[[àõZXùÇàŸ[ãú›◊‹ÿ‹ò\\éà‹[€ò[‘Ÿ\öY[ú›ôX[Tÿ‹ò\\óHHõ€ôBàŸ[ãú›◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãõ[Ÿõ^‹ÿ‹ò\\éà‹[€ò[”[Ÿõ^ÿ‹ò\\óHHõ€ôBàŸ[ãõ[Ÿõ^€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãöZW‹ÿ‹ò\\éà‹[€ò[“ZTÿ‹ò\\óHHõ€ôBàŸ[ãöZW€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãõZ⁄\‹ÿW‹ÿ‹ò\\éà‹[€ò[”Z⁄\‹ÿTÿ‹ò\\óHHõ€ôBàŸ[ãõZ⁄\‹ÿW€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BÇàŸ[ãôú‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãôö[YúôZLç‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãõ[Ÿõ^‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãöZW‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãôZ[úÿ⁄[[ó‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãö⁄[õﬁ‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãö⁄[õŸŸ\ó‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãõYYÿZ⁄[õ◊‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãû⁄[ôW‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãúŸõ^‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BàŸ[ãúöY€[›öY\◊‹õ›öY\óŸŸ[úô\ŒàŸ]HŸ]
+
+BÇàŸ[ãúŸ\öY\◊ÿÿX⁄NàX›‹›ãö[\[\›Ÿ\öY\◊HHﬂBàŸ[ãúŸ\öY\◊Ÿ\óÿÿX⁄NàX››\K]HHﬂBàŸ[ãõYYXW›ò[Y][€óÿÿX⁄NàX›‹›ã\WHHﬂBàŸ[ãõYYXW›ò[Y][€ó€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãúŸ\öY\◊‹YŸW‹⁄^ôW‹ôYéà[ùHBÇà»õ›öY\ã‘Ÿ\öYKT›ùZ›\ô[àŸ\ô[à]Y∞Ôô\ô‹ôZYô[ôZ]⁄YY\ùô\ùŸ[ô]Çà»ô]ùŸ\öÀK–€›Yõ\ôKQôZ\àŸ\ô[àô]›\‹›öX⁄ôYÿ]]àŸXÿX⁄ÇàŸ[ãôò[òX⁄◊‹Ÿ\öY\◊ÿÿX⁄NàX›‹›ã\VŸõÿ]‹[€ò[—ö[\[\›Ÿ\öY\◊WWHHﬂBàŸ[ãôò[òX⁄◊‹Ÿ\öY\◊ÿÿX⁄W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãôò[òX⁄◊‹õ›öY\óŸ\úõ‹úŒàX›‹›ã\VŸõÿ]›óWHHﬂBÇàŸ[ãùÿ]⁄\›€ô]◊‹€Y‹ŒàX›‹›ãŸ]HHﬂBÇàŸ[ãùõŸW‹€€à‹[€ò[’ì—Púõ›‹Ÿ\î€€HHõ€ôBàŸ[ãô[XôY‹€€à‹[€ò[’ì—Púõ›‹Ÿ\î€€HHõ€ôBÇàŸ[ãô‹]Y]YHH›€õÿY]Y]YJX^‹\ò[[LäBàŸ[ãô›€õÿY‹›]W€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãú]Y]YW‹ô\\ôW€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãú]Y]YW€YôXﬁX€W€ÿ⁄»HôXY[ôÀîìÿ⁄ 
+BàŸ[ãù›[⁄õÿú»HàŸ[ãô€ôW⁄õÿú»HàŸ[ãò€›[ùY‹]Y]YW‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà»ù\àYH€Y‹À\ô[àÿ][ŸÀK“‹›\ãUõ‹òô\ôZ][ô»Ÿ\òYH⁄\ö€X⁄à»0ÈYùàYHRH\ôàöX⁄YH€€\]H›Yôô[[»€ZX⁄ôZ]Y¬à»Ÿ\∞Ôù\ú›[[ãÇàŸ[ãúô\\ö[ô◊‹]Y]YW‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà»Ÿ⁄\ÿ⁄H]Y]YKRõÿúÀYH]Yà[à\ú⁄\›[ù[àõ›öY\ãP⁄\ò›Z]PúôXZŸ\Çà»ÿ\ù[ãà⁄YHõZXô[à[àX⁄ŸY[ôŸ\ô[àöX⁄\õZ[ò[Ÿ^∞ÈÇàŸ[ãúõ›öY\ó›ÿZ][ô◊⁄õÿúŒàX›‹›ãX›HHﬂBàŸ[ãúõ›öY\ó‹ô]ûW›€‹öŸ\ó‹ù[õö[ô»Hò[ŸBàŸ[ãúõ›öY\ó‹ô]ûW›ÿZŸWŸ]ô[ùHôXY[ôÀë]ô[ù
+
+BàŸ[ãû]›\]WÿX›]ôHHò[ŸBÇàŸ[ãò€›ô\óÿÿX⁄Nàì‹ô\ôYX›‹›ã\WHàH‹ô\ôYX›
+
+Bà»ôZÿ⁄0ÈŸHù\à›\ûàY\öŸ[à
+[Y\›[\
+K[Z]ò[ú⁄Y[ùHôZ\Çà»öX⁄ö\»ù[Hô]\›\ù[»Là0ÈôŸ[àõZXô[ãÇàŸ[ãò€›ô\óŸòZ[ÿÿX⁄Nàì‹ô\ôYX›‹›ãõÿ]HàH‹ô\ôYX›
+
+BàŸ[ãò€›ô\óÿÿX⁄W€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BÇà»[Y‹ò[KP[ôúòYŸ[àŸ\ô[à0Ôô\à[àö[KT€Y»ö\»ù[H›€õÿYQ[ôBà»ô\ôõ€›[Z][úÿ⁄YpÁŸ[ô]YàYHô[Yö[ãQ\öŸ[õù[ô»Ÿ]ÿ\ù]⁄\ôÇàŸ[ãù[Y‹ò[W⁄õÿúŒàX›‹›ãX›HHﬂBàŸ[ãù[Y‹ò[W‹Ÿ\öY\◊‹ô\]Y\›ŒàX›‹›ãX›HHﬂBàŸ[ãù[Y‹ò[W‹Ÿ\öY\◊ÿ⁄⁄XŸ\ŒàX›‹›ãX›HHﬂBàŸ[ãù[Y‹ò[W⁄õÿú◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãù[Y‹ò[Wÿ⁄⁄XŸ\◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãù[Y‹ò[Wÿ⁄⁄XŸ\◊‹Xõ\⁄€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BàŸ[ãù[Y‹ò[W‹ô\]Y\›€ÿ⁄»HôXY[ôÀìÿ⁄ 
+BÇÇú›]HH\›]J
+BÇÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBà»ŸXî€ÿ⁄Ÿ]PúõÿYÿ\›
+Ÿ»»õ‹ùÿ⁄ö]»]Y]YKQ]ô[ù Bà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBò€\‹»’‘–€Y[ùÇàYà◊⁄[ö]◊ Ÿ[ãŸXú€ÿ⁄Ÿ]àŸXî€ÿ⁄Ÿ]]Y]YW‹⁄^ôNà[ù
+NÇàŸ[ãùŸXú€ÿ⁄Ÿ]HŸXú€ÿ⁄Ÿ]àŸ[ãú]Y]YNà\ﬁ[ò⁄[Àî]Y]YHH\ﬁ[ò⁄[Àî]Y]YJX^⁄^ôO\]Y]YW‹⁄^ôJBàŸ[ãúŸ[ô\ó›\⁄Œà‹[€ò[ÿ\ﬁ[ò⁄[Àï\⁄◊HHõ€ôBàŸ[ãò€‹ŸW›\⁄Œà‹[€ò[ÿ\ﬁ[ò⁄[Àï\⁄◊HHõ€ôBàŸ[ãò€‹⁄[ô»Hò[ŸBÇÇò€\‹»‘”X[òYŸ\éÇàààîŸ\öX[\⁄Y\ùKôY‹ô[ûùH]\€YYô\ù[ô»ôHŸXî€ÿ⁄Ÿ]P€Y[ùàààÇÇàYà◊⁄[ö]◊ Ÿ[ã]Y]YW‹⁄^ôNà[ùH—Pî”–“—U–”QSï‘UQUQW‘“VëJNÇàŸ[ãò€Y[ùŒàX›’ŸXî€ÿ⁄Ÿ]’‘–€Y[ùHHﬂBàŸ[ãú]Y]YW‹⁄^ôHHX^
+K[ù
+]Y]YW‹⁄^ôJJBÇà\ﬁ[ò»Yà€€õôX›
+àŸ[ãà‹ŒàŸXî€ÿ⁄Ÿ]à[ö]X[‹^[ÿYà‹[€ò[ŸX›HHõ€ôKà[ö]X[‹^[ÿYŸòX›‹ûNà‹[€ò[–ÿ[XõV÷◊KX›WHHõ€ôKà
+NÇà]ÿZ]‹ÀòXÿŸ\
+
+Bà€Y[ùH’‘–€Y[ù
+‹ÀŸ[ãú]Y]YW‹⁄^ôJBà»òX⁄XÿŸ\
+
+Hö\»ù\àôY⁄\›öY\ù[ô»⁄Xù\»ô]›\‹›ŸZ[à]ÿZ]àZ[Çà»\ò[[]\»Z[ô[H€‹öŸ\ãUôXY[ôŸZÔôY›\»]ô[ù0ÈYù\ú›[òX⁄à»]Yà[HXZ[ãS€‹[ô[ô]€€Z][ù\à[H[ö]X[[à€ò\⁄›ÇàYà[ö]X[‹^[ÿYŸòX›‹ûH\»õ›õ€ôNÇà[ö]X[‹^[ÿYH[ö]X[‹^[ÿYŸòX›‹ûJ
+BàYà[ö]X[‹^[ÿY\»õ›õ€ôNÇà€Y[ùú]Y]YKú]€õ›ÿZ]
+[ö]X[‹^[ÿY
+BàŸ[ãò€Y[ù÷›‹◊HH€Y[ùà€Y[ùúŸ[ô\ó›\⁄»H\ﬁ[ò⁄[Àò‹ôX]W›\⁄ Ÿ[ãó‹Ÿ[ô\ä€Y[ù
+JBÇàYà\ÿ€€õôX›
+Ÿ[ã‹ŒàŸXî€ÿ⁄Ÿ]
+NÇà€Y[ùHŸ[ãò€Y[ùÀú‹
+‹Àõ€ôJBàYà€Y[ù\»õ€ôNÇàô]\õÇà€Y[ùò€‹⁄[ô»HùYBàûNÇà›\úô[ùH\ﬁ[ò⁄[Àò›\úô[ù›\⁄ 
+Bà^Ÿ\ù[ù[YQ\úõ‹éÇà›\úô[ùHõ€ôBàõ‹à\⁄»[à
+€Y[ùúŸ[ô\ó›\⁄À€Y[ùò€‹ŸW›\⁄ NÇàYà\⁄»\»õ›õ€ôH[ô\⁄»\»õ››\úô[ù[ôõ›\⁄Àô€ôJ
+NÇà\⁄Àòÿ[òŸ[
+
+BÇà\ﬁ[ò»Yà‹Ÿ[ô\äŸ[ã€Y[ùà’‘–€Y[ù
+NÇàûNÇà⁄[HùYNÇà^[ÿYH]ÿZ]€Y[ùú]Y]YKôŸ]
+
+Bà]ÿZ]€Y[ùùŸXú€ÿ⁄Ÿ]úŸ[ô⁄ú€€ä^[ÿY
+Bà^Ÿ\\ﬁ[ò⁄[Àêÿ[òŸ[Y\úõ‹éÇàòZ\ŸBà^Ÿ\^Ÿ\[€éÇà\‹¬àö[ò[NÇàŸ[ãô\ÿ€€õôX›
+€Y[ùùŸXú€ÿ⁄Ÿ]
+BÇà\ﬁ[ò»Yàÿ€‹ŸW‹€›◊ÿ€Y[ù
+Ÿ[ã€Y[ùà’‘–€Y[ù
+NÇàûNÇà]ÿZ]€Y[ùùŸXú€ÿ⁄Ÿ]ò€‹ŸJà€ŸOLLLÀàôX\€€èHì]ôKU\]\»€€õù[àöX⁄ÿ⁄ô[Ÿ[ùY»ùYŸ\›[Ÿ\ô[ãàãà
+Bà^Ÿ\^Ÿ\[€éÇà\‹¬àö[ò[NÇàŸ[ãô\ÿ€€õôX›
+€Y[ùùŸXú€ÿ⁄Ÿ]
+BÇàYàXõ\⁄
+Ÿ[ã]NàX›
+NÇàààì]\‹»]Yà[HXZ[ãS€‹]Yô[é»õÿ⁄⁄Y\ùŸZ[ô[àõŸ^ô[ù[ãUôXYàààÇàõ‹à€Y[ù[à\›
+Ÿ[ãò€Y[ùÀùò[Y\ 
+JNÇàYà€Y[ùò€‹⁄[ôŒÇà€€ù[ùYBàûNÇà€Y[ùú]Y]YKú]€õ›ÿZ]
+]JBà^Ÿ\\ﬁ[ò⁄[Àî]Y]YQù[Çà»ŸZ[ôH›ùZ›\ô[[à]ô[ù»ŸY›Ÿ\ôô[éà\à€Y[ù⁄\ôŸ]ô[õùà»[ô\ö0ÈôZ[HôX€€õôX›Z[ô[àõ€›0ÈôYŸ[àô]Y[à€ò\⁄›Çà€Y[ùò€‹⁄[ô»HùYBà€Y[ùò€‹ŸW›\⁄»H\ﬁ[ò⁄[Àò‹ôX]W›\⁄ àŸ[ãóÿ€‹ŸW‹€›◊ÿ€Y[ù
+€Y[ù
+Bà
+BÇà\ﬁ[ò»YàŸ[ôÿ[
+Ÿ[ã]NàX›
+NÇàààí€€\]Xö[]0È›‹ò\\à∞Ôàô\›Z[ôH[ù\õôH\›À–]YúùYô\ãàààÇàŸ[ãúXõ\⁄
+]JBà]ÿZ]\ﬁ[ò⁄[Àú€Y\
+
+BÇÇù‹◊€X[òYŸ\àH‘”X[òYŸ\ä
+Bó€XZ[ó€€‹Hõ€ôH»⁄\ô[àYô\‹[àŸ\Ÿ]ùó›[Y‹ò[Wÿõ›à‹[€ò[’[Y‹ò[Põ›HHõ€ôBóÿòX⁄Ÿ‹õ›[ô‹Ÿ\ùöXŸ\◊‹›\ùYHò[ŸBóÿòX⁄Ÿ‹õ›[ô‹Ÿ\ùöXŸ\◊€ÿ⁄»HôXY[ôÀìÿ⁄ 
+Bó‹ôX€€[Y[ô\ó‹›‹Ÿ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó‹ôX€€[Y[ô\ó›ÿZŸWŸ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó‹ôX€€[Y[ô\ó›ôXYà‹[€ò[›ôXY[ôÀïôXYHHõ€ôBó‹ŸY\úó‹›‹Ÿ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó‹ŸY\úó›ÿZŸWŸ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó‹ŸY\úó›ôXYà‹[€ò[›ôXY[ôÀïôXYHHõ€ôBó›\]\ó‹›‹Ÿ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó›\]\ó›ÿZŸWŸ]ô[ùHôXY[ôÀë]ô[ù
+
+Bó›\]\ó›ôXYà‹[€ò[›ôXY[ôÀïôXYHHõ€ôBóﬁ]›\]\ó‹›‹Ÿ]ô[ùHôXY[ôÀë]ô[ù
+
+Bóﬁ]›\]\ó›ôXYà‹[€ò[›ôXY[ôÀïôXYHHõ€ôBÇÇôYàúõÿYÿ\›
+]NàX›
+NÇà€‹H€XZ[ó€€‹àYà€‹\»õ€ôH‹à€‹ö\◊ÿ€‹ŸY
+
+NÇàô]\õÇàûNÇàûNÇàù[õö[ô◊€€‹H\ﬁ[ò⁄[ÀôŸ]‹ù[õö[ô◊€€‹
+
+Bà^Ÿ\ù[ù[YQ\úõ‹éÇàù[õö[ô◊€€‹Hõ€ôBàYàù[õö[ô◊€€‹\»€‹Çà‹◊€X[òYŸ\ãúXõ\⁄
+]JBà[ŸNÇà€‹òÿ[‹€€€ó›ôXYÿYôJ‹◊€X[òYŸ\ãúXõ\⁄]JBà^Ÿ\ù[ù[YQ\úõ‹éÇà\‹¬ÇÇôYàŸ \ŸŒà›ã]ô[à›àHàäNÇàŸŸŸ\ãö[ôõ \Ÿ BàúõÿYÿ\›
+»ù\HéàõŸ»ãõY\‹ÿYŸHéà\ŸÀõ]ô[éà]ô[JBÇÇôYà‹ô\›\ùÿYù\ó›\]J]Y]YWÿ[ôXYW‹]\ŸYàõ€€Hò[ŸJHOàõ€ôNÇàYà‹ô\›\ù
+
+NÇàô\Ÿ\ùôYHYà]Y]YWÿ[ôXYW‹]\ŸY[ŸH‹]\ŸWŸ›€õÿY◊Ÿõ‹ó›\]W‹ô\›\ù
+
+BàYàô\Ÿ\ùôYÇàŸ ààï\]KSô]\›\ùà‹ô\Ÿ\ùôYHŸôô[ôH]Y]YKQZ[ù∞ÈŸHŸ\‹ZX⁄\ù»Çàú⁄YHŸ\ô[à[òX⁄]]€X]\ÿ⁄õ‹ùŸ\Ÿ]ùàÇà
+Bà[YKú€Y\
+JBà‹Àò⁄\äT—TäBà›\ù‹ÿ‹ö\HT—Tà»ú›\ùú⁄Çàò\⁄H⁄][ù⁄X⁄
+òò\⁄äBàYà‹Àõò[YHOHõùà[ô]
+ãÀôÿ⁄Ÿ\ô[ùàäKô^\› 
+H[ôò\⁄[ô›\ù‹ÿ‹ö\ö\◊Ÿö[J
+NÇà‹Àô^X›äò\⁄ÿò\⁄›ä›\ù‹ÿ‹ö\
+WJBà‹Àô^X›äﬁ\Àô^X›]XõK‹ﬁ\Àô^X›]XõK›äT—Tà»úŸ\ùô\ãúHäWJBÇàôXY[ôÀïôXY
+\ôŸ]W‹ô\›\ùY[[€èUùYJKú›\ù
+
+BÇÇïTUW“Sî’STàHŸ[ï\]\äàô\‹⁄]‹ûOUTUW–“P“—Tãúô\‹⁄]‹ûKà\Ÿ\èPT—Tãà€ó‹›]O[[XôH^[ÿYàúõÿYÿ\›
+»ù\Héàù\]\ó⁄[ú›[ãö[ú›[\àéà^[ÿYJKàô\›\ùÿÿ[òX⁄œW‹ô\›\ùÿYù\ó›\]KäBñU’TUTàH]ù[ù[YU\]\ä
+BÇêUU◊’TUW‘’Tï—SVW‘—P””ë»HÃêUU◊’TUW—QëTó‘—P””ë»HH
+àåêUU◊’TUW—Tîì‘ó‘ëUñW‘—P””ë»HMH
+àåÇÇôYàÿõ›[ôYŸ[ùó⁄[ù
+ò[YNà›ãYò][à[ùZ[ö[][Nà[ùX^[][Nà[ù
+HOà[ùÇàûNÇàò[YHH[ù
+‹Àô[ùö\õ€ãôŸ]
+ò[YK›äYò][
+JH‹àYò][
+Bà^Ÿ\
+\Q\úõ‹ãò[YQ\úõ‹äNÇàò[YHHYò][àô]\õàX^
+Z[ö[][KZ[äX^[][Kò[YJJBÇÇñU’TUW‘’Tï—SVW‘—P””ë»Hÿõ›[ôYŸ[ùó⁄[ù
+àñU’TUW‘’Tï—SVW‘—P””ë»ãÃÃç
+àå
+àåäBñU’TUW“SïTïêS“’Tî»Hÿõ›[ôYŸ[ùó⁄[ù
+àñU’TUW“SïTïêS“’Tî»ãçKMéäBñU–UU◊’TUHH‹Àô[ùö\õ€ãôŸ]
+àñU–UU◊’TUHãùùYHãäKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ›[à»åãôò[ŸHãõõ»ãõŸôàüBÇÇôYà›\]\óÿ€€ôöY◊‹^[ÿY
+
+HOàX›Çà⁄]›]Kù\]\óÿ€€ôöY◊€ÿ⁄ŒÇà€€ôöY»HX›
+›]Kù\]\óÿŸô Bà⁄]›]Kù\]\ó‹ù[ù[YW€ÿ⁄ŒÇàù[ù[YHHX›
+›]Kù\]\ó‹ù[ù[YJBàô]\õà äò€€ôöYÀ
+äúù[ù[Y_BÇÇôYà‹Ÿ]›\]\ó‹ù[ù[YJô\›[à›ãY\‹ÿYŸNà›ã
+ã⁄X⁄ŸYàõ€€Hò[ŸJHOàõ€ôNÇà⁄]›]Kù\]\ó‹ù[ù[YW€ÿ⁄ŒÇà›]Kù\]\ó‹ù[ù[YV»ò]]◊›\]W‹›]HóHHô\›[à›]Kù\]\ó‹ù[ù[YV»ò]]◊›\]W€Y\‹ÿYŸHóHH›äY\‹ÿYŸH‹ààäVŒçLBàYà⁄X⁄ŸYÇà›]Kù\]\ó‹ù[ù[YV»õ\›ÿ]]◊ÿ⁄X⁄»óHH[YKù[YJ
+BàúõÿYÿ\›
+»ù\Héàù\]\óÿ€€ôöY»ãò€€ôöY»éà›\]\óÿ€€ôöY◊‹^[ÿY
+
+_JBÇÇôYà›\]Wÿõÿ⁄◊‹ôX\€€ó€ÿ⁄ŸY
+
+HOà›éÇàYà›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+H‹à›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+NÇàô]\õàì]Yô[ôHŸ\àÿ\ù[ôH›€õÿY»ÇàYà›]Kú]Y]YW‹ô\\ôW€ÿ⁄Àõÿ⁄ŸY
+
+NÇàô]\õàë›€õÿYõ‹òô\ôZ][ô»Ÿ\à⁄YY\ö€[ô‹›ô\ú›X⁄0ÈYùÇà‹ôX€€ò⁄[W⁄YW‹]Y]YW‹›]W€ÿ⁄ŸY
+
+BàYà›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúŒÇàô]\õàë›€õÿYõ‹òô\ôZ][ô»Ÿ\à⁄YY\ö€[ô‹›ô\ú›X⁄0ÈYùÇàô]\õààÇÇÇôYà‹›\ù›\]W›⁄[ó⁄YJ\ôŸ]‹⁄Nà›äHOàX›Çàààî›\ù]\»\]H]X⁄ôZHZ›]ô\à]Y]YKÇÇà›€õÿY»0Ôôô[àÈô[ô\»Y[ú»ŸZ]\õ]Yô[ãà\ôZ›õ‹à[Hô]\›\ùàŸ\ô[à[Hõÿ⁄Ÿôô[ô[à€Y‹»\ú⁄\›[ùŸ\⁄X⁄\ù[ôYHõﬁô\‹ŸHÿ]Xô\ÇàŸ\›‹»\àô]YHŸ\ùô\à›[⁄YH]]€X]\ÿ⁄⁄YY\à\ãÇàààÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàYà›]Kû]›\]WÿX›]ôNÇàòZ\ŸHù[ù[YQ\úõ‹äû]Y⁄\ôŸ\òYHZ›X[\⁄Y\ùäBà]Y]YYHõ€€
+à›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+Bà‹à›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+Bà‹àõ€€
+›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿú Bà
+Bàô\›[HTUW“Sî’STãú›\ù
+\ôŸ]‹⁄JBàYà]Y]YYÇàŸ ï\]H⁄\ô[ú›[Y\ù»YHZ›]ôH]Y]YH⁄\ô\ú›ù[Hô]\›\ù]\⁄Y\ùàäBàô]\õàô\›[ÇÇôYàÿ][\ÿ]]€X]X◊›\]J
+HOà›éÇà⁄]›]Kù\]\óÿ€€ôöY◊€ÿ⁄ŒÇàYà›]Kù\]\óÿŸôÀôŸ]
+ù\]W€[ŸHäHOH\€€ôöYÀïTUW”S—W–UU”PUPŒÇàô]\õàõX[ùX[ÇÇàûNÇà\]HHTUW–“P“—Tãò⁄X⁄ ùYJBà^Ÿ\^Ÿ\[€à\»^ŒÇàY\‹ÿYŸHHàë⁄]XãT∞Ôù[ô»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHÇà‹Ÿ]›\]\ó‹ù[ù[YJô\úõ‹àãY\‹ÿYŸK⁄X⁄ŸYUùYJBàŸ àê]]€X]\ÿ⁄H\]\∞Ôù[ô»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàô]\õàô\úõ‹àÇÇàYà\]KôŸ]
+ô\úõ‹àäNÇàY\‹ÿYŸHH›ä\]KôŸ]
+ô\úõ‹àäJBà‹Ÿ]›\]\ó‹ù[ù[YJô\úõ‹àãY\‹ÿYŸK⁄X⁄ŸYUùYJBàŸ àê]]€X]\ÿ⁄H\]\∞Ôù[ô»ôZŸ\ÿ⁄YŸ[éà€Y\‹ÿYŸ_Hãùÿ\õàäBàô]\õàô\úõ‹àÇàYà\]KôŸ]
+ù\]Wÿ]òZ[XõHäH\»õ›ùYNÇàYà\]KôŸ]
+ò€€\\ö\€€àäH[à»öY[ùXÿ[ãòôZ[ôüNÇà‹Ÿ]›\]\ó‹ù[ù[YJò›\úô[ùãíŸZ[à\]Hô\ô∞Ôÿò\ãàã⁄X⁄ŸYUùYJBàô]\õàò›\úô[ùÇà‹Ÿ]›\]\ó‹ù[ù[YJàù[ò]òZ[XõHãàì⁄ÿ[\àùZ[€€õùHöX⁄⁄X⁄\àZ]⁄]Xàô\ô€X⁄[àŸ\ô[ãàãà⁄X⁄ŸYUùYKà
+Bàô]\õàù[ò]òZ[XõHÇàYà\]KôŸ]
+ò€€\\ö\€€àäHOHòZXYéÇà‹Ÿ]›\]\ó‹ù[ù[YJàõX[ùX[‹ô\]Z\ôYãàì⁄ÿ[\à[ô⁄]XãT›[ô⁄[ôô\ûùŸZY›»X[ùY[Hô\›0ÈY›[ô»\ôõ‹ô\õX⁄àãà⁄X⁄ŸYUùYKà
+Bàô]\õàõX[ùX[‹ô\]Z\ôYÇÇà\ôŸ]‹⁄HH›ä\]KôŸ]
+õ]\›‹⁄HäH‹ààäKú›ö\
+
+BàYàõ›\ôŸ]‹⁄NÇà‹Ÿ]›\]\ó‹ù[ù[YJô\úõ‹àãë⁄]XàYYô\ùHŸZ[ôH[ú›[Y\òò\ôHô]ö\⁄[€ãàã⁄X⁄ŸYUùYJBàô]\õàô\úõ‹àÇÇàûNÇà⁄]›]Kù\]\óÿ€€ôöY◊€ÿ⁄ŒÇàYà›]Kù\]\óÿŸôÀôŸ]
+ù\]W€[ŸHäHOH\€€ôöYÀïTUW”S—W–UU”PUPŒÇà‹Ÿ]›\]\ó‹ù[ù[YJõX[ùX[ãê]]€X]\ÿ⁄H[ú›[][€à›\ôHXZ›]öY\ùàã⁄X⁄ŸYUùYJBàô]\õàõX[ùX[Çà‹›\ù›\]W›⁄[ó⁄YJ\ôŸ]‹⁄JBà^Ÿ\
+ù[ù[YQ\úõ‹ãò[YQ\úõ‹äH\»^ŒÇàY\‹ÿYŸHH›ä^ Bàô\›[HôYô\úôYàYàûù\∞Ô⁄ŸŸ\›[à[àY\‹ÿYŸH[ŸHô\úõ‹àÇà‹Ÿ]›\]\ó‹ù[ù[YJô\›[Y\‹ÿYŸK⁄X⁄ŸYUùYJBàYàô\›[OHô\úõ‹àéÇàŸ àê]]€X]\ÿ⁄\»\]H€€õùHöX⁄Ÿ\›\ù]Ÿ\ô[éà€Y\‹ÿYŸ_Hãùÿ\õàäBàô]\õàô\›[Çà‹Ÿ]›\]\ó‹ù[ù[YJö[ú›[[ô»ãï\]H⁄\ô]]€X]\ÿ⁄[ú›[Y\ùàã⁄X⁄ŸYUùYJBàŸ àê]]€X]\ÿ⁄\»\]H]YàùZ[›\ôŸ]‹⁄VŒé_HŸ\›\ù]àäBàô]\õàö[ú›[[ô»ÇÇÇôYà]]€X]X◊›\]W€€‹
+
+HOàõ€ôNÇàYà›\]\ó‹›‹Ÿ]ô[ùùÿZ]
+UU◊’TUW‘’Tï—SVW‘—P””ë NÇàô]\õÇà›\]\ó›ÿZŸWŸ]ô[ùò€X\ä
+Bà⁄[Hõ››\]\ó‹›‹Ÿ]ô[ùö\◊‹Ÿ]
+
+NÇà⁄]›]Kù\]\óÿ€€ôöY◊€ÿ⁄ŒÇà€€ôöY»HX›
+›]Kù\]\óÿŸô BàYà€€ôöYÀôŸ]
+ù\]W€[ŸHäHOH\€€ôöYÀïTUW”S—W–UU”PUPŒÇàô\›[Hÿ][\ÿ]]€X]X◊›\]J
+BàYàô\›[OHôYô\úôYéÇà[^HHUU◊’TUW—QëTó‘—P””ë¬à[Yàô\›[OHô\úõ‹àéÇà[^HHUU◊’TUW—Tîì‘ó‘ëUñW‘—P””ë¬à[ŸNÇà[^HH[ù
+€€ôöYÀôŸ]
+ò]]◊›\]W⁄[ù\ùò[⁄›\ú»äH‹àäH
+àå
+àåà[ŸNÇà[^HHå
+àåà›\]\ó›ÿZŸWŸ]ô[ùùÿZ]
+X^
+K[^JJBà›\]\ó›ÿZŸWŸ]ô[ùò€X\ä
+BÇÇôYàÿ][\ﬁ]‹ù[ù[YW›\]J
+HOà›éÇàààêZ›X[\⁄Y\ù]Y›Xö[[ô\ö0ÈXôZH[H]Y]YKP€Z[\ÀàààÇàYàõ›U–UU◊’TUNÇàô]\õàô\ÿXõYÇàYàTUW“Sî’STãö\◊ÿX›]ôJ
+H‹à›]Kû]›\]WÿX›]ôNÇàô]\õàòù\ﬁHÇàûNÇà\]HHU’TUTãò⁄X⁄ 
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àû]YU\]\∞Ôù[ô»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàô]\õàô\úõ‹àÇàYàõ›\]KôŸ]
+ù\]Wÿ]òZ[XõHäNÇàŸŸŸ\ãö[ôõ û]Y\›Z›Y[
+	\ Kàã\]KôŸ]
+ò›\úô[ùäH‹àù[òôZÿ[õùäBàô]\õàò›\úô[ùÇÇà›\úô[ùH›ä\]KôŸ]
+ò›\úô[ùäH‹àõöX⁄[ú›[Y\ùäBà]\›H›ä\]KôŸ]
+õ]\›äH‹ààäBàŸ àû]YU\]Hô\ô∞Ôÿò\éàÿ›\úô[ùH8°§à€]\›N»ZŸ]⁄\ôõ‹òô\ôZ]]àäBà]\ŸYHò[ŸBàûNÇà⁄][\ö[Kï[\‹ò\ûQ\ôX›‹ûJôYö^HúŸ\öY[ô›€õÿY\ã^]HäH\»\Çà⁄Y[HU’TUTãô›€õÿY›⁄Y[
+]\›]
+\
+JBà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàYàTUW“Sî’STãö\◊ÿX›]ôJ
+H‹à›]Kû]›\]WÿX›]ôNÇàô]\õàòù\ﬁHÇà›]Kû]›\]WÿX›]ôHHùYBàô\Ÿ\ùôYH‹]\ŸWŸ›€õÿY◊Ÿõ‹ó›\]W‹ô\›\ù
+
+Bà]\ŸYHùYBàYàô\Ÿ\ùôYÇàŸ ààû]YU\]Nà‹ô\Ÿ\ùôYHŸôô[ôH]Y]YKQZ[ù∞ÈŸHŸ\‹ZX⁄\ù»Çàëõ‹ùŸ]ù[ô»òX⁄ô]\›\ùàÇà
+BàU’TUTãö[ú›[›⁄Y[
+⁄Y[
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàYà›]Kû]›\]WÿX›]ôNÇà»]X⁄ôZHZ[ô[H\K‘]\ŸKQôZ\àô]H›\ù[ã[Z]YH]Y]YHZ]à»\àö\⁄\öYŸ[àô\ú⁄[€àŸZ]\õ0ÈYùÇà‹ô\›\ùÿYù\ó›\]J]Y]YWÿ[ôXYW‹]\ŸY\]\ŸY
+BàŸ àû]YU\]HôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàô]\õàô\úõ‹àÇÇàŸ àû]Y€]\›H[ú›[Y\ù8†$»Ÿ\ùô\à›\ù]ô]KàäBà‹ô\›\ùÿYù\ó›\]J]Y]YWÿ[ôXYW‹]\ŸYUùYJBàô]\õàúô\›\ù[ô»ÇÇÇôYà]‹ù[ù[YW›\]W€€‹
+
+HOàõ€ôNÇàYàõ›U–UU◊’TUNÇàô]\õÇàYàﬁ]›\]\ó‹›‹Ÿ]ô[ùùÿZ]
+U’TUW‘’Tï—SVW‘—P””ë NÇàô]\õÇà⁄[Hõ›ﬁ]›\]\ó‹›‹Ÿ]ô[ùö\◊‹Ÿ]
+
+NÇàô\›[Hÿ][\ﬁ]‹ù[ù[YW›\]J
+Bà[^HH
+àå
+àåàYàô\›[[à»òù\ﬁHãô\úõ‹àüBà[ŸHU’TUW“SïTïêS“’Tî»
+àå
+àåà
+BàYàﬁ]›\]\ó‹›‹Ÿ]ô[ùùÿZ]
+[^JNÇàô]\õÇÇÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBà»[úŸù[ö›[€ô[à
+NåHŸ⁄Z»]\»\àú∞Ô\ô[àXZ[ãúJBà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBôYàŸ]Ÿú‹ÿ‹ò\\ä
+HOàö[\[\›ÿ‹ò\\éÇàYà›]Kôú‹ÿ‹ò\\à\»õ€ôNÇà›]Kôú‹ÿ‹ò\\àHö[\[\›ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Bàô]\õà›]Kôú‹ÿ‹ò\\ÇÇÇôYàŸ]‹›◊‹ÿ‹ò\\ä
+HOàŸ\öY[ú›ôX[Tÿ‹ò\\éÇàYà›]Kú›◊‹ÿ‹ò\\à\»õ€ôNÇà›]Kú›◊‹ÿ‹ò\\àHŸ\öY[ú›ôX[Tÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Bàô]\õà›]Kú›◊‹ÿ‹ò\\ÇÇÇôYàŸ]€[Ÿõ^‹ÿ‹ò\\ä
+HOà[Ÿõ^ÿ‹ò\\éÇàYà›]Kõ[Ÿõ^‹ÿ‹ò\\à\»õ€ôNÇà›]Kõ[Ÿõ^‹ÿ‹ò\\àH[Ÿõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Bàô]\õà›]Kõ[Ÿõ^‹ÿ‹ò\\ÇÇÇôYàŸ]⁄ZW‹ÿ‹ò\\ä
+HOàZTÿ‹ò\\éÇàYà›]KöZW‹ÿ‹ò\\à\»õ€ôNÇà›]KöZW‹ÿ‹ò\\àHZTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Bàô]\õà›]KöZW‹ÿ‹ò\\ÇÇÇôYàŸ]€Z⁄\‹ÿW‹ÿ‹ò\\ä
+HOàZ⁄\‹ÿTÿ‹ò\\éÇàYà›]KõZ⁄\‹ÿW‹ÿ‹ò\\à\»õ€ôNÇà›]KõZ⁄\‹ÿW‹ÿ‹ò\\àHZ⁄\‹ÿTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Bàô]\õà›]KõZ⁄\‹ÿW‹ÿ‹ò\\ÇÇÇôYàŸ]⁄ô[Yö[óÿ€Y[ù
+
+HOàô[Yö[ê€Y[ùÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàŸô»HX›
+›]Köô[Yö[óÿŸô Bàô]\õàô[Yö[ê€Y[ù
+ŸôÀôŸ]
+ù\õãàäKŸôÀôŸ]
+ò\W⁄Ÿ^HãàäJBÇÇôYàÿùZ[‹ôX€€[Y[ô\óÿ€€ôöY 
+HOàô[Yö[îôX€€[Y[ô\ê€€ôöYŒÇàààêò]]YH]Yö€€ôöY›\ò][€à]\»\à\ú⁄\›[ù[àŸ][ô‹Àö[öKàààÇàô[Yö[àH\€€ôöYÀõÿY⁄ô[Yö[ä
+Bà[ùàH¬àíëSQíSó’Tìéàô[Yö[ãôŸ]
+ù\õãàäKàíëSQíSó–TW“—VHéàô[Yö[ãôŸ]
+ò\W⁄Ÿ^HãàäKàíëSQíSó’T—Tó“Qéàô[Yö[ãôŸ]
+ù\Ÿ\ó⁄YãàäKàê””P’S”ó”êSQHéà‹Àô[ùö\õ€ãôŸ]
+ê””P’S”ó”êSQHãë∞ÔàX⁄[\õ⁄[àäKàï‘”àéà‹Àô[ùö\õ€ãôŸ]
+ï‘”àãååäKàîëP—Sê÷W“Só”QëW—VT»éà‹Àô[ùö\õ€ãôŸ]
+îëP—Sê÷W“Só”QëW—VT»ãåNäKàîëTUQT’’SQS’U‘—P””ë»éà‹Àô[ùö\õ€ãôŸ]
+îëTUQT’’SQS’U‘—P””ë»ãåLåäKàîQ—W‘“VëHéà‹Àô[ùö\õ€ãôŸ]
+îQ—W‘“VëHãåLäKà»\»[ù\ùò[›]Y\ù\àŸ\ùô\ãU€‹öŸ\ãöX⁄\»›[ô[€ôKTÿ‹ö\ÇàîïSó“SïTïêS‘—P””ë»éàåãàBàô]\õàô[Yö[îôX€€[Y[ô\ê€€ôöYÀôúõ€WŸ[ùä[ùäBÇÇôYà‹ù[ó‹ôX€€[Y[ô\ó€€òŸJ
+HOàõ€€ÇàûNÇà€€ôöY»HÿùZ[‹ôX€€[Y[ô\óÿ€€ôöY 
+Bà^Ÿ\ô[Yö[îôX€€[Y[ô\ê€€ôöY›\ò][€ë\úõ‹à\»^ŒÇàŸŸŸ\ãö[ôõ íô[Yö[ãQ[\ôZ[ôŸ[à0Ôô\ú‹ù[ôŸ[éà	\»ã^ Bàô]\õàò[ŸBÇàûNÇàôX€€[Y[ô][€ú»Hù[ó⁄ô[Yö[ó‹ôX€€[Y[ô\ó€€òŸJ€€ôöY Bà^Ÿ\ô[Yö[îôX€€[Y[ô\ë\úõ‹à\»^ŒÇàŸŸŸ\ãùÿ\õö[ô íô[Yö[ãQ[\ôZ[ôŸ[àôZŸ\ÿ⁄YŸ[éà	\»ã^ Bàô]\õàò[ŸBà^Ÿ\^Ÿ\[€éÇàŸŸŸ\ãô^Ÿ\[€äï[ô\ùÿ\ù]\àôZ\àôZH[àô[Yö[ãQ[\ôZ[ôŸ[àäBàô]\õàò[ŸBÇàŸŸŸ\ãö[ôõ àíô[Yö[ãQ[\ôZ[ôŸ[àZ›X[\⁄Y\ùà	YZ[ùòYÀ—Z[ù∞ÈŸHãà[äôX€€[Y[ô][€ú Kà
+Bàô]\õàùYBÇÇôYà‹ôX€€[Y[ô\ó⁄[ù\ùò[‹ŸX€€ô 
+HOà[ùÇàò]»H‹Àô[ùö\õ€ãôŸ]
+îëP””SQSëTó“SïTïêS‘—P””ë»ãéçäKú›ö\
+
+BàûNÇà[ù\ùò[H[ù
+ò] Bà^Ÿ\ò[YQ\úõ‹éÇàŸŸŸ\ãùÿ\õö[ô àîëP””SQSëTó“SïTïêS‘—P””ëœI\à\›[ôÔYŒ»ù]ôHçãò]Àà
+Bàô]\õàçàYà[ù\ùò[åÇàŸŸŸ\ãùÿ\õö[ô îëP””SQSëTó“SïTïêS‘—P””ë»]\‹»Z[ô\›[ú»åŸZ[é»ù]ôHåäBàô]\õàåàô]\õà[ù\ùò[ÇÇôYàô[Yö[ó‹ôX€€[Y[ô\ó€€‹
+
+HOàõ€ôNÇà⁄[Hõ›‹ôX€€[Y[ô\ó‹›‹Ÿ]ô[ùö\◊‹Ÿ]
+
+NÇà›XÿŸ\‹Ÿù[H‹ù[ó‹ôX€€[Y[ô\ó€€òŸJ
+BàôY›[\ó⁄[ù\ùò[H‹ôX€€[Y[ô\ó⁄[ù\ùò[‹ŸX€€ô 
+Bà[ù\ùò[HôY›[\ó⁄[ù\ùò[Yà›XÿŸ\‹Ÿù[[ŸHZ[äôY›[\ó⁄[ù\ùò[L
+BàŸŸŸ\ãö[ôõ ì∞È⁄›\àô[Yö[ãQ[\ôZ[ô‹€]Yà[à	YŸZ›[ô[àã[ù\ùò[
+Bà‹ôX€€[Y[ô\ó›ÿZŸWŸ]ô[ùùÿZ]
+[ù\ùò[
+Bà‹ôX€€[Y[ô\ó›ÿZŸWŸ]ô[ùò€X\ä
+BÇÇôYà›‹⁄ô[Yö[ó‹ôX€€[Y[ô\ä
+HOàõ€ôNÇà‹ôX€€[Y[ô\ó‹›‹Ÿ]ô[ùúŸ]
+
+Bà‹ôX€€[Y[ô\ó›ÿZŸWŸ]ô[ùúŸ]
+
+BàôXYH‹ôX€€[Y[ô\ó›ôXYàYàôXY\»õ›õ€ôH[ôôXYö\◊ÿ[]ôJ
+H[ôôXY\»õ›ôXY[ôÀò›\úô[ù›ôXY
+
+NÇàôXYöõ⁄[ä[Y[›]MJBÇÇôYà‹Ÿ]‹ù[ù[YW⁄ô[Yö[óÿ€€ôöY ŸôŒàX›
+HOàõ€ôNÇàààïŸX⁄Ÿ[€€ôöY›\ò][€à[ôÿX⁄H[»Z[ôH]€X\ôHŸ[ô\ò][€ãàààÇàõ‹õX[^ôYÿŸô»HX›
+Ÿô Bàõ‹õX[^ôYÿŸô÷»ò€X[ù\ŸYò][óHHõ‹õX[^ôWÿ€X[ù\€[ŸJàõ‹õX[^ôYÿŸôÀôŸ]
+ò€X[ù\ŸYò][äBà
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇà›]Köô[Yö[óÿŸô»Hõ‹õX[^ôYÿŸô¬à›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€à
+œHBà›]Köô[Yö[ó€[›öYWŸ]WŸŸ[ô\ò][€à
+œHBà›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBà›]Köô[Yö[ó€Xúò\ûHHõ€ôBà›]Köô[Yö[ó€Xúò\ûW›[YHHåà›]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó€Xúò\ûW‹ô]ûWÿYù\àHåà›]Köô[Yö[óŸ\\€Ÿ\»Hõ€ôBà›]Köô[Yö[óŸ\\€Ÿ\◊›[YHHåà›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[óŸ\\€Ÿ\◊‹ô]ûWÿYù\àHåà›]Köô[Yö[ó‹Ÿ\öY\»Hõ€ôBà›]Köô[Yö[ó‹Ÿ\öY\◊›[YHHåà›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó‹Ÿ\öY\◊‹ô]ûWÿYù\àHåà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»Hõ€ôBà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊›[YHHåà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊‹ô]ûWÿYù\àHåà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹à[ùûH[à›]Kùÿ]⁄\›Çà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»õ\›Ÿ\úõ‹àóHHíô[Yö[ãR€€ôöY›\ò][€à⁄\ôŸ\∞ÔùÇÇÇôYàŸ]›Yóÿ€Y[ù
+
+HOàQê€Y[ùÇàô]\õà›]KùYóÿ€Y[ùÇÇôYàŸ]›Yó‹Ÿ\öY\ ]Nà›ãYó⁄YHàãõ‹òŸNàõ€€Hò[ŸJHOà‹[€ò[ŸX›NÇàààëZ[ôHŸ\‹ZX⁄\ùHQãRQõZXù]]‹ö]]]é»][›X⁄Hù\à[ö]X[àààÇà€Y[ùHŸ]›Yóÿ€Y[ù
+
+BàYàYó⁄YÇàô]\õà€Y[ùúŸ\öY\◊ÿûW⁄Y
+Yó⁄Y]Kõ‹òŸOYõ‹òŸJBàô]\õà€Y[ùúŸ\öY\ ]Kõ‹òŸOYõ‹òŸJBÇÇôYà›[úô[X\ŸYŸ\\€ŸW⁄Ÿ^\ àYó⁄YŸ^\ŒàŸ]›\V⁄[ù[ùWKäHOàŸ]›\V⁄[ù[ùWNÇàààä›Yôô[\\€ŸJKTX\ôH]\»Ÿ^\ÿYH]]QãP]\‹›òZ[ô‹Ÿ][Bàõÿ⁄öX⁄\úÿ⁄Y[ô[à⁄[ôŸ\à[òôZÿ[õù⁄[ôÇÇàYYô\ùZ[ôHY\ôHY[ôŸKŸ[õàQàöX⁄€€ôöY›\öY\ù\›Ÿ\àŸZ[ôBà›Yôô[][àYYô\ù
+òZ[[‹[éà[õàõZXù\»ö\⁄\öYŸHô\ö[[Çà[ùô\∞Èô\ù›]∞Èÿ⁄X⁄[\»ùH‹\úô[äKÇàààÇà€Y[ùHŸ]›Yóÿ€Y[ù
+
+BàYàõ›€Y[ùò€€ôöY›\ôY‹àõ›Yó⁄Y‹àõ›Ÿ^\ŒÇàô]\õàŸ]
+
+BàŸ^HH[YKú›ôù[YJâVKI[KIYã[YKõÿÿ[[YJ
+JBà[úô[X\ŸYàŸ]›\V⁄[ù[ùWHHŸ]
+
+Bàõ‹àŸX\€€ó€ù[Xô\à[à‹ŸX\€€àõ‹àŸX\€€ãŸ\\€ŸH[àŸ^\ﬂNÇàZ\óŸ]\»H€Y[ùúŸX\€€óÿZ\óŸ]\ Yó⁄YŸX\€€ó€ù[Xô\äBàYàZ\óŸ]\»\»õ€ôNÇà€€ù[ùYBàõ‹àŸX\€€ã\\€ŸH[àŸ^\ŒÇàYàŸX\€€àOHŸX\€€ó€ù[Xô\éÇà€€ù[ùYBàZ\óŸ]HHZ\óŸ]\ÀôŸ]
+\\€ŸJBàYàõ›Z\óŸ]H‹àZ\óŸ]HàŸ^NÇà[úô[X\ŸYòY
+
+ŸX\€€ã\\€ŸJJBàô]\õà[úô[X\ŸYÇÇôYà›[úô[X\ŸYŸ\\€ŸW‹€Y‹ Ÿ\öY\Œàö[\[\›Ÿ\öY\ÀYó⁄Y
+HOàŸ]‹›óNÇàààë\\€Ÿ[ãYH]]QãP]\‹›òZ[ô‹Ÿ][Hõÿ⁄öX⁄\úÿ⁄Y[ô[à⁄[ôÇÇàõ›öY\ù[òXö0Èô⁄YÀHX[ò⁄H[òöY]\àŸ\[ùH\\€Ÿ[àÿ⁄€àõ‹à[BàZYŸ[ùX⁄[àô[X\ŸH\›[ãÇàààÇàûW⁄Ÿ^HH¬à
+\úŸX\€€ã\ô\\€ŸJNà\ú€Y¬àõ‹àŸX\€€ó€ù[Xô\à[àŸ\öY\ÀúŸX\€€ó€ù[Xô\ú¬àõ‹à\[àŸ\öY\ÀúŸX\€€úÀôŸ]
+ŸX\€€ó€ù[Xô\ã◊JBàBà[úô[X\ŸY⁄Ÿ^\»H›[úô[X\ŸYŸ\\€ŸW⁄Ÿ^\ Yó⁄YŸ]
+ûW⁄Ÿ^JJBàô]\õàÿûW⁄Ÿ^V⁄Ÿ^WHõ‹àŸ^H[à[úô[X\ŸY⁄Ÿ^\ﬂBÇÇíëSQíSó––P“W’HÃ»ŸZ›[ô[à8†$»⁄YH[ôŸHYH€€\]Hö[[\›HŸXÿX⁄⁄\ôíëSQíSó—Tîì‘ó‘ëUñW‘—P””ë»HÃÇÇôYàŸ]⁄ô[Yö[ó€Xúò\ûJõ‹òŸNàõ€€Hò[ŸJHOà‹[€ò[”\›ŸX›WNÇàààìYYô\ù[Hö[YH]\»ô[Yö[à
+ŸXÿX⁄
+K[Z]]X⁄ô]K’‹—Ÿ[úôKS\›[Çà⁄ôHZ[ô[à]ôKTô\]Y\›õ»]YúùYà]Yà\Zÿ]HŸ\∞ÔùŸ\ô[àÌõõô[ãàààÇà⁄]›]Köô[Yö[ó€Xúò\ûWŸô]⁄€ÿ⁄ŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çàõ›»H[YKù[YJ
+BàôYY◊Ÿô]⁄H
+àõ‹òŸBà‹à›]Köô[Yö[ó€Xúò\ûH\»õ€ôBà‹à
+õ›»H›]Köô[Yö[ó€Xúò\ûW›[YJHàëSQíSó––P“W’à
+BàYàõ›ôóÿ€Y[ùò€€ôöY›\ôYÇàô]\õàõ€ôBàYàõ›õ‹òŸH[ôõ›»›]Köô[Yö[ó€Xúò\ûW‹ô]ûWÿYù\éÇàô]\õà›]Köô[Yö[ó€Xúò\ûBàôYY◊Ÿô]⁄HôYY◊Ÿô]⁄‹àõ››]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõBàYàõ›ôYY◊Ÿô]⁄Çàô]\õà›]Köô[Yö[ó€Xúò\ûBà›]Köô[Yö[ó€[›öYWŸ]WŸŸ[ô\ò][€à
+œHBàúô\⁄Hôóÿ€Y[ùõ\›€[›öY\ 
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õà›]Köô[Yö[ó€Xúò\ûBà›]Köô[Yö[ó€[›öYWŸ]WŸŸ[ô\ò][€à
+œHBàYàúô\⁄\»õ›õ€ôNÇà›]Köô[Yö[ó€Xúò\ûHHúô\⁄à›]Köô[Yö[ó€Xúò\ûW›[YHH[YKù[YJ
+Bà›]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõHHùYBà›]Köô[Yö[ó€Xúò\ûW‹ô]ûWÿYù\àHåà[ŸNÇà›]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó€Xúò\ûW‹ô]ûWÿYù\àH[YKù[YJ
+H
+»ëSQíSó—Tîì‘ó‘ëUñW‘—P””ë¬àô]\õà›]Köô[Yö[ó€Xúò\ûBÇÇôYàŸ]⁄ô[Yö[óŸ\\€Ÿ\ õ‹òŸNàõ€€Hò[ŸJHOà‹[€ò[”\›ŸX›WNÇàààìYYô\ù[HŸ\öY[ãQ\\€Ÿ[à]\»ô[Yö[à
+ŸXÿX⁄
+H8†$»[Z]YBàÿ]⁄\›T∞Ôù[ô»ŸZpÁÀÿàZ[ôHô]HŸ\ÿ‹ò\]H\\€ŸH]È⁄X⁄àõÿ⁄ôZŸ\àô\ôZ]»[à\àöXõ[›Z»YY›àààÇà⁄]›]Köô[Yö[óŸ\\€Ÿ\◊Ÿô]⁄€ÿ⁄ŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çàõ›»H[YKù[YJ
+BàôYY◊Ÿô]⁄H
+àõ‹òŸBà‹à›]Köô[Yö[óŸ\\€Ÿ\»\»õ€ôBà‹à
+õ›»H›]Köô[Yö[óŸ\\€Ÿ\◊›[YJHàëSQíSó––P“W’à
+BàYàõ›ôóÿ€Y[ùò€€ôöY›\ôYÇàô]\õàõ€ôBàYàõ›õ‹òŸH[ôõ›»›]Köô[Yö[óŸ\\€Ÿ\◊‹ô]ûWÿYù\éÇàô]\õà›]Köô[Yö[óŸ\\€Ÿ\¬àôYY◊Ÿô]⁄HôYY◊Ÿô]⁄‹àõ››]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõBàYàõ›ôYY◊Ÿô]⁄Çàô]\õà›]Köô[Yö[óŸ\\€Ÿ\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàúô\⁄Hôóÿ€Y[ùõ\›Ÿ\\€Ÿ\ 
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õà›]Köô[Yö[óŸ\\€Ÿ\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàYàúô\⁄\»õ›õ€ôNÇà›]Köô[Yö[óŸ\\€Ÿ\»Húô\⁄à›]Köô[Yö[óŸ\\€Ÿ\◊›[YHH[YKù[YJ
+Bà›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõHHùYBà›]Köô[Yö[óŸ\\€Ÿ\◊‹ô]ûWÿYù\àHåà[ŸNÇà›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[óŸ\\€Ÿ\◊‹ô]ûWÿYù\àH[YKù[YJ
+H
+»ëSQíSó—Tîì‘ó‘ëUñW‘—P””ë¬àô]\õà›]Köô[Yö[óŸ\\€Ÿ\¬ÇÇôYàŸ]⁄ô[Yö[ó‹Ÿ\öY\ õ‹òŸNàõ€€Hò[ŸJHOà‹[€ò[”\›ŸX›WNÇàààìYYô\ùô[Yö[ãTŸ\öY[à[ö€\⁄]ôHõ›öY\ãRQ»∞Ôà›Xö[\»X]⁄[ôÀàààÇà⁄]›]Köô[Yö[ó‹Ÿ\öY\◊Ÿô]⁄€ÿ⁄ŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çàõ›»H[YKù[YJ
+BàôYY◊Ÿô]⁄H
+àõ‹òŸBà‹à›]Köô[Yö[ó‹Ÿ\öY\»\»õ€ôBà‹à
+õ›»H›]Köô[Yö[ó‹Ÿ\öY\◊›[YJHàëSQíSó––P“W’à
+BàYàõ›ôóÿ€Y[ùò€€ôöY›\ôYÇàô]\õàõ€ôBàYàõ›õ‹òŸH[ôõ›»›]Köô[Yö[ó‹Ÿ\öY\◊‹ô]ûWÿYù\éÇàô]\õà›]Köô[Yö[ó‹Ÿ\öY\¬àôYY◊Ÿô]⁄HôYY◊Ÿô]⁄‹àõ››]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõBàYàõ›ôYY◊Ÿô]⁄Çàô]\õà›]Köô[Yö[ó‹Ÿ\öY\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàúô\⁄Hôóÿ€Y[ùõ\›‹Ÿ\öY\ 
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õà›]Köô[Yö[ó‹Ÿ\öY\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàYàúô\⁄\»õ›õ€ôNÇà›]Köô[Yö[ó‹Ÿ\öY\»Húô\⁄à›]Köô[Yö[ó‹Ÿ\öY\◊›[YHH[YKù[YJ
+Bà›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõHHùYBà›]Köô[Yö[ó‹Ÿ\öY\◊‹ô]ûWÿYù\àHåà[ŸNÇà›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó‹Ÿ\öY\◊‹ô]ûWÿYù\àH[YKù[YJ
+H
+»ëSQíSó—Tîì‘ó‘ëUñW‘—P””ë¬àô]\õà›]Köô[Yö[ó‹Ÿ\öY\¬ÇÇôYàŸ]⁄ô[Yö[ó›\Ÿ\óŸ\\€Ÿ\ õ‹òŸNàõ€€Hò[ŸJHOà‹[€ò[”\›ŸX›WNÇàààìYYô\ù\\€Ÿ[àZ]Ÿ\ŸZ[ãT›]\»\»€€ôöY›\öY\ù[àô[ù]ô\úÀàààÇà⁄]›]Köô[Yö[ó›\Ÿ\óŸô]⁄€ÿ⁄ŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà\Ÿ\ó⁄YH›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKú›ö\
+
+Bàõ›»H[YKù[YJ
+BàôYY◊Ÿô]⁄H
+àõ‹òŸBà‹à›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»\»õ€ôBà‹à
+õ›»H›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊›[YJHàëSQíSó––P“W’à
+BàYàõ›ôóÿ€Y[ùò€€ôöY›\ôY‹àõ›\Ÿ\ó⁄YÇàô]\õàõ€ôBàYàõ›õ‹òŸH[ôõ›»›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊‹ô]ûWÿYù\éÇàô]\õà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬àôYY◊Ÿô]⁄HôYY◊Ÿô]⁄‹àõ››]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõBàYàõ›ôYY◊Ÿô]⁄Çàô]\õà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBà][\»Hôóÿ€Y[ùõ\›Ÿ\\€Ÿ\◊›⁄]›\Ÿ\óŸ]J\Ÿ\ó⁄Y
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬à›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàYà][\»\»õ€ôNÇà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõHHò[ŸBà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊‹ô]ûWÿYù\àH
+à[YKù[YJ
+H
+»ëSQíSó—Tîì‘ó‘ëUñW‘—P””ë¬à
+Bàô]\õà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬à›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»H][\¬à›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊›[YHH[YKù[YJ
+Bà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõHHùYBà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊‹ô]ûWÿYù\àHåàô]\õà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬ÇÇôYà›ö\‹€›\òŸW‹›Yôö^
+]Nà›äHOà›éÇàààë[ùô\õùYHRKSX\ö⁄Y\ù[ô»–[òöY]\óXàààÇàô]\õàôKú›Xäàó ó÷◊óWJ◊W âãàã]H‹ààäKú›ö\
+
+BÇÇôYà€X[ó€[›öYW›]J]Nà›äHOà›éÇàààêô\ôZ[öY›ö[]][∞Ôà[ûôZYŸKQà[ôô[Yö[ãÇÇà]Y[ŸZ][à0ÈôŸ[àZ[»Y][€ô[àŸ\à‹òX⁄X\öŸ\à[ã]ÿBà
+õX⁄»[ô⁄õ€YHY][€äH”[Ÿõ^XŸ\àSë”T“][ÇàààÇàò[YHHàãöõ⁄[ä›ä]H‹ààäKú‹]
+
+JKú›ö\
+
+Bà[ô›XYŸHHàäŒëSë”T“Së”T–“—TìPSüUU–“USJŒìSë’PQ—JOﬂ’üÀU”äHÇàô]ö[›\»Hõ€ôBà⁄[Hò[YH[ôò[YHOHô]ö[›\ŒÇàô]ö[›\»Hò[YBàò[YHH›ö\‹€›\òŸW‹›Yôö^
+ò[YJBàò[YHHôKú›Xäàó ó
+◊ä
+WJó
+W âãàãò[YJKú›ö\
+
+Bàò[YHHôKú›Xäàôàóñ◊ﬂóÀWJó û€[ô›XYŸ_JŒó  ŒëPü’Pü
+JO»Çàôàó ñ◊ﬂóÀWJ◊ àãààãàò[YKàõY‹œ\ôKíQ”ì‘ëP–T—Kà
+Kú›ö\
+
+Bàò[YHHôKú›Xäàôàó ñ◊ﬂóÀWJ◊ û€[ô›XYŸ_JŒó  ŒëPü’Pü
+JO»Çàôàó ñ◊ﬂóÀWJó âãààãàò[YKàõY‹œ\ôKíQ”ì‘ëP–T—Kà
+Kú›ö\
+
+Bà»Z[à[Z[ú›Z[ô\ã‹õÁŸŸ\ÿ⁄öYXô[ô\àô[X\ŸKSX\öŸ\à[H[ôH\›à»Xô[ôò[»ŸZ[à][ô\›[ôZ[àõ‹õX[\»8†'ë[ô€\⁄[›öYx†'õZXùÇàò[YHHôKú›Xäààó  ŒëSë”T“Së”T–“—TìPSüUU–“US_’üÀU”äHÇààäŒó  ŒëPü’Pü
+JO◊ âãààãàò[YKà
+Kú›ö\
+
+Bàô]\õàò[YBÇÇôYàõ›öY\ó€‹ô\äYYXW›\Nà›äHOà\›‹›óNÇàYò][»H¬àõ[›öY\»éà\€€ôöYÀìS’íQW‘ì’íQTó—QêUSÀàúŸ\öY\»éà\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUSÀàò[ö[YHéà\€€ôöYÀêSíSQW‘ì’íQTó—QêUSÀàKôŸ]
+YYXW›\K
+
+JBà⁄]›]Kúõ›öY\ó‹ö[‹ö]W€ÿ⁄ŒÇà€€ôöY›\ôYH›]Kúõ›öY\ó‹ö[‹ö]Y\ÀôŸ]
+YYXW›\KYò][ Bàô]\õà\€€ôöYÀõõ‹õX[^ôW‹õ›öY\ó€‹ô\ä€€ôöY›\ôYYò][ BÇÇôYàõ›öY\ó‹ö[‹ö]JYYXW›\Nà›äHOà\›‹›óNÇàààêZ›]ôK‹òX⁄X⁄\‹Ÿ[ôH]Y[[à[àô[ù]ô\ãTôZZ[ôõ€ŸKàààÇà‹ô\ôYHõ›öY\ó€‹ô\äYYXW›\JBà⁄]›]Kúõ›öY\ó‹ö[‹ö]W€ÿ⁄ŒÇà€€ôöY›\ôYH›]Kúõ›öY\óŸ[òXõYôŸ]
+YYXW›\K‹ô\ôY
+Bà[òXõYHŸ]
+\€€ôöYÀõõ‹õX[^ôW‹õ›öY\ó‹Ÿ[X›[€ä€€ôöY›\ôY‹ô\ôY
+JBà[ô›XYŸ\»HŸ]
+›]Kò€€ù[ù€[ô›XYŸ\ BàX]⁄[ô»H¬àõ›öY\Çàõ‹àõ›öY\à[à‹ô\ôYàYàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äH[à[ô›XYŸ\¬àBàX›]ôHH‹õ›öY\àõ‹àõ›öY\à[àX]⁄[ô»Yàõ›öY\à[à[òXõYBàYàYYXW›\HOHò[ö[YHéÇàô]\õàX›]ôBàô]\õàX›]ôH‹àX]⁄[ô÷ŒåWH‹à‹ô\ôYŒåWBÇÇôYàõ›öY\óŸõ‹ó›ò[YJò[YNà›äHOà›éÇàààë\öŸ[õùYHÿ][Ÿ‹]Y[H[à[àô[ùò[[ù\õY›[àY\ö€X[[ãàààÇàô]\õàõ›öY\óŸõ‹ó‹€›\òŸJò[YJBÇÇôYàÿ\W‹õ›öY\ó€Y]Y]J][Kõ›öY\éà›äNÇàààë\ôÈûùõ‹õX[\⁄Y\ùHYYY[õÿöôZ›H[H]Y[H[ô›[ô\ô‹òX⁄KàààÇàYà][H\»õ€ôNÇàô]\õàõ€ôBàŸ^HH›äõ›öY\à‹ààäKú›ö\
+
+Kòÿ\ŸYõ€
+
+BàYà\ÿ]ä][Kúõ›öY\àäNÇà][Kúõ›öY\àHŸ^BàYà\ÿ]ä][Kò€€ù[ù€[ô›XYŸHäNÇà][Kò€€ù[ù€[ô›XYŸHHõ›öY\óÿ€€ù[ù€[ô›XYŸJŸ^JBàô]\õà][BÇÇôYàÿ\W‹õ›öY\ó€Y]Y]W€X[ûJ][\Àõ›öY\éà›äHOà\›Çàô]\õà¬àÿ\W‹õ›öY\ó€Y]Y]J][Kõ›öY\äBàõ‹à][H[à
+][\»‹à◊JBàYà][H\»õ›õ€ôBàBÇÇôYà€[›öYW‹õ›öY\ä[›öYNà‹[€ò[—ö[\[\›[›öYWKò[òX⁄Œà›àHàäHOà›éÇà›‹ôYH›äŸ]]ä[›öYKúõ›öY\àãàäH‹ààäKú›ö\
+
+Kòÿ\ŸYõ€
+
+BàYà›‹ôY[àì’íQTó––US—ŒÇàô]\õà›‹ôYàò[YHHŸ]]ä[›öYKù\õãàäHYà[›öYH\»õ›õ€ôH[ŸHò[òX⁄¬àô]\õàõ›öY\óŸõ‹ó›ò[YJò[YH‹àò[òX⁄ BÇÇôYà€[›öYWÿ€€ù[ù€[ô›XYŸJà[›öYNà‹[€ò[—ö[\[\›[›öYWKà‹›\ó€[ô›XYŸNà›àHàãàò[òX⁄Œà›àHàãäHOà›éÇà^X⁄]Hõ‹õX[^ôWÿ€€ù[ù€[ô›XYŸJ‹›\ó€[ô›XYŸJBàYà^X⁄]Çàô]\õà^X⁄]àYà[›öYH\»õ›õ€ôNÇà›‹ôYHõ‹õX[^ôWÿ€€ù[ù€[ô›XYŸJà›äŸ]]ä[›öYKò€€ù[ù€[ô›XYŸHãàäH‹ààäBà
+BàYà›‹ôYÇàô]\õà›‹ôYàô]\õàõ›öY\óÿ€€ù[ù€[ô›XYŸJ€[›öYW‹õ›öY\ä[›öYKò[òX⁄ JBÇÇôYà€‹ô\ôYŸ\\€ŸW‹€›\òŸ\ [›öY\Œà\›—ö[\[\›[›öYWJHOà\›—ö[\[\›[›öYWNÇà‹⁄][€ú»H‹õ›öY\éà[ô^õ‹à[ô^õ›öY\à[à[ù[Y\ò]Jõ›öY\ó‹ö[‹ö]JúŸ\öY\»äJ_Bàô]\õà€‹ùY
+à[›öY\ÀàŸ^O[[XôH[›öYNà‹⁄][€úÀôŸ]
+õ›öY\óŸõ‹ó›ò[YJ[›öYKù\õ
+K[ä‹⁄][€ú JKà
+BÇÇôYà€X[óŸŸ[úôJò[YNà›äHOà›éÇàô]\õààãöõ⁄[ä›äò[YH‹ààäKú‹]
+
+JBÇÇôYàÿ[õ€öXÿ[€[›öYWŸŸ[úôJò[YNà›äHOà›éÇàŸ[úôHH€X[óŸŸ[úôJò[YJBàô]\õàS’íQW——SîëW––Sì”íP–S–ñW“—VKôŸ]
+Ÿ[úôKòÿ\ŸYõ€
+
+KŸ[úôJBÇÇôYà[›öYWŸŸ[úôWÿ[X\Ÿ\ ò[YNà›äHOà\V‹›ãããóNÇàÿ[õ€öXÿ[Hÿ[õ€öXÿ[€[›öYWŸŸ[úôJò[YJBàô]\õàS’íQW——SîëW—‘ì’TÀôŸ]
+ÿ[õ€öXÿ[
+ÿ[õ€öXÿ[
+JBÇÇôYàÿ]⁄\›€€⁄›\
+ò\ŸW‹€YŒà›äHOà‹[€ò[ŸX›NÇàô]\õàô^
+
+»õ‹à»[à›]Kùÿ]⁄\›Yà÷»òò\ŸW‹€Y»óHOHò\ŸW‹€Y Kõ€ôJBÇÇôYàÿY€[›öYWŸõ‹ó‹€Y €YŒà›äHOà‹[€ò[—ö[\[\›[›öYWNÇàYàôKôù[X]⁄
+àùYéó
+»ã€Y»‹ààãõY‹œ\ôKíQ”ì‘ëP–T—JNÇà€›\òŸ\»Hô\€€ôW›Yó€[›öYW‹€›\òŸ\ €YÀú‹]
+éàãJVÃWJBàô]\õà€›\òŸ\÷ÃHYà€›\òŸ\»[ŸHõ€ôBàõ›öY\àHõ›öY\óŸõ‹ó›ò[YJ€Y BàYà€YÀú›\ù›⁄]
+íSQîëRLç‘ëQíV
+NÇà[›öYHHö[QúôZLçÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+—TíQSî’ëPSW‘ëQíV
+NÇàYàõ››]Kúõ›öY\ó⁄X[úô\]Y\›ÿ[›ŸY
+úŸ\öY[ú›ôX[HäNÇàòZ\ŸHù[ù[YQ\úõ‹äîŸ\öY[î›ôX[HôYö[ô]⁄X⁄[Hõ›öY\ãP€€€›€àäBà⁄]›]Kú›◊€ÿ⁄ŒÇàûNÇà[›öYHHŸ]‹›◊‹ÿ‹ò\\ä
+KôŸ]€[›öYJ€Y Bà^Ÿ\õ›öY\êõÿ⁄ŸY\úõ‹à\»^ŒÇà€X\ö◊‹Ÿ\öY[ú›ôX[Wÿõÿ⁄ŸY
+^ÀúôX\€€ã›ä^ JBàòZ\ŸBà[Yà€YÀú›\ù›⁄]
+S—ìV‘ëQíV
+NÇà⁄]›]Kõ[Ÿõ^€ÿ⁄ŒÇà[›öYHHŸ]€[Ÿõ^‹ÿ‹ò\\ä
+KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+
+RW‘ëQíVRW”S’íQW‘ëQíV
+JNÇà⁄]›]KöZW€ÿ⁄ŒÇà[›öYHHŸ]⁄ZW‹ÿ‹ò\\ä
+KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+RSî–“SSó‘ëQíV
+NÇà[›öYHHZ[úÿ⁄[[îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+“Sì÷‘ëQíV
+NÇà[›öYHH⁄[õﬁÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+“Sì——Tó‘ëQíV
+NÇà[›öYHH⁄[õŸŸ\îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+QQ–R“Sì◊‘ëQíV
+NÇà[›öYHHYYÿR⁄[õ‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+“SëW‘ëQíV
+NÇà[›öYHH⁄[ôTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+—ìV‘ëQíV
+NÇà[›öYHHŸõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+íQ”S’íQT◊‘ëQíV
+NÇà[›öYHHöY€[›öY\‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]€[›öYJ€Y Bà[Yà€YÀú›\ù›⁄]
+R“T‘–W‘ëQíV
+NÇà⁄]›]KõZ⁄\‹ÿW€ÿ⁄ŒÇà[›öYHHŸ]€Z⁄\‹ÿW‹ÿ‹ò\\ä
+KôŸ]Ÿ\\€ŸJ€Y Bà[ŸNÇàYà€YÀõ›Ÿ\ä
+Kú›\ù›⁄]
+
+öãÀ»ãöŒãÀ»äJNÇà‹›H
+\õ\úŸJ€Y Kö‹›ò[YH‹ààäKòÿ\ŸYõ€
+
+BàYà‹›OHôö[\[\›ù»à[ôõ›‹›ô[ô›⁄]
+ãôö[\[\›ù»äNÇàòZ\ŸHò[YQ\úõ‹äë\ôZ›HTì»⁄[ôù\à∞Ôàö[\[\›\õ]XùàäBàÿ‹ò\\àHŸ]Ÿú‹ÿ‹ò\\ä
+Bà⁄]›]Kôú€ÿ⁄ŒÇà[›öYHHÿ‹ò\\ãôŸ]€[›öYJ€Y Bàô]\õàÿ\W‹õ›öY\ó€Y]Y]J[›öYKõ›öY\äBÇÇôYàŸX\ò⁄€[›öYWÿÿ[ôY]\ ]Y\ûNà›äHOà\›—ö[\[\›ŸX\ò⁄ô\›[NÇàààë\ò⁄›X⁄[Hö[X[òöY]\é»Ÿ[YZ[úÿ[YHò\⁄\»∞ÔàŸXà[ô[Y‹ò[KàààÇàHH]Y\ûKú›ö\
+
+BàYàõ›NÇàô]\õà◊BàYàŸú
+
+NÇà⁄]›]Kôú€ÿ⁄ŒÇàô]\õà\›
+Ÿ]Ÿú‹ÿ‹ò\\ä
+KúŸX\ò⁄
+JJBÇàYà⁄ZJ
+NÇà⁄]›]KöZW€ÿ⁄ŒÇàô]\õà\›
+Ÿ]⁄ZW‹ÿ‹ò\\ä
+KúŸX\ò⁄
+JJBÇàŸX\ò⁄\»H¬àôö[YúôZLçéà[XôNàö[QúôZLçÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàôö[\[\›éàŸúàöZHéà⁄ZKàõ[Ÿõ^éà[XôNà[Ÿõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàôZ[úÿ⁄[[àéà[XôNàZ[úÿ⁄[[îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàö⁄[õﬁéà[XôNà⁄[õﬁÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàö⁄[õŸŸ\àéà[XôNà⁄[õŸŸ\îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàõYYÿZ⁄[õ»éà[XôNàYYÿR⁄[õ‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàû⁄[ôHéà[XôNà⁄[ôTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàúŸõ^éà[XôNàŸõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàúöY€[›öY\»éà[XôNàöY€[›öY\‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄
+JKàBà\⁄‹»H¬à
+Ÿ^Kì’íQTó”PëS÷⁄Ÿ^WKŸX\ò⁄\÷⁄Ÿ^WJBàõ‹àŸ^H[àõ›öY\ó‹ö[‹ö]Jõ[›öY\»äBàBàô\›[Œà\›—ö[\[\›ŸX\ò⁄ô\›[HH◊Bà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[[ä\⁄‹ JH\»€€Çàù]\ô\»H Ÿ^Kò[YK€€ú›XõZ]
+õäJHõ‹àŸ^Kò[YKõà[à\⁄‹◊Bàõ‹àŸ^Kò[YKù]\ôH[àù]\ô\ŒÇàûNÇàô\›[Àô^[ô
+ÿ\W‹õ›öY\ó€Y]Y]W€X[ûJù]\ôKúô\›[
+
+KŸ^JJBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àû€ò[Y_H›X⁄H0Ôô\ú‹ù[ôŸ[éàŸ^ﬂHãùÿ\õàäBàô]\õàô\›[¬ÇÇôYà›Yó‹ŸX\ò⁄‹ô\›[ ]Y\ûNà›äHOà\›ŸX›NÇàààëõ‹õX]Y\ùQãUôYôô\à[»õ›öY\ù[òXö0Èô⁄YŸHö[Zÿ\ù[ãàààÇà[›öY\»HŸ]›Yóÿ€Y[ù
+
+KúŸX\ò⁄€[›öY\ à]Y\ûKX^‹ô\›[œUQó”S’íQW‘—PTê“”PV‘ëT’SÀà
+Bàô]\õà¬à¬à
+äõ[›öYKàú€Y»éààùYéû€[›öYV…›Yó⁄Y	◊_Hãàù\õéààöŒãÀ›››Àù[[›öYYãõ‹ôÀ€[›öYKﬁ€[›öYV…›Yó⁄Y	◊_Hãàö\◊€[›öYHéàùYKàúõ›öY\àéààãàò€€ù[ù€[ô›XYŸHéààãàBàõ‹à[›öYH[à[›öY\¬àBÇÇôYà€[›öYW›]W€X]⁄⁄Ÿ^\ ]Nà›äHOàŸ]‹›óNÇàò]»HôKú›Xäààó ñ◊
+◊O ŒåN_å
+WÃüV◊
+WWO◊ âãààãà€X[ó€[›öYW›]J]JKà
+Kú›ö\
+
+BàYà€X]⁄€õ‹õJò[YNà›äHOà›éÇà\ÿ⁄ZW›ò[YHH
+à[öX€ŸY]Kõõ‹õX[^ôJìëí—ãò[YH‹ààäBàô[ò€ŸJò\ÿ⁄ZHãöY€õ‹ôHäBàôX€ŸJò\ÿ⁄ZHäBà
+Bàô]\õàôKú›Xäàñ◊òK^åNWJ»ãàã\ÿ⁄ZW›ò[YKòÿ\ŸYõ€
+
+JBÇàŸ^\»H◊€X]⁄€õ‹õJò] _Bàõ€X[ó›◊€ù[Xô\àH¬àöHéàåHãöZHéàåàãöZZHéàå»ãö]àéàçãùàéàçHãàùöHéàçàãùöZHéàç»ãùöZZHéàéãö^éàéHãûéàåLãàBàX]⁄HôKúŸX\ò⁄
+àóä^ÃKﬂ_]üüö^Ãﬂ_^ÃKüJIãò]ÀôKíQ”ì‘ëP–T—JBàYàX]⁄Çà›Yôö^HX]⁄ô‹õ›\
+JKòÿ\ŸYõ€
+
+Bàô\XŸ[Y[ùHõ€X[ó›◊€ù[Xô\ãôŸ]
+›Yôö^
+BàYàô\XŸ[Y[ùÇàŸ^\ÀòY
+€X]⁄€õ‹õJò]÷ŒõX]⁄ú›\ù
+
+WH
+»ô\XŸ[Y[ù
+JBà[Yà›Yôö^ö\ŸY⁄]
+
+NÇàù[Xô\ó›◊‹õ€X[àH›ò[YNàŸ^Hõ‹àŸ^Kò[YH[àõ€X[ó›◊€ù[Xô\ãö][\ 
+_Bàõ€X[àHù[Xô\ó›◊‹õ€X[ãôŸ]
+›ä[ù
+›Yôö^
+JJBàYàõ€X[éÇàŸ^\ÀòY
+€X]⁄€õ‹õJò]÷ŒõX]⁄ú›\ù
+
+WH
+»õ€X[äJBàŸ^\Àô\ÿÿ\ô
+àäBàô]\õàŸ^\¬ÇÇôYà€[›öYW€X]⁄\◊›Yóÿ⁄⁄XŸJà]Nà›ãàYX\éà›ãà[X\Ÿ\ŒàŸ]‹›óKàÿ[ùYﬁYX\éà›ãäHOàõ€€ÇàYàõ›
+€[›öYW›]W€X]⁄⁄Ÿ^\ ]JH	à[X\Ÿ\ NÇàô]\õàò[ŸBàÿ[ôY]WﬁYX\àH›äYX\à‹ààäKú›ö\
+
+Bàô]\õàõ›
+ÿ[ùYﬁYX\à[ôÿ[ôY]WﬁYX\à[ôÿ[ôY]WﬁYX\àOHÿ[ùYﬁYX\äBÇÇôYàô\€€ôW›Yó€[›öYW‹€›\òŸ\ Yó⁄Y
+HOà\›—ö[\[\›[›öYWNÇàààî›X⁄Z[ô[àŸ]È[àQãQö[HôZH[[àZ›]ô[àö[\]Y[[ãÇÇà\»\ôŸXõö\»õZXùZ[àŸ⁄\ÿ⁄\à[ö[àYH\ú›H]Y[Hõ€›\Çàù]ô\úö[‹ö]0È»ôYHŸZ]\ôH]Y[H⁄\ô[»X⁄\à›€õÿYQò[òX⁄¬àŸ\‹ZX⁄\ù[ô‹0È\à]]€X]\ÿ⁄\ò⁄õÿöY\ùÇàààÇàŸ^HH›äYó⁄Y‹ààäKú›ö\
+
+BàYàõ›Ÿ^Kö\ŸY⁄]
+
+NÇàòZ\ŸHò[YQ\úõ‹äï[ôÔYŸHQãQö[KRQàäBàö\ùX[‹€Y»HàùYéû⁄[ù
+Ÿ^J_HÇà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇàÿX⁄YH›]Kõ[›öYW‹€›\òŸWÿÿX⁄KôŸ]
+ö\ùX[‹€Y BàYàÿX⁄YÇàô]\õà\›
+ÿX⁄Y
+BÇàYàHŸ]›Yóÿ€Y[ù
+
+Kõ[›öYWÿûW⁄Y
+Ÿ^JBàYàõ›YéÇàòZ\ŸH€⁄›\\úõ‹äë\àŸ]ÈHQãQö[H\›öX⁄ô\ô∞Ôÿò\ãàäBàŸX\ò⁄›]\»H◊Bàõ‹àò[YH[à
+YãôŸ]
+ù]HäKYãôŸ]
+õ‹öY⁄[ò[›]HäJNÇàò[YHHàãöõ⁄[ä›äò[YH‹ààäKú‹]
+
+JKú›ö\
+
+BàYàò[YH[ô€õ‹õW›]Jò[YJHõ›[à◊€õ‹õW›]J][JHõ‹à][H[àŸX\ò⁄›]\ﬂNÇàŸX\ò⁄›]\Àò\[ô
+ò[YJBàYàõ›ŸX\ò⁄›]\ŒÇàòZ\ŸH€⁄›\\úõ‹äïQàYYô\ùŸZ[ô[à›X⁄ò\ô[àö[]][àäBÇà[X\Ÿ\»H¬àŸ^Bàõ‹à]H[àŸX\ò⁄›]\¬àõ‹àŸ^H[à€[›öYW›]W€X]⁄⁄Ÿ^\ ]JBàBàÿ[ùYﬁYX\àH›äYãôŸ]
+ûYX\àäH‹ààäKú›ö\
+
+Bàÿ[ôY]\Œà\›—ö[\[\›ŸX\ò⁄ô\›[HH◊BàŸY[óÿÿ[ôY]\ŒàŸ]‹›óHHŸ]
+
+Bàõ›öY\óÿÿ[ôY]Wÿ€›[ùŒà€›[ù\àH€›[ù\ä
+Bàõ‹àŸX\ò⁄›]H[àŸX\ò⁄›]\ŒÇàõ‹àÿ[ôY]H[àŸX\ò⁄€[›öYWÿÿ[ôY]\ ŸX\ò⁄›]JNÇàõ›öY\àH›äÿ[ôY]Kúõ›öY\à‹àõ›öY\óŸõ‹ó›ò[YJÿ[ôY]Kú€Y JKòÿ\ŸYõ€
+
+BàYàõ›öY\óÿÿ[ôY]Wÿ€›[ù÷‹õ›öY\óHèH»‹àÿ[ôY]Kú€Y»[àŸY[óÿÿ[ôY]\ŒÇà€€ù[ùYBàYàõ›ÿ[ôY]Kö\◊€[›öYH‹àõ›€[›öYW€X]⁄\◊›Yóÿ⁄⁄XŸJàÿ[ôY]Kù]Kÿ[ôY]KûYX\ã[X\Ÿ\Àÿ[ùYﬁYX\ãà
+NÇà€€ù[ùYBàŸY[óÿÿ[ôY]\ÀòY
+ÿ[ôY]Kú€Y Bàÿ[ôY]\Àò\[ô
+ÿ[ôY]JBàõ›öY\óÿÿ[ôY]Wÿ€›[ù÷‹õ›öY\óH
+œHBÇàYà€ÿY
+ÿ[ôY]Nàö[\[\›ŸX\ò⁄ô\›[
+NÇàûNÇàÿYYH›]Kôú€[›öY\ÀôŸ]
+ÿ[ôY]Kú€Y H‹àÿY€[›öYWŸõ‹ó‹€Y ÿ[ôY]Kú€Y Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àëö[\]Y[Hÿÿ[ôY]Kù]_HöX⁄Yò\éàŸ^ﬂHãùÿ\õàäBàô]\õàõ€ôBàYàõ›ÿYY‹àõ›ÿYYö‹›\úŒÇàô]\õàõ€ôBàYàõ›€[›öYW€X]⁄\◊›Yóÿ⁄⁄XŸJàÿYYù]KÿYYûYX\à‹àÿ[ôY]KûYX\ã[X\Ÿ\Àÿ[ùYﬁYX\ãà
+NÇàô]\õàõ€ôBà›]Kôú€[›öY\÷ÿÿ[ôY]Kú€Y◊HHÿYYàô]\õàÿYYÇàÿYY‹€›\òŸ\Œà\›—ö[\[\›[›öYWHH◊BàYàÿ[ôY]\ŒÇà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[äã[äÿ[ôY]\ JJH\»€€ÇàÿYY‹€›\òŸ\»H¬à[›öYHõ‹à[›öYH[à€€õX\
+€ÿYÿ[ôY]\ BàYà[›öYH\»õ›õ€ôBàBÇà‹⁄][€ú»H¬àõ›öY\éà[ô^õ‹à[ô^õ›öY\à[à[ù[Y\ò]Jõ›öY\ó‹ö[‹ö]Jõ[›öY\»äJBàBàÿYY‹€›\òŸ\Àú€‹ù
+àŸ^O[[XôH[›öYNà‹⁄][€úÀôŸ]
+€[›öYW‹õ›öY\ä[›öYJK[ä‹⁄][€ú JKà
+Bà[ö\]YW‹€›\òŸ\Œà\›—ö[\[\›[›öYWHH◊BàŸY[ó‹õ›öY\úŒàŸ]‹›óHHŸ]
+
+Bàõ‹à[›öYH[àÿYY‹€›\òŸ\ŒÇàõ›öY\àH€[›öYW‹õ›öY\ä[›öYJBàYàõ›öY\à[àŸY[ó‹õ›öY\úŒÇà€€ù[ùYBàŸY[ó‹õ›öY\úÀòY
+õ›öY\äBà[ö\]YW‹€›\òŸ\Àò\[ô
+[›öYJBàYàõ›[ö\]YW‹€›\òŸ\ŒÇàòZ\ŸH€⁄›\\úõ‹äàà∞™ﬁ›YãôŸ]
+	›]I H‹àŸX\ò⁄›]\÷Ã_pÆ»›\ôHôZHŸZ[ô[HZ›]ô[à[òöY]\àŸYù[ô[ãàÇà
+BÇàö[X\ûHHô\XŸJà[ö\]YW‹€›\òŸ\÷ÃKà]O]YãôŸ]
+ù]HäH‹à[ö\]YW‹€›\òŸ\÷ÃKù]KàYX\è]ÿ[ùYﬁYX\à‹à[ö\]YW‹€›\òŸ\÷ÃKûYX\ãàù[ù[YO]YãôŸ]
+úù[ù[YHäH‹à[ö\]YW‹€›\òŸ\÷ÃKúù[ù[YKà€›ô\ó›\õ]YãôŸ]
+ò€›ô\ó›\õäH‹à[ö\]YW‹€›\òŸ\÷ÃKò€›ô\ó›\õà\ÿ‹ö\[€è]YãôŸ]
+ô\ÿ‹ö\[€àäH‹à[ö\]YW‹€›\òŸ\÷ÃKô\ÿ‹ö\[€ãàŸ[úô\œ]YãôŸ]
+ôŸ[úô\»äH‹à[ö\]YW‹€›\òŸ\÷ÃKôŸ[úô\Àà
+Bà€›\òŸ\»H‹ö[X\ûK
+ù[ö\]YW‹€›\òŸ\÷ÃNóWBà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà^\›[ô»H›]Kõ[›öYW‹€›\òŸWÿÿX⁄KôŸ]
+ö\ùX[‹€Y BàYà^\›[ôŒÇàô]\õà\›
+^\›[ô Bà›]Kõ[›öYW‹€›\òŸWÿÿX⁄V›ö\ùX[‹€Y◊HH\›
+€›\òŸ\ Bà›]Kôú€[›öY\÷›ö\ùX[‹€Y◊HHö[X\ûBàŸ ààïQãQö[H0™ﬁ‹ö[X\ûKù]_pÆŒà€[ä€›\òŸ\ _H[òöY]\ú]Y[JäHŸX∞Ôô[àÇà
+Bàô]\õà€›\òŸ\¬ÇÇò€\‹»[›öYPÿ][Ÿ–€€ÿY[Z]
+ù[ù[YQ\úõ‹äNÇàààïô\ö[ô\ù]\ôH‹∞ÔôŸH0Ôô\àöY[Hõÿ⁄[ôŸXÿX⁄H]Y[ŸZ][ãàààÇÇÇôYàÿÿX⁄Y€[›öYW‹õ›öY\ó‹YŸJÿX⁄W⁄Ÿ^Nà\JHOà‹[€ò[”\›—ö[\[\›ŸX\ò⁄ô\›[WNÇà⁄]›]Kõ[›öYW€\›ÿÿX⁄W€ÿ⁄ŒÇàÿX⁄YH›]Kõ[›öYW€\›ÿÿX⁄KôŸ]
+ÿX⁄W⁄Ÿ^JBàHÿX⁄YÃóHYàÿX⁄Y[ô[äÿX⁄Y
+Hàà[ŸHS’íQW”T’––P“W’àYàÿX⁄Y[ô[YKù[YJ
+HHÿX⁄YÃHÇàô]\õà\›
+ÿX⁄YÃWJBàYàÿX⁄YÇà›]Kõ[›öYW€\›ÿÿX⁄Kú‹
+ÿX⁄W⁄Ÿ^Kõ€ôJBàô]\õàõ€ôBÇÇôYàÿÿX⁄W€[›öYW‹õ›öY\ó‹YŸJàÿX⁄W⁄Ÿ^Nà\Kàô\›[Œà\›—ö[\[\›ŸX\ò⁄ô\›[Kàà[ùHS’íQW”T’––P“W’äHOàõ€ôNÇàõ›»H[YKù[YJ
+Bà⁄]›]Kõ[›öYW€\›ÿÿX⁄W€ÿ⁄ŒÇà^\ôYH¬àŸ^Hõ‹àŸ^KÿX⁄Y[à›]Kõ[›öYW€\›ÿÿX⁄Kö][\ 
+BàYàõ›»HÿX⁄YÃHèH
+àÿX⁄YÃóHYà[äÿX⁄Y
+Hàà[ŸHS’íQW”T’––P“W’à
+BàBàõ‹àŸ^H[à^\ôYÇà›]Kõ[›öYW€\›ÿÿX⁄Kú‹
+Ÿ^Kõ€ôJBà⁄[H[ä›]Kõ[›öYW€\›ÿÿX⁄JHèHS’íQW”T’––P“W”PV—SïíQTŒÇà€\›HZ[ä›]Kõ[›öYW€\›ÿÿX⁄KŸ^O[[XôHŸ^Nà›]Kõ[›öYW€\›ÿÿX⁄V⁄Ÿ^WVÃJBà›]Kõ[›öYW€\›ÿÿX⁄Kú‹
+€\›õ€ôJBà›]Kõ[›öYW€\›ÿÿX⁄VÿÿX⁄W⁄Ÿ^WHH
+õ›À\›
+ô\›[ K
+BÇÇôYàŸô]⁄€[›öYW‹õ›öY\ó‹YŸJàõ›öY\éà›ãà[ŸNà›ãàŸ[úôNà›ãà€›\òŸW‹YŸNà[ùäHOà\›—ö[\[\›ŸX\ò⁄ô\›[NÇàààì0ÈŸ[ò]HZ[ôH]Y[ŸZ]N»ù\àX\ö⁄Y\ùH[òöY]\àY⁄[öY\ô[ãàààÇàYàõ›öY\àõ›[àS’íQW‘Q“SêUQ‘ì’íQTî»[ô€›\òŸW‹YŸHOHNÇàô]\õà◊Bàõ›öY\óŸŸ[úôHH€[›öYWŸŸ[úôWŸõ‹ó‹õ›öY\äõ›öY\ãŸ[úôJHYà[ŸHOHôŸ[úôHà[ŸHŸ[úôBÇàYàõ›öY\àOHôö[\[\›éÇà⁄]›]Kôú€ÿ⁄ŒÇàÿ‹ò\\àHŸ]Ÿú‹ÿ‹ò\\ä
+BàYà[ŸHOHôŸ[úôHéÇàô\›[»Hÿ‹ò\\ãõ\›ÿûWŸŸ[úôJõ›öY\óŸŸ[úôK€›\òŸW‹YŸJBà[ŸNÇàô\›[»Hÿ‹ò\\ãõ\›€[›öY\ [ŸK€›\òŸW‹YŸJBàô]\õàÿ\W‹õ›öY\ó€Y]Y]W€X[ûJô\›[Àõ›öY\äBÇàYàõ›öY\àOHöZHéÇà⁄]›]KöZW€ÿ⁄ŒÇàÿ‹ò\\àHŸ]⁄ZW‹ÿ‹ò\\ä
+Bàô\›[»H
+àÿ‹ò\\ãõ\›ÿûWŸŸ[úôJõ›öY\óŸŸ[úôK€›\òŸW‹YŸJBàYà[ŸHOHôŸ[úôHÇà[ŸHÿ‹ò\\ãõ\›€[›öY\ [ŸK€›\òŸW‹YŸJBà
+Bàô]\õàÿ\W‹õ›öY\ó€Y]Y]W€X[ûJô\›[Àõ›öY\äBÇàÿ‹ò\\óÿ€\‹Ÿ\»H¬àôö[YúôZLçéàö[QúôZLçÿ‹ò\\ãàõ[Ÿõ^éà[Ÿõ^ÿ‹ò\\ãàôZ[úÿ⁄[[àéàZ[úÿ⁄[[îÿ‹ò\\ãàö⁄[õﬁéà⁄[õﬁÿ‹ò\\ãàö⁄[õŸŸ\àéà⁄[õŸŸ\îÿ‹ò\\ãàõYYÿZ⁄[õ»éàYYÿR⁄[õ‘ÿ‹ò\\ãàû⁄[ôHéà⁄[ôTÿ‹ò\\ãàúŸõ^éàŸõ^ÿ‹ò\\ãàúöY€[›öY\»éàöY€[›öY\‘ÿ‹ò\\ãàBàÿ‹ò\\óÿ€\‹»Hÿ‹ò\\óÿ€\‹Ÿ\ÀôŸ]
+õ›öY\äBàYàÿ‹ò\\óÿ€\‹»\»õ€ôNÇàô]\õà◊Bàÿ‹ò\\àHÿ‹ò\\óÿ€\‹ õŸ‹ô\‹◊ÿÿè[Ÿ BàYà[ŸHOHôŸ[úôHéÇàô\›[»Hÿ‹ò\\ãõ\›ÿûWŸŸ[úôJõ›öY\óŸŸ[úôK€›\òŸW‹YŸJBà[ŸNÇàô\›[»Hÿ‹ò\\ãõ\›€[›öY\ [ŸK€›\òŸW‹YŸJBàô]\õàÿ\W‹õ›öY\ó€Y]Y]W€X[ûJô\›[Àõ›öY\äBÇÇôYà€ÿY€[›öYW‹õ›öY\ó‹YŸ\ à[ŸNà›ãàŸ[úôNà›ãàô\]Y\›◊›◊€ÿYà\››\V‹›ã[ùWKà€€›ÿ]ôWÿùYŸ]à‹[€ò[”\›⁄[ùWHHõ€ôKäHOàX››\V‹›ã[ùK\›—ö[\[\›ŸX\ò⁄ô\›[WNÇàààì0ÈYZô\ôH]Y[ŸZ][à\ò[[[ôÿX⁄Y⁄YH[òXö0Èô⁄Y»õ€ôZ[ò[ô\ãàààÇàÿYYàX››\V‹›ã[ùK\›—ö[\[\›ŸX\ò⁄ô\›[WHHﬂBàZ\‹⁄[ôŒà\››\V‹›ã[ù\WWHH◊BàŸ[úôW⁄Ÿ^HH€X[óŸŸ[úôJŸ[úôJKòÿ\ŸYõ€
+
+BÇàõ‹àõ›öY\ã€›\òŸW‹YŸH[àX›ôúõ€ZŸ^\ ô\]Y\›◊›◊€ÿY
+NÇàÿX⁄W⁄Ÿ^HH
+úõ›öY\àã[ŸKŸ[úôW⁄Ÿ^Kõ›öY\ã[ù
+€›\òŸW‹YŸJJBàÿX⁄YHÿÿX⁄Y€[›öYW‹õ›öY\ó‹YŸJÿX⁄W⁄Ÿ^JBàYàÿX⁄Y\»õ€ôNÇàZ\‹⁄[ôÀò\[ô
+
+õ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^JJBà[ŸNÇàÿYY õ›öY\ã€›\òŸW‹YŸJWHHÿX⁄YÇàYàõ›Z\‹⁄[ôŒÇàô]\õàÿYYàYà€€›ÿ]ôWÿùYŸ]\»õ›õ€ôNÇàYà€€›ÿ]ôWÿùYŸ]ÃHHÇàòZ\ŸH[›öYPÿ][Ÿ–€€ÿY[Z]
+àëY\Ÿ\àÿ][ŸÿXúÿ⁄ö]⁄\ôõÿ⁄õ‹òô\ôZ]]àö]H›\ûàÿ\ù[à[ô\õô]]ô\ú›X⁄[ãàÇà
+Bà€€›ÿ]ôWÿùYŸ]ÃHOHBÇà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[ä[äZ\‹⁄[ô K[äì’íQTó”PëS JJH\»€€Çàù]\ô\»H¬à
+àõ›öY\ãà€›\òŸW‹YŸKàÿX⁄W⁄Ÿ^Kà€€ú›XõZ]
+Ÿô]⁄€[›öYW‹õ›öY\ó‹YŸKõ›öY\ã[ŸKŸ[úôK€›\òŸW‹YŸJKà
+Bàõ‹àõ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^H[àZ\‹⁄[ô¬àBàõ‹àõ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^Kù]\ôH[àù]\ô\ŒÇàûNÇàô\›[»H\›
+ù]\ôKúô\›[
+
+JBà^Ÿ\^Ÿ\[€à\»^ŒÇàXô[Hì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\äBàŸ àû€Xô[H\›H
+]Y[ŸZ]H‹€›\òŸW‹YŸ_JH0Ôô\ú‹ù[ôŸ[éàŸ^ﬂHãùÿ\õàäBàô\›[»H◊BàÿÿX⁄W€[›öYW‹õ›öY\ó‹YŸJàÿX⁄W⁄Ÿ^Kô\›[ÀSS’íQW”T’—êRSTëW––P“W’à
+Bà[ŸNÇàÿÿX⁄W€[›öYW‹õ›öY\ó‹YŸJÿX⁄W⁄Ÿ^Kô\›[ BàÿYY õ›öY\ã€›\òŸW‹YŸJWHHô\›[¬àô]\õàÿYYÇÇôYà€[›öYW‹õ›öY\óŸŸ[úô\ õ›öY\éà›äHOàŸ]Çàô]\õà¬àôö[YúôZLçéà›]Kôö[YúôZLç‹õ›öY\óŸŸ[úô\Ààôö[\[\›éà›]Kôú‹õ›öY\óŸŸ[úô\ÀàöZHéà›]KöZW‹õ›öY\óŸŸ[úô\Ààõ[Ÿõ^éà›]Kõ[Ÿõ^‹õ›öY\óŸŸ[úô\ÀàôZ[úÿ⁄[[àéà›]KôZ[úÿ⁄[[ó‹õ›öY\óŸŸ[úô\Ààö⁄[õﬁéà›]Kö⁄[õﬁ‹õ›öY\óŸŸ[úô\Ààö⁄[õŸŸ\àéà›]Kö⁄[õŸŸ\ó‹õ›öY\óŸŸ[úô\ÀàõYYÿZ⁄[õ»éà›]KõYYÿZ⁄[õ◊‹õ›öY\óŸŸ[úô\Ààû⁄[ôHéà›]Kû⁄[ôW‹õ›öY\óŸŸ[úô\ÀàúŸõ^éà›]KúŸõ^‹õ›öY\óŸŸ[úô\ÀàúöY€[›öY\»éà›]KúöY€[›öY\◊‹õ›öY\óŸŸ[úô\ÀàKôŸ]
+õ›öY\ãŸ]
+
+JBÇÇôYà€[›öYWŸŸ[úôWŸõ‹ó‹õ›öY\äõ›öY\éà›ãŸ[úôNà›äHOà›éÇà€õ›€óÿûW⁄Ÿ^HH¬à€X[óŸŸ[úôJ][JKòÿ\ŸYõ€
+
+Nà€X[óŸŸ[úôJ][JBàõ‹à][H[à€[›öYW‹õ›öY\óŸŸ[úô\ õ›öY\äBàBàõ‹à[X\»[à[›öYWŸŸ[úôWÿ[X\Ÿ\ Ÿ[úôJNÇàX]⁄H€õ›€óÿûW⁄Ÿ^KôŸ]
+[X\Àòÿ\ŸYõ€
+
+JBàYàX]⁄Çàô]\õàX]⁄àô]\õà€X[óŸŸ[úôJŸ[úôJBÇÇôYà‹õ›öY\ó‹›\‹ù◊€[›öYWŸŸ[úôJõ›öY\éà›ãŸ[úôNà›äHOàõ€€Çà€õ›€óŸŸ[úô\»H€[›öYW‹õ›öY\óŸŸ[úô\ õ›öY\äBà»õ‹à[H\ú›[àŸ[úôKPXúùYà⁄[ôYHY[ôŸ[àY\ãà[õà‹[Z\›\ÿ⁄Y[é¬à»\àô]ŸZ[YŸHÿ‹ò\\àÿ[õàZ[à[òôZÿ[õù\»Ÿ[úôHÔú›Y»Z]◊HXõZô[ãÇàYàõ›€õ›€óŸŸ[úô\ŒÇàô]\õàùYBà€õ›€ó⁄Ÿ^\»Hÿ€X[óŸŸ[úôJ][JKòÿ\ŸYõ€
+
+Hõ‹à][H[à€õ›€óŸŸ[úô\ﬂBàô]\õà[ûJ[X\Àòÿ\ŸYõ€
+
+H[à€õ›€ó⁄Ÿ^\»õ‹à[X\»[à[›öYWŸŸ[úôWÿ[X\Ÿ\ Ÿ[úôJJBÇÇôYà€[›öYW‹ô\›[⁄Y[ù]Jàô\›[àö[\[\›ŸX\ò⁄ô\›[àõ›öY\éà›ãàYX\ú◊ÿûW›]NàX›‹›ãŸ]‹›óWKäHOà\NÇà]W⁄Ÿ^HH€õ‹õW›]J€X[ó€[›öYW›]Jô\›[ù]JJBàYàõ›]W⁄Ÿ^NÇàô]\õà
+ú€›\òŸHãõ›öY\ã›äô\›[ú€Y»‹àô\›[ù\õ
+JBàYX\àH›äô\›[ûYX\à‹ààäKú›ö\
+
+Bà€õ›€óﬁYX\ú»HYX\ú◊ÿûW›]KôŸ]
+]W⁄Ÿ^KŸ]
+
+JBà»ôZôZHù\àZ[ô\à]Y[H\»òZãÿ[õà⁄YH⁄X⁄\à[HZ[ûöYŸ[àôZÿ[õù[Çà»òZàùYŸ[‹ôô]Ÿ\ô[ãàôZHô[XZŸ\»õZXô[àòZõ‹ŸHôYôô\àŸ\\ò]ÇàYàõ›YX\à[ô[ä€õ›€óﬁYX\ú HOHNÇàYX\àHô^
+]\ä€õ›€óﬁYX\ú JBàô]\õà
+õ[›öYHã]W⁄Ÿ^KYX\äBÇÇôYà€Z^€[›öYW‹õ›öY\ó‹ô\›[ àõ›öY\ó‹ô\›[ŒàX›‹›ã\›—ö[\[\›ŸX\ò⁄ô\›[WKàö[‹ö]Nà\›‹›óKà€Z[YY⁄Y[ù]Y\Œà‹[€ò[‹Ÿ]›\WWHHõ€ôKäHOà\››\V‹›ãö[\[\›ŸX\ò⁄ô\›[WNÇàààëY\^öY\ùZ[ôH]Y[Ÿ[H[ôZ\ÿ⁄⁄YHòZ\à[Hõ›[ôTõÿö[ãàààÇàYX\ú◊ÿûW›]NàX›‹›ãŸ]‹›óWHHYò][X›
+Ÿ]
+Bàõ‹àô\›[»[àõ›öY\ó‹ô\›[Àùò[Y\ 
+NÇàõ‹àô\›[[àô\›[ŒÇà]W⁄Ÿ^HH€õ‹õW›]J€X[ó€[›öYW›]Jô\›[ù]JJBàYX\àH›äô\›[ûYX\à‹ààäKú›ö\
+
+BàYà]W⁄Ÿ^H[ôYX\éÇàYX\ú◊ÿûW›]V›]W⁄Ÿ^WKòY
+YX\äBÇàö[\ôYàX›‹›ã\›—ö[\[\›ŸX\ò⁄ô\›[WHH‹õ›öY\éà◊Hõ‹àõ›öY\à[àö[‹ö]_BàŸY[ó⁄Y[ù]Y\»H€Z[YY⁄Y[ù]Y\»Yà€Z[YY⁄Y[ù]Y\»\»õ›õ€ôH[ŸHŸ]
+
+Bàõ‹àõ›öY\à[àö[‹ö]NÇàõ‹àô\›[[àõ›öY\ó‹ô\›[ÀôŸ]
+õ›öY\ã◊JNÇàY[ù]HH€[›öYW‹ô\›[⁄Y[ù]Jô\›[õ›öY\ãYX\ú◊ÿûW›]JBàYàY[ù]H[àŸY[ó⁄Y[ù]Y\ŒÇà€€ù[ùYBàŸY[ó⁄Y[ù]Y\ÀòY
+Y[ù]JBàö[\ôY‹õ›öY\óKò\[ô
+ô\›[
+BÇàZ^Yà\››\V‹›ãö[\[\›ŸX\ò⁄ô\›[WHH◊Bà€ôŸ\›HX^
+
+[äô\›[ Hõ‹àô\›[»[àö[\ôYùò[Y\ 
+JKYò][L
+Bàõ‹à[ô^[àò[ôŸJ€ôŸ\›
+NÇàõ‹àõ›öY\à[àö[‹ö]NÇàô\›[»Hö[\ôY‹õ›öY\óBàYà[ô^[äô\›[ NÇàZ^Yò\[ô
+
+õ›öY\ãô\›[÷⁄[ô^JJBàô]\õàZ^YÇÇôYà[›öYWÿÿ][Ÿ◊‹YŸJ[ŸNà›ãYŸNà[ùHKŸ[úôNà›àHàäHOàX›Çàààë\ûô]Y›Z[ôH›Xö[H€ÿò[HÃô\ãTŸZ]H]\»[[àö[Zÿ][ŸŸ[ãÇÇàZ[úŸZ]YŸH[òöY]\à‹Z\Ÿ[àZô[àŸ\ÿ[][à›\ùô\›[ô[àYH€ÿò[[ÇàŸZ][àZ[ãàŸZ]\ôH]Y[ŸZ][àŸ\ô[àô]ŸZ[»[»XôŸ\ÿ⁄‹‹Ÿ[ôHŸ[BàŸ[Z\ÿ⁄[ôù\à[ù[à[ôŸZ0Èô›[Z]ú∞Ô\ôHŸZ][ô‹ô[ûô[à›Xö[õZXô[ãÇàààÇàYŸHHX^
+KZ[ä[ù
+YŸJKS’íQW”PV—”–êS‘Q—JJBà[ŸHHôŸ[úôHàYà[ŸHOHôŸ[úôHà[ŸH[ŸHYà[ŸH[à»õô]»ãù‹üH[ŸHõô]»ÇàŸ[úôHHÿ[õ€öXÿ[€[›öYWŸŸ[úôJŸ[úôJBàö[‹ö]HHõ›öY\ó‹ö[‹ö]Jõ[›öY\»äBàX›]ôHH¬àõ›öY\àõ‹àõ›öY\à[àö[‹ö]BàYà[ŸHOHôŸ[úôHà‹à‹õ›öY\ó‹›\‹ù◊€[›öYWŸŸ[úôJõ›öY\ãŸ[úôJBàBàõ›öY\ó‹ŸY[éàX›‹›ãŸ]‹›óWHH‹õ›öY\éàŸ]
+
+Hõ‹àõ›öY\à[àö[‹ö]_BÇàYà[ö\]YW‹YŸJàõ›öY\éà›ãàô\›[Œà\›—ö[\[\›ŸX\ò⁄ô\›[Kà
+HOà\›—ö[\[\›ŸX\ò⁄ô\›[NÇà[ö\]YNà\›—ö[\[\›ŸX\ò⁄ô\›[HH◊Bàõ‹àô\›[[àô\›[ŒÇà€›\òŸW⁄Ÿ^HH›äô\›[ú€Y»‹àô\›[ù\õ‹àô\›[ù]H‹ààäKú›ö\
+
+BàŸ^HHàû‹€›\òŸW⁄Ÿ^_W‹›äô\›[ûYX\à‹à	… Kú›ö\
+
+_HÇàYàŸ^H[àõ›öY\ó‹ŸY[ñ‹õ›öY\óNÇà€€ù[ùYBàõ›öY\ó‹ŸY[ñ‹õ›öY\óKòY
+Ÿ^JBà[ö\]YKò\[ô
+ô\›[
+Bàô]\õà[ö\]YBÇà€€›ÿ]ôWÿùYŸ]H”S’íQW”PV–””’–UëT◊‘Tó‘ëTUQT’Bàö\ú›‹YŸ\»H€ÿY€[›öYW‹õ›öY\ó‹YŸ\ à[ŸKŸ[úôK õ›öY\ãJHõ‹àõ›öY\à[àX›]ôWK€€›ÿ]ôWÿùYŸ]à
+Bàö\ú››ÿ]ôHH¬àõ›öY\éà[ö\]YW‹YŸJõ›öY\ãö\ú›‹YŸ\ÀôŸ]
+
+õ›öY\ãJK◊JJBàõ‹àõ›öY\à[àX›]ôBàBà»ö[‹ö]0È[ùÿ⁄ZY][õô\ö[à\úŸ[ô[à]Y[Ÿ[Kàô\ôZ]»ÿ][Ÿ⁄\⁄Y\ùBà»ö[YHŸ\ô[àõ€à‹0È\ô[àŸ[[àöX⁄\úŸ]ù»€€ú›Ôô[àŸZ][à‹ö[ôŸ[ãÇà€Z[YY⁄Y[ù]Y\ŒàŸ]›\WHHŸ]
+
+Bàÿ][Ÿ◊Ÿ[ùöY\»H€Z^€[›öYW‹õ›öY\ó‹ô\›[ àö\ú››ÿ]ôKö[‹ö]K€Z[YY⁄Y[ù]Y\Àà
+BÇàY⁄[ò]YH‹õ›öY\àõ‹àõ›öY\à[àX›]ôHYàõ›öY\à[àS’íQW‘Q“SêUQ‘ì’íQTî◊Bà^]\›YH‹õ›öY\àõ‹àõ›öY\à[àY⁄[ò]YYàõ›ö\ú››ÿ]ôV‹õ›öY\ó_Bà\Xÿ]W€€õW‹YŸ\»H‹õ›öY\éàõ‹àõ›öY\à[àY⁄[ò]YBà\ôŸ]Ÿ[ôHYŸH
+àS’íQW–îì’‘—W‘Q—W‘“VëBàô^‹€›\òŸW‹YŸHHÇà\◊€[‹ôW›[ùô\öYöYYHò[ŸBÇà⁄[H[äÿ][Ÿ◊Ÿ[ùöY\ HH\ôŸ]Ÿ[ô[ôô^‹€›\òŸW‹YŸHHS’íQW”PV‘”’Tê—W‘Q—NÇà[ô[ô»H‹õ›öY\àõ‹àõ›öY\à[àY⁄[ò]YYàõ›öY\àõ›[à^]\›YBàYàõ›[ô[ôŒÇàúôXZ¬àûNÇàô^‹YŸ\»H€ÿY€[›öYW‹õ›öY\ó‹YŸ\ à[ŸKŸ[úôK õ›öY\ãô^‹€›\òŸW‹YŸJHõ‹àõ›öY\à[à[ô[ô◊Kà€€›ÿ]ôWÿùYŸ]à
+Bà^Ÿ\[›öYPÿ][Ÿ–€€ÿY[Z]ÇàYà[äÿ][Ÿ◊Ÿ[ùöY\ H\ôŸ]Ÿ[ôÇàòZ\ŸBà»YH[ôŸYõ‹ô\ùHŸZ]H\›õ€›0ÈôYÀà\à∞È⁄›H€X⁄»\ôàYBà»ôZ\›Ÿ\ùHõ€Ÿ\ŸZ][ãT∞Ôù[ô»[àZ[ô[Hô]Y[àô\]Y\›õ‹ùŸ]ô[ãÇà\◊€[‹ôW›[ùô\öYöYYHùYBàúôXZ¬àÿ]ôNàX›‹›ã\›—ö[\[\›ŸX\ò⁄ô\›[WHHﬂBàõ‹àõ›öY\à[à[ô[ôŒÇàô\›[»Hô^‹YŸ\ÀôŸ]
+
+õ›öY\ãô^‹€›\òŸW‹YŸJK◊JBàÿ]ôV‹õ›öY\óHH[ö\]YW‹YŸJõ›öY\ãô\›[ BàYàõ›ô\›[ŒÇà^]\›YòY
+õ›öY\äBà[Yàõ›ÿ]ôV‹õ›öY\óNÇà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óH
+œHBàYà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óHèHéÇà^]\›YòY
+õ›öY\äBà[ŸNÇà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óHHàÿ][Ÿ◊Ÿ[ùöY\Àô^[ô
+€Z^€[›öYW‹õ›öY\ó‹ô\›[ àÿ]ôKö[‹ö]K€Z[YY⁄Y[ù]Y\Àà
+JBàô^‹€›\òŸW‹YŸH
+œHBÇà›\ùH
+YŸHHJH
+àS’íQW–îì’‘—W‘Q—W‘“VëBàYŸWŸ[ùöY\»Hÿ][Ÿ◊Ÿ[ùöY\÷‹›\ùù\ôŸ]Ÿ[ôBà€›\òŸWÿ€›[ù»H€›[ù\äõ›öY\àõ‹àõ›öY\ã‹ô\›[[àYŸWŸ[ùöY\ Bà€›\òŸ\»H¬à¬àöŸ^Héàõ›öY\ãàõXô[éàì’íQTó”PëS÷‹õ›öY\óKàò€€ù[ù€[ô›XYŸHéàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äKàõ[ô›XYŸW€Xô[éàì’íQTó––US—÷‹õ›öY\óKõ[ô›XYŸW€Xô[àò€›[ùéà€›\òŸWÿ€›[ù÷‹õ›öY\óKàBàõ‹àõ›öY\à[àö[‹ö]BàYà€›\òŸWÿ€›[ù÷‹õ›öY\óBàBàô]\õà¬àúô\›[»éà‹ô\›[õ‹à‹õ›öY\ãô\›[[àYŸWŸ[ùöY\◊KàúYŸHéàYŸKàö\◊€[‹ôHéàYŸHS’íQW”PV—”–êS‘Q—H[ô
+à[äÿ][Ÿ◊Ÿ[ùöY\ Hà\ôŸ]Ÿ[ô‹à\◊€[‹ôW›[ùô\öYöYYà
+Kàú€›\òŸ\»éà€›\òŸ\ÀàBÇÇôYà\›€[›öYWÿÿ[ôY]\ [ŸNà›ãYŸNà[ùHJHOà\›—ö[\[\›ŸX\ò⁄ô\›[NÇàààí€€\]Xõ\à\›[ãVùY‹öYôà]YàYH€ÿò[KŸ[Z\ÿ⁄Hÿ][Ÿ‹ŸZ]KàààÇàô]\õà\›
+[›öYWÿÿ][Ÿ◊‹YŸJ[ŸKYŸJV»úô\›[»óJBÇÇôYàÿ\õW⁄€YW€[›öYWÿÿX⁄J
+NÇàààêô\ôZ]]ö[KH[ôŸ\öY[ãT›\ù[ú⁄X⁄õ‹à[H\ú›[àúõ›‹Ÿ\àõ‹ãàààÇàûNÇà[›öY\»H\›€[›öYWÿÿ[ôY]\ õô]»ãJBàYàHŸ]›Yóÿ€Y[ù
+
+BàYàõ›Yãò€€ôöY›\ôY‹àõ›[›öY\ŒÇàô]\õÇÇà[ö\]YHHﬂBàõ‹à[›öYH[à[›öY\ŒÇà]HH€X[ó€[›öYW›]J[›öYKù]JBà[ö\]YKúŸ]Yò][
+
+€õ‹õW›]J]JK›ä[›öYKûYX\à‹ààäJK
+]K[›öYKûYX\à‹ààäJBàò[Y\»H\›
+[ö\]YKùò[Y\ 
+JBà»\»\ú›H⁄X⁄ò\ôH]Z[]õ‹úò[ôÀà\ú›[òX⁄[àô\›Z]à»Ÿ\ö[ôŸ\à\ò[[]0ÈY[ã[Z]YH›\ù[ú⁄X⁄öX⁄ô\ö[ôŸ\ùÇàYãõ[›öYW‹›[[X\ûJ
+ùò[Y\÷ÃJBàô[XZ[ö[ô»Hò[Y\÷ÃNóBàYàô[XZ[ö[ôŒÇà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[äÀ[äô[XZ[ö[ô JJH\»€€Çàù]\ô\»H‹€€ú›XõZ]
+Yãõ[›öYW‹›[[X\ûK]KYX\äHõ‹à]KYX\à[àô[XZ[ö[ô◊Bàõ‹àù]\ôH[àù]\ô\ŒÇàûNÇàù]\ôKúô\›[
+
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àïQãT›\ùÿX⁄NàŸ^ﬂHãùÿ\õàäBàŸ àî›\ù[ú⁄X⁄õ‹òô\ôZ]]à€[ä[›öY\ _Hô]YHö[YKàäBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àî›\ù[ú⁄X⁄€€õùHöX⁄õ‹òXàŸ[Y[àŸ\ô[éàŸ^ﬂHãùÿ\õàäBàö[ò[NÇàÿ\õW⁄€YW‹Ÿ\öY\◊ÿÿX⁄J
+BÇÇà»KKHŸ\öY[ò[òöY]\àKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBôYà‹›◊ŸŸ]‹Ÿ\öY\ ò[YNà›äHOà‹[€ò[—ö[\[\›Ÿ\öY\◊NÇàYàõ››]Kúõ›öY\ó⁄X[úô\]Y\›ÿ[›ŸY
+úŸ\öY[ú›ôX[HäNÇàòZ\ŸHù[ù[YQ\úõ‹äîŸ\öY[î›ôX[HôYö[ô]⁄X⁄[Hõ›öY\ãP€€€›€àäBà⁄]›]Kú›◊€ÿ⁄ŒÇàûNÇàô]\õàŸ]‹›◊‹ÿ‹ò\\ä
+KôŸ]‹Ÿ\öY\ ò[YJBà^Ÿ\õ›öY\êõÿ⁄ŸY\úõ‹à\»^ŒÇà€X\ö◊‹Ÿ\öY[ú›ôX[Wÿõÿ⁄ŸY
+^ÀúôX\€€ã›ä^ JBàòZ\ŸBÇÇôYà‹›◊‹ŸX\ò⁄‹Ÿ\öY\ ]Y\ûNà›äHOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇàYàõ››]Kúõ›öY\ó⁄X[úô\]Y\›ÿ[›ŸY
+úŸ\öY[ú›ôX[HäNÇàòZ\ŸHù[ù[YQ\úõ‹äîŸ\öY[î›ôX[HôYö[ô]⁄X⁄[Hõ›öY\ãP€€€›€àäBà⁄]›]Kú›◊€ÿ⁄ŒÇàûNÇàô]\õàŸ]‹›◊‹ÿ‹ò\\ä
+KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBà^Ÿ\õ›öY\êõÿ⁄ŸY\úõ‹à\»^ŒÇà€X\ö◊‹Ÿ\öY[ú›ôX[Wÿõÿ⁄ŸY
+^ÀúôX\€€ã›ä^ JBàòZ\ŸBÇÇôYà‹ŸX\ò⁄‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äõ›öY\éà›ã]Y\ûNà›äHOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇàYàõ›öY\àOHúŸ\öY[ú›ôX[HéÇàô]\õà‹›◊‹ŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHôö[\[\›éÇà⁄]›]Kôú€ÿ⁄ŒÇàô]\õàŸ]Ÿú‹ÿ‹ò\\ä
+KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHõ[Ÿõ^éÇà⁄]›]Kõ[Ÿõ^€ÿ⁄ŒÇàô]\õàŸ]€[Ÿõ^‹ÿ‹ò\\ä
+KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHöZHéÇà⁄]›]KöZW€ÿ⁄ŒÇàô]\õàŸ]⁄ZW‹ÿ‹ò\\ä
+KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHö⁄[õŸŸ\àéÇàô]\õà⁄[õŸŸ\îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHõYYÿZ⁄[õ»éÇàô]\õàYYÿR⁄[õ‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHû⁄[ôHéÇàô]\õà⁄[ôTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHúŸõ^éÇàô]\õàŸõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàYàõ›öY\àOHúöY€[›öY\»éÇàô]\õàöY€[›öY\‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KúŸX\ò⁄‹Ÿ\öY\ ]Y\ûJBàô]\õà◊BÇÇôYà€ÿY‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äõ›öY\éà›ãò[YNà›äHOà‹[€ò[—ö[\[\›Ÿ\öY\◊NÇàYàõ›öY\àOHúŸ\öY[ú›ôX[HéÇàô]\õà‹›◊ŸŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHôö[\[\›éÇà⁄]›]Kôú€ÿ⁄ŒÇàô]\õàŸ]Ÿú‹ÿ‹ò\\ä
+KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHõ[Ÿõ^éÇà⁄]›]Kõ[Ÿõ^€ÿ⁄ŒÇàô]\õàŸ]€[Ÿõ^‹ÿ‹ò\\ä
+KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHöZHéÇà⁄]›]KöZW€ÿ⁄ŒÇàô]\õàŸ]⁄ZW‹ÿ‹ò\\ä
+KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHö⁄[õŸŸ\àéÇàô]\õà⁄[õŸŸ\îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHõYYÿZ⁄[õ»éÇàô]\õàYYÿR⁄[õ‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHû⁄[ôHéÇàô]\õà⁄[ôTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHúŸõ^éÇàô]\õàŸõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]‹Ÿ\öY\ ò[YJBàYàõ›öY\àOHúöY€[›öY\»éÇàô]\õàöY€[›öY\‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ KôŸ]‹Ÿ\öY\ ò[YJBàô]\õàõ€ôBÇÇôYà‹ŸX\ò⁄‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ à]Y\ûNà›ãäHOàX›‹›ã\›—ö[\[\›Ÿ\öY\‘ô\›[WNÇàààë\ò⁄›X⁄[HŸ\öY[öÿ][ŸŸH\ò[[[ôô[õùYHôYôô\àôH]Y[KàààÇàHH]Y\ûKú›ö\
+
+BàYàõ›NÇàô]\õàﬂBàö[‹ö]HHõ›öY\ó‹ö[‹ö]JúŸ\öY\»äBà\⁄‹»H¬à
+õ›öY\ã[XôHŸ^O\õ›öY\éà‹ŸX\ò⁄‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äŸ^KJJBàõ‹àõ›öY\à[àö[‹ö]BàBàõ›öY\ó‹ô\›[ŒàX›‹›ã\›—ö[\[\›Ÿ\öY\‘ô\›[WHHﬂBà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[[ä\⁄‹ JH\»€€Çàù]\ô\»H õ›öY\ã€€ú›XõZ]
+õäJHõ‹àõ›öY\ãõà[à\⁄‹◊Bàõ‹àõ›öY\ãù]\ôH[àù]\ô\ŒÇàûNÇàõ›öY\ó‹ô\›[÷‹õ›öY\óHH\›
+ù]\ôKúô\›[
+
+JBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àû‘ì’íQTó”PëS÷‹õ›öY\ó_HŸ\öY[ú›X⁄H0Ôô\ú‹ù[ôŸ[éàŸ^ﬂHãùÿ\õàäBàõ›öY\ó‹ô\›[÷‹õ›öY\óHH◊Bàô]\õàõ›öY\ó‹ô\›[¬ÇÇôYàŸX\ò⁄‹Ÿ\öY\◊ÿÿ[ôY]\ ]Y\ûNà›äHOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇàààë\ò⁄›X⁄[HŸ\öY[öÿ][ŸŸH[ôôZ0ÈYH€€ôöY›\öY\ùHôZZ[ôõ€ŸKàààÇàõ›öY\ó‹ô\›[»H‹ŸX\ò⁄‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ ]Y\ûJBàô\›[Œà\›—ö[\[\›Ÿ\öY\‘ô\›[HH◊Bàõ‹àõ›öY\à[àõ›öY\ó‹ö[‹ö]JúŸ\öY\»äNÇàô\›[Àô^[ô
+õ›öY\ó‹ô\›[ÀôŸ]
+õ›öY\ã◊JJBàô]\õàô\›[¬ÇÇê]X€\‹ úõﬁô[èUùYJBò€\‹»‘Ÿ\öY\–ÿ][Ÿ—[ùûNÇàààëZ[à⁄X⁄ò\ô\àŸ\öY[ùôYôô\àZ]ô]õ‹ûùY›\à[ô[\õò]]ô[à]Y[[ãàààÇÇàõ›öY\éà›Çàô\›[àö[\[\›Ÿ\öY\‘ô\›[àõ›öY\úŒà\V‹›ãããóBÇÇò€\‹»Ÿ\öY\–ÿ][Ÿ–€€ÿY[Z]
+ù[ù[YQ\úõ‹äNÇàààïô\ö[ô\ù]\ôH‹∞ÔôŸH0Ôô\àöY[Hõÿ⁄[ôŸXÿX⁄HŸ\öY[úŸZ][ãàààÇÇÇôYà‹Ÿ\öY\◊‹ô\›[⁄Y[ù]Jàô\›[àö[\[\›Ÿ\öY\‘ô\›[àõ›öY\éà›ãàYX\ú◊ÿûW›]NàX›‹›ãŸ]‹›óWKäHOà\NÇà]W⁄Ÿ^HH€õ‹õW›]J›ö\‹€›\òŸW‹›Yôö^
+ô\›[ù]JJBàYàõ›]W⁄Ÿ^NÇàô]\õà
+ú€›\òŸHãõ›öY\ã›äô\›[òò\ŸW‹€Y»‹àô\›[úÿ[\W‹€Y»‹àô\›[úÿ[\W›\õ
+JBàYX\àH›äô\›[ûYX\à‹ààäKú›ö\
+
+Bà€õ›€óﬁYX\ú»HYX\ú◊ÿûW›]KôŸ]
+]W⁄Ÿ^KŸ]
+
+JBàYàõ›YX\à[ô[ä€õ›€óﬁYX\ú HOHNÇàYX\àHô^
+]\ä€õ›€óﬁYX\ú JBàô]\õà
+úŸ\öY\»ã]W⁄Ÿ^KYX\äBÇÇôYàÿ€Z[W‹Ÿ\öY\◊⁄Y[ù]JY[ù]Nà\K€Z[YYàŸ]›\WJHOàõ€€Çàààîô\Ÿ\ùöY\ùZ[ôHY[ù]0È»ùYHôY]]]\‹»⁄YHô\ôZ]»⁄X⁄ò\à\›àààÇàYàY[ù]H[à€Z[YYÇàô]\õàùYBàYà[äY[ù]JHOH»‹àY[ù]VÃHOHúŸ\öY\»éÇà€Z[YYòY
+Y[ù]JBàô]\õàò[ŸBÇà⁄⁄[ô]W⁄Ÿ^KYX\àHY[ù]Bà[ö€õ›€àH
+úŸ\öY\»ã]W⁄Ÿ^KàäBà€õ›€àH¬à][Hõ‹à][H[à€Z[YYàYà[ä][JHOH»[ô][VÃHOHúŸ\öY\»à[ô][VÃWHOH]W⁄Ÿ^H[ô][VÃóBàBàYàYX\à[ô[ö€õ›€à[à€Z[YYÇà»Z[àú∞Ô\àòZú€‹Ÿ\àôYôô\à⁄\ô\ò⁄[à\ú›[àZ[ô]]YŸ[Çà»òZôÿ[ô»€€ö‹ô]\⁄Y\ùàŸZ]\ôHô[XZŸ\»0Ôôô[à[òX⁄⁄X⁄ò\àõZXô[ãÇà€Z[YYúô[[›ôJ[ö€õ›€äBà€Z[YYòY
+Y[ù]JBàô]\õàùYBàYàõ›YX\à[ô[ä€õ›€äHOHNÇàô]\õàùYBà€Z[YYòY
+Y[ù]JBàô]\õàò[ŸBÇÇôYà€Z^‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ àõ›öY\ó‹ô\›[ŒàX›‹›ã\›—ö[\[\›Ÿ\öY\‘ô\›[WKàö[‹ö]Nà\›‹›óKà€Z[YY⁄Y[ù]Y\Œà‹[€ò[‹Ÿ]›\WWHHõ€ôKäHOà\›◊‘Ÿ\öY\–ÿ][Ÿ—[ùûWNÇàààëY\^öY\ùŸ\öY[à[ôZ\ÿ⁄YHZ]]Y[H[Hô\ö0Èö\»éåHZ[ãÇÇàYH\ú›H€€ôöY›\öY\ùH]Y[H\ö0ÈùŸZH0ÈôHôHù[ôKà€»õZXùYBà›0Èö‹›H]Y[H∞ÈŸ[ôÈô[ôôY\àŸZ]\ôH[òöY]\àôYŸ[pÈ0Á⁄Y»⁄X⁄ò\Çà⁄\ôàY[ù\ÿ⁄H][Ÿ\ô[à[»Z[ôHŸ\öYHZ]YZô\ô[à]Y[[àŸY∞ÔùÇàààÇàYX\ú◊ÿûW›]NàX›‹›ãŸ]‹›óWHHYò][X›
+Ÿ]
+Bàõ‹àô\›[»[àõ›öY\ó‹ô\›[Àùò[Y\ 
+NÇàõ‹àô\›[[àô\›[ŒÇà]W⁄Ÿ^HH€õ‹õW›]J›ö\‹€›\òŸW‹›Yôö^
+ô\›[ù]JJBàYX\àH›äô\›[ûYX\à‹ààäKú›ö\
+
+BàYà]W⁄Ÿ^H[ôYX\éÇàYX\ú◊ÿûW›]V›]W⁄Ÿ^WKòY
+YX\äBÇà‹õ›\YàX››\K\››\V‹›ãö[\[\›Ÿ\öY\‘ô\›[WWHH‹ô\ôYX›
+
+Bàõ‹àõ›öY\à[àö[‹ö]NÇàõ‹àô\›[[àõ›öY\ó‹ô\›[ÀôŸ]
+õ›öY\ã◊JNÇàY[ù]HH‹Ÿ\öY\◊‹ô\›[⁄Y[ù]Jô\›[õ›öY\ãYX\ú◊ÿûW›]JBà‹õ›\YúŸ]Yò][
+Y[ù]K◊JKò\[ô
+
+õ›öY\ãô\›[
+JBÇàŸY[àH€Z[YY⁄Y[ù]Y\»Yà€Z[YY⁄Y[ù]Y\»\»õ›õ€ôH[ŸHŸ]
+
+Bà\ó‹õ›öY\éàX›‹›ã\›◊‘Ÿ\öY\–ÿ][Ÿ—[ùûWWHH‹õ›öY\éà◊Hõ‹àõ›öY\à[àö[‹ö]_Bàõ‹àY[ù]KX]⁄\»[à‹õ›\Yö][\ 
+NÇàYàÿ€Z[W‹Ÿ\öY\◊⁄Y[ù]JY[ù]KŸY[äNÇà€€ù[ùYBàö[X\ûW‹õ›öY\ãö[X\ûW‹ô\›[HX]⁄\÷ÃBà€›\òŸW‹Ÿ]H‹õ›öY\àõ‹àõ›öY\ã‹ô\›[[àX]⁄\ﬂBà€›\òŸ\»H\Jõ›öY\àõ‹àõ›öY\à[àö[‹ö]HYàõ›öY\à[à€›\òŸW‹Ÿ]
+BÇà»ôZ[ôH\›[õY]Y][à0Ôôô[àõ€àZ[ô\à[\õò]]ô[à]Y[H\ôÈûùà»Ÿ\ô[ã⁄ôHYHô]õ‹ûùY›K€X⁄ÿò\ôH]Y[H]\ﬁù]]\ÿ⁄[ãÇàYX\àH›äö[X\ûW‹ô\›[ûYX\à‹ààäKú›ö\
+
+Bà€›ô\ó›\õH›äö[X\ûW‹ô\›[ò€›ô\ó›\õ‹ààäKú›ö\
+
+BàYàõ›YX\éÇàYX\àHô^
+
+›äô\›[ûYX\äKú›ö\
+
+Hõ‹à‹õ›öY\ãô\›[[àX]⁄\»Yàô\›[ûYX\äKàäBàYàõ›€›ô\ó›\õÇà€›ô\ó›\õHô^
+à
+›äô\›[ò€›ô\ó›\õ
+Kú›ö\
+
+Hõ‹à‹õ›öY\ãô\›[[àX]⁄\»Yàô\›[ò€›ô\ó›\õ
+Kààãà
+Bàö\⁄XõW‹ô\›[Hô\XŸJö[X\ûW‹ô\›[YX\è^YX\ã€›ô\ó›\õX€›ô\ó›\õ
+Bà\ó‹õ›öY\ñ‹ö[X\ûW‹õ›öY\óKò\[ô
+‘Ÿ\öY\–ÿ][Ÿ—[ùûJàõ›öY\è\ö[X\ûW‹õ›öY\ãàô\›[]ö\⁄XõW‹ô\›[àõ›öY\úœ\€›\òŸ\»‹à
+ö[X\ûW‹õ›öY\ã
+Kà
+JBÇàZ^Yà\›◊‘Ÿ\öY\–ÿ][Ÿ—[ùûWHH◊Bà‹⁄][€ú»H‹õ›öY\éàõ‹àõ›öY\à[àö[‹ö]_Bà⁄[HùYNÇàõŸ‹ô\‹ŸYHò[ŸBàõ‹à[ô^õ›öY\à[à[ù[Y\ò]Jö[‹ö]JNÇà][›HHàYà[ô^OH[ŸHBà[ùöY\»H\ó‹õ›öY\ñ‹õ›öY\óBà›\ùH‹⁄][€ú÷‹õ›öY\óBà[ôHZ[ä›\ù
+»][›K[ä[ùöY\ JBàYà[ôà›\ùÇàZ^Yô^[ô
+[ùöY\÷‹›\ùô[ôJBà‹⁄][€ú÷‹õ›öY\óHH[ôàõŸ‹ô\‹ŸYHùYBàYàõ›õŸ‹ô\‹ŸYÇàúôXZ¬àô]\õàZ^YÇÇôYà⁄[ù\õX]ôW‹Ÿ\öY\◊€\› à
+õ\›Œà\›—ö[\[\›Ÿ\öY\‘ô\›[KäHOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇàààïô\ûòZùYZô\ôH⁄Y€ò[\›[à›Xö[[ô[ùô\õù]Y[QXõ][ãàààÇàY\ôŸYà\›—ö[\[\›Ÿ\öY\‘ô\›[HH◊BàŸY[éàŸ]‹›óHHŸ]
+
+Bà€ôŸ\›HX^
+
+[ä][\ Hõ‹à][\»[à\› KYò][L
+Bàõ‹à[ô^[àò[ôŸJ€ôŸ\›
+NÇàõ‹à][\»[à\›ŒÇàYà[ô^èH[ä][\ NÇà€€ù[ùYBàô\›[H][\÷⁄[ô^BàŸ^HH›äô\›[òò\ŸW‹€Y»‹àô\›[úÿ[\W‹€Y»‹àô\›[úÿ[\W›\õ‹àô\›[ù]JBàYàŸ^H[àŸY[éÇà€€ù[ùYBàŸY[ãòY
+Ÿ^JBàY\ôŸYò\[ô
+ô\›[
+Bàô]\õàY\ôŸYÇÇôYà‹Ÿ\öY\◊‹õ›öY\ó⁄\◊‹Y⁄[ò]Y
+õ›öY\éà›ã[ŸNà›äHOàõ€€ÇàYà[ŸHOHò[HéÇàô]\õàõ›öY\à[à—TíQT◊–SW‘ì’íQTî¬àô]\õàõ›öY\à[à—TíQT◊‘Q“SêUQ‘ì’íQTî¬ÇÇôYàÿÿX⁄Y‹Ÿ\öY\◊‹õ›öY\ó‹YŸJàÿX⁄W⁄Ÿ^Nà\KäHOà‹[€ò[”\›—ö[\[\›Ÿ\öY\‘ô\›[WNÇà⁄]›]KúŸ\öY\◊€\›ÿÿX⁄W€ÿ⁄ŒÇàÿX⁄YH›]KúŸ\öY\◊€\›ÿÿX⁄KôŸ]
+ÿX⁄W⁄Ÿ^JBàHÿX⁄YÃóHYàÿX⁄Y[ô[äÿX⁄Y
+Hàà[ŸH—TíQT◊”T’––P“W’àYàÿX⁄Y[ô[YKù[YJ
+HHÿX⁄YÃHÇàô]\õà\›
+ÿX⁄YÃWJBàYàÿX⁄YÇà›]KúŸ\öY\◊€\›ÿÿX⁄Kú‹
+ÿX⁄W⁄Ÿ^Kõ€ôJBàô]\õàõ€ôBÇÇôYàÿÿX⁄W‹Ÿ\öY\◊‹õ›öY\ó‹YŸJàÿX⁄W⁄Ÿ^Nà\Kàô\›[Œà\›—ö[\[\›Ÿ\öY\‘ô\›[Kàà[ùH—TíQT◊”T’––P“W’äHOàõ€ôNÇàõ›»H[YKù[YJ
+Bà⁄]›]KúŸ\öY\◊€\›ÿÿX⁄W€ÿ⁄ŒÇà^\ôYH¬àŸ^Hõ‹àŸ^KÿX⁄Y[à›]KúŸ\öY\◊€\›ÿÿX⁄Kö][\ 
+BàYàõ›»HÿX⁄YÃHèH
+àÿX⁄YÃóHYà[äÿX⁄Y
+Hàà[ŸH—TíQT◊”T’––P“W’à
+BàBàõ‹àŸ^H[à^\ôYÇà›]KúŸ\öY\◊€\›ÿÿX⁄Kú‹
+Ÿ^Kõ€ôJBà⁄[H[ä›]KúŸ\öY\◊€\›ÿÿX⁄JHèH—TíQT◊”T’––P“W”PV—SïíQTŒÇà€\›HZ[äà›]KúŸ\öY\◊€\›ÿÿX⁄KàŸ^O[[XôHŸ^Nà›]KúŸ\öY\◊€\›ÿÿX⁄V⁄Ÿ^WVÃKà
+Bà›]KúŸ\öY\◊€\›ÿÿX⁄Kú‹
+€\›õ€ôJBà›]KúŸ\öY\◊€\›ÿÿX⁄VÿÿX⁄W⁄Ÿ^WHH
+õ›À\›
+ô\›[ K
+BÇÇôYàŸô]⁄‹Ÿ\öY\◊‹õ›öY\ó‹YŸJàõ›öY\éà›ãà[ŸNà›ãà]\éà›ãà€›\òŸW‹YŸNà[ùäHOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇàààì0ÈZ[ôHŸ\öY[ãT]Y[ŸZ]H\‹Ÿ[ôù[HŸ]Ôúÿ⁄[à[ùX⁄›[ô‹€[Ÿ\ÀàààÇàYàõ›‹Ÿ\öY\◊‹õ›öY\ó⁄\◊‹Y⁄[ò]Y
+õ›öY\ã[ŸJH[ô€›\òŸW‹YŸHOHNÇàô]\õà◊BÇàYàõ›öY\àOHúŸ\öY[ú›ôX[HéÇàYàõ››]Kúõ›öY\ó⁄X[úô\]Y\›ÿ[›ŸY
+úŸ\öY[ú›ôX[HäNÇàô]\õà◊Bà⁄]›]Kú›◊€ÿ⁄ŒÇàÿ‹ò\\àHŸ]‹›◊‹ÿ‹ò\\ä
+BàûNÇàYà[ŸHOHò[HéÇàô]\õà\›
+ÿ‹ò\\ãõ\›‹Ÿ\öY\◊ÿ[J]\ã€›\òŸW‹YŸJJBàYà€›\òŸW‹YŸHOHNÇàô]\õà◊BàYà[ŸHOHõô]»éÇàô]\õà\›
+ÿ‹ò\\ãõ\›€ô] JJBàYà[ŸHOHùô[ô[ô»éÇàô]\õà\›
+ÿ‹ò\\ãõ\››ô[ô[ô JJBàô]\õà⁄[ù\õX]ôW‹Ÿ\öY\◊€\› à\›
+ÿ‹ò\\ãõ\››ô[ô[ô JJKà\›
+ÿ‹ò\\ãõ\›€ô] JJKà
+Bà^Ÿ\õ›öY\êõÿ⁄ŸY\úõ‹à\»^ŒÇà€X\ö◊‹Ÿ\öY[ú›ôX[Wÿõÿ⁄ŸY
+^ÀúôX\€€ã›ä^ JBàô]\õà◊BÇàYàõ›öY\àOHôö[\[\›éÇà⁄]›]Kôú€ÿ⁄ŒÇàÿ‹ò\\àHŸ]Ÿú‹ÿ‹ò\\ä
+BàYà[ŸHOHò[HéÇàô]\õà\›
+ÿ‹ò\\ãõ\›‹Ÿ\öY\◊ÿ[J]\ã€›\òŸW‹YŸJJBàô]\õà\›
+ÿ‹ò\\ãõ\›‹Ÿ\öY\ €›\òŸW‹YŸJJBÇàYà[ŸHOHò[HéÇàô]\õà◊Bàÿ‹ò\\óÿ€\‹Ÿ\»H¬àõ[Ÿõ^éà[Ÿõ^ÿ‹ò\\ãàö⁄[õŸŸ\àéà⁄[õŸŸ\îÿ‹ò\\ãàõYYÿZ⁄[õ»éàYYÿR⁄[õ‘ÿ‹ò\\ãàû⁄[ôHéà⁄[ôTÿ‹ò\\ãàúŸõ^éàŸõ^ÿ‹ò\\ãàúöY€[›öY\»éàöY€[›öY\‘ÿ‹ò\\ãàBàYàõ›öY\àOHöZHéÇà⁄]›]KöZW€ÿ⁄ŒÇàô]\õà\›
+Ÿ]⁄ZW‹ÿ‹ò\\ä
+Kõ\›‹Ÿ\öY\ €›\òŸW‹YŸJJBàÿ‹ò\\óÿ€\‹»Hÿ‹ò\\óÿ€\‹Ÿ\ÀôŸ]
+õ›öY\äBàYàÿ‹ò\\óÿ€\‹»\»õ€ôNÇàô]\õà◊Bàô]\õà\›
+ÿ‹ò\\óÿ€\‹ õŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›‹Ÿ\öY\ €›\òŸW‹YŸJJBÇÇôYà€ÿY‹Ÿ\öY\◊‹õ›öY\ó‹YŸ\ à[ŸNà›ãà]\éà›ãàô\]Y\›◊›◊€ÿYà\››\V‹›ã[ùWKà€€›ÿ]ôWÿùYŸ]à‹[€ò[”\›⁄[ùWHHõ€ôKäHOàX››\V‹›ã[ùK\›—ö[\[\›Ÿ\öY\‘ô\›[WNÇàÿYYàX››\V‹›ã[ùK\›—ö[\[\›Ÿ\öY\‘ô\›[WHHﬂBàZ\‹⁄[ôŒà\››\V‹›ã[ù\WWHH◊Bà]\ó⁄Ÿ^HH›ä]\à‹ààäKú›ö\
+
+Kù\\ä
+Bàõ‹àõ›öY\ã€›\òŸW‹YŸH[àX›ôúõ€ZŸ^\ ô\]Y\›◊›◊€ÿY
+NÇàÿX⁄W€[ŸHH
+àù\]\»ÇàYàõ›öY\àOHúŸ\öY[ú›ôX[Hà[ô[ŸH[à»ô\ÿ€›ô\àãõô]»üBà[ŸH[ŸBà
+BàÿX⁄W⁄Ÿ^HH
+úŸ\öY\À\õ›öY\àãÿX⁄W€[ŸK]\ó⁄Ÿ^Kõ›öY\ã[ù
+€›\òŸW‹YŸJJBàÿX⁄YHÿÿX⁄Y‹Ÿ\öY\◊‹õ›öY\ó‹YŸJÿX⁄W⁄Ÿ^JBàYàÿX⁄Y\»õ€ôNÇàZ\‹⁄[ôÀò\[ô
+
+õ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^JJBà[ŸNÇàÿYY õ›öY\ã€›\òŸW‹YŸJWHHÿX⁄YÇàYàõ›Z\‹⁄[ôŒÇàô]\õàÿYYàYà€€›ÿ]ôWÿùYŸ]\»õ›õ€ôNÇàYà€€›ÿ]ôWÿùYŸ]ÃHHÇàòZ\ŸHŸ\öY\–ÿ][Ÿ–€€ÿY[Z]
+àëY\Ÿ\àŸ\öY[òXúÿ⁄ö]⁄\ôõÿ⁄õ‹òô\ôZ]]àö]H›\ûàÿ\ù[à[ô\õô]]ô\ú›X⁄[ãàÇà
+Bà€€›ÿ]ôWÿùYŸ]ÃHOHBÇà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[ä[äZ\‹⁄[ô K[äì’íQTó”PëS JJH\»€€Çàù]\ô\»H¬à
+àõ›öY\ãà€›\òŸW‹YŸKàÿX⁄W⁄Ÿ^Kà€€ú›XõZ]
+àŸô]⁄‹Ÿ\öY\◊‹õ›öY\ó‹YŸKàõ›öY\ãà[ŸKà]\ãà€›\òŸW‹YŸKà
+Kà
+Bàõ‹àõ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^H[àZ\‹⁄[ô¬àBàõ‹àõ›öY\ã€›\òŸW‹YŸKÿX⁄W⁄Ÿ^Kù]\ôH[àù]\ô\ŒÇàûNÇàô\›[»H\›
+ù]\ôKúô\›[
+
+JBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ ààû‘ì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\ä_HŸ\öY[õ\›HÇààä]Y[ŸZ]H‹€›\òŸW‹YŸ_JH0Ôô\ú‹ù[ôŸ[éàŸ^ﬂHãàùÿ\õàãà
+Bàô\›[»H◊BàÿÿX⁄W‹Ÿ\öY\◊‹õ›öY\ó‹YŸJàÿX⁄W⁄Ÿ^Kàô\›[ÀàT—TíQT◊”T’—êRSTëW––P“W’à
+Bà[ŸNÇàÿÿX⁄W‹Ÿ\öY\◊‹õ›öY\ó‹YŸJÿX⁄W⁄Ÿ^Kô\›[ BàÿYY õ›öY\ã€›\òŸW‹YŸJWHHô\›[¬àô]\õàÿYYÇÇôYà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹€›\òŸ\ [ùöY\Œà\›◊‘Ÿ\öY\–ÿ][Ÿ—[ùûWKö[‹ö]Nà\›‹›óJHOà\›ŸX›NÇà€›[ù»H€›[ù\äõ›öY\àõ‹à[ùûH[à[ùöY\»õ‹àõ›öY\à[à[ùûKúõ›öY\ú Bàô]\õà¬à¬àöŸ^Héàõ›öY\ãàõXô[éàì’íQTó”PëS÷‹õ›öY\óKàò€€ù[ù€[ô›XYŸHéàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äKàõ[ô›XYŸW€Xô[éàì’íQTó––US—÷‹õ›öY\óKõ[ô›XYŸW€Xô[àò€›[ùéà€›[ù÷‹õ›öY\óKàBàõ‹àõ›öY\à[àö[‹ö]BàYà€›[ù÷‹õ›öY\óBàBÇÇôYà‹Ÿ\öY\◊Ÿ[ùûW›◊ŸX›
+[ùûNà‘Ÿ\öY\–ÿ][Ÿ—[ùûJHOàX›Çà^[ÿYH\ŸX›
+[ùûKúô\›[
+Bà^[ÿY»ù]HóHH›ö\‹€›\òŸW‹›Yôö^
+[ùûKúô\›[ù]JBà^[ÿY»úõ›öY\àóHH[ùûKúõ›öY\Çà^[ÿY»úõ›öY\ó€Xô[óHHì’íQTó”PëSÀôŸ]
+[ùûKúõ›öY\ã[ùûKúõ›öY\äBà^[ÿY»ò€€ù[ù€[ô›XYŸHóHHõ›öY\óÿ€€ù[ù€[ô›XYŸJ[ùûKúõ›öY\äBà^[ÿY»õ[ô›XYŸW€Xô[óHHì’íQTó––US—÷Ÿ[ùûKúõ›öY\óKõ[ô›XYŸW€Xô[à^[ÿY»ú€›\òŸ\»óHH¬à¬àöŸ^Héàõ›öY\ãàõXô[éàì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\äKàò€€ù[ù€[ô›XYŸHéàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äKàBàõ‹àõ›öY\à[à[ùûKúõ›öY\ú¬àBàô]\õà^[ÿYÇÇôYà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹YŸW€ÿ⁄ŸY
+[ŸNà›ãYŸNà[ùHK]\éà›àHàäHOàX›Çàààë\ûô]Y›Z[ôH›Xö[KŸ[Z\ÿ⁄HŸ\öY[úŸZ]H]\»[àô\ô∞Ôÿò\ô[àÿ][ŸŸ[ãàààÇàYŸHHX^
+KZ[ä[ù
+YŸJK—TíQT◊”PV—”–êS‘Q—JJBà[ŸHH[ŸHYà[ŸH[à»ô\ÿ€›ô\àãõô]»ãùô[ô[ô»ãò[HüH[ŸHô\ÿ€›ô\àÇàö[‹ö]HHõ›öY\ó‹ö[‹ö]JúŸ\öY\»äBàYà[ŸHOHùô[ô[ô»éÇà»ù\àŸ\öY[ú›ôX[HYYô\ùZ[àX⁄\»‹[\ö]0È‹⁄Y€ò[à[ô\ôBà»Z›X[]0È€\›[àŸ\ô[àô]›\‹›öX⁄[»8†'ò[ôŸ\ÿY›8†']\ŸŸYŸXô[ãÇàX›]ôHH‹õ›öY\àõ‹àõ›öY\à[àö[‹ö]HYàõ›öY\àOHúŸ\öY[ú›ôX[HóBà[Yà[ŸHOHò[HéÇàX›]ôHH‹õ›öY\àõ‹àõ›öY\à[àö[‹ö]HYàõ›öY\à[à—TíQT◊–SW‘ì’íQTî◊Bà[ŸNÇàX›]ôHH\›
+ö[‹ö]JBÇàõ›öY\ó‹ŸY[éàX›‹›ãŸ]‹›óWHH‹õ›öY\éàŸ]
+
+Hõ‹àõ›öY\à[àö[‹ö]_BÇàYà[ö\]YW‹YŸJàõ›öY\éà›ãàô\›[Œà\›—ö[\[\›Ÿ\öY\‘ô\›[Kà
+HOà\›—ö[\[\›Ÿ\öY\‘ô\›[NÇà[ö\]YNà\›—ö[\[\›Ÿ\öY\‘ô\›[HH◊Bàõ‹àô\›[[àô\›[ŒÇà€›\òŸW⁄Ÿ^HH›äàô\›[òò\ŸW‹€Y»‹àô\›[úÿ[\W‹€Y»‹àô\›[úÿ[\W›\õ‹àô\›[ù]Bà
+Kú›ö\
+
+BàŸ^HHàû‹€›\òŸW⁄Ÿ^_W‹›äô\›[ûYX\à‹à	… Kú›ö\
+
+_HÇàYàŸ^H[àõ›öY\ó‹ŸY[ñ‹õ›öY\óNÇà€€ù[ùYBàõ›öY\ó‹ŸY[ñ‹õ›öY\óKòY
+Ÿ^JBà[ö\]YKò\[ô
+ô\›[
+Bàô]\õà[ö\]YBÇà€€›ÿ]ôWÿùYŸ]H‘—TíQT◊”PV–””’–UëT◊‘Tó‘ëTUQT’Bàö\ú›‹YŸ\»H€ÿY‹Ÿ\öY\◊‹õ›öY\ó‹YŸ\ à[ŸKà]\ãà õ›öY\ãJHõ‹àõ›öY\à[àX›]ôWKà€€›ÿ]ôWÿùYŸ]à
+Bàö\ú››ÿ]ôHH¬àõ›öY\éà[ö\]YW‹YŸJõ›öY\ãö\ú›‹YŸ\ÀôŸ]
+
+õ›öY\ãJK◊JJBàõ‹àõ›öY\à[àX›]ôBàBà€Z[YY⁄Y[ù]Y\ŒàŸ]›\WHHŸ]
+
+Bàÿ][Ÿ◊Ÿ[ùöY\»H€Z^‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ àö\ú››ÿ]ôKàö[‹ö]Kà€Z[YY⁄Y[ù]Y\Àà
+BÇàY⁄[ò]YH¬àõ›öY\àõ‹àõ›öY\à[àX›]ôHYà‹Ÿ\öY\◊‹õ›öY\ó⁄\◊‹Y⁄[ò]Y
+õ›öY\ã[ŸJBàBà^]\›YH‹õ›öY\àõ‹àõ›öY\à[àY⁄[ò]YYàõ›ö\ú››ÿ]ôV‹õ›öY\ó_Bà\Xÿ]W€€õW‹YŸ\»H‹õ›öY\éàõ‹àõ›öY\à[àY⁄[ò]YBà\ôŸ]Ÿ[ôHYŸH
+à—TíQT◊–îì’‘—W‘Q—W‘“VëBàô^‹€›\òŸW‹YŸHHÇà\◊€[‹ôW›[ùô\öYöYYHò[ŸBÇà⁄[H[äÿ][Ÿ◊Ÿ[ùöY\ HH\ôŸ]Ÿ[ô[ôô^‹€›\òŸW‹YŸHH—TíQT◊”PV‘”’Tê—W‘Q—NÇà[ô[ô»H‹õ›öY\àõ‹àõ›öY\à[àY⁄[ò]YYàõ›öY\àõ›[à^]\›YBàYàõ›[ô[ôŒÇàúôXZ¬àûNÇàô^‹YŸ\»H€ÿY‹Ÿ\öY\◊‹õ›öY\ó‹YŸ\ à[ŸKà]\ãà õ›öY\ãô^‹€›\òŸW‹YŸJHõ‹àõ›öY\à[à[ô[ô◊Kà€€›ÿ]ôWÿùYŸ]à
+Bà^Ÿ\Ÿ\öY\–ÿ][Ÿ–€€ÿY[Z]ÇàYà[äÿ][Ÿ◊Ÿ[ùöY\ H\ôŸ]Ÿ[ôÇàòZ\ŸBà\◊€[‹ôW›[ùô\öYöYYHùYBàúôXZ¬àÿ]ôNàX›‹›ã\›—ö[\[\›Ÿ\öY\‘ô\›[WHHﬂBàõ‹àõ›öY\à[à[ô[ôŒÇàô\›[»Hô^‹YŸ\ÀôŸ]
+
+õ›öY\ãô^‹€›\òŸW‹YŸJK◊JBàÿ]ôV‹õ›öY\óHH[ö\]YW‹YŸJõ›öY\ãô\›[ BàYàõ›ô\›[ŒÇà^]\›YòY
+õ›öY\äBà[Yàõ›ÿ]ôV‹õ›öY\óNÇà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óH
+œHBàYà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óHèHéÇà^]\›YòY
+õ›öY\äBà[ŸNÇà\Xÿ]W€€õW‹YŸ\÷‹õ›öY\óHHàÿ][Ÿ◊Ÿ[ùöY\Àô^[ô
+€Z^‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ àÿ]ôKàö[‹ö]Kà€Z[YY⁄Y[ù]Y\Àà
+JBàô^‹€›\òŸW‹YŸH
+œHBÇà›\ùH
+YŸHHJH
+à—TíQT◊–îì’‘—W‘Q—W‘“VëBàYŸWŸ[ùöY\»Hÿ][Ÿ◊Ÿ[ùöY\÷‹›\ùù\ôŸ]Ÿ[ôBàô]\õà¬àô[ùöY\»éàYŸWŸ[ùöY\ÀàúYŸHéàYŸKàö\◊€[‹ôHéàYŸH—TíQT◊”PV—”–êS‘Q—H[ô
+à[äÿ][Ÿ◊Ÿ[ùöY\ Hà\ôŸ]Ÿ[ô‹à\◊€[‹ôW›[ùô\öYöYYà
+Kàú€›\òŸ\»éà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹€›\òŸ\ YŸWŸ[ùöY\Àö[‹ö]JKàBÇÇôYàŸ\öY\◊ÿÿ][Ÿ◊‹YŸJ[ŸNà›ãYŸNà[ùHK]\éà›àHàäHOàX›Çàààî⁄[ô€KQõY⁄U‹ò\\à∞Ôàÿ\õ]\[ô€ZX⁄ôZ]Y»0Ìôôõô[ôHúõ›‹Ÿ\ãàààÇà⁄]›]KúŸ\öY\◊ÿÿ][Ÿ◊€ÿ⁄ŒÇàô]\õà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹YŸW€ÿ⁄ŸY
+[ŸKYŸK]\äBÇÇôYàŸ\öY\◊‹ŸX\ò⁄ÿÿ][Ÿ ]Y\ûNà›äHOàX›Çàààë‹ù\Y\ùYHúôZYH›X⁄HòX⁄][[ôôZY›[\õò]]ôH]Y[[à[ãàààÇàö[‹ö]HHõ›öY\ó‹ö[‹ö]JúŸ\öY\»äBà[ùöY\»H€Z^‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ à‹ŸX\ò⁄‹Ÿ\öY\◊‹õ›öY\ó‹ô\›[ ]Y\ûJKàö[‹ö]Kà
+Bàÿ[ùYH€õ‹õW›]J]Y\ûJBà[ùöY\Àú€‹ù
+Ÿ^O[[XôH[ùûNà
+à€õ‹õW›]J[ùûKúô\›[ù]JHOHÿ[ùYàÿ[ùYõ›[à€õ‹õW›]J[ùûKúô\›[ù]JKàXú [ä€õ‹õW›]J[ùûKúô\›[ù]JJHH[äÿ[ùY
+JKà›ö\‹€›\òŸW‹›Yôö^
+[ùûKúô\›[ù]JKòÿ\ŸYõ€
+
+Kà
+JBàô]\õà¬àô[ùöY\»éà[ùöY\ÀàúYŸHéàKàö\◊€[‹ôHéàò[ŸKàú€›\òŸ\»éà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹€›\òŸ\ [ùöY\Àö[‹ö]JKàBÇÇôYàÿ\õW⁄€YW‹Ÿ\öY\◊ÿÿX⁄J
+HOàõ€ôNÇàààêô\ôZ]]YHŸ[Z\ÿ⁄HŸ\öY[ãT›\ù[ú⁄X⁄[H[ù\ô‹ù[ôõ‹ãàààÇàûNÇàÿ][Ÿ»HŸ\öY\◊ÿÿ][Ÿ◊‹YŸJô\ÿ€›ô\àãJBàŸ àîŸ\öY[ãT›\ù[ú⁄X⁄õ‹òô\ôZ]]à€[äÿ][Ÿ÷…Ÿ[ùöY\…◊J_HŸ\öY[ãàäBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àîŸ\öY[ãT›\ù[ú⁄X⁄€€õùHöX⁄õ‹òXàŸ[Y[àŸ\ô[éàŸ^ﬂHãùÿ\õàäBÇÇôYà€õ‹õW›]J]Nà›äHOà›éÇàààï][∞ÔàX]⁄[ô»õ‹õX[\⁄Y\ô[éàõ›öY\ãT›Yôö^
+»€€ô\ûôZX⁄[àŸYÀàààÇàHôKú›Xäàó ó÷◊óWJ◊W âãàã]H‹ààäBàô]\õàôKú›Xäàñ◊òK^åNWJ»ãàãòÿ\ŸYõ€
+
+JBÇÇôYà‹Ÿ\öY\◊‹ŸX\ò⁄›]Jò[YNà›äHOà›éÇàààìZ]]]\»Z[ô[HŸ\öY[ãUŸ\ù
+€YÀ’Tì
+HZ[ô[à›X⁄U][Xà8†$»]X⁄]\¬à[K—úô[YŸ\ù[à
+[Ÿõ^—ö[\[\›
+K[Z][Hÿ]⁄\›QZ[ù∞ÈŸH]YÇàŸ\öY[ú›ôX[Kù»Ÿ[X]⁄Ÿ\ô[àÌõõô[ãàààÇààHò[YH‹ààÇà\◊⁄⁄[õŸŸ\àHãú›\ù›⁄]
+“Sì——Tó‘ëQíV
+H‹àö⁄[õŸŸ\ãò€€Hà[àãòÿ\ŸYõ€
+
+Bà\◊€YYÿZ⁄[õ»Hãú›\ù›⁄]
+QQ–R“Sì◊‘ëQíV
+H‹àõYYÿZ⁄[õÀõ‹ô»à[àãòÿ\ŸYõ€
+
+Bà\◊ﬁ⁄[ôHHãú›\ù›⁄]
+“SëW‘ëQíV
+H‹àû⁄[ôKúùHà[àãòÿ\ŸYõ€
+
+Bàõ‹àû[à
+à—TíQSî’ëPSW‘ëQíVRW‘ëQíVS—ìV‘ëQíVRSî–“SSó‘ëQíV“Sì÷‘ëQíVà“Sì——Tó‘ëQíVQQ–R“Sì◊‘ëQíV“SëW‘ëQíVà—ìV‘ëQíVíQ”S’íQT◊‘ëQíVà
+NÇàYàãú›\ù›⁄]
+û
+NÇààHñ€[äû
+NóBàúôXZ¬àYàéàà[àà[ôãú‹]
+éàãJVÃKö\ŸY⁄]
+
+Nà»[Ÿõ^åLåŒùKXôX\àÇààHãú‹]
+éàãJVÃWBàYà\◊€YYÿZ⁄[õŒÇààHôKú›XäàóñÃNXKYó^ÃçNàãàããõY‹œ\ôKíJBàYàãú›\ù›⁄]
+öäNÇàHHôKúŸX\ò⁄
+àã ŒúŸ\öY_›ôX[_]\ﬂÿ]⁄
+K Œú›ôX[Kﬂ
+À O ◊ãœ»◊J HãäBààHKô‹õ›\
+JHYàH[ŸHÇàYà\◊⁄⁄[õŸŸ\éÇààHôKú›Xäàóó
+ÀHãàãäBààHôKú›Xäàóö[	ãàããõY‹œ\ôKíJBàYà\◊ﬁ⁄[ôH[ôéàà[àéÇààHãú‹]
+éàãJVÃWBà\úŸYH\úŸWŸ\\€ŸW‹€Y äBàYà\úŸYÇààH\úŸYÃBàô]\õàãúô\XŸJãHãàäKú›ö\
+
+BÇÇôYàŸ\\€ŸW‹XŸZ€\ä€YŒà›ãŸ\öY\◊›]Nà›àHàäHOàö[\[\›[›öYNÇàààêôZ0ÈZ[ôHõ‹∞Ôô\ôŸZ[ôöX⁄Yò\ôH\\€ŸH[»]Y]YKRõÿãàààÇà\úŸYH\úŸWŸ\\€ŸW‹€Y €Y BàYàõ›\úŸYÇàòZ\ŸHò[YQ\úõ‹äàíŸZ[à\\€Ÿ[ãT€YŒà‹€YﬂHäBàò\ŸW‹€YÀŸX\€€ã\\€ŸHH\úŸYàYàõ›Ÿ\öY\◊›]NÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùûHHÿ]⁄\›€€⁄›\
+ò\ŸW‹€Y BàYà[ùûNÇàŸ\öY\◊›]HH›ä[ùûKôŸ]
+ù]HäH‹ààäBàYàõ›Ÿ\öY\◊›]NÇàÿX⁄YH›]KúŸ\öY\◊ÿÿX⁄KôŸ]
+ò\ŸW‹€Y BàYàÿX⁄YÇàŸ\öY\◊›]HHÿX⁄Yù]BàYàõ›Ÿ\öY\◊›]NÇàŸ\öY\◊›]HH‹Ÿ\öY\◊‹ŸX\ò⁄›]Jò\ŸW‹€Y Kù]J
+H‹àï[òôZÿ[õùHŸ\öYHÇàô]\õàö[\[\›[›öYJà]OYàû‹Ÿ\öY\◊›]_Hﬁ‹ŸX\€€éåôQ^Ÿ\\€ŸNåôHãà\õ\€YÀà‹›\úœV◊Kà
+BÇÇôYàÿô\››]W€X]⁄
+]Nà›ãô\›[Œà\›—ö[\[\›Ÿ\öY\‘ô\›[JHOà‹[€ò[—ö[\[\›Ÿ\öY\‘ô\›[NÇàÿ[ùH€õ‹õW›]J]JBàYàõ›ÿ[ù‹àõ›ô\›[ŒÇàô]\õàõ€ôBà^X›H‹àõ‹àà[àô\›[»Yà€õ‹õW›]Jãù]JHOHÿ[ùBàYà^X›Çàô]\õà^X›ÃBà\ùX[H‹àõ‹àà[àô\›[»Yàÿ[ù[à€õ‹õW›]Jãù]JH‹à€õ‹õW›]Jãù]JH[àÿ[ùBàô]\õà\ùX[ÃHYà\ùX[[ŸHõ€ôBÇÇôYàŸö[ô‹Ÿ\öY\◊ÿûW›]Jàò[YNà›ãõ›öY\úŒà‹[€ò[”\›‹›óWHHõ€ôKäHOà‹[€ò[—ö[\[\›Ÿ\öY\◊NÇàààî›X⁄[ô0ÈY\Ÿ[ôHŸ\öYHòX⁄€€ôöY›\öY\ù\à[òöY]\úö[‹ö]0ÈàààÇà]HH‹Ÿ\öY\◊‹ŸX\ò⁄›]Jò[YJBàYàõ›]NÇàô]\õàõ€ôBàõ‹àõ›öY\à[àõ›öY\ú»‹àõ›öY\ó‹ö[‹ö]JúŸ\öY\»äNÇàXô[Hì’íQTó”PëS÷‹õ›öY\óBàŸ àîŸ\öYHöX⁄\ôZ›Yò\à8†$»›X⁄H0™ﬁ›]_pÆ»ôZH€Xô[H8†)àäBàûNÇàô\›[»H‹ŸX\ò⁄‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äõ›öY\ã]JBàô\›Hÿô\››]W€X]⁄
+]Kô\›[ BàŸ\öY\»H€ÿY‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äõ›öY\ãô\›úÿ[\W‹€Y HYàô\›[ŸHõ€ôBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àà€Xô[KT›X⁄K”Y[àôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBà€€ù[ùYBàYàŸ\öY\»[ôŸ\öY\ÀúŸX\€€úŒÇàŸ ààŸYù[ô[àôZH€Xô[H
+€[äŸ\öY\Àò[Ÿ\\€Ÿ\ _H\\€Ÿ[äKàäBàô]\õàŸ\öY\¬àô]\õàõ€ôBÇÇôYà‹›◊Ÿö[ôÿûW›]Jò[YNà›äHOà‹[€ò[—ö[\[\›Ÿ\öY\◊NÇàààí€€\]Xö[]0È⁄[ô\à∞ÔàŸ^öY[HŸ\öY[ú›ôX[KT›X⁄KàààÇàô]\õàŸö[ô‹Ÿ\öY\◊ÿûW›]Jò[YK»úŸ\öY[ú›ôX[HóJBÇÇôYàŸ]‹Ÿ\öY\◊Ÿõ‹ó›ò[YJò[YNà›äHOà‹[€ò[—ö[\[\›Ÿ\öY\◊NÇàààì0ÈZ[ôH^^ö]H]Y[H\ôZ›[òX⁄‹ôZYô[àYHö[‹ö]0ÈÀQò[òX⁄‹ÀàààÇàõ›öY\àHõ›öY\óŸõ‹ó›ò[YJò[YJBàûNÇàŸ\öY\»H€ÿY‹Ÿ\öY\◊Ÿõ‹ó‹õ›öY\äõ›öY\ãò[YJBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àû‘ì’íQTó”PëS÷‹õ›öY\ó_HŸ\öY[ãSY[àôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàŸ\öY\»Hõ€ôBàYàŸ\öY\»[ôŸ\öY\ÀúŸX\€€úŒÇàô]\õàŸ\öY\¬àò[òX⁄‹»H⁄Ÿ^Hõ‹àŸ^H[àõ›öY\ó‹ö[‹ö]JúŸ\öY\»äHYàŸ^HOHõ›öY\óBàYàõ›öY\à[à\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUSŒÇàò[òX⁄‹Àò\[ô
+õ›öY\äBàô]\õàŸö[ô‹Ÿ\öY\◊ÿûW›]Jò[YKò[òX⁄‹ BÇÇôYà[›öYW›◊ŸX›
+à[›öYNàö[\[\›[›öYKàYó€›ô\úöYNà‹[€ò[ŸX›HHõ€ôKäHOàX›Çàò[öŸYH›]Kö‹›\ó⁄[ù[úò[ö [›öYKö‹›\ú HYà[›öYKö‹›\ú»[ŸH◊Bàõ›öY\àH€[›öYW‹õ›öY\ä[›öYJBà€€ù[ù€[ô›XYŸHH€[›öYWÿ€€ù[ù€[ô›XYŸJ[›öYJBà^[ÿYH¬àù]Héà€X[ó€[›öYW›]J[›öYKù]JKàù\õéà[›öYKù\õûYX\àéà[›öYKûYX\ãàúù[ù[YHéà[›öYKúù[ù[YKò€›ô\ó›\õéà[›öYKò€›ô\ó›\õàô\ÿ‹ö\[€àéà[›öYKô\ÿ‹ö\[€ãôŸ[úô\»éà[›öYKôŸ[úô\Ààúõ›öY\àéàõ›öY\ãàúõ›öY\ó€Xô[éàì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\äKàò€€ù[ù€[ô›XYŸHéà€€ù[ù€[ô›XYŸKàõ[ô›XYŸW€Xô[éàì’íQTó––US—÷‹õ›öY\óKõ[ô›XYŸW€Xô[àö‹›\ú»éàÿ\ŸX›
+
+Hõ‹à[à[›öYKö‹›\ú◊Kàö‹›\ó€Xô[éà›]Kö‹›\ó⁄[ù[òô\›€Xô[
+[›öYKö‹›\ú HYà[›öYKö‹›\ú»[ŸHöŸZ[à‹›\àãàö‹›\ó‹õ›]Héà›]Kö‹›\ó⁄[ù[úõ›]W›^
+[›öYKö‹›\ú HYà[›öYKö‹›\ú»[ŸHöŸZ[ôHõ›]Hãàö‹›\ó‹ÿ€‹ôHéàõ›[ô
+›]Kö‹›\ó⁄[ù[úÿ€‹ôJò[öŸYÃJJHYàò[öŸY[ŸHõ€ôKàö‹›\óŸò[òX⁄◊ÿ€›[ùéàX^
+[äò[öŸY
+HHJHYàò[öŸY[ŸHàõY]Y]W‹€›\òŸHéàê[òöY]\àãàBàYàHYó€›ô\úöYH‹àŸ]›Yóÿ€Y[ù
+
+Kõ[›öYJà€X[ó€[›öYW›]J[›öYKù]JK[›öYKûYX\ãà
+BàYàYéÇàõ‹àöY[[à
+àù]HãûYX\àãúù[ù[YHãò€›ô\ó›\õãòòX⁄Ÿõ‹›\õãô\ÿ‹ö\[€àãôŸ[úô\»ãàõ‹öY⁄[ò[›]Hãúô[X\ŸWŸ]Hãúò][ô»ãùõ›Wÿ€›[ùãùY€[ôHãàòŸ\ùYöXÿ][€àãòŸ\ùYöXÿ][€óÿ€›[ùûHãú›]\»ãõ‹öY⁄[ò[€[ô›XYŸHãàú‹⁄Ÿ[ó€[ô›XYŸ\»ãò€›[ùöY\»ãô\ôX›‹ú»ãù‹ö]\ú»ãòÿ\›ãàúõŸX›[€óÿ€€\[öY\»ãöŸ^]€‹ô»ãò€€X›[€àãòùYŸ]ãúô]ô[ùYHãàùòZ[\àãùYó›\õãà
+NÇàYàYãôŸ]
+öY[
+NÇà^[ÿYŸöY[HHYñŸöY[Bà^[ÿY»õY]Y]W‹€›\òŸHóHHïQàÇà^[ÿY»ùYó⁄YóHHYñ»ùYó⁄YóBàô]\õà^[ÿYÇÇôYà[›öYWŸ]Z[›◊ŸX›
+€YŒà›ã[›öYNàö[\[\›[›öYJHOàX›Çàààë\ôÈûùZ[ô[àö[H[HŸZ[ôHŸX∞Ôô[[à[òöY]\ú]Y[[ãàààÇàYó€X]⁄HôKôù[X]⁄
+àùYéä
+ Hã€Y»‹ààãõY‹œ\ôKíQ”ì‘ëP–T—JBàYàH
+àŸ]›Yóÿ€Y[ù
+
+Kõ[›öYWÿûW⁄Y
+Yó€X]⁄ô‹õ›\
+JJBàYàYó€X]⁄[ŸHõ€ôBà
+Bà^[ÿYH[›öYW›◊ŸX›
+[›öYKYó€›ô\úöYO]YäBàYàYó€X]⁄ÇàYàYéÇàõ‹àöY[[à
+àù]HãûYX\àãúù[ù[YHãò€›ô\ó›\õãòòX⁄Ÿõ‹›\õãàô\ÿ‹ö\[€àãôŸ[úô\»ãõ‹öY⁄[ò[›]Hãúô[X\ŸWŸ]Hãàúò][ô»ãùõ›Wÿ€›[ùãùY€[ôHãòŸ\ùYöXÿ][€àãàòŸ\ùYöXÿ][€óÿ€›[ùûHãú›]\»ãõ‹öY⁄[ò[€[ô›XYŸHãàú‹⁄Ÿ[ó€[ô›XYŸ\»ãò€›[ùöY\»ãô\ôX›‹ú»ãù‹ö]\ú»ãòÿ\›ãàúõŸX›[€óÿ€€\[öY\»ãöŸ^]€‹ô»ãò€€X›[€àãòùYŸ]ãàúô]ô[ùYHãùòZ[\àãùYó›\õãà
+NÇàYàYãôŸ]
+öY[
+NÇà^[ÿYŸöY[HHYñŸöY[Bà^[ÿY»õY]Y]W‹€›\òŸHóHHïQàÇà^[ÿY»ùYó⁄YóHHYñ»ùYó⁄YóBÇà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà€›\òŸ\»H\›
+›]Kõ[›öYW‹€›\òŸWÿÿX⁄KôŸ]
+€Y H‹à€[›öYWJBàõ›öY\ó‹€›\òŸ\»H◊Bàõ‹à€›\òŸH[à€›\òŸ\ŒÇàõ›öY\àH€[›öYW‹õ›öY\ä€›\òŸJBàõ›öY\ó‹€›\òŸ\Àò\[ô
+¬àöŸ^Héàõ›öY\ãàõXô[éàì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\äKàò€€ù[ù€[ô›XYŸHéà€[›öYWÿ€€ù[ù€[ô›XYŸJ€›\òŸJKàö‹›\óÿ€›[ùéà[ä€›\òŸKö‹›\ú Kàö‹›\ú»éàÿ\ŸX›
+‹›\äHõ‹à‹›\à[à€›\òŸKö‹›\ú◊KàJBà^[ÿY»ú€›\òŸW‹õ›öY\ú»óHHõ›öY\ó‹€›\òŸ\¬à^[ÿY»úõ›öY\óÿ€›[ùóHH[äõ›öY\ó‹€›\òŸ\ Bà^[ÿY»úõ›öY\óŸò[òX⁄◊ÿ€›[ùóHHX^
+[äõ›öY\ó‹€›\òŸ\ HHJBà^[ÿY»ö‹›\ó››[óHH›[J€›\òŸV»ö‹›\óÿ€›[ùóHõ‹à€›\òŸH[àõ›öY\ó‹€›\òŸ\ Bà^[ÿY»úõ›öY\ó‹õ›]HóHHà8°§àãöõ⁄[äà€›\òŸV»õXô[óHõ‹à€›\òŸH[àõ›öY\ó‹€›\òŸ\¬à
+Bàô]\õà^[ÿYÇÇôYàÿX⁄Y€[›öYW‹€›\òŸWŸò[òX⁄‹ €YŒà›äHOà‹[€ò[”\›—ö[\[\›[›öYWWNÇà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà€›\òŸ\»H›]Kõ[›öYW‹€›\òŸWÿÿX⁄KôŸ]
+€Y Bàô]\õà\›
+€›\òŸ\÷ÃNóJHYà€›\òŸ\»[ŸHõ€ôBÇÇôYà‹Ÿ\öY\◊Ÿõ€\ó⁄Ÿ^Jò[YNà›äHOà›éÇàààïô\ô€ZX⁄‹ÿ⁄0Ô‹Ÿ[∞Ôàõ‹ö[ô[ôHŸ\öY[õ‹ôô\ãÇÇà[ù^[ù\úÿ⁄ZY]‹õÁÀK“€Z[úÿ⁄ôZXù[ôÀà⁄ôHY\ŸHõ‹õX[\⁄Y\ù[ô»ÔôBàãêãàôXô[àïHõ€⁄⁄YHàZ[àùŸZ]\à‹ôô\àïHõ€⁄⁄YHà[ù›Z[ãÇàààÇà⁄]›]ﬁYX\àHôKú›Xäàó ñ◊
+◊O ŒåN_å
+WÃüV◊
+WWO◊ âãàãò[YH‹ààäBàô]\õàôKú›Xäàñ◊òK^åNWJ»ãàã⁄]›]ﬁYX\ãòÿ\ŸYõ€
+
+JBÇÇôYàŸ^\›[ô◊‹Ÿ\öY\◊Ÿ\ä›]‹õ€›à]\⁄\ôY€ò[YNà›äHOà]Çà\⁄\ôYH›]‹õ€›»\⁄\ôY€ò[YBàYàõ››]‹õ€›ö\◊Ÿ\ä
+NÇàô]\õà\⁄\ôYàÿ[ùYH‹Ÿ\öY\◊Ÿõ€\ó⁄Ÿ^J\⁄\ôY€ò[YJBàÿX⁄W⁄Ÿ^HH
+›ä›]‹õ€›úô\€€ôJ
+JKÿ[ùY
+BàÿX⁄YH›]KúŸ\öY\◊Ÿ\óÿÿX⁄KôŸ]
+ÿX⁄W⁄Ÿ^JBàYàÿX⁄Y\»õ›õ€ôH[ôÿX⁄Yö\◊Ÿ\ä
+NÇàô]\õàÿX⁄YàûNÇàX]⁄\»H¬à⁄[õ‹à⁄[[à›]‹õ€›ö]\ô\ä
+BàYà⁄[ö\◊Ÿ\ä
+H[ô‹Ÿ\öY\◊Ÿõ€\ó⁄Ÿ^J⁄[õò[YJHOHÿ[ùYàBà^Ÿ\‘—\úõ‹éÇàô]\õà\⁄\ôYàYàõ›X]⁄\ŒÇàô]\õà\⁄\ôYÇà»⁄Xù\»\ò⁄Z[ôHú∞Ô\ôH‹õÁÀK“€Z[úÿ⁄ôZXù[ô‹ÀPXùŸZX⁄[ô»ô\ôZ]»ùŸZBà»‹ôô\ãŸ]⁄[õù\à]XõY\ùH‹ôô\àZ][àYZ\›[àYYY[ô]ZY[ãÇàöY[◊‹›Yôö^\»H»ãõ\ããõZ›àããùŸXõHããò]öHããõ[›àããõMàüBÇàYàÿ€€ù[ù‹ÿ€‹ôJ]à]
+HOà\NÇàöY[‹»Hà\ú»HàûNÇàõ‹à⁄[[à]úô€ÿääàäNÇàYà⁄[ö\◊Ÿ\ä
+NÇà\ú»
+œHBà[Yà⁄[ú›Yôö^òÿ\ŸYõ€
+
+H[àöY[◊‹›Yôö^\ŒÇàöY[‹»
+œHBà^Ÿ\‘—\úõ‹éÇà\‹¬àô]\õàöY[‹À\úÀ]õò[YHOH\⁄\ôY€ò[YBÇà⁄‹Ÿ[àHX^
+X]⁄\ÀŸ^OWÿ€€ù[ù‹ÿ€‹ôJBà›]KúŸ\öY\◊Ÿ\óÿÿX⁄VÿÿX⁄W⁄Ÿ^WHH⁄‹Ÿ[Çàô]\õà⁄‹Ÿ[ÇÇÇôYà‹ŸX\€€ó€›]]Ÿ\äŸ\öY\◊Ÿ\éà]ŸX\€€éà[ù
+HOà]Çààà∞Áô\õö[[]YHõ‹ö[ô[ôH›Yôô[›ùZ›\àZ[ô\àŸ\öYKÇÇà[ù\ú›0Ôùî›Yôô[ãî›Yôô[ãîŸX\€€àà[ôîÃãàYYŸ[Çàõ‹ö[ô[ôH\\€Ÿ[àõX⁄[HŸ\öY[õ‹ôô\ãõZXù]X⁄YHô]YH\\€ŸH‹ùÇàààÇàôYô\úôYHŸ\öY\◊Ÿ\à»àî›Yôô[‹ŸX\€€éåôHÇàYàôYô\úôYô^\› 
+H‹àõ›Ÿ\öY\◊Ÿ\ãö\◊Ÿ\ä
+NÇàô]\õàôYô\úôYÇàŸX\€€ó‹ôHHôKò€€\[JàóäŒú›Yôô[ŸX\€€ü W å
+ä
+ WàãôKíQ”ì‘ëP–T—JBàŸX\€€óŸ\úŒà\››\WHH◊Bà\◊Ÿõ]Ÿ\\€Ÿ\»Hò[ŸBà\\€ŸW‹ôHHôKò€€\[JàäŒóüÀàÀWJ\◊ÃKüYWÃKﬂJŒâÀàÀWJHãôKíQ”ì‘ëP–T—JBàûNÇàõ‹à⁄[[àŸ\öY\◊Ÿ\ãö]\ô\ä
+NÇàYà⁄[ö\◊Ÿ\ä
+NÇàX]⁄HŸX\€€ó‹ôKõX]⁄
+⁄[õò[YKú›ö\
+
+JBàYàX]⁄ÇàŸX\€€óŸ\úÀò\[ô
+
+[ù
+X]⁄ô‹õ›\
+JJK⁄[
+JBà[Yà⁄[ö\◊Ÿö[J
+H[ô\\€ŸW‹ôKúŸX\ò⁄
+⁄[ú›[JNÇà\◊Ÿõ]Ÿ\\€Ÿ\»HùYBà^Ÿ\‘—\úõ‹éÇàô]\õàôYô\úôYÇàõ‹àù[Xô\ãõ€\à[àŸX\€€óŸ\úŒÇàYàù[Xô\àOHŸX\€€éÇàô]\õàõ€\ÇàYà\◊Ÿõ]Ÿ\\€Ÿ\»[ôõ›ŸX\€€óŸ\úŒÇàô]\õàŸ\öY\◊Ÿ\Çàô]\õàôYô\úôYÇÇôYàŸ\öY\◊Ÿ\\€ŸW€›]‹]
+Ÿ\öY\◊›]Nà›ãŸX\€€éà[ù\\€ŸNà[ù
+HOà]Çà»Ÿ\öY[à[ô[à[H—TTêUSàŸ\öY[ãS‹ôô\à
+›]KúŸ\öY\◊‹]
+Kö[YH[Bà»ö[KS‹ôô\à
+›]Kúÿ]ôW‹]
+Kàõ‹ö[ô[ôHêTÀT›ùZ›\ô[àŸ\ô[àô]ÿZùÇà›]‹õ€›H]
+›]KúŸ\öY\◊‹]
+Bà\⁄\ôY€ò[YHHÿ[ö]^ôWŸö[[ò[YJŸ\öY\◊›]JKú›ö\
+
+H‹àîŸ\öYHÇàŸ\öY\◊Ÿ\àHŸ^\›[ô◊‹Ÿ\öY\◊Ÿ\ä›]‹õ€›\⁄\ôY€ò[YJBàŸX\€€óŸ\àH‹ŸX\€€ó€›]]Ÿ\äŸ\öY\◊Ÿ\ãŸX\€€äBàô]\õàŸX\€€óŸ\à»ùZ[Ÿö[[ò[YJŸ\öY\◊›]KŸX\€€ã\\€ŸJBÇÇôYà›ò[Y€YYXWÿÿX⁄Y
+]à]
+HOà\Vÿõ€€›óNÇàààïò[YY\ù⁄ÿ[HYYY[àù\à\õô]]Ÿ[õà‹∞Ì∞ÁŸHŸ\à][YH⁄X⁄0Èô\õãàààÇàûNÇà›]H]ú›]
+
+Bà⁄Y€ò]\ôHH
+›]ú›‹⁄^ôK›]ú›€][YW€ú Bà^Ÿ\‘—\úõ‹à\»^ŒÇàô]\õàò[ŸKàë]ZHöX⁄\ÿò\éàŸ^ﬂHÇàŸ^HH›ä]úô\€€ôJ›öX›Qò[ŸJJBà⁄]›]KõYYXW›ò[Y][€ó€ÿ⁄ŒÇàÿX⁄YH›]KõYYXW›ò[Y][€óÿÿX⁄KôŸ]
+Ÿ^JBàYàÿX⁄Y[ôÿX⁄YŒåóHOH⁄Y€ò]\ôNÇàô]\õàõ€€
+ÿX⁄YÃóJK›äÿX⁄YÃ◊JBàò[Y]Z[Hò[Y]W€YYXWŸö[J]
+Bà⁄]›]KõYYXW›ò[Y][€ó€ÿ⁄ŒÇà›]KõYYXW›ò[Y][€óÿÿX⁄V⁄Ÿ^WHH
+
+ú⁄Y€ò]\ôKò[Y]Z[
+Bàô]\õàò[Y]Z[ÇÇôYà€€\]WŸ›€õÿYYŸ\\€Ÿ\ Ÿ\öY\Œàö[\[\›Ÿ\öY\ HOàŸ]Çàààîÿÿ[õù[àŸ\öY[õ‹ôô\àZ[õX[›]Z[ô\»êTÀQ€ÿàõ»\\€ŸKàààÇà›]‹õ€›H]
+›]KúŸ\öY\◊‹]
+Bà\⁄\ôY€ò[YHHÿ[ö]^ôWŸö[[ò[YJŸ\öY\Àù]JKú›ö\
+
+H‹àîŸ\öYHÇàŸ\öY\◊Ÿ\àHŸ^\›[ô◊‹Ÿ\öY\◊Ÿ\ä›]‹õ€›\⁄\ôY€ò[YJBàYàõ›Ÿ\öY\◊Ÿ\ãö\◊Ÿ\ä
+NÇàô]\õàŸ]
+
+BÇàöY[◊‹›Yôö^\»H»ãõ\ããõZ›àããùŸXõHããò]öHããõ[›àããõMàüBàÿ[ôY]\Œà\››\V‘]\V⁄[ù[ùWWHH◊BàûNÇàõ‹à][àŸ\öY\◊Ÿ\ãúô€ÿääàäNÇàYàõ›]ö\◊Ÿö[J
+H‹à]ú›Yôö^òÿ\ŸYõ€
+
+Hõ›[àöY[◊‹›Yôö^\ŒÇà€€ù[ùYBàX]⁄HôKúŸX\ò⁄
+àäŒóüÀàÀWJ\ ÃKüJYJÃKﬂJJŒâÀàÀWJHã]ú›[KôKíJBàYàX]⁄Çàÿ[ôY]\Àò\[ô
+
+]
+[ù
+X]⁄ô‹õ›\
+JJK[ù
+X]⁄ô‹õ›\
+äJJJJBà^Ÿ\‘—\úõ‹éÇà\‹¬Çà^\›[ôŒàŸ]›\V⁄[ù[ùWHHŸ]
+
+BàYàÿ[ôY]\ŒÇà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[ä[äÿ[ôY]\ JJH\»€€Çàù]\ô\»H Z\ã€€ú›XõZ]
+›ò[Y€YYXWÿÿX⁄Y]
+JHõ‹à]Z\à[àÿ[ôY]\◊Bàõ‹àZ\ãù]\ôH[àù]\ô\ŒÇàûNÇàò[YŸ]Z[Hù]\ôKúô\›[
+
+Bà^Ÿ\^Ÿ\[€éÇàò[YHò[ŸBàYàò[YÇà^\›[ôÀòY
+Z\äBÇàô]\õà¬à\ú€Y»õ‹à\[àŸ\öY\Àò[Ÿ\\€Ÿ\¬àYà
+\úŸX\€€ã\ô\\€ŸJH[à^\›[ô¬àBÇÇôYàŸ\öY\◊›◊ŸX›
+àŸ\öY\Œàö[\[\›Ÿ\öY\ÀàôYúô\⁄⁄ô[Yö[éàõ€€Hò[ŸKàYô\óÿ⁄X⁄‹Œàõ€€Hò[ŸKäHOàX›ÇàààîŸ\öX[\⁄Y\ùZ[ôHŸ\öYK‹[€ò[⁄ôHõÿ⁄⁄Y\ô[ôHô\ô∞Ôÿò\öŸZ]ÿ⁄X⁄‹ÀÇÇàôZ[H\ú›[à0Âôôõô[àŸ\ô[à[Z]›Yôô[H[ô\\€Ÿ[ú›ùZ›\à€Ÿõ‹ùòX⁄à[H[òöY]\òXúùYà]\ŸŸ[YYô\ùà⁄ÿ[\àô\›[ôQà[ôô[Yö[à0Ôôô[Çà[úÿ⁄YpÁŸ[ô[àZ[ô[HŸ]ô[õù[àô\]Y\›òX⁄öYZ[ãÇàààÇà›€õÿYYHŸ]
+
+HYàYô\óÿ⁄X⁄‹»[ŸH€€\]WŸ›€õÿYYŸ\\€Ÿ\ Ÿ\öY\ Bà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà›‹ôYŸ[ùûHHÿ]⁄\›€€⁄›\
+Ÿ\öY\Àòò\ŸW‹€Y Bàÿ]⁄\›Ÿ[ùûHHX›
+›‹ôYŸ[ùûJHYà›‹ôYŸ[ùûH[ŸHõ€ôBà›‹ôY›Yó⁄YHÿ]⁄\›Ÿ[ùûKôŸ]
+ùYó⁄YäHYàÿ]⁄\›Ÿ[ùûH[ŸHàÇàYóÿ€Y[ùHŸ]›Yóÿ€Y[ù
+
+BàYàHõ€ôHYàYô\óÿ⁄X⁄‹»[ŸHŸ]›Yó‹Ÿ\öY\ Ÿ\öY\Àù]K›‹ôY›Yó⁄Y
+Bà[X\Ÿ\»H\›
+X›ôúõ€ZŸ^\ ö[\äõ€ôK
+àÿ]⁄\›Ÿ[ùûKôŸ]
+ù]HãàäHYàÿ]⁄\›Ÿ[ùûH[ŸHàãà
+äÿ]⁄\›Ÿ[ùûKôŸ]
+ò[X\Ÿ\»ã◊JHYàÿ]⁄\›Ÿ[ùûH[ŸH◊JKàYãôŸ]
+ù]HãàäHYàYà[ŸHàãàYãôŸ]
+õ‹öY⁄[ò[›]HãàäHYàYà[ŸHàãà
+JJJBàYó⁄YH›‹ôY›Yó⁄Y‹à
+Yà‹àﬂJKôŸ]
+ùYó⁄YäBàŸX\€€óŸ\\€ŸWÿ€›[ù»H
+Yà‹àﬂJKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äH‹à
+àÿ]⁄\›Ÿ[ùûKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»ãﬂJHYàÿ]⁄\›Ÿ[ùûH[ŸHﬂBà
+BàŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]H
+Yà‹àﬂJKôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]äH‹à
+àÿ]⁄\›Ÿ[ùûKôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]ã
+HYàÿ]⁄\›Ÿ[ùûH[ŸHà
+Bà[úô[X\ŸY‹€Y‹»H
+à›[úô[X\ŸYŸ\\€ŸW‹€Y‹ Ÿ\öY\ÀYó⁄Y
+BàYàõ›Yô\óÿ⁄X⁄‹»[ôYó⁄Y[ŸHŸ]
+
+Bà
+Bàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+Bàô[Yö[ó‹[ô[ô»Hõ€€
+Yô\óÿ⁄X⁄‹»[ôôóÿ€Y[ùò€€ôöY›\ôY
+Bàôó⁄Y[ù]Wÿ]òZ[XõNà‹[€ò[ÿõ€€HHõ€ôHYàô[Yö[ó‹[ô[ô»[ŸHùYBàôóŸ^\›[ôŒàŸ]›\V⁄[ù[ùWHHŸ]
+
+BàYàôóÿ€Y[ùò€€ôöY›\ôY[ôõ›ô[Yö[ó‹[ô[ôŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€€ôöY◊ŸŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€ÇàôóŸ\\€Ÿ\»HŸ]⁄ô[Yö[óŸ\\€Ÿ\ õ‹òŸO\ôYúô\⁄⁄ô[Yö[äBàôó‹Ÿ\öY\»HŸ]⁄ô[Yö[ó‹Ÿ\öY\ õ‹òŸO\ôYúô\⁄⁄ô[Yö[äBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóŸ]WŸŸ[ô\ò][€àH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çàôó‹Ÿ\öY\◊⁄Y»Hôóÿ€Y[ùúŸ\öY\◊⁄Y◊Ÿõ‹äàŸ\öY\Àù]KYó⁄Y]Yó⁄Y[X\Ÿ\œX[X\Ÿ\À][\œZôó‹Ÿ\öY\Àà
+HYàôó‹Ÿ\öY\»\»õ›õ€ôH[ŸHŸ]
+
+Bàôó⁄Y[ù]Wÿ]òZ[XõHHõ€€
+àôóŸ\\€Ÿ\»\»õ›õ€ôBà[ô›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõBà[ôôó‹Ÿ\öY\»\»õ›õ€ôBà[ô›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõBà[ôôó‹Ÿ\öY\◊⁄Y»\»õ›õ€ôBà
+BàôóŸ^\›[ô»H
+àôóÿ€Y[ùô\\€Ÿ\◊Ÿõ‹ó‹Ÿ\öY\ àŸ\öY\Àù]K][\œZôóŸ\\€Ÿ\À[X\Ÿ\œX[X\Ÿ\ÀŸ\öY\◊⁄YœZôó‹Ÿ\öY\◊⁄YÀà
+BàYàôó⁄Y[ù]Wÿ]òZ[XõH[ôôóŸ\\€Ÿ\»\»õ›õ€ôH[ŸHŸ]
+
+Bà
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà
+àôóÿ€€ôöY◊ŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà‹àôóŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+NÇàôó⁄Y[ù]Wÿ]òZ[XõHHò[ŸBàôóŸ^\›[ô»HŸ]
+
+BàŸX\€€ú»H◊Bàõ‹à»[àŸ\öY\ÀúŸX\€€ó€ù[Xô\úŒÇà\\€Ÿ\»H◊Bàõ‹à\[àŸ\öY\ÀúŸX\€€ú÷‹◊NÇà[ó⁄ô[Yö[àH
+\úŸX\€€ã\ô\\€ŸJH[àôóŸ^\›[ô¬à\\€Ÿ\Àò\[ô
+¬àúŸX\€€àéà\úŸX\€€ãô\\€ŸHéà\ô\\€ŸKú€Y»éà\ú€YÀàù\õéà\ù\õúô[X\ŸW€ò[YHéà\úô[X\ŸW€ò[YKàú]Y]YYéà\ú€Y»[à›]KúX⁄ŸYàô›€õÿYYéà\ú€Y»[à›€õÿYYàö[ó⁄ô[Yö[àéà[ó⁄ô[Yö[ãàù[úô[X\ŸYéà\ú€Y»[à[úô[X\ŸY‹€Y‹ÀàJBàŸX\€€úÀò\[ô
+»úŸX\€€àéàÀô\\€Ÿ\»éà\\€Ÿ\ﬂJBàõ›öY\àHõ›öY\óŸõ‹ó›ò[YJŸ\öY\Àù\õ‹àŸ\öY\Àòò\ŸW‹€Y Bà^[ÿYH¬àù]HéàŸ\öY\Àù]Kòò\ŸW‹€Y»éàŸ\öY\Àòò\ŸW‹€YÀù\õéàŸ\öY\Àù\õàò€›ô\ó›\õéàŸ\öY\Àò€›ô\ó›\õô\ÿ‹ö\[€àéàŸ\öY\Àô\ÿ‹ö\[€ãàôŸ[úô\»éàŸ\öY\ÀôŸ[úô\ÀúŸX\€€ú»éàŸX\€€úÀàúõ›öY\àéàõ›öY\ãàúõ›öY\ó€Xô[éàì’íQTó”PëSÀôŸ]
+õ›öY\ãõ›öY\äKàò€€ù[ù€[ô›XYŸHéàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äKàõ[ô›XYŸW€Xô[éàì’íQTó––US—÷‹õ›öY\óKõ[ô›XYŸW€Xô[àô\\€ŸWÿ€›[ùéà[äŸ\öY\Àò[Ÿ\\€Ÿ\ Kàùÿ]⁄\›Yéàÿ]⁄\›Ÿ[ùûH\»õ›õ€ôKàò]òZ[Xö[]W‹[ô[ô»éàYô\óÿ⁄X⁄‹Ààô[úöX⁄Y[ù‹[ô[ô»éàõ€€
+àYô\óÿ⁄X⁄‹»[ô
+Yóÿ€Y[ùò€€ôöY›\ôY‹àôóÿ€Y[ùò€€ôöY›\ôY
+Bà
+Kàöô[Yö[óÿ€€ôöY›\ôYéàôóÿ€Y[ùò€€ôöY›\ôYàöô[Yö[ó‹[ô[ô»éàô[Yö[ó‹[ô[ôÀàöô[Yö[óÿ]òZ[XõHéàôó⁄Y[ù]Wÿ]òZ[XõKàùÿ]⁄€[ŸHéàõ‹õX[^ôW›ÿ]⁄€[ŸJàÿ]⁄\›Ÿ[ùûKôŸ]
+ô›€õÿY€[ŸHäHYàÿ]⁄\›Ÿ[ùûH[ŸHõ€ôBà
+Kàò€X[ù\€[ŸHéàõ‹õX[^ôWÿ€X[ù\€[ŸJàÿ]⁄\›Ÿ[ùûKôŸ]
+ò€X[ù\€[ŸHäHYàÿ]⁄\›Ÿ[ùûH[ŸHõ€ôBà
+KàõY]Y]W‹€›\òŸHéàê[òöY]\àãàBàYàYéÇàõ‹àöY[[à
+àù]HãûYX\àãôö\ú›ÿZ\óŸ]Hãúù[ù[YHãò€›ô\ó›\õãàòòX⁄Ÿõ‹›\õãô\ÿ‹ö\[€àãôŸ[úô\»ãõ‹öY⁄[ò[›]Hãàúò][ô»ãùõ›Wÿ€›[ùãú›]\»ãùòZ[\àãòÿ\›ãò‹ôX]‹ú»ãàõô]€‹ö‹»ãà
+NÇàYàYãôŸ]
+öY[
+NÇà^[ÿYŸöY[HHYñŸöY[Bà^[ÿY»õY]Y]W‹€›\òŸHóHHïQàÇà^[ÿY»ùYó⁄YóHHYñ»ùYó⁄YóBàYàYó⁄YÇà^[ÿY»ùYó⁄YóHHYó⁄YàYà[X\Ÿ\ŒÇà^[ÿY»ò[X\Ÿ\»óHH[X\Ÿ\¬àYàŸX\€€óŸ\\€ŸWÿ€›[ùŒÇà^[ÿY»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHHŸX\€€óŸ\\€ŸWÿ€›[ù¬àYàŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]Çà^[ÿY»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHHŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]àô]\õà^[ÿYÇÇôYà]Y]YWŸ‹õ›\€ò[YJ€YŒà›äHOà›éÇà\úŸYH\úŸWŸ\\€ŸW‹€Y €Y BàYàõ›\úŸYÇàô]\õàëö[YHÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y BàYà[›öYH[ô[›öYKù]NÇà›ö\YH›ö\Ÿ\\€ŸW‹›Yôö^
+[›öYKù]JBàYà›ö\YÇàô]\õà›ö\Yàô]\õà\úŸYÃBÇÇôYà]Y]YWÿ€€ù[ù⁄Ÿ^J€YŒà›ã[›öYNà‹[€ò[—ö[\[\›[›öYWHHõ€ôJHOà›éÇàààîõ›öY\ã][òXö0Èô⁄YŸ\àÿ⁄0Ô‹Ÿ[ŸYŸ[à‹[HŸ⁄\ÿ⁄H›€õÿYÀàààÇà[›öYHH[›öYH‹à›]Kôú€[›öY\ÀôŸ]
+€Y BàYà[›öYH\»õ€ôNÇàô]\õààÇà\úŸYH\úŸWŸ\\€ŸW‹€Y €Y BàYà\úŸYÇàò\ŸW‹€YÀŸX\€€ã\\€ŸHH\úŸYà]HH›ö\Ÿ\\€ŸW‹›Yôö^
+[›öYKù]JH‹à[›öYKù]Bà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùûHHÿ]⁄\›€€⁄›\
+ò\ŸW‹€Y BàYó⁄YH›ä
+[ùûH‹àﬂJKôŸ]
+ùYó⁄YäH‹ààäBàYàõ›Yó⁄YÇàYàHŸ]›Yó‹Ÿ\öY\ ]JBàYó⁄YH›ä
+Yà‹àﬂJKôŸ]
+ùYó⁄YäH‹ààäBàY[ù]HHàùYéû›Yó⁄YHàYàYó⁄Y[ŸHàù]Nû◊€õ‹õW›]J]J_HÇàô]\õààúŸ\öY\Œû⁄Y[ù]_Núﬁ‹ŸX\€€üNô^Ÿ\\€Ÿ_HÇà]HH€X[ó€[›öYW›]J[›öYKù]JBàYàHŸ]›Yóÿ€Y[ù
+
+Kõ[›öYW‹›[[X\ûJ]K[›öYKûYX\äBàYó⁄YH›ä
+Yà‹àﬂJKôŸ]
+ùYó⁄YäH‹ààäBàY[ù]HHàùYéû›Yó⁄YHàYàYó⁄Y[ŸHàù]Nû◊€õ‹õW›]J]J_Nû€[›öYKûYX\à‹à	…ﬂHÇàô]\õààõ[›öYNû⁄Y[ù]_HÇÇÇôYà\\€ŸW‹€‹ù⁄Ÿ^J€YŒà›äNÇà\úŸYH\úŸWŸ\\€ŸW‹€Y €Y Bàô]\õà
+\úŸYÃWK\úŸYÃóJHYà\úŸY[ŸH
+
+BÇÇôYà‹\ú⁄\›‹]Y]YW‹›]J
+HOàõ€ôNÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà€ò\⁄›HŸ]
+›]KúX⁄ŸY
+Bà»ÿ⁄»ö\»òX⁄[H]€X\ô[àô\XŸH[[ãà€€ú›ÿ[õàZ[à0È\ô\Çà»€ò\⁄›Z[ô[àô]Y\ô[àXúÿ⁄\‹»òX⁄∞È€X⁄0Ôô\úÿ⁄ôZXô[ãÇàYàõ›\€€ôöYÀúÿ]ôW‹]Y]YJ€ò\⁄›
+NÇàŸ î]Y]YKVù\›[ô€€õùHöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàãùÿ\õàäBÇÇôYà‹]Y]YW‹€Y◊ÿ€Z[YY
+€YŒà›äHOàõ€€Çà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàô]\õà€Y»[à›]KúX⁄ŸYÇÇôYàŸ\öY[ú›ôX[W‹õ›öY\ó‹›]\ 
+HOàX›ÇàX›]ôW⁄õÿú»H›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Bà[ô[ô◊⁄õÿú»H
+à›]Kô‹]Y]YKú[ô[ô◊⁄õÿú 
+BàYà\ÿ]ä›]Kô‹]Y]YKú[ô[ô◊⁄õÿú»äH[ŸH◊Bà
+BàX›]ôWŸ›€õÿY‹€Y‹»H¬à€Y¬àõ‹àõÿà[àX›]ôW⁄õÿú¬àYàõ›Ÿ]]äõÿãö\◊‹ô\\ò][€ó⁄õÿàãò[ŸJBàõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàBà[ô[ô◊Ÿ›€õÿY‹€Y‹»H¬à€Y¬àõ‹àõÿà[à[ô[ô◊⁄õÿú¬àYàõ›Ÿ]]äõÿãö\◊‹ô\\ò][€ó⁄õÿàãò[ŸJBàõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàBà›€õÿY‹€Y‹»HX›]ôWŸ›€õÿY‹€Y‹»[ô[ô◊Ÿ›€õÿY‹€Y‹¬à⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà€Z[YYHŸ]
+›]KúX⁄ŸY
+BàÿZ][ô◊‹€Y‹»HŸ]
+›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿú H	à€Z[YYàô\\ö[ô◊‹€Y‹»HŸ]
+›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹ H	à€Z[YYà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà€›[ùYHŸ]
+›]Kò€›[ùY‹]Y]YW‹€Y‹ Bàò[òX⁄◊‹€Y‹»H¬à€Y»õ‹à€Y»[à€Z[YY	à€›[ùYàYà€Y»õ›[àÿZ][ô◊‹€Y‹¬à[ô€Y»õ›[à›€õÿY‹€Y‹¬à[ô\úŸWŸ\\€ŸW‹€Y €Y H\»õ›õ€ôBà[ôõ›öY\óŸõ‹ó›ò[YJ€Y HOHúŸ\öY[ú›ôX[HÇàBà›]\»H›]Kúõ›öY\ó⁄X[ú›]\ àúŸ\öY[ú›ôX[HãÿZ][ô◊Ÿ\\€ŸWÿ€›[ù[[äÿZ][ô◊‹€Y‹ Kà
+Bà›]\÷»ôò[òX⁄◊Ÿ\\€ŸWÿ€›[ùóHH[äò[òX⁄◊‹€Y‹ Bà›]\÷»ò⁄X⁄⁄[ô◊Ÿ\\€ŸWÿ€›[ùóHH[äò[òX⁄◊‹€Y‹»	àô\\ö[ô◊‹€Y‹ Bà›]\÷»ú]Y]YYŸò[òX⁄◊Ÿ\\€ŸWÿ€›[ùóHH[äò[òX⁄◊‹€Y‹»Hô\\ö[ô◊‹€Y‹ Bà›]\÷»òX›]ôWŸò[òX⁄◊Ÿ›€õÿYÿ€›[ùóHH›[Jà\úŸWŸ\\€ŸW‹€Y €Y H\»õ›õ€ôBà[ôõ›öY\óŸõ‹ó›ò[YJ€Y HOHúŸ\öY[ú›ôX[HÇàõ‹à€Y»[àX›]ôWŸ›€õÿY‹€Y‹»	à€Z[YYà
+Bà›]\÷»úôXYWŸò[òX⁄◊Ÿ›€õÿYÿ€›[ùóHH›[Jà\úŸWŸ\\€ŸW‹€Y €Y H\»õ›õ€ôBà[ôõ›öY\óŸõ‹ó›ò[YJ€Y HOHúŸ\öY[ú›ôX[HÇàõ‹à€Y»[à[ô[ô◊Ÿ›€õÿY‹€Y‹»	à€Z[YYà
+Bà›]\÷»òÿX⁄Y‹ôY\ôX›ÿ€›[ùóHH›]Kúô\€€ôY€[ö◊ÿÿX⁄Kò€›[ù
+
+Bàô]\õà›]\¬ÇÇôYàùZ[‹]Y]YW‹^[ÿY
+
+HOàX›Çà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà€Y‹»H€‹ùY
+›]KúX⁄ŸY
+BàYàõ›€Y‹ŒÇàô]\õà¬àò€›[ùéààô‹õ›\»éà◊Kàúõ›öY\ú»éà»úŸ\öY[ú›ôX[HéàŸ\öY[ú›ôX[W‹õ›öY\ó‹›]\ 
+_KàòX›]ö]Héà¬àòX›]ôW‹ô\\ò][€ú»éààú[ô[ô◊‹ô\\ò][€ú»éààòX›]ôWŸ›€õÿY»éà›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+Kàú[ô[ô◊Ÿ›€õÿY»éààKàBà‹õ›\Œàì‹ô\ôYX›‹›ã\›‹›óWHàH‹ô\ôYX›
+
+Bàõ‹à€Y»[à€Y‹ŒÇà‹õ›\ÀúŸ]Yò][
+]Y]YWŸ‹õ›\€ò[YJ€Y K◊JKò\[ô
+€Y BàX›]ôW⁄õÿú»H›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Bà[ô[ô◊⁄õÿú»H
+à›]Kô‹]Y]YKú[ô[ô◊⁄õÿú 
+BàYà\ÿ]ä›]Kô‹]Y]YKú[ô[ô◊⁄õÿú»äH[ŸH◊Bà
+BàX›]ôWŸ›€õÿY‹€Y‹»H¬à€Y¬àõ‹àõÿà[àX›]ôW⁄õÿú¬àYàõ›Ÿ]]äõÿãö\◊‹ô\\ò][€ó⁄õÿàãò[ŸJBàõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàBà[ô[ô◊Ÿ›€õÿY‹€Y‹»H¬à€Y¬àõ‹àõÿà[à[ô[ô◊⁄õÿú¬àYàõ›Ÿ]]äõÿãö\◊‹ô\\ò][€ó⁄õÿàãò[ŸJBàõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàBà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàô\\ö[ô◊‹€Y‹»HŸ]
+›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹ Bàô\›[Ÿ‹õ›\»H◊Bàõ›öY\ó‹›]\»HŸ\öY[ú›ôX[W‹õ›öY\ó‹›]\ 
+BàŸ\öY[ú›ôX[W‹]\ŸYHõ›öY\ó‹›]\ÀôŸ]
+ú›]HäHOHPSBàõ‹àò[YK‹€Y‹»[à‹õ›\Àö][\ 
+NÇà][\»H◊Bàõ‹à€Y»[à€‹ùY
+‹€Y‹ÀŸ^OY\\€ŸW‹€‹ù⁄Ÿ^JNÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y Bà]HH[›öYKù]HYà[›öYH[ŸH€Y¬àXô[H›]Kö‹›\ó⁄[ù[òô\›€Xô[
+[›öYKö‹›\ú HYà[›öYH[ô[›öYKö‹›\ú»[ŸH∏†%Çàõ›öY\àH€[›öYW‹õ›öY\ä[›öYK€Y BàÿZ][ô◊‹õ›öY\àH€Y»[à›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿú¬à⁄X⁄⁄[ô◊Ÿò[òX⁄»H
+àŸ\öY[ú›ôX[W‹]\ŸYà[ôõ›ÿZ][ô◊‹õ›öY\Çà[ô€Y»[àô\\ö[ô◊‹€Y‹¬à[ô\úŸWŸ\\€ŸW‹€Y €Y H\»õ›õ€ôBà[ôõ›öY\óŸõ‹ó›ò[YJ€Y HOHúŸ\öY[ú›ôX[HÇà[ô€Y»[à›]Kò€›[ùY‹]Y]YW‹€Y‹¬à
+Bà]Y]YYŸò[òX⁄»H
+àŸ\öY[ú›ôX[W‹]\ŸYà[ôõ›ÿZ][ô◊‹õ›öY\Çà[ôõ›⁄X⁄⁄[ô◊Ÿò[òX⁄¬à[ô€Y»õ›[àX›]ôWŸ›€õÿY‹€Y‹¬à[ô€Y»õ›[à[ô[ô◊Ÿ›€õÿY‹€Y‹¬à[ô\úŸWŸ\\€ŸW‹€Y €Y H\»õ›õ€ôBà[ôõ›öY\óŸõ‹ó›ò[YJ€Y HOHúŸ\öY[ú›ôX[HÇà[ô€Y»[à›]Kò€›[ùY‹]Y]YW‹€Y‹¬à
+Bà][\Àò\[ô
+¬àú€Y»éà€YÀù]Héà]Kö‹›\ó€Xô[éàXô[àúõ›öY\àéàõ›öY\ãàò€€ù[ù€[ô›XYŸHéà€[›öYWÿ€€ù[ù€[ô›XYŸJ[›öYKò[òX⁄œ\€Y Kàô€ôHéà€Y»[à›]Kô€ôW‹€Y‹Ààú›]\»éà
+àô›€õÿY[ô»àYà€Y»[àX›]ôWŸ›€õÿY‹€Y‹¬à[ŸHô›€õÿY‹ôXYHàYà€Y»[à[ô[ô◊Ÿ›€õÿY‹€Y‹¬à[ŸHùÿZ][ô◊‹õ›öY\ààYàÿZ][ô◊‹õ›öY\Çà[ŸHò⁄X⁄⁄[ô◊Ÿò[òX⁄»àYà⁄X⁄⁄[ô◊Ÿò[òX⁄¬à[ŸHú]Y]YYŸò[òX⁄»àYà]Y]YYŸò[òX⁄¬à[ŸHùÿZ][ô»Çà
+Kàõô^‹õÿôWÿ]éà
+à›]Kúõ›öY\ó⁄X[õô^‹õÿôWÿ]
+úŸ\öY[ú›ôX[HäBàYàÿZ][ô◊‹õ›öY\à[ŸHà
+KàJBàô\›[Ÿ‹õ›\Àò\[ô
+»õò[YHéàò[YKö][\»éà][\ﬂJBàô]\õà¬àò€›[ùéà[ä€Y‹ Kàô‹õ›\»éàô\›[Ÿ‹õ›\Ààúõ›öY\ú»éà»úŸ\öY[ú›ôX[Héàõ›öY\ó‹›]\ﬂKàòX›]ö]Héà¬à»]X⁄\àŸ\\ò]H€€ùõ€Y\ùHò[òX⁄ÀTô]ûH\›Z[ôHZ›]ôBà»õ‹òô\ôZ][ôÀÿù€⁄\àöX⁄[»›€õÿY]Y]YKRõÿà0ÈYùÇàòX›]ôW‹ô\\ò][€ú»éà[äô\\ö[ô◊‹€Y‹»	àŸ]
+€Y‹ JKàú[ô[ô◊‹ô\\ò][€ú»éà›[Jàõ€€
+Ÿ]]äõÿãö\◊‹ô\\ò][€ó⁄õÿàãò[ŸJJHõ‹àõÿà[à[ô[ô◊⁄õÿú¬à
+KàòX›]ôWŸ›€õÿY»éà[äX›]ôWŸ›€õÿY‹€Y‹ Kàú[ô[ô◊Ÿ›€õÿY»éà[ä[ô[ô◊Ÿ›€õÿY‹€Y‹ KàKàBÇÇôYàÿ]⁄\›‹^[ÿY
+
+HOàX›Çà][\»H◊Bà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄À›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹à»[à›]Kùÿ]⁄\›Çà[ô[ô»HŸ]
+›]Kùÿ]⁄\›€ô]◊‹€Y‹ÀôŸ]
+÷»òò\ŸW‹€Y»óKŸ]
+
+JJBà]Y]YYÿ€›[ùH[ä[ô[ô»	à›]KúX⁄ŸY
+BàòZ[\ô\»HÀôŸ]
+ôòZ[YŸ›€õÿY»äHYà\⁄[ú›[òŸJÀôŸ]
+ôòZ[YŸ›€õÿY»äKX›
+H[ŸHﬂBàòZ[Yÿ€›[ùH[äŸ]
+òZ[\ô\ H	à[ô[ô Bà[ŸHHõ‹õX[^ôW›ÿ]⁄€[ŸJÀôŸ]
+ô›€õÿY€[ŸHäJBà€X[ù\€[ŸHHõ‹õX[^ôWÿ€X[ù\€[ŸJÀôŸ]
+ò€X[ù\€[ŸHäJBà\úõ‹àH›äÀôŸ]
+õ\›Ÿ\úõ‹àäH‹ààäBàYà\úõ‹éÇà›]\»Hòõÿ⁄ŸYÇà[YàòZ[Yÿ€›[ùÇà›]\»HôòZ[YÇà[Yà]Y]YYÿ€›[ùÇà›]\»Hú]Y]YYÇà[Yà[ô[ô»[ô›]Kò]]€X][€ãôŸ]
+ò]]◊Ÿ›€õÿYäH[ôõ›\◊›⁄][óŸ›€õÿY›⁄[ô› 
+NÇà›]\»HùÿZ][ô◊›⁄[ô›»Çà[Yà[ô[ôŒÇà›]\»HõZ\‹⁄[ô»Çà[ŸNÇà›]\»Hò›\úô[ùÇà][\Àò\[ô
+¬à
+äùÀàô›€õÿY€[ŸHéà[ŸKàô›€õÿY€[ŸW€Xô[éà–U“”S—W”PëS÷€[ŸWKàò€X[ù\€[ŸHéà€X[ù\€[ŸKàò€X[ù\€[ŸW€Xô[éà”PSïT”S—W”PëS÷ÿ€X[ù\€[ŸWKàò€X[ù\€[ŸW‹ôXYHéà
+à€X[ù\€[ŸHOH”PSïT”S—W“—QTà‹àõ€€
+à›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäKú›ö\
+
+Bà[ô›]Köô[Yö[óÿŸôÀôŸ]
+ò\W⁄Ÿ^HãàäKú›ö\
+
+Bà[ô›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKú›ö\
+
+Bà[ô›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõBà[ôõ››äÀôŸ]
+ò€X[ù\€\›Ÿ\úõ‹àäH‹ààäBà
+Bà
+Kàô›€õÿY€[ŸW‹ôXYHéà
+à[ŸHOH–U“”S—W”ëV‘—PT””Çà‹àõ€€
+à›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäKú›ö\
+
+Bà[ô›]Köô[Yö[óÿŸôÀôŸ]
+ò\W⁄Ÿ^HãàäKú›ö\
+
+Bà[ô›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKú›ö\
+
+Bà[ô›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõBà[ôõ›\úõ‹Çà
+Bà
+Kàõô]◊ÿ€›[ùéà[ä[ô[ô Kàú]Y]YYÿ€›[ùéà]Y]YYÿ€›[ùàôòZ[Yÿ€›[ùéàòZ[Yÿ€›[ùàú›]\»éà›]\ÀàJBàô]\õà»ùÿ]⁄\›éà][\ﬂBÇÇôYàYò]W›ÿ]⁄\›ÿ\ù€‹ö 
+HOàõ€ôNÇàààë\ôÈûùö[\à[\àXõÀQZ[ù∞ÈŸH[òXö0Èô⁄Y»õ€àô[Yö[ãT∞Ôù[ôŸ[ãàààÇàYàõ›Ÿ]›Yóÿ€Y[ù
+
+Kò€€ôöY›\ôYÇàô]\õÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàZ\‹⁄[ô»H¬à¬àòò\ŸW‹€Y»éà›ä[ùûKôŸ]
+òò\ŸW‹€Y»äH‹ààäKàù]Héà›ä[ùûKôŸ]
+ù]HäH‹ààäKàùYó⁄Yéà[ùûKôŸ]
+ùYó⁄YäH‹ààãàBàõ‹à[ùûH[à›]Kùÿ]⁄\›àYàõ›[ùûKôŸ]
+òòX⁄Ÿõ‹›\õäH‹àõ›[ùûKôŸ]
+ò€›ô\ó›\õäBàBàYàõ›Z\‹⁄[ôŒÇàô]\õÇÇà\ù€‹ö»HﬂBàõ‹à][H[àZ\‹⁄[ôŒÇàY]Y]HHŸ]›Yó‹Ÿ\öY\ ][V»ù]HóK][V»ùYó⁄YóJBàYàõ›Y]Y]NÇà€€ù[ùYBà\ù€‹ö÷⁄][V»òò\ŸW‹€Y»óWHH¬àùYó⁄YéàY]Y]KôŸ]
+ùYó⁄YäKàò€›ô\ó›\õéàY]Y]KôŸ]
+ò€›ô\ó›\õäH‹ààãàòòX⁄Ÿõ‹›\õéàY]Y]KôŸ]
+òòX⁄Ÿõ‹›\õäH‹ààãàBÇà⁄[ôŸYHò[ŸBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹à[ùûH[à›]Kùÿ]⁄\›Çà[XYŸ\»H\ù€‹öÀôŸ]
+›ä[ùûKôŸ]
+òò\ŸW‹€Y»äH‹ààäJBàYàõ›[XYŸ\ŒÇà€€ù[ùYBàõ‹àöY[[à
+ùYó⁄Yãò€›ô\ó›\õãòòX⁄Ÿõ‹›\õäNÇàYàõ›[ùûKôŸ]
+öY[
+H[ô[XYŸ\ÀôŸ]
+öY[
+NÇà[ùûVŸöY[HH[XYŸ\÷ŸöY[Bà⁄[ôŸYHùYBàYà⁄[ôŸYÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BÇÇà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBà»›€õÿYT\[[ôH
+NåH]\»XZ[ãúKóÿùZ[ÿ[ô‹›\ù‹]Y]YH‹ùY\ù
+Bà»KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKBôYà€ó⁄õÿó‹õŸ‹ô\‹ ›àõÿ]\ŸŒà›ãXô[à›äNÇà^[ÿYH»ù\HéàúõŸ‹ô\‹»ãõXô[éàXô[õ\Ÿ»éà\ŸﬂBàYà›èHÇà^[ÿY»ú›óHH›àúõÿYÿ\›
+^[ÿY
+BÇÇôYàŸòZ[\ôW‹ôX€‹ô
+ô]ö[›\ÀY\‹ÿYŸNà›äHOàX›Çà][\»H[ù
+ô]ö[›\ÀôŸ]
+ò][\»ã
+JHYà\⁄[ú›[òŸJô]ö[›\ÀX›
+H[ŸHà][\»
+œHBàô]ûWŸ[^HHZ[äà
+àå
+àåH
+àå
+à
+à
+äàZ[ä][\»HKäJJBàô]\õà¬àõY\‹ÿYŸHéà›äY\‹ÿYŸJVŒåçKàò][\»éà][\Ààõô^‹ô]ûHéà[YKù[YJ
+H
+»ô]ûWŸ[^KàBÇÇôYà›ÿ]⁄\›‹ô]ûWÿ[›ŸY
+€YŒà›äHOàõ€€Çà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹à[ùûH[à›]Kùÿ]⁄\›ÇàòZ[\ôHH
+[ùûKôŸ]
+ôòZ[YŸ›€õÿY»äH‹àﬂJKôŸ]
+€Y BàYà\⁄[ú›[òŸJòZ[\ôKX›
+NÇàô]\õà[YKù[YJ
+HèHõÿ]
+òZ[\ôKôŸ]
+õô^‹ô]ûHã
+H‹à
+Bàô]\õàùYBÇÇôYà€ó⁄õÿóŸ€ôJ⁄Œàõ€€\ŸŒà›ãXô[à›ã›]‹]à]‹›\ó›\õà›àHàã€YŒà›àHàäNÇà»\à€›[ù\ãQZ[ùòY»\›\»Z[õX[YŸHXúÿ⁄\‹›⁄Ÿ[ãà[ùô\õô[ã–XòúùX⁄à»ÿ[õà\»õ‹àZ[ô[Hô\ú‹0È][àÿ[òX⁄»€€ú›[ZY\ô[é»Y\Ÿ\à⁄\ô[õÇà»õ€›0ÈôY»Y€õ‹öY\ù[ôÿ[õà€ôK››[öX⁄YZàô\ô∞Èÿ⁄[ãÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇàYà€Y»[ô€Y»õ›[à›]Kò€›[ùY‹]Y]YW‹€Y‹ŒÇàô]\õàò[ŸBàYà€YŒÇà›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúÀú‹
+€YÀõ€ôJBàYà⁄»[ô€YŒÇà›]Kô€ôW‹€Y‹ÀòY
+€Y Bà›]Kô€ôW⁄õÿú»
+œHBàYà€YŒÇà›]Kò€›[ùY‹]Y]YW‹€Y‹Àô\ÿÿ\ô
+€Y Bà›]KúX⁄ŸYô\ÿÿ\ô
+€Y Bà€ôW⁄õÿú»H›]Kô€ôW⁄õÿú¬à›[⁄õÿú»H›]Kù›[⁄õÿú¬à›XÿŸ\‹Ÿù[⁄õÿú»H[ä›]Kô€ôW‹€Y‹ BàòZ[Y⁄õÿú»HX^
+€ôW⁄õÿú»H›XÿŸ\‹Ÿù[⁄õÿú BàYà‹›\ó›\õÇà›]Kö‹›\ó⁄[ù[úôX€‹ôŸ›€õÿY
+‹›\ó›\õ⁄ BàYà⁄ŒÇàŸ àëô\ùYŒà€Xô[HOà€›]‹]HäBà[ŸNÇàŸ àëôZ\à€Xô[Nà€\ŸﬂHãô\úàäBàYà€YŒÇà»X⁄ŸYö[]]\‹ÿ⁄YpÁ€X⁄õÿ⁄Ÿôô[ôHÿ\ù\ÿ⁄[ôŸ[ãQZ[ù∞ÈŸHXãÇà»\ú›Y\à[ùô\õô[éà]YûôZ]Qò[òX⁄‹»\úôZX⁄[àY\ŸHù[ö›[€à\ú›à»òX⁄\ôõ€»Ÿ\àòX⁄[H⁄\ö€X⁄[H[òöY]\à]\ŸŸ\ÿ⁄0Ìúù⁄[ôÇà‹\ú⁄\›‹]Y]YW‹›]J
+Bàÿ]⁄\›ÿ⁄[ôŸYHò[ŸBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹à[ùûH[à›]Kùÿ]⁄\›Çàò\ŸW‹€Y»H[ùûKôŸ]
+òò\ŸW‹€Y»ãàäBà[ô[ô»H›]Kùÿ]⁄\›€ô]◊‹€Y‹ÀôŸ]
+ò\ŸW‹€YÀŸ]
+
+JBàòZ[\ô\»H[ùûKôŸ]
+ôòZ[YŸ›€õÿY»äBàYàõ›\⁄[ú›[òŸJòZ[\ô\ÀX›
+NÇàòZ[\ô\»HﬂBà[ùûV»ôòZ[YŸ›€õÿY»óHHòZ[\ô\¬àYà€Y»õ›[à[ô[ô»[ô€Y»õ›[àòZ[\ô\ŒÇà€€ù[ùYBàYà⁄ŒÇà[ô[ôÀô\ÿÿ\ô
+€Y BàòZ[\ô\Àú‹
+€YÀõ€ôJBàYàõ›[ô[ôŒÇà›]Kùÿ]⁄\›€ô]◊‹€Y‹Àú‹
+ò\ŸW‹€YÀõ€ôJBà[Yà\Ÿ»OHêXôŸXúõÿ⁄[àéÇàòZ[\ô\÷‹€Y◊HHŸòZ[\ôW‹ôX€‹ô
+òZ[\ô\ÀôŸ]
+€Y K\Ÿ Bà[ŸNÇàòZ[\ô\Àú‹
+€YÀõ€ôJBàÿ]⁄\›ÿ⁄[ôŸYHùYBàYàÿ]⁄\›ÿ⁄[ôŸYÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàYàÿ]⁄\›ÿ⁄[ôŸYÇàúõÿYÿ\›
+»ù\Héàùÿ]⁄\››\]Hã
+äùÿ]⁄\›‹^[ÿY
+
+_JBàYàõ›⁄»[ôõ›\úŸWŸ\\€ŸW‹€Y €Y NÇà€[›öYW‹›Xúÿ‹ö\[€óŸ›€õÿYŸòZ[Y
+€YÀ\Ÿ Bà⁄]›]Kù[Y‹ò[W⁄õÿú◊€ÿ⁄ŒÇà[Y‹ò[W⁄õÿàH›]Kù[Y‹ò[W⁄õÿúÀú‹
+€YÀõ€ôJBàYà[Y‹ò[W⁄õÿéÇàYà[Y‹ò[W⁄õÿãôŸ]
+ö⁄[ôäHOHúŸ\öY\»éÇà›[Y‹ò[W‹Ÿ\öY\◊⁄õÿó‹ô\›[
+[Y‹ò[W⁄õÿã€YÀ⁄À\ŸÀ›]‹]
+Bà[ŸNÇàôXY[ôÀïôXY
+à\ôŸ]W›[Y‹ò[WŸö[ö\⁄⁄õÿãà\ô‹œJ[Y‹ò[W⁄õÿã⁄À\ŸÀ›]‹]
+KàY[[€èUùYKà
+Kú›\ù
+
+Bà⁄]›]KúŸY\úó⁄õÿú◊€ÿ⁄ŒÇàŸY\úó⁄õÿú»H›]KúŸY\úó⁄õÿúÀú‹
+€YÀ◊JBàõ‹àŸY\úó⁄õÿà[àŸY\úó⁄õÿúŒÇà‹ŸY\úó⁄õÿó‹ô\›[
+ŸY\úó⁄õÿã€YÀ⁄À\ŸÀ›]‹]
+BàúõÿYÿ\›
+¬àù\HéàöõÿóŸ€ôHãõ⁄»éà⁄ÀõXô[éàXô[ú€Y»éà€YÀõ\Ÿ»éà\ŸÀàô€ôW⁄õÿú»éà€ôW⁄õÿúÀù›[⁄õÿú»éà›[⁄õÿúÀàú›XÿŸ\‹Ÿù[⁄õÿú»éà›XÿŸ\‹Ÿù[⁄õÿúÀôòZ[Y⁄õÿú»éàòZ[Y⁄õÿúÀàòX›]ôHéà›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+Kú[ô[ô»éà›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+KàJBàô]\õàùYBÇÇôYà‹ôYúô\⁄⁄ô[Yö[óÿYù\óŸ›€õÿY€€òŸJ
+NÇàààîÿÿ[à[ú›ÁŸ[à[ô[àRKPÿX⁄HÈô[ô\»ô[Yö[ãR[\‹ù»\õô]Y\õãàààÇàYàõ››]Köô[Yö[ó‹ôYúô\⁄€ÿ⁄ÀòX‹]Z\ôJõÿ⁄⁄[ôœQò[ŸJNÇàŸ íô[Yö[ãPZ›X[\⁄Y\ù[ô»0ÈYùô\ôZ]ÀàäBàô]\õÇàûNÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà\Ÿ\ó⁄YH›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKú›ö\
+
+BàYàõ›ôóÿ€Y[ùò€€ôöY›\ôYÇàô]\õÇàYàõ›ôóÿ€Y[ùúôYúô\⁄€Xúò\ûJ
+NÇàŸ íô[Yö[ãPöXõ[›Z‹‹ÿÿ[à€€õùHöX⁄Ÿ\›\ù]Ÿ\ô[ãàãùÿ\õàäBàô]\õÇàŸ íô[Yö[ãPöXõ[›Z‹‹ÿÿ[àŸ\›\ù]àäBà›\ùYH[YKõ[€õ›€öX 
+Bàõ‹àXY[ôH[à
+KMKÃåLå
+NÇà[YKú€Y\
+X^
+åXY[ôHH
+[YKõ[€õ›€öX 
+HH›\ùY
+JJBà⁄]ò]€ó‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàŸ íô[Yö[ãPZ›X[\⁄Y\ù[ô»ô\ù€‹ôô[éà€€ôöY›\ò][€à›\ôHŸpÈô\ùàãùÿ\õàäBàô]\õÇÇàŸ]⁄ô[Yö[ó€Xúò\ûJõ‹òŸOUùYJBà»\à€ÿò[Hô\›[ô[ô\àô[ù]ô\ú‹^öYö\ÿ⁄HŸ\ŸZ[ãT›]\¬à»0Ôôô[à⁄X⁄öX⁄ŸYŸ[úŸZ]Y»0Ôô\úÿ⁄ôZXô[ãÇàŸ]⁄ô[Yö[óŸ\\€Ÿ\ õ‹òŸOUùYJBàŸ]⁄ô[Yö[ó‹Ÿ\öY\ õ‹òŸOUùYJBàYà\Ÿ\ó⁄YÇàŸ]⁄ô[Yö[ó›\Ÿ\óŸ\\€Ÿ\ õ‹òŸOUùYJBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàŸ íô[Yö[ãPZ›X[\⁄Y\ù[ô»ô\ù€‹ôô[éà€€ôöY›\ò][€à›\ôHŸpÈô\ùàãùÿ\õàäBàô]\õÇà€ÿò[Ÿ\\€Ÿ\»H›]Köô[Yö[óŸ\\€Ÿ\¬à€ÿò[‹Ÿ\öY\»H›]Köô[Yö[ó‹Ÿ\öY\¬à€ÿò[ÿ]òZ[XõHH›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõBà€ÿò[‹Ÿ\öY\◊ÿ]òZ[XõHH›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõBà\Ÿ\óŸ\\€Ÿ\»H›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»Yà\Ÿ\ó⁄Y[ŸHõ€ôBà\Ÿ\óÿ]òZ[XõHH›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõHYà\Ÿ\ó⁄Y[ŸHò[ŸBà]WŸŸ[ô\ò][€àH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€ÇÇà»êTÀTÿÿ[ã‘€XﬁH]pÁŸ\ö[à\»ÿ]⁄\›Sÿ⁄‹»ô\ôX⁄ô[ãà€€ú›à»õÿ⁄⁄Y\ô[àô[XõÀPZ›[€ô[à[ôô\ùYŸH›€õÿYPÿ[òX⁄‹ÀÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà€ò\⁄›»H◊Bàõ‹à[ùûH[à›]Kùÿ]⁄\›Çà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»õ\›Ÿ\úõ‹àóHHî∞Ôù[ô»0ÈYù8†$»]]ÀQ›€õÿY]\⁄Y\ùÇà€ò\⁄›Àò\[ô
+
+à[ùûKàX›
+[ùûJKà›]KúŸ\öY\◊ÿÿX⁄KôŸ]
+[ùûV»òò\ŸW‹€Y»óJKà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóKà
+JBàÿ[›[]Y›\]\»H◊Bàõ‹à[ùûK€ò\⁄›Ÿ\öY\Àô]ö\⁄[€à[à€ò\⁄›ŒÇàôYY◊›\Ÿ\àHõ‹õX[^ôW›ÿ]⁄€[ŸJ€ò\⁄›ôŸ]
+ô›€õÿY€[ŸHäJHOH–U“”S—W”ëV‘—PT””ÇàYà€ÿò[Ÿ\\€Ÿ\»\»õ€ôH‹àõ›€ÿò[ÿ]òZ[XõNÇàÿ[›[]Y›\]\Àò\[ô
+
+[ùûKô]ö\⁄[€ãõ€ôKíô[Yö[àöX⁄\úôZX⁄ò\à8†$»]]ÀQ›€õÿY]\⁄Y\ùäJBà[Yà€ÿò[‹Ÿ\öY\»\»õ€ôH‹àõ›€ÿò[‹Ÿ\öY\◊ÿ]òZ[XõNÇàÿ[›[]Y›\]\Àò\[ô
+
+[ùûKô]ö\⁄[€ãõ€ôKíô[Yö[ãTŸ\öY[ö[ô^öX⁄ô\ô∞Ôÿò\àäJBà[YàôYY◊›\Ÿ\à[ô
+õ›\Ÿ\ó⁄Y‹à\Ÿ\óŸ\\€Ÿ\»\»õ€ôH‹àõ›\Ÿ\óÿ]òZ[XõJNÇàÿ[›[]Y›\]\Àò\[ô
+
+[ùûKô]ö\⁄[€ãõ€ôKíô[Yö[ãPô[ù]ô\ú›]\»öX⁄ô\ô∞Ôÿò\àäJBà[YàŸ\öY\»\»õ›õ€ôNÇàûNÇàÿ[›[]YHÿÿ[›[]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà€ò\⁄›Ÿ\öY\Àôóÿ€Y[ù€ÿò[Ÿ\\€Ÿ\À\Ÿ\óŸ\\€Ÿ\Àà€ÿò[‹Ÿ\öY\Àà
+Bàÿ[›[]Y›\]\Àò\[ô
+
+[ùûKô]ö\⁄[€ãÿ[›[]YàäJBà^Ÿ\^Ÿ\[€à\»^ŒÇàÿ[›[]Y›\]\Àò\[ô
+
+[ùûKô]ö\⁄[€ãõ€ôK›ä^ VŒåçJJBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇà]W⁄\◊ÿ›\úô[ùH
+àŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà[ô]WŸ˙˜~˝∂âûÀk∫wµÁOX\]]î—T‘“S”ó““Së’—Pãà
+Bàô\‹€úŸHHî””îô\‹€úŸJ¬àõ⁄»éàùYKàò€€ôöY›\ôYéàùYKàù\Ÿ\õò[YHéà\Ÿ\õò[YKàú€›\òŸHéàúŸ][ô‹»ãàòX›]ôW‹Ÿ\‹⁄[€ú»éà—T‘“S”ó‘’‘ëKò€›[ù
+\]]î—T‘“S”ó““Së’—PäKàJBà‹Ÿ]‹Ÿ\‹⁄[€óÿ€€⁄⁄YJô\‹€úŸKô\]Y\›⁄Ÿ[äBàŸ àñùYÿ[ô‹Ÿ][àZ›X[\⁄Y\ù
+ô[ù]ô\à8†'û›\Ÿ\õò[Y_x†'
+KàäBàô]\õàô\‹€úŸBÇÇê\ú‹›
+ãÿ\K›åKÿ]]ÿ€€ôöY»äBò\ﬁ[ò»Yà\W›åWÿ]]ÿ€€ôöY◊‹Ÿ]
+õŸNà]]€€ôöY–õŸKô\]Y\›àô\]Y\›
+NÇàXÿ€›[ùH]]ÿXÿ€›[ù
+
+BàYàõ€€
+Xÿ€›[ùôŸ]
+ò€€ôöY›\ôYäJNÇà€€ôö\õYYH]ÿZ]ù[ó⁄[ó›ôXY€€
+àô\öYûWÿ‹ôY[ùX[ÀXÿ€›[ùôŸ]
+ù\Ÿ\õò[YHãàäKõŸKò›\úô[ù‹\‹›€‹ô‹ààãà
+BàYàõ›€€ôö\õYYÇàòZ\ŸH^Ÿ\[€äÀë\»Z›Y[H\‹›€‹ù\›ò[ÿ⁄àäBàûNÇà\Ÿ\õò[YHH\]]ùò[Y]W›\Ÿ\õò[YJõŸKù\Ÿ\õò[YJBà\‹›€‹ôH\]]ùò[Y]W‹\‹›€‹ô
+õŸKú\‹›€‹ô
+Bà^Ÿ\ò[YQ\úõ‹à\»^ŒÇàòZ\ŸH^Ÿ\[€ä›ä^ JHúõ€H^¬à\‹›€‹ô⁄\⁄H]ÿZ]ù[ó⁄[ó›ôXY€€
+\]]ö\⁄‹\‹›€‹ô\‹›€‹ô
+Bà—T‘“S”ó‘’‘ëKúô]õ⁄ŸWÿ[
+
+BàYàõ›]ÿZ]ù[ó⁄[ó›ôXY€€
+\€€ôöYÀúÿ]ôWÿ]]\Ÿ\õò[YK\‹›€‹ô⁄\⁄
+NÇàòZ\ŸH^Ÿ\[€äLë\»€€ù»€€õùHöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBàŸ\‹⁄[€ó€Xô[H
+ô\]Y\›öXY\úÀôŸ]
+ù\Ÿ\ãXYŸ[ùãàäH‹àê[ôõ⁄YäVŒåLåBà⁄Ÿ[àH—T‘“S”ó‘’‘ëKò‹ôX]JàXô[\Ÿ\‹⁄[€ó€Xô[à⁄[ôX\]]î—T‘“S”ó““Së”S–íSKà
+BàŸ àñùYÿ[ô‹Ÿ][à0Ôô\àYH[ôõ⁄YP\Z›X[\⁄Y\ù
+ô[ù]ô\à8†'û›\Ÿ\õò[Y_x†'
+KàäBàô]\õà¬àõ⁄»éàùYKàò€€ôöY›\ôYéàùYKàù\Ÿ\õò[YHéà\Ÿ\õò[YKàú€›\òŸHéàúŸ][ô‹»ãàòX›]ôW‹Ÿ\‹⁄[€ú»éà—T‘“S”ó‘’‘ëKò€›[ù
+\]]î—T‘“S”ó““Së”S–íSJKàòXÿŸ\‹◊›⁄Ÿ[àéà⁄Ÿ[ãàù⁄Ÿ[ó›\HéàêôX\ô\àãàô^\ô\◊⁄[àéà\]]ëQêUS‘—T‘“S”ó’‘—P””ëÀàô]öXŸW€Xô[éàŸ\‹⁄[€ó€Xô[àBÇÇê\ú‹›
+ãÿ\Kÿ]]‹Ÿ\‹⁄[€úÀ‹ô]õ⁄ŸHäBò\ﬁ[ò»Yà\Wÿ]]‹Ÿ\‹⁄[€ú◊‹ô]õ⁄ŸJô\]Y\›àô\]Y\›
+NÇàô[[›ôYH—T‘“S”ó‘’‘ëKúô]õ⁄ŸWÿ[
+àŸY\›⁄Ÿ[èX]][ùXÿ]Y›ŸXó›⁄Ÿ[äô\]Y\›ò€€⁄⁄Y\ Kà⁄[ôX\]]î—T‘“S”ó““Së’—Pãà
+BàŸ àû‹ô[[›ôYH[ô\ôH⁄]ù[ô [äHôY[ô]àäBàô]\õà¬àõ⁄»éàùYKàúô]õ⁄ŸYéàô[[›ôYàòX›]ôW‹Ÿ\‹⁄[€ú»éà—T‘“S”ó‘’‘ëKò€›[ù
+\]]î—T‘“S”ó““Së’—PäKàBÇÇê\ú‹›
+ãÿ\K›åKÿ]]‹Ÿ\‹⁄[€úÀ‹ô]õ⁄ŸHäBò\ﬁ[ò»Yà\W›åWÿ]]‹Ÿ\‹⁄[€ú◊‹ô]õ⁄ŸJô\]Y\›àô\]Y\›
+NÇàŸY\›⁄Ÿ[àH]][ùXÿ]Y€[ÿö[W›⁄Ÿ[äô\]Y\›öXY\ú Bàô[[›ôYH—T‘“S”ó‘’‘ëKúô]õ⁄ŸWÿ[
+àŸY\›⁄Ÿ[èZŸY\›⁄Ÿ[ã⁄[ôX\]]î—T‘“S”ó““Së”S–íSKà
+BàŸ àû‹ô[[›ôYH[ô\ôH⁄]ù[ô [äHôY[ô]àäBàô]\õà¬àõ⁄»éàùYKàúô]õ⁄ŸYéàô[[›ôYàòX›]ôW‹Ÿ\‹⁄[€ú»éà—T‘“S”ó‘’‘ëKò€›[ù
+\]]î—T‘“S”ó““Së”S–íSJKàò›\úô[ù‹Ÿ\‹⁄[€ó‹ô\Ÿ\ùôYéàõ€€
+ŸY\›⁄Ÿ[äKàBÇÇà»8• 8• Ÿ[úô\»8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ê\ôŸ]
+ãÿ\K›åKŸŸ[úô\»äBê\ôŸ]
+ãÿ\KŸŸ[úô\»äBò\ﬁ[ò»Yà\WŸŸ[úô\ 
+NÇàYà›€‹ö 
+NÇàÿY\ú»H¬àôö[YúôZLçéà[XôNàö[QúôZLçÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+Kàôö[\[\›éà[XôNàŸ]Ÿú‹ÿ‹ò\\ä
+Kõ\›ŸŸ[úô\ 
+KàöZHéà[XôNàŸ]⁄ZW‹ÿ‹ò\\ä
+Kõ\›ŸŸ[úô\ 
+Kàõ[Ÿõ^éà[XôNà[Ÿõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+KàôZ[úÿ⁄[[àéà[XôNàZ[úÿ⁄[[îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+Kàö⁄[õﬁéà[XôNà⁄[õﬁÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+Kàö⁄[õŸŸ\àéà[XôNà⁄[õŸŸ\îÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+KàõYYÿZ⁄[õ»éà[XôNàYYÿR⁄[õ‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+Kàû⁄[ôHéà[XôNà⁄[ôTÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+KàúŸõ^éà[XôNàŸõ^ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+KàúöY€[›öY\»éà[XôNàöY€[›öY\‘ÿ‹ò\\äõŸ‹ô\‹◊ÿÿè[Ÿ Kõ\›ŸŸ[úô\ 
+KàBà€X[ôYH‹õ›öY\éàŸ]
+
+Hõ‹àõ›öY\à[à\€€ôöYÀìS’íQW‘ì’íQTó—QêUSﬂBàõ‹àõ›öY\à[àõ›öY\ó‹ö[‹ö]Jõ[›öY\»äNÇàûNÇàò[Y\»HÿY\ú÷‹õ›öY\óJ
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àû‘ì’íQTó”PëS÷‹õ›öY\ó_HŸ[úô\»0Ôô\ú‹ù[ôŸ[éàŸ^ﬂHãùÿ\õàäBà€€ù[ùYBà€X[ôY‹õ›öY\óHH¬à€X[óŸŸ[úôJŸ[úôJBàõ‹àŸ[úôH[àò[Y\¬àYà€X[óŸŸ[úôJŸ[úôJBàBàô]\õà€X[ôYÇàõ›öY\óŸŸ[úô\»H]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bàôóÿ»Hõ›öY\óŸŸ[úô\÷»ôö[YúôZLçóBàúÿ»Hõ›öY\óŸŸ[úô\÷»ôö[\[\›óBàÿ»Hõ›öY\óŸŸ[úô\÷»öZHóBà^ÿ»Hõ›öY\óŸŸ[úô\÷»õ[Ÿõ^óBà\◊ÿ»Hõ›öY\óŸŸ[úô\÷»ôZ[úÿ⁄[[àóBàﬁÿ»Hõ›öY\óŸŸ[úô\÷»ö⁄[õﬁóBàŸ◊ÿ»Hõ›öY\óŸŸ[úô\÷»ö⁄[õŸŸ\àóBàZ◊ÿ»Hõ›öY\óŸŸ[úô\÷»õYYÿZ⁄[õ»óBà◊ÿ»Hõ›öY\óŸŸ[úô\÷»û⁄[ôHóBàŸóÿ»Hõ›öY\óŸŸ[úô\÷»úŸõ^óBàõWÿ»Hõ›öY\óŸŸ[úô\÷»úöY€[›öY\»óBà›]Kôö[YúôZLç‹õ›öY\óŸŸ[úô\»Hôóÿ¬à›]Kôú‹õ›öY\óŸŸ[úô\»Húÿ¬à›]KöZW‹õ›öY\óŸŸ[úô\»Hÿ¬à›]Kõ[Ÿõ^‹õ›öY\óŸŸ[úô\»H^ÿ¬à›]KôZ[úÿ⁄[[ó‹õ›öY\óŸŸ[úô\»H\◊ÿ¬à›]Kö⁄[õﬁ‹õ›öY\óŸŸ[úô\»Hﬁÿ¬à›]Kö⁄[õŸŸ\ó‹õ›öY\óŸŸ[úô\»HŸ◊ÿ¬à›]KõYYÿZ⁄[õ◊‹õ›öY\óŸŸ[úô\»HZ◊ÿ¬à›]Kû⁄[ôW‹õ›öY\óŸŸ[úô\»H◊ÿ¬à›]KúŸõ^‹õ›öY\óŸŸ[úô\»HŸóÿ¬à›]KúöY€[›öY\◊‹õ›öY\óŸŸ[úô\»HõWÿ¬àŸ[úô\»H€‹ùY
+à¬àÿ[õ€öXÿ[€[›öYWŸŸ[úôJŸ[úôJBàõ‹àŸ[úôH[à
+àôóÿ»úÿ»ÿ»^ÿ»\◊ÿ»ﬁÿ»Ÿ◊ÿ»Z◊ÿ»◊ÿ»Ÿóÿ¬àõWÿ¬à
+BàKàŸ^O\›ãòÿ\ŸYõ€à
+Bàô]\õà»ôŸ[úô\»éàŸ[úô\ﬂBÇÇà»8• 8• ö[YNà›X⁄H»\›[à»Ÿ[úôH8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ê\ôŸ]
+ãÿ\K›åK€[›öY\»äBê\ôŸ]
+ãÿ\K€[›öY\»äBò\ﬁ[ò»Yà\W€[›öY\ [ŸNà›àHúŸX\ò⁄ã]Y\ûNà›àHàãŸ[úôNà›àHàãYŸNà[ùHJNÇàYàYŸHH‹àYŸHàS’íQW”PV—”–êS‘Q—NÇàòZ\ŸH^Ÿ\[€äàîŸZ]H]\‹»ù⁄\ÿ⁄[àH[ô”S’íQW”PV—”–êS‘Q—_HYYŸ[ãàäBÇàYà›€‹ö 
+NÇàYà[ŸHOHúŸX\ò⁄éÇàHH]Y\ûKú›ö\
+
+BàYàõ›NÇàô]\õà¬àúô\›[»éà◊Kòÿ]Y€‹ûHéàõ€ôKúYŸHéàKàö\◊€[‹ôHéàò[ŸKú€›\òŸ\»éà◊KàBàYàõ›Ÿ]›Yóÿ€Y[ù
+
+Kò€€ôöY›\ôYÇàòZ\ŸH^Ÿ\[€äàLÀàë∞ÔàYHZ[ô]]YŸHö[\›X⁄H]\‹»Qà[à[àZ[ú›[[ôŸ[à€€ôöY›\öY\ùŸZ[ãàãà
+Bàô\›[»H›Yó‹ŸX\ò⁄‹ô\›[ JBàô]\õà¬àúô\›[»éàô\›[Àòÿ]Y€‹ûHéàõ€ôKúYŸHéàKàö\◊€[‹ôHéàò[ŸKú€›\òŸ\»éà◊KàBÇàÿ]Y€‹ûHHôŸ[úôHàYà[ŸHOHôŸ[úôHà[ŸH[ŸHYà[ŸH[à»õô]»ãù‹üH[ŸHõô]»ÇàûNÇàÿ][Ÿ»H[›öYWÿÿ][Ÿ◊‹YŸJÿ]Y€‹ûKYŸKŸ[úôHYàÿ]Y€‹ûHOHôŸ[úôHà[ŸHàäBà^Ÿ\[›öYPÿ][Ÿ–€€ÿY[Z]\»^ŒÇàòZ\ŸH^Ÿ\[€äK›ä^ JHúõ€H^¬àô]\õà äòÿ][ŸÀòÿ]Y€‹ûHéàÿ]Y€‹û_BÇà]HH]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bàô\›[ŸX›»H¬àX›
+ô\›[
+HYà\⁄[ú›[òŸJô\›[X›
+H[ŸH\ŸX›
+ô\›[
+Bàõ‹àô\›[[à]V»úô\›[»óBàBàõ‹àô\›[[àô\›[ŸX›ŒÇàYàô\›[ôŸ]
+úõ›öY\àäNÇàô\›[»ù]HóHH€X[ó€[›öYW›]Jô\›[ôŸ]
+ù]HãàäJBàôó⁄][\»H]ÿZ]ù[ó⁄[ó›ôXY€€
+Ÿ]⁄ô[Yö[ó€Xúò\ûJBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàôóÿ]òZ[XõHH›]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõBàYàôó⁄][\»\»õ›õ€ôH[ôôóÿ]òZ[XõNÇàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+Bàõ‹àô[àô\›[ŸX›ŒÇàô»ö[ó⁄ô[Yö[àóHHôóÿ€Y[ùõX]⁄
+à€X[ó€[›öYW›]Jô»ù]HóJKôôŸ]
+ûYX\àãàäK][\œZôó⁄][\Àà
+Bàô]\õà¬àúô\›[»éàô\›[ŸX›Ààòÿ]Y€‹ûHéà]V»òÿ]Y€‹ûHóKàúYŸHéà]V»úYŸHóKàö\◊€[‹ôHéà]V»ö\◊€[‹ôHóKà»∞Ô⁄›Èù⁄€€\]Xô[∞Ôà0È\ôHŸXãPùZ[ÀàŸ[X[ù\ÿ⁄\›Y\»ô]ùà»€‹úôZ›àZ[ôHŸZ]\ôH€ÿò[HŸZ]H\›]È⁄X⁄õ‹ö[ô[ãÇàõ\›‹YŸWŸù[éà]V»ö\◊€[‹ôHóKàú€›\òŸ\»éà]V»ú€›\òŸ\»óKàBÇÇê\ôŸ]
+ãÿ\K›åK€[›öYKﬁ‹€YŒú]HäBê\ôŸ]
+ãÿ\K€[›öYKﬁ‹€YŒú]HäBò\ﬁ[ò»Yà\W€[›öYJ€YŒà›äNÇàYà›€‹ö 
+NÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y BàYà[›öYH\»õ€ôNÇà[›öYHHÿY€[›öYWŸõ‹ó‹€Y €Y BàYà[›öYH\»õ›õ€ôNÇà›]Kôú€[›öY\÷‹€Y◊HH[›öYBàô]\õà[›öYWŸ]Z[›◊ŸX›
+€YÀ[›öYJBàô]\õàõ€ôBÇàûNÇà^[ÿYH]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bà^Ÿ\
+€⁄›\\úõ‹ãò[YQ\úõ‹äH\»^ŒÇàòZ\ŸH^Ÿ\[€ä›ä^ JHúõ€H^¬àYà^[ÿY\»õ€ôNÇàòZ\ŸH^Ÿ\[€äëö[HöX⁄ŸYù[ô[àŸ\àŸZ[à‹›\ãàäBàô]\õà^[ÿYÇÇò€\‹»ô[ÿYõŸJò\ŸS[Ÿ[
+NÇà€Y‹Œà\›‹›óBÇÇê\ú‹›
+ãÿ\K›åK€[›öY\À‹ô[ÿYäBê\ú‹›
+ãÿ\K€[›öY\À‹ô[ÿYäBò\ﬁ[ò»Yà\W€[›öY\◊‹ô[ÿY
+õŸNàô[ÿYõŸJNÇàYà›€‹ö 
+NÇà^[ÿY»HﬂBàõ‹à€Y»[àõŸKú€Y‹ŒÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y BàYà[›öYH\»õ€ôNÇà[›öYHHÿY€[›öYWŸõ‹ó‹€Y €Y BàYà[›öYH\»õ›õ€ôNÇà›]Kôú€[›öY\÷‹€Y◊HH[›öYBà^[ÿY÷‹€Y◊HH[›öYWŸ]Z[›◊ŸX›
+€YÀ[›öYJBàô]\õà^[ÿY¬Çà^[ÿY»H]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bàô]\õà»õ[›öY\»éà^[ÿYﬂBÇÇò€\‹»[›öYSY]Y]R][Jò\ŸS[Ÿ[
+NÇà€YŒà›Çà]Nà›ÇàYX\éà›àHàÇàYó⁄Yà‹[€ò[⁄[ùHHõ€ôBÇÇò€\‹»[›öYSY]Y]PõŸJò\ŸS[Ÿ[
+NÇà][\Œà\›”[›öYSY]Y]R][WBÇÇò€\‹»Ÿ\öY\”Y]Y]R][Jò\ŸS[Ÿ[
+NÇàò\ŸW‹€YŒà›Çà]Nà›ÇàYX\éà›àHàÇÇÇò€\‹»Ÿ\öY\”Y]Y]PõŸJò\ŸS[Ÿ[
+NÇà][\Œà\›‘Ÿ\öY\”Y]Y]R][WBÇÇê\ú‹›
+ãÿ\K›åK›Yã€[›öYHäBê\ú‹›
+ãÿ\K›Yã€[›öYHäBò\ﬁ[ò»Yà\W›Yó€[›öYJ][Nà[›öYSY]Y]R][JNÇàààïõ€›0ÈôYŸHQãQ]Z[»Z[ô\»ö[\»8†$»⁄ôH[òöY]\ãK“‹›\ãP]YúùYãàààÇàYàõ›Ÿ]›Yóÿ€Y[ù
+
+Kò€€ôöY›\ôYÇàô]\õà»õ[›öYHéàõ€ô_Bà]HH€X[ó€[›öYW›]J][Kù]JBàYà][KùYó⁄YÇà[›öYHH]ÿZ]ù[ó⁄[ó›ôXY€€
+àŸ]›Yóÿ€Y[ù
+
+Kõ[›öYWÿûW⁄Y][KùYó⁄Y]Kà
+Bà[ŸNÇà[›öYHH]ÿZ]ù[ó⁄[ó›ôXY€€
+Ÿ]›Yóÿ€Y[ù
+
+Kõ[›öYK]K][KûYX\äBàô]\õà»õ[›öYHéà[›öY_BÇÇê\ú‹›
+ãÿ\K›åK⁄ô[Yö[ã€X]⁄\»äBê\ú‹›
+ãÿ\K⁄ô[Yö[ã€X]⁄\»äBò\ﬁ[ò»Yà\W⁄ô[Yö[ó€X]⁄\ õŸNà[›öYSY]Y]PõŸJNÇàààêZ›X[\⁄Y\ùù\àYHëãPòYŸ\À⁄ôH[òöY]\àŸ\à›ôX[\»ô]HùHY[ãàààÇàYà›€‹ö 
+NÇà][\»HŸ]⁄ô[Yö[ó€Xúò\ûJ
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàXúò\ûWÿ]òZ[XõHH›]Köô[Yö[ó€Xúò\ûWÿ]òZ[XõBàYà][\»\»õ€ôH‹àõ›Xúò\ûWÿ]òZ[XõNÇàô]\õàﬂBà€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+Bàô]\õà¬à][Kú€YŒà€Y[ùõX]⁄
+à€X[ó€[›öYW›]J][Kù]JK][KûYX\ãà][\œZ][\ÀYó⁄YZ][KùYó⁄Yà
+Bàõ‹à][H[àõŸKö][\÷ŒåLBàBàô]\õà»õX]⁄\»éà]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö _BÇÇê\ú‹›
+ãÿ\K›åK›Yã€[›öY\»äBê\ú‹›
+ãÿ\K›Yã€[›öY\»äBò\ﬁ[ò»Yà\W›Yó€[›öY\ õŸNà[›öYSY]Y]PõŸJNÇàààì0Èÿ⁄ô[HQãS\›[õY]Y][à\ò[[⁄ôH‹›\ãTŸZ][ãàààÇàYàõ›Ÿ]›Yóÿ€Y[ù
+
+Kò€€ôöY›\ôY‹àõ›õŸKö][\ŒÇàô]\õà»õ[›öY\»éàﬂ_BÇàYà›€‹ö 
+NÇàõ›◊‹^Z[ô◊⁄Y»HŸ]›Yóÿ€Y[ù
+
+Kõõ›◊‹^Z[ô◊⁄Y 
+Bà[ö\]YHHﬂBàõ‹à][H[àõŸKö][\÷ŒåLNÇà]HH€X[ó€[›öYW›]J][Kù]JBàŸ^HH
+€õ‹õW›]J]JK›ä][KûYX\à‹ààäJBà‹õ›\H[ö\]YKúŸ]Yò][
+Ÿ^K»ù]Héà]KûYX\àéà][KûYX\ãú€Y‹»éà◊_JBà‹õ›\»ú€Y‹»óKò\[ô
+][Kú€Y BÇàô\›[HﬂBà‹õ›\»H\›
+[ö\]YKùò[Y\ 
+JBà⁄]ôXY€€^X›]‹äX^›€‹öŸ\úœ[Z[äQó”S’íQW–êU“”PV’”‘í—TîÀ[ä‹õ›\ JJH\»€€Çàù]\ô\»H ‹õ›\€€ú›XõZ]
+Ÿ]›Yóÿ€Y[ù
+
+Kõ[›öYW‹›[[X\ûK‹õ›\»ù]HóK‹õ›\»ûYX\àóJJHõ‹à‹õ›\[à‹õ›\◊Bàõ‹à‹õ›\ù]\ôH[àù]\ô\ŒÇàûNÇàY]Y]HHù]\ôKúô\›[
+
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àïQãUõ‹õY[àôZŸ\ÿ⁄YŸ[à
+Ÿ‹õ›\…›]I◊_JNàŸ^ﬂHãùÿ\õàäBàY]Y]HHõ€ôBàYàY]Y]NÇàY]Y]HH¬à
+äõY]Y]Kàö[óÿ⁄[ô[XHéàY]Y]KôŸ]
+ùYó⁄YäH[àõ›◊‹^Z[ô◊⁄YÀàBàõ‹à€Y»[à‹õ›\»ú€Y‹»óNÇàô\›[‹€Y◊HHY]Y]Bàô]\õàô\›[Çàô]\õà»õ[›öY\»éà]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö _BÇÇê\ú‹›
+ãÿ\K›åK›Yã‹Ÿ\öY\»äBê\ú‹›
+ãÿ\K›Yã‹Ÿ\öY\»äBò\ﬁ[ò»Yà\W›Yó‹Ÿ\öY\ õŸNàŸ\öY\”Y]Y]PõŸJNÇàààì0Èÿ⁄ô[HQãPòX⁄Ÿõ‹»∞ÔàŸ\öY[ãTòZ[»⁄ôHŸ\öY[ô]Z[ÀàààÇàYàõ›Ÿ]›Yóÿ€Y[ù
+
+Kò€€ôöY›\ôY‹àõ›õŸKö][\ŒÇàô]\õà»úŸ\öY\»éàﬂ_BÇàYà›€‹ö 
+NÇà[ö\]YHHﬂBàõ‹à][H[àõŸKö][\÷ŒåLNÇà]HH›ö\‹€›\òŸW‹›Yôö^
+][Kù]JBàŸ^HH
+€õ‹õW›]J]JK›ä][KûYX\à‹ààäJBà‹õ›\H[ö\]YKúŸ]Yò][
+àŸ^Kà»ù]Héà]KûYX\àéà][KûYX\ãòò\ŸW‹€Y‹»éà◊_Kà
+Bà‹õ›\»òò\ŸW‹€Y‹»óKò\[ô
+][Kòò\ŸW‹€Y BÇàô\›[HﬂBà‹õ›\»H\›
+[ö\]YKùò[Y\ 
+JBà⁄]ôXY€€^X›]‹äàX^›€‹öŸ\úœ[Z[äQó”S’íQW–êU“”PV’”‘í—TîÀ[ä‹õ›\ JKà
+H\»€€Çàù]\ô\»H¬à
+à‹õ›\à€€ú›XõZ]
+àŸ]›Yóÿ€Y[ù
+
+KúŸ\öY\◊‹›[[X\ûKà‹õ›\»ù]HóKà‹õ›\»ûYX\àóKà
+Kà
+Bàõ‹à‹õ›\[à‹õ›\¬àBàõ‹à‹õ›\ù]\ôH[àù]\ô\ŒÇàûNÇàY]Y]HHù]\ôKúô\›[
+
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àïQãTŸ\öY[òö[ôZŸ\ÿ⁄YŸ[à
+Ÿ‹õ›\…›]I◊_JNàŸ^ﬂHãùÿ\õàäBàY]Y]HHõ€ôBàYàY]Y]NÇàõ‹àò\ŸW‹€Y»[à‹õ›\»òò\ŸW‹€Y‹»óNÇàô\›[ÿò\ŸW‹€Y◊HHY]Y]Bàô]\õàô\›[Çàô]\õà»úŸ\öY\»éà]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö _BÇÇà»8• 8• Ÿ\öY[à8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ê\ôŸ]
+ãÿ\K›åK‹Ÿ\öY\»äBê\ôŸ]
+ãÿ\K‹Ÿ\öY\»äBò\ﬁ[ò»Yà\W‹Ÿ\öY\ [ŸNà›àHúŸX\ò⁄ã]Y\ûNà›àHàã]\éà›àHàãYŸNà[ùHJNÇàYàYŸHH‹àYŸHà—TíQT◊”PV—”–êS‘Q—NÇàòZ\ŸH^Ÿ\[€äàîŸZ]H]\‹»ù⁄\ÿ⁄[àH[ô‘—TíQT◊”PV—”–êS‘Q—_HYYŸ[ãàäBÇàYà›€‹ö 
+NÇàYà[ŸHOHúŸX\ò⁄éÇàHH]Y\ûKú›ö\
+
+BàYàõ›NÇàô]\õà¬àô[ùöY\»éà◊Kô\ôX›‹Ÿ\öY\»éàõ€ôKõ[ŸHéàúŸX\ò⁄ãàúYŸHéàKö\◊€[‹ôHéàò[ŸKú€›\òŸ\»éà◊KàBàYàKú›\ù›⁄]
+öäNÇàŸ\öY\»HŸ]‹Ÿ\öY\◊Ÿõ‹ó›ò[YJJBàYàŸ\öY\»\»õ€ôNÇàô]\õà¬àô[ùöY\»éà◊Kô\ôX›‹Ÿ\öY\»éàõ€ôKõ[ŸHéàúŸX\ò⁄ãàúYŸHéàKö\◊€[‹ôHéàò[ŸKú€›\òŸ\»éà◊KàBà›XàHö[\[\›Ÿ\öY\‘ô\›[
+à]O\Ÿ\öY\Àù]Kò\ŸW‹€Yœ\Ÿ\öY\Àòò\ŸW‹€YÀàÿ[\W‹€Yœ\Ÿ\öY\Àò[Ÿ\\€Ÿ\÷ÃKú€Y»YàŸ\öY\Àò[Ÿ\\€Ÿ\»[ŸHàãàÿ[\W›\õ\Ÿ\öY\Àù\õà
+Bà›]KúŸ\öY\◊ÿÿX⁄V‹Ÿ\öY\Àòò\ŸW‹€Y◊HHŸ\öY\¬àõ›öY\àHõ›öY\óŸõ‹ó›ò[YJ›Xãúÿ[\W‹€Y»‹à›Xãòò\ŸW‹€Y»‹à›Xãúÿ[\W›\õ
+Bà[ùûHH‘Ÿ\öY\–ÿ][Ÿ—[ùûJõ›öY\ã›Xã
+õ›öY\ã
+JBàô]\õà¬àô[ùöY\»éàŸ[ùûWKàô\ôX›‹Ÿ\öY\»éàŸ\öY\◊›◊ŸX›
+Ÿ\öY\ÀYô\óÿ⁄X⁄‹œUùYJKàõ[ŸHéàúŸX\ò⁄ãúYŸHéàKö\◊€[‹ôHéàò[ŸKàú€›\òŸ\»éà‹Ÿ\öY\◊ÿÿ][Ÿ◊‹€›\òŸ\ àŸ[ùûWKõ›öY\ó‹ö[‹ö]JúŸ\öY\»äKà
+KàBàûNÇàÿ][Ÿ»HŸ\öY\◊‹ŸX\ò⁄ÿÿ][Ÿ JBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àîŸ\öY[ãT›X⁄HôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàÿ][Ÿ»H¬àô[ùöY\»éà◊KúYŸHéàKö\◊€[‹ôHéàò[ŸKú€›\òŸ\»éà◊KàBàô]\õà äòÿ][ŸÀô\ôX›‹Ÿ\öY\»éàõ€ôKõ[ŸHéàúŸX\ò⁄üBÇàúõ›‹ŸW€[ŸHH[ŸHYà[ŸH[à»ô\ÿ€›ô\àãõô]»ãùô[ô[ô»ãò[HüH[ŸHô\ÿ€›ô\àÇàûNÇàÿ][Ÿ»HŸ\öY\◊ÿÿ][Ÿ◊‹YŸJúõ›‹ŸW€[ŸKYŸK]\äBà^Ÿ\Ÿ\öY\–ÿ][Ÿ–€€ÿY[Z]\»^ŒÇàòZ\ŸH^Ÿ\[€äK›ä^ JHúõ€H^¬àô]\õà äòÿ][ŸÀô\ôX›‹Ÿ\öY\»éàõ€ôKõ[ŸHéàúõ›‹ŸW€[Ÿ_BÇà]HH]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bàô]\õà¬àúô\›[»éà◊‹Ÿ\öY\◊Ÿ[ùûW›◊ŸX›
+[ùûJHõ‹à[ùûH[à]V»ô[ùöY\»óWKàô\ôX›‹Ÿ\öY\»éà]V»ô\ôX›‹Ÿ\öY\»óKàõ[ŸHéà]V»õ[ŸHóKàúYŸHéà]V»úYŸHóKàö\◊€[‹ôHéà]V»ö\◊€[‹ôHóKàõ\›‹YŸWŸù[éà]V»ö\◊€[‹ôHóKàú€›\òŸ\»éà]V»ú€›\òŸ\»óKàBÇÇò€\‹»Ÿ\öY\”ÿYõŸJò\ŸS[Ÿ[
+NÇàÿ[\W‹€YŒà›Çàò\ŸW‹€YŒà›àHàÇàôYúô\⁄⁄ô[Yö[éàõ€€Hò[ŸBàYô\óÿ⁄X⁄‹Œàõ€€Hò[ŸBÇÇê\ú‹›
+ãÿ\K›åK‹Ÿ\öY\À€ÿYäBê\ú‹›
+ãÿ\K‹Ÿ\öY\À€ÿYäBò\ﬁ[ò»Yà\W‹Ÿ\öY\◊€ÿY
+õŸNàŸ\öY\”ÿYõŸJNÇàYà›€‹ö 
+NÇàŸ\öY\»H›]KúŸ\öY\◊ÿÿX⁄KôŸ]
+õŸKòò\ŸW‹€Y HYàõŸKòò\ŸW‹€Y»[ŸHõ€ôBàYàŸ\öY\»\»õ€ôNÇàŸ\öY\»HŸ]‹Ÿ\öY\◊Ÿõ‹ó›ò[YJõŸKúÿ[\W‹€Y BàYàŸ\öY\»\»õ€ôNÇàô]\õàõ€ôKõ€ôBà›]KúŸ\öY\◊ÿÿX⁄V‹Ÿ\öY\Àòò\ŸW‹€Y◊HHŸ\öY\¬àô]\õàŸ\öY\ÀŸ\öY\◊›◊ŸX›
+àŸ\öY\ÀàôYúô\⁄⁄ô[Yö[èXõŸKúôYúô\⁄⁄ô[Yö[ãàYô\óÿ⁄X⁄‹œXõŸKôYô\óÿ⁄X⁄‹Àà
+BÇàŸ\öY\À^[ÿYH]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö BàYàŸ\öY\»\»õ€ôNÇàòZ\ŸH^Ÿ\[€äîŸ\öYHöX⁄ŸYù[ô[ãàäBàô]\õà^[ÿYÇÇà»8• 8• [ö[YH8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ê\ôŸ]
+ãÿ\K›åKÿ[ö[YHäBê\ôŸ]
+ãÿ\Kÿ[ö[YHäBò\ﬁ[ò»Yà\Wÿ[ö[YJà[ŸNà›àHõ]\›ãà]Y\ûNà›àHàãàYŸNà[ùHKäNÇàYàYŸHH‹àYŸHàLÇàòZ\ŸH^Ÿ\[€äîŸZ]H]\‹»ù⁄\ÿ⁄[àH[ôLYYŸ[ãàäBàYàõZ⁄\‹ÿHàõ›[àõ›öY\ó‹ö[‹ö]Jò[ö[YHäNÇàô]\õà¬àúô\›[»éà◊Kàõ[ŸHéà[ŸKàúYŸHéàKàö\◊€[‹ôHéàò[ŸKàù›[éààô\ÿXõYéàùYKàô\ÿXõY‹ôX\€€àéà
+àìR⁄\‹ÿH\›]\⁄Y\ùàZ›]öY\ôH[ô€\ÿ⁄H[ö[H[ôYHÇàê[ö[YKT]Y[H[à[àZ[ú›[[ôŸ[ãàÇà
+KàBàúõ›‹ŸW€[ŸHH[ŸHYà[ŸH[à»úŸX\ò⁄ãõ]\›ãú‹[\àãùô[ô[ô»üH[ŸHõ]\›ÇàYàúõ›‹ŸW€[ŸHOHúŸX\ò⁄à[ôõ›]Y\ûKú›ö\
+
+NÇàô]\õà¬àúô\›[»éà◊Kàõ[ŸHéàúõ›‹ŸW€[ŸKàúYŸHéàKàö\◊€[‹ôHéàò[ŸKàù›[éààô\ÿXõYéàò[ŸKàBÇàYà›€‹ö 
+NÇà⁄]›]KõZ⁄\‹ÿW€ÿ⁄ŒÇàô]\õàŸ]€Z⁄\‹ÿW‹ÿ‹ò\\ä
+Kòúõ›‹ŸJà[ŸOXúõ›‹ŸW€[ŸKà]Y\ûO\]Y\ûKàYŸO\YŸKà[Z]MLà
+BÇàûNÇà^[ÿYH]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àìR⁄\‹ÿKRÿ][Ÿ»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàòZ\ŸH^Ÿ\[€äLãàìR⁄\‹ÿH\›Ÿ\òYHöX⁄\úôZX⁄ò\éàŸ^ﬂHäHúõ€H^¬àô]\õà¬à
+äú^[ÿYàõ[ŸHéàúõ›‹ŸW€[ŸKàô\ÿXõYéàò[ŸKàúõ›öY\àéàõZ⁄\‹ÿHãàúõ›öY\ó€Xô[éàì’íQTó”PëS÷»õZ⁄\‹ÿHóKàò€€ù[ù€[ô›XYŸHéàõ›öY\óÿ€€ù[ù€[ô›XYŸJõZ⁄\‹ÿHäKàBÇÇê\ôŸ]
+ãÿ\K›åKÿ[ö[YKﬁÿ[ö[YW⁄YHäBê\ôŸ]
+ãÿ\Kÿ[ö[YKﬁÿ[ö[YW⁄YHäBò\ﬁ[ò»Yà\Wÿ[ö[YWŸ]Z[
+à[ö[YW⁄Yà›ãàò[ú€][€éà›àHàãà\\€ŸW‹YŸNà[ùHKäNÇàYàõZ⁄\‹ÿHàõ›[àõ›öY\ó‹ö[‹ö]Jò[ö[YHäNÇàòZ\ŸH^Ÿ\[€äàKàìR⁄\‹ÿH\›[à[à]Y[[àŸ\à0Ôô\àYH[ö[‹‹òX⁄HXZ›]öY\ùàãà
+Bàô\]Y\›Y›òX⁄»H›äò[ú€][€à‹ààäKú›ö\
+
+Kòÿ\ŸYõ€
+
+BÇàYà›€‹ö 
+NÇà⁄]›]KõZ⁄\‹ÿW€ÿ⁄ŒÇà[ö[YHHŸ]€Z⁄\‹ÿW‹ÿ‹ò\\ä
+KôŸ]ÿ[ö[YJ[ö[YW⁄Y
+Bà]òZ[XõHH[ö[YKùò[ú€][€ú¬àòX⁄»Hô\]Y\›Y›òX⁄»Yàô\]Y\›Y›òX⁄»[à]òZ[XõH[ŸH
+àôXààYà]òZ[XõKôŸ]
+ôXàäH[ŸBàú›XààYà]òZ[XõKôŸ]
+ú›XàäH[ŸBàô^
+]\ä]òZ[XõJKàäBà
+BàYàõ›òX⁄ŒÇàòZ\ŸH€⁄›\\úõ‹äìR⁄\‹ÿHY[]ŸZ[ôHô\ô∞Ôÿò\ô[à\\€Ÿ[ãàäBà\\€Ÿ\»H[ö[YWŸ\\€ŸW‹YŸJà[ö[YKàòX⁄ÀàYŸOY\\€ŸW‹YŸKàYŸW‹⁄^ôOLLà
+Bàõ‹à\\€ŸH[à\\€Ÿ\÷»ô\\€Ÿ\»óNÇà€Y»H\\€ŸV»ú€Y»óBà\\€ŸV»ú]Y]YYóHH€Y»[à›]KúX⁄ŸYà\\€ŸV»ô›€õÿYYóHHõ€€
+àŸ^\›[ô◊›ò[YŸ\\€ŸW‹]
+à[ö[YKù]KàKà[ù
+\\€ŸV»õù[Xô\àóJKà
+Bà
+Bàô]\õà¬à
+äò[ö[YKúXõX◊ŸX›
+
+Kàùò[ú€][€àéàòX⁄Ààùò[ú€][€ó€Xô[»éà¬àôXàéàë[ô€\⁄Xàãàú›Xàéàë[ô€\⁄›Xàãàúò]»éàíò\[ô\ŸHò]»ãàKà
+äô\\€Ÿ\ÀàBÇàûNÇàô]\õà]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bà^Ÿ\
+€⁄›\\úõ‹ãò[YQ\úõ‹äH\»^ŒÇàòZ\ŸH^Ÿ\[€ä›ä^ JHúõ€H^¬à^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àìR⁄\‹ÿKQ]Z[»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBàòZ\ŸH^Ÿ\[€äLãàìR⁄\‹ÿKQ]Z[»⁄[ôöX⁄ô\ô∞Ôÿò\éàŸ^ﬂHäHúõ€H^¬ÇÇà»8• 8• ÿ\ù\ÿ⁄[ôŸH8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ò€\‹»‘]Y]YTô\\ò][€íõÿéÇàààì0Ìú›ô]H[ûùYŸY∞Ô›H[ö[H[õô\ö[à\úŸ[ô[àãT€›T]Y]YH]YãÇÇàY\ò⁄›\ù[àô]YHZ[ù∞ÈŸH]]€X]\ÿ⁄⁄ôHôXô[à\àô\›Z[ô[Çà]Y]YHZ[ô[àùŸZ][àÿ⁄Y[\àŸ\àYZà[»ùŸZH\ò[[Hõÿú»ùH0Ìôôõô[ãÇàààÇÇà\◊‹ô\\ò][€ó⁄õÿàHùYBà»\à›€õÿY]Y]YKTÿ⁄Y[\àôZ[ô[€ZX⁄H‹›Q‹ù\[àZ]ŸZ[ô[Bà»\ãZ‹›S[Z]
+›[ô\ôXY\‹⁄Y»JKà⁄ôHY\ŸH‹ù\H›\ù][àùŸZBà»õ‹òô\ôZ][ô‹⁄õÿú»€ZX⁄ôZ]YŒ»Z[ô\àÿ\ù]H[õàù\à]YÇà»]Y]YW‹ô\\ôW€ÿ⁄»[ôô[Y›Hõ›ô[H[àùŸZ][àX⁄[à›€õÿYT€›Çà»Z[àô\ôZ]»]YôŸ[Ÿ\›\à—ãK“‹›\ãQ›€õÿYÿ[õàY\Ÿ[à€›ù[àù]ô[ãÇà‹›Ÿ‹õ›\Hó◊‹Ÿ\öY\◊‹ô\\ò][€ó◊»ÇÇàYà◊⁄[ö]◊ àŸ[ãõÿúŒà\››\WK›]‹õ€›à]à[›öYWŸò[òX⁄‹Œà‹[€ò[—X›‹›ã\›—ö[\[\›[›öYWWWHHõ€ôKà
+NÇàŸ[ãöõÿú»Hõÿú¬àŸ[ãõ›]‹õ€›H›]‹õ€›àŸ[ãõ[›öYWŸò[òX⁄‹»H[›öYWŸò[òX⁄‹»‹àﬂBàŸ[ãú]Y]YW‹€Y‹»H‹€Y»õ‹à€[›öYK€Y»[àõÿúﬂBàŸ[ãú]Y]YW‹€Y»Hô^
+]\äŸ[ãú]Y]YW‹€Y‹ JHYà[äŸ[ãú]Y]YW‹€Y‹ HOHH[ŸHàÇàŸ[ãóÿÿ[òŸ[YHôXY[ôÀë]ô[ù
+
+BÇàYà›\ù
+Ÿ[äNÇàôXYHôXY[ôÀïôXY
+\ôŸ]\Ÿ[ãó‹ù[ãY[[€èUùYJBàôXYú›\ù
+
+Bàô]\õàôXYÇàYàÿ[òŸ[
+Ÿ[äNÇàŸ[ãóÿÿ[òŸ[YúŸ]
+
+BÇàYà‹ù[äŸ[äNÇà]Y]YY‹€Y‹ŒàŸ]‹›óHHŸ]
+
+BàX\öŸY‹ô\\ö[ô»Hò[ŸBàûNÇà⁄]›]Kú]Y]YW‹ô\\ôW€ÿ⁄ŒÇàYàŸ[ãóÿÿ[òŸ[Yö\◊‹Ÿ]
+
+NÇàô]\õÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹Àù\]JŸ[ãú]Y]YW‹€Y‹»	à›]KúX⁄ŸY
+BàX\öŸY‹ô\\ö[ô»HùYBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBà]Y]YY‹€Y‹»Hù[óŸ›€õÿY‹]Y]YJàŸ[ãöõÿúÀàŸ[ãõ›]‹õ€›à›\ù‹]Y]YOQò[ŸKàÿ[òŸ[Y\Ÿ[ãóÿÿ[òŸ[Yö\◊‹Ÿ]à[›öYWŸò[òX⁄‹œ\Ÿ[ãõ[›öYWŸò[òX⁄‹Àà
+H‹àŸ]
+
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àê]]€X]\ÿ⁄H›€õÿYõ‹òô\ôZ][ô»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãô\úàäBàõ‹à[›öYK€Y»[àŸ[ãöõÿúŒÇà€ó⁄õÿóŸ€ôJàò[ŸKàïõ‹òô\ôZ][ô»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãà[›öYKù]K]
+àäK€Yœ\€YÀà
+Bàö[ò[NÇàYàX\öŸY‹ô\\ö[ôŒÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹ÀôYôô\ô[òŸW›\]JŸ[ãú]Y]YW‹€Y‹ BàYàõ›Ÿ[ãóÿÿ[òŸ[Yö\◊‹Ÿ]
+
+NÇàõ‹à[›öYK€Y»[àŸ[ãöõÿúŒÇàYà€Y»õ›[à]Y]YY‹€Y‹»[ô‹]Y]YW‹€Y◊ÿ€Z[YY
+€Y NÇà€ó⁄õÿóŸ€ôJàò[ŸKàë›€õÿYõ‹òô\ôZ][ô»⁄ôHXúÿ⁄\‹»ôY[ô]ãà[›öYKù]Kà]
+àäKà€Yœ\€YÀà
+Bà»ò[»Èô[ôZ[ô\à]Yô[ô[à^òZ›[€àXôŸXúõÿ⁄[à›\ôK0Ôôô[Çà»[òX⁄\ûô]Y›HX⁄H›€õÿYõÿú»öX⁄YYŸ[òõZXô[ãÿ[õ]Yô[ãÇàYàŸ[ãóÿÿ[òŸ[Yö\◊‹Ÿ]
+
+NÇàô[[›ôW‹[ô[ô»HŸ]]ä›]Kô‹]Y]YKúô[[›ôW‹[ô[ô»ãõ€ôJBàYàô[[›ôW‹[ô[ôŒÇàô[[›ôW‹[ô[ô à[XôHõÿéàõ€€
+Ÿ[ãú]Y]YW‹€Y‹»	àŸ]
+Ÿ]]äõÿãú]Y]YW‹€Y‹»ã◊JJJBà‹àŸ]]äõÿãú]Y]YW‹€Y»ãàäH[àŸ[ãú]Y]YW‹€Y‹¬à
+BàYàX\öŸY‹ô\\ö[ôŒÇàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBÇÇôYàŸ[ú]Y]YWÿ]]€X]X◊Ÿ›€õÿY à€Y‹Œà\›‹›óKà[›öYWŸò[òX⁄‹Œà‹[€ò[—X›‹›ã\›—ö[\[\›[›öYWWWHHõ€ôKäHOàŸ]‹›óNÇàYàTUW“Sî’STãö\◊ÿX›]ôJ
+H‹à›]Kû]›\]WÿX›]ôNÇàŸ ë›€õÿY›\ù]\⁄Y\ùàZ[àﬁ\›[]\]H0ÈYùàãùÿ\õàäBàô]\õàŸ]
+
+Bà€€ù[ù⁄Ÿ^\»H¬à€YŒà]Y]YWÿ€€ù[ù⁄Ÿ^J€YÀ›]Kôú€[›öY\ÀôŸ]
+€Y JBàõ‹à€Y»[à€Y‹»Yà€Y»[à›]Kôú€[›öY\¬àBà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà»ùŸZ]H∞Ôù[ô»[ù\à[\Ÿ[ô[àÿ⁄À[à]X⁄\à\]\àôZ[H›\ùà»0Èà€»ÿ[õàù⁄\ÿ⁄[àõ‹ú∞Ôù[ô»[ô]Y]YKP]Yòò]HŸZ[à\]H›\ù[ãÇàYàTUW“Sî’STãö\◊ÿX›]ôJ
+H‹à›]Kû]›\]WÿX›]ôNÇàŸ ë›€õÿY›\ù]\⁄Y\ùàZ[àﬁ\›[]\]H0ÈYùàãùÿ\õàäBàô]\õàŸ]
+
+Bà]Y]YW⁄YHH
+à›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+HOHà[ô›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+HOHà
+BàX›]ôW‹€Y‹»H¬àX›]ôW‹€Y¬àõ‹àX›]ôW⁄õÿà[à›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Bàõ‹àX›]ôW‹€Y»[à⁄õÿó‹]Y]YW‹€Y‹ X›]ôW⁄õÿäBàBà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]Kú]Y]YWÿ€€ù[ù⁄Ÿ^\Àù\]J€€ù[ù⁄Ÿ^\ Bà]Y]YW⁄YHH]Y]YW⁄YH[ôõ››]Kúõ›öY\ó›ÿZ][ô◊⁄õÿú¬à⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇàYà]Y]YW⁄YNÇà›]Kù›[⁄õÿú»Hà›]Kô€ôW⁄õÿú»Hà›]Kô€ôW‹€Y‹Àò€X\ä
+Bà›]Kò€›[ùY‹]Y]YW‹€Y‹Àò€X\ä
+Bà[ôXYWÿ€›[ùYHŸ]
+›]Kò€›[ùY‹]Y]YW‹€Y‹ BÇà»Z[àô\ôZ]»Ÿ^∞È\àŸ\àõÿ⁄\⁄\ÿ⁄Z›]ô\à€Y»ŸZ0ÌúùùBà»Z[ô[H0È\ô[ãÿZ›]ô[à]Y]YKQZ[ùòYÀà\‹Ÿ[à€Z[H\ôàôZ[Bà»ô\ôZ[öYŸ[àô]HXôŸ[Zù\à‹õ‹‹ÀTõ›öY\ãQ\Zÿ]HöX⁄ò[[ãÇàõ›X›Y‹€Y‹»H[ôXYWÿ€›[ùYX›]ôW‹€Y‹¬àô]Z[ôY⁄Ÿ^W‹€Y‹»Hõ›X›Y‹€Y‹»Ÿ]
+€€ù[ù⁄Ÿ^\ Bàõ‹à›[W‹€Y»[àŸ]
+›]Kú]Y]YWÿ€€ù[ù⁄Ÿ^\ HHô]Z[ôY⁄Ÿ^W‹€Y‹ŒÇà›]Kú]Y]YWÿ€€ù[ù⁄Ÿ^\Àú‹
+›[W‹€YÀõ€ôJBàÿÿ›\YY⁄Ÿ^\»H¬à›]Kú]Y]YWÿ€€ù[ù⁄Ÿ^\ÀôŸ]
+^\›[ô◊‹€YÀàäBàõ‹à^\›[ô◊‹€Y»[àõ›X›Y‹€Y‹¬àBàÿÿ›\YY⁄Ÿ^\Àô\ÿÿ\ô
+àäBÇà»€Z[HòX⁄[[à[ô‹ÿ[Y[àõ›öY\ãP]YúùYô[à\õô]]∞Ôô[ãàZ[Çà»ù⁄\ÿ⁄[ûôZ]X⁄\»[ùô\õô[àŸ\àZ[à\ò[[\àöYŸŸ\à\ôÇà»ŸZ[ô[à[ôŸ]òX⁄›[àô^öYZ[ô‹›ŸZ\ŸH‹[[àõÿà›\ù[ãÇàõÿú»H◊Bàõ‹à€Y»[à€Y‹ŒÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y BàŸ^HH€€ù[ù⁄Ÿ^\ÀôŸ]
+€YÀàäBàYà
+à€Y»õ›[à›]KúX⁄ŸYà‹à€Y»[à[ôXYWÿ€›[ùYà‹à€Y»[àX›]ôW‹€Y‹¬à‹à[›öYH\»õ€ôBà‹à
+õ›[›öYKö‹›\ú»[ô\úŸWŸ\\€ŸW‹€Y €Y H\»õ€ôJBà‹à
+Ÿ^H[ôŸ^H[àÿÿ›\YY⁄Ÿ^\ Bà
+NÇà€€ù[ùYBàõÿúÀò\[ô
+
+[›öYK€Y JBàYàŸ^NÇàÿÿ›\YY⁄Ÿ^\ÀòY
+Ÿ^JBÇàô]€Wÿ€›[ùYH‹€Y»õ‹à€[›öYK€Y»[àõÿúﬂBàôZôX›Yÿ€Z[\»H¬à€Y»õ‹à€Y»[àŸ]
+€Y‹ BàYà€Y»[à›]KúX⁄ŸYà[ô€Y»õ›[àô]€Wÿ€›[ùYà[ô€Y»õ›[àõ›X›Y‹€Y‹¬àBà›]KúX⁄ŸYôYôô\ô[òŸW›\]JôZôX›Yÿ€Z[\ BÇàYàõÿúŒÇà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà›]Kò€›[ùY‹]Y]YW‹€Y‹Àù\]Jô]€Wÿ€›[ùY
+Bà›]Kù›[⁄õÿú»
+œH[äô]€Wÿ€›[ùY
+Bà€ôW⁄õÿú»H›]Kô€ôW⁄õÿú¬à›[⁄õÿú»H›]Kù›[⁄õÿú¬Çà»Z[àõ‹òô\ôZ][ô‹⁄õÿàõ»[ö[àY\ò⁄Ÿ\ô[à⁄Y€öY\ùH›ôX[KUTì¬à»\ú››\ûàõ‹àZô[HX⁄[à]Y]YKT€›^òZY\ù›]›\[ŸZ\ŸKÇàõ‹àõÿà[àõÿúŒÇà€Y»HõÿñÃWBà»õ‹òô\ôZ]]H]Y[[à⁄[ô[ùŸZ\ŸKàôZH\\€Ÿ[à⁄[à»Ÿ[ú›Z[àY\ô\àŸ^HöX⁄[»[ôÔYŸH[òöY]\ú›X⁄Kà»ŸZ[⁄X⁄ô\ô∞Ôÿò\öŸZ][ôõ›öY\ãP€€€›€ú»0Èô\õãÇàò[òX⁄‹»HﬂBàYà[›öYWŸò[òX⁄‹»\»õ›õ€ôH[ô€Y»[à[›öYWŸò[òX⁄‹ŒÇàò[òX⁄‹÷‹€Y◊HH\›
+[›öYWŸò[òX⁄‹÷‹€Y◊JBà[ŸNÇàÿX⁄YŸò[òX⁄‹»HÿX⁄Y€[›öYW‹€›\òŸWŸò[òX⁄‹ €Y BàYàÿX⁄YŸò[òX⁄‹»\»õ›õ€ôNÇàò[òX⁄‹÷‹€Y◊HHÿX⁄YŸò[òX⁄‹¬à›]Kô‹]Y]YKòY
+‘]Y]YTô\\ò][€íõÿäà⁄õÿóK]
+›]Kúÿ]ôW‹]
+K[›öYWŸò[òX⁄‹œYò[òX⁄‹Àà
+JBà›]Kô‹]Y]YKú›\ù
+
+BÇàYàôZôX›Yÿ€Z[\ŒÇà‹\ú⁄\›‹]Y]YW‹›]J
+BàYàõ›õÿúŒÇàYàôZôX›Yÿ€Z[\ŒÇàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBàô]\õàŸ]
+
+BàŸ àê]]€X]\ÿ⁄Z[ôŸ\[ùà€[äõÿú _H›€õÿY
+ H
+X^àà\ò[[
+HäBàúõÿYÿ\›
+¬àù\Héàú]Y]YW‹›\ùYãàòYYéà[äõÿú Kàô€ôW⁄õÿú»éà€ôW⁄õÿúÀàù›[⁄õÿú»éà›[⁄õÿúÀàú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+KàJBàô]\õà‹€Y»õ‹à€[›öYK€Y»[àõÿúﬂBÇÇôYàô\›‹ôW‹\ú⁄\›Y‹]Y]YJ
+NÇàààî›[òX⁄Z[ô[Hô]\›\ùõÿ⁄Ÿôô[ôH]Y]YKQZ[ù∞ÈŸH⁄X⁄\à⁄YY\à\ãàààÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà[úô\€€ôYHŸ]
+›]KúX⁄ŸY
+BàYàõ›[úô\€€ôYÇàô]\õÇàŸ àî›[H€[ä[úô\€€ôY
+_HŸ\‹ZX⁄\ùH]Y]YKQZ[ù∞ÈŸH⁄YY\à\à8†)àäBà⁄[H[úô\€€ôYÇàô\\ôYà\›‹›óHH◊Bàõ‹à€Y»[à\›
+[úô\€€ôY
+NÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàYà€Y»õ›[à›]KúX⁄ŸYÇà[úô\€€ôYô\ÿÿ\ô
+€Y Bà€€ù[ùYBàûNÇà[›öYHH
+àŸ\\€ŸW‹XŸZ€\ä€Y BàYà\úŸWŸ\\€ŸW‹€Y €Y Bà[ŸHÿY€[›öYWŸõ‹ó‹€Y €Y Bà
+BàYà[›öYH\»õ€ôH‹àõ›[›öYKö‹›\úŒÇàYà\úŸWŸ\\€ŸW‹€Y €Y NÇà[›öYHHŸ\\€ŸW‹XŸZ€\ä€Y Bà[ŸNÇà€€ù[ùYBà[ôXYKôX\€€àHÿ€€ù[ùÿ[ôXYWÿ]òZ[XõJ[›öYK€Y BàYà[ôXYH[ô⁄\◊⁄ô[Yö[ó‹ÿYô]Wÿõÿ⁄ ôX\€€äNÇà€€ù[ùYBàYà[ôXYNÇà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ ‹€YﬂJBà[úô\€€ôYô\ÿÿ\ô
+€Y Bà€€ù[ùYBà›]Kôú€[›öY\÷‹€Y◊HH[›öYBàô\\ôYò\[ô
+€Y Bà[úô\€€ôYô\ÿÿ\ô
+€Y Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àî]Y]YKU⁄YY\ö\ú›[[ô»∞Ôà0™ﬁ‹€YﬂpÆ»ÿ\ù]àŸ^ﬂHãùÿ\õàäBàYàô\\ôYÇàŸ[ú]Y]YWÿ]]€X]X◊Ÿ›€õÿY ô\\ôY
+BàYà[úô\€€ôYÇà[YKú€Y\
+å
+BÇÇò€\‹»[›öYQ›€õÿYôYô\ô[òŸJò\ŸS[Ÿ[
+NÇàõ›öY\éà›àHàÇà]X[]Nà›àHàÇà‹›\ó›\õà›àHàÇÇÇò€\‹»]Y]YPYõŸJò\ŸS[Ÿ[
+NÇà€Y‹Œà\›‹›óBàôYô\ô[òŸ\ŒàX›‹›ã[›öYQ›€õÿYôYô\ô[òŸWHHöY[
+Yò][ŸòX›‹ûOYX›
+BÇÇôYà‹ôYô\úôY€[›öYW‹€›\òŸ\ à€YŒà›ãà[›öYNàö[\[\›[›öYKàôYô\ô[òŸNà‹[€ò[”[›öYQ›€õÿYôYô\ô[òŸWKäHOà\V—ö[\[\›[›öYK‹[€ò[”\›—ö[\[\›[›öYWWWNÇàààî€‹ùY\ùYHŸ]ÈH]Y[K‘]X[]0Èõ‹ãôZ0ÈXô\à[Hò[òX⁄‹ÀàààÇàYàôYô\ô[òŸH\»õ€ôH‹à\úŸWŸ\\€ŸW‹€Y €Y NÇàô]\õà[›öYKõ€ôBàõ›öY\àH›äôYô\ô[òŸKúõ›öY\à‹ààäKú›ö\
+
+Kòÿ\ŸYõ€
+
+Bà]X[]HH›äôYô\ô[òŸKú]X[]H‹ààäKú›ö\
+
+Bà‹›\ó›\õH›äôYô\ô[òŸKö‹›\ó›\õ‹ààäKú›ö\
+
+Bà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà€›\òŸ\»H\›
+›]Kõ[›öYW‹€›\òŸWÿÿX⁄KôŸ]
+€Y H‹à€[›öYWJBà⁄‹Ÿ[ó⁄[ô^Hô^
+à
+[ô^õ‹à[ô^€›\òŸH[à[ù[Y\ò]J€›\òŸ\ HYà€[›öYW‹õ›öY\ä€›\òŸJHOHõ›öY\äKàõ€ôKà
+BàYà⁄‹Ÿ[ó⁄[ô^\»õ€ôNÇàô]\õà[›öYKõ€ôBà⁄‹Ÿ[ó‹€›\òŸHH€›\òŸ\Àú‹
+⁄‹Ÿ[ó⁄[ô^
+Bà⁄‹Ÿ[àHô\XŸJ⁄‹Ÿ[ó‹€›\òŸK‹›\úœ[\›
+⁄‹Ÿ[ó‹€›\òŸKö‹›\ú JBàŸ]]ä⁄‹Ÿ[ãó‹ôYô\úôY‹]X[]Hã]X[]JBàYà‹›\ó›\õÇà⁄‹Ÿ[ãö‹›\úÀú€‹ù
+Ÿ^O[[XôH‹›\éà›ä‹›\ãù\õ‹ààäKú›ö\
+
+HOH‹›\ó›\õ
+Bàô]\õà⁄‹Ÿ[ã€›\òŸ\¬ÇÇê\ú‹›
+ãÿ\K›åK‹]Y]YKÿYäBê\ú‹›
+ãÿ\K‹]Y]YKÿYäBò\ﬁ[ò»Yà\W‹]Y]YWÿY
+õŸNà]Y]YPYõŸJNÇàYà›€‹ö 
+NÇàYY‹€Y‹Œà\›‹›óHH◊BàŸ[X›YŸò[òX⁄‹ŒàX›‹›ã\›—ö[\[\›[›öYWWHHﬂBà⁄⁄\YHà⁄⁄\YŸ]Z[ŒàX›‹›ã›óHHﬂBàõ‹à€Y»[àõŸKú€Y‹ŒÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà\⁄Xÿ[WÿX›]ôHH[ûJà€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäHõ‹àõÿà[à›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Bà
+Bà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàYà€Y»[à›]KúX⁄ŸYÇà⁄⁄\Y
+œHBà⁄⁄\YŸ]Z[÷‹€Y◊HHòô\ôZ]»Z[ôŸ\[ùÇà€€ù[ùYBà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇàYà€Y»[à›]Kò€›[ùY‹]Y]YW‹€Y‹»‹à\⁄Xÿ[WÿX›]ôNÇà⁄⁄\Y
+œHBà⁄⁄\YŸ]Z[÷‹€Y◊HHêXòúùX⁄0ÈYùõÿ⁄Çà€€ù[ùYBà›]KúX⁄ŸYòY
+€Y BàûNÇà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y BàYà[›öYH\»õ€ôNÇà[›öYHH
+àŸ\\€ŸW‹XŸZ€\ä€Y BàYà\úŸWŸ\\€ŸW‹€Y €Y Bà[ŸHÿY€[›öYWŸõ‹ó‹€Y €Y Bà
+BàYà[›öYH\»õ€ôH‹àõ›[›öYKö‹›\úŒÇàYà\úŸWŸ\\€ŸW‹€Y €Y NÇà[›öYHHŸ\\€ŸW‹XŸZ€\ä€Y Bà[ŸNÇàòZ\ŸHù[ù[YQ\úõ‹äöŸZ[à‹›\àô\ô∞Ôÿò\àäBà[ôXYWÿ]òZ[XõKôX\€€àHÿ€€ù[ùÿ[ôXYWÿ]òZ[XõJ[›öYK€Y BàYà[ôXYWÿ]òZ[XõNÇà⁄⁄\Y
+œHBà⁄⁄\YŸ]Z[÷‹€Y◊HHôX\€€Çà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]KúX⁄ŸYô\ÿÿ\ô
+€Y Bà€€ù[ùYBà›]Kôú€[›öY\÷‹€Y◊HH[›öYBàôYô\úôYò[òX⁄‹»H‹ôYô\úôY€[›öYW‹€›\òŸ\ à€YÀ[›öYKõŸKúôYô\ô[òŸ\ÀôŸ]
+€Y Kà
+BàYàò[òX⁄‹»\»õ›õ€ôNÇà[›öYHHôYô\úôYà›]Kôú€[›öY\÷‹€Y◊HH[›öYBàŸ[X›YŸò[òX⁄‹÷‹€Y◊HHò[òX⁄‹¬àYY‹€Y‹Àò\[ô
+€Y Bà^Ÿ\^Ÿ\[€à\»^ŒÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]KúX⁄ŸYô\ÿÿ\ô
+€Y Bà⁄⁄\Y
+œHBà⁄⁄\YŸ]Z[÷‹€Y◊HH›ä^ VŒåNBàô]\õàYY‹€Y‹À⁄⁄\Y⁄⁄\YŸ]Z[ÀŸ[X›YŸò[òX⁄‹¬ÇàYY‹€Y‹À⁄⁄\Y⁄⁄\YŸ]Z[ÀŸ[X›YŸò[òX⁄‹»H]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bà‹\ú⁄\›‹]Y]YW‹›]J
+BàXÿŸ\YHŸ[ú]Y]YWÿ]]€X]X◊Ÿ›€õÿY àYY‹€Y‹Àà[›öYWŸò[òX⁄‹œ\Ÿ[X›YŸò[òX⁄‹»‹àõ€ôKà
+Bà\Xÿ]W‹ôZôX›YHŸ]
+YY‹€Y‹ HHXÿŸ\YàYà[äXÿŸ\Y
+H[äYY‹€Y‹ NÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàõ›‹›\ùYH¬à€Y»õ‹à€Y»[àYY‹€Y‹»Yà€Y»[à›]KúX⁄ŸY[ô€Y»õ›[àXÿŸ\YàBà›]KúX⁄ŸYôYôô\ô[òŸW›\]Jõ›‹›\ùY
+Bà‹\ú⁄\›‹]Y]YW‹›]J
+Bà⁄⁄\Y
+œH[ä\Xÿ]W‹ôZôX›Y
+Bàõ‹à€Y»[à\Xÿ]W‹ôZôX›YÇà⁄⁄\YŸ]Z[ÀúŸ]Yò][
+€YÀô€ZX⁄\à[ö[ô\ôZ]»Z[ôŸ\[ùäBà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà€ôW⁄õÿú»H›]Kô€ôW⁄õÿú¬à›[⁄õÿú»H›]Kù›[⁄õÿú¬àô]\õà¬àòYYéà[äXÿŸ\Y
+Kàú⁄⁄\Yéà⁄⁄\Yàú⁄⁄\YŸ]Z[»éà⁄⁄\YŸ]Z[Ààò]]◊‹›\ùYéà[äXÿŸ\Y
+Kàô€ôW⁄õÿú»éà€ôW⁄õÿúÀàù›[⁄õÿú»éà›[⁄õÿúÀàú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+KàBÇÇò€\‹»]Y]YTô[[›ôPõŸJò\ŸS[Ÿ[
+NÇà€YŒà›ÇÇÇôYà⁄õÿó‹]Y]YW‹€Y‹ õÿäHOàŸ]‹›óNÇà€Y‹»HŸ]
+Ÿ]]äõÿãú]Y]YW‹€Y‹»ãŸ]
+
+JH‹àŸ]
+
+JBà€Y»HŸ]]äõÿãú]Y]YW‹€Y»ãàäBàYà€YŒÇà€Y‹ÀòY
+€Y Bàô]\õà€Y‹¬ÇÇôYàŸõ‹‹]Y]YWÿ€Z[\ €Y‹ŒàŸ]‹›óJHOàõ€ôNÇàYàõ›€Y‹ŒÇàô]\õÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]KúX⁄ŸYôYôô\ô[òŸW›\]J€Y‹ Bà›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹ÀôYôô\ô[òŸW›\]J€Y‹ Bàõ‹à€Y»[à€Y‹ŒÇà›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúÀú‹
+€YÀõ€ôJBà›]Kúõ›öY\ó‹ô]ûW›ÿZŸWŸ]ô[ùúŸ]
+
+Bà‹\ú⁄\›‹]Y]YW‹›]J
+BÇÇôYà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ €Y‹ŒàŸ]‹›óJHOàõ€ôNÇàYàõ›€Y‹ŒÇàô]\õÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]KúX⁄ŸYôYôô\ô[òŸW›\]J€Y‹ Bà›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹ÀôYôô\ô[òŸW›\]J€Y‹ Bàõ‹à€Y»[à€Y‹ŒÇà›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúÀú‹
+€YÀõ€ôJBà›]Kúõ›öY\ó‹ô]ûW›ÿZŸWŸ]ô[ùúŸ]
+
+Bà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà€›[ùYH€Y‹»	à›]Kò€›[ùY‹]Y]YW‹€Y‹¬à›]Kò€›[ùY‹]Y]YW‹€Y‹ÀôYôô\ô[òŸW›\]J€›[ùY
+Bà›]Kù›[⁄õÿú»HX^
+›]Kô€ôW⁄õÿúÀ›]Kù›[⁄õÿú»H[ä€›[ùY
+JBà‹\ú⁄\›‹]Y]YW‹›]J
+BÇÇôYàÿÿ[òŸ[‹]Y]YW‹€Y‹ €Y‹ŒàŸ]‹›óKôX\€€éà›äHOàõ€ôNÇàYàõ›€Y‹ŒÇàô]\õÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà›]Kô‹]Y]YKúô[[›ôW‹[ô[ô [XôHõÿéàõ€€
+€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJJBà›]Kô‹]Y]YKòÿ[òŸ[ÿX›]ôJ[XôHõÿéàõ€€
+€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJJBà›]Kô‹]Y]YKúô[[›ôW‹[ô[ô [XôHõÿéàõ€€
+€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJJBà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ €Y‹ Bàõ‹à€Y»[à€Y‹ŒÇà›[Y‹ò[W›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKôX\€€ã]
+àäJBà‹ŸY\úó›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKôX\€€ã]
+àäJBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBÇÇôYàÿÿ[òŸ[›⁄]ò]€ó›ÿ]⁄\›‹€Y‹ €Y‹ŒàŸ]‹›óKôX\€€éà›äHOàŸ]‹›óNÇàààêúöX⁄ù\à€Y‹»XãYHŸZ[àZ›Y[\àXõÀT›[ôYZàô[∞ÌùY›àààÇàYàõ›€Y‹ŒÇàô]\õàŸ]
+
+Bà»\à]]ÀTÿ⁄Y[\à\ôàù⁄\ÿ⁄[àôX⁄X⁄»[ôXòúùX⁄ŸZ[ô[àô\ò[][Çà»€ò\⁄›ô]HZ[úôZZ[ãàYHÿ]⁄\›õZXùö\»òX⁄[H]Y]YKPXòúùX⁄à»Ÿ\‹\úù[Z]Z[àô]Y\ô\à⁄X⁄»[úŸ[ô[à€Y»öX⁄⁄YY\àúôZY⁄XùÇà⁄]›]Kò]]◊Ÿ›€õÿY€ÿ⁄ŒÇà»€ÿò[HôZZ[ôõ€ŸNà]Y]YKSXô[úﬁûZ€\»8°§à€Z[H8°§àÿ]⁄\›à[Z]à»õZXùYH[ùÿ⁄ZY[ô»]€X\ã⁄ôHZ]ÿ]⁄\›‹^[ÿY
+
+Bà»
+€Z[H8°§àÿ]⁄\›
+HZ[ôHÿ⁄ÀR[ùô\ú⁄[€àùH\ûô]YŸ[ãÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà›\úô[ùW‹ô\]Z\ôYH¬à€Y¬àõ‹à[ô[ô»[à›]Kùÿ]⁄\›€ô]◊‹€Y‹Àùò[Y\ 
+Bàõ‹à€Y»[à[ô[ô¬àBàÿ[òŸ[XõHHŸ]
+€Y‹ HH›\úô[ùW‹ô\]Z\ôYàYàÿ[òŸ[XõNÇàÿÿ[òŸ[‹]Y]YW‹€Y‹ ÿ[òŸ[XõKôX\€€äBàô]\õàÿ[òŸ[XõBÇÇê\ú‹›
+ãÿ\K›åK‹]Y]YK‹ô[[›ôHäBê\ú‹›
+ãÿ\K‹]Y]YK‹ô[[›ôHäBò\ﬁ[ò»Yà\W‹]Y]YW‹ô[[›ôJõŸNà]Y]YTô[[›ôPõŸJNÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàô[[›ôYH›]Kô‹]Y]YKúô[[›ôW‹[ô[ô [XôHõÿéàõŸKú€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäJBàX›]ôHH›]Kô‹]Y]YKòÿ[òŸ[ÿX›]ôJ[XôHõÿéàõŸKú€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäJBà»Z[àõ‹òô\ôZ][ô‹⁄õÿàÿ[õàŸ[ò]Hù⁄\ÿ⁄[àô[[›ôW‹[ô[ô 
+H[ôà»ÿ[òŸ[ÿX›]ôJ
+Hõÿ⁄Z[ô[àX⁄[à›€õÿYZ[ôŸ\ôZZXô[ãÇàô[[›ôYô^[ô
+à›]Kô‹]Y]YKúô[[›ôW‹[ô[ô à[XôHõÿéàõŸKú€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBà
+Bà
+Bà»XòúùX⁄€€ú›[ZY\ù\»Ÿ⁄\ÿ⁄HXúÿ⁄\‹›⁄Ÿ[àŸ[ú›àZ[à[\Çà»‹›\ãRõÿàÿ[õàô\ôZ]»[àZ[ô[à[ô[ôÀQò[òX⁄»0Ôô\ôŸXô[àXô[à[ôà»ÔôH[õàŸZ[ô[àZYŸ[ô[à\õZ[ò[ÿ[òX⁄»YZàYYô\õãÇà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ ÿõŸKú€YﬂJBàô[[›ôYô^[ô
+à›]Kô‹]Y]YKúô[[›ôW‹[ô[ô à[XôHõÿéàõŸKú€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBà
+Bà
+Bà›[Y‹ò[W›\õZ[ò[›⁄]›]⁄õÿäõŸKú€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBà‹ŸY\úó›\õZ[ò[›⁄]›]⁄õÿäõŸKú€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBàô]\õà¬àúô[[›ôYéà[äô[[›ôY
+Kàòÿ[òŸ[Yéà[äX›]ôJKàú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+KàBÇÇê\ú‹›
+ãÿ\K›åK‹]Y]YKÿ€X\àäBê\ú‹›
+ãÿ\K‹]Y]YKÿ€X\àäBò\ﬁ[ò»Yà\W‹]Y]YWÿ€X\ä
+NÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàô[[›ôYH›]Kô‹]Y]YKúô[[›ôW‹[ô[ô [XôH⁄õÿéàùYJBàô[[›ôY‹€Y‹»H‹€Y»õ‹àõÿà[àô[[›ôYõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿä_BàX›]ôW‹€Y‹»H¬à€Y»õ‹àõÿà[à›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Hõ‹à€Y»[à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàBà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàô[[›ôY‹€Y‹Àù\]J›]KúX⁄ŸYHX›]ôW‹€Y‹ Bà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ ô[[›ôY‹€Y‹ Bàõ‹à€Y»[àô[[›ôY‹€Y‹ŒÇà›[Y‹ò[W›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBà‹ŸY\úó›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBàô]\õà»úô[[›ôYéà[äô[[›ôY‹€Y‹ Kú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_BÇÇê\ôŸ]
+ãÿ\K›åK‹]Y]YHäBê\ôŸ]
+ãÿ\K‹]Y]YHäBò\ﬁ[ò»Yà\W‹]Y]YWŸŸ]
+
+NÇàô]\õà»ú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_BÇÇà»8• 8• ›€õÿY»8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ê\ú‹›
+ãÿ\K›åKŸ›€õÿYÿÿ[òŸ[äBê\ú‹›
+ãÿ\KŸ›€õÿYÿÿ[òŸ[äBò\ﬁ[ò»Yà\WŸ›€õÿYÿÿ[òŸ[
+
+NÇà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàY‹]Y]YWÿX›]ö]HHõ€€
+à›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+H‹à›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+Bà
+Bà›]Kô‹]Y]YKòÿ[òŸ[ÿ[
+
+Bà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇàÿ[òŸ[Y‹€Y‹»HŸ]
+›]KúX⁄ŸY
+HŸ]
+›]Kò€›[ùY‹]Y]YW‹€Y‹ BàôYúô\⁄‹\ùX[‹›XÿŸ\‹»Hõ€€
+Y‹]Y]YWÿX›]ö]H[ô›]Kô€ôW‹€Y‹ Bà›]KúX⁄ŸYò€X\ä
+Bà›]Kúô\\ö[ô◊‹]Y]YW‹€Y‹Àò€X\ä
+Bà›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúÀò€X\ä
+Bà›]Kúõ›öY\ó‹ô]ûW›ÿZŸWŸ]ô[ùúŸ]
+
+Bà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà›]Kò€›[ùY‹]Y]YW‹€Y‹Àò€X\ä
+Bà›]Kù›[⁄õÿú»H›]Kô€ôW⁄õÿú¬à‹\ú⁄\›‹]Y]YW‹›]J
+Bà⁄]›]Kö‹›\óŸ^òX›€ÿ⁄ŒÇàYà›]KùõŸW‹€€\»õ›õ€ôNÇàûNÇà›]KùõŸW‹€€ò€‹ŸJ
+Bà^Ÿ\^Ÿ\[€éÇà\‹¬à›]KùõŸW‹€€Hõ€ôBàYà›]Kô[XôY‹€€\»õ›õ€ôNÇàûNÇà›]Kô[XôY‹€€ò€‹ŸJ
+Bà^Ÿ\^Ÿ\[€éÇà\‹¬à›]Kô[XôY‹€€Hõ€ôBàõ‹à€Y»[àÿ[òŸ[Y‹€Y‹ŒÇà›[Y‹ò[W›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBà‹ŸY\úó›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXôŸXúõÿ⁄[àã]
+àäJBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBàŸ ë›€õÿYXôŸXúõÿ⁄[ãàäBàYàôYúô\⁄‹\ùX[‹›XÿŸ\‹ŒÇàôXY[ôÀïôXY
+\ôŸ]\ôYúô\⁄⁄ô[Yö[óÿYù\óŸ›€õÿYY[[€èUùYJKú›\ù
+
+Bàô]\õà»òÿ[òŸ[YéàùYKú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_BÇÇà»8• 8• Z[ú›[[ôŸ[à8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ÇÇê\ôŸ]
+ãÿ\K›åK›\]\ã‹›]\»äBê\ôŸ]
+ãÿ\K›\]\ã‹›]\»äBò\ﬁ[ò»Yà\W›\]\ó‹›]\ õ‹òŸNàõ€€Hò[ŸJNÇà^[ÿYH]ÿZ]ù[ó⁄[ó›ôXY€€
+TUW–“P“—Tãò⁄X⁄Àõ‹òŸJBà^[ÿY»ö[ú›[\àóHHTUW“Sî’STãú›]\ 
+Bà^[ÿY»ò€€ôöY»óHH›\]\óÿ€€ôöY◊‹^[ÿY
+
+Bàô]\õà^[ÿYÇÇò€\‹»\]R[ú›[õŸJò\ŸS[Ÿ[
+NÇà\ôŸ]‹⁄Nà›ÇÇÇê\ú‹›
+ãÿ\K›åK›\]\ã⁄[ú›[äBê\ú‹›
+ãÿ\K›\]\ã⁄[ú›[äBò\ﬁ[ò»Yà\W›\]\ó⁄[ú›[
+õŸNà\]R[ú›[õŸJNÇà\]HH]ÿZ]ù[ó⁄[ó›ôXY€€
+TUW–“P“—Tãò⁄X⁄ÀùYJBà\ôŸ]‹⁄HH›ä\]KôŸ]
+õ]\›‹⁄HäH‹ààäBàYàõ›\ôŸ]‹⁄H‹à\ôŸ]‹⁄HOHõŸKù\ôŸ]‹⁄Kú›ö\
+
+NÇàòZ\ŸH^Ÿ\[€äKë\à[ôŸXõ›[ôH⁄]XãT›[ô]⁄X⁄ŸpÈô\ù»ö]H\õô]]∞Ôô[ãàäBàYà\]KôŸ]
+ù\]Wÿ]òZ[XõHäH\»õ›ùYNÇàòZ\ŸH^Ÿ\[€äKë∞ÔàY\Ÿ[àùZ[\›ŸZ[à[ú›[Y\òò\ô\»\]Hô\ô∞Ôÿò\ãàäBàûNÇà[ú›[\àH‹›\ù›\]W›⁄[ó⁄YJ\ôŸ]‹⁄JBà^Ÿ\
+ù[ù[YQ\úõ‹ãò[YQ\úõ‹äH\»^ŒÇàòZ\ŸH^Ÿ\[€äK›ä^ JHúõ€H^¬àô]\õà»ö[ú›[\àéà[ú›[\üBÇÇê\ôŸ]
+ãÿ\K›åK›\]\ã⁄[ú›[‹›]\»äBê\ôŸ]
+ãÿ\K›\]\ã⁄[ú›[‹›]\»äBò\ﬁ[ò»Yà\W›\]\ó⁄[ú›[‹›]\ 
+NÇàô]\õà»ö[ú›[\àéàTUW“Sî’STãú›]\ 
+_BÇÇò€\‹»\]\ê€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà\]W€[ŸNà›àH\€€ôöYÀïTUW”S—W”PSïPSà]]◊›\]W⁄[ù\ùò[⁄›\úŒà[ùHÇÇÇê\ôŸ]
+ãÿ\K›åK›\]\ãÿ€€ôöY»äBê\ôŸ]
+ãÿ\K›\]\ãÿ€€ôöY»äBò\ﬁ[ò»Yà\W›\]\óÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà›\]\óÿ€€ôöY◊‹^[ÿY
+
+BÇÇê\ú‹›
+ãÿ\K›åK›\]\ãÿ€€ôöY»äBê\ú‹›
+ãÿ\K›\]\ãÿ€€ôöY»äBò\ﬁ[ò»Yà\W›\]\óÿ€€ôöY◊‹Ÿ]
+õŸNà\]\ê€€ôöY–õŸJNÇà[ŸHH›äõŸKù\]W€[ŸH‹ààäKú›ö\
+
+Kõ›Ÿ\ä
+BàYà[ŸHõ›[à\€€ôöYÀïTUW”S—TŒÇàòZ\ŸH^Ÿ\[€äï\]KS[Ÿ\»]\‹»	€X[ùX[	»Ÿ\à	ÿ]]€X]X…»ŸZ[ãàäBà[ù\ùò[HX^
+KZ[äMé[ù
+õŸKò]]◊›\]W⁄[ù\ùò[⁄›\ú»‹àäJJBàYàõ›\€€ôöYÀúÿ]ôW›\]\ä[ŸK[ù\ùò[
+NÇàòZ\ŸH^Ÿ\[€äLï\]KQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà⁄]›]Kù\]\óÿ€€ôöY◊€ÿ⁄ŒÇà›]Kù\]\óÿŸô»H\€€ôöYÀõÿY›\]\ä
+BàYà[ŸHOH\€€ôöYÀïTUW”S—W–UU”PUPŒÇà‹Ÿ]›\]\ó‹ù[ù[YJúÿ⁄Y[Yãê]]€X]\ÿ⁄H\]\∞Ôù[ô»⁄\ôŸ\›\ù]àäBà[ŸNÇà‹Ÿ]›\]\ó‹ù[ù[YJõX[ùX[ãï\]\»Ÿ\ô[àù\àX[ùY[[ú›[Y\ùàäBà›\]\ó›ÿZŸWŸ]ô[ùúŸ]
+
+Bàô]\õà äó›\]\óÿ€€ôöY◊‹^[ÿY
+
+Kúÿ]ôYéàùY_BÇÇò€\‹»Ÿ]\€€\]PõŸJò\ŸS[Ÿ[
+NÇàÿ]ôW‹]à›ÇàŸ\öY\◊‹]à›àHàÇàZW€[ô›XYŸNà›àHôHÇàô[Yö[ó›\õà›àHàÇàô[Yö[óÿ\W⁄Ÿ^Nà›àHàÇàô[Yö[ó›\Ÿ\ó⁄Yà›àHàÇàô[Yö[ó›\Ÿ\ó€ò[YNà›àHàÇàYóÿ\W⁄Ÿ^Nà›àHàÇà[Y‹ò[WŸ[òXõYàõ€€Hò[ŸBà[Y‹ò[Wÿõ››⁄Ÿ[éà›àHàÇà[Y‹ò[Wÿ⁄]⁄Yà›àHàÇà]]◊Ÿ›€õÿYàõ€€Hò[ŸBà⁄X⁄◊⁄[ù\ùò[€Z[éà[ùHÃà›⁄[ô›◊‹›\ùà‹[€ò[⁄[ùHHõ€ôBà›⁄[ô›◊Ÿ[ôà‹[€ò[⁄[ùHHõ€ôBà[›öYW‹õ›öY\ó€‹ô\éà‹[€ò[”\›‹›óWHHõ€ôBàŸ\öY\◊‹õ›öY\ó€‹ô\éà‹[€ò[”\›‹›óWHHõ€ôBà[ö[YW‹õ›öY\ó€‹ô\éà‹[€ò[”\›‹›óWHHõ€ôBà[›öYW‹õ›öY\úŒà‹[€ò[”\›‹›óWHHõ€ôBàŸ\öY\◊‹õ›öY\úŒà‹[€ò[”\›‹›óWHHõ€ôBà[ö[YW‹õ›öY\úŒà‹[€ò[”\›‹›óWHHõ€ôBà€€ù[ù€[ô›XYŸ\Œà‹[€ò[”\›‹›óWHHõ€ôBà]]›\Ÿ\õò[YNà›àHàÇà]]‹\‹›€‹ôà›àHàÇÇÇôYà‹ô\\ôW€YYXWŸ\ôX›‹ûJò]◊‹]à›ãXô[à›äHOàX›Çà]H]
+ò]◊‹]
+Kô^[ô\Ÿ\ä
+BàûNÇà]õZŸ\ä\ô[ùœUùYK^\›€⁄œUùYJBàYàõ›]ö\◊Ÿ\ä
+NÇàòZ\ŸH‘—\úõ‹äîòY\›ŸZ[à‹ôô\àäBà⁄][\ö[Kìò[YY[\‹ò\ûQö[JôYö^HãúõﬁX[]‹ö]K]\›Hã\è\][]OUùYJH\»õÿôNÇàõÿôKù‹ö]Jàõ⁄»äBàõÿôKôõ\⁄
+
+Bà‹Àôúﬁ[ò õÿôKôö[[õ 
+JBà\ÿYŸHH⁄][ô\⁄◊›\ÿYŸJ]
+Bà^Ÿ\‘—\úõ‹à\»^ŒÇàòZ\ŸH^Ÿ\[€äàû€Xô[H\›öX⁄ô\ÿ⁄ôZXòò\éàŸ^ﬂHäHúõ€H^¬àYà\ÿYŸKôúôYHLLà
+àLç
+àLçÇàòZ\ŸH^Ÿ\[€äàû€Xô[H]Ÿ[öYŸ\à[»LLàPàúôZY[à‹ZX⁄\ãàäBàô]\õà»ú]éà›ä]
+KôúôYHéà\ÿYŸKôúôY_BÇÇê\ôŸ]
+ãÿ\K‹Ÿ]\‹›]\»äBò\ﬁ[ò»Yà\W‹Ÿ]\‹›]\ 
+NÇàô]\õà¬àúô\]Z\ôYéàõ›\€€ôöYÀö\◊⁄[ö]X[^ôY
+
+Kàò€€ôöY◊‹]éà›ä\€€ôöYÀò€€ôöY◊‹]
+
+JKàôYò][»éà¬àúÿ]ôW‹]éà›]Kúÿ]ôW‹]àúŸ\öY\◊‹]éà›]KúŸ\öY\◊‹]àùZW€[ô›XYŸHéà›]KùZW€[ô›XYŸKàùZW€[ô›XYŸWÿ€€ôöY›\ôYéà\€€ôöYÀùZW€[ô›XYŸWÿ€€ôöY›\ôY
+
+Kàúõ›öY\ú»éà‹õ›öY\ó‹ö[‹ö]W‹^[ÿY
+
+Kàöô[Yö[àéà¬àù\õéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäKàò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+›]Köô[Yö[óÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàù\Ÿ\ó⁄Yéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKàù\Ÿ\ó€ò[YHéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó€ò[YHãàäKàò€X[ù\ŸYò][éàõ‹õX[^ôWÿ€X[ù\€[ŸJà›]Köô[Yö[óÿŸôÀôŸ]
+ò€X[ù\ŸYò][äBà
+KàKàùYàéà¬àò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+›]KùYóÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàõ[ô›XYŸHéà›]KùYóÿŸôÀôŸ]
+õ[ô›XYŸHãôKQHäKàKàù[Y‹ò[Héà¬àô[òXõYéàõ€€
+›]Kù[Y‹ò[WÿŸôÀôŸ]
+ô[òXõYäJKàòõ››⁄Ÿ[àéààãàö\◊ÿõ››⁄Ÿ[àéàõ€€
+›]Kù[Y‹ò[WÿŸôÀôŸ]
+òõ››⁄Ÿ[àäJKàò⁄]⁄Yéà›]Kù[Y‹ò[WÿŸôÀôŸ]
+ò⁄]⁄YãàäKàKàò]]€X][€àéà›]Kò]]€X][€ãàKàBÇÇê\ú‹›
+ãÿ\K‹Ÿ]\ÿ€€\]HäBò\ﬁ[ò»Yà\W‹Ÿ]\ÿ€€\]JõŸNàŸ]\€€\]PõŸKô\]Y\›àô\]Y\›
+NÇà»ô\›Z[ôH[ú›[][€éà\à\‹⁄\›[ù\ôàZ[àõ‹ö[ô[ô\»€€ù»öX⁄à»0Ôô\úÿ⁄ôZXô[ãù\àZ[à[ôŸ[Y[]\à\ôàY\à0Ôô\ö]\[ô[ãÇà[ôXYW⁄[ö]X[^ôYH\€€ôöYÀö\◊⁄[ö]X[^ôY
+
+BàYà[ôXYW⁄[ö]X[^ôY[ôõ›ô\]Y\›⁄\◊ÿ]][ùXÿ]Y
+àô\]Y\›öXY\úÀô\]Y\›ò€€⁄⁄Y\À€Y[ù⁄Ÿ^Jô\]Y\›
+Kà
+NÇàòZ\ŸH^Ÿ\[€äKê[õY[[ô»\ôõ‹ô\õX⁄àäBàXÿ€›[ù⁄\⁄HàÇàXÿ€›[ù›\Ÿ\àHàÇàYàõ›]]ÿ€€ôöY›\ôY
+
+NÇà»ô]Z[ú›[][€éà⁄ôH€€ù»⁄\ôöX⁄XôŸ\ÿ⁄‹‹Ÿ[ãÇàûNÇàXÿ€›[ù›\Ÿ\àH\]]ùò[Y]W›\Ÿ\õò[YJõŸKò]]›\Ÿ\õò[YJBàXÿ€›[ù‹\‹›€‹ôH\]]ùò[Y]W‹\‹›€‹ô
+õŸKò]]‹\‹›€‹ô
+Bà^Ÿ\ò[YQ\úõ‹à\»^ŒÇàòZ\ŸH^Ÿ\[€ä›ä^ JHúõ€H^¬àXÿ€›[ù⁄\⁄H]ÿZ]ù[ó⁄[ó›ôXY€€
+\]]ö\⁄‹\‹›€‹ôXÿ€›[ù‹\‹›€‹ô
+Bà[›öYW‹]HõŸKúÿ]ôW‹]ú›ö\
+
+BàŸ\öY\◊‹]HõŸKúŸ\öY\◊‹]ú›ö\
+
+H‹à[›öYW‹]àô[Yö[ó›\õHõŸKöô[Yö[ó›\õú›ö\
+
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàô]ö[›\◊⁄ô[Yö[àHX›
+›]Köô[Yö[óÿŸô Bàÿ[YW⁄ô[Yö[àH
+àô[Yö[ó›\õúú›ö\
+ã»äBà[ôô[Yö[ó›\õúú›ö\
+ã»äHOHô]ö[›\◊⁄ô[Yö[ãôŸ]
+ù\õãàäKúú›ö\
+ã»äBà
+Bàô[Yö[óÿ\W⁄Ÿ^HHõŸKöô[Yö[óÿ\W⁄Ÿ^Kú›ö\
+
+H‹à
+àô]ö[›\◊⁄ô[Yö[ãôŸ]
+ò\W⁄Ÿ^HãàäHYàÿ[YW⁄ô[Yö[à[ŸHàÇà
+Bàô[Yö[ó›\Ÿ\ó⁄YHõŸKöô[Yö[ó›\Ÿ\ó⁄Yú›ö\
+
+Bàô[Yö[ó›\Ÿ\ó€ò[YHHõŸKöô[Yö[ó›\Ÿ\ó€ò[YKú›ö\
+
+Bà[›öYW€‹ô\àH
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKõ[›öYW‹õ›öY\ó€‹ô\óBàYàõŸKõ[›öYW‹õ›öY\ó€‹ô\à\»õ›õ€ôBà[ŸHõ›öY\ó€‹ô\äõ[›öY\»äBà
+BàŸ\öY\◊€‹ô\àH
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKúŸ\öY\◊‹õ›öY\ó€‹ô\óBàYàõŸKúŸ\öY\◊‹õ›öY\ó€‹ô\à\»õ›õ€ôBà[ŸHõ›öY\ó€‹ô\äúŸ\öY\»äBà
+Bà[ö[YW€‹ô\àH
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKò[ö[YW‹õ›öY\ó€‹ô\óBàYàõŸKò[ö[YW‹õ›öY\ó€‹ô\à\»õ›õ€ôBà[ŸHõ›öY\ó€‹ô\äò[ö[YHäBà
+Bà[›öYW‹õ›öY\ú»H
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKõ[›öYW‹õ›öY\ú◊BàYàõŸKõ[›öYW‹õ›öY\ú»\»õ›õ€ôBà[ŸH\›
+›]Kúõ›öY\óŸ[òXõYôŸ]
+õ[›öY\»ã\€€ôöYÀìS’íQW‘ì’íQTó—QêUS JBà
+BàŸ\öY\◊‹õ›öY\ú»H
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKúŸ\öY\◊‹õ›öY\ú◊BàYàõŸKúŸ\öY\◊‹õ›öY\ú»\»õ›õ€ôBà[ŸH\›
+›]Kúõ›öY\óŸ[òXõYôŸ]
+úŸ\öY\»ã\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUS JBà
+Bà[ö[YW‹õ›öY\ú»H
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKò[ö[YW‹õ›öY\ú◊BàYàõŸKò[ö[YW‹õ›öY\ú»\»õ›õ€ôBà[ŸH\›
+›]Kúõ›öY\óŸ[òXõYôŸ]
+ò[ö[YHã\€€ôöYÀêSíSQW‘ì’íQTó—QêUS JBà
+Bà€€ù[ù€[ô›XYŸ\»H
+à\€€ôöYÀõõ‹õX[^ôWÿ€€ù[ù€[ô›XYŸ\ õŸKò€€ù[ù€[ô›XYŸ\ BàYàõŸKò€€ù[ù€[ô›XYŸ\»\»õ›õ€ôBà[ŸH\›
+›]Kò€€ù[ù€[ô›XYŸ\ Bà
+BàYàõ›[›öYW‹]ÇàòZ\ŸH^Ÿ\[€äëZ[à‹ZX⁄\õ‹ôô\à∞Ôàö[YHôZàäBàYà
+à[ä[›öYW€‹ô\äHOH[äŸ]
+[›öYW€‹ô\äJBà‹àŸ]
+[›öYW€‹ô\äHOHŸ]
+\€€ôöYÀìS’íQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äëYHôZZ[ôõ€ŸH\àö[\]Y[[à\›[ôÔYÀàäBàYà
+à[äŸ\öY\◊€‹ô\äHOH[äŸ]
+Ÿ\öY\◊€‹ô\äJBà‹àŸ]
+Ÿ\öY\◊€‹ô\äHOHŸ]
+\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äëYHôZZ[ôõ€ŸH\àŸ\öY[ú]Y[[à\›[ôÔYÀàäBàYà
+à[ä[ö[YW€‹ô\äHOH[äŸ]
+[ö[YW€‹ô\äJBà‹àŸ]
+[ö[YW€‹ô\äHOHŸ]
+\€€ôöYÀêSíSQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äëYHôZZ[ôõ€ŸH\à[ö[YKT]Y[[à\›[ôÔYÀàäBàYà
+àõ›[›öYW‹õ›öY\ú¬à‹à[ä[›öYW‹õ›öY\ú HOH[äŸ]
+[›öYW‹õ›öY\ú JBà‹àõ›Ÿ]
+[›öYW‹õ›öY\ú Kö\‹›XúŸ]
+\€€ôöYÀìS’íQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôHÔYŸHö[\]Y[H]\‹»Z›]àŸZ[ãàäBàYà
+àõ›Ÿ\öY\◊‹õ›öY\ú¬à‹à[äŸ\öY\◊‹õ›öY\ú HOH[äŸ]
+Ÿ\öY\◊‹õ›öY\ú JBà‹àõ›Ÿ]
+Ÿ\öY\◊‹õ›öY\ú Kö\‹›XúŸ]
+\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôHÔYŸHŸ\öY[ú]Y[H]\‹»Z›]àŸZ[ãàäBàYà
+à[ä[ö[YW‹õ›öY\ú HOH[äŸ]
+[ö[YW‹õ›öY\ú JBà‹àõ›Ÿ]
+[ö[YW‹õ›öY\ú Kö\‹›XúŸ]
+\€€ôöYÀêSíSQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äëYH]\›ÿZ\à[ö[YKT]Y[[à\›[ôÔYÀàäBàYàõ›€€ù[ù€[ô›XYŸ\ŒÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôH[ö[‹‹òX⁄H]\‹»Z›]àŸZ[ãàäBàYà[ûJàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äHõ›[à€€ù[ù€[ô›XYŸ\¬àõ‹àõ›öY\à[à[›öYW‹õ›öY\ú»
+»Ÿ\öY\◊‹õ›öY\ú»
+»[ö[YW‹õ›öY\ú¬à
+NÇàòZ\ŸH^Ÿ\[€äêZ›]ôH]Y[[à[ô[ö[‹‹òX⁄[à\‹Ÿ[àöX⁄ù\ÿ[[Y[ãàäBàYàô[Yö[ó›\õ[ôõ›ô[Yö[óÿ\W⁄Ÿ^NÇàòZ\ŸH^Ÿ\[€äë∞Ôàô[Yö[àôZ\àTKTÿ⁄0Ô‹Ÿ[àäBàYàô[Yö[ó›\õÇà\Ÿ\ú»H]ÿZ]ù[ó⁄[ó›ôXY€€
+ô[Yö[ê€Y[ù
+ô[Yö[ó›\õô[Yö[óÿ\W⁄Ÿ^JKõ\››\Ÿ\ú BàYà\Ÿ\ú»\»õ€ôNÇàòZ\ŸH^Ÿ\[€äLãíô[Yö[à\›öX⁄\úôZX⁄ò\é»Z[ú›[[ôŸ[à›\ô[àöX⁄Ÿ\‹ZX⁄\ùàäBàYàô[Yö[ó›\Ÿ\ó⁄YÇàŸ[X›YHô^
+
+\Ÿ\àõ‹à\Ÿ\à[à\Ÿ\ú»Yà\Ÿ\ñ»öYóHOHô[Yö[ó›\Ÿ\ó⁄Y
+Kõ€ôJBàYàŸ[X›Y\»õ€ôNÇàòZ\ŸH^Ÿ\[€äë\àŸ]ÈHô[Yö[ãPô[ù]ô\à\›öX⁄ô\ô∞Ôÿò\ãàäBàô[Yö[ó›\Ÿ\ó€ò[YHHŸ[X›Y»õò[YHóBàYàõŸKù[Y‹ò[WŸ[òXõY[ôõ›
+õŸKù[Y‹ò[Wÿõ››⁄Ÿ[ãú›ö\
+
+H‹à›]Kù[Y‹ò[WÿŸôÀôŸ]
+òõ››⁄Ÿ[àãàäJNÇàòZ\ŸH^Ÿ\[€äë∞Ôà[Y‹ò[HôZ\àõ›U⁄Ÿ[ãàäBàõ‹àò[YKXô[[à
+
+[›öYW‹]ëö[[‹ôô\àäK
+Ÿ\öY\◊‹]îŸ\öY[õ‹ôô\àäJNÇà]ÿZ]ù[ó⁄[ó›ôXY€€
+‹ô\\ôW€YYXWŸ\ôX›‹ûKò[YKXô[
+BÇà⁄»H]ÿZ]ù[ó⁄[ó›ôXY€€
+à\€€ôöYÀúÿ]ôW⁄[ö]X[‹Ÿ]\à[›öYW‹]àŸ\öY\◊‹]àô[Yö[ó›\õàô[Yö[óÿ\W⁄Ÿ^Kàô[Yö[ó›\Ÿ\ó⁄Yàô[Yö[ó›\Ÿ\ó€ò[YKàõŸKùYóÿ\W⁄Ÿ^H‹à›]KùYóÿŸôÀôŸ]
+ò\W⁄Ÿ^HãàäKàõŸKù[Y‹ò[WŸ[òXõYàõŸKù[Y‹ò[Wÿõ››⁄Ÿ[à‹à›]Kù[Y‹ò[WÿŸôÀôŸ]
+òõ››⁄Ÿ[àãàäKàõŸKù[Y‹ò[Wÿ⁄]⁄YàõŸKò]]◊Ÿ›€õÿYàõŸKò⁄X⁄◊⁄[ù\ùò[€Z[ãàõŸKô›⁄[ô›◊‹›\ùàõŸKô›⁄[ô›◊Ÿ[ôàõŸKùZW€[ô›XYŸKà[›öYW€‹ô\ãàŸ\öY\◊€‹ô\ãà[›öYW‹õ›öY\úÀàŸ\öY\◊‹õ›öY\úÀà€€ù[ù€[ô›XYŸ\Àà[ö[YW€‹ô\ãà[ö[YW‹õ›öY\úÀàXÿ€›[ù›\Ÿ\ãàXÿ€›[ù⁄\⁄à
+BàYàõ›⁄ŒÇàòZ\ŸH^Ÿ\[€äLàëZ[ú›[[ôŸ[à€€õù[àöX⁄[ù\àÿ\€€ôöYÀò€€ôöY◊‹]
+
+_HŸ\‹ZX⁄\ùŸ\ô[ãàäBÇà›]Kúÿ]ôW‹]H\€€ôöYÀõÿY
+
+Bà›]KúŸ\öY\◊‹]H\€€ôöYÀõÿY‹Ÿ\öY\◊‹]
+
+Bà⁄]›]KùZW€[ô›XYŸW€ÿ⁄ŒÇà›]KùZW€[ô›XYŸHH\€€ôöYÀõÿY›ZW€[ô›XYŸJ
+Bà⁄]›]Kúõ›öY\ó‹ö[‹ö]W€ÿ⁄ŒÇà›]Kúõ›öY\ó‹ö[‹ö]Y\»H\€€ôöYÀõÿY‹õ›öY\ó‹ö[‹ö]Y\ 
+Bà›]Kúõ›öY\óŸ[òXõYH\€€ôöYÀõÿY‹õ›öY\óŸ[òXõY
+
+Bà›]Kò€€ù[ù€[ô›XYŸ\»HŸ]
+\€€ôöYÀõÿYÿ€€ù[ù€[ô›XYŸ\ 
+JBà‹Ÿ]‹ù[ù[YW⁄ô[Yö[óÿ€€ôöY \€€ôöYÀõÿY⁄ô[Yö[ä
+JBà›]KùYóÿŸô»H\€€ôöYÀõÿY›Yä
+Bà›]KùYóÿ€Y[ùHQê€Y[ù
+
+äú›]KùYóÿŸô Bà›]Kù[Y‹ò[WÿŸô»H\€€ôöYÀõÿY›[Y‹ò[J
+Bà›]Kò]]€X][€àH\€€ôöYÀõÿYÿ]]€X][€ä
+Bà›\ùÿòX⁄Ÿ‹õ›[ô‹Ÿ\ùöXŸ\ 
+Bà^[ÿYH¬àúÿ]ôYéàùYKàúô\]Z\ôYéàò[ŸKàò€€ôöY◊‹]éà›ä\€€ôöYÀò€€ôöY◊‹]
+
+JKàúÿ]ôW‹]éà›]Kúÿ]ôW‹]àúŸ\öY\◊‹]éà›]KúŸ\öY\◊‹]àùZW€[ô›XYŸHéà›]KùZW€[ô›XYŸKàò]]ÿ€€ôöY›\ôYéà]]ÿ€€ôöY›\ôY
+
+KàBàYàõ›Xÿ€›[ù⁄\⁄Çàô]\õà^[ÿYà»Xàô]ù‹ôZYùYH[õY[\õX⁄à\àúõ›‹Ÿ\ã\àŸ\òYHYBà»Z[úöX⁄[ô»XôŸ\ÿ⁄‹‹Ÿ[à]ôZ€€[]\ôZ›Z[ôH⁄]ù[ô»8†$»€€ú›à»›0ÔôH\àù]ô\à[õZ][ò\àòX⁄[HXúÿ⁄\‹»õ‹à\à[õY[[X\⁄ŸKÇàô\‹€úŸHHî””îô\‹€úŸJ^[ÿY
+Bà‹Ÿ]‹Ÿ\‹⁄[€óÿ€€⁄⁄YJàô\‹€úŸKàô\]Y\›à—T‘“S”ó‘’‘ëKò‹ôX]JàXô[\ô\]Y\›öXY\úÀôŸ]
+ù\Ÿ\ãXYŸ[ùãàäVŒåLåKà⁄[ôX\]]î—T‘“S”ó““Së’—Pãà
+Kà
+Bàô]\õàô\‹€úŸBÇÇò€\‹»RS[ô›XYŸPõŸJò\ŸS[Ÿ[
+NÇà[ô›XYŸNà›àHôHÇÇÇò€\‹»RUò[ú€][€êõŸJò\ŸS[Ÿ[
+NÇà\ôŸ]€[ô›XYŸNà›Çà^Œà\›‹›óBÇÇôYà›ZW€[ô›XYŸW‹^[ÿY
+ÿ]ôYàõ€€Hò[ŸJHOàX›Çà⁄]›]KùZW€[ô›XYŸW€ÿ⁄ŒÇà[ô›XYŸHH›]KùZW€[ô›XYŸBàô]\õà¬àõ[ô›XYŸHéà[ô›XYŸKàò€€ôöY›\ôYéà\€€ôöYÀùZW€[ô›XYŸWÿ€€ôöY›\ôY
+
+Kàõ[ô›XYŸ\»éà’T‘ïQ’RW”Së’PQ—TÀàùò[ú€]‹àéà¬àòúõ›‹Ÿ\ó‹ôYô\úôYéàùYKàôò[òX⁄◊Ÿ[ô⁄[ôHéàRW’êSî”U‘ãô[ô⁄[ôKàKàúÿ]ôYéàÿ]ôYàBÇÇê\ôŸ]
+ãÿ\K›åK›ZKÿ€€ôöY»äBê\ôŸ]
+ãÿ\K›ZKÿ€€ôöY»äBò\ﬁ[ò»Yà\W›ZWÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà›ZW€[ô›XYŸW‹^[ÿY
+
+BÇÇê\ú‹›
+ãÿ\K›åK›ZKÿ€€ôöY»äBê\ú‹›
+ãÿ\K›ZKÿ€€ôöY»äBò\ﬁ[ò»Yà\W›ZWÿ€€ôöY◊‹Ÿ]
+õŸNàRS[ô›XYŸPõŸJNÇà[ô›XYŸHHõ‹õX[^ôW›ZW€[ô›XYŸJõŸKõ[ô›XYŸJBàYàõ›\€€ôöYÀúÿ]ôW›ZW€[ô›XYŸJ[ô›XYŸJNÇàòZ\ŸH^Ÿ\[€äLëYH‹òX⁄H€€õùHöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà⁄]›]KùZW€[ô›XYŸW€ÿ⁄ŒÇà›]KùZW€[ô›XYŸHH[ô›XYŸBàYó€[ô›XYŸHH\€€ôöYÀùYó€[ô›XYŸWŸõ‹ó›ZJ[ô›XYŸJBà›]KùYóÿŸô»H¬à
+äú›]KùYóÿŸôÀàõ[ô›XYŸHéàYó€[ô›XYŸKàBà›]KùYóÿ€Y[ùHQê€Y[ù
+
+äú›]KùYóÿŸô Bà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà›]Kõ[›öYW‹€›\òŸWÿÿX⁄Kò€X\ä
+Bàõ‹à€Y»[à¬àÿX⁄Y‹€Y»õ‹àÿX⁄Y‹€Y»[à›]Kôú€[›öY\¬àYàÿX⁄Y‹€YÀú›\ù›⁄]
+ùYéàäBàNÇà›]Kôú€[›öY\Àú‹
+€YÀõ€ôJBàô]\õà›ZW€[ô›XYŸW‹^[ÿY
+ÿ]ôYUùYJBÇÇê\ú‹›
+ãÿ\K›ZK›ò[ú€]HäBò\ﬁ[ò»Yà\W›ZW›ò[ú€]JõŸNàRUò[ú€][€êõŸJNÇà\ôŸ]Hõ‹õX[^ôW›ZW€[ô›XYŸJõŸKù\ôŸ]€[ô›XYŸJBà^»H‹›äò[YH‹ààäHõ‹àò[YH[àõŸKù^◊Bàô\]Y\›YH›äõŸKù\ôŸ]€[ô›XYŸH‹ààäKú›ö\
+
+Kúô\XŸJó»ããHäKòÿ\ŸYõ€
+
+BàYà\ôŸ]OHô\]Y\›Yú‹]
+ãHãJVÃNÇàòZ\ŸH^Ÿ\[€äìöX⁄[ù\ú›0ÔùHöY[‹òX⁄KàäBàYà[ä^ HàLåÇàòZ\ŸH^Ÿ\[€äîõ»[ôúòYŸH⁄[ô0Ìò⁄›[ú»Lå^H\õ]XùàäBàYà[ûJ[ä^
+Hàåõ‹à^[à^ H‹à›[JX\
+[ã^ JHàÃÃÇàòZ\ŸH^Ÿ\[€äëYH0Áô\úŸ]ù[ô‹ÿ[ôúòYŸH\›ùH‹õÁÀàäBàò[ú€]YH]ÿZ]ù[ó⁄[ó›ôXY€€
+àRW’êSî”U‘ãùò[ú€]W€X[ûKà^Àà\ôŸ]à
+Bàô]\õà¬àú€›\òŸW€[ô›XYŸHéàôHãàù\ôŸ]€[ô›XYŸHéà\ôŸ]àùò[ú€][€ú»éàò[ú€]Yàô[ô⁄[ôHéàRW’êSî”U‘ãô[ô⁄[ôKàBÇÇò€\‹»€€ôöY–õŸJò\ŸS[Ÿ[
+NÇàÿ]ôW‹]à›ÇàŸ\öY\◊‹]à‹[€ò[‹›óHHõ€ôBÇÇê\ôŸ]
+ãÿ\K›åKÿ€€ôöY»äBê\ôŸ]
+ãÿ\Kÿ€€ôöY»äBò\ﬁ[ò»Yà\Wÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà»úÿ]ôW‹]éà›]Kúÿ]ôW‹]úŸ\öY\◊‹]éà›]KúŸ\öY\◊‹]BÇÇê\ú‹›
+ãÿ\K›åKÿ€€ôöY»äBê\ú‹›
+ãÿ\Kÿ€€ôöY»äBò\ﬁ[ò»Yà\Wÿ€€ôöY◊‹Ÿ]
+õŸNà€€ôöY–õŸJNÇà[›öYW‹]HõŸKúÿ]ôW‹]ú›ö\
+
+BàŸ\öY\»H
+õŸKúŸ\öY\◊‹]‹ààäKú›ö\
+
+H‹à[›öYW‹]àYàõ›[›öYW‹]ÇàòZ\ŸH^Ÿ\[€äëZ[à‹ZX⁄\õ‹ôô\à∞Ôàö[YHôZàäBà]ÿZ]ù[ó⁄[ó›ôXY€€
+‹ô\\ôW€YYXWŸ\ôX›‹ûK[›öYW‹]ëö[[‹ôô\àäBà]ÿZ]ù[ó⁄[ó›ôXY€€
+‹ô\\ôW€YYXWŸ\ôX›‹ûKŸ\öY\ÀîŸ\öY[õ‹ôô\àäBà⁄»H\€€ôöYÀúÿ]ôJ[›öYW‹]
+Bà»Ÿ\öY[ãTòY‹[€ò[àY\ã”õ€ôHOà€ZX⁄\à‹ôô\à⁄YHö[YH
+ò[òX⁄ KÇà⁄◊‹Ÿ\öY\»H\€€ôöYÀúÿ]ôW‹Ÿ\öY\◊‹]
+Ÿ\öY\ BàYàõ›
+⁄»[ô⁄◊‹Ÿ\öY\ NÇàòZ\ŸH^Ÿ\[€äLî‹ZX⁄\õ‹ùH€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà›]Kúÿ]ôW‹]H[›öYW‹]à›]KúŸ\öY\◊‹]H\€€ôöYÀõÿY‹Ÿ\öY\◊‹]
+
+Bàô]\õà»úÿ]ôW‹]éà›]Kúÿ]ôW‹]úŸ\öY\◊‹]éà›]KúŸ\öY\◊‹]úÿ]ôYéàùY_BÇÇò€\‹»õ›öY\îö[‹ö]PõŸJò\ŸS[Ÿ[
+NÇà[›öY\Œà\›‹›óBàŸ\öY\Œà\›‹›óBà[ö[YNà‹[€ò[”\›‹›óWHHõ€ôBà[òXõY€[›öY\Œà‹[€ò[”\›‹›óWHHõ€ôBà[òXõY‹Ÿ\öY\Œà‹[€ò[”\›‹›óWHHõ€ôBà[òXõYÿ[ö[YNà‹[€ò[”\›‹›óWHHõ€ôBà€€ù[ù€[ô›XYŸ\Œà‹[€ò[”\›‹›óWHHõ€ôBÇÇôYà‹õ›öY\ó‹ö[‹ö]W‹^[ÿY
+ÿ]ôYàõ€€Hò[ŸJHOàX›Çà[›öYW€‹ô\àHõ›öY\ó€‹ô\äõ[›öY\»äBàŸ\öY\◊€‹ô\àHõ›öY\ó€‹ô\äúŸ\öY\»äBà[ö[YW€‹ô\àHõ›öY\ó€‹ô\äò[ö[YHäBà⁄]›]Kúõ›öY\ó‹ö[‹ö]W€ÿ⁄ŒÇà[òXõY€[›öYW⁄Y»HŸ]
+›]Kúõ›öY\óŸ[òXõYôŸ]
+àõ[›öY\»ã\€€ôöYÀìS’íQW‘ì’íQTó—QêUSÀà
+JBà[òXõY‹Ÿ\öY\◊⁄Y»HŸ]
+›]Kúõ›öY\óŸ[òXõYôŸ]
+àúŸ\öY\»ã\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUSÀà
+JBà[òXõYÿ[ö[YW⁄Y»HŸ]
+›]Kúõ›öY\óŸ[òXõYôŸ]
+àò[ö[YHã\€€ôöYÀêSíSQW‘ì’íQTó—QêUSÀà
+JBà€€ù[ù€[ô›XYŸ\»HŸ]
+›]Kò€€ù[ù€[ô›XYŸ\ Bàô]\õà¬àõ[›öY\»éà[›öYW€‹ô\ãàúŸ\öY\»éàŸ\öY\◊€‹ô\ãàò[ö[YHéà[ö[YW€‹ô\ãàô[òXõY€[›öY\»éà¬àõ›öY\àõ‹àõ›öY\à[à[›öYW€‹ô\àYàõ›öY\à[à[òXõY€[›öYW⁄Y¬àKàô[òXõY‹Ÿ\öY\»éà¬àõ›öY\àõ‹àõ›öY\à[àŸ\öY\◊€‹ô\àYàõ›öY\à[à[òXõY‹Ÿ\öY\◊⁄Y¬àKàô[òXõYÿ[ö[YHéà¬àõ›öY\àõ‹àõ›öY\à[à[ö[YW€‹ô\àYàõ›öY\à[à[òXõYÿ[ö[YW⁄Y¬àKàõXô[»éàì’íQTó”PëSÀàòÿ][Ÿ»éàõ›öY\óÿÿ][Ÿ◊‹^[ÿY
+
+Kàò€€ù[ù€[ô›XYŸ\»éà¬à[ô›XYŸBàõ‹à[ô›XYŸH[à\€€ôöYÀê””ïSï”Së’PQ—W—QêUS¬àYà[ô›XYŸH[à€€ù[ù€[ô›XYŸ\¬àKàõ[ô›XYŸ\»éàõ›öY\ó€[ô›XYŸW‹^[ÿY
+
+Kàúÿ]ôYéàÿ]ôYàBÇÇê\ôŸ]
+ãÿ\K›åK‹õ›öY\úÀ‹›]\»äBê\ôŸ]
+ãÿ\K‹õ›öY\úÀ‹›]\»äBò\ﬁ[ò»Yà\W‹õ›öY\ó‹›]\◊ŸŸ]
+
+NÇàô]\õà»úõ›öY\ú»éà»úŸ\öY[ú›ôX[HéàŸ\öY[ú›ôX[W‹õ›öY\ó‹›]\ 
+__BÇÇê\ú‹›
+ãÿ\K›åK‹õ›öY\úÀ‹Ÿ\öY[ú›ôX[K‹ô]ûHäBê\ú‹›
+ãÿ\K‹õ›öY\úÀ‹Ÿ\öY[ú›ôX[K‹ô]ûHäBò\ﬁ[ò»Yà\W‹Ÿ\öY[ú›ôX[W‹ô]ûJ
+NÇàYàõ››]Kúõ›öY\ó⁄X[òôY⁄[ó‹õÿôJúŸ\öY[ú›ôX[Hãõ‹òŸOUùYJNÇàòZ\ŸH^Ÿ\[€äKëZ[ôHŸ\öY[î›ôX[KTõÿôH0ÈYùô\ôZ]ÀàäBà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà][HHô^
+]\ä›]Kúõ›öY\ó›ÿZ][ô◊⁄õÿúÀùò[Y\ 
+JKõ€ôJBàôXY[ôÀïôXY
+à\ôŸ]WŸ^X›]W‹õ›öY\ó‹õÿôKà\ô‹œJ][K
+Kàò[YOHúŸ\öY[ú›ôX[K[X[ùX[\õÿôHãàY[[€èUùYKà
+Kú›\ù
+
+Bà›]Kúõ›öY\ó‹ô]ûW›ÿZŸWŸ]ô[ùúŸ]
+
+Bàô]\õà¬àú›\ùYéàùYKàúõ›öY\àéàŸ\öY[ú›ôX[W‹õ›öY\ó‹›]\ 
+KàBÇÇê\ôŸ]
+ãÿ\K›åK‹õ›öY\úÀÿ€€ôöY»äBê\ôŸ]
+ãÿ\K‹õ›öY\úÀÿ€€ôöY»äBò\ﬁ[ò»Yà\W‹õ›öY\ó‹ö[‹ö]WŸŸ]
+
+NÇàô]\õà‹õ›öY\ó‹ö[‹ö]W‹^[ÿY
+
+BÇÇê\ú‹›
+ãÿ\K›åK‹õ›öY\úÀÿ€€ôöY»äBê\ú‹›
+ãÿ\K‹õ›öY\úÀÿ€€ôöY»äBò\ﬁ[ò»Yà\W‹õ›öY\ó‹ö[‹ö]W‹Ÿ]
+õŸNàõ›öY\îö[‹ö]PõŸJNÇà[›öYW⁄Y»H‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKõ[›öY\◊BàŸ\öY\◊⁄Y»H‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKúŸ\öY\◊Bà[ö[YW⁄Y»H
+à‹›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Hõ‹àò[YH[àõŸKò[ö[YWBàYàõŸKò[ö[YH\»õ›õ€ôBà[ŸHõ›öY\ó€‹ô\äò[ö[YHäBà
+BàYà[ä[›öYW⁄Y HOH[äŸ]
+[›öYW⁄Y JH‹àŸ]
+[›öYW⁄Y HOHŸ]
+\€€ôöYÀìS’íQW‘ì’íQTó—QêUS NÇàòZ\ŸH^Ÿ\[€äëYHö[KP[òöY]\õ\›H\›[ùõ€›0ÈôY»Ÿ\à[ôÔYÀàäBàYà[äŸ\öY\◊⁄Y HOH[äŸ]
+Ÿ\öY\◊⁄Y JH‹àŸ]
+Ÿ\öY\◊⁄Y HOHŸ]
+\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUS NÇàòZ\ŸH^Ÿ\[€äëYHŸ\öY[ãP[òöY]\õ\›H\›[ùõ€›0ÈôY»Ÿ\à[ôÔYÀàäBàYà[ä[ö[YW⁄Y HOH[äŸ]
+[ö[YW⁄Y JH‹àŸ]
+[ö[YW⁄Y HOHŸ]
+\€€ôöYÀêSíSQW‘ì’íQTó—QêUS NÇàòZ\ŸH^Ÿ\[€äëYH[ö[YKP[òöY]\õ\›H\›[ùõ€›0ÈôY»Ÿ\à[ôÔYÀàäBà›\úô[ùŸ[òXõYH\€€ôöYÀõÿY‹õ›öY\óŸ[òXõY
+
+Bà[òXõY€[›öY\»H¬à›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Bàõ‹àò[YH[à
+àõŸKô[òXõY€[›öY\¬àYàõŸKô[òXõY€[›öY\»\»õ›õ€ôBà[ŸH›\úô[ùŸ[òXõY»õ[›öY\»óBà
+BàBà[òXõY‹Ÿ\öY\»H¬à›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Bàõ‹àò[YH[à
+àõŸKô[òXõY‹Ÿ\öY\¬àYàõŸKô[òXõY‹Ÿ\öY\»\»õ›õ€ôBà[ŸH›\úô[ùŸ[òXõY»úŸ\öY\»óBà
+BàBà[òXõYÿ[ö[YHH¬à›äò[YJKú›ö\
+
+Kòÿ\ŸYõ€
+
+Bàõ‹àò[YH[à
+àõŸKô[òXõYÿ[ö[YBàYàõŸKô[òXõYÿ[ö[YH\»õ›õ€ôBà[ŸH›\úô[ùŸ[òXõY»ò[ö[YHóBà
+BàBà€€ù[ù€[ô›XYŸ\»H
+à\€€ôöYÀõõ‹õX[^ôWÿ€€ù[ù€[ô›XYŸ\ õŸKò€€ù[ù€[ô›XYŸ\ BàYàõŸKò€€ù[ù€[ô›XYŸ\»\»õ›õ€ôBà[ŸH\€€ôöYÀõÿYÿ€€ù[ù€[ô›XYŸ\ 
+Bà
+BàYà
+àõ›[òXõY€[›öY\¬à‹à[ä[òXõY€[›öY\ HOH[äŸ]
+[òXõY€[›öY\ JBà‹àõ›Ÿ]
+[òXõY€[›öY\ Kö\‹›XúŸ]
+\€€ôöYÀìS’íQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôHÔYŸHö[\]Y[H]\‹»Z›]àŸZ[ãàäBàYà
+àõ›[òXõY‹Ÿ\öY\¬à‹à[ä[òXõY‹Ÿ\öY\ HOH[äŸ]
+[òXõY‹Ÿ\öY\ JBà‹àõ›Ÿ]
+[òXõY‹Ÿ\öY\ Kö\‹›XúŸ]
+\€€ôöYÀî—TíQT◊‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôHÔYŸHŸ\öY[ú]Y[H]\‹»Z›]àŸZ[ãàäBàYà
+à[ä[òXõYÿ[ö[YJHOH[äŸ]
+[òXõYÿ[ö[YJJBà‹àõ›Ÿ]
+[òXõYÿ[ö[YJKö\‹›XúŸ]
+\€€ôöYÀêSíSQW‘ì’íQTó—QêUS Bà
+NÇàòZ\ŸH^Ÿ\[€äëYH]\›ÿZ\à[ö[YKT]Y[[à\›[ôÔYÀàäBàYàõ›€€ù[ù€[ô›XYŸ\ŒÇàòZ\ŸH^Ÿ\[€äìZ[ô\›[ú»Z[ôH[ö[‹‹òX⁄H]\‹»Z›]àŸZ[ãàäBàYà[ûJàõ›öY\óÿ€€ù[ù€[ô›XYŸJõ›öY\äHõ›[à€€ù[ù€[ô›XYŸ\¬àõ‹àõ›öY\à[à[òXõY€[›öY\»
+»[òXõY‹Ÿ\öY\»
+»[òXõYÿ[ö[YBà
+NÇàòZ\ŸH^Ÿ\[€äêZ›]ôH]Y[[à[ô[ö[‹‹òX⁄[à\‹Ÿ[àöX⁄ù\ÿ[[Y[ãàäBàYàõ›\€€ôöYÀúÿ]ôW‹õ›öY\ó‹ö[‹ö]Y\ à[›öYW⁄YÀàŸ\öY\◊⁄YÀà[òXõY€[›öY\Àà[òXõY‹Ÿ\öY\Àà€€ù[ù€[ô›XYŸ\œX€€ù[ù€[ô›XYŸ\Àà[ö[YOX[ö[YW⁄YÀà[òXõYÿ[ö[YOY[òXõYÿ[ö[YKà
+NÇàòZ\ŸH^Ÿ\[€äLê[òöY]\ãTö[‹ö]0È[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà⁄]›]Kúõ›öY\ó‹ö[‹ö]W€ÿ⁄ŒÇà›]Kúõ›öY\ó‹ö[‹ö]Y\»H\€€ôöYÀõÿY‹õ›öY\ó‹ö[‹ö]Y\ 
+Bà›]Kúõ›öY\óŸ[òXõYH\€€ôöYÀõÿY‹õ›öY\óŸ[òXõY
+
+Bà›]Kò€€ù[ù€[ô›XYŸ\»HŸ]
+\€€ôöYÀõÿYÿ€€ù[ù€[ô›XYŸ\ 
+JBà⁄]›]Kõ[›öYW€\›ÿÿX⁄W€ÿ⁄ŒÇà›]Kõ[›öYW€\›ÿÿX⁄Kò€X\ä
+Bà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà›]Kõ[›öYW‹€›\òŸWÿÿX⁄Kò€X\ä
+Bàõ‹à€Y»[à¬àÿX⁄Y‹€Y»õ‹àÿX⁄Y‹€Y»[à›]Kôú€[›öY\¬àYàÿX⁄Y‹€YÀú›\ù›⁄]
+ùYéàäBàNÇà›]Kôú€[›öY\Àú‹
+€YÀõ€ôJBà⁄]›]KúŸ\öY\◊€\›ÿÿX⁄W€ÿ⁄ŒÇà›]KúŸ\öY\◊€\›ÿÿX⁄Kò€X\ä
+Bà›]Kôò[òX⁄◊‹Ÿ\öY\◊ÿÿX⁄Kò€X\ä
+Bàô]\õà‹õ›öY\ó‹ö[‹ö]W‹^[ÿY
+ÿ]ôYUùYJBÇÇò€\‹»ô[Yö[ê€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà\õà›Çà\W⁄Ÿ^Nà›Çà\Ÿ\ó⁄Yà›àHàÇà\Ÿ\ó€ò[YNà›àHàÇà€X[ù\ŸYò][à‹[€ò[‹›óHHõ€ôBÇÇê\ôŸ]
+ãÿ\K›åK⁄ô[Yö[ãÿ€€ôöY»äBê\ôŸ]
+ãÿ\K⁄ô[Yö[ãÿ€€ôöY»äBò\ﬁ[ò»Yà\W⁄ô[Yö[óÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà¬àù\õéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäKàò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+›]Köô[Yö[óÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàù\Ÿ\ó⁄Yéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YãàäKàù\Ÿ\ó€ò[YHéà›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó€ò[YHãàäKàò€X[ù\ŸYò][éàõ‹õX[^ôWÿ€X[ù\€[ŸJà›]Köô[Yö[óÿŸôÀôŸ]
+ò€X[ù\ŸYò][äBà
+KàBÇÇê\ú‹›
+ãÿ\K›åK⁄ô[Yö[ãÿ€€ôöY»äBê\ú‹›
+ãÿ\K⁄ô[Yö[ãÿ€€ôöY»äBò\ﬁ[ò»Yà\W⁄ô[Yö[óÿ€€ôöY◊‹Ÿ]
+õŸNàô[Yö[ê€€ôöY–õŸJNÇà\õHõŸKù\õú›ö\
+
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàô]ö[›\»HX›
+›]Köô[Yö[óÿŸô Bàÿ[YW‹Ÿ\ùô\àHõ€€
+\õ
+H[ô\õúú›ö\
+ã»äHOHô]ö[›\ÀôŸ]
+ù\õãàäKúú›ö\
+ã»äBà\W⁄Ÿ^HHõŸKò\W⁄Ÿ^Kú›ö\
+
+H‹à
+ô]ö[›\ÀôŸ]
+ò\W⁄Ÿ^HãàäHYàÿ[YW‹Ÿ\ùô\à[ŸHàäBà\Ÿ\ó⁄YHõŸKù\Ÿ\ó⁄Yú›ö\
+
+Bà\Ÿ\ó€ò[YHHõŸKù\Ÿ\ó€ò[YKú›ö\
+
+BàYàõŸKò€X[ù\ŸYò][\»õ›õ€ôH[ôõŸKò€X[ù\ŸYò][õ›[à”PSïT”S—W”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùH›[ô\ôS0Ìúÿ⁄ôYŸ[àäBà€X[ù\ŸYò][Hõ‹õX[^ôWÿ€X[ù\€[ŸJàõŸKò€X[ù\ŸYò][àYàõŸKò€X[ù\ŸYò][\»õ›õ€ôBà[ŸHô]ö[›\ÀôŸ]
+ò€X[ù\ŸYò][äBà
+BàYà\õ[ôõ›\W⁄Ÿ^NÇàòZ\ŸH^Ÿ\[€äë∞Ôàô[Yö[àôZ\àTKTÿ⁄0Ô‹Ÿ[àäBàYà\õ[ô\W⁄Ÿ^NÇà\Ÿ\ú»H]ÿZ]ù[ó⁄[ó›ôXY€€
+ô[Yö[ê€Y[ù
+\õ\W⁄Ÿ^JKõ\››\Ÿ\ú BàYà\Ÿ\ú»\»õ€ôNÇàòZ\ŸH^Ÿ\[€äLãíô[Yö[à\›öX⁄\úôZX⁄ò\é»Z[ú›[[ôŸ[à›\ô[àöX⁄ŸpÈô\ùàäBàYà\Ÿ\ó⁄YÇàŸ[X›YHô^
+
+\Ÿ\àõ‹à\Ÿ\à[à\Ÿ\ú»Yà\Ÿ\ñ»öYóHOH\Ÿ\ó⁄Y
+Kõ€ôJBàYàŸ[X›Y\»õ€ôNÇàòZ\ŸH^Ÿ\[€äë\àŸ]ÈHô[Yö[ãPô[ù]ô\à\›öX⁄ô\ô∞Ôÿò\ãàäBà\Ÿ\ó€ò[YHHŸ[X›Y»õò[YHóBà⁄]›]Köô[Yö[óÿ€€ôöY◊›\]W€ÿ⁄ŒÇà⁄»H\€€ôöYÀúÿ]ôW⁄ô[Yö[äà\õ\W⁄Ÿ^K\Ÿ\ó⁄Y\Ÿ\ó€ò[YK€X[ù\ŸYò][à
+BàYàõ›⁄ŒÇàòZ\ŸH^Ÿ\[€äLíô[Yö[ãQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà‹Ÿ]‹ù[ù[YW⁄ô[Yö[óÿ€€ôöY ¬àù\õéà\õàò\W⁄Ÿ^Héà\W⁄Ÿ^Kàù\Ÿ\ó⁄Yéà\Ÿ\ó⁄Yàù\Ÿ\ó€ò[YHéà\Ÿ\ó€ò[YKàò€X[ù\ŸYò][éà€X[ù\ŸYò][àJBà‹ôX€€[Y[ô\ó›ÿZŸWŸ]ô[ùúŸ]
+
+BÇàYà‹ôX⁄X⁄ 
+NÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùöY\»H\›
+›]Kùÿ]⁄\›
+Bà⁄X⁄◊›ÿ]⁄\›Ÿ[ùöY\ [ùöY\ÀôYúô\⁄⁄ô[Yö[èUùYJBàúõÿYÿ\›
+»ù\Héàöô[Yö[ó›\]Hã
+äùÿ]⁄\›‹^[ÿY
+
+_JBàÿ]]◊Ÿ›€õÿY€ô]◊Ÿ\\€Ÿ\ 
+BÇàôXY[ôÀïôXY
+\ôŸ]W‹ôX⁄X⁄ÀY[[€èUùYJKú›\ù
+
+Bàô]\õà¬àù\õéà\õàò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+\W⁄Ÿ^JKàù\Ÿ\ó⁄Yéà\Ÿ\ó⁄Yàù\Ÿ\ó€ò[YHéà\Ÿ\ó€ò[YKàò€X[ù\ŸYò][éà€X[ù\ŸYò][àúÿ]ôYéàùYKàBÇÇò€\‹»ô[Yö[ï\Ÿ\ú–õŸJò\ŸS[Ÿ[
+NÇà\õà›Çà\W⁄Ÿ^Nà›ÇÇÇê\ú‹›
+ãÿ\K›åK⁄ô[Yö[ã›\Ÿ\ú»äBê\ú‹›
+ãÿ\K⁄ô[Yö[ã›\Ÿ\ú»äBò\ﬁ[ò»Yà\W⁄ô[Yö[ó›\Ÿ\ú õŸNàô[Yö[ï\Ÿ\ú–õŸJNÇà\õHõŸKù\õú›ö\
+
+H‹à›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäBàŸ^HHõŸKò\W⁄Ÿ^Kú›ö\
+
+BàYàõ›Ÿ^H[ô\õúú›ö\
+ã»äHOH›]Köô[Yö[óÿŸôÀôŸ]
+ù\õãàäKúú›ö\
+ã»äNÇàŸ^HH›]Köô[Yö[óÿŸôÀôŸ]
+ò\W⁄Ÿ^HãàäBà€Y[ùHô[Yö[ê€Y[ù
+\õŸ^JBàYàõ›€Y[ùò€€ôöY›\ôYÇàòZ\ŸH^Ÿ\[€äíô[Yö[ãPYô\‹ŸHŸ\àTKTÿ⁄0Ô‹Ÿ[ôZàäBà\Ÿ\ú»H]ÿZ]ù[ó⁄[ó›ôXY€€
+€Y[ùõ\››\Ÿ\ú BàYà\Ÿ\ú»\»õ€ôNÇàòZ\ŸH^Ÿ\[€äLãíô[Yö[ãPô[ù]ô\à€€õù[àöX⁄Ÿ[Y[àŸ\ô[ãàäBàô]\õà»ù\Ÿ\ú»éà\Ÿ\úﬂBÇÇò€\‹»Qê€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà\W⁄Ÿ^Nà›àHàÇà[ô›XYŸNà›àHôKQHÇÇÇê\ôŸ]
+ãÿ\K›åK›Yãÿ€€ôöY»äBê\ôŸ]
+ãÿ\K›Yãÿ€€ôöY»äBò\ﬁ[ò»Yà\W›Yóÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà¬àò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+›]KùYóÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàõ[ô›XYŸHéà›]KùYóÿŸôÀôŸ]
+õ[ô›XYŸHãôKQHäKàò€€ôöY›\ôYéàõ€€
+›]KùYóÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàBÇÇê\ú‹›
+ãÿ\K›åK›Yãÿ€€ôöY»äBê\ú‹›
+ãÿ\K›Yãÿ€€ôöY»äBò\ﬁ[ò»Yà\W›Yóÿ€€ôöY◊‹Ÿ]
+õŸNàQê€€ôöY–õŸJNÇà[ô›XYŸHH\€€ôöYÀùYó€[ô›XYŸWŸõ‹ó›ZJ›]KùZW€[ô›XYŸJBà\W⁄Ÿ^HHõŸKò\W⁄Ÿ^Kú›ö\
+
+H‹à›]KùYóÿŸôÀôŸ]
+ò\W⁄Ÿ^HãàäBà⁄»H\€€ôöYÀúÿ]ôW›Yä\W⁄Ÿ^K[ô›XYŸJBàYàõ›⁄ŒÇàòZ\ŸH^Ÿ\[€äLïQãQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà›]KùYóÿŸô»H\€€ôöYÀõÿY›Yä
+Bà›]KùYóÿ€Y[ùHQê€Y[ù
+
+äú›]KùYóÿŸô Bà⁄]›]Kõ[›öYW‹€›\òŸWÿÿX⁄W€ÿ⁄ŒÇà›]Kõ[›öYW‹€›\òŸWÿÿX⁄Kò€X\ä
+Bàõ‹à€Y»[à¬àÿX⁄Y‹€Y»õ‹àÿX⁄Y‹€Y»[à›]Kôú€[›öY\¬àYàÿX⁄Y‹€YÀú›\ù›⁄]
+ùYéàäBàNÇà›]Kôú€[›öY\Àú‹
+€YÀõ€ôJBàò[YH]ÿZ]ù[ó⁄[ó›ôXY€€
+›]KùYóÿ€Y[ùùò[Y]JHYà\W⁄Ÿ^H[ŸHò[ŸBàô]\õà¬àò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+\W⁄Ÿ^JKàõ[ô›XYŸHéà[ô›XYŸKàò€€ôöY›\ôYéàõ€€
+\W⁄Ÿ^JKàùò[Yéàò[Yàúÿ]ôYéàùYKàBÇÇò€\‹»]]€X][€ê€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà]]◊Ÿ›€õÿYàõ€€Hò[ŸBà⁄X⁄◊⁄[ù\ùò[€Z[éà[ùHÃà›⁄[ô›◊‹›\ùà‹[€ò[⁄[ùHHõ€ôBà›⁄[ô›◊Ÿ[ôà‹[€ò[⁄[ùHHõ€ôBÇÇê\ôŸ]
+ãÿ\K›åKÿ]]€X][€ãÿ€€ôöY»äBê\ôŸ]
+ãÿ\Kÿ]]€X][€ãÿ€€ôöY»äBò\ﬁ[ò»Yà\Wÿ]]€X][€óÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà äú›]Kò]]€X][€ãö[ó›⁄[ô›»éà\◊›⁄][óŸ›€õÿY›⁄[ô› 
+_BÇÇê\ú‹›
+ãÿ\K›åKÿ]]€X][€ãÿ€€ôöY»äBê\ú‹›
+ãÿ\Kÿ]]€X][€ãÿ€€ôöY»äBò\ﬁ[ò»Yà\Wÿ]]€X][€óÿ€€ôöY◊‹Ÿ]
+õŸNà]]€X][€ê€€ôöY–õŸJNÇà⁄»H\€€ôöYÀúÿ]ôWÿ]]€X][€äàõŸKò]]◊Ÿ›€õÿYõŸKò⁄X⁄◊⁄[ù\ùò[€Z[ãàõŸKô›⁄[ô›◊‹›\ùõŸKô›⁄[ô›◊Ÿ[ôà
+BàYàõ›⁄ŒÇàòZ\ŸH^Ÿ\[€äLê]]€X]ZÀQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà›]Kò]]€X][€àH\€€ôöYÀõÿYÿ]]€X][€ä
+BàYà›]Kò]]€X][€ãôŸ]
+ò]]◊Ÿ›€õÿYäNÇàôXY[ôÀïôXY
+\ôŸ]Wÿ]]◊Ÿ›€õÿY€ô]◊Ÿ\\€Ÿ\ÀY[[€èUùYJKú›\ù
+
+BàôXY[ôÀïôXY
+\ôŸ]X⁄X⁄◊€[›öYW‹›Xúÿ‹ö\[€úÀY[[€èUùYJKú›\ù
+
+Bàô]\õà äú›]Kò]]€X][€ãö[ó›⁄[ô›»éà\◊›⁄][óŸ›€õÿY›⁄[ô› 
+Kúÿ]ôYéàùY_BÇÇò€\‹»[Y‹ò[P€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà[òXõYàõ€€Hò[ŸBàõ››⁄Ÿ[éà›àHàÇà⁄]⁄Yà›àHàÇÇÇê\ôŸ]
+ãÿ\K›åK›[Y‹ò[Kÿ€€ôöY»äBê\ôŸ]
+ãÿ\K›[Y‹ò[Kÿ€€ôöY»äBò\ﬁ[ò»Yà\W›[Y‹ò[Wÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà¬àô[òXõYéàõ€€
+›]Kù[Y‹ò[WÿŸôÀôŸ]
+ô[òXõYäJKàòõ››⁄Ÿ[àéààãàö\◊ÿõ››⁄Ÿ[àéàõ€€
+›]Kù[Y‹ò[WÿŸôÀôŸ]
+òõ››⁄Ÿ[àäJKàò⁄]⁄Yéà›]Kù[Y‹ò[WÿŸôÀôŸ]
+ò⁄]⁄YãàäKàBÇÇê\ú‹›
+ãÿ\K›åK›[Y‹ò[Kÿ€€ôöY»äBê\ú‹›
+ãÿ\K›[Y‹ò[Kÿ€€ôöY»äBò\ﬁ[ò»Yà\W›[Y‹ò[Wÿ€€ôöY◊‹Ÿ]
+õŸNà[Y‹ò[P€€ôöY–õŸJNÇà⁄Ÿ[àHõŸKòõ››⁄Ÿ[ãú›ö\
+
+H‹à›]Kù[Y‹ò[WÿŸôÀôŸ]
+òõ››⁄Ÿ[àãàäBàYàõŸKô[òXõY[ôõ›⁄Ÿ[éÇàòZ\ŸH^Ÿ\[€äë∞Ôà[Y‹ò[HôZ\àõ›U⁄Ÿ[ãàäBà⁄»H\€€ôöYÀúÿ]ôW›[Y‹ò[JõŸKô[òXõY⁄Ÿ[ãõŸKò⁄]⁄Y
+BàYàõ›⁄ŒÇàòZ\ŸH^Ÿ\[€äLï[Y‹ò[KQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà›]Kù[Y‹ò[WÿŸô»H\€€ôöYÀõÿY›[Y‹ò[J
+Bàô]\õà¬àô[òXõYéàõ€€
+›]Kù[Y‹ò[WÿŸôÀôŸ]
+ô[òXõYäJKàòõ››⁄Ÿ[àéààãàö\◊ÿõ››⁄Ÿ[àéàõ€€
+⁄Ÿ[äKàò⁄]⁄Yéà›]Kù[Y‹ò[WÿŸôÀôŸ]
+ò⁄]⁄YãàäKàúÿ]ôYéàùYKàBÇÇò€\‹»ŸY\úê€€ôöY–õŸJò\ŸS[Ÿ[
+NÇà[òXõYàõ€€Hò[ŸBà\õà›àHàÇà\W⁄Ÿ^Nà›àHàÇà€⁄[ù\ùò[‹ŸX€€ôŒà[ùHåÇÇôYà‹ŸY\úóÿ€€ôöY◊‹^[ÿY
+
+HOàX›Çà⁄]›]KúŸY\úó‹ô\]Y\›◊€ÿ⁄ŒÇàôX€‹ô»H\›
+›]KúŸY\úó‹ô\]Y\›Àùò[Y\ 
+JBà€›[ùŒàX›‹›ã[ùHHﬂBàõ‹àôX€‹ô[àôX€‹ôŒÇà›]\»H›äôX€‹ôôŸ]
+ú›]\»äH‹àù[ö€õ›€àäBà€›[ù÷‹›]\◊HH€›[ùÀôŸ]
+›]\À
+H
+»Bàô]\õà¬àô[òXõYéàõ€€
+›]KúŸY\úóÿŸôÀôŸ]
+ô[òXõYäJKàù\õéà›]KúŸY\úóÿŸôÀôŸ]
+ù\õãàäKàò\W⁄Ÿ^Héààãàö\◊ÿ\W⁄Ÿ^Héàõ€€
+›]KúŸY\úóÿŸôÀôŸ]
+ò\W⁄Ÿ^HäJKàú€⁄[ù\ùò[‹ŸX€€ô»éà[ù
+›]KúŸY\úóÿŸôÀôŸ]
+ú€⁄[ù\ùò[‹ŸX€€ô»ãå
+JKàò€€õôX›Yéàõ€€
+›]KúŸY\úó€\›‹›XÿŸ\‹»[ôõ››]KúŸY\úó€\›Ÿ\úõ‹äKàõ\›‹€éà›]KúŸY\úó€\›‹€‹àõ€ôKàõ\›‹›XÿŸ\‹»éà›]KúŸY\úó€\›‹›XÿŸ\‹»‹àõ€ôKàõ\›Ÿ\úõ‹àéà›]KúŸY\úó€\›Ÿ\úõ‹ãàõ[€€ôö[óÿ€€ôöY›\ôYéà›]KúŸY\úó€[€€ôö[óÿ€€ôöY›\ôYàõ[€€ôö[óŸ\úõ‹àéà›]KúŸY\úó€[€€ôö[óŸ\úõ‹ãàúô\]Y\›»éà€›[ùÀàBÇÇê\ôŸ]
+ãÿ\K›åK‹ŸY\úãÿ€€ôöY»äBê\ôŸ]
+ãÿ\K‹ŸY\úãÿ€€ôöY»äBò\ﬁ[ò»Yà\W‹ŸY\úóÿ€€ôöY◊ŸŸ]
+
+NÇàô]\õà‹ŸY\úóÿ€€ôöY◊‹^[ÿY
+
+BÇÇê\ú‹›
+ãÿ\K›åK‹ŸY\úãÿ€€ôöY»äBê\ú‹›
+ãÿ\K‹ŸY\úãÿ€€ôöY»äBò\ﬁ[ò»Yà\W‹ŸY\úóÿ€€ôöY◊‹Ÿ]
+õŸNàŸY\úê€€ôöY–õŸJNÇà\õHõŸKù\õú›ö\
+
+Kúú›ö\
+ã»äBàô]ö[›\»HX›
+›]KúŸY\úóÿŸô Bàÿ[YW‹Ÿ\ùô\àHõ€€
+\õ
+H[ô\õòÿ\ŸYõ€
+
+HOH›äô]ö[›\ÀôŸ]
+ù\õäH‹ààäKúú›ö\
+ã»äKòÿ\ŸYõ€
+
+Bà\W⁄Ÿ^HHõŸKò\W⁄Ÿ^Kú›ö\
+
+H‹à
+ô]ö[›\ÀôŸ]
+ò\W⁄Ÿ^HãàäHYàÿ[YW‹Ÿ\ùô\à[ŸHàäBà[ù\ùò[HX^
+MKZ[äÕå[ù
+õŸKú€⁄[ù\ùò[‹ŸX€€ô»‹àå
+JJBàYàõŸKô[òXõY[ôõ›\õ[ôõ›\W⁄Ÿ^NÇàòZ\ŸH^Ÿ\[€äë∞ÔàŸY\úàôZ[àYô\‹ŸH[ôTKTÿ⁄0Ô‹Ÿ[àäBàYàõŸKô[òXõY[ôõ›\õÇàòZ\ŸH^Ÿ\[€äë∞ÔàŸY\úàôZYHYô\‹ŸKàäBàYàõŸKô[òXõY[ôõ›\W⁄Ÿ^NÇàòZ\ŸH^Ÿ\[€äààë∞ÔàŸY\úàôZ\àTKTÿ⁄0Ô‹Ÿ[à\»\›ŸZ[ô\àŸ\‹ZX⁄\ùàÇàêö]H]\»ŸY\úà8°§àZ[ú›[[ôŸ[à8°§à[Ÿ[YZ[à€‹Y\ô[à[ôZ[õX[ÇàôZ[ùòYŸ[é»[òX⁄\ôà\»ô[⁄YY\àY\àõZXô[ãàãà
+BàYàõŸKô[òXõYÇàò[YH]ÿZ]ù[ó⁄[ó›ôXY€€
+ŸY\úê€Y[ù
+\õ\W⁄Ÿ^JKù\›ÿ€€õôX›[€äBàYàõ›ò[YÇàòZ\ŸH^Ÿ\[€äàLãàîŸY\úà\›öX⁄\úôZX⁄ò\àŸ\à\àTKTÿ⁄0Ô‹Ÿ[\›[ôÔYŒ»Z[ú›[[ôŸ[à›\ô[àöX⁄ŸpÈô\ùàãà
+BàYàõ›\€€ôöYÀúÿ]ôW‹ŸY\úäõŸKô[òXõY\õ\W⁄Ÿ^K[ù\ùò[
+NÇàòZ\ŸH^Ÿ\[€äLîŸY\úãQZ[ú›[[ôŸ[à€€õù[àöX⁄Ÿ\‹ZX⁄\ùŸ\ô[ãàäBà›]KúŸY\úóÿŸô»H\€€ôöYÀõÿY‹ŸY\úä
+Bà›]KúŸY\úó€\›Ÿ\úõ‹àHàÇàYà\õÇà[€€ôö[àH]ÿZ]ù[ó⁄[ó›ôXY€€
+€€ôöY›\ôW€[€€ôö[ó‹ŸY\úã\õõŸKô[òXõY
+Bà›]KúŸY\úó€[€€ôö[óÿ€€ôöY›\ôYHõ€€
+[€€ôö[ãôŸ]
+ò€€ôöY›\ôYäJBà›]KúŸY\úó€[€€ôö[óŸ\úõ‹àHààYà›]KúŸY\úó€[€€ôö[óÿ€€ôöY›\ôY[ŸH›ä[€€ôö[ãôŸ]
+ô]Z[äH‹ààäBà‹ŸY\úó›ÿZŸWŸ]ô[ùúŸ]
+
+Bà^[ÿYH‹ŸY\úóÿ€€ôöY◊‹^[ÿY
+
+Bà^[ÿY»úÿ]ôYóHHùYBàô]\õà^[ÿYÇÇê\ú‹›
+ãÿ\K›åK‹ŸY\úã‹ﬁ[ò»äBê\ú‹›
+ãÿ\K‹ŸY\úã‹ﬁ[ò»äBò\ﬁ[ò»Yà\W‹ŸY\úó‹ﬁ[ò 
+NÇàô\›[H]ÿZ]ù[ó⁄[ó›ôXY€€
+ŸY\úó‹€€€òŸJBàYàõ›ô\›[ôŸ]
+õ⁄»äNÇàòZ\ŸH^Ÿ\[€äLãô\›[ôŸ]
+ô]Z[äH‹àîŸY\úãPXô€ZX⁄ôZŸ\ÿ⁄YŸ[ãàäBàô]\õà äúô\›[
+äó‹ŸY\úóÿ€€ôöY◊‹^[ÿY
+
+_BÇÇê\ôŸ]
+ãÿ\K‹ŸY\úã‹ô\]Y\›»äBò\ﬁ[ò»Yà\W‹ŸY\úó‹ô\]Y\› 
+NÇà⁄]›]KúŸY\úó‹ô\]Y\›◊€ÿ⁄ŒÇàôX€‹ô»HŸX›
+ôX€‹ô
+Hõ‹àôX€‹ô[à›]KúŸY\úó‹ô\]Y\›Àùò[Y\ 
+WBàôX€‹ôÀú€‹ù
+Ÿ^O[[XôHôX€‹ôàõÿ]
+ôX€‹ôôŸ]
+ù\]Yÿ]ã
+H‹à
+Kô]ô\úŸOUùYJBàô]\õà»úô\]Y\›»éàôX€‹ô÷ŒåL_BÇÇê\ôŸ]
+ãÿ\K›åKÿúõ›‹ŸKY\àäBê\ôŸ]
+ãÿ\Kÿúõ›‹ŸKY\àäBò\ﬁ[ò»Yà\Wÿúõ›‹ŸWŸ\ä]à›àHàäNÇàYà›€‹ö 
+NÇàH]
+]
+HYà][ŸH]
+›]Kúÿ]ôW‹]
+BàYàõ›ô^\› 
+NÇàH]ö€YJ
+BàHúô\€€ôJ
+BàûNÇà\ú»H€‹ùY
+à
+õ‹à[àö]\ô\ä
+HYàö\◊Ÿ\ä
+H[ôõ›õò[YKú›\ù›⁄]
+ãàäJKàŸ^O[[XôHàõò[YKòÿ\ŸYõ€
+
+Kà
+Bà^Ÿ\‘—\úõ‹à\»^ŒÇàô]\õà»ú]éà›ä
+Kú\ô[ùéàõ€ôKô\ú»éà◊Kô\úõ‹àéà›ä^ _Bà\ô[ùH›äú\ô[ù
+HYàú\ô[ùOH[ŸHõ€ôBàô]\õà¬àú]éà›ä
+Kú\ô[ùéà\ô[ùàô\ú»éàﬁ»õò[YHéàõò[YKú]éà›ä
+_Hõ‹à[à\ú◊KàBÇàô]\õà]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö BÇÇê\ú‹›
+ãÿ\K‹Ÿ\‹⁄[€ãÿ€X\ãX€€⁄⁄Y\»äBò\ﬁ[ò»Yà\Wÿ€X\óÿ€€⁄⁄Y\ 
+NÇààHÿ€€⁄⁄YWŸö[WŸõ‹äôö[\[\›ù»äBà€X\ôYHò[ŸBàYàãô^\› 
+NÇàãù[õ[ö 
+Bà€X\ôYHùYBàYà›]Kôú‹ÿ‹ò\\à\»õ›õ€ôNÇà›]Kôú‹ÿ‹ò\\ãúŸ\‹⁄[€ãò€X\óÿ€€⁄⁄Y\ 
+BàŸ ê€€⁄⁄Y\»Ÿ[0Ìúÿ⁄ààYà€X\ôY[ŸHíŸZ[ôH€€⁄⁄Y\»õ‹ö[ô[ãàäBàô]\õà»ò€X\ôYéà€X\ôYBÇÇà»8• 8• €›ô\ãTõﬁH8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ôYà‹ÿYôW‹XõX◊⁄›\õ
+ò]◊›\õà›äHOàõ€€ÇàûNÇà\úŸYH\õ\úŸJò]◊›\õ
+BàYà\úŸYúÿ⁄[YHõ›[à
+öãö»äH‹àõ›\úŸYö‹›ò[YH‹à\úŸYù\Ÿ\õò[YH‹à\úŸYú\‹›€‹ôÇàô]\õàò[ŸBà‹ùH\úŸYú‹ù‹à
+»Yà\úŸYúÿ⁄[YHOHö»à[ŸH
+BàYà‹ùõ›[à
+ NÇàô]\õàò[ŸBàYô\‹Ÿ\»H€ÿ⁄Ÿ]ôŸ]Yö[ôõ \úŸYö‹›ò[YK‹ù\O\€ÿ⁄Ÿ]î”–“◊‘’ëPSJBàYàõ›Yô\‹Ÿ\ŒÇàô]\õàò[ŸBàõ‹àŸò[Z[K‹€ÿ⁄›\K‹õ›Àÿÿ[õ€õò[YK€ÿ⁄ÿYà[àYô\‹Ÿ\ŒÇàYàõ›\Yô\‹Àö\ÿYô\‹ €ÿ⁄ÿYñÃJKö\◊Ÿ€ÿò[Çàô]\õàò[ŸBàô]\õàùYBà^Ÿ\
+‘—\úõ‹ãò[YQ\úõ‹äNÇàô]\õàò[ŸBÇÇê”’ëTó—êRS‘ëUñW‘—P””ë»HNåê”’ëTó”PV–ñUT»HL
+àLç
+àLçê”’ëTó––P“W”PV–ñUT»Hç
+àLç
+àLçê”’ëTó––P“W”PV—SïíQT»HçMÇê”’ëTó”PV‘ëQTëP’»H¬ê”’ëTó‘ëQTëP’‘’UT—T»Húõﬁô[úŸ]
+ÃÃKÃãÃÀÃÀÃJBê”’ëTó“SPQ—W’TT»Húõﬁô[úŸ]
+¬àö[XYŸK⁄úY»ãàö[XYŸK⁄ú»ãàö[XYŸK‹ô»ãàö[XYŸKﬁ\ô»ãàö[XYŸK›ŸXúãàö[XYŸKŸ⁄Yàãàö[XYŸKÿ]öYàãüJBÇÇôYàÿ€›ô\ó€Ÿ◊›\ôŸ]
+ò]◊›\õà›äHOà›éÇàààìŸŸ›öYH]Y\ûKúòY€Y[ùŸ\àùYÿ[ô‹Ÿ][àZ[ô\àö[UTìàààÇàûNÇà\úŸYH\õ\úŸJò]◊›\õ
+Bà‹›H\úŸYö‹›ò[YH‹àù[òôZÿ[õù\ãZ‹›Çà]H
+\úŸYú]‹àã»äVŒåMåBàô]\õààû⁄‹›^‹]HÇà^Ÿ\
+\Q\úõ‹ãò[YQ\úõ‹äNÇàô]\õàù[ôÔYŸK]\õÇÇÇôYàÿ€‹ŸWÿ€›ô\ó‹ô\‹€úŸJô\‹€úŸJHOàõ€ôNÇà€‹ŸHHŸ]]äô\‹€úŸKò€‹ŸHãõ€ôJBàYàÿ[XõJ€‹ŸJNÇàûNÇà€‹ŸJ
+Bà^Ÿ\^Ÿ\[€éÇà\‹¬ÇÇôYàŸô]⁄ÿ€›ô\óŸ]J\õà›äHOà‹[€ò[›\WNÇàYàõ›‹ÿYôW‹XõX◊⁄›\õ
+\õ
+NÇàô]\õàõ€ôBà⁄]›]Kò€›ô\óÿÿX⁄W€ÿ⁄ŒÇàYà\õ[à›]Kò€›ô\óÿÿX⁄NÇà›]Kò€›ô\óÿÿX⁄Kõ[›ôW›◊Ÿ[ô
+\õ
+Bàô]\õà›]Kò€›ô\óÿÿX⁄V›\õBàòZ[Yÿ]H›]Kò€›ô\óŸòZ[ÿÿX⁄KôŸ]
+\õ
+BàYàòZ[Yÿ]\»õ›õ€ôNÇàYà[YKù[YJ
+HHòZ[Yÿ]”’ëTó—êRS‘ëUñW‘—P””ëŒÇàô]\õàõ€ôBà[›]Kò€›ô\óŸòZ[ÿÿX⁄V›\õBàûNÇàYàŸ›€õÿY
+X[òYŸ\ã›\õ‹Ÿ\‹⁄[€ãôYô\ô\éà›äHOà\NÇà›\úô[ù›\õH\õà›\úô[ù‹ôYô\ô\àHôYô\ô\Çàõ‹àôY\ôX›⁄[ô^[àò[ôŸJ”’ëTó”PV‘ëQTëP’»
+»JNÇà»ôY[à‹õ‹à[Hô\]Y\›\õô]]∞Ôô[ãà[Z]ÿ[õàZ[Çà»0Ìôôô[ùX⁄\àö[‹›öX⁄]Yàÿÿ[‹›‹ö]ò]Hô]ôH[[Z][ãÇàYàõ›‹ÿYôW‹XõX◊⁄›\õ
+›\úô[ù›\õ
+NÇàòZ\ŸHù[ù[YQ\úõ‹äù[ú⁄X⁄\ô\»ö[öY[äBàXY\ú»HX[òYŸ\ãóÿúõ›‹Ÿ\ó⁄XY\ú ›\úô[ù›\õ›\úô[ù‹ôYô\ô\äBàXY\úÀù\]J¬àêXÿŸ\éàö[XYŸK›ŸXú[XYŸK‹ôÀ[XYŸK⁄úYÀ[XYŸKŸ⁄Yã
+ã é‹OLåHãàîŸXÀQô]⁄Q\›éàö[XYŸHãàîŸXÀQô]⁄S[ŸHéàõõÀX€‹ú»ãàJBàXY\úÀú‹
+îŸXÀQô]⁄U\Ÿ\àãõ€ôJBàXY\úÀú‹
+ï\‹òYKR[úŸX›\ôKTô\]Y\›»ãõ€ôJBàô\‹H›\õ‹Ÿ\‹⁄[€ãôŸ]
+à›\úô[ù›\õàXY\úœZXY\úÀà[Y[›]Låà›ôX[OUùYKà[›◊‹ôY\ôX›œQò[ŸKà
+BàûNÇàY\ó⁄\H›äŸ]]äô\‹úö[X\ûW⁄\ãàäH‹ààäKú›ö\
+
+BàYàõ›Y\ó⁄\‹àõ›\Yô\‹Àö\ÿYô\‹ Y\ó⁄\
+Kö\◊Ÿ€ÿò[ÇàòZ\ŸHù[ù[YQ\úõ‹äù[ú⁄X⁄\ôHöY[Yô\‹ŸHòX⁄îÀP]Yõ0Ìú›[ô»äBàYàô\‹ú›]\◊ÿ€ŸH[à”’ëTó‘ëQTëP’‘’UT—TŒÇàÿÿ][€àH›äô\‹öXY\úÀôŸ]
+ìÿÿ][€àäH‹ààäKú›ö\
+
+BàYàõ›ÿÿ][€à‹àôY\ôX›⁄[ô^èH”’ëTó”PV‘ëQTëP’ŒÇàòZ\ŸHù[ù[YQ\úõ‹äù[ôÔYŸHŸ\àùHYYôHö[ŸZ]\õZ][ô»äBàô^›\õH\õõ⁄[ä›\úô[ù›\õÿÿ][€äBàYàõ›‹ÿYôW‹XõX◊⁄›\õ
+ô^›\õ
+NÇàòZ\ŸHù[ù[YQ\úõ‹äù[ú⁄X⁄\ô\»ŸZ]\õZ][ô‹ﬁöY[äBà›\úô[ù‹ôYô\ô\àH›\úô[ù›\õà›\úô[ù›\õHô^›\õà€€ù[ùYBàYàô\‹ú›]\◊ÿ€ŸHOHåÇàòZ\ŸHù[ù[YQ\úõ‹äàí‹ô\‹ú›]\◊ÿ€Ÿ_HäBà€€ù[ù›\HH
+àô\‹öXY\úÀôŸ]
+ê€€ù[ùU\HäH‹ààÇà
+Kú‹]
+é»ãJVÃKú›ö\
+
+Kõ›Ÿ\ä
+BàYà€€ù[ù›\Hõ›[à”’ëTó“SPQ—W’TTŒÇàòZ\ŸHù[ù[YQ\úõ‹äõöX⁄[ù\ú›0Ôù\»ö[õ‹õX]äBàX€\ôYH[ù
+ô\‹öXY\úÀôŸ]
+ê€€ù[ùS[ô›ã
+H‹à
+BàYàX€\ôYà”’ëTó”PV–ñUTŒÇàòZ\ŸHù[ù[YQ\úõ‹äêö[\›‹∞Ì∞ÁŸ\à[»LPàäBà€€ù[ùHû]X\úò^J
+Bàõ‹à⁄[ö»[àô\‹ö]\óÿ€€ù[ù
+⁄[ö◊‹⁄^ôOLLé
+àLç
+NÇà€€ù[ùô^[ô
+⁄[ö BàYà[ä€€ù[ù
+Hà”’ëTó”PV–ñUTŒÇàòZ\ŸHù[ù[YQ\úõ‹äêö[\›‹∞Ì∞ÁŸ\à[»LPàäBàô]\õàû]\ €€ù[ù
+K€€ù[ù›\Bàö[ò[NÇàÿ€‹ŸWÿ€›ô\ó‹ô\‹€úŸJô\‹
+BàòZ\ŸHù[ù[YQ\úõ‹äûùHöY[Hö[ŸZ]\õZ][ôŸ[àäBÇà\úŸY›\õH\õ\úŸJ\õ
+Bà‹›ò[YHH
+\úŸY›\õö‹›ò[YH‹ààäKòÿ\ŸYõ€
+
+BàôYô\ô\àHàû‹\úŸY›\õúÿ⁄[Y_NãÀﬁ‹\úŸY›\õõô]ÿﬂK»ÇàX[òYŸ\àH
+àŸ]‹›◊‹ÿ‹ò\\ä
+KúŸ\‹⁄[€ÇàYà‹›ò[YHOHúŸ\öY[ú›ôX[Kù»à‹à‹›ò[YKô[ô›⁄]
+ãúŸ\öY[ú›ôX[Kù»äBà[ŸHŸ]Ÿú‹ÿ‹ò\\ä
+KúŸ\‹⁄[€Çà
+Bà»Z[ôHZYŸ[ôH›\õTŸ\‹⁄[€àõ»ö[ô\ö[ô\ù][úô[õô[àZ]\ò[[à»]Yô[ô[àõ›öY\ãTÿ‹ò\\»[ô0Ôô\õö[[][õõÿ⁄Ÿ\‹ZX⁄\ùH€€⁄⁄Y\ÀÇà›\õ‹Ÿ\‹⁄[€àHX[òYŸ\ãó€XZŸWÿ›\õ‹Ÿ\‹⁄[€ä
+BàûNÇà]HHŸ›€õÿY
+X[òYŸ\ã›\õ‹Ÿ\‹⁄[€ãôYô\ô\äBàö[ò[NÇàÿ€‹ŸWÿ€›ô\ó‹ô\‹€úŸJ›\õ‹Ÿ\‹⁄[€äBà^Ÿ\^Ÿ\[€à\»^ŒÇàôX\€€àH›ä^ VŒåMåHYà\⁄[ú›[òŸJ^Àù[ù[YQ\úõ‹äH[ŸH\J^ Kó◊€ò[YW◊¬àŸ àê€›ô\ãSY[àôZŸ\ÿ⁄YŸ[à
+◊ÿ€›ô\ó€Ÿ◊›\ôŸ]
+\õ
+_JNà‹ôX\€€üHãùÿ\õàäBà⁄]›]Kò€›ô\óÿÿX⁄W€ÿ⁄ŒÇà›]Kò€›ô\óŸòZ[ÿÿX⁄V›\õHH[YKù[YJ
+Bà›]Kò€›ô\óŸòZ[ÿÿX⁄Kõ[›ôW›◊Ÿ[ô
+\õ
+Bà⁄[H[ä›]Kò€›ô\óŸòZ[ÿÿX⁄JHàLLéÇà›]Kò€›ô\óŸòZ[ÿÿX⁄Kú‹][J\›Qò[ŸJBàô]\õàõ€ôBà⁄]›]Kò€›ô\óÿÿX⁄W€ÿ⁄ŒÇà›]Kò€›ô\óÿÿX⁄V›\õHH]Bà›]Kò€›ô\óÿÿX⁄Kõ[›ôW›◊Ÿ[ô
+\õ
+BàÿX⁄Yÿû]\»H›[J[ä][VÃJHõ‹à][H[à›]Kò€›ô\óÿÿX⁄Kùò[Y\ 
+JBà⁄[H›]Kò€›ô\óÿÿX⁄H[ô
+à[ä›]Kò€›ô\óÿÿX⁄JHà”’ëTó––P“W”PV—SïíQT¬à‹àÿX⁄Yÿû]\»à”’ëTó––P“W”PV–ñUT¬à
+NÇà€€›\õ€Ÿ]HH›]Kò€›ô\óÿÿX⁄Kú‹][J\›Qò[ŸJBàÿX⁄Yÿû]\»OH[ä€Ÿ]VÃJBà›]Kò€›ô\óŸòZ[ÿÿX⁄Kú‹
+\õõ€ôJBàô]\õà]BÇÇê\ôŸ]
+ãÿ\K›åKÿ€›ô\àäBê\ôŸ]
+ãÿ\Kÿ€›ô\àäBò\ﬁ[ò»Yà\Wÿ€›ô\ä\õà›äNÇà]HH]ÿZ]ù[ó⁄[ó›ôXY€€
+Ÿô]⁄ÿ€›ô\óŸ]K\õ
+BàYàõ›]NÇàòZ\ŸH^Ÿ\[€äLãê€›ô\à€€õùHöX⁄Ÿ[Y[àŸ\ô[ãàäBà€€ù[ù€€ù[ù›\HH]Bàô]\õàô\‹€úŸJà€€ù[ùX€€ù[ùàYYXW›\OX€€ù[ù›\KàXY\úœ^»êÿX⁄KP€€ùõ€éàúXõXÀX^XYŸONç›[K]⁄[K\ô]ò[Y]OMåüKà
+BÇÇà»8• 8• ö[KPXõ€õô[Y[ù»8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ôYà[›öYW‹›Xúÿ‹ö\[€ó⁄Ÿ^JYó⁄YHàã]Nà›àHàãYX\éà›àHàäHOà›éÇàYàH›äYó⁄Y‹ààäKú›ö\
+
+BàYàYéÇàô]\õààùYéû›YüHÇàô]\õààù]Nû◊€õ‹õW›]J]J_Nû‹›äYX\à‹à	… Kú›ö\
+
+_HÇÇÇôYà[›öYW‹›Xúÿ‹ö\[€ó€€⁄›\
+Ÿ^Nà›äHOà‹[€ò[ŸX›NÇàô]\õàô^
+à
+[ùûHõ‹à[ùûH[à›]Kõ[›öYW‹›Xúÿ‹ö\[€ú»Yà[ùûKôŸ]
+öŸ^HäHOHŸ^JKàõ€ôKà
+BÇÇôYà€[›öYW‹›Xúÿ‹ö\[€ó⁄ô[Yö[ó⁄][J[ùûNàX›][\Œà‹[€ò[”\›ŸX›WJHOà‹[€ò[ŸX›NÇàYàõ›][\ŒÇàô]\õàõ€ôBàYó⁄YH›ä[ùûKôŸ]
+ùYó⁄YäH‹ààäKú›ö\
+
+BàYàYó⁄YÇà^X›Hô^
+à
+][Hõ‹à][H[à][\»Yà›ä][KôŸ]
+ùYó⁄YäH‹ààäHOHYó⁄Y
+Kàõ€ôKà
+BàYà^X›Çàô]\õà^X›àÿ[ùYH€õ‹õW›]J[ùûKôŸ]
+ù]HãàäJBàYX\àH›ä[ùûKôŸ]
+ûYX\àäH‹ààäBàõ‹à][H[à][\ŒÇà[X\Ÿ\»H
+à][KôŸ]
+õò[YHãàäK][KôŸ]
+õ‹öY⁄[ò[›]HãàäK][KôŸ]
+ú€‹ù€ò[YHãàäKà
+BàYàÿ[ùYõ›[à◊€õ‹õW›]Jò[YJHõ‹àò[YH[à[X\Ÿ\»Yàò[Y_NÇà€€ù[ùYBà][WﬁYX\àH›ä][KôŸ]
+ûYX\àäH‹ààäBàYàYX\à[ô][WﬁYX\à[ôYX\àOH][WﬁYX\éÇà€€ù[ùYBàô]\õà][Bàô]\õàõ€ôBÇÇôYà[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+HOàX›Çà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄À›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà][\»H◊Bàõ‹à›‹ôY[à›]Kõ[›öYW‹›Xúÿ‹ö\[€úŒÇà[ùûHHX›
+›‹ôY
+Bà[ùûV»ò€X[ù\€[ŸHóHHõ‹õX[^ôW€[›öYWÿ€X[ù\
+[ùûKôŸ]
+ò€X[ù\€[ŸHäJBà[ùûV»ò€X[ù\€[ŸW€Xô[óHHS’íQW–”PSïT”PëS÷Ÿ[ùûV»ò€X[ù\€[ŸHóWBà[ùûV»ù\ôŸ]‹]X[]HóHHõ‹õX[^ôW€[›öYW‹]X[]J[ùûKôŸ]
+ù\ôŸ]‹]X[]HäJBà[ùûV»ù\ôŸ]‹]X[]W€Xô[óHHS’íQW‘UPSUW”PëS÷Ÿ[ùûV»ù\ôŸ]‹]X[]HóWBà[ùûV»ú]Y]YYóHHõ€€
+[ùûKôŸ]
+ú[ô[ô◊‹€Y»äH[à›]KúX⁄ŸY
+BàYà[ùûKôŸ]
+ùÿ]⁄YŸ[]YäNÇà[ùûV»ú›]\»óHHùÿ]⁄YŸ[]YÇà[Yà[ùûV»ú]Y]YYóNÇà[ùûV»ú›]\»óHHú]Y]YYÇà[Yà[ùûKôŸ]
+õ\›Ÿ\úõ‹àäNÇà[ùûV»ú›]\»óHHôòZ[YÇà[Yà[ùûKôŸ]
+ù\‹òYWÿ]òZ[XõW‹ò[ö»äNÇà[ùûV»ú›]\»óHHù\‹òYHÇà[ŸNÇà[ùûV»ú›]\»óHHò›\úô[ùÇà][\Àò\[ô
+[ùûJBàô]\õà»õ[›öYW‹›Xúÿ‹ö\[€ú»éà][\ﬂBÇÇôYà€[›öYW‹›Xúÿ‹ö\[€ó‹€›\òŸ\ [ùûNàX›
+HOà\›—ö[\[\›[›öYWNÇàYó⁄YH›ä[ùûKôŸ]
+ùYó⁄YäH‹ààäKú›ö\
+
+BàYàYó⁄YÇàô]\õàô\€€ôW›Yó€[›öYW‹€›\òŸ\ Yó⁄Y
+Bà€Y»H›ä[ùûKôŸ]
+ú€›\òŸW‹€Y»äH‹ààäKú›ö\
+
+BàYàõ›€YŒÇàô]\õà◊Bà[›öYHH›]Kôú€[›öY\ÀôŸ]
+€Y H‹àÿY€[›öYWŸõ‹ó‹€Y €Y BàYàõ›[›öYNÇàô]\õà◊Bà›]Kôú€[›öY\÷‹€Y◊HH[›öYBàô]\õà€[›öYK
+ôö[ô€[›öYW‹€›\òŸWŸò[òX⁄‹ [›öYK€YÀ€[›öYKù\õJWBÇÇôYà‹ô\\ôW€[›öYW‹›Xúÿ‹ö\[€ó›\‹òYJà[ùûNàX›€›\òŸ\Œà\›—ö[\[\›[›öYWKäHOà\V”‹[€ò[—ö[\[\›[›öYWK\›—ö[\[\›[›öYWK[ù›óNÇà›\úô[ù‹ò[ö»HX^
+[ù
+[ùûKôŸ]
+ò›\úô[ù‹]X[]W‹ò[ö»äH‹à
+JBà\ôŸ]Hõ‹õX[^ôW€[›öYW‹]X[]J[ùûKôŸ]
+ù\ôŸ]‹]X[]HäJBà]X[]Y\»H¬à‹›\ãú]X[]Bàõ‹à€›\òŸH[à€›\òŸ\¬àõ‹à‹›\à[à€›\òŸKö‹›\ú¬àBàŸ[X›YHŸ[X››\‹òYW‹]X[]J]X[]Y\À›\úô[ù‹ò[öÀ\ôŸ]
+BàYàõ›Ÿ[X›YÇàô]\õàõ€ôK◊KàÇàŸ[X›Y‹ò[öÀŸ[X›Y€Xô[HŸ[X›YàŸZ[[ô»HS’íQW‘UPSUW’Të—U÷›\ôŸ]Bàô\\ôYH◊Bàõ‹à€›\òŸH[à€›\òŸ\ŒÇà‹›\ú»H¬à‹›\àõ‹à‹›\à[à€›\òŸKö‹›\ú¬àYà›\úô[ù‹ò[ö»[›öYW‹]X[]W‹ò[ö ‹›\ãú]X[]JHHŸZ[[ô¬àBàYàõ›‹›\úŒÇà€€ù[ùYBà€€ôHHô\XŸJ€›\òŸK‹›\úœ[\›
+‹›\ú JBà€€ôKö‹›\úÀú€‹ù
+àŸ^O[[XôH‹›\éà
+à[›öYW‹]X[]W‹ò[ö ‹›\ãú]X[]JHOHŸ[X›Y‹ò[öÀà[[›öYW‹]X[]W‹ò[ö ‹›\ãú]X[]JKà
+Bà
+BàŸ]]ä€€ôKó‹ôYô\úôY‹]X[]HãŸ[X›Y€Xô[
+BàŸ]]ä€€ôKóÿ[›◊‹]X[]W›\‹òYHãùYJBàô\\ôYò\[ô
+€€ôJBàô\\ôYú€‹ù
+àŸ^O[[XôH[›öYNàX^
+à
+[›öYW‹]X[]W‹ò[ö ‹›\ãú]X[]JHõ‹à‹›\à[à[›öYKö‹›\ú KàYò][Là
+HOHŸ[X›Y‹ò[ö¬à
+Bàô]\õà
+ô\\ôYÃHYàô\\ôY[ŸHõ€ôJKô\\ôYÃNóKŸ[X›Y‹ò[öÀŸ[X›Y€Xô[ÇÇôYà⁄X⁄◊€[›öYW‹›Xúÿ‹ö\[€ú [ùöY\Œà‹[€ò[”\›ŸX›WHHõ€ôJHOà[ùÇàààî∞ÔùŸ\ŸZ[ãTôYŸ[à[ôôZZ]\‹ÿ⁄YpÁ€X⁄X⁄H\‹òY\»Z[ãàààÇàYàõ››]Kõ[›öYW‹›Xúÿ‹ö\[€óÿ⁄X⁄◊€ÿ⁄ÀòX‹]Z\ôJõÿ⁄⁄[ôœQò[ŸJNÇàô]\õààûNÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇàŸ[X›YŸ[ùöY\»H\›
+[ùöY\»Yà[ùöY\»\»õ›õ€ôH[ŸH›]Kõ[›öYW‹›Xúÿ‹ö\[€ú Bàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+Bà\Ÿ\ó⁄YH›ä›]Köô[Yö[óÿŸôÀôŸ]
+ù\Ÿ\ó⁄YäH‹ààäKú›ö\
+
+Bà\Ÿ\ó€[›öY\»H
+àôóÿ€Y[ùõ\›€[›öY\◊›⁄]›\Ÿ\óŸ]J\Ÿ\ó⁄Y
+BàYàôóÿ€Y[ùò€€ôöY›\ôY[ô\Ÿ\ó⁄Y[ŸHõ€ôBà
+BàXúò\ûW€[›öY\»HŸ]⁄ô[Yö[ó€Xúò\ûJõ‹òŸOUùYJHYàôóÿ€Y[ùò€€ôöY›\ôY[ŸHõ€ôBà⁄X⁄ŸYHàõ‹à[ùûH[àŸ[X›YŸ[ùöY\ŒÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇàYàõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kõ[›öYW‹›Xúÿ‹ö\[€ú NÇà€€ù[ùYBàYà[ùûKôŸ]
+ú[ô[ô◊‹€Y»äH[à›]KúX⁄ŸYÇà€€ù[ùYBà⁄X⁄ŸY
+œHBàõ›»H[YKù[YJ
+Bàôó⁄][HH€[›öYW‹›Xúÿ‹ö\[€ó⁄ô[Yö[ó⁄][Jà[ùûK\Ÿ\ó€[›öY\»Yà\Ÿ\ó€[›öY\»\»õ›õ€ôH[ŸHXúò\ûW€[›öY\Àà
+Bà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇàYàôó⁄][NÇà[ùûV»ò›\úô[ù‹]X[]W‹ò[ö»óHHX^
+à[ù
+[ùûKôŸ]
+ò›\úô[ù‹]X[]W‹ò[ö»äH‹à
+Kà[ù
+ôó⁄][KôŸ]
+ú]X[]W‹ò[ö»äH‹à
+Kà
+Bà[ùûV»ô^\›[ô◊‹]óHH›äôó⁄][KôŸ]
+ú]äH‹ààäBà[ùûV»õ\›ÿ⁄X⁄ŸYóHHõ›¬ÇàYà
+àõ‹õX[^ôW€[›öYWÿ€X[ù\
+[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOHS’íQW–”PSïT’–U“Qà[ôôó⁄][H[ôôó⁄][KôŸ]
+ú^YYäH[ôõ›[ùûKôŸ]
+ùÿ]⁄YŸ[]YäBà
+NÇàYàôóÿ€Y[ùô[]W⁄][Jôó⁄][KôŸ]
+öYãàäJNÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»ùÿ]⁄YŸ[]YóHHùYBà[ùûV»õ\›Ÿ\úõ‹àóHHàÇà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHàÇà[ùûV»ò€X[ù\Ÿ[]Yÿ]óHHõ›¬àŸ àëö[KPXõŒà0™ﬁŸ[ùûV…›]I◊_pÆ»òX⁄[H[úŸZ[àŸ[0Ìúÿ⁄àäBà[ŸNÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»õ\›Ÿ\úõ‹àóHHëŸ\ŸZ[ô\àö[H€€õùH[àô[Yö[àöX⁄Ÿ[0Ìúÿ⁄Ÿ\ô[àÇà€€ù[ùYBàYà
+àõ‹õX[^ôW€[›öYWÿ€X[ù\
+[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOHS’íQW–”PSïT’–U“Qà[ôôóÿ€Y[ùò€€ôöY›\ôY[ôõ›\Ÿ\ó⁄Yà
+NÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHíô[Yö[ãTõŸö[∞Ôà[àŸ\ŸZ[ãT›]\»ôZÇà[Yà\Ÿ\ó⁄Y‹àõ‹õX[^ôW€[›öYWÿ€X[ù\
+[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOHS’íQW–”PSïT’–U“QÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHàÇÇàYà[ùûKôŸ]
+ùÿ]⁄YŸ[]YäH‹àõ›[ùûKôŸ]
+ù\‹òYWŸ[òXõYãùYJNÇà€€ù[ùYBàYàôó⁄][H[ô[ù
+ôó⁄][KôŸ]
+ú]X[]W‹ò[ö»äH‹à
+HHÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»õ\›Ÿ\úõ‹àóHHíô[Yö[à€€õùHYHõ‹ö[ô[ôHö[\]X[]0ÈöX⁄\õZ][àÇà€€ù[ùYBàûNÇà€›\òŸ\»H€[›öYW‹›Xúÿ‹ö\[€ó‹€›\òŸ\ [ùûJBàö[X\ûKò[òX⁄‹Àò[öÀXô[H‹ô\\ôW€[›öYW‹›Xúÿ‹ö\[€ó›\‹òYJ[ùûK€›\òŸ\ Bà^Ÿ\^Ÿ\[€à\»^ŒÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»õ\›Ÿ\úõ‹àóHH›ä^ VŒåçBà€€ù[ùYBà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»ù\‹òYWÿ]òZ[XõW‹ò[ö»óHHò[ö¬à[ùûV»ù\‹òYWÿ]òZ[XõW‹]X[]HóHHXô[àYàõ›ö[X\ûNÇà[ùûV»õ\›Ÿ\úõ‹àóHHàÇà€€ù[ùYBàYàõ››]Kò]]€X][€ãôŸ]
+ò]]◊Ÿ›€õÿYäH‹àõ›\◊›⁄][óŸ›€õÿY›⁄[ô› 
+NÇà[ùûV»õ\›Ÿ\úõ‹àóHHàÇà€€ù[ùYBà€Y»H›ä[ùûKôŸ]
+ú€›\òŸW‹€Y»äH‹à[ùûKôŸ]
+öŸ^HäH‹ààäBà[ùûV»ú[ô[ô◊‹€Y»óHH€Y¬à[ùûV»õ\›Ÿ\úõ‹àóHHàÇà›]Kôú€[›öY\÷‹€Y◊HHö[X\ûBà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇàYà€Y»[à›]KúX⁄ŸYÇà€€ù[ùYBà›]KúX⁄ŸYòY
+€Y Bà‹\ú⁄\›‹]Y]YW‹›]J
+BàXÿŸ\YHŸ[ú]Y]YWÿ]]€X]X◊Ÿ›€õÿY à‹€Y◊K[›öYWŸò[òX⁄‹œ^‹€YŒàò[òX⁄‹ﬂKà
+BàYà€Y»õ›[àXÿŸ\YÇà⁄]›]Kú]Y]YWÿ€Z[W€ÿ⁄ŒÇà›]KúX⁄ŸYô\ÿÿ\ô
+€Y Bà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûV»ú[ô[ô◊‹€Y»óHHàÇà[ùûV»õ\›Ÿ\úõ‹àóHHï\‹òYH€€õùHöX⁄Z[ôŸ\ôZZŸ\ô[àÇà[ŸNÇàŸ ààëö[KPXõŒà]X[]0ÈÀU\‹òYH∞Ôà0™ﬁŸ[ùûV…›]I◊_pÆ»Çààò]Yà€Xô[‹àâﬁ‹ò[öﬂ\	ﬂHZ[ôŸ\ôZZàÇà
+Bà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà\€€ôöYÀúÿ]ôW€[›öYW‹›Xúÿ‹ö\[€ú ›]Kõ[›öYW‹›Xúÿ‹ö\[€ú Bà^[ÿYH[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+BàúõÿYÿ\›
+»ù\Héàõ[›öYW‹›Xúÿ‹ö\[€ú◊›\]Hã
+äú^[ÿYJBàô]\õà⁄X⁄ŸYàö[ò[NÇà›]Kõ[›öYW‹›Xúÿ‹ö\[€óÿ⁄X⁄◊€ÿ⁄Àúô[X\ŸJ
+BÇÇò€\‹»[›öYT›Xúÿ‹ö\[€êõŸJò\ŸS[Ÿ[
+NÇà€›\òŸW‹€YŒà›Çà]Nà›ÇàYX\éà›àHàÇàYó⁄Yà‹[€ò[⁄[ùHHõ€ôBà€›ô\ó›\õà›àHàÇà\ôŸ]‹]X[]Nà›àHS’íQW‘UPSUW—QêUSà€X[ù\€[ŸNà›àHS’íQW–”PSïT—QêUSà\‹òYWŸ[òXõYàõ€€HùYBÇÇê\ú‹›
+ãÿ\K›åK€[›öYK\›Xúÿ‹ö\[€ú»äBê\ú‹›
+ãÿ\K€[›öYK\›Xúÿ‹ö\[€ú»äBò\ﬁ[ò»Yà\W€[›öYW‹›Xúÿ‹ö\[€ó‹ÿ]ôJõŸNà[›öYT›Xúÿ‹ö\[€êõŸJNÇàYàõŸKù\ôŸ]‹]X[]Hõ›[àS’íQW‘UPSUW”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùHöY[]X[]0ÈàäBàYàõŸKò€X[ù\€[ŸHõ›[àS’íQW–”PSïT”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùH0Ìúÿ⁄ôYŸ[àäBàŸ^HH[›öYW‹›Xúÿ‹ö\[€ó⁄Ÿ^JõŸKùYó⁄YõŸKù]KõŸKûYX\äBà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùûHH[›öYW‹›Xúÿ‹ö\[€ó€€⁄›\
+Ÿ^JBàYà[ùûH\»õ€ôNÇà[ùûHH¬àöŸ^HéàŸ^Kàú€›\òŸW‹€Y»éàõŸKú€›\òŸW‹€YÀàù]HéàõŸKù]Kú›ö\
+
+KàûYX\àéàõŸKûYX\ãú›ö\
+
+KàùYó⁄YéàõŸKùYó⁄Yàò€›ô\ó›\õéàõŸKò€›ô\ó›\õàò›\úô[ù‹]X[]W‹ò[ö»éààò›\úô[ù‹]X[]Héààãàõ\›Ÿ\úõ‹àéààãàò€X[ù\€\›Ÿ\úõ‹àéààãàú[ô[ô◊‹€Y»éààãàùÿ]⁄YŸ[]Yéàò[ŸKàBà›]Kõ[›öYW‹›Xúÿ‹ö\[€úÀò\[ô
+[ùûJBà[ùûKù\]J¬àú€›\òŸW‹€Y»éàõŸKú€›\òŸW‹€YÀàù\ôŸ]‹]X[]Héàõ‹õX[^ôW€[›öYW‹]X[]JõŸKù\ôŸ]‹]X[]JKàò€X[ù\€[ŸHéàõ‹õX[^ôW€[›öYWÿ€X[ù\
+õŸKò€X[ù\€[ŸJKàù\‹òYWŸ[òXõYéàõ€€
+õŸKù\‹òYWŸ[òXõY
+KàJBàYà[ùûV»ò€X[ù\€[ŸHóHOHS’íQW–”PSïT’–U“QÇà[ùûV»ùÿ]⁄YŸ[]YóHHò[ŸBà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHàÇà\€€ôöYÀúÿ]ôW€[›öYW‹›Xúÿ‹ö\[€ú ›]Kõ[›öYW‹›Xúÿ‹ö\[€ú BàôXY[ôÀïôXY
+à\ôŸ]X⁄X⁄◊€[›öYW‹›Xúÿ‹ö\[€úÀ\ô‹œJŸ[ùûWK
+KY[[€èUùYKà
+Kú›\ù
+
+Bàô]\õà[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+BÇÇê\ôŸ]
+ãÿ\K›åK€[›öYK\›Xúÿ‹ö\[€ú»äBê\ôŸ]
+ãÿ\K€[›öYK\›Xúÿ‹ö\[€ú»äBò\ﬁ[ò»Yà\W€[›öYW‹›Xúÿ‹ö\[€ú◊ŸŸ]
+
+NÇàô]\õà[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+BÇÇò€\‹»[›öYT›Xúÿ‹ö\[€íŸ^\–õŸJò\ŸS[Ÿ[
+NÇàŸ^\Œà‹[€ò[”\›‹›óWHHõ€ôBÇÇê\ú‹›
+ãÿ\K›åK€[›öYK\›Xúÿ‹ö\[€úÀÿ⁄X⁄»äBê\ú‹›
+ãÿ\K€[›öYK\›Xúÿ‹ö\[€úÀÿ⁄X⁄»äBò\ﬁ[ò»Yà\W€[›öYW‹›Xúÿ‹ö\[€ú◊ÿ⁄X⁄ õŸNà[›öYT›Xúÿ‹ö\[€íŸ^\–õŸJNÇà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ùöY\»H
+à\›
+›]Kõ[›öYW‹›Xúÿ‹ö\[€ú BàYàõ›õŸKöŸ^\¬à[ŸHŸ[ùûHõ‹à[ùûH[à›]Kõ[›öYW‹›Xúÿ‹ö\[€ú»Yà[ùûKôŸ]
+öŸ^HäH[àõŸKöŸ^\◊Bà
+Bà⁄X⁄ŸYH]ÿZ]ù[ó⁄[ó›ôXY€€
+⁄X⁄◊€[›öYW‹›Xúÿ‹ö\[€úÀ[ùöY\ Bàô]\õà»ò⁄X⁄ŸYéà⁄X⁄ŸY
+äõ[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+_BÇÇê\ú‹›
+ãÿ\K›åK€[›öYK\›Xúÿ‹ö\[€úÀ‹ô[[›ôHäBê\ú‹›
+ãÿ\K€[›öYK\›Xúÿ‹ö\[€úÀ‹ô[[›ôHäBò\ﬁ[ò»Yà\W€[›öYW‹›Xúÿ‹ö\[€ú◊‹ô[[›ôJõŸNà[›öYT›Xúÿ‹ö\[€íŸ^\–õŸJNÇàŸ^\»HŸ]
+õŸKöŸ^\»‹à◊JBà[ô[ô»HŸ]
+
+Bà⁄]›]Kõ[›öYW‹›Xúÿ‹ö\[€ú◊€ÿ⁄ŒÇà[ô[ô»H¬à›ä[ùûKôŸ]
+ú[ô[ô◊‹€Y»äH‹ààäBàõ‹à[ùûH[à›]Kõ[›öYW‹›Xúÿ‹ö\[€ú¬àYà[ùûKôŸ]
+öŸ^HäH[àŸ^\»[ô[ùûKôŸ]
+ú[ô[ô◊‹€Y»äBàBà›]Kõ[›öYW‹›Xúÿ‹ö\[€ú»H¬à[ùûHõ‹à[ùûH[à›]Kõ[›öYW‹›Xúÿ‹ö\[€ú»Yà[ùûKôŸ]
+öŸ^HäHõ›[àŸ^\¬àBà\€€ôöYÀúÿ]ôW€[›öYW‹›Xúÿ‹ö\[€ú ›]Kõ[›öYW‹›Xúÿ‹ö\[€ú BàYà[ô[ôŒÇàÿÿ[òŸ[‹]Y]YW‹€Y‹ [ô[ôÀëö[KPXõ»[ùô\õùäBàô]\õà[›öYW‹›Xúÿ‹ö\[€ú◊‹^[ÿY
+
+BÇÇà»8• 8• öXõ[›Z»
+ÿ]⁄\›
+H8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ò€\‹»ÿ]⁄\›YõŸJò\ŸS[Ÿ[
+NÇàò\ŸW‹€YŒà›Çà]Nà›Çàÿ[\W›\õà›Çà€õ›€ó‹€Y‹Œà\›‹›óBà›€õÿY€[ŸNà›àH–U“”S—W—QêUSà€X[ù\€[ŸNà‹[€ò[‹›óHHõ€ôBàYó⁄Yà‹[€ò[⁄[ùHHõ€ôBà[X\Ÿ\Œà‹[€ò[”\›‹›óWHHõ€ôBàŸX\€€óŸ\\€ŸWÿ€›[ùŒà‹[€ò[—X›‹›ã[ùWHHõ€ôBàŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]àõÿ]HåÇÇê\ú‹›
+ãÿ\K›åK›ÿ]⁄\›ÿYäBê\ú‹›
+ãÿ\K›ÿ]⁄\›ÿYäBò\ﬁ[ò»Yà\W›ÿ]⁄\›ÿY
+õŸNàÿ]⁄\›YõŸJNÇàYàõŸKô›€õÿY€[ŸHõ›[à–U“”S—W”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùHXõÀTôYŸ[àäBàYàõŸKò€X[ù\€[ŸH\»õ›õ€ôH[ôõŸKò€X[ù\€[ŸHõ›[à”PSïT”S—W”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùH0Ìúÿ⁄ôYŸ[àäBà[ò€€Z[ô◊⁄YH›äõŸKùYó⁄Y‹ààäKú›ö\
+
+Bà[ò€€Z[ô◊›YàHõ€ôBàYà[ò€€Z[ô◊⁄YÇà[ò€€Z[ô◊›YàH]ÿZ]ù[ó⁄[ó›ôXY€€
+àŸ]›Yó‹Ÿ\öY\ÀõŸKù]K[ò€€Z[ô◊⁄Yà
+Bà[ùûHHõ€ôBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYàÿ]⁄\›€€⁄›\
+õŸKòò\ŸW‹€Y H\»õ€ôNÇà\ôX›⁄[ò€€Z[ô◊›]\»H¬à€õ‹õW›]Jò[YJBàõ‹àò[YH[à
+õŸKù]K
+äõŸKò[X\Ÿ\»‹à◊JJBàYà€õ‹õW›]Jò[YJBàBàÿ[õ€öXÿ[⁄[ò€€Z[ô◊›]\»H¬à€õ‹õW›]Jò[YJBàõ‹àò[YH[à
+à
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+ù]HãàäKà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+õ‹öY⁄[ò[›]HãàäKà
+BàYà€õ‹õW›]Jò[YJBàBà[ò€€Z[ô◊›]\»H\ôX›⁄[ò€€Z[ô◊›]\»ÿ[õ€öXÿ[⁄[ò€€Z[ô◊›]\¬à\Xÿ]HHõ€ôBà\Xÿ]Wÿÿ[ó€ZY‹ò]HHò[ŸBàõ‹à›\úô[ù[à›]Kùÿ]⁄\›Çà›\úô[ù⁄YH›ä›\úô[ùôŸ]
+ùYó⁄YäH‹ààäKú›ö\
+
+BàYà[ò€€Z[ô◊⁄Y[ô›\úô[ù⁄YÇàYà[ò€€Z[ô◊⁄YOH›\úô[ù⁄YÇà\Xÿ]HH›\úô[ùàúôXZ¬à€€ù[ùYBà›\úô[ù›]\»H¬à€õ‹õW›]Jò[YJBàõ‹àò[YH[à
+›\úô[ùôŸ]
+ù]HãàäK
+ä›\úô[ùôŸ]
+ò[X\Ÿ\»äH‹à◊JJBàYà€õ‹õW›]Jò[YJBàBàYà[ò€€Z[ô◊›]\»	à›\úô[ù›]\ŒÇà\Xÿ]HH›\úô[ùà\Xÿ]Wÿÿ[ó€ZY‹ò]HHõ€€
+à[ò€€Z[ô◊⁄Yà[ôõ››\úô[ù⁄Yà[ôõ›
+\ôX›⁄[ò€€Z[ô◊›]\»	à›\úô[ù›]\ Bà[ô
+ÿ[õ€öXÿ[⁄[ò€€Z[ô◊›]\»	à›\úô[ù›]\ Bà
+BàúôXZ¬àYà\Xÿ]H\»õ›õ€ôNÇàYà\Xÿ]Wÿÿ[ó€ZY‹ò]NÇà\Xÿ]V»ùYó⁄YóHHõŸKùYó⁄Yà\Xÿ]V»ò[X\Ÿ\»óHH\›
+X›ôúõ€ZŸ^\ ö[\äõ€ôK
+à\Xÿ]KôŸ]
+ù]HãàäKà
+ä\Xÿ]KôŸ]
+ò[X\Ÿ\»äH‹à◊JKàõŸKù]Kà
+äõŸKò[X\Ÿ\»‹à◊JKà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+ù]HãàäKà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+õ‹öY⁄[ò[›]HãàäKà
+JJJBàYà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äNÇà\Xÿ]V»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHH[ò€€Z[ô◊›Yñ¬àúŸX\€€óŸ\\€ŸWÿ€›[ù»ÇàBà\Xÿ]V»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHHõÿ]
+à[ò€€Z[ô◊›YãôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]äH‹àà
+BàYà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+ò€›ô\ó›\õäNÇà\Xÿ]V»ò€›ô\ó›\õóHH[ò€€Z[ô◊›Yñ»ò€›ô\ó›\õóBàYà
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+òòX⁄Ÿõ‹›\õäNÇà\Xÿ]V»òòX⁄Ÿõ‹›\õóHH[ò€€Z[ô◊›Yñ»òòX⁄Ÿõ‹›\õóBà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàòZ\ŸH^Ÿ\[€äàKàîŸ\öYH\›ô\ôZ]»[»0™ﬁŸ\Xÿ]KôŸ]
+	›]IÀõŸKù]J_pÆ»Xõ€õöY\ùàãà
+Bà[ùûHHõŸKõ[Ÿ[Ÿ[\
+
+Bà[ùûV»ò[X\Ÿ\»óHH\›
+X›ôúõ€ZŸ^\ à[X\Àú›ö\
+
+Hõ‹à[X\»[à
+õŸKò[X\Ÿ\»‹à◊JHYà[X\»[ô[X\Àú›ö\
+
+Bà
+JBà[ùûV»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHH¬à›äŸX\€€äNàX^
+[ù
+€›[ù
+JBàõ‹àŸX\€€ã€›[ù[à
+õŸKúŸX\€€óŸ\\€ŸWÿ€›[ù»‹àﬂJKö][\ 
+BàBà[ùûV»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHHX^
+åõÿ]
+õŸKúŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]‹à
+JBà[ùûV»ò€›ô\ó›\õóHH
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+ò€›ô\ó›\õãàäBà[ùûV»òòX⁄Ÿõ‹›\õóHH
+[ò€€Z[ô◊›Yà‹àﬂJKôŸ]
+òòX⁄Ÿõ‹›\õãàäBà[ùûV»ô›€õÿY€[ŸHóHHõ‹õX[^ôW›ÿ]⁄€[ŸJõŸKô›€õÿY€[ŸJBà[ùûV»ò€X[ù\€[ŸHóHHõ‹õX[^ôWÿ€X[ù\€[ŸJàõŸKò€X[ù\€[ŸBàYàõŸKò€X[ù\€[ŸH\»õ›õ€ôBà[ŸH›]Köô[Yö[óÿŸôÀôŸ]
+ò€X[ù\ŸYò][äBà
+Bà[ùûV»ò€X[ù\⁄\›‹ûHóHH◊Bà[ùûV»ò€X[ù\Ÿ[]Yÿ€›[ùóHHà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHàÇà[ùûV»ôòZ[YŸ›€õÿY»óHHﬂBà[ùûV»õ\›Ÿ\úõ‹àóHHàÇà[ùûV»õ[ŸWŸŸ[ô\ò][€àóHHà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHHà›]Kùÿ]⁄\›ò\[ô
+[ùûJBà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàYà[ùûH\»õ›õ€ôNÇàŸ à∞™ﬁÿõŸKù]_pÆ»ù\àöXõ[›Z»[ûùYŸY∞Ô›àäBÇà»öX⁄\ú›ö\»ù[H∞È⁄›[àÃSZ[ù][ãR[ù\ùò[ÿ\ù[éà€Ÿõ‹ù∞Ôô[Çà»[ôôZHZ[ôŸ\ÿ⁄[]\à]]€X]Z»[à›€õÿY[ú›ÁŸ[ãàYH\òôZ]à»0ÈYù]pÁŸ\ö[à\»TKTô\]Y\›À[Z]YHÿô\ôõ0È⁄H\ôZ›ôXY⁄Y\ùÇàYà⁄[ö]X[›ÿ]⁄\›ÿ⁄X⁄ 
+NÇàûNÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà[ùûHõ›[à›]Kùÿ]⁄\›Çàô]\õÇà⁄X⁄◊›ÿ]⁄\›Ÿ[ùöY\ Ÿ[ùûWJBàúõÿYÿ\›
+»ù\Héàùÿ]⁄\››\]Hã
+äùÿ]⁄\›‹^[ÿY
+
+_JBàÿ]]◊Ÿ›€õÿY€ô]◊Ÿ\\€Ÿ\ 
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àë\ú›∞Ôù[ô»õ€à0™ﬁÿõŸKù]_pÆ»ôZŸ\ÿ⁄YŸ[éàŸ^ﬂHãùÿ\õàäBÇàôXY[ôÀïôXY
+\ôŸ]W⁄[ö]X[›ÿ]⁄\›ÿ⁄X⁄ÀY[[€èUùYJKú›\ù
+
+Bàô]\õàÿ]⁄\›‹^[ÿY
+
+BÇÇò€\‹»ÿ]⁄\›[ŸPõŸJò\ŸS[Ÿ[
+NÇàò\ŸW‹€YŒà›Çà›€õÿY€[ŸNà›Çà€X[ù\€[ŸNà‹[€ò[‹›óHHõ€ôBÇÇê\ú‹›
+ãÿ\K›åK›ÿ]⁄\›€[ŸHäBê\ú‹›
+ãÿ\K›ÿ]⁄\›€[ŸHäBò\ﬁ[ò»Yà\W›ÿ]⁄\›€[ŸJõŸNàÿ]⁄\›[ŸPõŸJNÇàYàõŸKô›€õÿY€[ŸHõ›[à–U“”S—W”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùHXõÀTôYŸ[àäBàYàõŸKò€X[ù\€[ŸH\»õ›õ€ôH[ôõŸKò€X[ù\€[ŸHõ›[à”PSïT”S—W”PëSŒÇàòZ\ŸH^Ÿ\[€äï[òôZÿ[õùH0Ìúÿ⁄ôYŸ[àäBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùûHHÿ]⁄\›€€⁄›\
+õŸKòò\ŸW‹€Y BàYà[ùûH\»õ€ôNÇàòZ\ŸH^Ÿ\[€äìöX⁄[à\àöXõ[›ZÀàäBàô]ö[›\◊€[ŸHHõ‹õX[^ôW›ÿ]⁄€[ŸJ[ùûKôŸ]
+ô›€õÿY€[ŸHäJBà[ŸWÿ⁄[ôŸYHô]ö[›\◊€[ŸHOHõŸKô›€õÿY€[ŸBàô]ö[›\◊‹[ô[ô»H
+àŸ]
+›]Kùÿ]⁄\›€ô]◊‹€Y‹ÀôŸ]
+õŸKòò\ŸW‹€YÀŸ]
+
+JJBàYà[ŸWÿ⁄[ôŸY[ŸHŸ]
+
+Bà
+Bà[ùûV»ô›€õÿY€[ŸHóHHõŸKô›€õÿY€[ŸBàYàõŸKò€X[ù\€[ŸH\»õ›õ€ôNÇà[ùûV»ò€X[ù\€[ŸHóHHõ‹õX[^ôWÿ€X[ù\€[ŸJõŸKò€X[ù\€[ŸJBàYà[ùûV»ò€X[ù\€[ŸHóHOH”PSïT”S—W“—QTÇà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHHàÇàYà[ŸWÿ⁄[ôŸYÇà[ùûV»õ[ŸWŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+õ[ŸWŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»õ\›Ÿ\úõ‹àóHHêXõÀTôYŸ[⁄\ôŸ\∞Ôù8†$»]]ÀQ›€õÿY]\⁄Y\ùÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BÇàYàô]ö[›\◊‹[ô[ôŒÇàÿÿ[òŸ[‹]Y]YW‹€Y‹ ô]ö[›\◊‹[ô[ôÀêXõÀTôYŸ[ŸpÈô\ùäBÇàYà€[ŸW›ÿ]⁄\›ÿ⁄X⁄ 
+NÇàûNÇà⁄X⁄◊›ÿ]⁄\›Ÿ[ùöY\ Ÿ[ùûWJBàúõÿYÿ\›
+»ù\Héàùÿ]⁄\››\]Hã
+äùÿ]⁄\›‹^[ÿY
+
+_JBàÿ]]◊Ÿ›€õÿY€ô]◊Ÿ\\€Ÿ\ 
+BàYàô]ö[›\◊‹[ô[ôŒÇàYà‹ôX€€ò⁄[WÿYù\ó‹ôX\
+
+NÇà⁄[H[ûJàô]ö[›\◊‹[ô[ô»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäBàõ‹àõÿà[à›]Kô‹]Y]YKòX›]ôW⁄õÿú 
+Bà
+NÇà[YKú€Y\
+åäBàÿ]]◊Ÿ›€õÿY€ô]◊Ÿ\\€Ÿ\ 
+BÇàôXY[ôÀïôXY
+\ôŸ]W‹ôX€€ò⁄[WÿYù\ó‹ôX\Y[[€èUùYJKú›\ù
+
+Bà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àêXõÀTôYŸ[∞Ôà0™ﬁŸ[ùûV…›]I◊_pÆ»€€õùHöX⁄Ÿ\∞ÔùŸ\ô[éàŸ^ﬂHãùÿ\õàäBÇàôXY[ôÀïôXY
+\ôŸ]W€[ŸW›ÿ]⁄\›ÿ⁄X⁄ÀY[[€èUùYJKú›\ù
+
+Bàô]\õàÿ]⁄\›‹^[ÿY
+
+BÇÇò€\‹»ÿ]⁄\›ô[[›ôPõŸJò\ŸS[Ÿ[
+NÇàò\ŸW‹€Y‹Œà\›‹›óBÇÇê\ú‹›
+ãÿ\K›åK›ÿ]⁄\›‹ô[[›ôHäBê\ú‹›
+ãÿ\K›ÿ]⁄\›‹ô[[›ôHäBò\ﬁ[ò»Yà\W›ÿ]⁄\›‹ô[[›ôJõŸNàÿ]⁄\›ô[[›ôPõŸJNÇà[ô[ô◊‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàõ‹àò\ŸW‹€Y»[àõŸKòò\ŸW‹€Y‹ŒÇà[ô[ô◊‹€Y‹Àù\]J›]Kùÿ]⁄\›€ô]◊‹€Y‹Àú‹
+ò\ŸW‹€YÀŸ]
+
+JJBà›]KúŸ\öY\◊ÿÿX⁄Kú‹
+ò\ŸW‹€YÀõ€ôJBà›]Kùÿ]⁄\›H›»õ‹à»[à›]Kùÿ]⁄\›Yà÷»òò\ŸW‹€Y»óHõ›[àõŸKòò\ŸW‹€Y‹◊Bà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+Bà⁄]›]Kú]Y]YW€YôXﬁX€W€ÿ⁄ŒÇàô[[›ôYH›]Kô‹]Y]YKúô[[›ôW‹[ô[ô à[XôHõÿéàõ€€
+[ô[ô◊‹€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJBà
+Bà›]Kô‹]Y]YKòÿ[òŸ[ÿX›]ôJà[XôHõÿéàõ€€
+[ô[ô◊‹€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJBà
+Bà»ò[òX⁄‹ÀYHZ[àŸ\òYHXòúôX⁄[ô\àÿ[òX⁄»õÿ⁄›\ûàZ[ôŸ\ôZZ]Çàô[[›ôYô^[ô
+›]Kô‹]Y]YKúô[[›ôW‹[ô[ô à[XôHõÿéàõ€€
+[ô[ô◊‹€Y‹»	à⁄õÿó‹]Y]YW‹€Y‹ õÿäJBà
+JBà‹ô[X\ŸW‹ô[[›ôY‹]Y]YW‹€Y‹ [ô[ô◊‹€Y‹ Bàõ‹à€Y»[à[ô[ô◊‹€Y‹ŒÇà›[Y‹ò[W›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXõ»[ùô\õùã]
+àäJBà‹ŸY\úó›\õZ[ò[›⁄]›]⁄õÿä€YÀò[ŸKêXõ»[ùô\õùã]
+àäJBàúõÿYÿ\›
+»ù\Héàú]Y]YW›\]Hãú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+_JBàô]\õàÿ]⁄\›‹^[ÿY
+
+BÇÇê\ôŸ]
+ãÿ\K›åK›ÿ]⁄\›äBê\ôŸ]
+ãÿ\K›ÿ]⁄\›äBò\ﬁ[ò»Yà\W›ÿ]⁄\›ŸŸ]
+
+NÇà]ÿZ]ù[ó⁄[ó›ôXY€€
+Yò]W›ÿ]⁄\›ÿ\ù€‹ö Bàô]\õàÿ]⁄\›‹^[ÿY
+
+BÇÇò€\‹»ÿ]⁄\›⁄X⁄–õŸJò\ŸS[Ÿ[
+NÇàò\ŸW‹€Y‹Œà‹[€ò[”\›‹›óWHHõ€ôBÇÇôYàÿÿ[›[]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà[ùûNàX›àŸ\öY\Œàö[\[\›Ÿ\öY\Ààôóÿ€Y[ùàô[Yö[ê€Y[ùàôóŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WKàôó›\Ÿ\óŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WKàôó‹Ÿ\öY\Œà‹[€ò[”\›ŸX›WHHõ€ôKäHOàX›Çàààêô\ôX⁄ô][àù\›[ô⁄ôH€ÿò[Hÿ]⁄\›Q][àùHô\∞Èô\õãàààÇàô]ö[›\◊⁄Ÿ^\»H¬à\úŸYÃNóBàõ‹à€Y»[à[ùûKôŸ]
+ö€õ›€ó‹€Y‹»ã◊JBàYà
+\úŸYèH\úŸWŸ\\€ŸW‹€Y €Y JH\»õ›õ€ôBàBà›\úô[ù⁄Ÿ^\»H \\€ŸKúŸX\€€ã\\€ŸKô\\€ŸJHõ‹à\\€ŸH[àŸ\öY\Àò[Ÿ\\€Ÿ\ﬂBàò[ö\⁄Y⁄Ÿ^\»Hô]ö[›\◊⁄Ÿ^\»H›\úô[ù⁄Ÿ^\¬àYàò[ö\⁄Y⁄Ÿ^\ŒÇà»ô\úÿ⁄›[ô[ôH\\€Ÿ[à⁄[ôù\à[õà[òôY[ö€X⁄Ÿ[õàQÇà»ô\›0ÈY›\‹»⁄YH⁄ôZ[àõÿ⁄öX⁄]\ŸŸ\›òZ›\ô[à
+ãêãàŸZ[à»Z[à[òöY]\à⁄YHù]õ‹à∞Èÿ⁄X⁄[»ô\ôZ]»ô\ô∞Ôÿò\àŸ[\›]à»]JKà⁄ôHY\ŸHô\›0ÈY›[ô»õZXù\àÿ⁄]àõ‹àZ[ô\Çà»[ùõ€›0ÈôYŸ[à[òöY]\ò[ù€‹ùô\›Z[ãÇà^Z[ôYH›[úô[X\ŸYŸ\\€ŸW⁄Ÿ^\ [ùûKôŸ]
+ùYó⁄YãàäKò[ö\⁄Y⁄Ÿ^\ BàYàò[ö\⁄Y⁄Ÿ^\»H^Z[ôYÇàòZ\ŸHù[ù[YQ\úõ‹äê[òöY]\ò[ù€‹ù[ùõ€›0ÈôY»8†$»ö\⁄\àôZÿ[õùH\\€Ÿ[àôZ[àäBÇà›€õÿYYH€€\]WŸ›€õÿYYŸ\\€Ÿ\ Ÿ\öY\ Bà[X\Ÿ\»H\JX›ôúõ€ZŸ^\ ¬à[ùûKôŸ]
+ù]HãàäKà
+ä[ùûKôŸ]
+ò[X\Ÿ\»äH‹à◊JKàJJBàŸ\öY\◊⁄Y»Hôóÿ€Y[ùúŸ\öY\◊⁄Y◊Ÿõ‹äàŸ\öY\Àù]KàYó⁄YY[ùûKôŸ]
+ùYó⁄YãàäKà[X\Ÿ\œX[X\Ÿ\Àà][\œZôó‹Ÿ\öY\Àà
+HYàôó‹Ÿ\öY\»\»õ›õ€ôH[ŸHŸ]
+
+BàYàôóÿ€Y[ùò€€ôöY›\ôY[ôôó‹Ÿ\öY\»\»õ€ôNÇàòZ\ŸHù[ù[YQ\úõ‹äíô[Yö[ãTŸ\öY[ö[ô^öX⁄ô\ô∞Ôÿò\àäBàYàŸ\öY\◊⁄Y»\»õ€ôNÇàòZ\ŸHù[ù[YQ\úõ‹äíô[Yö[ãVù[‹ôù[ô»YZô]]Y»äBàôóŸ^\›[ô»H
+àôóÿ€Y[ùô\\€Ÿ\◊Ÿõ‹ó‹Ÿ\öY\ àŸ\öY\Àù]K][\œZôóŸ\\€Ÿ\À[X\Ÿ\œX[X\Ÿ\ÀŸ\öY\◊⁄Yœ\Ÿ\öY\◊⁄YÀà
+BàYàôóŸ\\€Ÿ\»\»õ›õ€ôH[ŸHŸ]
+
+Bà
+Bà€X[ù\⁄\›‹ûHHõ‹õX[^ôWŸ\\€ŸW⁄\›‹ûJ[ùûKôŸ]
+ò€X[ù\⁄\›‹ûHäJBàôóŸ^\›[ôÀù\]J€X[ù\⁄\›‹ûJBàôó›ÿ]⁄YH
+àôóÿ€Y[ùùÿ]⁄YŸ\\€Ÿ\◊Ÿõ‹ó‹Ÿ\öY\ àŸ\öY\Àù]Kôó›\Ÿ\óŸ\\€Ÿ\À[X\Ÿ\œX[X\Ÿ\ÀŸ\öY\◊⁄Yœ\Ÿ\öY\◊⁄YÀà
+BàYàôó›\Ÿ\óŸ\\€Ÿ\»\»õ›õ€ôH[ŸHõ€ôBà
+BàYàôó›ÿ]⁄Y\»õ›õ€ôNÇàôó›ÿ]⁄Yù\]J€X[ù\⁄\›‹ûJBà€X[ù\€[ŸHHõ‹õX[^ôWÿ€X[ù\€[ŸJ[ùûKôŸ]
+ò€X[ù\€[ŸHäJBà€X[ù\⁄][\»H◊BàYà€X[ù\€[ŸHOH”PSïT”S—W“—QT[ôôó›\Ÿ\óŸ\\€Ÿ\»\»õ›õ€ôNÇà€X[ù\⁄][\»HŸ[X›ÿ€X[ù\⁄][\ àôóÿ€Y[ùô\\€ŸW⁄][\◊Ÿõ‹ó‹Ÿ\öY\ àŸ\öY\Àù]Kàôó›\Ÿ\óŸ\\€Ÿ\Àà[X\Ÿ\œX[X\Ÿ\ÀàŸ\öY\◊⁄Yœ\Ÿ\öY\◊⁄YÀà
+Kà€X[ù\€[ŸKà[ùûKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äH‹àﬂKà€X[ù\⁄\›‹ûKà
+Bà[ŸHHõ‹õX[^ôW›ÿ]⁄€[ŸJ[ùûKôŸ]
+ô›€õÿY€[ŸHäJBàYà[ŸHOH–U“”S—W”ëV‘—PT””éÇà€›[ù◊ÿ⁄X⁄ŸYÿ]Hõÿ]
+[ùûKôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]äH‹à
+BàYà
+à€›[ù◊ÿ⁄X⁄ŸYÿ]Hà‹à[YKù[YJ
+HH€›[ù◊ÿ⁄X⁄ŸYÿ]à—TíQT◊––P“W’
+»åà
+NÇàòZ\ŸHù[ù[YQ\úõ‹äî›Yôô[[Yò[ô»öX⁄Z›Y[ô\öYö^öY\ù8†$»]]ÀQ›€õÿY]\⁄Y\ùäBà^X›Yÿ€›[ù»H¬à[ù
+ŸX\€€äNà[ù
+€›[ù
+Bàõ‹àŸX\€€ã€›[ù[à
+[ùûKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äH‹àﬂJKö][\ 
+BàYà›äŸX\€€äKõ›ö\
+ãHäKö\ŸY⁄]
+
+H[ô›ä€›[ù
+Kö\ŸY⁄]
+
+BàBà€›\òŸW‹ŸX\€€ú»H€‹ùY
+Ÿ\\€ŸKúŸX\€€àõ‹à\\€ŸH[àŸ\öY\Àò[Ÿ\\€Ÿ\ﬂJBàôY›[\ó‹ŸX\€€ú»H‹ŸX\€€àõ‹àŸX\€€à[à€›\òŸW‹ŸX\€€ú»YàŸX\€€ààBàô\]Z\ôY‹ŸX\€€ú»HôY›[\ó‹ŸX\€€ú»‹à€›\òŸW‹ŸX\€€ú¬àYà[ûJ^X›Yÿ€›[ùÀôŸ]
+ŸX\€€ã
+HHõ‹àŸX\€€à[àô\]Z\ôY‹ŸX\€€ú NÇàòZ\ŸHù[ù[YQ\úõ‹äî›Yôô[[Yò[ô»öX⁄ô\öYö^öY\òò\à8†$»]]ÀQ›€õÿY]\⁄Y\ùäBà[úô[X\ŸY‹€Y‹»H›[úô[X\ŸYŸ\\€ŸW‹€Y‹ Ÿ\öY\À[ùûKôŸ]
+ùYó⁄YãàäJBàZ\‹⁄[ô◊‹€Y‹»HŸ[X›€Z\‹⁄[ô◊Ÿ\\€ŸW‹€Y‹ àŸ\öY\Àò[Ÿ\\€Ÿ\Àà[ŸKà›€õÿYY‹€Y‹œY›€õÿYYàô[Yö[óŸ^\›[ôœZôóŸ^\›[ôÀàô[Yö[ó›ÿ]⁄YZôó›ÿ]⁄YàŸX\€€óŸ\\€ŸWÿ€›[ùœY[ùûKôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äH‹àﬂKà[úô[X\ŸY‹€Y‹œ][úô[X\ŸY‹€Y‹Àà
+Bàô]\õà¬àõ[ŸHéà[ŸKàò€X[ù\€[ŸHéà€X[ù\€[ŸKàö€õ›€ó‹€Y‹»éàŸ\\€ŸKú€Y»õ‹à\\€ŸH[àŸ\öY\Àò[Ÿ\\€Ÿ\◊KàõZ\‹⁄[ô◊‹€Y‹»éàZ\‹⁄[ô◊‹€Y‹Ààò€X[ù\⁄][\»éà€X[ù\⁄][\ÀàBÇÇôYàÿ\W›ÿ]⁄\›Ÿ[ùûW‹›]J[ùûNàX›ÿ[›[]YàX›
+HOàŸ]‹›óNÇààà∞Áô\õö[[]Z[à\ôŸXõö\»[ôY[]öX⁄YZàô[∞ÌùY›H]Y]YKT€Y‹ÀàààÇà[ùûV»ô›€õÿY€[ŸHóHHÿ[›[]Y»õ[ŸHóBà[ùûV»ò€X[ù\€[ŸHóHHÿ[›[]Y»ò€X[ù\€[ŸHóBà[ùûV»ö€õ›€ó‹€Y‹»óHHÿ[›[]Y»ö€õ›€ó‹€Y‹»óBàô]ö[›\◊‹€Y‹»HŸ]
+›]Kùÿ]⁄\›€ô]◊‹€Y‹ÀôŸ]
+[ùûV»òò\ŸW‹€Y»óKŸ]
+
+JJBàZ\‹⁄[ô◊‹€Y‹»HŸ]
+ÿ[›[]Y»õZ\‹⁄[ô◊‹€Y‹»óJBàYàZ\‹⁄[ô◊‹€Y‹ŒÇà›]Kùÿ]⁄\›€ô]◊‹€Y‹÷Ÿ[ùûV»òò\ŸW‹€Y»óWHHZ\‹⁄[ô◊‹€Y‹¬à[ŸNÇà›]Kùÿ]⁄\›€ô]◊‹€Y‹Àú‹
+[ùûV»òò\ŸW‹€Y»óKõ€ôJBàòZ[YH[ùûKôŸ]
+ôòZ[YŸ›€õÿY»äBàYàõ›\⁄[ú›[òŸJòZ[YX›
+NÇàòZ[YHﬂBà[ùûV»ôòZ[YŸ›€õÿY»óHH¬à€YŒàòZ[\ôHõ‹à€YÀòZ[\ôH[àòZ[Yö][\ 
+HYà€Y»[àZ\‹⁄[ô◊‹€Y‹¬àBà[ùûV»õ\›ÿ⁄X⁄ŸYóHH[YKù[YJ
+Bà[ùûV»õ\›Ÿ\úõ‹àóHHàÇàô]\õàô]ö[›\◊‹€Y‹»HZ\‹⁄[ô◊‹€Y‹¬ÇÇôYà›\]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà[ùûNàX›àŸ\öY\Œàö[\[\›Ÿ\öY\Ààôóÿ€Y[ùàô[Yö[ê€Y[ùàôóŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WKàôó›\Ÿ\óŸ\\€Ÿ\Œà‹[€ò[”\›ŸX›WKàôó‹Ÿ\öY\Œà‹[€ò[”\›ŸX›WHHõ€ôKäHOàŸ]‹›óNÇàÿ[›[]YHÿÿ[›[]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà[ùûKŸ\öY\Àôóÿ€Y[ùôóŸ\\€Ÿ\Àôó›\Ÿ\óŸ\\€Ÿ\Àôó‹Ÿ\öY\Àà
+Bàô]\õàÿ\W›ÿ]⁄\›Ÿ[ùûW‹›]J[ùûKÿ[›[]Y
+BÇÇôYàŸ^X›]W›ÿ]⁄\›ÿ€X[ù\
+àõÿúŒà\›ŸX›Kôóÿ€Y[ùàô[Yö[ê€Y[ùô[Yö[óŸŸ[ô\ò][€éà[ùäHOà[ùÇàààì0Ìúÿ⁄úôZYŸYŸXô[ôHô[Yö[ãQ\\€Ÿ[à[ôY\ö›Zô[àXõÀQõ‹ùÿ⁄ö]ÇÇàYH\›‹öYHô\ö[ô\ù\‹»Xú⁄X⁄X⁄Ÿ[0Ìúÿ⁄Hõ€Ÿ[àôZ[H∞È⁄›[ÇàXõÀS]Yà⁄YY\à[»ôZ[ô\öÿ[õùŸ\ô[ãàõ‹àôY[H^\õô[àSUH⁄\ôàŸ\∞ÔùÿàYH0Ìúÿ⁄ôYŸ[õÿ⁄[ùô\∞Èô\ùZ›]à\›ÇàààÇà[]Y››[Hà[]Y⁄YŒàŸ]‹›óHHŸ]
+
+Bà⁄[ôŸYHò[ŸBàõ‹àõÿà[àõÿúŒÇà[ùûHHõÿñ»ô[ùûHóBàô]ö\⁄[€àH[ù
+õÿñ»úô]ö\⁄[€àóJBà€X[ù\€[ŸHHõ‹õX[^ôWÿ€X[ù\€[ŸJõÿñ»ò€X[ù\€[ŸHóJBà›XÿŸ\‹Ÿù[‹Z\úŒàŸ]›\V⁄[ù[ùWHHŸ]
+
+BàòZ[YHàŸY[ó⁄YŒàŸ]‹›óHHŸ]
+
+BÇàõ‹à][H[àõÿãôŸ]
+ö][\»äH‹à◊NÇà][W⁄YH›ä][KôŸ]
+öYäH‹ààäKú›ö\
+
+BàYàõ›][W⁄Y‹à][W⁄Y[àŸY[ó⁄YŒÇà€€ù[ùYBàŸY[ó⁄YÀòY
+][W⁄Y
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇà€€ôöY◊⁄\◊ÿ›\úô[ùHô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàù[W⁄\◊ÿ›\úô[ùHõ€€
+à[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà[ô[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOHô]ö\⁄[€Çà[ôõ‹õX[^ôWÿ€X[ù\€[ŸJ[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOH€X[ù\€[ŸBà[ô€X[ù\€[ŸHOH”PSïT”S—W“—QTà
+BàYàõ›€€ôöY◊⁄\◊ÿ›\úô[ù‹àõ›ù[W⁄\◊ÿ›\úô[ùÇàúôXZ¬àYàôóÿ€Y[ùô[]W⁄][J][W⁄Y
+NÇà›XÿŸ\‹Ÿù[‹Z\úÀòY
+
+[ù
+][V»úŸX\€€àóJK[ù
+][V»ô\\€ŸHóJJJBà[]Y⁄YÀòY
+][W⁄Y
+Bà[]Y››[
+œHBà[ŸNÇàòZ[Y
+œHBÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYàõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+NÇà€€ù[ùYBàYà›XÿŸ\‹Ÿù[‹Z\úŒÇà\›‹ûHHõ‹õX[^ôWŸ\\€ŸW⁄\›‹ûJ[ùûKôŸ]
+ò€X[ù\⁄\›‹ûHäJBà\›‹ûKù\]J›XÿŸ\‹Ÿù[‹Z\ú Bà[ùûV»ò€X[ù\⁄\›‹ûHóHHŸ\öX[^ôWŸ\\€ŸW⁄\›‹ûJ\›‹ûJBà[ùûV»ò€X[ù\Ÿ[]Yÿ€›[ùóHH[ù
+[ùûKôŸ]
+ò€X[ù\Ÿ[]Yÿ€›[ùã
+JH
+»[äà›XÿŸ\‹Ÿù[‹Z\ú¬à
+Bà⁄[ôŸYHùYBàYà
+à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOHô]ö\⁄[€Çà[ôõ‹õX[^ôWÿ€X[ù\€[ŸJ[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOH€X[ù\€[ŸBà
+NÇà[ùûV»ò€X[ù\€\›‹ù[àóHH[YKù[YJ
+Bà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHH
+ààûŸòZ[YHô[Yö[ãQ[[Y[ù
+JH€€õù[àöX⁄Ÿ[0Ìúÿ⁄Ÿ\ô[àÇàYàòZ[Y[ŸHàÇà
+Bà⁄[ôŸYHùYBÇàYà⁄[ôŸYÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàYà[]Y⁄YŒÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà›]Köô[Yö[óŸ\\€Ÿ\»\»õ›õ€ôNÇà›]Köô[Yö[óŸ\\€Ÿ\»H¬à][Hõ‹à][H[à›]Köô[Yö[óŸ\\€Ÿ\¬àYà›ä][KôŸ]
+öYäH‹ààäHõ›[à[]Y⁄Y¬àBàYà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»\»õ›õ€ôNÇà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\»H¬à][Hõ‹à][H[à›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\¬àYà›ä][KôŸ]
+öYäH‹ààäHõ›[à[]Y⁄Y¬àBà›]Köô[Yö[óŸ\\€Ÿ\◊›[YHHåà›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊›[YHHåà›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€à
+œHBàŸ àíô[Yö[ãP]Yú∞È[Y[éàŸ[]Y››[HŸ\ŸZ[ôH\\€ŸJäHŸ[0Ìúÿ⁄àäBàô]\õà[]Y››[ÇÇôYà⁄X⁄◊›ÿ]⁄\›Ÿ[ùöY\ [ùöY\Œà\›ŸX›KôYúô\⁄⁄ô[Yö[éàõ€€Hò[ŸJHOà[ùÇàààî∞ÔùYH0Ôô\ôŸXô[ô[àÿ]⁄\›QZ[ù∞ÈŸH]YàôZ[ôH\\€Ÿ[à[ôàZ›X[\⁄Y\ù›]Kùÿ]⁄\›€ô]◊‹€Y‹Àà⁄XùYH[ûòZ\ôõ€‹ôZX⁄àŸ\∞Ôù\àZ[ù∞ÈŸHù\∞Ô⁄Àà⁄\ô€›€⁄õ€HX[ùY[[à⁄X⁄ÀQ[ô⁄[ùà[»]X⁄õ€H]]€X]\ÿ⁄[à[ù\ô‹ù[ôP⁄X⁄»Ÿ[ù]ùÇÇàŸ[⁄HôZ[ô[à\\€Ÿ[àô\∞Ô⁄‹⁄X⁄Y›Ÿ\ô[ãô\›[[]YHõ»Ÿ\öYBàŸ\‹ZX⁄\ùHXõÀTôYŸ[àô[Yö[à[ô⁄ÿ[HöY[Ÿ]ZY[àŸ\ô[à[[Y\à[¬àô\ôZ]»õ‹ö[ô[àôZ[ô[àààÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàòX⁄ŸYH◊Bàõ‹à[ùûH[à[ùöY\ŒÇàYàõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+NÇà€€ù[ùYBà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»õ\›Ÿ\úõ‹àóHHî∞Ôù[ô»0ÈYù8†$»]]ÀQ›€õÿY]\⁄Y\ùÇàòX⁄ŸYò\[ô
+
+[ùûK[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóJJBàYàõ›òX⁄ŸYÇàô]\õàÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàô[Yö[óŸŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€ÇàŸô»HX›
+›]Köô[Yö[óÿŸô Bàôóÿ€Y[ùHô[Yö[ê€Y[ù
+ŸôÀôŸ]
+ù\õãàäKŸôÀôŸ]
+ò\W⁄Ÿ^HãàäJBàôóŸ\\€Ÿ\»HŸ]⁄ô[Yö[óŸ\\€Ÿ\ õ‹òŸO\ôYúô\⁄⁄ô[Yö[äHYàôóÿ€Y[ùò€€ôöY›\ôY[ŸHõ€ôBàôó‹Ÿ\öY\»HŸ]⁄ô[Yö[ó‹Ÿ\öY\ õ‹òŸO\ôYúô\⁄⁄ô[Yö[äHYàôóÿ€Y[ùò€€ôöY›\ôY[ŸHõ€ôBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õàà\\€Ÿ\◊ÿ]òZ[XõHH›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõBàŸ\öY\◊ÿ]òZ[XõHH›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõBàô[Yö[óŸ]WŸŸ[ô\ò][€àH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€ÇÇàYà‹Ÿ]Ÿ\úõ‹ä[ùûNàX›ô]ö\⁄[€éà[ùY\‹ÿYŸNà›äHOàõ€€Çà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà
+àô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà‹àô[Yö[óŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+NÇàô]\õàò[ŸBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+àõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà‹à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOHô]ö\⁄[€Çà
+NÇàô]\õàò[ŸBà[ùûV»õ\›ÿ⁄X⁄ŸYóHH[YKù[YJ
+Bà[ùûV»õ\›Ÿ\úõ‹àóHHY\‹ÿYŸVŒåçBàô]\õàùYBÇàYàôóÿ€Y[ùò€€ôöY›\ôY[ô
+ôóŸ\\€Ÿ\»\»õ€ôH‹àõ›\\€Ÿ\◊ÿ]òZ[XõJNÇàõ‹à[ùûKô]ö\⁄[€à[àòX⁄ŸYÇà‹Ÿ]Ÿ\úõ‹ä[ùûKô]ö\⁄[€ãíô[Yö[àöX⁄\úôZX⁄ò\à8†$»]]ÀQ›€õÿY]\⁄Y\ùäBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàŸ ïÿ]⁄\›T∞Ôù[ô»]\⁄Y\ùàô[Yö[à\›öX⁄\úôZX⁄ò\ãàãùÿ\õàäBàô]\õààYàôóÿ€Y[ùò€€ôöY›\ôY[ô
+ôó‹Ÿ\öY\»\»õ€ôH‹àõ›Ÿ\öY\◊ÿ]òZ[XõJNÇàõ‹à[ùûKô]ö\⁄[€à[àòX⁄ŸYÇà‹Ÿ]Ÿ\úõ‹ä[ùûKô]ö\⁄[€ãíô[Yö[ãTŸ\öY[ö[ô^öX⁄ô\ô∞Ôÿò\àäBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàŸ ïÿ]⁄\›T∞Ôù[ô»]\⁄Y\ùàô[Yö[ãTŸ\öY[ö[ô^öX⁄ô\ô∞Ôÿò\ãàãùÿ\õàäBàô]\õàÇàôYY◊›ÿ]⁄Y‹›]\»H[ûJàõ‹õX[^ôW›ÿ]⁄€[ŸJ[ùûKôŸ]
+ô›€õÿY€[ŸHäJHOH–U“”S—W”ëV‘—PT””Çà‹àõ‹õX[^ôWÿ€X[ù\€[ŸJ[ùûKôŸ]
+ò€X[ù\€[ŸHäJHOH”PSïT”S—W“—QTàõ‹à[ùûK‹ô]ö\⁄[€à[àòX⁄ŸYà
+Bàôó›\Ÿ\óŸ\\€Ÿ\»HŸ]⁄ô[Yö[ó›\Ÿ\óŸ\\€Ÿ\ õ‹òŸO\ôYúô\⁄⁄ô[Yö[äHYàôYY◊›ÿ]⁄Y‹›]\»[ŸHõ€ôBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYàô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€éÇàô]\õàà\Ÿ\óÿ]òZ[XõHH›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõBàô[Yö[óŸ]WŸŸ[ô\ò][€àH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€ÇÇà⁄X⁄ŸYHà⁄]ò]€ó‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà€X[ù\⁄õÿúŒà\›ŸX›HH◊Bàõ‹à[ùûKô]ö\⁄[€à[àòX⁄ŸYÇà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà
+àô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà‹àô[Yö[óŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+NÇàúôXZ¬à⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+àõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà‹à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOHô]ö\⁄[€Çà
+NÇà€€ù[ùYBà[ùûW‹€ò\⁄›HX›
+[ùûJBà[ŸHHõ‹õX[^ôW›ÿ]⁄€[ŸJ[ùûW‹€ò\⁄›ôŸ]
+ô›€õÿY€[ŸHäJBà€X[ù\€[ŸHHõ‹õX[^ôWÿ€X[ù\€[ŸJ[ùûW‹€ò\⁄›ôŸ]
+ò€X[ù\€[ŸHäJBà€X[ù\‹›]\◊€Z\‹⁄[ô»Hõ€€
+à€X[ù\€[ŸHOH”PSïT”S—W“—QTà[ô
+ôó›\Ÿ\óŸ\\€Ÿ\»\»õ€ôH‹àõ›\Ÿ\óÿ]òZ[XõJBà
+BàYà[ŸHOH–U“”S—W”ëV‘—PT””à[ô
+ôó›\Ÿ\óŸ\\€Ÿ\»\»õ€ôH‹àõ›\Ÿ\óÿ]òZ[XõJNÇà‹Ÿ]Ÿ\úõ‹ä[ùûKô]ö\⁄[€ãíô[Yö[ãPô[ù]ô\ú›]\»öX⁄ô\ô∞Ôÿò\àäBà€€ù[ùYBàûNÇàŸ\öY\»HŸ]‹Ÿ\öY\◊Ÿõ‹ó›ò[YJ[ùûW‹€ò\⁄›»úÿ[\W›\õóJBàYàŸ\öY\»\»õ€ôNÇà‹Ÿ]Ÿ\úõ‹ä[ùûKô]ö\⁄[€ãîŸ\öYHôZ[H[òöY]\àöX⁄XúùYòò\àäBàŸ à∞™ﬁŸ[ùûW‹€ò\⁄›…›]I◊_pÆŒà€€õùHöX⁄Ÿ\∞ÔùŸ\ô[ãàãùÿ\õàäBà€€ù[ùYBàYàHŸ]›Yó‹Ÿ\öY\ àŸ\öY\Àù]K[ùûW‹€ò\⁄›ôŸ]
+ùYó⁄YãàäKà
+BàYàYéÇàYàõ›[ùûW‹€ò\⁄›ôŸ]
+ùYó⁄YäNÇà[ùûW‹€ò\⁄›»ùYó⁄YóHHYãôŸ]
+ùYó⁄YäBà[ùûW‹€ò\⁄›»ò[X\Ÿ\»óHH\›
+X›ôúõ€ZŸ^\ ö[\äõ€ôK
+à[ùûW‹€ò\⁄›ôŸ]
+ù]HãàäKàŸ\öY\Àù]KàYãôŸ]
+ù]HãàäKàYãôŸ]
+õ‹öY⁄[ò[›]HãàäKà
+JJJBà[ùûW‹€ò\⁄›»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHHYãôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äH‹àﬂBà[ùûW‹€ò\⁄›»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHHõÿ]
+àYãôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]äH‹àà
+Bà[ùûW‹€ò\⁄›»ò€›ô\ó›\õóHHYãôŸ]
+ò€›ô\ó›\õäH‹àŸ\öY\Àò€›ô\ó›\õà[ùûW‹€ò\⁄›»òòX⁄Ÿõ‹›\õóHHYãôŸ]
+òòX⁄Ÿõ‹›\õäH‹ààÇà[YàŸ\öY\Àò€›ô\ó›\õÇà[ùûW‹€ò\⁄›»ò€›ô\ó›\õóHHŸ\öY\Àò€›ô\ó›\õàÿ[›[]YHÿÿ[›[]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà[ùûW‹€ò\⁄›Ÿ\öY\Àôóÿ€Y[ùôóŸ\\€Ÿ\Àôó›\Ÿ\óŸ\\€Ÿ\Àôó‹Ÿ\öY\Àà
+Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà
+àô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà‹àô[Yö[óŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+NÇàúôXZ¬à⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+àõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà‹à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOHô]ö\⁄[€Çà
+NÇà€€ù[ùYBàYà[ùûW‹€ò\⁄›ôŸ]
+ùYó⁄YäNÇà[ùûV»ùYó⁄YóHH[ùûW‹€ò\⁄›»ùYó⁄YóBà[ùûV»ò[X\Ÿ\»óHH[ùûW‹€ò\⁄›ôŸ]
+ò[X\Ÿ\»ã◊JBà[ùûV»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHH[ùûW‹€ò\⁄›ôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»ãﬂJBà[ùûV»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHH[ùûW‹€ò\⁄›ôŸ]
+àúŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]ãà
+Bà[ùûV»ò€›ô\ó›\õóHH[ùûW‹€ò\⁄›ôŸ]
+ò€›ô\ó›\õãàäBà[ùûV»òòX⁄Ÿõ‹›\õóHH[ùûW‹€ò\⁄›ôŸ]
+òòX⁄Ÿõ‹›\õãàäBà[ùûV»ò€X[ù\€[ŸHóHH€X[ù\€[ŸBà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHH
+àíô[Yö[ãPô[ù]ô\ú›]\»öX⁄ô\ô∞Ôÿò\àÇàYà€X[ù\‹›]\◊€Z\‹⁄[ô»[ŸHàÇà
+Bà›]KúŸ\öY\◊ÿÿX⁄VŸ[ùûV»òò\ŸW‹€Y»óWHHŸ\öY\¬à⁄]ò]€ó‹€Y‹Àù\]Jàÿ\W›ÿ]⁄\›Ÿ[ùûW‹›]J[ùûKÿ[›[]Y
+Bà
+BàYàõ›€X[ù\‹›]\◊€Z\‹⁄[ô»[ôÿ[›[]YôŸ]
+ò€X[ù\⁄][\»äNÇà€X[ù\⁄õÿúÀò\[ô
+¬àô[ùûHéà[ùûKàúô]ö\⁄[€àéàô]ö\⁄[€ãàò€X[ù\€[ŸHéà€X[ù\€[ŸKàö][\»éàÿ[›[]Y»ò€X[ù\⁄][\»óKàJBà⁄X⁄ŸY
+œHBà^Ÿ\^Ÿ\[€à\»^ŒÇà‹Ÿ]Ÿ\úõ‹ä[ùûKô]ö\⁄[€ã›ä^ JBàŸ àëôZ\àôZ[H∞Ôô[àõ€à0™ﬁŸ[ùûW‹€ò\⁄›ôŸ]
+	›]IÀ	… _pÆŒàŸ^ﬂHãùÿ\õàäBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇà]W⁄\◊ÿ›\úô[ùH
+àô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà[ôô[Yö[óŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+BàYà]W⁄\◊ÿ›\úô[ùÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàYà]W⁄\◊ÿ›\úô[ù[ô⁄]ò]€ó‹€Y‹ŒÇàÿÿ[òŸ[›⁄]ò]€ó›ÿ]⁄\›‹€Y‹ à⁄]ò]€ó‹€Y‹Ààí[àô[Yö[àõ‹ö[ô[àŸ\àöX⁄YZàZ[\àXõÀTôYŸ[ãà
+BàYà]W⁄\◊ÿ›\úô[ù[ô€X[ù\⁄õÿúŒÇàŸ^X›]W›ÿ]⁄\›ÿ€X[ù\
+€X[ù\⁄õÿúÀôóÿ€Y[ùô[Yö[óŸŸ[ô\ò][€äBàô]\õà⁄X⁄ŸYÇÇê\ú‹›
+ãÿ\K›åK›ÿ]⁄\›ÿ⁄X⁄»äBê\ú‹›
+ãÿ\K›ÿ]⁄\›ÿ⁄X⁄»äBò\ﬁ[ò»Yà\W›ÿ]⁄\›ÿ⁄X⁄ õŸNàÿ]⁄\›⁄X⁄–õŸJNÇàYà›€‹ö 
+NÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùöY\»H\›
+›]Kùÿ]⁄\›
+HYàõ›õŸKòò\ŸW‹€Y‹»[ŸH¬à»õ‹à»[à›]Kùÿ]⁄\›Yà÷»òò\ŸW‹€Y»óH[àõŸKòò\ŸW‹€Y‹¬àBà⁄X⁄ŸYH⁄X⁄◊›ÿ]⁄\›Ÿ[ùöY\ [ùöY\ÀôYúô\⁄⁄ô[Yö[èUùYJBàô]\õà⁄X⁄ŸY[ä[ùöY\ BÇà⁄X⁄ŸY›[H]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö Bà^[ÿYHÿ]⁄\›‹^[ÿY
+
+Bà^[ÿY»ò⁄X⁄ŸYóHH⁄X⁄ŸYà^[ÿY»ù›[óHH›[àúõÿYÿ\›
+»ù\Héàùÿ]⁄\››\]Hã
+äú^[ÿYJBàô]\õà^[ÿYÇÇò€\‹»ÿ]⁄\›‹[êõŸJò\ŸS[Ÿ[
+NÇàò\ŸW‹€YŒà›ÇÇÇê\ú‹›
+ãÿ\K›åK›ÿ]⁄\›€‹[àäBê\ú‹›
+ãÿ\K›ÿ]⁄\›€‹[àäBò\ﬁ[ò»Yà\W›ÿ]⁄\›€‹[äõŸNàÿ]⁄\›‹[êõŸJNÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇà[ùûHHÿ]⁄\›€€⁄›\
+õŸKòò\ŸW‹€Y BàYàõ›[ùûNÇàòZ\ŸH^Ÿ\[€äìöX⁄[à\àöXõ[›ZÀàäBà[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóHH[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JH
+»Bà[ùûV»õ\›Ÿ\úõ‹àóHHî∞Ôù[ô»0ÈYù8†$»]]ÀQ›€õÿY]\⁄Y\ùÇà‹[ó‹ô]ö\⁄[€àH[ùûV»ò⁄X⁄◊ŸŸ[ô\ò][€àóBÇàYà›€‹ö 
+NÇàŸ\öY\»H›]KúŸ\öY\◊ÿÿX⁄KôŸ]
+õŸKòò\ŸW‹€Y BàYàŸ\öY\»\»õ€ôNÇàûNÇàŸ\öY\»HŸ]‹Ÿ\öY\◊Ÿõ‹ó›ò[YJ[ùûV»úÿ[\W›\õóJBà^Ÿ\^Ÿ\[€à\»^ŒÇàŸ àëôZ\àôZ[HY[àõ€à0™ﬁŸ[ùûV…›]I◊_pÆŒàŸ^ﬂHãùÿ\õàäBàŸ\öY\»Hõ€ôBàô]\õàŸ\öY\¬ÇàŸ\öY\»H]ÿZ]ù[ó⁄[ó›ôXY€€
+›€‹ö BàYàŸ\öY\»\»õ€ôNÇàòZ\ŸH^Ÿ\[€äLîŸ\öYH€€õùHöX⁄Ÿ[Y[àŸ\ô[ãàäBÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYàõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+NÇàòZ\ŸH^Ÿ\[€äìöX⁄YZà[à\àöXõ[›ZÀàäBà›]KúŸ\öY\◊ÿÿX⁄VÿõŸKòò\ŸW‹€Y◊HHŸ\öY\¬Çà^[ÿYH]ÿZ]ù[ó⁄[ó›ôXY€€
+Ÿ\öY\◊›◊ŸX›Ÿ\öY\ÀùYJBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+à[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà[ô[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOH‹[ó‹ô]ö\⁄[€Çà
+NÇàYà^[ÿYôŸ]
+ùYó⁄YäNÇà[ùûV»ùYó⁄YóHH^[ÿY»ùYó⁄YóBàYà^[ÿYôŸ]
+ò[X\Ÿ\»äNÇà[ùûV»ò[X\Ÿ\»óHH^[ÿY»ò[X\Ÿ\»óBàYà^[ÿYôŸ]
+úŸX\€€óŸ\\€ŸWÿ€›[ù»äNÇà[ùûV»úŸX\€€óŸ\\€ŸWÿ€›[ù»óHH^[ÿY»úŸX\€€óŸ\\€ŸWÿ€›[ù»óBà[ùûV»úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]óHHõÿ]
+à^[ÿYôŸ]
+úŸX\€€óÿ€›[ù◊ÿ⁄X⁄ŸYÿ]äH‹àà
+BàYà^[ÿYôŸ]
+ò€›ô\ó›\õäNÇà[ùûV»ò€›ô\ó›\õóHH^[ÿY»ò€›ô\ó›\õóBàYà^[ÿYôŸ]
+òòX⁄Ÿõ‹›\õäNÇà[ùûV»òòX⁄Ÿõ‹›\õóHH^[ÿY»òòX⁄Ÿõ‹›\õóBÇàYà‹ﬁ[ò◊Ÿ[ùûWŸúõ€W€ÿYY‹Ÿ\öY\ 
+NÇà⁄]ò]€ó‹€Y‹ŒàŸ]‹›óHHŸ]
+
+Bà€X[ù\⁄õÿúŒà\›ŸX›HH◊Bà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàô[Yö[óŸŸ[ô\ò][€àH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çàôóÿ€Y[ùHŸ]⁄ô[Yö[óÿ€Y[ù
+
+BàôóŸ\\€Ÿ\»HŸ]⁄ô[Yö[óŸ\\€Ÿ\ 
+HYàôóÿ€Y[ùò€€ôöY›\ôY[ŸHõ€ôBàôó‹Ÿ\öY\»HŸ]⁄ô[Yö[ó‹Ÿ\öY\ 
+HYàôóÿ€Y[ùò€€ôöY›\ôY[ŸHõ€ôBà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+àõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà‹à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOH‹[ó‹ô]ö\⁄[€Çà
+NÇàô]\õÇà€ò\⁄›HX›
+[ùûJBà[ŸHHõ‹õX[^ôW›ÿ]⁄€[ŸJ€ò\⁄›ôŸ]
+ô›€õÿY€[ŸHäJBà€X[ù\€[ŸHHõ‹õX[^ôWÿ€X[ù\€[ŸJ€ò\⁄›ôŸ]
+ò€X[ù\€[ŸHäJBàôYY◊›\Ÿ\ó‹›]\»H
+à[ŸHOH–U“”S—W”ëV‘—PT””à‹à€X[ù\€[ŸHOH”PSïT”S—W“—QTà
+Bà\Ÿ\óŸ\\€Ÿ\»HŸ]⁄ô[Yö[ó›\Ÿ\óŸ\\€Ÿ\ 
+HYàôYY◊›\Ÿ\ó‹›]\»[ŸHõ€ôBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàô[Yö[óŸ]WŸŸ[ô\ò][€àH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà\\€Ÿ\◊ÿ]òZ[XõHH›]Köô[Yö[óŸ\\€Ÿ\◊ÿ]òZ[XõBàŸ\öY\◊ÿ]òZ[XõHH›]Köô[Yö[ó‹Ÿ\öY\◊ÿ]òZ[XõBà\Ÿ\óÿ]òZ[XõHH›]Köô[Yö[ó›\Ÿ\óŸ\\€Ÿ\◊ÿ]òZ[XõBàYàôóÿ€Y[ùò€€ôöY›\ôY[ô
+ôóŸ\\€Ÿ\»\»õ€ôH‹àõ›\\€Ÿ\◊ÿ]òZ[XõJNÇà\úõ‹àHíô[Yö[àöX⁄\úôZX⁄ò\à8†$»]]ÀQ›€õÿY]\⁄Y\ùÇàÿ[›[]YHõ€ôBà[Yàôóÿ€Y[ùò€€ôöY›\ôY[ô
+àôó‹Ÿ\öY\»\»õ€ôH‹àõ›Ÿ\öY\◊ÿ]òZ[XõBà
+NÇà\úõ‹àHíô[Yö[ãTŸ\öY[ö[ô^öX⁄ô\ô∞Ôÿò\àÇàÿ[›[]YHõ€ôBà[ŸNÇàYà[ŸHOH–U“”S—W”ëV‘—PT””à[ô
+à\Ÿ\óŸ\\€Ÿ\»\»õ€ôH‹àõ›\Ÿ\óÿ]òZ[XõBà
+NÇà\úõ‹àHíô[Yö[ãPô[ù]ô\ú›]\»öX⁄ô\ô∞Ôÿò\àÇàÿ[›[]YHõ€ôBà[ŸNÇàûNÇàÿ[›[]YHÿÿ[›[]W›ÿ]⁄\›Ÿ[ùûW‹›]Jà€ò\⁄›Ÿ\öY\Àôóÿ€Y[ùôóŸ\\€Ÿ\À\Ÿ\óŸ\\€Ÿ\Ààôó‹Ÿ\öY\Àà
+Bà\úõ‹àHàÇà^Ÿ\^Ÿ\[€à\»^ŒÇàÿ[›[]YHõ€ôBà\úõ‹àH›ä^ VŒåçBà⁄]›]Köô[Yö[óÿÿX⁄W€ÿ⁄ŒÇàYà
+àô[Yö[óŸŸ[ô\ò][€àOH›]Köô[Yö[óÿ€€ôöY◊ŸŸ[ô\ò][€Çà‹àô[Yö[óŸ]WŸŸ[ô\ò][€àOH›]Köô[Yö[óŸ\\€ŸWŸ]WŸŸ[ô\ò][€Çà
+NÇàô]\õÇà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàYà
+àõ›[ûJ›\úô[ù\»[ùûHõ‹à›\úô[ù[à›]Kùÿ]⁄\›
+Bà‹à[ù
+[ùûKôŸ]
+ò⁄X⁄◊ŸŸ[ô\ò][€àã
+JHOH‹[ó‹ô]ö\⁄[€Çà‹àõ‹õX[^ôW›ÿ]⁄€[ŸJ[ùûKôŸ]
+ô›€õÿY€[ŸHäJHOH[ŸBà
+NÇàô]\õÇàYà\úõ‹éÇà[ùûV»õ\›ÿ⁄X⁄ŸYóHH[YKù[YJ
+Bà[ùûV»õ\›Ÿ\úõ‹àóHH\úõ‹Çà[Yàÿ[›[]Y\»õ›õ€ôNÇà⁄]ò]€ó‹€Y‹Àù\]Jàÿ\W›ÿ]⁄\›Ÿ[ùûW‹›]J[ùûKÿ[›[]Y
+Bà
+Bà[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóHH
+àíô[Yö[ãPô[ù]ô\ú›]\»öX⁄ô\ô∞Ôÿò\àÇàYà€X[ù\€[ŸHOH”PSïT”S—W“—QTà[ô
+\Ÿ\óŸ\\€Ÿ\»\»õ€ôH‹àõ›\Ÿ\óÿ]òZ[XõJBà[ŸHàÇà
+BàYàõ›[ùûV»ò€X[ù\€\›Ÿ\úõ‹àóH[ôÿ[›[]YôŸ]
+ò€X[ù\⁄][\»äNÇà€X[ù\⁄õÿúÀò\[ô
+¬àô[ùûHéà[ùûKàúô]ö\⁄[€àéà‹[ó‹ô]ö\⁄[€ãàò€X[ù\€[ŸHéà€X[ù\€[ŸKàö][\»éàÿ[›[]Y»ò€X[ù\⁄][\»óKàJBà\€€ôöYÀúÿ]ôW›ÿ]⁄\›
+›]Kùÿ]⁄\›
+BàYà⁄]ò]€ó‹€Y‹ŒÇàÿÿ[òŸ[›⁄]ò]€ó›ÿ]⁄\›‹€Y‹ à⁄]ò]€ó‹€Y‹Ààí[àô[Yö[àõ‹ö[ô[àŸ\àöX⁄YZàZ[\àXõÀTôYŸ[ãà
+BàYà€X[ù\⁄õÿúŒÇàŸ^X›]W›ÿ]⁄\›ÿ€X[ù\
+€X[ù\⁄õÿúÀôóÿ€Y[ùô[Yö[óŸŸ[ô\ò][€äBÇà]ÿZ]ù[ó⁄[ó›ôXY€€
+‹ﬁ[ò◊Ÿ[ùûWŸúõ€W€ÿYY‹Ÿ\öY\ Bà⁄]›]Kùÿ]⁄\›€ÿ⁄ŒÇàô]◊‹€Y‹»HŸ]
+›]Kùÿ]⁄\›€ô]◊‹€Y‹ÀôŸ]
+õŸKòò\ŸW‹€YÀŸ]
+
+JJBà€õ›€ó€õ›»HŸ\\€ŸKú€Y»õ‹à\\€ŸH[àŸ\öY\Àò[Ÿ\\€Ÿ\ﬂBàô\Ÿ[X›H€‹ùY
+ô]◊‹€Y‹»	à€õ›€ó€õ› Bà^[ÿY»úô\Ÿ[X›‹€Y‹»óHHô\Ÿ[X›àô]\õà^[ÿYÇÇà»8• 8• ŸXî€ÿ⁄Ÿ]
+Ÿ»»õ‹ùÿ⁄ö]»]Y]YKQ]ô[ù H8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• 8• ôYàŸXú€ÿ⁄Ÿ]‹€ò\⁄›‹^[ÿY
+
+HOàX›Çàààí€€ú⁄\›[ù\à›\ùù\›[ô∞Ôàô]YHåKUŸXî€ÿ⁄Ÿ]Uô\òö[ô[ôŸ[ãàààÇà⁄]›]Kô›€õÿY‹›]W€ÿ⁄ŒÇà›€õÿYH¬àô€ôW⁄õÿú»éà›]Kô€ôW⁄õÿúÀàù›[⁄õÿú»éà›]Kù›[⁄õÿúÀàú›XÿŸ\‹Ÿù[⁄õÿú»éà[ä›]Kô€ôW‹€Y‹ KàôòZ[Y⁄õÿú»éàX^
+›]Kô€ôW⁄õÿú»H[ä›]Kô€ôW‹€Y‹ JKàòX›]ôHéà›]Kô‹]Y]YKòX›]ôWÿ€›[ù
+
+Kàú[ô[ô»éà›]Kô‹]Y]YKú[ô[ô◊ÿ€›[ù
+
+KàBàô]\õà¬àù\Héàú€ò\⁄›ãàò\W›ô\ú⁄[€àéàTW’ëTî“S”ãàô]ô[ù‹ÿ⁄[XW›ô\ú⁄[€àéàUëSï‘–“SPW’ëTî“S”ãàù[Y\›[\éà[YKù[YJ
+Kàú]Y]YHéàùZ[‹]Y]YW‹^[ÿY
+
+Kàùÿ]⁄\›éàÿ]⁄\›‹^[ÿY
+
+V»ùÿ]⁄\›óKàô›€õÿYéà›€õÿYàBÇÇôYà›ŸXú€ÿ⁄Ÿ]€‹öY⁄[óÿ[›ŸY
+ŸXú€ÿ⁄Ÿ]àŸXî€ÿ⁄Ÿ]
+HOàõ€€Çàààê€€⁄⁄YKUŸXî€ÿ⁄Ÿ]»Zﬁô\Y\ô[àù\à[à\ú‹ù[ô»\àZYŸ[ô[àÿô\ôõ0È⁄KàààÇà‹öY⁄[àHŸXú€ÿ⁄Ÿ]öXY\úÀôŸ]
+õ‹öY⁄[àãàäBàYàõ›‹öY⁄[éÇà»ò]]ôH€Y[ù»[ôöX⁄Xúõ›‹Ÿ\òò\⁄Y\ùHŸ\öﬁô]YŸHŸ[ô[àŸZ[ô[Çà»‹öY⁄[ãRXY\ãà⁄YHô[∞ÌùYŸ[à⁄ôZ[àZ[à^^ö]\»ôX\ô\ãU⁄Ÿ[ãÇàô]\õàùYBàûNÇà\úŸYH\õ\úŸJ‹öY⁄[äBà^Ÿ\ò[YQ\úõ‹éÇàô]\õàò[ŸBàõ‹ùÿ\ôYH
+àŸXú€ÿ⁄Ÿ]öXY\úÀôŸ]
+ûYõ‹ùÿ\ôY\õ›»ãàäBàú‹]
+ãäVÃBàú›ö\
+
+Bàòÿ\ŸYõ€
+
+Bà
+BàYàõ‹ùÿ\ôY[à»ö»ãù‹‹»üNÇàYôôX›]ôW‹ÿ⁄[YHHö»Çà[Yàõ‹ùÿ\ôY[à»öãù‹»üNÇàYôôX›]ôW‹ÿ⁄[YHHöÇà[ŸNÇàYôôX›]ôW‹ÿ⁄[YHH
+àö»àYàŸXú€ÿ⁄Ÿ]ù\õúÿ⁄[YKòÿ\ŸYõ€
+
+H[à»ö»ãù‹‹»üH[ŸHöÇà
+Bàô]\õàõ€€
+\úŸYõô]ÿ H[ô
+à\úŸYõô]ÿÀòÿ\ŸYõ€
+
+HOHŸXú€ÿ⁄Ÿ]öXY\úÀôŸ]
+ö‹›ãàäKòÿ\ŸYõ€
+
+Bà[ô\úŸYúÿ⁄[YKòÿ\ŸYõ€
+
+HOHYôôX›]ôW‹ÿ⁄[YBà
+BÇÇôYà›ŸXú€ÿ⁄Ÿ]⁄\◊ÿ]][ùXÿ]Y
+àŸXú€ÿ⁄Ÿ]àŸXî€ÿ⁄Ÿ]à
+ãàô\ú⁄[€ôYàõ€€à›X⁄àõ€€äHOàõ€€ÇàYàõ›]]‹ô\]Z\ôY
+
+NÇàô]\õàùYBàYà]][ùXÿ]Y€[ÿö[W›⁄Ÿ[äŸXú€ÿ⁄Ÿ]öXY\úÀ›X⁄]›X⁄
+NÇàô]\õàùYBàYàô\ú⁄[€ôYÇàô]\õàò[ŸBàô]\õàõ€€
+à›ŸXú€ÿ⁄Ÿ]€‹öY⁄[óÿ[›ŸY
+ŸXú€ÿ⁄Ÿ]
+Bà[ô]][ùXÿ]Y›ŸXó›⁄Ÿ[äŸXú€ÿ⁄Ÿ]ò€€⁄⁄Y\À›X⁄]›X⁄
+Bà
+BÇÇê\ùŸXú€ÿ⁄Ÿ]
+ãÿ\K›åK›‹»äBê\ùŸXú€ÿ⁄Ÿ]
+ã›‹»äBò\ﬁ[ò»Yà‹◊Ÿ[ô⁄[ù
+ŸXú€ÿ⁄Ÿ]àŸXî€ÿ⁄Ÿ]
+NÇà»ò]òTÿ‹ö\ÿ[õàôZ[HŸXî€ÿ⁄Ÿ]R[ô⁄ZŸHŸZ[ô[à]]‹ö^ò][€ãRXY\Çà»Ÿ]ô[ã[ôúõ›‹Ÿ\à0ÈôŸ[àŸ\‹ZX⁄\ùHò\⁄XÀVùYÿ[ô‹Ÿ][à‹ùöX⁄[ãÇà»\»⁄]ù[ô‹ÿ€€⁄⁄YH⁄\ôYŸYŸ[àZ]Ÿ\ÿ⁄X⁄›8†$»\ú›[Z]ù[ö›[€öY\ô[Çà»]ôKSŸÀõ‹ùÿ⁄ö][ô]Y]YKU\]\»ôZHZ›]öY\ù\à[õY[[ôÀàò]]ôBà»€Y[ù»0Ôôô[à\‹Ÿ[ôH⁄]ù[ô‹Ÿõ‹õX][»ôX\ô\ãRXY\àŸ[ô[ãÇà\◊›åHHŸXú€ÿ⁄Ÿ]úÿ€‹KôŸ]
+ú]äHOHãÿ\K›åK›‹»ÇàYàõ››ŸXú€ÿ⁄Ÿ]⁄\◊ÿ]][ùXÿ]Y
+àŸXú€ÿ⁄Ÿ]ô\ú⁄[€ôYZ\◊›åK›X⁄UùYKà
+NÇà]ÿZ]ŸXú€ÿ⁄Ÿ]ò€‹ŸJ€ŸOLLôX\€€èHê[õY[[ô»\ôõ‹ô\õX⁄äBàô]\õÇà]ÿZ]‹◊€X[òYŸ\ãò€€õôX›
+àŸXú€ÿ⁄Ÿ]à[ö]X[‹^[ÿYŸòX›‹ûO]ŸXú€ÿ⁄Ÿ]‹€ò\⁄›‹^[ÿYYà\◊›åH[ŸHõ€ôKà
+Bà€‹H\ﬁ[ò⁄[ÀôŸ]‹ù[õö[ô◊€€‹
+
+BàôX⁄X⁄◊⁄[ù\ùò[HX^
+åKõÿ]
+—Pî”–“—U–UU‘ëP“P“◊‘—P””ë JBàô^ÿ]]ÿ⁄X⁄»H€‹ù[YJ
+H
+»ôX⁄X⁄◊⁄[ù\ùò[àûNÇà⁄[HùYNÇàûNÇà]ÿZ]\ﬁ[ò⁄[ÀùÿZ]Ÿõ‹äàŸXú€ÿ⁄Ÿ]úôXŸZ]ôW›^
+
+Kà[Y[›][X^
+åô^ÿ]]ÿ⁄X⁄»H€‹ù[YJ
+JKà
+Bà^Ÿ\\ﬁ[ò⁄[Àï[Y[›]\úõ‹éÇà\‹¬àõ›»H€‹ù[YJ
+BàYàõ›»èHô^ÿ]]ÿ⁄X⁄ŒÇàYàõ››ŸXú€ÿ⁄Ÿ]⁄\◊ÿ]][ùXÿ]Y
+àŸXú€ÿ⁄Ÿ]ô\ú⁄[€ôYZ\◊›åK›X⁄Qò[ŸKà
+NÇà]ÿZ]ŸXú€ÿ⁄Ÿ]ò€‹ŸJ€ŸOLLôX\€€èHî⁄]ù[ô»XôŸ[]Yô[àäBàúôXZ¬àô^ÿ]]ÿ⁄X⁄»Hõ›»
+»ôX⁄X⁄◊⁄[ù\ùò[à^Ÿ\ŸXî€ÿ⁄Ÿ]\ÿ€€õôX›Çà\‹¬àö[ò[NÇà‹◊€X[òYŸ\ãô\ÿ€€õôX›
+ŸXú€ÿ⁄Ÿ]
+BÇÇà»›]\ÿ⁄HŸXãSÿô\ôõ0È⁄H
+]\‹»êP“[[àÿ\KH[ô›‹ÀTõ›][àŸ[[›[ù]à»Ÿ\ô[ã€€ú›ÔôH\àÿ]⁄X[S[›[ù⁄YHô\ôX⁄Ÿ[äKÇò€\‹»õ–ÿX⁄T›]X—ö[\ ›]X—ö[\ NÇàààìYYô\ùYHÿô\ôõ0È⁄HZ]ÿX⁄KP€€ùõ€àõÀXÿX⁄X]\Àà‹ù[ôàYBà]ZY[à
+[ô^ö[ÿ\öúÀ‹›[Kò‹‹ HŸ\ô[àôZH\]\»Z[ôòX⁄[BàŸ[[›[ù][à‹ôô\à0Ôô\úÿ⁄öYXô[ãà⁄ôHõÀXÿX⁄HŸ\ùöY\ù\àúõ›‹Ÿ\àYBàSH\öú»]\»[HÿX⁄H
+ù]€àKXô\à[ô\àôZ
+H8°§à8†'ëZ[ú›[[ôŸ[Çà0Ìôôõô[à⁄X⁄öX⁄ãàõÀXÿX⁄X\ûù⁄[ô›Z[ôHô]ò[YY\ù[ô»
+\àUYÀ¬à\›S[ŸYöYY8°§àÃŸ[õà[ùô\∞Èô\ù
+K€Ÿ\‹»\]\»€Ÿõ‹ù‹ôZYô[ãàààÇÇà\ﬁ[ò»YàŸ]‹ô\‹€úŸJŸ[ã]ÿ€‹JNÇàô\‹€úŸHH]ÿZ]›\\ä
+KôŸ]‹ô\‹€úŸJ]ÿ€‹JBàô\‹€úŸKöXY\ú÷»êÿX⁄KP€€ùõ€óHHõõÀ\›‹ôKõÀXÿX⁄K]\›\ô]ò[Y]KX^XYŸOLÇàô\‹€úŸKöXY\ú÷»îòY€XHóHHõõÀXÿX⁄HÇàô\‹€úŸKöXY\ú÷»ë^\ô\»óHHåÇàô]\õàô\‹€úŸBÇÇò\õ[›[ù
+ã»ãõ–ÿX⁄T›]X—ö[\ \ôX›‹ûO\›ä—Pó—TäK[UùYJKò[YOHùŸXàäBÇÇôYà€‹[óÿúõ›‹Ÿ\ä‹ùà[ù
+NÇà[YKú€Y\
+Kå
+BàŸXòúõ›‹Ÿ\ãõ‹[äàöãÀÃLçÀåååNû‹‹ùHäBÇÇöYà◊€ò[YW◊»OHó◊€XZ[ó◊»éÇà[\‹ù‹¬à[\‹ù]öX€‹õÇà»[ùãYŸ\›]Y\ù[Z]Y\Ÿ[ôH]ZH⁄ÿ[
+⁄[ô›‹Œàúõ›‹Ÿ\à0Ìôôõô]⁄X⁄à»ù\à⁄ÿ[\úôZX⁄ò\äHSë[Hÿ⁄Ÿ\ãP€€ùZ[ô\à
+ŸZ[àúõ›‹Ÿ\ã[Hô]ùŸ\ö¬à»\úôZX⁄ò\äH0ÈYùÇà‘ïH[ù
+‹Àô[ùö\õ€ãôŸ]
+î‘ïãéÕçHäJBà‘’H‹Àô[ùö\õ€ãôŸ]
+í‘’ãåLçÀåååHäBà‹[óÿúõ›‹Ÿ\àH‹Àô[ùö\õ€ãôŸ]
+ì‘Só–îì’‘—TàãåHäKõ›Ÿ\ä
+Hõ›[à
+åãôò[ŸHãõõ»äBàYà‹[óÿúõ›‹Ÿ\éÇàôXY[ôÀïôXY
+\ôŸ]W€‹[óÿúõ›‹Ÿ\ã\ô‹œJ‘ï
+KY[[€èUùYJKú›\ù
+
+Bà]öX€‹õãúù[ä\‹›R‘’‹ùT‘ïŸ◊€]ô[Hùÿ\õö[ô»äB
