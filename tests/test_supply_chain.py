@@ -1,0 +1,57 @@
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from ytdlp_updater import YtDlpRuntimeUpdater
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _content(path):
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_runtime_dependencies_and_images_are_exactly_pinned():
+    direct = [
+        line for line in _content("requirements.txt").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    locked = [
+        line for line in _content("requirements.lock").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert all("==" in line for line in direct)
+    assert all("==" in line for line in locked)
+
+    dockerfile = _content("Dockerfile")
+    compose = _content("docker-compose.yml")
+    assert "FROM python:3.12.13-slim-bookworm" in dockerfile
+    assert "pip install --no-cache-dir -r requirements.lock" in dockerfile
+    assert "SEERR_IMAGE_TAG:-v3.4.1" in compose
+    assert "SEERR_IMAGE_TAG:-latest" not in compose
+    assert "YTDLP_AUTO_UPDATE:-false" in compose
+
+
+def test_update_and_native_start_install_from_lock():
+    assert "requirements.lock" in _content("self_updater.py")
+    assert "-r requirements.lock" in _content("start.sh")
+
+
+def test_ytdlp_wheel_requires_an_approved_hash(tmp_path, monkeypatch):
+    updater = YtDlpRuntimeUpdater()
+    payload = b"verified wheel"
+
+    def fake_pip(_arguments, timeout):
+        assert timeout == 300
+        (tmp_path / "yt_dlp-2026.7.4-py3-none-any.whl").write_bytes(payload)
+
+    monkeypatch.setattr(updater, "_run_pip", fake_pip)
+    digest = hashlib.sha256(payload).hexdigest()
+    wheel = updater.download_wheel("2026.7.4", tmp_path, [digest])
+    assert wheel.is_file()
+
+    wheel.unlink()
+    with pytest.raises(RuntimeError, match="PyPI-Hash"):
+        updater.download_wheel("2026.7.4", tmp_path, ["0" * 64])

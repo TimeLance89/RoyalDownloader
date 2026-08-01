@@ -1,6 +1,7 @@
 """Sicherer In-App-Updater für persistente Quellordner."""
 
 import json
+import importlib.metadata
 import os
 import re
 import shutil
@@ -26,6 +27,16 @@ _MANIFEST_NAME = ".update_files.json"
 _PROTECTED_TOP_LEVEL = {".git", "data", "downloads", "debug", "runtime"}
 _PROTECTED_FILE_NAMES = {".env", ".app_commit_sha", _MANIFEST_NAME, "settings.ini"}
 _ACTIVE_STATES = {"downloading", "dependencies", "installing", "restarting"}
+
+
+def installed_dependency_versions() -> dict[str, str]:
+    versions = {"python": ".".join(map(str, sys.version_info[:3]))}
+    for package in ("fastapi", "uvicorn", "yt-dlp", "curl-cffi", "cryptography"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            versions[package] = "not-installed"
+    return versions
 
 
 def _in_container() -> bool:
@@ -110,6 +121,7 @@ class SelfUpdater:
                 "supported": supported,
                 "reason": reason,
                 "rollback_available": self._rollback_available(),
+                "dependencies": installed_dependency_versions(),
             }
 
     def is_active(self) -> bool:
@@ -254,6 +266,7 @@ class SelfUpdater:
         required_files = (
             "server.py",
             "requirements.txt",
+            "requirements.lock",
             "ui_translator.py",
             "ytdlp_updater.py",
             "web/app.js",
@@ -342,8 +355,8 @@ class SelfUpdater:
                 pass
 
     def _install_dependencies(self, source_root: Path) -> None:
-        staged = source_root / "requirements.txt"
-        current = self.app_dir / "requirements.txt"
+        staged = source_root / "requirements.lock"
+        current = self.app_dir / "requirements.lock"
         try:
             unchanged = current.read_bytes() == staged.read_bytes()
         except OSError:
@@ -450,7 +463,7 @@ class SelfUpdater:
         completed = subprocess.run(
             [
                 str(python), "-m", "pip", "install", "--disable-pip-version-check",
-                "--no-cache-dir", "-r", str(release / "requirements.txt"),
+                "--no-cache-dir", "-r", str(release / "requirements.lock"),
             ],
             cwd=str(release), capture_output=True, text=True, timeout=900, check=False,
         )
@@ -540,8 +553,8 @@ class SelfUpdater:
                 return
             try:
                 dependency_change = (
-                    (source_root / "requirements.txt").read_bytes()
-                    != (self.app_dir / "requirements.txt").read_bytes()
+                    (source_root / "requirements.lock").read_bytes()
+                    != (self.app_dir / "requirements.lock").read_bytes()
                 )
             except OSError:
                 dependency_change = True

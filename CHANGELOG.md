@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-01 – Runtime hardening and modularization
+
+- Bound all long-lived discovery, media-validation, path, and targeted
+  Jellyfin caches with TTL/LRU eviction, active-item pinning, maintenance, and
+  content-free diagnostics.
+- Move persistence-heavy async API work to worker threads and add event-loop
+  responsiveness regression tests.
+- Pin the resolved Python runtime, Python/Seerr image versions, disable
+  unreviewed yt-dlp mutation by default, and verify explicitly enabled yt-dlp
+  updates against PyPI SHA-256 metadata.
+- Expand CI with all-JavaScript syntax checks, frontend contract smoke tests,
+  incremental Ruff/Bandit checks, dependency audit, and coverage artifacts.
+- Extract the system API router, frontend store, and CSS design-token layer;
+  document service boundaries and lock ownership for further extraction.
+
 This file records user-visible Royal Downloader changes. The project currently
 ships continuously from `main`; entries are therefore grouped by date instead
 of a separately maintained release version.

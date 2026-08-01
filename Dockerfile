@@ -1,6 +1,6 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
-FROM python:3.12-slim AS runtime-base
+FROM python:3.12.13-slim-bookworm AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
 
@@ -24,8 +24,8 @@ RUN test "${APP_UID}" -gt 0 && test "${APP_GID}" -gt 0 \
 WORKDIR /opt/seriendownloader
 
 # Install Python dependencies first for efficient layer caching.
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
 
 # The intermediate stage may inspect local Git metadata but writes only the
 # revision marker into the image. The final image contains no .git directory.

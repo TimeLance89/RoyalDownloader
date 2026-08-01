@@ -66,6 +66,9 @@ from session_manager import ProviderBlockedError, _cookie_file_for
 from hoster_intel import HosterIntel
 from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 from resolved_link_cache import ResolvedLinkCache
+from runtime_cache import BoundedTTLCache
+from api_system_router import create_system_router
+from api_domain_routers import install_domain_routers
 from runtime_paths import data_dir
 from network_guard import is_public_http_url
 from providers.filmfrei24 import (
@@ -557,7 +560,9 @@ class AppState:
         # Kleine, serienbezogene Episoden-Caches für die Detailansicht. Diese
         # laufen unabhängig vom großen Watchlist-Gesamtindex und blockieren
         # daher nicht hinter einer vollständigen Bibliotheksabfrage.
-        self.jellyfin_targeted_episodes: Dict[str, dict] = {}
+        self.jellyfin_targeted_episodes = BoundedTTLCache[str, dict](
+            "jellyfin_targeted_episodes", max_entries=256, ttl_seconds=6 * 60 * 60,
+        )
         self.jellyfin_user_episodes: Optional[List[dict]] = None
         self.jellyfin_user_episodes_time: float = 0.0
         self.jellyfin_user_episodes_available: bool = False
@@ -577,11 +582,36 @@ class AppState:
         self.jellyfin_refresh_running = False
         self.jellyfin_refresh_pending = False
 
-        self.fp_movies: Dict[str, FilmpalastMovie] = {}
+        def active_movie_slug(slug) -> bool:
+            key = str(slug)
+            if key in getattr(self, "picked", set()):
+                return True
+            return any(
+                key in {
+                    str(entry.get("source_slug") or ""),
+                    str(entry.get("pending_slug") or ""),
+                }
+                for entry in getattr(self, "movie_subscriptions", [])
+            )
+
+        def active_series_slug(slug) -> bool:
+            key = str(slug)
+            return any(
+                key == str(entry.get("base_slug") or "")
+                for entry in getattr(self, "watchlist", [])
+            )
+
+        self.fp_movies = BoundedTTLCache[str, FilmpalastMovie](
+            "fp_movies", max_entries=1024, ttl_seconds=6 * 60 * 60,
+            is_pinned=active_movie_slug,
+        )
         # Virtuelle ``tmdb:<id>``-Treffer bündeln alle tatsächlich gefundenen
         # Anbieterquellen in Nutzerpriorität. Index 0 ist die Primärquelle,
         # alle weiteren Einträge sind Download-Fallbacks.
-        self.movie_source_cache: Dict[str, List[FilmpalastMovie]] = {}
+        self.movie_source_cache = BoundedTTLCache[str, List[FilmpalastMovie]](
+            "movie_source_cache", max_entries=512, ttl_seconds=2 * 60 * 60,
+            is_pinned=active_movie_slug,
+        )
         self.movie_source_cache_lock = threading.RLock()
         self.movie_list_cache: Dict[tuple, tuple] = {}
         self.movie_list_cache_lock = threading.Lock()
@@ -622,9 +652,16 @@ class AppState:
         self.sflix_provider_genres: set = set()
         self.ridomovies_provider_genres: set = set()
 
-        self.series_cache: Dict[str, FilmpalastSeries] = {}
-        self.series_dir_cache: Dict[tuple, Path] = {}
-        self.media_validation_cache: Dict[str, tuple] = {}
+        self.series_cache = BoundedTTLCache[str, FilmpalastSeries](
+            "series_cache", max_entries=512, ttl_seconds=6 * 60 * 60,
+            is_pinned=active_series_slug,
+        )
+        self.series_dir_cache = BoundedTTLCache[tuple, Path](
+            "series_dir_cache", max_entries=1024, ttl_seconds=60 * 60,
+        )
+        self.media_validation_cache = BoundedTTLCache[str, tuple](
+            "media_validation_cache", max_entries=2048, ttl_seconds=30 * 60,
+        )
         self.media_validation_lock = threading.Lock()
         self.series_page_size_ref: int = 1
 
@@ -675,6 +712,28 @@ class AppState:
         self.telegram_choices_lock = threading.Lock()
         self.telegram_choices_publish_lock = threading.Lock()
         self.telegram_request_lock = threading.Lock()
+
+        self.runtime_caches = (
+            self.fp_movies,
+            self.movie_source_cache,
+            self.series_cache,
+            self.series_dir_cache,
+            self.media_validation_cache,
+            self.jellyfin_targeted_episodes,
+        )
+
+    def maintain_runtime_caches(self) -> None:
+        for cache in self.runtime_caches:
+            result = cache.cleanup()
+            removed = result["expired"] + result["evicted"]
+            if removed:
+                logger.info(
+                    "Runtime-Cache %s: %d Einträge bereinigt (Größe %d/%d)",
+                    cache.name, removed, len(cache), cache.max_entries,
+                )
+
+    def runtime_cache_diagnostics(self) -> list[dict]:
+        return [cache.diagnostics() for cache in self.runtime_caches]
 
 
 state = AppState()
@@ -866,7 +925,7 @@ YTDLP_UPDATE_INTERVAL_HOURS = _bounded_env_int(
     "YTDLP_UPDATE_INTERVAL_HOURS", 24, 1, 168,
 )
 YTDLP_AUTO_UPDATE = os.environ.get(
-    "YTDLP_AUTO_UPDATE", "true",
+    "YTDLP_AUTO_UPDATE", "false",
 ).strip().casefold() not in {"0", "false", "no", "off"}
 
 
@@ -1021,7 +1080,9 @@ def _attempt_ytdlp_runtime_update() -> str:
     paused = False
     try:
         with tempfile.TemporaryDirectory(prefix="seriendownloader-ytdlp-") as tmp:
-            wheel = YTDLP_UPDATER.download_wheel(latest, Path(tmp))
+            wheel = YTDLP_UPDATER.download_wheel(
+                latest, Path(tmp), update.get("wheel_sha256") or [],
+            )
             with state.queue_lifecycle_lock:
                 if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
                     return "busy"
@@ -8667,6 +8728,12 @@ def start_background_services():
     _ytdlp_updater_thread.start()
 
 
+async def _runtime_cache_maintenance_loop() -> None:
+    while True:
+        await asyncio.sleep(60)
+        await asyncio.to_thread(state.maintain_runtime_caches)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _main_loop, _telegram_bot
@@ -8701,6 +8768,7 @@ async def lifespan(app: FastAPI):
         callback_cb=handle_telegram_callback,
     )
     _telegram_bot.start()
+    cache_maintenance_task = asyncio.create_task(_runtime_cache_maintenance_loop())
     yield
     # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
     # den auslaufenden Event-Loop einstellen.
@@ -8710,6 +8778,7 @@ async def lifespan(app: FastAPI):
     _updater_stop_event.set()
     _updater_wake_event.set()
     _ytdlp_updater_stop_event.set()
+    cache_maintenance_task.cancel()
     stop_jellyfin_recommender()
     if _telegram_bot is not None:
         _telegram_bot.stop()
@@ -8725,12 +8794,13 @@ async def lifespan(app: FastAPI):
             pass
     try:
         if appconfig.is_initialized():
-            appconfig.save(state.save_path)
+            await asyncio.to_thread(appconfig.save, state.save_path)
     except Exception:
         pass
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(create_system_router(state.runtime_cache_diagnostics))
 
 
 # Ohne Anmeldung erreichbar. Die statischen Dateien gehören dazu, weil die
@@ -8955,18 +9025,6 @@ async def api_v1_capabilities():
             "authentication": ["bearer"],
         },
     }
-
-
-@app.get("/api/v1/health")
-async def api_v1_health():
-    """Öffentliche Liveness-Antwort ohne Queue- oder Konfigurationsdaten."""
-    return {"status": "ok", "api_version": API_VERSION}
-
-
-@app.get("/api/health")
-async def api_health():
-    """Legacy-Liveness ohne interne Queue- oder Konfigurationsdaten."""
-    return {"status": "ok"}
 
 
 @app.exception_handler(Exception)
@@ -10208,7 +10266,8 @@ async def api_taste_profile_get():
 @app.post("/api/taste/events")
 async def api_taste_event(body: TasteEventBody):
     try:
-        recorded = state.taste_profile.record_event(
+        recorded = await run_in_threadpool(
+            state.taste_profile.record_event,
             body.action,
             source=body.source,
             media_type=body.media_type,
@@ -10228,9 +10287,12 @@ async def api_taste_event(body: TasteEventBody):
 async def api_taste_feedback(body: TasteFeedbackBody):
     try:
         if body.action.casefold() == "clear":
-            changed = state.taste_profile.clear_feedback(body.item_key)
+            changed = await run_in_threadpool(
+                state.taste_profile.clear_feedback, body.item_key,
+            )
         else:
-            state.taste_profile.set_feedback(
+            await run_in_threadpool(
+                state.taste_profile.set_feedback,
                 body.item_key,
                 body.action,
                 source=body.source,
@@ -10249,7 +10311,9 @@ async def api_taste_feedback(body: TasteFeedbackBody):
 @app.post("/api/taste/import")
 async def api_taste_import(body: TasteImportBody):
     try:
-        imported = state.taste_profile.import_legacy(body.model_dump())
+        imported = await run_in_threadpool(
+            state.taste_profile.import_legacy, body.model_dump(),
+        )
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, "Das alte Geschmacksprofil ist ungültig.") from exc
     return {"imported": imported, "profile": state.taste_profile.public_profile()}
@@ -10260,7 +10324,7 @@ async def api_taste_import(body: TasteImportBody):
 @app.delete("/api/v1/taste/profile")
 @app.delete("/api/taste/profile")
 async def api_taste_profile_reset():
-    state.taste_profile.reset()
+    await run_in_threadpool(state.taste_profile.reset)
     return {"reset": True, "profile": state.taste_profile.public_profile()}
 
 
@@ -10352,33 +10416,39 @@ async def api_queue_add(body: QueueAddBody):
         return added_slugs, skipped, skipped_details, selected_fallbacks
 
     added_slugs, skipped, skipped_details, selected_fallbacks = await run_in_threadpool(_work)
-    with state.queue_claim_lock:
-        queue_snapshot = set(state.picked)
-    try:
-        _require_persistent_snapshot("queue", queue_snapshot)
-    except HTTPException:
+    def _commit_claims():
         with state.queue_claim_lock:
-            state.picked.difference_update(added_slugs)
-        raise
-    accepted = _enqueue_automatic_downloads(
-        added_slugs,
-        movie_fallbacks=selected_fallbacks or None,
-        taste_source=body.source,
-    )
-    duplicate_rejected = set(added_slugs) - accepted
-    if len(accepted) < len(added_slugs):
-        with state.queue_claim_lock:
-            not_started = {
-                slug for slug in added_slugs if slug in state.picked and slug not in accepted
-            }
-            state.picked.difference_update(not_started)
-        _persist_queue_state()
+            queue_snapshot = set(state.picked)
+        try:
+            _require_persistent_snapshot("queue", queue_snapshot)
+        except HTTPException:
+            with state.queue_claim_lock:
+                state.picked.difference_update(added_slugs)
+            raise
+        accepted = _enqueue_automatic_downloads(
+            added_slugs,
+            movie_fallbacks=selected_fallbacks or None,
+            taste_source=body.source,
+        )
+        duplicate_rejected = set(added_slugs) - accepted
+        if len(accepted) < len(added_slugs):
+            with state.queue_claim_lock:
+                not_started = {
+                    slug for slug in added_slugs
+                    if slug in state.picked and slug not in accepted
+                }
+                state.picked.difference_update(not_started)
+            _persist_queue_state()
+        with state.download_state_lock:
+            counters = state.done_jobs, state.total_jobs
+        return accepted, duplicate_rejected, counters
+
+    accepted, duplicate_rejected, counters = await run_in_threadpool(_commit_claims)
+    if duplicate_rejected:
         skipped += len(duplicate_rejected)
         for slug in duplicate_rejected:
             skipped_details.setdefault(slug, "gleicher Inhalt bereits eingeplant")
-    with state.download_state_lock:
-        done_jobs = state.done_jobs
-        total_jobs = state.total_jobs
+    done_jobs, total_jobs = counters
     return {
         "added": len(accepted),
         "skipped": skipped,
@@ -10474,59 +10544,65 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
 @app.post("/api/v1/queue/remove")
 @app.post("/api/queue/remove")
 async def api_queue_remove(body: QueueRemoveBody):
-    with state.queue_lifecycle_lock:
-        with state.queue_claim_lock:
-            candidate = set(state.picked) - {body.slug}
-        _require_persistent_snapshot("queue", candidate)
-        removed = state.dl_queue.remove_pending(lambda job: body.slug in _job_queue_slugs(job))
-        active = state.dl_queue.cancel_active(lambda job: body.slug in _job_queue_slugs(job))
-        # Ein Vorbereitungsjob kann genau zwischen remove_pending() und
-        # cancel_active() noch einen echten Download eingereiht haben.
-        removed.extend(
-            state.dl_queue.remove_pending(
+    def _work():
+        with state.queue_lifecycle_lock:
+            with state.queue_claim_lock:
+                candidate = set(state.picked) - {body.slug}
+            _require_persistent_snapshot("queue", candidate)
+            removed = state.dl_queue.remove_pending(
                 lambda job: body.slug in _job_queue_slugs(job)
             )
-        )
-        # Abbruch konsumiert das logische Abschlusstoken selbst. Ein alter
-        # Hoster-Job kann bereits an einen Pending-Fallback übergeben haben und
-        # würde dann keinen eigenen Terminalcallback mehr liefern.
-        _release_removed_queue_slugs({body.slug}, persist=False)
-        removed.extend(
-            state.dl_queue.remove_pending(
+            active = state.dl_queue.cancel_active(
                 lambda job: body.slug in _job_queue_slugs(job)
             )
-        )
-    _telegram_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
-    _seerr_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
+            # Ein Vorbereitungsjob kann während des Abbruchs noch einen echten
+            # Download eingereiht haben; deshalb Pending erneut leeren.
+            removed.extend(state.dl_queue.remove_pending(
+                lambda job: body.slug in _job_queue_slugs(job)
+            ))
+            _release_removed_queue_slugs({body.slug}, persist=False)
+            removed.extend(state.dl_queue.remove_pending(
+                lambda job: body.slug in _job_queue_slugs(job)
+            ))
+        _telegram_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
+        _seerr_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
+        return len(removed), len(active), build_queue_payload()
+
+    removed, active, queue = await run_in_threadpool(_work)
+    broadcast({"type": "queue_update", "queue": queue})
     return {
-        "removed": len(removed),
-        "cancelled": len(active),
-        "queue": build_queue_payload(),
+        "removed": removed,
+        "cancelled": active,
+        "queue": queue,
     }
 
 
 @app.post("/api/v1/queue/clear")
 @app.post("/api/queue/clear")
 async def api_queue_clear():
-    with state.queue_lifecycle_lock:
-        active_slugs = {
-            slug for job in state.dl_queue.active_jobs() for slug in _job_queue_slugs(job)
-        }
-        with state.queue_claim_lock:
-            removed_slugs = set(state.picked) - active_slugs
-            candidate = set(state.picked) - removed_slugs
-        _require_persistent_snapshot("queue", candidate)
-        removed = state.dl_queue.remove_pending(lambda _job: True)
-        removed_slugs.update(
-            slug for job in removed for slug in _job_queue_slugs(job)
-        )
-        _release_removed_queue_slugs(removed_slugs, persist=False)
-    for slug in removed_slugs:
-        _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    return {"removed": len(removed_slugs), "queue": build_queue_payload()}
+    def _work():
+        with state.queue_lifecycle_lock:
+            active_slugs = {
+                slug for job in state.dl_queue.active_jobs()
+                for slug in _job_queue_slugs(job)
+            }
+            with state.queue_claim_lock:
+                removed_slugs = set(state.picked) - active_slugs
+                candidate = set(state.picked) - removed_slugs
+            _require_persistent_snapshot("queue", candidate)
+            removed = state.dl_queue.remove_pending(lambda _job: True)
+            removed_slugs.update(
+                slug for job in removed for slug in _job_queue_slugs(job)
+            )
+            _release_removed_queue_slugs(removed_slugs, persist=False)
+        for slug in removed_slugs:
+            _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
+            _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
+        return removed_slugs, build_queue_payload()
+
+    removed_slugs, queue = await run_in_threadpool(_work)
+    broadcast({"type": "queue_update", "queue": queue})
+    return {"removed": len(removed_slugs), "queue": queue}
 
 
 @app.get("/api/v1/queue")
@@ -10539,44 +10615,44 @@ async def api_queue_get():
 @app.post("/api/v1/download/cancel")
 @app.post("/api/download/cancel")
 async def api_download_cancel():
-    with state.queue_lifecycle_lock:
-        had_queue_activity = bool(
-            state.dl_queue.active_count() or state.dl_queue.pending_count()
-        )
-        _require_persistent_snapshot("queue", set())
-        state.dl_queue.cancel_all()
-        with state.queue_claim_lock:
-            with state.download_state_lock:
-                cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
-                refresh_partial_success = bool(had_queue_activity and state.done_slugs)
-            state.picked.clear()
-            state.preparing_queue_slugs.clear()
-            state.provider_waiting_jobs.clear()
-            state.provider_retry_wake_event.set()
-            with state.download_state_lock:
-                state.counted_queue_slugs.clear()
-                state.total_jobs = state.done_jobs
-        with state.hoster_extract_lock:
-            if state.voe_pool is not None:
-                try:
-                    state.voe_pool.close()
-                except Exception:
-                    pass
-                state.voe_pool = None
-            if state.embed_pool is not None:
-                try:
-                    state.embed_pool.close()
-                except Exception:
-                    pass
-                state.embed_pool = None
-    for slug in cancelled_slugs:
-        _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
+    def _work():
+        with state.queue_lifecycle_lock:
+            had_queue_activity = bool(
+                state.dl_queue.active_count() or state.dl_queue.pending_count()
+            )
+            _require_persistent_snapshot("queue", set())
+            state.dl_queue.cancel_all()
+            with state.queue_claim_lock:
+                with state.download_state_lock:
+                    cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
+                    refresh_partial_success = bool(had_queue_activity and state.done_slugs)
+                state.picked.clear()
+                state.preparing_queue_slugs.clear()
+                state.provider_waiting_jobs.clear()
+                state.provider_retry_wake_event.set()
+                with state.download_state_lock:
+                    state.counted_queue_slugs.clear()
+                    state.total_jobs = state.done_jobs
+            with state.hoster_extract_lock:
+                for attribute in ("voe_pool", "embed_pool"):
+                    pool = getattr(state, attribute)
+                    if pool is not None:
+                        try:
+                            pool.close()
+                        except Exception:
+                            pass
+                        setattr(state, attribute, None)
+        for slug in cancelled_slugs:
+            _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
+            _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
+        return refresh_partial_success, build_queue_payload()
+
+    refresh_partial_success, queue = await run_in_threadpool(_work)
+    broadcast({"type": "queue_update", "queue": queue})
     log("Download abgebrochen.")
     if refresh_partial_success:
         threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
-    return {"cancelled": True, "queue": build_queue_payload()}
+    return {"cancelled": True, "queue": queue}
 
 
 # ── Einstellungen ────────────────────────────────────────────────────────────
@@ -10648,10 +10724,11 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     if mode not in appconfig.UPDATE_MODES:
         raise HTTPException(400, "Update-Modus muss 'manual' oder 'automatic' sein.")
     interval = max(1, min(168, int(body.auto_update_interval_hours or 6)))
-    if not appconfig.save_updater(mode, interval):
+    if not await run_in_threadpool(appconfig.save_updater, mode, interval):
         raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
+    updater_cfg = await run_in_threadpool(appconfig.load_updater)
     with state.updater_config_lock:
-        state.updater_cfg = appconfig.load_updater()
+        state.updater_cfg = updater_cfg
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
         _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
     else:
@@ -10928,19 +11005,34 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
 
-    state.save_path = appconfig.load()
-    state.series_path = appconfig.load_series_path()
+    def _load_setup_runtime():
+        return {
+            "save_path": appconfig.load(),
+            "series_path": appconfig.load_series_path(),
+            "ui_language": appconfig.load_ui_language(),
+            "priorities": appconfig.load_provider_priorities(),
+            "enabled": appconfig.load_provider_enabled(),
+            "languages": appconfig.load_content_languages(),
+            "jellyfin": appconfig.load_jellyfin(),
+            "tmdb": appconfig.load_tmdb(),
+            "telegram": appconfig.load_telegram(),
+            "automation": appconfig.load_automation(),
+        }
+
+    runtime = await run_in_threadpool(_load_setup_runtime)
+    state.save_path = runtime["save_path"]
+    state.series_path = runtime["series_path"]
     with state.ui_language_lock:
-        state.ui_language = appconfig.load_ui_language()
+        state.ui_language = runtime["ui_language"]
     with state.provider_priority_lock:
-        state.provider_priorities = appconfig.load_provider_priorities()
-        state.provider_enabled = appconfig.load_provider_enabled()
-        state.content_languages = set(appconfig.load_content_languages())
-    _set_runtime_jellyfin_config(appconfig.load_jellyfin())
-    state.tmdb_cfg = appconfig.load_tmdb()
+        state.provider_priorities = runtime["priorities"]
+        state.provider_enabled = runtime["enabled"]
+        state.content_languages = set(runtime["languages"])
+    _set_runtime_jellyfin_config(runtime["jellyfin"])
+    state.tmdb_cfg = runtime["tmdb"]
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    state.telegram_cfg = appconfig.load_telegram()
-    state.automation = appconfig.load_automation()
+    state.telegram_cfg = runtime["telegram"]
+    state.automation = runtime["automation"]
     start_background_services()
     payload = {
         "saved": True,
@@ -11002,7 +11094,7 @@ async def api_ui_config_get():
 @app.post("/api/ui/config")
 async def api_ui_config_set(body: UILanguageBody):
     language = normalize_ui_language(body.language)
-    if not appconfig.save_ui_language(language):
+    if not await run_in_threadpool(appconfig.save_ui_language, language):
         raise HTTPException(500, "Die Sprache konnte nicht gespeichert werden.")
     with state.ui_language_lock:
         state.ui_language = language
@@ -11080,13 +11172,17 @@ async def api_config_set(body: ConfigBody):
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
     await run_in_threadpool(_prepare_media_directory, series, "Serienordner")
-    ok = appconfig.save(movie_path)
-    # Serien-Pfad optional: leer/None -> gleicher Ordner wie Filme (Fallback).
-    ok_series = appconfig.save_series_path(series)
+    def _save_paths():
+        ok = appconfig.save(movie_path)
+        # Serien-Pfad optional: leer/None -> gleicher Ordner wie Filme (Fallback).
+        ok_series = appconfig.save_series_path(series)
+        return ok, ok_series, appconfig.load_series_path()
+
+    ok, ok_series, saved_series_path = await run_in_threadpool(_save_paths)
     if not (ok and ok_series):
         raise HTTPException(500, "Speicherorte konnten nicht gespeichert werden.")
     state.save_path = movie_path
-    state.series_path = appconfig.load_series_path()
+    state.series_path = saved_series_path
     return {"save_path": state.save_path, "series_path": state.series_path, "saved": True}
 
 
@@ -11188,7 +11284,7 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         raise HTTPException(400, "Die Serien-Anbieterliste ist unvollständig oder ungültig.")
     if len(anime_ids) != len(set(anime_ids)) or set(anime_ids) != set(appconfig.ANIME_PROVIDER_DEFAULTS):
         raise HTTPException(400, "Die Anime-Anbieterliste ist unvollständig oder ungültig.")
-    current_enabled = appconfig.load_provider_enabled()
+    current_enabled = await run_in_threadpool(appconfig.load_provider_enabled)
     enabled_movies = [
         str(value).strip().casefold()
         for value in (
@@ -11213,11 +11309,10 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
             else current_enabled["anime"]
         )
     ]
-    content_languages = (
-        appconfig.normalize_content_languages(body.content_languages)
-        if body.content_languages is not None
-        else appconfig.load_content_languages()
-    )
+    if body.content_languages is not None:
+        content_languages = appconfig.normalize_content_languages(body.content_languages)
+    else:
+        content_languages = await run_in_threadpool(appconfig.load_content_languages)
     if (
         not enabled_movies
         or len(enabled_movies) != len(set(enabled_movies))
@@ -11242,7 +11337,8 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         for provider in enabled_movies + enabled_series + enabled_anime
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
-    if not appconfig.save_provider_priorities(
+    if not await run_in_threadpool(
+        appconfig.save_provider_priorities,
         movie_ids,
         series_ids,
         enabled_movies,
@@ -11252,10 +11348,18 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         enabled_anime=enabled_anime,
     ):
         raise HTTPException(500, "Anbieter-Prioritäten konnten nicht gespeichert werden.")
+    def _load_provider_config():
+        return (
+            appconfig.load_provider_priorities(),
+            appconfig.load_provider_enabled(),
+            appconfig.load_content_languages(),
+        )
+
+    priorities, enabled, languages = await run_in_threadpool(_load_provider_config)
     with state.provider_priority_lock:
-        state.provider_priorities = appconfig.load_provider_priorities()
-        state.provider_enabled = appconfig.load_provider_enabled()
-        state.content_languages = set(appconfig.load_content_languages())
+        state.provider_priorities = priorities
+        state.provider_enabled = enabled
+        state.content_languages = set(languages)
     with state.movie_list_cache_lock:
         state.movie_list_cache.clear()
     with state.movie_source_cache_lock:
@@ -11322,20 +11426,20 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
             if selected is None:
                 raise HTTPException(400, "Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
             user_name = selected["name"]
-    with state.jellyfin_config_update_lock:
-        ok = appconfig.save_jellyfin(
-            url, api_key, user_id, user_name, cleanup_default,
-        )
-        if not ok:
-            raise HTTPException(500, "Jellyfin-Einstellungen konnten nicht gespeichert werden.")
-        _set_runtime_jellyfin_config({
-            "url": url,
-            "api_key": api_key,
-            "user_id": user_id,
-            "user_name": user_name,
-            "cleanup_default": cleanup_default,
-        })
-        _recommender_wake_event.set()
+    def _save_jellyfin_config():
+        with state.jellyfin_config_update_lock:
+            ok = appconfig.save_jellyfin(
+                url, api_key, user_id, user_name, cleanup_default,
+            )
+            if not ok:
+                raise HTTPException(500, "Jellyfin-Einstellungen konnten nicht gespeichert werden.")
+            _set_runtime_jellyfin_config({
+                "url": url, "api_key": api_key, "user_id": user_id,
+                "user_name": user_name, "cleanup_default": cleanup_default,
+            })
+            _recommender_wake_event.set()
+
+    await run_in_threadpool(_save_jellyfin_config)
 
     def _recheck():
         with state.watchlist_lock:
@@ -11398,10 +11502,12 @@ async def api_tmdb_config_get():
 async def api_tmdb_config_set(body: TMDBConfigBody):
     language = appconfig.tmdb_language_for_ui(state.ui_language)
     api_key = body.api_key.strip() or state.tmdb_cfg.get("api_key", "")
-    ok = appconfig.save_tmdb(api_key, language)
-    if not ok:
-        raise HTTPException(500, "TMDB-Einstellungen konnten nicht gespeichert werden.")
-    state.tmdb_cfg = appconfig.load_tmdb()
+    def _save_tmdb_config():
+        if not appconfig.save_tmdb(api_key, language):
+            raise HTTPException(500, "TMDB-Einstellungen konnten nicht gespeichert werden.")
+        return appconfig.load_tmdb()
+
+    state.tmdb_cfg = await run_in_threadpool(_save_tmdb_config)
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
     with state.movie_source_cache_lock:
         state.movie_source_cache.clear()
@@ -11437,13 +11543,16 @@ async def api_automation_config_get():
 @app.post("/api/v1/automation/config")
 @app.post("/api/automation/config")
 async def api_automation_config_set(body: AutomationConfigBody):
-    ok = appconfig.save_automation(
-        body.auto_download, body.check_interval_min,
-        body.dl_window_start, body.dl_window_end,
-    )
-    if not ok:
-        raise HTTPException(500, "Automatik-Einstellungen konnten nicht gespeichert werden.")
-    state.automation = appconfig.load_automation()
+    def _save_automation_config():
+        ok = appconfig.save_automation(
+            body.auto_download, body.check_interval_min,
+            body.dl_window_start, body.dl_window_end,
+        )
+        if not ok:
+            raise HTTPException(500, "Automatik-Einstellungen konnten nicht gespeichert werden.")
+        return appconfig.load_automation()
+
+    state.automation = await run_in_threadpool(_save_automation_config)
     if state.automation.get("auto_download"):
         threading.Thread(target=_auto_download_new_episodes, daemon=True).start()
         threading.Thread(target=check_movie_subscriptions, daemon=True).start()
@@ -11473,10 +11582,12 @@ async def api_telegram_config_set(body: TelegramConfigBody):
     token = body.bot_token.strip() or state.telegram_cfg.get("bot_token", "")
     if body.enabled and not token:
         raise HTTPException(400, "Für Telegram fehlt der Bot-Token.")
-    ok = appconfig.save_telegram(body.enabled, token, body.chat_id)
-    if not ok:
-        raise HTTPException(500, "Telegram-Einstellungen konnten nicht gespeichert werden.")
-    state.telegram_cfg = appconfig.load_telegram()
+    def _save_telegram_config():
+        if not appconfig.save_telegram(body.enabled, token, body.chat_id):
+            raise HTTPException(500, "Telegram-Einstellungen konnten nicht gespeichert werden.")
+        return appconfig.load_telegram()
+
+    state.telegram_cfg = await run_in_threadpool(_save_telegram_config)
     return {
         "enabled": bool(state.telegram_cfg.get("enabled")),
         "bot_token": "",
@@ -11548,9 +11659,12 @@ async def api_seerr_config_set(body: SeerrConfigBody):
                 502,
                 "Seerr ist nicht erreichbar oder der API-Schlüssel ist ungültig; Einstellungen wurden nicht geändert.",
             )
-    if not appconfig.save_seerr(body.enabled, url, api_key, interval):
-        raise HTTPException(500, "Seerr-Einstellungen konnten nicht gespeichert werden.")
-    state.seerr_cfg = appconfig.load_seerr()
+    def _save_seerr_config():
+        if not appconfig.save_seerr(body.enabled, url, api_key, interval):
+            raise HTTPException(500, "Seerr-Einstellungen konnten nicht gespeichert werden.")
+        return appconfig.load_seerr()
+
+    state.seerr_cfg = await run_in_threadpool(_save_seerr_config)
     state.seerr_last_error = ""
     if url:
         moonfin = await run_in_threadpool(configure_moonfin_seerr, url, body.enabled)
@@ -12042,54 +12156,49 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
         raise HTTPException(400, "Unbekannte Zielqualität.")
     if body.cleanup_mode not in MOVIE_CLEANUP_LABELS:
         raise HTTPException(400, "Unbekannte Löschregel.")
-    key = movie_subscription_key(body.tmdb_id, body.title, body.year)
-    with state.movie_subscriptions_lock:
-        candidate = deepcopy(state.movie_subscriptions)
-        entry = next((item for item in candidate if item.get("key") == key), None)
-        if entry is None:
-            entry = {
-                "key": key,
+    def _work():
+        key = movie_subscription_key(body.tmdb_id, body.title, body.year)
+        with state.movie_subscriptions_lock:
+            candidate = deepcopy(state.movie_subscriptions)
+            entry = next((item for item in candidate if item.get("key") == key), None)
+            if entry is None:
+                entry = {
+                    "key": key, "source_slug": body.source_slug,
+                    "title": body.title.strip(), "year": body.year.strip(),
+                    "tmdb_id": body.tmdb_id, "cover_url": body.cover_url,
+                    "current_quality_rank": 0, "current_quality": "",
+                    "last_error": "", "cleanup_last_error": "",
+                    "pending_slug": "", "watched_deleted": False,
+                }
+                candidate.append(entry)
+            entry.update({
                 "source_slug": body.source_slug,
-                "title": body.title.strip(),
-                "year": body.year.strip(),
-                "tmdb_id": body.tmdb_id,
-                "cover_url": body.cover_url,
-                "current_quality_rank": 0,
-                "current_quality": "",
-                "last_error": "",
-                "cleanup_last_error": "",
-                "pending_slug": "",
-                "watched_deleted": False,
-            }
-            candidate.append(entry)
-        entry.update({
-            "source_slug": body.source_slug,
-            "target_quality": normalize_movie_quality(body.target_quality),
-            "cleanup_mode": normalize_movie_cleanup(body.cleanup_mode),
-            "upgrade_enabled": bool(body.upgrade_enabled),
-        })
-        if entry["cleanup_mode"] != MOVIE_CLEANUP_WATCHED:
-            entry["watched_deleted"] = False
-            entry["cleanup_last_error"] = ""
-        _require_persistent_snapshot("movie_subscriptions", candidate)
-        state.movie_subscriptions = candidate
-    movie = state.fp_movies.get(body.source_slug)
-    state.taste_profile.record_event(
-        "subscription",
-        source="movie-subscription",
-        media_type="movie",
-        item_key=f"movie:{body.tmdb_id or body.source_slug or key}",
-        title=body.title,
-        metadata={
-            "genres": list(movie.genres or []) if movie else [],
-            "year": body.year,
-            "runtime": movie.runtime if movie else "",
-        },
-    )
-    threading.Thread(
-        target=check_movie_subscriptions, args=([entry],), daemon=True,
-    ).start()
-    return movie_subscriptions_payload()
+                "target_quality": normalize_movie_quality(body.target_quality),
+                "cleanup_mode": normalize_movie_cleanup(body.cleanup_mode),
+                "upgrade_enabled": bool(body.upgrade_enabled),
+            })
+            if entry["cleanup_mode"] != MOVIE_CLEANUP_WATCHED:
+                entry["watched_deleted"] = False
+                entry["cleanup_last_error"] = ""
+            _require_persistent_snapshot("movie_subscriptions", candidate)
+            state.movie_subscriptions = candidate
+        movie = state.fp_movies.get(body.source_slug)
+        state.taste_profile.record_event(
+            "subscription", source="movie-subscription", media_type="movie",
+            item_key=f"movie:{body.tmdb_id or body.source_slug or key}",
+            title=body.title,
+            metadata={
+                "genres": list(movie.genres or []) if movie else [],
+                "year": body.year,
+                "runtime": movie.runtime if movie else "",
+            },
+        )
+        threading.Thread(
+            target=check_movie_subscriptions, args=([entry],), daemon=True,
+        ).start()
+        return movie_subscriptions_payload()
+
+    return await run_in_threadpool(_work)
 
 
 @app.get("/api/v1/movie-subscriptions")
@@ -12118,22 +12227,25 @@ async def api_movie_subscriptions_check(body: MovieSubscriptionKeysBody):
 @app.post("/api/v1/movie-subscriptions/remove")
 @app.post("/api/movie-subscriptions/remove")
 async def api_movie_subscriptions_remove(body: MovieSubscriptionKeysBody):
-    keys = set(body.keys or [])
-    pending = set()
-    with state.movie_subscriptions_lock:
-        pending = {
-            str(entry.get("pending_slug") or "")
-            for entry in state.movie_subscriptions
-            if entry.get("key") in keys and entry.get("pending_slug")
-        }
-        candidate = [
-            entry for entry in state.movie_subscriptions if entry.get("key") not in keys
-        ]
-        _require_persistent_snapshot("movie_subscriptions", candidate)
-        state.movie_subscriptions = candidate
-    if pending:
-        _cancel_queue_slugs(pending, "Film-Abo entfernt")
-    return movie_subscriptions_payload()
+    def _work():
+        keys = set(body.keys or [])
+        with state.movie_subscriptions_lock:
+            pending = {
+                str(entry.get("pending_slug") or "")
+                for entry in state.movie_subscriptions
+                if entry.get("key") in keys and entry.get("pending_slug")
+            }
+            candidate = [
+                entry for entry in state.movie_subscriptions
+                if entry.get("key") not in keys
+            ]
+            _require_persistent_snapshot("movie_subscriptions", candidate)
+            state.movie_subscriptions = candidate
+        if pending:
+            _cancel_queue_slugs(pending, "Film-Abo entfernt")
+        return movie_subscriptions_payload()
+
+    return await run_in_threadpool(_work)
 
 
 # ── Bibliothek (Watchlist) ───────────────────────────────────────────────────
@@ -12163,139 +12275,143 @@ async def api_watchlist_add(body: WatchlistAddBody):
         incoming_tmdb = await run_in_threadpool(
             get_tmdb_series, body.title, incoming_id,
         )
-    entry = None
-    with state.watchlist_lock:
-        previous_watchlist = deepcopy(state.watchlist)
-        if watchlist_lookup(body.base_slug) is None:
-            direct_incoming_titles = {
-                _norm_title(value)
-                for value in (body.title, *(body.aliases or []))
-                if _norm_title(value)
-            }
-            canonical_incoming_titles = {
-                _norm_title(value)
-                for value in (
-                    (incoming_tmdb or {}).get("title", ""),
-                    (incoming_tmdb or {}).get("original_title", ""),
-                )
-                if _norm_title(value)
-            }
-            incoming_titles = direct_incoming_titles | canonical_incoming_titles
-            duplicate = None
-            duplicate_can_migrate = False
-            for current in state.watchlist:
-                current_id = str(current.get("tmdb_id") or "").strip()
-                if incoming_id and current_id:
-                    if incoming_id == current_id:
-                        duplicate = current
-                        break
-                    continue
-                current_titles = {
+
+    def _work():
+        entry = None
+        with state.watchlist_lock:
+            previous_watchlist = deepcopy(state.watchlist)
+            if watchlist_lookup(body.base_slug) is None:
+                direct_incoming_titles = {
                     _norm_title(value)
-                    for value in (current.get("title", ""), *(current.get("aliases") or []))
+                    for value in (body.title, *(body.aliases or []))
                     if _norm_title(value)
                 }
-                if incoming_titles & current_titles:
-                    duplicate = current
-                    duplicate_can_migrate = bool(
-                        incoming_id
-                        and not current_id
-                        and not (direct_incoming_titles & current_titles)
-                        and (canonical_incoming_titles & current_titles)
-                    )
-                    break
-            if duplicate is not None:
-                if duplicate_can_migrate:
-                    duplicate["tmdb_id"] = body.tmdb_id
-                    duplicate["aliases"] = list(dict.fromkeys(filter(None, (
-                        duplicate.get("title", ""),
-                        *(duplicate.get("aliases") or []),
-                        body.title,
-                        *(body.aliases or []),
+                canonical_incoming_titles = {
+                    _norm_title(value)
+                    for value in (
                         (incoming_tmdb or {}).get("title", ""),
                         (incoming_tmdb or {}).get("original_title", ""),
-                    ))))
-                    if (incoming_tmdb or {}).get("season_episode_counts"):
-                        duplicate["season_episode_counts"] = incoming_tmdb[
-                            "season_episode_counts"
-                        ]
-                        duplicate["season_counts_checked_at"] = float(
-                            incoming_tmdb.get("season_counts_checked_at") or 0
+                    )
+                    if _norm_title(value)
+                }
+                incoming_titles = direct_incoming_titles | canonical_incoming_titles
+                duplicate = None
+                duplicate_can_migrate = False
+                for current in state.watchlist:
+                    current_id = str(current.get("tmdb_id") or "").strip()
+                    if incoming_id and current_id:
+                        if incoming_id == current_id:
+                            duplicate = current
+                            break
+                        continue
+                    current_titles = {
+                        _norm_title(value)
+                        for value in (current.get("title", ""), *(current.get("aliases") or []))
+                        if _norm_title(value)
+                    }
+                    if incoming_titles & current_titles:
+                        duplicate = current
+                        duplicate_can_migrate = bool(
+                            incoming_id
+                            and not current_id
+                            and not (direct_incoming_titles & current_titles)
+                            and (canonical_incoming_titles & current_titles)
                         )
-                    if (incoming_tmdb or {}).get("cover_url"):
-                        duplicate["cover_url"] = incoming_tmdb["cover_url"]
-                    if (incoming_tmdb or {}).get("backdrop_url"):
-                        duplicate["backdrop_url"] = incoming_tmdb["backdrop_url"]
-                    try:
-                        _require_persistent_snapshot(
-                            "watchlist", deepcopy(state.watchlist),
-                        )
-                    except HTTPException:
-                        state.watchlist = previous_watchlist
-                        raise
-                raise HTTPException(
-                    409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
+                        break
+                if duplicate is not None:
+                    if duplicate_can_migrate:
+                        duplicate["tmdb_id"] = body.tmdb_id
+                        duplicate["aliases"] = list(dict.fromkeys(filter(None, (
+                            duplicate.get("title", ""),
+                            *(duplicate.get("aliases") or []),
+                            body.title,
+                            *(body.aliases or []),
+                            (incoming_tmdb or {}).get("title", ""),
+                            (incoming_tmdb or {}).get("original_title", ""),
+                        ))))
+                        if (incoming_tmdb or {}).get("season_episode_counts"):
+                            duplicate["season_episode_counts"] = incoming_tmdb[
+                                "season_episode_counts"
+                            ]
+                            duplicate["season_counts_checked_at"] = float(
+                                incoming_tmdb.get("season_counts_checked_at") or 0
+                            )
+                        if (incoming_tmdb or {}).get("cover_url"):
+                            duplicate["cover_url"] = incoming_tmdb["cover_url"]
+                        if (incoming_tmdb or {}).get("backdrop_url"):
+                            duplicate["backdrop_url"] = incoming_tmdb["backdrop_url"]
+                        try:
+                            _require_persistent_snapshot(
+                                "watchlist", deepcopy(state.watchlist),
+                            )
+                        except HTTPException:
+                            state.watchlist = previous_watchlist
+                            raise
+                    raise HTTPException(
+                        409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
+                    )
+                entry = body.model_dump()
+                entry["aliases"] = list(dict.fromkeys(
+                    alias.strip() for alias in (body.aliases or []) if alias and alias.strip()
+                ))
+                entry["season_episode_counts"] = {
+                    str(season): max(0, int(count))
+                    for season, count in (body.season_episode_counts or {}).items()
+                }
+                entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
+                entry["cover_url"] = (incoming_tmdb or {}).get("cover_url", "")
+                entry["backdrop_url"] = (incoming_tmdb or {}).get("backdrop_url", "")
+                entry["download_mode"] = normalize_watch_mode(body.download_mode)
+                entry["cleanup_mode"] = normalize_cleanup_mode(
+                    body.cleanup_mode
+                    if body.cleanup_mode is not None
+                    else state.jellyfin_cfg.get("cleanup_default")
                 )
-            entry = body.model_dump()
-            entry["aliases"] = list(dict.fromkeys(
-                alias.strip() for alias in (body.aliases or []) if alias and alias.strip()
-            ))
-            entry["season_episode_counts"] = {
-                str(season): max(0, int(count))
-                for season, count in (body.season_episode_counts or {}).items()
-            }
-            entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
-            entry["cover_url"] = (incoming_tmdb or {}).get("cover_url", "")
-            entry["backdrop_url"] = (incoming_tmdb or {}).get("backdrop_url", "")
-            entry["download_mode"] = normalize_watch_mode(body.download_mode)
-            entry["cleanup_mode"] = normalize_cleanup_mode(
-                body.cleanup_mode
-                if body.cleanup_mode is not None
-                else state.jellyfin_cfg.get("cleanup_default")
+                entry["cleanup_history"] = []
+                entry["cleanup_deleted_count"] = 0
+                entry["cleanup_last_error"] = ""
+                entry["failed_downloads"] = {}
+                entry["last_error"] = ""
+                entry["mode_generation"] = 0
+                entry["check_generation"] = 0
+                state.watchlist.append(entry)
+                try:
+                    _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+                except HTTPException:
+                    state.watchlist = previous_watchlist
+                    raise
+        if entry is not None:
+            log(f"«{body.title}» zur Bibliothek hinzugefügt.")
+            state.taste_profile.record_event(
+                "watchlist",
+                source="watchlist",
+                media_type="series",
+                item_key=f"series:{body.tmdb_id or body.base_slug}",
+                title=body.title,
+                metadata={
+                    "genres": (incoming_tmdb or {}).get("genres") or [],
+                    "year": (incoming_tmdb or {}).get("year") or "",
+                },
             )
-            entry["cleanup_history"] = []
-            entry["cleanup_deleted_count"] = 0
-            entry["cleanup_last_error"] = ""
-            entry["failed_downloads"] = {}
-            entry["last_error"] = ""
-            entry["mode_generation"] = 0
-            entry["check_generation"] = 0
-            state.watchlist.append(entry)
-            try:
-                _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
-            except HTTPException:
-                state.watchlist = previous_watchlist
-                raise
-    if entry is not None:
-        log(f"«{body.title}» zur Bibliothek hinzugefügt.")
-        state.taste_profile.record_event(
-            "watchlist",
-            source="watchlist",
-            media_type="series",
-            item_key=f"series:{body.tmdb_id or body.base_slug}",
-            title=body.title,
-            metadata={
-                "genres": (incoming_tmdb or {}).get("genres") or [],
-                "year": (incoming_tmdb or {}).get("year") or "",
-            },
-        )
 
-        # Nicht erst bis zum nächsten 30-Minuten-Intervall warten: sofort prüfen
-        # und bei eingeschalteter Automatik den Download anstoßen. Die Arbeit
-        # läuft außerhalb des API-Requests, damit die Oberfläche direkt reagiert.
-        def _initial_watchlist_check():
-            try:
-                with state.watchlist_lock:
-                    if entry not in state.watchlist:
-                        return
-                check_watchlist_entries([entry])
-                broadcast({"type": "watchlist_update", **watchlist_payload()})
-                _auto_download_new_episodes()
-            except Exception as exc:
-                log(f"Erstprüfung von «{body.title}» fehlgeschlagen: {exc}", "warn")
+            # Nicht erst bis zum nächsten 30-Minuten-Intervall warten: sofort prüfen
+            # und bei eingeschalteter Automatik den Download anstoßen. Die Arbeit
+            # läuft außerhalb des API-Requests, damit die Oberfläche direkt reagiert.
+            def _initial_watchlist_check():
+                try:
+                    with state.watchlist_lock:
+                        if entry not in state.watchlist:
+                            return
+                    check_watchlist_entries([entry])
+                    broadcast({"type": "watchlist_update", **watchlist_payload()})
+                    _auto_download_new_episodes()
+                except Exception as exc:
+                    log(f"Erstprüfung von «{body.title}» fehlgeschlagen: {exc}", "warn")
 
-        threading.Thread(target=_initial_watchlist_check, daemon=True).start()
-    return watchlist_payload()
+            threading.Thread(target=_initial_watchlist_check, daemon=True).start()
+        return watchlist_payload()
+
+    return await run_in_threadpool(_work)
 
 
 class WatchlistModeBody(BaseModel):
@@ -12311,31 +12427,35 @@ async def api_watchlist_mode(body: WatchlistModeBody):
         raise HTTPException(400, "Unbekannte Abo-Regel.")
     if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Löschregel.")
-    with state.watchlist_lock:
-        previous_watchlist = deepcopy(state.watchlist)
-        entry = watchlist_lookup(body.base_slug)
-        if entry is None:
-            raise HTTPException(404, "Nicht in der Bibliothek.")
-        previous_mode = normalize_watch_mode(entry.get("download_mode"))
-        mode_changed = previous_mode != body.download_mode
-        previous_pending = (
-            set(state.watchlist_new_slugs.get(body.base_slug, set()))
-            if mode_changed else set()
-        )
-        entry["download_mode"] = body.download_mode
-        if body.cleanup_mode is not None:
-            entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
-            if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
-                entry["cleanup_last_error"] = ""
-        if mode_changed:
-            entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
-        entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-        entry["last_error"] = "Abo-Regel wird geprüft – Auto-Download pausiert"
-        try:
-            _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
-        except HTTPException:
-            state.watchlist = previous_watchlist
-            raise
+    def _mutate():
+        with state.watchlist_lock:
+            previous_watchlist = deepcopy(state.watchlist)
+            entry = watchlist_lookup(body.base_slug)
+            if entry is None:
+                raise HTTPException(404, "Nicht in der Bibliothek.")
+            previous_mode = normalize_watch_mode(entry.get("download_mode"))
+            mode_changed = previous_mode != body.download_mode
+            previous_pending = (
+                set(state.watchlist_new_slugs.get(body.base_slug, set()))
+                if mode_changed else set()
+            )
+            entry["download_mode"] = body.download_mode
+            if body.cleanup_mode is not None:
+                entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
+                if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
+                    entry["cleanup_last_error"] = ""
+            if mode_changed:
+                entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
+            entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
+            entry["last_error"] = "Abo-Regel wird geprüft – Auto-Download pausiert"
+            try:
+                _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+            except HTTPException:
+                state.watchlist = previous_watchlist
+                raise
+            return entry, previous_pending
+
+    entry, previous_pending = await run_in_threadpool(_mutate)
 
     if previous_pending:
         _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
@@ -12369,35 +12489,38 @@ class WatchlistRemoveBody(BaseModel):
 @app.post("/api/v1/watchlist/remove")
 @app.post("/api/watchlist/remove")
 async def api_watchlist_remove(body: WatchlistRemoveBody):
-    pending_slugs: set[str] = set()
-    with state.watchlist_lock:
-        for base_slug in body.base_slugs:
-            pending_slugs.update(state.watchlist_new_slugs.get(base_slug, set()))
-        candidate = [
-            w for w in state.watchlist if w["base_slug"] not in body.base_slugs
-        ]
-        _require_persistent_snapshot("watchlist", candidate)
-        state.watchlist = candidate
-        for base_slug in body.base_slugs:
-            state.watchlist_new_slugs.pop(base_slug, None)
-            state.series_cache.pop(base_slug, None)
-    with state.queue_lifecycle_lock:
-        removed = state.dl_queue.remove_pending(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        )
-        state.dl_queue.cancel_active(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        )
-        # Fallbacks, die ein gerade abbrechender Callback noch kurz eingereiht hat.
-        removed.extend(state.dl_queue.remove_pending(
-            lambda job: bool(pending_slugs & _job_queue_slugs(job))
-        ))
-        _release_removed_queue_slugs(pending_slugs)
-    for slug in pending_slugs:
-        _telegram_terminal_without_job(slug, False, "Abo entfernt", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abo entfernt", Path(""))
-    broadcast({"type": "queue_update", "queue": build_queue_payload()})
-    return watchlist_payload()
+    def _work():
+        pending_slugs: set[str] = set()
+        with state.watchlist_lock:
+            for base_slug in body.base_slugs:
+                pending_slugs.update(state.watchlist_new_slugs.get(base_slug, set()))
+            candidate = [
+                w for w in state.watchlist if w["base_slug"] not in body.base_slugs
+            ]
+            _require_persistent_snapshot("watchlist", candidate)
+            state.watchlist = candidate
+            for base_slug in body.base_slugs:
+                state.watchlist_new_slugs.pop(base_slug, None)
+                state.series_cache.pop(base_slug, None)
+        with state.queue_lifecycle_lock:
+            removed = state.dl_queue.remove_pending(
+                lambda job: bool(pending_slugs & _job_queue_slugs(job))
+            )
+            state.dl_queue.cancel_active(
+                lambda job: bool(pending_slugs & _job_queue_slugs(job))
+            )
+            removed.extend(state.dl_queue.remove_pending(
+                lambda job: bool(pending_slugs & _job_queue_slugs(job))
+            ))
+            _release_removed_queue_slugs(pending_slugs)
+        for slug in pending_slugs:
+            _telegram_terminal_without_job(slug, False, "Abo entfernt", Path(""))
+            _seerr_terminal_without_job(slug, False, "Abo entfernt", Path(""))
+        return build_queue_payload(), watchlist_payload()
+
+    queue, payload = await run_in_threadpool(_work)
+    broadcast({"type": "queue_update", "queue": queue})
+    return payload
 
 
 @app.get("/api/v1/watchlist")
@@ -13126,6 +13249,9 @@ async def ws_endpoint(websocket: WebSocket):
 
 # Statische Web-Oberfläche (muss NACH allen /api- und /ws-Routen gemountet
 # werden, sonst würde der Catch-all-Mount sie verdecken).
+install_domain_routers(app)
+
+
 class NoCacheStaticFiles(StaticFiles):
     """Liefert die Oberfläche mit `Cache-Control: no-cache` aus. Grund: die
     Dateien (index.html/app.js/style.css) werden bei Updates einfach im

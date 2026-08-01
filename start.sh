@@ -61,7 +61,7 @@ fi
 
 # --- Python dependencies; idempotent ----------------------------------------
 echo "[start.sh] Installing Python dependencies …"
-pip install --no-cache-dir -r requirements.txt
+pip install --no-cache-dir -r requirements.lock
 
 # Repair the invalid UTF-8 byte shipped in nodriver 0.50.3 cdp/network.py.
 echo "[start.sh] Checking nodriver encoding …"

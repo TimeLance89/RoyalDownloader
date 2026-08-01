@@ -188,6 +188,8 @@ folders, and persistent settings.
 | Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Development and pull requests | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Architecture boundaries and lock ownership | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Reviewed dependency/image updates and rollback | [docs/DEPENDENCY_UPDATES.md](docs/DEPENDENCY_UPDATES.md) |
 | Private vulnerability reporting | [SECURITY.md](SECURITY.md) |
 
 ## Project structure

@@ -1,9 +1,9 @@
-curl_cffi
+curl-cffi==0.16.0
 nodriver==0.50.3
-beautifulsoup4
-lxml
-yt-dlp
-fastapi
-uvicorn[standard]
-requests>=2.32,<3
-cryptography>=45,<49
+beautifulsoup4==4.15.0
+lxml==6.1.1
+yt-dlp==2026.7.4
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+requests==2.34.2
+cryptography==48.0.1
