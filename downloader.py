@@ -13,11 +13,13 @@ import re
 import signal
 import sys
 import json
+import hashlib
 import shutil
 import subprocess
 import threading
 import time
 import logging
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Callable, Dict, Optional
@@ -349,9 +351,65 @@ def probe_stream_url(
     return proc.returncode == 0, msg or f"Code {proc.returncode}"
 
 
-def _sanitize(name: str) -> str:
-    """Remove filesystem-illegal characters."""
-    return re.sub(r'[\\/:*?"<>|]', "", name).strip()
+_WINDOWS_RESERVED_NAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{number}" for number in range(1, 10)),
+    *(f"lpt{number}" for number in range(1, 10)),
+}
+_FILENAME_COMPONENT_MAX_BYTES = 180
+_FINAL_FILENAME_MAX_BYTES = 240
+
+
+def _stable_suffix(value: str) -> str:
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
+
+
+def _truncate_utf8(value: str, max_bytes: int) -> str:
+    """Kürzt ohne ein mehrbyteiges Unicode-Zeichen zu beschädigen."""
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip(" .")
+
+
+def _sanitize(name: str, max_bytes: int = _FILENAME_COMPONENT_MAX_BYTES) -> str:
+    """Erzeugt einen portablen, Unicode-stabilen Dateinamenbestandteil."""
+    original = str(name or "")
+    normalized = unicodedata.normalize("NFKC", original)
+    cleaned = "".join(
+        char
+        for char in normalized
+        if char not in '\\/:*?"<>|'
+        and not unicodedata.category(char).startswith("C")
+    )
+    cleaned = " ".join(cleaned.split()).strip(" .")
+    lossy = cleaned != normalized
+    if not cleaned:
+        return f"Media~{_stable_suffix(original)}"
+    if cleaned.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES:
+        cleaned = f"_{cleaned}"
+        lossy = True
+    suffix = f"~{_stable_suffix(original)}" if lossy else ""
+    available = max(1, int(max_bytes) - len(suffix.encode("utf-8")))
+    shortened = _truncate_utf8(cleaned, available)
+    if shortened != cleaned and not suffix:
+        suffix = f"~{_stable_suffix(original)}"
+        available = max(1, int(max_bytes) - len(suffix.encode("utf-8")))
+        shortened = _truncate_utf8(cleaned, available)
+    return f"{shortened or 'Media'}{suffix}"
+
+
+def _bounded_filename(stem: str, extension: str, identity: str) -> str:
+    extension = extension if extension.startswith(".") else f".{extension}"
+    available = _FINAL_FILENAME_MAX_BYTES - len(extension.encode("utf-8"))
+    if len(stem.encode("utf-8")) <= available:
+        return f"{stem}{extension}"
+    suffix = f"~{_stable_suffix(identity)}"
+    shortened = _truncate_utf8(
+        stem,
+        max(1, available - len(suffix.encode("utf-8"))),
+    )
+    return f"{shortened or 'Media'}{suffix}{extension}"
 
 
 def build_filename(
@@ -361,7 +419,12 @@ def build_filename(
     base = _sanitize(series_title).replace(" ", ".")
     code = f"S{season:02d}E{episode:02d}"
     title_part = f".{_sanitize(ep_title)}" if ep_title else ""
-    return f"{base}.{code}{title_part}.mp4"
+    stem = f"{base}.{code}{title_part}"
+    return _bounded_filename(
+        stem,
+        ".mp4",
+        f"series:{series_title}:{season}:{episode}:{ep_title}",
+    )
 
 
 def build_movie_filename(movie_title: str, year: str = "") -> str:
@@ -376,7 +439,8 @@ def build_movie_filename(movie_title: str, year: str = "") -> str:
     """
     base = _sanitize(movie_title).replace(" ", ".")
     year_part = f".{year}" if year else ""
-    return f"{base}{year_part}.mp4"
+    stem = f"{base}{year_part}"
+    return _bounded_filename(stem, ".mp4", f"movie:{movie_title}:{year}")
 
 
 class DownloadJob:
@@ -539,7 +603,7 @@ class DownloadJob:
             target_path = self.out_path if final.suffix == self.out_path.suffix else self.out_path.with_suffix(final.suffix)
             if self._cancelled:
                 return False, "Abgebrochen"
-            self._commit_file(final, target_path)
+            target_path = self._commit_file(final, target_path)
             self._cleanup_staging()
             return True, f"Fertig: {target_path.name}"
         except Exception as exc:
@@ -591,38 +655,63 @@ class DownloadJob:
                         pass
         return False, "; ".join(errors)
 
-    def _commit_file(self, source: Path, target: Path):
-        """Atomarer Replace; bei Dateisystemwechsel Copy+fsync+Replace."""
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.replace(source, target)
-            return
-        except OSError as exc:
-            if exc.errno != errno.EXDEV:
-                raise
+    def _collision_target(self, target: Path, attempt: int = 0) -> Path:
+        identity = self.queue_slug or str(self.out_path)
+        marker = _stable_suffix(identity)
+        counter = "" if attempt == 0 else f"-{attempt + 1}"
+        filename = _bounded_filename(
+            f"{target.stem}~{marker}{counter}",
+            target.suffix,
+            f"{identity}:{attempt}",
+        )
+        return target.with_name(filename)
 
-        temp_target = target.parent / f".{target.name}.{self.job_id}.tmp"
-        try:
-            with source.open("rb") as src, temp_target.open("xb") as dst:
-                while True:
-                    if self._cancelled:
-                        raise RuntimeError("Abgebrochen")
-                    chunk = src.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    dst.write(chunk)
-                dst.flush()
-                os.fsync(dst.fileno())
-            if temp_target.stat().st_size != source.stat().st_size:
-                raise OSError("Staging-Kopie ist unvollständig")
-            os.replace(temp_target, target)
-            source.unlink()
-        except Exception:
+    def _commit_file(self, source: Path, target: Path) -> Path:
+        """Veröffentlicht atomar, ohne eine vorhandene Mediendatei zu ersetzen."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        for attempt in range(1000):
+            candidate = target if attempt == 0 else self._collision_target(target, attempt - 1)
             try:
-                temp_target.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
+                # Ein Hardlink ist auf demselben Dateisystem atomar und schlägt
+                # mit EEXIST fehl, statt wie os.replace() fremde Daten zu löschen.
+                os.link(source, candidate)
+                source.unlink()
+                return candidate
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+
+            temp_target = target.parent / f".{candidate.name}.{self.job_id}.tmp"
+            try:
+                with source.open("rb") as src, temp_target.open("xb") as dst:
+                    while True:
+                        if self._cancelled:
+                            raise RuntimeError("Abgebrochen")
+                        chunk = src.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                if temp_target.stat().st_size != source.stat().st_size:
+                    raise OSError("Staging-Kopie ist unvollständig")
+                try:
+                    os.link(temp_target, candidate)
+                except FileExistsError:
+                    temp_target.unlink(missing_ok=True)
+                    continue
+                temp_target.unlink()
+                source.unlink()
+                return candidate
+            except Exception:
+                try:
+                    temp_target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+        raise FileExistsError("Kein kollisionsfreier Zieldateiname verfügbar")
 
     def _cleanup_staging(self):
         """Entfernt ausschliesslich das eindeutige Verzeichnis dieses Jobs."""

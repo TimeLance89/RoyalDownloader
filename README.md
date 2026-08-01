@@ -182,7 +182,7 @@ folders, and persistent settings.
 |---|---|
 | Consolidated feature and behavior changes | [CHANGELOG.md](CHANGELOG.md) |
 | Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
-| Native Android app, setup, architecture, and build | [AndroidApp/README.md](AndroidApp/README.md) |
+| Native Android clients | The app source is maintained separately; use the documented API contract below. |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
 | Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |

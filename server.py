@@ -174,6 +174,10 @@ BASIC_AUTH_GUARD = appauth.LoginGuard()
 # /api/ui/translate vor der Anmeldung erreichbar sein. Ein Budget je IP
 # verhindert, dass daraus ein offener Übersetzungsproxy wird.
 PUBLIC_TRANSLATE_LIMITER = appauth.RateLimiter(max_requests=60, window_seconds=300)
+PUBLIC_TRANSLATE_WORK_LIMITER = appauth.RateLimiter(
+    max_requests=600,
+    window_seconds=300,
+)
 UPDATE_CHECKER = UpdateChecker(
     repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
     branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
@@ -10970,7 +10974,7 @@ class UILanguageBody(BaseModel):
 
 class UITranslationBody(BaseModel):
     target_language: str
-    texts: List[str]
+    texts: List[str] = Field(max_length=120)
 
 
 def _ui_language_payload(saved: bool = False) -> dict:
@@ -11019,16 +11023,30 @@ async def api_ui_config_set(body: UILanguageBody):
 
 
 @app.post("/api/ui/translate")
-async def api_ui_translate(body: UITranslationBody):
+async def api_ui_translate(body: UITranslationBody, request: Request):
     target = normalize_ui_language(body.target_language)
     texts = [str(value or "") for value in body.texts]
     requested = str(body.target_language or "").strip().replace("_", "-").casefold()
     if target != requested.split("-", 1)[0]:
         raise HTTPException(400, "Nicht unterstützte Zielsprache.")
-    if len(texts) > 120:
-        raise HTTPException(400, "Pro Anfrage sind höchstens 120 Texte erlaubt.")
     if any(len(text) > 600 for text in texts) or sum(map(len, texts)) > 30_000:
-        raise HTTPException(400, "Die Übersetzungsanfrage ist zu groß.")
+        raise HTTPException(413, "Die Übersetzungsanfrage ist zu groß.")
+    if not request_is_authenticated(
+        request.headers,
+        request.cookies,
+        client_key(request),
+        touch=False,
+    ):
+        work_units = max(1, len({text for text in texts if text.strip()}))
+        if not PUBLIC_TRANSLATE_WORK_LIMITER.allow(
+            client_key(request),
+            cost=work_units,
+        ):
+            raise HTTPException(
+                429,
+                "Übersetzungsbudget ausgeschöpft. Bitte kurz warten.",
+                headers={"Retry-After": "60"},
+            )
     translated = await run_in_threadpool(
         UI_TRANSLATOR.translate_many,
         texts,

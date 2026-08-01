@@ -35,6 +35,7 @@ SUPPORTED_UI_LANGUAGES = {
 DEFAULT_UI_LANGUAGE = "de"
 TRANSLATION_CACHE_FILE = data_dir() / ".ui_translations.json"
 MAX_CACHE_ENTRIES = 10_000
+MAX_GLOBAL_OUTBOUND_REQUESTS = 6
 
 
 def normalize_ui_language(value: str) -> str:
@@ -66,6 +67,12 @@ class UITranslator:
         self._session.headers.update({
             "User-Agent": "RoyalDownloader/1.0 UI-Translator",
         })
+        # Das Budget gilt instanzweit und damit über parallele HTTP-Anfragen
+        # hinweg. Einzelne Batches dürfen den Übersetzungsdienst nicht jeweils
+        # mit sechs zusätzlichen Verbindungen überlasten.
+        self._outbound_budget = threading.BoundedSemaphore(
+            MAX_GLOBAL_OUTBOUND_REQUESTS,
+        )
 
     @property
     def engine(self) -> str:
@@ -118,6 +125,10 @@ class UITranslator:
         return [translations.get(text, text) for text in values]
 
     def _translate_one(self, text: str, target: str) -> str:
+        with self._outbound_budget:
+            return self._translate_one_unbounded(text, target)
+
+    def _translate_one_unbounded(self, text: str, target: str) -> str:
         if self.endpoint:
             return self._translate_libre(text, target)
         return self._translate_google(text, target)

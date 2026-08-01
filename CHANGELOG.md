@@ -6,6 +6,16 @@ of a separately maintained release version.
 
 ## 2026-08-01
 
+### Reliability and security
+
+- Hardened the public translation endpoint with bounded request payloads,
+  work-unit rate limiting, a fixed client-tracking cap, and one global outbound
+  concurrency budget.
+- Made generated media names portable across NAS, Linux, and Windows filesystems
+  and prevented finalization from overwriting an existing media file.
+- Clarified that the Android client source is maintained separately and added a
+  CI-backed check for broken relative documentation links.
+
 ### Providers and routing
 
 - Added **Huhu** as a German provider for movies and series.

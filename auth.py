@@ -513,32 +513,39 @@ class LoginGuard:
 class RateLimiter:
     """Einfaches Anfragebudget je Schlüssel für Endpunkte ohne Anmeldung."""
 
-    def __init__(self, max_requests: int, window_seconds: float):
+    def __init__(
+        self,
+        max_requests: int,
+        window_seconds: float,
+        max_tracked_keys: int = 2048,
+    ):
         self._max_requests = max(1, int(max_requests))
         self._window = float(window_seconds)
+        self._max_tracked_keys = max(16, int(max_tracked_keys))
         self._lock = threading.Lock()
         self._hits: Dict[str, list] = {}
+        self._key_order: OrderedDict[str, None] = OrderedDict()
 
-    def allow(self, key: str) -> bool:
+    def _touch_key_locked(self, key: str) -> None:
+        self._key_order.pop(key, None)
+        self._key_order[key] = None
+        while len(self._key_order) > self._max_tracked_keys:
+            oldest, _ = self._key_order.popitem(last=False)
+            self._hits.pop(oldest, None)
+
+    def allow(self, key: str, cost: int = 1) -> bool:
         if not key:
             return True
+        cost = max(1, int(cost))
         now = time.time()
         with self._lock:
             timestamps = [
                 stamp for stamp in self._hits.get(key, []) if (now - stamp) < self._window
             ]
-            if len(timestamps) >= self._max_requests:
+            self._touch_key_locked(key)
+            if len(timestamps) + cost > self._max_requests:
                 self._hits[key] = timestamps
                 return False
-            timestamps.append(now)
+            timestamps.extend([now] * cost)
             self._hits[key] = timestamps
-            # Gelegentlich aufräumen, damit der Speicher bei wechselnden IPs
-            # nicht unbegrenzt wächst.
-            if len(self._hits) > 2048:
-                for stale_key in [
-                    existing
-                    for existing, stamps in self._hits.items()
-                    if not stamps or (now - stamps[-1]) > self._window
-                ]:
-                    self._hits.pop(stale_key, None)
             return True
