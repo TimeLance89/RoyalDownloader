@@ -178,6 +178,11 @@ def sessions_file() -> Path:
     return _config_dir() / "sessions.json"
 
 
+def taste_profile_file() -> Path:
+    """Persistentes, geräteübergreifendes Geschmacksprofil des Einzelbenutzers."""
+    return _config_dir() / "taste_profile.json"
+
+
 def _default_path() -> str:
     # Docker/NAS: Zielordner für Downloads per Env vorgeben (Bind-Mount auf den
     # NAS-Medienordner). Ohne die Variable bleibt der bisherige Default.

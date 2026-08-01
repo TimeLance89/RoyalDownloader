@@ -438,6 +438,10 @@
                   <button id="fp-detail-subscribe" class="btn btn-ghost detail-subscribe-btn" type="button">
                     + Film abonnieren
                   </button>
+                  <div class="taste-feedback" aria-label="Film bewerten">
+                    <button id="fp-taste-like" class="btn btn-ghost" type="button" aria-pressed="false">♡ Mehr davon</button>
+                    <button id="fp-taste-dislike" class="btn btn-ghost" type="button" aria-pressed="false">⊘ Nicht für mich</button>
+                  </div>
                   <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
                 </div>
                 <section class="detail-synopsis">
@@ -595,6 +599,10 @@
             </section>
             <div class="series-action-bar">
               <button id="series-watch-btn" class="btn btn-ghost">+ Abonnieren</button>
+              <div class="taste-feedback" aria-label="Serie bewerten">
+                <button id="series-taste-like" class="btn btn-ghost" type="button" aria-pressed="false">♡ Mehr davon</button>
+                <button id="series-taste-dislike" class="btn btn-ghost" type="button" aria-pressed="false">⊘ Nicht für mich</button>
+              </div>
               <button id="series-detail-trailer" class="btn btn-ghost series-trailer-btn" type="button" hidden>
                 <span aria-hidden="true">▶</span> Trailer
               </button>
@@ -844,6 +852,12 @@
             <input id="series-path" type="text" placeholder="/Deluxe/downloads/Serien">
             <button id="browse-series-btn" class="btn btn-ghost btn-sm">…</button>
           </div>
+        </div>
+        <div class="settings-group settings-card taste-settings">
+          <h3>Dein Geschmack</h3>
+          <p class="dim settings-hint">Royal lernt lokal aus Suche, Auswahl, Downloads, Abos und deinem Jellyfin-Verlauf. Das Profil gilt für alle Geräte.</p>
+          <div id="taste-profile-summary" class="taste-profile-summary" role="status" aria-live="polite">Profil wird geladen …</div>
+          <button id="taste-profile-reset" class="btn btn-ghost btn-sm" type="button">Geschmacksprofil zurücksetzen</button>
         </div>
             </div>
           </section>

@@ -267,6 +267,59 @@ status: blocked|failed|queued|waiting_window|missing|current
 
 `failed_downloads` ist eine Map `slug → {message,attempts,next_retry}`. `watchlist/open` liefert ein Serien-Detail und zusätzlich `preselect_slugs[]`. Add und Mode können nach der unmittelbaren Antwort asynchron weiterprüfen; das endgültige Ergebnis folgt über WebSocket.
 
+## Geräteübergreifendes Geschmacksprofil
+
+Web-, Android- und Automationsclients teilen sich ein serverseitiges Profil.
+Alle Routen existieren sowohl unter `/api/taste/...` als auch unter
+`/api/v1/taste/...`; sie unterliegen derselben Anmeldung wie die übrige API.
+
+```text
+GET  /api/v1/taste/profile
+POST /api/v1/taste/events
+POST /api/v1/taste/feedback
+POST /api/v1/taste/import
+POST /api/v1/taste/reset
+```
+
+Ein Ereignis verwendet:
+
+```json
+{
+  "action": "open",
+  "source": "android",
+  "media_type": "movie",
+  "item_key": "movie:provider-slug",
+  "title": "Titel",
+  "metadata": {
+    "genres": ["Science-Fiction"],
+    "tags": ["Weltraum"],
+    "studios": ["Studio"],
+    "directors": ["Name"],
+    "actors": ["Name"],
+    "languages": ["de"],
+    "year": 2024,
+    "runtime": 118
+  }
+}
+```
+
+Unterstützte Aktionen sind `search`, `open`, `download`, `watchlist`,
+`subscription`, `watch_complete`, `favorite`, `like`, `dislike`, `dismiss`,
+`remove` und `rating`. Für `rating` steht die Zahl von 0 bis 10 in `value`.
+Stabile Schlüssel sind `movie:<slug-or-tmdb-id>`, `series:<base-slug-or-tmdb-id>`
+und `anime:<id>`. Wiederholte Downloads derselben Serie werden serverseitig
+gedrosselt, damit eine Staffel das Profil nicht künstlich dominiert.
+
+Explizites Feedback verwendet denselben Inhalt plus `action:like|dislike|dismiss|favorite|rating`.
+`action:clear` entfernt die explizite Entscheidung. Die Profilantwort enthält
+nur aggregierte `dimensions`, `favorites`, `recent` mit sicheren Schlüsseln,
+`blocked_items`, `item_feedback`, Zähler und Zeitstempel. Suchbegriffe, Titel
+und die vollständige Ereignishistorie werden nicht an Clients zurückgegeben.
+
+`taste/import` ist ausschließlich für die einmalige Übernahme des früheren
+Browserprofils vorgesehen und akzeptiert `{genres:{...},kinds:{...}}`.
+`taste/reset` löscht Ereignisse, Feedback, Jellyfin-Snapshot und Legacy-Import.
+
 ## TMDB, Jellyfin und Providerkonfiguration
 
 Für die App relevante Lese-/Batch-Endpunkte:
@@ -422,6 +475,11 @@ Sitzungen werden atomar persistiert. Schlägt das Speichern beim Erstellen oder 
 | `POST /api/v1/watchlist/remove` | `/api/watchlist/remove` |
 | `POST /api/v1/watchlist/check` | `/api/watchlist/check` |
 | `POST /api/v1/watchlist/open` | `/api/watchlist/open` |
+| `GET /api/v1/taste/profile` | `/api/taste/profile` |
+| `POST /api/v1/taste/events` | `/api/taste/events` |
+| `POST /api/v1/taste/feedback` | `/api/taste/feedback` |
+| `POST /api/v1/taste/import` | `/api/taste/import` |
+| `POST /api/v1/taste/reset` | `/api/taste/reset` |
 
 ### v1-WebSocket
 

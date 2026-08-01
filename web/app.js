@@ -1029,14 +1029,17 @@ function loadDiscoveryProfile() {
     profile = null;
   }
   if (!profile || typeof profile !== "object") {
-    profile = { genres: {}, kinds: {}, recent: [], interactions: 0, updatedAt: Date.now() };
+    profile = { genres: {}, kinds: {}, dimensions: {}, recent: [], blocked_items: [], item_feedback: {}, interactions: 0, updatedAt: Date.now() };
   }
   profile.genres = profile.genres && typeof profile.genres === "object" ? profile.genres : {};
   profile.kinds = profile.kinds && typeof profile.kinds === "object" ? profile.kinds : {};
+  profile.dimensions = profile.dimensions && typeof profile.dimensions === "object" ? profile.dimensions : {};
+  profile.blocked_items = Array.isArray(profile.blocked_items) ? profile.blocked_items : [];
+  profile.item_feedback = profile.item_feedback && typeof profile.item_feedback === "object" ? profile.item_feedback : {};
   profile.recent = Array.isArray(profile.recent) ? profile.recent.slice(0, 60) : [];
   profile.interactions = Number(profile.interactions || 0);
   const elapsedDays = Math.floor((Date.now() - Number(profile.updatedAt || Date.now())) / 86400000);
-  if (elapsedDays > 0) {
+  if (elapsedDays > 0 && !Object.keys(profile.dimensions).length) {
     const factor = Math.pow(0.985, Math.min(elapsedDays, 120));
     Object.keys(profile.genres).forEach((genre) => {
       profile.genres[genre] = Number(profile.genres[genre] || 0) * factor;
@@ -1058,11 +1061,134 @@ function saveDiscoveryProfile(profile) {
   }
 }
 
+function applyServerTasteProfile(serverProfile) {
+  if (!serverProfile || typeof serverProfile !== "object") return loadDiscoveryProfile();
+  const profile = {
+    ...serverProfile,
+    genres: serverProfile.genres || serverProfile.dimensions?.genres || {},
+    kinds: serverProfile.kinds || serverProfile.dimensions?.media_types || {},
+    dimensions: serverProfile.dimensions || {},
+    recent: Array.isArray(serverProfile.recent) ? serverProfile.recent : [],
+    blocked_items: Array.isArray(serverProfile.blocked_items) ? serverProfile.blocked_items : [],
+    item_feedback: serverProfile.item_feedback || {},
+    interactions: Number(serverProfile.interactions || 0),
+    updatedAt: Number(serverProfile.updated_at || 0) * 1000 || Date.now(),
+  };
+  saveDiscoveryProfile(profile);
+  renderTasteProfileSummary(profile);
+  updateTasteFeedbackButtons();
+  return profile;
+}
+
+async function syncTasteProfile() {
+  const localProfile = loadDiscoveryProfile();
+  try {
+    let serverProfile = await api.tasteProfile();
+    if (!serverProfile.legacy_imported && localProfile.interactions > 0) {
+      const imported = await api.tasteImport({
+        genres: localProfile.genres || {},
+        kinds: localProfile.kinds || {},
+      });
+      serverProfile = imported.profile || serverProfile;
+    }
+    applyServerTasteProfile(serverProfile);
+    if (state.tab === "home") renderHome();
+  } catch (error) {
+    console.warn("Geschmacksprofil konnte nicht synchronisiert werden:", error);
+    renderTasteProfileSummary(localProfile, true);
+  }
+}
+
+function tasteMetadata(kind, item = {}) {
+  const cast = (item.cast || []).map((person) => typeof person === "string" ? person : person?.name).filter(Boolean);
+  return {
+    genres: item.genres || [],
+    tags: item.keywords || item.tags || [],
+    studios: item.production_companies || item.studios || [],
+    directors: item.directors || [],
+    actors: cast,
+    languages: item.spoken_languages || item.languages || item.content_language || [],
+    year: item.year || item.release_date || "",
+    runtime: item.runtime || "",
+    media_type: kind,
+  };
+}
+
+function renderTasteProfileSummary(profile = loadDiscoveryProfile(), offline = false) {
+  const target = document.getElementById("taste-profile-summary");
+  if (!target) return;
+  const favorites = Object.entries(profile.genres || {})
+    .filter(([, score]) => Number(score) > .25)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 5)
+    .map(([name]) => name);
+  const learned = Number(profile.interactions || 0);
+  target.textContent = learned
+    ? `${learned} Signale${favorites.length ? ` · Besonders: ${favorites.join(", ")}` : ""}${offline ? " · nur lokaler Stand" : ""}`
+    : "Noch neutral – Royal lernt erst durch deine Bedienung.";
+}
+
+function currentTasteTarget(kind) {
+  if (kind === "movie") {
+    const slug = state.fp.selectedSlug || "";
+    const item = {
+      ...(homeMovieBySlug(slug) || {}),
+      ...(state.fp.moviesCache[slug] || {}),
+      ...(state.fp.metadataCache[slug] || {}),
+      slug,
+    };
+    return slug ? { key: `movie:${slug}`, item } : null;
+  }
+  const item = state.series.current;
+  return item?.base_slug ? { key: `series:${item.base_slug}`, item } : null;
+}
+
+function updateTasteFeedbackButtons() {
+  const profile = loadDiscoveryProfile();
+  for (const [kind, prefix] of [["movie", "fp"], ["series", "series"]]) {
+    const target = currentTasteTarget(kind);
+    const action = target ? profile.item_feedback?.[target.key] : "";
+    const like = document.getElementById(`${prefix}-taste-like`);
+    const dislike = document.getElementById(`${prefix}-taste-dislike`);
+    if (!like || !dislike) continue;
+    like.disabled = !target;
+    dislike.disabled = !target;
+    like.setAttribute("aria-pressed", String(action === "like" || action === "favorite"));
+    dislike.setAttribute("aria-pressed", String(action === "dislike" || action === "dismiss"));
+  }
+}
+
+async function setTasteFeedback(kind, requestedAction) {
+  const target = currentTasteTarget(kind);
+  if (!target) return;
+  const currentAction = loadDiscoveryProfile().item_feedback?.[target.key] || "";
+  const sameChoice = requestedAction === "like"
+    ? ["like", "favorite"].includes(currentAction)
+    : ["dislike", "dismiss"].includes(currentAction);
+  const action = sameChoice ? "clear" : requestedAction;
+  try {
+    const response = await api.tasteFeedback({
+      item_key: target.key,
+      action,
+      source: "web",
+      media_type: kind,
+      title: target.item.title || "",
+      metadata: tasteMetadata(kind, target.item),
+    });
+    applyServerTasteProfile(response.profile);
+    renderHome();
+  } catch (error) {
+    console.warn("Bewertung konnte nicht gespeichert werden:", error);
+  }
+}
+
 function trackDiscoveryPreference(kind, item, weight = 1, action = "open") {
   if (!item) return;
   const entry = kind === "movie" ? homeMovieEntry(item) : homeSeriesEntry(item);
-  const media = homeEntryMedia(entry);
-  const key = homeEntryKey(entry);
+  const media = kind === "anime" ? item : homeEntryMedia(entry);
+  const key = kind === "anime"
+    ? `anime:${item.id || item.base_slug || item.slug || "unknown"}`
+    : homeEntryKey(entry);
   const profile = loadDiscoveryProfile();
   const cleanGenres = [...new Set((media.genres || [])
     .map((genre) => String(genre || "").trim())
@@ -1078,17 +1204,32 @@ function trackDiscoveryPreference(kind, item, weight = 1, action = "open") {
   profile.interactions += 1;
   profile.updatedAt = Date.now();
   saveDiscoveryProfile(profile);
+  api.tasteEvent({
+    action,
+    source: "web",
+    media_type: kind,
+    item_key: key,
+    title: item.title || "",
+    metadata: tasteMetadata(kind, media),
+  }).then((response) => {
+    if (response?.profile) applyServerTasteProfile(response.profile);
+  }).catch((error) => console.warn("Geschmackssignal konnte nicht gespeichert werden:", error));
+}
+
+function allowedHomeEntries(entries, profile = loadDiscoveryProfile()) {
+  const blocked = new Set(profile.blocked_items || []);
+  return entries.filter((entry) => !blocked.has(homeEntryKey(entry)));
 }
 
 function homeAllEntries() {
-  return uniqueHomeEntries([
+  return allowedHomeEntries(uniqueHomeEntries([
     ...state.home.topMovies.map(homeMovieEntry),
     ...state.home.newMovies.map(homeMovieEntry),
     ...state.home.discoveryMovies.map(homeMovieEntry),
     ...state.home.trendingSeries.map(homeSeriesEntry),
     ...state.home.newSeries.map(homeSeriesEntry),
     ...state.home.discoverySeries.map(homeSeriesEntry),
-  ]);
+  ]));
 }
 
 function weeklyStableEntries(entries, limit = 10) {
@@ -1121,19 +1262,19 @@ function weeklyStableEntries(entries, limit = 10) {
 }
 
 function homeTopEntries() {
-  return weeklyStableEntries(interleaveHomeEntries(
+  return weeklyStableEntries(allowedHomeEntries(interleaveHomeEntries(
     state.home.topMovies.map(homeMovieEntry),
     state.home.trendingSeries.map(homeSeriesEntry),
     20,
-  ), 10);
+  )), 10);
 }
 
 function homeNewEntries() {
-  return interleaveHomeEntries(
+  return allowedHomeEntries(interleaveHomeEntries(
     state.home.newMovies.map(homeMovieEntry),
     state.home.newSeries.map(homeSeriesEntry),
     24,
-  );
+  ));
 }
 
 function homePersonalizedEntries() {
@@ -1147,14 +1288,22 @@ function homePersonalizedEntries() {
     .filter((entry) => !recent.has(homeEntryKey(entry)))
     .map((entry) => {
       const media = homeEntryMedia(entry);
-      const genreScore = (media.genres || []).reduce(
-        (sum, genre) => sum + Number(profile.genres[String(genre)] || 0),
-        0,
-      );
+      const metadata = tasteMetadata(entry.kind, media);
+      const dimensionScore = Object.entries(metadata).reduce((total, [dimension, values]) => {
+        if (!["genres", "tags", "studios", "directors", "actors", "languages"].includes(dimension)) return total;
+        const list = Array.isArray(values) ? values : [values];
+        return total + list.reduce(
+          (sum, value) => sum + Number(profile.dimensions?.[dimension]?.[String(value)] || 0), 0,
+        );
+      }, 0);
+      const year = Number(String(metadata.year || "").slice(0, 4));
+      const decadeScore = year
+        ? Number(profile.dimensions?.decades?.[`${Math.floor(year / 10) * 10}er`] || 0)
+        : 0;
       const kindScore = Number(profile.kinds[entry.kind] || 0);
       const rating = Number(media.rating || 0);
       const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|personal|${homeEntryKey(entry)}`) / 4294967295;
-      return { entry, score: genreScore * 1.4 + kindScore + rating * 0.12 + discoveryNoise * 2.2 };
+      return { entry, score: dimensionScore + decadeScore + kindScore + rating * 0.12 + discoveryNoise * 2.2 };
     })
     .sort((a, b) => b.score - a.score)
     .map(({ entry }) => entry)
@@ -1501,7 +1650,7 @@ function renderHome() {
   renderHomeHero();
   renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
   renderHomeRail("home-movies-track", homePersonalizedEntries());
-  renderHomeRail("home-series-track", state.home.trendingSeries.map(homeSeriesEntry));
+  renderHomeRail("home-series-track", allowedHomeEntries(state.home.trendingSeries.map(homeSeriesEntry)));
   renderHomeRail("home-genre-track", homeGenreEntries());
   renderHomeRail("home-explore-track", homeExploreEntries());
   renderHomeRail("home-gems-track", homeGemEntries());
@@ -1588,6 +1737,14 @@ function rememberSearch(query, kind) {
   } catch {
     // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
   }
+  const matchingGenre = [...document.querySelectorAll("#genre-filter [data-genre]")]
+    .map((element) => element.dataset.genre || "")
+    .find((genre) => genre && genre !== "Alle Genres"
+      && genre.localeCompare(normalized, "de", { sensitivity: "base" }) === 0);
+  api.tasteEvent({
+    action: "search", source: "web", media_type: kind, query: normalized,
+    metadata: matchingGenre ? { genres: [matchingGenre] } : {},
+  }).catch((error) => console.warn("Suchsignal konnte nicht gespeichert werden:", error));
 }
 
 function searchCandidates(kind) {
@@ -3623,6 +3780,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
 
   configureFpTrailer(movie);
   configureFpDetailAction(slug, movie, metadataOnly);
+  updateTasteFeedbackButtons();
 }
 
 // ── Serien-Tab ─────────────────────────────────────────────────────────────
@@ -4253,6 +4411,7 @@ function showSeriesDetail(series, sampleSlug) {
   updateWatchBtn();
   renderSeriesTiles();
   updateSeriesStatus(series);
+  updateTasteFeedbackButtons();
   openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
 }
 
@@ -4591,6 +4750,7 @@ async function openAnimeDetail(anime, returnFocus = null) {
   openMediaModal("anime-detail-modal", returnFocus);
   document.getElementById("anime-detail-title").textContent = anime.title;
   document.getElementById("anime-detail-description").textContent = "Episoden und Sprachspuren werden geladen …";
+  trackDiscoveryPreference("anime", { ...anime, base_slug: anime.id }, 0.8, "open");
   await loadAnimeDetail();
 }
 
@@ -4733,7 +4893,7 @@ async function animeAddSelected() {
   button.disabled = true;
   document.getElementById("anime-pick-count").textContent = "wird eingeplant …";
   try {
-    const response = await api.queueAdd(slugs);
+    const response = await api.queueAdd(slugs, {}, "anime");
     refreshQueueUiAfterChange(response);
     state.anime.picked.clear();
     document.getElementById("anime-status").textContent =
@@ -6464,6 +6624,7 @@ function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
   restoreHomeCache();
+  syncTasteProfile();
   refreshGenres().catch((e) => {
     document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
     console.error("Genres konnten nicht geladen werden:", e);
@@ -6526,6 +6687,10 @@ async function initApp() {
   document.querySelectorAll("[data-modal-close]").forEach((button) => {
     button.addEventListener("click", () => closeMediaModal(button.dataset.modalClose));
   });
+  document.getElementById("fp-taste-like").addEventListener("click", () => setTasteFeedback("movie", "like"));
+  document.getElementById("fp-taste-dislike").addEventListener("click", () => setTasteFeedback("movie", "dislike"));
+  document.getElementById("series-taste-like").addEventListener("click", () => setTasteFeedback("series", "like"));
+  document.getElementById("series-taste-dislike").addEventListener("click", () => setTasteFeedback("series", "dislike"));
 
   // Startseite
   document.getElementById("home-hero-open").addEventListener("click", (event) => {
@@ -6949,6 +7114,16 @@ async function initApp() {
   });
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
+  document.getElementById("taste-profile-reset").addEventListener("click", async () => {
+    if (!window.confirm("Geschmacksprofil wirklich vollständig zurücksetzen?")) return;
+    try {
+      const response = await api.tasteReset();
+      applyServerTasteProfile(response.profile);
+      renderHome();
+    } catch (error) {
+      window.alert(`Profil konnte nicht zurückgesetzt werden: ${error.message}`);
+    }
+  });
   document.getElementById("ui-language").addEventListener("change", (event) => {
     i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
       console.warn("Sprache konnte nicht gewechselt werden:", error);

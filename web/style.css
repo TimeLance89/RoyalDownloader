@@ -13253,3 +13253,20 @@ body.global-search-open { overflow: hidden; }
     border-right: 0;
   }
 }
+.taste-feedback {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.taste-feedback .btn[aria-pressed="true"] {
+  border-color: var(--accent, #e50914);
+  color: #fff;
+  background: rgba(229, 9, 20, .18);
+}
+
+.taste-profile-summary {
+  min-height: 2.5rem;
+  margin: .8rem 0;
+  line-height: 1.5;
+}

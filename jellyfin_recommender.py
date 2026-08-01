@@ -20,7 +20,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import quote, urlsplit
 
 import requests
@@ -862,7 +862,11 @@ def _log_profile(profile: Mapping[str, Mapping[str, float]]) -> None:
         )
 
 
-def run_once(config: Config, api: JellyfinAPI | None = None) -> list[Recommendation]:
+def run_once(
+    config: Config,
+    api: JellyfinAPI | None = None,
+    profile_callback: Callable[[Sequence[Mapping[str, Any]]], None] | None = None,
+) -> list[Recommendation]:
     client = api or JellyfinAPI(
         config.jellyfin_url,
         config.api_key,
@@ -882,6 +886,13 @@ def run_once(config: Config, api: JellyfinAPI | None = None) -> list[Recommendat
     profile = build_profile(watched, config.recency_half_life_days)
     if not any(profile.values()):
         raise RecommenderError("Gesehene Items haben keine Profil-Metadaten")
+    if profile_callback is not None:
+        try:
+            profile_callback(watched)
+        except Exception as exc:
+            # Die Royal-Personalisierung ist ergänzend. Ein kaputter Profilstore
+            # darf die bestehende Jellyfin-Collection nicht blockieren.
+            LOGGER.warning("Royal-Geschmacksprofil konnte nicht synchronisiert werden: %s", exc)
     _log_profile(profile)
 
     recommendations = rank_recommendations(unseen, profile, config.top_n)

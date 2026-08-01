@@ -142,6 +142,7 @@ from movie_subscription_policy import (
     normalize_movie_quality,
     select_upgrade_quality,
 )
+from taste_profile import TasteProfileStore
 import config as appconfig
 import auth as appauth
 
@@ -472,6 +473,7 @@ class AppState:
         self.movie_subscription_check_lock = threading.Lock()
         self.auto_download_lock = threading.Lock()
         self.hoster_intel = HosterIntel()
+        self.taste_profile = TasteProfileStore(appconfig.taste_profile_file())
 
         self.jellyfin_cfg: dict = appconfig.load_jellyfin()
         self.tmdb_cfg: dict = appconfig.load_tmdb()
@@ -1091,7 +1093,10 @@ def _run_recommender_once() -> bool:
         return False
 
     try:
-        recommendations = run_jellyfin_recommender_once(config)
+        recommendations = run_jellyfin_recommender_once(
+            config,
+            profile_callback=state.taste_profile.replace_jellyfin_items,
+        )
     except JellyfinRecommenderError as exc:
         logger.warning("Jellyfin-Empfehlungen fehlgeschlagen: %s", exc)
         return False
@@ -6870,7 +6875,7 @@ def _seerr_process_movie(request: SeerrRequest, metadata: dict) -> None:
         log(f"Seerr #{request_id}: „{title}“ an laufenden Download angehängt.")
         return
     accepted = _enqueue_automatic_downloads(
-        [chosen.slug], movie_fallbacks={chosen.slug: fallbacks},
+        [chosen.slug], movie_fallbacks={chosen.slug: fallbacks}, taste_source="seerr",
     )
     if chosen.slug not in accepted:
         _seerr_terminal_without_job(
@@ -7029,7 +7034,7 @@ def _seerr_process_series(request: SeerrRequest, metadata: dict) -> None:
     )
     _persist_queue_state()
     if new_slugs:
-        accepted = _enqueue_automatic_downloads(sorted(new_slugs))
+        accepted = _enqueue_automatic_downloads(sorted(new_slugs), taste_source="seerr")
         for slug in new_slugs - set(accepted):
             _seerr_terminal_without_job(
                 slug, False, "Downloadstart fehlgeschlagen", Path(""),
@@ -7537,7 +7542,7 @@ def _run_telegram_series_request(
         _telegram_send(chat_id, f"▶️ „{series.title}“ · {scope_label}: {len(jobs)} Download(s) starten.")
 
         try:
-            accepted = _enqueue_automatic_downloads(list(pending_slugs))
+            accepted = _enqueue_automatic_downloads(list(pending_slugs), taste_source="telegram")
         except Exception:
             for slug in pending_slugs:
                 _telegram_terminal_without_job(slug, False, "Downloadstart fehlgeschlagen", Path(""))
@@ -7667,6 +7672,7 @@ def _run_telegram_movie_request(
             accepted = _enqueue_automatic_downloads(
                 [chosen_result.slug],
                 movie_fallbacks={chosen_result.slug: fallback_movies},
+                taste_source="telegram",
             )
         except Exception:
             _telegram_terminal_without_job(
@@ -8069,7 +8075,7 @@ def _auto_download_new_episodes():
             return
 
         _persist_queue_state()
-        accepted = _enqueue_automatic_downloads(prepared_slugs)
+        accepted = _enqueue_automatic_downloads(prepared_slugs, taste_source="watchlist")
         if len(accepted) != len(prepared_slugs):
             with state.queue_claim_lock:
                 state.picked.difference_update(set(prepared_slugs) - accepted)
@@ -8459,6 +8465,7 @@ async def api_v1_capabilities():
             "anime": True,
             "queue": True,
             "watchlist": True,
+            "taste_profile": True,
             "jellyfin_matching": True,
             "tmdb_metadata": True,
             "cover_proxy": True,
@@ -9460,9 +9467,39 @@ class _QueuePreparationJob:
                 broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
 
+def _record_download_taste(jobs: List[tuple[FilmpalastMovie, str]], source: str) -> None:
+    if not source:
+        return
+    for movie, slug in jobs:
+        episode = parse_episode_slug(slug)
+        is_anime = source == "anime" or slug.startswith(MKISSA_PREFIX)
+        media_type = "anime" if is_anime else ("series" if episode else "movie")
+        if is_anime:
+            anime_base = (
+                episode[0] if episode else slug
+            ).removeprefix(MKISSA_PREFIX).split("|", 1)[0]
+            item_key = f"anime:{anime_base}"
+        else:
+            item_key = f"series:{episode[0]}" if episode else f"movie:{slug}"
+        state.taste_profile.record_event(
+            "download",
+            source=source,
+            media_type=media_type,
+            item_key=item_key,
+            title=strip_episode_suffix(movie.title) if episode else movie.title,
+            metadata={
+                "genres": list(movie.genres or []),
+                "year": movie.year,
+                "runtime": movie.runtime,
+                "languages": [movie.content_language] if movie.content_language else [],
+            },
+        )
+
+
 def _enqueue_automatic_downloads(
     slugs: List[str],
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
+    taste_source: str = "",
 ) -> set[str]:
     if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
         log("Downloadstart pausiert: Ein Systemupdate läuft.", "warn")
@@ -9571,6 +9608,7 @@ def _enqueue_automatic_downloads(
         if rejected_claims:
             broadcast({"type": "queue_update", "queue": build_queue_payload()})
         return set()
+    _record_download_taste(jobs, taste_source)
     log(f"Automatisch eingeplant: {len(jobs)} Download(s) (max. 2 parallel)")
     broadcast({
         "type": "queue_started",
@@ -9634,6 +9672,99 @@ class MovieDownloadPreference(BaseModel):
 class QueueAddBody(BaseModel):
     slugs: List[str]
     preferences: Dict[str, MovieDownloadPreference] = Field(default_factory=dict)
+    source: str = Field(default="api", max_length=32)
+
+
+class TasteEventBody(BaseModel):
+    action: str = Field(min_length=1, max_length=24)
+    source: str = Field(default="api", max_length=32)
+    media_type: str = Field(default="", max_length=20)
+    item_key: str = Field(default="", max_length=240)
+    title: str = Field(default="", max_length=160)
+    metadata: Dict[str, object] = Field(default_factory=dict)
+    value: Optional[float] = None
+    query: str = Field(default="", max_length=160)
+
+
+class TasteFeedbackBody(BaseModel):
+    item_key: str = Field(min_length=1, max_length=240)
+    action: str = Field(min_length=1, max_length=24)
+    source: str = Field(default="api", max_length=32)
+    media_type: str = Field(default="", max_length=20)
+    title: str = Field(default="", max_length=160)
+    metadata: Dict[str, object] = Field(default_factory=dict)
+    value: Optional[float] = None
+
+
+class TasteImportBody(BaseModel):
+    genres: Dict[str, float] = Field(default_factory=dict)
+    kinds: Dict[str, float] = Field(default_factory=dict)
+
+
+@app.get("/api/v1/taste/profile")
+@app.get("/api/taste/profile")
+async def api_taste_profile_get():
+    return state.taste_profile.public_profile()
+
+
+@app.post("/api/v1/taste/events")
+@app.post("/api/taste/events")
+async def api_taste_event(body: TasteEventBody):
+    try:
+        recorded = state.taste_profile.record_event(
+            body.action,
+            source=body.source,
+            media_type=body.media_type,
+            item_key=body.item_key,
+            title=body.title,
+            metadata=body.metadata,
+            value=body.value,
+            query=body.query,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"recorded": recorded, "profile": state.taste_profile.public_profile()}
+
+
+@app.post("/api/v1/taste/feedback")
+@app.post("/api/taste/feedback")
+async def api_taste_feedback(body: TasteFeedbackBody):
+    try:
+        if body.action.casefold() == "clear":
+            changed = state.taste_profile.clear_feedback(body.item_key)
+        else:
+            state.taste_profile.set_feedback(
+                body.item_key,
+                body.action,
+                source=body.source,
+                media_type=body.media_type,
+                title=body.title,
+                metadata=body.metadata,
+                value=body.value,
+            )
+            changed = True
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"changed": changed, "profile": state.taste_profile.public_profile()}
+
+
+@app.post("/api/v1/taste/import")
+@app.post("/api/taste/import")
+async def api_taste_import(body: TasteImportBody):
+    try:
+        imported = state.taste_profile.import_legacy(body.model_dump())
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "Das alte Geschmacksprofil ist ungültig.") from exc
+    return {"imported": imported, "profile": state.taste_profile.public_profile()}
+
+
+@app.post("/api/v1/taste/reset")
+@app.post("/api/taste/reset")
+@app.delete("/api/v1/taste/profile")
+@app.delete("/api/taste/profile")
+async def api_taste_profile_reset():
+    state.taste_profile.reset()
+    return {"reset": True, "profile": state.taste_profile.public_profile()}
 
 
 def _preferred_movie_sources(
@@ -9728,6 +9859,7 @@ async def api_queue_add(body: QueueAddBody):
     accepted = _enqueue_automatic_downloads(
         added_slugs,
         movie_fallbacks=selected_fallbacks or None,
+        taste_source=body.source,
     )
     duplicate_rejected = set(added_slugs) - accepted
     if len(accepted) < len(added_slugs):
@@ -11308,6 +11440,7 @@ def check_movie_subscriptions(entries: Optional[List[dict]] = None) -> int:
             _persist_queue_state()
             accepted = _enqueue_automatic_downloads(
                 [slug], movie_fallbacks={slug: fallbacks},
+                taste_source="movie-subscription",
             )
             if slug not in accepted:
                 with state.queue_claim_lock:
@@ -11376,6 +11509,19 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
             entry["watched_deleted"] = False
             entry["cleanup_last_error"] = ""
         appconfig.save_movie_subscriptions(state.movie_subscriptions)
+    movie = state.fp_movies.get(body.source_slug)
+    state.taste_profile.record_event(
+        "subscription",
+        source="movie-subscription",
+        media_type="movie",
+        item_key=f"movie:{body.tmdb_id or body.source_slug or key}",
+        title=body.title,
+        metadata={
+            "genres": list(movie.genres or []) if movie else [],
+            "year": body.year,
+            "runtime": movie.runtime if movie else "",
+        },
+    )
     threading.Thread(
         target=check_movie_subscriptions, args=([entry],), daemon=True,
     ).start()
@@ -11546,6 +11692,17 @@ async def api_watchlist_add(body: WatchlistAddBody):
             appconfig.save_watchlist(state.watchlist)
     if entry is not None:
         log(f"«{body.title}» zur Bibliothek hinzugefügt.")
+        state.taste_profile.record_event(
+            "watchlist",
+            source="watchlist",
+            media_type="series",
+            item_key=f"series:{body.tmdb_id or body.base_slug}",
+            title=body.title,
+            metadata={
+                "genres": (incoming_tmdb or {}).get("genres") or [],
+                "year": (incoming_tmdb or {}).get("year") or "",
+            },
+        )
 
         # Nicht erst bis zum nächsten 30-Minuten-Intervall warten: sofort prüfen
         # und bei eingeschalteter Automatik den Download anstoßen. Die Arbeit

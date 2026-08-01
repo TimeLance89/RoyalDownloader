@@ -57,6 +57,8 @@ and Jellyfin remains the source of truth for content already in the library.
 - **Seerr and Moonfin bridge** for media requests without requiring Radarr or Sonarr.
 - **TMDB metadata** for artwork, descriptions, genres, ratings, and runtime.
 - **Jellyfin recommendations** maintained as an automatically updated collection.
+- **Private cross-device taste profile** learned from discovery, downloads,
+  subscriptions, explicit feedback, and Jellyfin playback without a cloud service.
 - **Account-based sign-in** with a hashed password, persistent sessions that
   survive restarts, brute-force protection, and device sign-out.
 - **Multilingual web UI** with language selection during onboarding and in settings.
@@ -140,7 +142,7 @@ flowchart LR
 
 | Path | Purpose | Backup |
 |---|---|---|
-| `./data` | Settings, subscriptions, queue, cookies, and Seerr state | Required |
+| `./data` | Settings, subscriptions, queue, taste profile, cookies, and Seerr state | Required |
 | `./runtime` | Active application revision used by in-app updates | Recommended |
 | Movie and series mounts | Completed media files | Use your own backup policy |
 
@@ -156,6 +158,7 @@ until no download or download preparation is active.
 | Native Android app, setup, architecture, and build | [AndroidApp/README.md](AndroidApp/README.md) |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
+| Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Development and pull requests | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Private vulnerability reporting | [SECURITY.md](SECURITY.md) |

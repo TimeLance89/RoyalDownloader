@@ -68,8 +68,8 @@ const api = {
   },
 
   queueGet() { return this.get("/api/queue"); },
-  queueAdd(slugs, preferences = {}) {
-    return this.post("/api/queue/add", { slugs, preferences });
+  queueAdd(slugs, preferences = {}, source = "web") {
+    return this.post("/api/queue/add", { slugs, preferences, source });
   },
   queueRemove(slug) { return this.post("/api/queue/remove", { slug }); },
   queueClear() { return this.post("/api/queue/clear"); },
@@ -147,6 +147,12 @@ const api = {
   movieSubscriptionsRemove(keys) {
     return this.post("/api/movie-subscriptions/remove", { keys });
   },
+
+  tasteProfile() { return this.get("/api/taste/profile"); },
+  tasteEvent(event) { return this.post("/api/taste/events", event); },
+  tasteFeedback(feedback) { return this.post("/api/taste/feedback", feedback); },
+  tasteImport(profile) { return this.post("/api/taste/import", profile); },
+  tasteReset() { return this.post("/api/taste/reset"); },
 
   coverUrl(url) {
     if (!url) return "";
