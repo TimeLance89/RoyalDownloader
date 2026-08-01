@@ -64,6 +64,24 @@ and Jellyfin remains the source of truth for content already in the library.
 - **Multilingual web UI** with language selection during onboarding and in settings.
 - **In-app updater** plus queue-safe automatic updates for Royal Downloader and yt-dlp.
 
+## Recent improvements
+
+- Added **Huhu** as a German movie and series provider, including exact
+  season/episode matching and integration into the configurable fallback order.
+- Made **Filmpalast the primary movie source**, followed by Huhu, and moved
+  FilmFrei24 to the end of the default movie fallback chain.
+- Added persistent provider health states for SerienStream. CAPTCHA and
+  rate-limit responses pause the provider, retain waiting episodes, and allow
+  only one controlled probe instead of repeatedly loading the blocked source.
+- Kept movie downloads moving independently from paused or slow series
+  fallbacks, while resolved transfers continue at the configured concurrency.
+- Improved Jellyfin details with targeted per-series episode checks, explicit
+  stale-state handling, and provider-independent subscription recognition.
+- Added a private, shared taste profile for web and native clients, learned
+  from browsing, downloads, subscriptions, feedback, and Jellyfin playback.
+
+See [CHANGELOG.md](CHANGELOG.md) for the consolidated project history.
+
 ## Provider catalog
 
 Providers are selectable and reorderable during onboarding and later in
@@ -74,6 +92,7 @@ download job.
 |---|---:|:---:|:---:|:---:|
 | FilmFrei24 | German | ✓ |  |  |
 | Filmpalast | German | ✓ | ✓ |  |
+| Huhu | German | ✓ | ✓ |  |
 | MegaKino | German | ✓ | ✓ |  |
 | Moflix | German | ✓ | ✓ |  |
 | Einschalten | German | ✓ |  |  |
@@ -88,6 +107,11 @@ download job.
 > [!NOTE]
 > Third-party providers can change or become unavailable without notice.
 > Provider adapters are therefore isolated, ordered, and designed to fail over.
+
+The default German movie order starts with **Filmpalast → Huhu** and ends with
+**FilmFrei24**. For German series, **SerienStream** remains the primary source;
+**Huhu → Moflix → MegaKino → Filmpalast** are the first fallback providers.
+All orders can be changed in onboarding or settings.
 
 ## Quick start with Docker Compose
 
@@ -154,6 +178,7 @@ until no download or download preparation is active.
 
 | Topic | Document |
 |---|---|
+| Consolidated feature and behavior changes | [CHANGELOG.md](CHANGELOG.md) |
 | Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
 | Native Android app, setup, architecture, and build | [AndroidApp/README.md](AndroidApp/README.md) |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
