@@ -9,11 +9,14 @@ import sys
 import tarfile
 import tempfile
 import threading
+import uuid
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 from urllib.parse import quote
 
 import requests
+
+from runtime_release import activate_release, read_release_link, releases_dir, rollback_release
 
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -106,11 +109,52 @@ class SelfUpdater:
                 "error": self._error,
                 "supported": supported,
                 "reason": reason,
+                "rollback_available": self._rollback_available(),
             }
 
     def is_active(self) -> bool:
         with self._lock:
             return self._state in _ACTIVE_STATES
+
+    def _runtime_root(self) -> Optional[Path]:
+        configured = os.environ.get("APP_RUNTIME_DIR", "").strip()
+        if not configured:
+            return None
+        root = Path(configured).resolve()
+        current = read_release_link(root, "current")
+        if current is None:
+            return None
+        try:
+            if self.app_dir == current or self.app_dir.is_relative_to(releases_dir(root)):
+                return root
+        except (OSError, ValueError):
+            pass
+        return None
+
+    def _rollback_available(self) -> bool:
+        root = self._runtime_root()
+        return bool(root and read_release_link(root, "previous"))
+
+    def rollback(self) -> dict:
+        supported, reason = self._support()
+        if not supported:
+            raise RuntimeError(reason)
+        root = self._runtime_root()
+        if root is None:
+            raise RuntimeError("Rollback ist nur mit versionierter Runtime verfügbar")
+        with self._lock:
+            if self._state in _ACTIVE_STATES:
+                raise RuntimeError("Ein Update läuft bereits")
+            release = rollback_release(root)
+            self._state = "restarting"
+            self._message = f"Rollback auf {release.name} – Server startet neu"
+            self._error = ""
+            payload = self.status()
+        if self.on_state:
+            self.on_state(payload)
+        if self.restart_callback:
+            self.restart_callback()
+        return payload
 
     def _set_state(self, state: str, message: str, error: str = "") -> None:
         with self._lock:
@@ -370,19 +414,115 @@ class SelfUpdater:
                 self._atomic_copy(backup, self._destination(relative))
             raise
 
-    def _repair_nodriver(self) -> None:
+    def _repair_nodriver(self, app_dir: Optional[Path] = None, python: Optional[Path] = None) -> None:
+        app_dir = Path(app_dir or self.app_dir)
+        python = Path(python or sys.executable)
         command = (
             "import sys; "
-            f"sys.path.insert(0, {str(self.app_dir)!r}); "
+            f"sys.path.insert(0, {str(app_dir)!r}); "
             "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()"
         )
         subprocess.run(
-            [sys.executable, "-c", command],
-            cwd=str(self.app_dir),
+            [str(python), "-c", command],
+            cwd=str(app_dir),
             capture_output=True,
             timeout=60,
             check=False,
         )
+
+    @staticmethod
+    def _release_python(release: Path) -> Path:
+        return release / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+    def _install_release_dependencies(self, release: Path) -> Path:
+        self._set_state("dependencies", "Isolierte Python-Abhängigkeiten werden vorbereitet")
+        base_python = os.environ.get("APP_BASE_PYTHON", "").strip() or getattr(
+            sys, "_base_executable", sys.executable
+        )
+        completed = subprocess.run(
+            [base_python, "-m", "venv", "--system-site-packages", str(release / ".venv")],
+            cwd=str(release), capture_output=True, text=True, timeout=180, check=False,
+        )
+        if completed.returncode:
+            detail = (completed.stderr or completed.stdout or "venv fehlgeschlagen").splitlines()
+            raise RuntimeError("Release-Umgebung konnte nicht erstellt werden: " + " ".join(detail[-3:]))
+        python = self._release_python(release)
+        completed = subprocess.run(
+            [
+                str(python), "-m", "pip", "install", "--disable-pip-version-check",
+                "--no-cache-dir", "-r", str(release / "requirements.txt"),
+            ],
+            cwd=str(release), capture_output=True, text=True, timeout=900, check=False,
+        )
+        if completed.returncode:
+            detail = (completed.stderr or completed.stdout or "pip fehlgeschlagen").splitlines()
+            raise RuntimeError("Abhängigkeiten konnten nicht installiert werden: " + " ".join(detail[-3:]))
+        return python
+
+    def _smoke_release(self, release: Path, python: Path) -> None:
+        completed = subprocess.run(
+            [
+                str(python), "-c",
+                "import compileall,sys; sys.path.insert(0, sys.argv[1]); "
+                "assert compileall.compile_dir(sys.argv[1], quiet=1); "
+                "import config, downloader, extractor, update_checker, self_updater",
+                str(release),
+            ],
+            cwd=str(release), capture_output=True, text=True, timeout=180, check=False,
+        )
+        if completed.returncode:
+            detail = (completed.stderr or completed.stdout or "Importtest fehlgeschlagen").splitlines()
+            raise RuntimeError("Release-Smoke-Test fehlgeschlagen: " + " ".join(detail[-3:]))
+
+    def _install_versioned(self, source_root: Path, target_sha: str, runtime_root: Path) -> None:
+        release_root = releases_dir(runtime_root)
+        final_release = release_root / target_sha[:12].lower()
+        if final_release.exists():
+            try:
+                installed_sha = (final_release / ".app_commit_sha").read_text(encoding="utf-8").strip()
+            except OSError:
+                installed_sha = ""
+            if installed_sha != target_sha:
+                raise RuntimeError("Release-Ziel existiert mit einer anderen Revision")
+            self._smoke_release(final_release, self._release_python(final_release))
+            activate_release(runtime_root, final_release)
+            return
+
+        staging = release_root / f".staging-{target_sha[:12]}-{uuid.uuid4().hex}"
+        staging.mkdir(mode=0o700)
+        activated = False
+        try:
+            files = self._source_files(source_root)
+            for relative, source in sorted(files.items()):
+                destination = staging.joinpath(*Path(relative).parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            (staging / ".app_commit_sha").write_text(target_sha + "\n", encoding="utf-8")
+            (staging / _MANIFEST_NAME).write_text(
+                json.dumps(sorted(files), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            python = self._install_release_dependencies(staging)
+            self._repair_nodriver(staging, python)
+            self._set_state("installing", "Neues Release wird geprüft und atomar aktiviert")
+            self._smoke_release(staging, python)
+            os.replace(staging, final_release)
+            old_release = read_release_link(runtime_root, "current")
+            try:
+                activate_release(runtime_root, final_release)
+                activated = True
+            except Exception:
+                if old_release is not None:
+                    activate_release(runtime_root, old_release)
+                raise
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            if not activated and final_release.exists():
+                # A release that was never made current is safe to discard and
+                # cannot be mistaken for a verified installation later.
+                current = read_release_link(runtime_root, "current")
+                if current != final_release:
+                    shutil.rmtree(final_release, ignore_errors=True)
 
     def _install(self, target_sha: str) -> None:
         with tempfile.TemporaryDirectory(prefix="seriendownloader-update-") as tmp:
@@ -394,6 +534,22 @@ class SelfUpdater:
             backup.mkdir()
             self._download_archive(target_sha, archive)
             source_root = self._extract_archive(archive, extracted)
+            runtime_root = self._runtime_root()
+            if runtime_root is not None:
+                self._install_versioned(source_root, target_sha, runtime_root)
+                return
+            try:
+                dependency_change = (
+                    (source_root / "requirements.txt").read_bytes()
+                    != (self.app_dir / "requirements.txt").read_bytes()
+                )
+            except OSError:
+                dependency_change = True
+            if dependency_change:
+                raise RuntimeError(
+                    "Dieses Update ändert Python-Abhängigkeiten und benötigt die "
+                    "versionierte Docker-Runtime; kein Teilupdate wurde installiert"
+                )
             self._install_dependencies(source_root)
             self._set_state("installing", "Anwendungsdateien werden installiert")
             self._apply_source(source_root, target_sha, backup)

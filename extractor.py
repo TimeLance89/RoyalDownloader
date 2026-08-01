@@ -26,6 +26,13 @@ import warnings
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import quote, urljoin, urlparse
 
+from network_guard import (
+    UnsafeNetworkTarget,
+    ensure_public_http_url,
+    request_proxy_kwargs,
+    safe_proxy_url,
+)
+
 logger = logging.getLogger(__name__)
 
 # Erkennungsstrings für Test-/Platzhalter-Videos (kein echter Stream)
@@ -102,7 +109,10 @@ def _fetch_html(session, url: str, referer: str = "https://filmpalast.to/") -> s
         "Accept-Language": "de-DE,de;q=0.9",
         "Referer": referer,
     }
-    resp = session.get(url, headers=headers, timeout=20, allow_redirects=True)
+    resp = session.get(
+        url, headers=headers, timeout=20, allow_redirects=True,
+        **request_proxy_kwargs(url),
+    )
     return resp.text
 
 
@@ -331,6 +341,7 @@ def pre_check_voe(url: str, session=None, timeout: float = 8.0) -> str:
             headers={"Referer": "https://filmpalast.to/"},
             timeout=timeout,
             allow_redirects=True,
+            **request_proxy_kwargs(url),
         )
         if resp.status_code == 404:
             return VOE_NOT_FOUND
@@ -505,9 +516,7 @@ class VOEBrowserPool:
         options = {
             "headless": True,
             "lang": "de-DE",
-            # Chromium verweigert als root den Start mit aktiver Sandbox.
-            # Explizit setzen statt von nodrivers Root-Erkennung abzuhängen.
-            "sandbox": False,
+            "sandbox": True,
             "browser_args": [
                 "--mute-audio",
                 "--autoplay-policy=no-user-gesture-required",
@@ -516,6 +525,7 @@ class VOEBrowserPool:
                 "--disable-extensions",
                 "--disable-gpu",
                 "--window-size=1280,900",
+                f"--proxy-server={safe_proxy_url()}",
             ],
         }
         if executable:
@@ -771,7 +781,11 @@ def extract_doodstream_url(
     base = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
-        resp = session.get(base + pass_path, headers={"Referer": embed_url}, timeout=20)
+        target = base + pass_path
+        resp = session.get(
+            target, headers={"Referer": embed_url}, timeout=20,
+            **request_proxy_kwargs(target),
+        )
         resp.raise_for_status()
         data_base = resp.text.strip()
     except Exception as exc:
@@ -810,9 +824,13 @@ def extract_vidara_url(
         return None
     try:
         # Embed einmal laden (Cookies/Referer), dann die JSON-API abfragen.
-        session.get(embed_url, headers={"Referer": "https://filmpalast.to/"}, timeout=20)
+        session.get(
+            embed_url, headers={"Referer": "https://filmpalast.to/"}, timeout=20,
+            **request_proxy_kwargs(embed_url),
+        )
+        api_url = f"{base}/api/stream"
         resp = session.post(
-            f"{base}/api/stream",
+            api_url,
             headers={
                 "Content-Type": "application/json",
                 "Referer": embed_url,
@@ -821,6 +839,7 @@ def extract_vidara_url(
             },
             data=json.dumps({"filecode": filecode, "device": "web"}),
             timeout=20,
+            **request_proxy_kwargs(api_url),
         )
         data = resp.json()
     except Exception as exc:
@@ -925,8 +944,9 @@ def extract_firestream_url(
             _log("FireStream: token-blob fehlt.")
             return None
         try:
+            api_url = f"{base}/api/videos/{quote(slug, safe='-_')}/resolve"
             response = session.post(
-                f"{base}/api/videos/{quote(slug, safe='-_')}/resolve",
+                api_url,
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/json",
@@ -935,6 +955,7 @@ def extract_firestream_url(
                 },
                 data=json.dumps({"blob": blob}),
                 timeout=20,
+                **request_proxy_kwargs(api_url),
             )
             response.raise_for_status()
             payload = response.json()
@@ -997,6 +1018,11 @@ def extract_stream_url(
 
     result = _extract_regex(html)
     if result:
+        try:
+            ensure_public_http_url(result[0])
+        except UnsafeNetworkTarget as exc:
+            _log(f"Unsicheres Stream-Ziel blockiert: {exc}")
+            return None
         _log(f"Stream-URL (Regex): {result[0][:60]}...")
         return result
 
@@ -1006,11 +1032,18 @@ def extract_stream_url(
 
     _log("Regex erfolglos – starte Browser-Extraktion …")
     target = alias_url or url
-    return pool.extract(
+    result = pool.extract(
         target,
         wait_seconds=max(5, min(25, int(browser_wait_seconds))),
         referer=referer,
     )
+    if result:
+        try:
+            ensure_public_http_url(result[0])
+        except UnsafeNetworkTarget as exc:
+            _log(f"Unsicheres Browser-Stream-Ziel blockiert: {exc}")
+            return None
+    return result
 
 
 def _get_alias_url(html: str, original_url: str) -> Optional[str]:

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from runtime_paths import data_dir
+from network_guard import safe_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,7 @@ class SessionManager:
                     headers=self._browser_headers(url, ref),
                     timeout=25,
                     allow_redirects=False,
+                    proxies={"http": safe_proxy_url(), "https": safe_proxy_url()},
                 )
                 loc = resp.headers.get("Location") or resp.headers.get("location")
                 return loc, resp.text, resp.status_code
@@ -257,6 +259,7 @@ class SessionManager:
                 headers=self._browser_headers(url, referer),
                 timeout=25,
                 allow_redirects=True,
+                proxies={"http": safe_proxy_url(), "https": safe_proxy_url()},
             )
             return resp.text, resp.status_code
         except Exception as exc:
@@ -319,11 +322,13 @@ class SessionManager:
         browser = await uc.start(
             headless=True,
             lang="de-DE",
+            sandbox=True,
             browser_args=[
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-background-networking",
                 "--disable-client-side-phishing-detection",
+                f"--proxy-server={safe_proxy_url()}",
             ],
         )
 

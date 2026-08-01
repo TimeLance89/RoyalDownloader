@@ -167,12 +167,14 @@ flowchart LR
 | Path | Purpose | Backup |
 |---|---|---|
 | `./data` | Settings, subscriptions, queue, taste profile, cookies, and Seerr state | Required |
-| `./runtime` | Active application revision used by in-app updates | Recommended |
+| `./runtime` | Versioned releases, isolated dependencies, active and previous revision | Recommended |
 | Movie and series mounts | Completed media files | Use your own backup policy |
 
-The updater replaces application files only. It preserves `data`, `.env`,
-media folders, and persistent settings. Automatic application updates wait
-until no download or download preparation is active.
+The updater builds each revision in a staged release with its own Python
+environment, runs compile/import smoke tests, and atomically switches the
+`runtime/current` link only after success. `runtime/previous` keeps the complete
+source and dependency set for rollback. It preserves `data`, `.env`, media
+folders, and persistent settings.
 
 ## Documentation
 

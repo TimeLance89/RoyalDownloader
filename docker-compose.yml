@@ -5,9 +5,16 @@ services:
       args:
         # Optional CI override; local Git builds detect the revision automatically.
         APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
+        APP_UID: ${PUID:-1000}
+        APP_GID: ${PGID:-1000}
     image: seriendownloader:latest
     container_name: seriendownloader
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       # Web interface: http://<NAS-IP>:8765
       # For a host-managed Cloudflare Tunnel set ROYAL_BIND_ADDRESS=127.0.0.1.
@@ -91,6 +98,8 @@ services:
       TZ: ${TZ:-Europe/Berlin}
     # Headless Chromium needs more than Docker's default 64 MB /dev/shm.
     shm_size: "1gb"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=5)"]
       interval: 30s

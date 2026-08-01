@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
 
+from network_guard import UnsafeNetworkTarget, ensure_public_http_url, request_proxy_kwargs, safe_proxy_url
+
 # Fallback, falls das bevorzugte Staging direkt neben dem Ziel nicht angelegt
 # werden kann. Normalerweise liegt jeder Job in
 #   <Zielordner>/.downloading/<eindeutige-job-id>/
@@ -306,6 +308,10 @@ def probe_stream_url(
     """
     if not stream_url:
         return False, "leere URL"
+    try:
+        ensure_public_http_url(stream_url)
+    except UnsafeNetworkTarget as exc:
+        return False, f"Unsicheres Netzwerkziel: {exc}"
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--simulate",
@@ -319,6 +325,7 @@ def probe_stream_url(
         # Queue-Eintrag läuft erneut in denselben 403.
         "--extractor-args", "generic:impersonate",
         "--user-agent", BROWSER_USER_AGENT,
+        "--proxy", safe_proxy_url(),
     ]
     if referer:
         cmd += ["--referer", referer]
@@ -668,6 +675,10 @@ class DownloadJob:
             return False, "Abgebrochen"
         self.failure_kind = ""
         self.average_speed_bps = 0.0
+        try:
+            ensure_public_http_url(self.stream_url)
+        except UnsafeNetworkTarget as exc:
+            return False, f"Unsicheres Netzwerkziel: {exc}"
         fragments = int(concurrent_fragments or HLS_CONCURRENT_FRAGMENTS)
         prepared, detail = self._prepare_staging()
         if not prepared:
@@ -695,6 +706,7 @@ class DownloadJob:
             "--ffmpeg-location", "ffmpeg",
             "--extractor-args", "generic:impersonate",
             "--user-agent", BROWSER_USER_AGENT,
+            "--proxy", safe_proxy_url(),
         ]
         if (
             MP4_HTTP_CHUNK_SIZE
@@ -888,6 +900,7 @@ class DownloadJob:
                 timeout=30,
                 allow_redirects=True,
                 impersonate="chrome136",
+                **request_proxy_kwargs(self.stream_url),
             )
             resp.raise_for_status()
             content_type = (resp.headers.get("Content-Type") or "").lower()

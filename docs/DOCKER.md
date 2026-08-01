@@ -123,6 +123,25 @@ docker compose up -d --build
 
 Open `http://<NAS-IP>:8765`.
 
+The application and its sandboxed Chromium process run as the unprivileged
+identity configured by `PUID`/`PGID` (default `1000:1000`). Compose additionally
+drops all Linux capabilities and enables `no-new-privileges`.
+
+For an existing installation, stop the container and align the writable mounts
+once before rebuilding:
+
+```bash
+docker compose down
+sudo chown -R 1000:1000 runtime data
+sudo chown -R 1000:1000 /your/movie/path /your/series/path
+docker compose up -d --build
+```
+
+Replace `1000:1000` with the values in `.env`. On a NAS where Jellyfin and
+Royal Downloader share media through ACLs, grant that identity write access
+through the NAS permissions UI instead of recursively changing media ownership.
+Startup fails with the exact unwritable path if any required mount is wrong.
+
 `APP_REQUIRE_AUTH=true` is the Compose default. A fresh installation exposes
 only onboarding, login and liveness until the first administrator account is
 stored. After updating an older installation that has settings but no account,
@@ -173,6 +192,7 @@ All variables are optional and have operational defaults.
 | `SERIES_DIR` | `DOWNLOAD_DIR` | Separate series destination; when omitted, series use the movie directory |
 | `MOVIES_HOST_DIR` | `./downloads/Filme` | Compose-only NAS movie directory mounted to `/movies` |
 | `SERIES_HOST_DIR` | `./downloads/Serien` | Compose-only NAS series directory mounted to `/serien` |
+| `PUID` / `PGID` | `1000` / `1000` | Unprivileged UID/GID used by Royal Downloader and Chromium |
 | `HOST` / `PORT` | `0.0.0.0` / `8765` | Server bind address and port |
 | `OPEN_BROWSER` | `0` | Prevents opening a desktop browser inside the container |
 | `APP_USERNAME` | empty | Fallback account name; only used until an account is created in the interface |
@@ -313,8 +333,16 @@ the archive, updates Python dependencies when required, writes the new build ID,
 and restarts the server. It does not modify `data`, media directories,
 `settings.ini`, or `.env`.
 
-Compose keeps the active revision in `./runtime`. Mounted-folder deployments
-update their persistent source directory directly. The install button remains
+Compose keeps versioned revisions in `./runtime/releases`. A downloaded update
+is installed with its own Python environment and smoke-tested before one atomic
+switch of `./runtime/current`; `./runtime/previous` remains fully reversible,
+including dependencies. The API endpoint `POST /api/updater/rollback` (and the
+emergency command `docker compose run --rm seriendownloader python
+/opt/seriendownloader/docker_bootstrap.py --rollback`) switches back without
+rebuilding an image.
+
+Mounted-folder deployments update their persistent source directory directly.
+The install button remains
 disabled when the active application directory is not persistent.
 
 yt-dlp has a separate queue-safe update loop. It checks the stable channel on

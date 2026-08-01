@@ -1,10 +1,11 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
 FROM python:3.12-slim AS runtime-base
+ARG APP_UID=1000
+ARG APP_GID=1000
 
 # System dependencies:
-#  - chromium:         real browser for nodriver and CDP-assisted extraction;
-#                      the root container launches it explicitly without a sandbox.
+#  - chromium:         real, sandboxed browser for CDP-assisted extraction.
 #  - ffmpeg:           required by yt-dlp for HLS/M3U8 streams.
 #  - ca-certificates:  root certificates used by curl_cffi and HTTPS.
 #  - fonts-liberation: fonts for consistent headless Chromium rendering.
@@ -14,6 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+RUN test "${APP_UID}" -gt 0 && test "${APP_GID}" -gt 0 \
+    && groupadd --non-unique --gid "${APP_GID}" royal \
+    && useradd --non-unique --uid "${APP_UID}" --gid royal --create-home --home-dir /home/royal royal \
+    && install -d -o royal -g royal /runtime /app/data /movies /serien
 
 WORKDIR /opt/seriendownloader
 
@@ -32,7 +38,7 @@ RUN python -c "from update_checker import write_build_commit_marker; write_build
 
 FROM runtime-base AS runtime
 ARG APP_COMMIT_SHA
-COPY --from=source /opt/seriendownloader /opt/seriendownloader
+COPY --from=source --chown=royal:royal /opt/seriendownloader /opt/seriendownloader
 
 # Repair invalid UTF-8 shipped in nodriver 0.50.3 cdp/network.py.
 RUN python -c "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()" || true
@@ -51,9 +57,12 @@ ENV SERIENDL_DATA_DIR=/app/data \
     PORT=8765 \
     OPEN_BROWSER=0 \
     CHROME_PATH=/usr/bin/chromium \
+    HOME=/home/royal \
     APP_COMMIT_SHA=${APP_COMMIT_SHA} \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 EXPOSE 8765
 
-CMD ["python", "docker_bootstrap.py"]
+USER royal
+CMD ["python", "container_entrypoint.py"]
