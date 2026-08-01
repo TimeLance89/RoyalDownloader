@@ -68,6 +68,19 @@ def test_series_preparations_share_one_scheduler_group():
     assert first.host_group == second.host_group == "__series_preparation__"
 
 
+def test_movie_preparation_has_priority_over_series_episode():
+    movie = episode_movie("filmpalast", "movie", title="A Movie")
+    episode = episode_movie(
+        "serienstream", "serienstream:exact-show-s02e04",
+    )
+    movie_job = server._QueuePreparationJob([(movie, "filmpalast:a-movie")], Path("/tmp"))
+    series_job = server._QueuePreparationJob(
+        [(episode, "serienstream:exact-show-s02e04")], Path("/tmp"),
+    )
+
+    assert movie_job.queue_priority < series_job.queue_priority
+
+
 def test_two_preparations_can_progress_without_global_head_of_line_blocking():
     slots = server._PreparationSlots(2)
 

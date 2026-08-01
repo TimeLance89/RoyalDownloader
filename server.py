@@ -5223,6 +5223,7 @@ def _enqueue_hoster_attempt(
         on_progress=lambda pct, msg: on_job_progress(pct, msg, label),
         on_done=_attempt_done,
         allow_slow=last_resort,
+        queue_priority=0 if not parse_episode_slug(movie_slug) else 100,
     )
     with state.queue_lifecycle_lock:
         with state.queue_claim_lock:
@@ -9390,6 +9391,13 @@ class _QueuePreparationJob:
         self.movie_fallbacks = movie_fallbacks or {}
         self.queue_slugs = {slug for _movie, slug in jobs}
         self.queue_slug = next(iter(self.queue_slugs)) if len(self.queue_slugs) == 1 else ""
+        # Filme laufen auf einer unabhängigen, zuverlässigeren Route und sollen
+        # nicht hinter hunderten Serien-Fallbacks auf ihre Vorbereitung warten.
+        self.queue_priority = (
+            0
+            if any(parse_episode_slug(slug) is None for _movie, slug in jobs)
+            else 100
+        )
         self._cancelled = threading.Event()
 
     def start(self):

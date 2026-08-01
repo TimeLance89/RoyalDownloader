@@ -5,9 +5,10 @@ from downloader import DownloadQueue
 
 
 class _BlockingJob:
-    def __init__(self, *, preparation=False, host_group=""):
+    def __init__(self, *, preparation=False, host_group="", queue_priority=100):
         self.is_preparation_job = preparation
         self.host_group = host_group
+        self.queue_priority = queue_priority
         self.started = threading.Event()
         self.release = threading.Event()
 
@@ -77,4 +78,47 @@ def test_download_host_limit_still_applies_with_separate_preparations():
         preparation.release.set()
         first.release.set()
         second.release.set()
+        assert _wait_until(lambda: queue.active_count() == 0)
+
+
+def test_movie_preparation_overtakes_series_backlog():
+    queue = DownloadQueue(max_parallel=1, max_preparations=1, per_host_limit=1)
+    series = [
+        _BlockingJob(preparation=True, queue_priority=100)
+        for _ in range(3)
+    ]
+    movie = _BlockingJob(preparation=True, queue_priority=0)
+    for job in (*series, movie):
+        queue.add(job)
+
+    try:
+        queue.start()
+        assert _wait_until(lambda: movie.started.is_set())
+        assert not any(job.started.is_set() for job in series)
+    finally:
+        movie.release.set()
+        for job in series:
+            job.release.set()
+        assert _wait_until(lambda: queue.active_count() == 0)
+
+
+def test_later_series_cannot_push_prepared_movie_back():
+    queue = DownloadQueue(max_parallel=1, max_preparations=1, per_host_limit=1)
+    active = _BlockingJob(host_group="active.invalid")
+    movie = _BlockingJob(host_group="movie.invalid", queue_priority=0)
+    series = _BlockingJob(host_group="series.invalid", queue_priority=100)
+
+    try:
+        queue.add(active)
+        queue.start()
+        assert _wait_until(lambda: active.started.is_set())
+        queue.add(movie)
+        queue.add_front(series)
+        active.release.set()
+        assert _wait_until(lambda: movie.started.is_set())
+        assert not series.started.is_set()
+    finally:
+        active.release.set()
+        movie.release.set()
+        series.release.set()
         assert _wait_until(lambda: queue.active_count() == 0)

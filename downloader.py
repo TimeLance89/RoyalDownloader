@@ -386,6 +386,7 @@ class DownloadJob:
         allow_slow: bool = False,
         provider: str = "",
         content_language: str = "",
+        queue_priority: int = 100,
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -398,6 +399,9 @@ class DownloadJob:
         self.queue_slug = queue_slug
         self.provider = str(provider or "").strip().casefold()
         self.content_language = str(content_language or "").strip().casefold()
+        # Kleinere Werte laufen zuerst. Filme erhalten vom Server eine höhere
+        # Priorität als Serienfolgen, ohne bereits aktive Jobs abzubrechen.
+        self.queue_priority = int(queue_priority)
         self.allow_slow = bool(allow_slow)
         self.host_group = host_group_for_url(stream_url)
         self.failure_kind = ""
@@ -975,6 +979,13 @@ class DownloadQueue:
             self._next_job_id += 1
             self._jobs.insert(0, (self._next_job_id, job))
 
+    @staticmethod
+    def _job_priority(job) -> int:
+        try:
+            return int(getattr(job, "queue_priority", 100))
+        except (TypeError, ValueError):
+            return 100
+
     def remove_pending(self, predicate: Callable[[DownloadJob], bool]) -> list:
         """Entfernt passende, noch nicht gestartete Jobs und gibt sie zurueck.
 
@@ -1103,24 +1114,27 @@ class DownloadQueue:
                         group = getattr(active_job, "host_group", "")
                         if group:
                             active_hosts[group] = active_hosts.get(group, 0) + 1
-                    index = next(
-                        (
-                            i for i, (_jid, queued) in enumerate(self._jobs)
-                            if (
-                                active_preparations < self._max_preparations
-                                if getattr(queued, "is_preparation_job", False)
-                                else (
-                                    active_downloads < self._max_parallel
-                                    and active_hosts.get(
-                                        getattr(queued, "host_group", ""), 0
-                                    ) < self._per_host_limit
-                                )
+                    candidates = [
+                        (self._job_priority(queued), i)
+                        for i, (_jid, queued) in enumerate(self._jobs)
+                        if (
+                            active_preparations < self._max_preparations
+                            if getattr(queued, "is_preparation_job", False)
+                            else (
+                                active_downloads < self._max_parallel
+                                and active_hosts.get(
+                                    getattr(queued, "host_group", ""), 0
+                                ) < self._per_host_limit
                             )
-                        ),
-                        None,
-                    )
-                    if index is None:
+                        )
+                    ]
+                    if not candidates:
                         break
+                    # Priorität zuerst, bestehende Queue-Reihenfolge als
+                    # stabiler Tie-Breaker. Dadurch bleibt add_front für Jobs
+                    # gleicher Klasse kompatibel, Filme werden aber nicht von
+                    # später vorbereiteten Serienfolgen wieder verdrängt.
+                    _priority, index = min(candidates)
                     jid, job = self._jobs.pop(index)
                     thread = job.start()
                     self._active[jid] = (job, thread, time.monotonic())
