@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-08-01 – Legacy updater migration fix
+
+- Unblocked dependency-bearing updates from revision `6457b78d` by preserving
+  its dependency compatibility sentinel separately from the reviewed lockfile.
+- Migrate mounted-folder Docker installations to the persistent, versioned
+  runtime on restart so subsequent updates are isolated, smoke-tested, and
+  rollback-capable.
+
 ## 2026-08-01 – Runtime hardening and modularization
 
 - Bound all long-lived discovery, media-validation, path, and targeted

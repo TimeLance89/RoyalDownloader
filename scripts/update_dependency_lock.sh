@@ -6,7 +6,7 @@ command -v uv >/dev/null || {
   exit 1
 }
 
-uv pip compile requirements.txt \
+uv pip compile requirements.in \
   --python-version 3.12 \
   --generate-hashes \
   --output-file requirements.lock

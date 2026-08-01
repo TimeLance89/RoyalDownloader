@@ -1,4 +1,4 @@
--r requirements.txt
+-r requirements.in
 bandit
 coverage
 httpx2

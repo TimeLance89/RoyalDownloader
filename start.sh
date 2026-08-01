@@ -1,6 +1,7 @@
 #!/bin/bash
 # Bootstrap entrypoint for NAS deployments that mount the source directory into
-# a generic Python container. It installs dependencies, then starts the server.
+# a generic Python container. It installs dependencies, then starts the
+# persistent, versioned runtime used by safe in-app updates and rollbacks.
 #
 # NAS setup:
 #   1. Copy the repository to the NAS, for example /Deluxe.
@@ -74,6 +75,7 @@ export OPEN_BROWSER="${OPEN_BROWSER:-0}"             # do not open a local deskt
 export SERIENDL_DATA_DIR="${SERIENDL_DATA_DIR:-$(pwd)/data}"       # cookies, routing data, settings
 export DOWNLOAD_DIR="${DOWNLOAD_DIR:-$(pwd)/downloads}"            # completed movie destination
 export CHROME_PATH="${CHROME_PATH:-$(command -v chromium || command -v chromium-browser)}"
+export APP_RUNTIME_DIR="${APP_RUNTIME_DIR:-$(pwd)/runtime}"        # versioned app releases and rollback
 
 if [ ! -x "$CHROME_PATH" ]; then
     echo "[start.sh] ERROR: Chromium binary is not executable: ${CHROME_PATH}" >&2
@@ -82,4 +84,4 @@ fi
 echo "[start.sh] Chromium: ${CHROME_PATH} ($("$CHROME_PATH" --version))"
 
 echo "[start.sh] Starting Royal Downloader on ${HOST}:${PORT} …"
-exec python server.py
+exec python docker_bootstrap.py

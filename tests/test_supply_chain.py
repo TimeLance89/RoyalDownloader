@@ -5,7 +5,6 @@ import pytest
 
 from ytdlp_updater import YtDlpRuntimeUpdater
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -15,7 +14,7 @@ def _content(path):
 
 def test_runtime_dependencies_and_images_are_exactly_pinned():
     direct = [
-        line for line in _content("requirements.txt").splitlines()
+        line for line in _content("requirements.in").splitlines()
         if line.strip() and not line.startswith("#")
     ]
     locked = [
@@ -34,9 +33,27 @@ def test_runtime_dependencies_and_images_are_exactly_pinned():
     assert "YTDLP_AUTO_UPDATE:-false" in compose
 
 
+def test_legacy_updater_dependency_sentinel_stays_compatible():
+    # Version 6457b78d compares this file byte-for-byte before accepting an
+    # update. Runtime dependency changes belong in requirements.in/.lock.
+    assert _content("requirements.txt") == (
+        "curl_cffi\n"
+        "nodriver==0.50.3\n"
+        "beautifulsoup4\n"
+        "lxml\n"
+        "yt-dlp\n"
+        "fastapi\n"
+        "uvicorn[standard]\n"
+        "requests>=2.32,<3\n"
+        "cryptography>=45,<49\n"
+    )
+
+
 def test_update_and_native_start_install_from_lock():
     assert "requirements.lock" in _content("self_updater.py")
     assert "-r requirements.lock" in _content("start.sh")
+    assert 'APP_RUNTIME_DIR="${APP_RUNTIME_DIR:-$(pwd)/runtime}"' in _content("start.sh")
+    assert "exec python docker_bootstrap.py" in _content("start.sh")
 
 
 def test_ytdlp_wheel_requires_an_approved_hash(tmp_path, monkeypatch):

@@ -5,11 +5,16 @@ resolve from the looser input file. The current reviewed runtime includes
 Python 3.12.13, FastAPI 0.141.1, Uvicorn 0.52.0, yt-dlp 2026.7.4, curl-cffi
 0.16.0, and cryptography 48.0.1. Seerr defaults to v3.4.1.
 
-To propose an update, edit only the direct constraints in `requirements.txt`,
+To propose an update, edit only the direct constraints in `requirements.in`,
 run `scripts/update_dependency_lock.sh`, review every direct and transitive
 change plus the vulnerability audit, and commit both input and generated lock.
 CI installs the reviewed lock, audits it, and publishes critical-module
 coverage. Image-version changes follow the same reviewed commit flow.
+
+`requirements.txt` is intentionally retained byte-for-byte as a migration
+sentinel for installations running the legacy updater from revision `6457b78d`.
+Do not edit it: that updater would reject the transition before the versioned
+runtime can be bootstrapped.
 
 Automatic yt-dlp mutation is disabled by default. When explicitly enabled,
 the updater accepts only a stable version and verifies the downloaded wheel

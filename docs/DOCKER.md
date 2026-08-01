@@ -81,7 +81,10 @@ Both deployment methods include:
 
 This mode is useful on NAS platforms that create containers through a graphical
 interface and mount a project directory into a generic Python container.
-`start.sh` installs runtime dependencies and starts the server.
+`start.sh` installs runtime dependencies and starts the server through a
+versioned runtime in `runtime/`. Existing mounted-folder installations are
+automatically migrated on their first restart after updating; later dependency
+updates and rollbacks use complete, isolated releases.
 
 1. Copy the repository to the NAS, for example `/Deluxe`.
 2. Create a container from a Python image such as `python:3.12`.
@@ -341,9 +344,9 @@ emergency command `docker compose run --rm seriendownloader python
 /opt/seriendownloader/docker_bootstrap.py --rollback`) switches back without
 rebuilding an image.
 
-Mounted-folder deployments update their persistent source directory directly.
-The install button remains
-disabled when the active application directory is not persistent.
+Mounted-folder deployments use `start.sh` to migrate their persistent source
+directory into `runtime/releases`. The install button remains disabled when the
+active application directory is not persistent.
 
 yt-dlp has a separate queue-safe update loop. It checks the stable channel on
 its own interval and never replaces the executable during an active download.

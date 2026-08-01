@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import docker_bootstrap
 import runtime_release
 from self_updater import SelfUpdater
 
@@ -98,3 +99,18 @@ def test_verified_staged_release_is_activated_once(monkeypatch, tmp_path):
     assert current and current.name == "b" * 12
     assert (current / "dependency-version").read_text() == "v2"
     assert runtime_release.read_release_link(tmp_path, "previous") == old
+
+
+def test_unmarked_bundle_identity_changes_with_source(tmp_path):
+    source = tmp_path / "bundle"
+    source.mkdir()
+    (source / "server.py").write_text("# first\n", encoding="utf-8")
+    first = docker_bootstrap._source_identity(source)
+    (source / "server.py").write_text("# second\n", encoding="utf-8")
+    second = docker_bootstrap._source_identity(source)
+    assert second != first
+
+    # Persistent and generated content must not create phantom releases.
+    (source / "data").mkdir()
+    (source / "data/state.json").write_text("changed", encoding="utf-8")
+    assert docker_bootstrap._source_identity(source) == second

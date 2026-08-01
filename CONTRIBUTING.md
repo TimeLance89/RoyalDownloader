@@ -24,14 +24,14 @@ Linux and macOS:
 
 ```bash
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 ```
 
 Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.lock
 ```
 
 Docker Compose is recommended for the complete runtime stack:

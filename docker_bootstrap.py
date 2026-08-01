@@ -10,8 +10,12 @@ import sys
 import venv
 from pathlib import Path
 
-from runtime_release import activate_release, read_release_link, releases_dir, rollback_release
-
+from runtime_release import (
+    activate_release,
+    read_release_link,
+    releases_dir,
+    rollback_release,
+)
 
 SKIP_NAMES = {".git", "data", "downloads", "debug", "runtime", "releases", "current", "previous"}
 
@@ -47,10 +51,12 @@ def _smoke_release(release: Path) -> None:
     completed = subprocess.run(
         [
             str(python), "-c",
-            "import compileall,sys; "
-            "sys.path.insert(0, sys.argv[1]); "
-            "assert compileall.compile_dir(sys.argv[1], quiet=1); "
-            "import config, downloader, extractor, update_checker",
+            (
+                "import compileall,sys; "
+                "sys.path.insert(0, sys.argv[1]); "
+                "assert compileall.compile_dir(sys.argv[1], quiet=1); "
+                "import config, downloader, extractor, update_checker"
+            ),
             str(release),
         ],
         cwd=str(release),
@@ -64,6 +70,22 @@ def _smoke_release(release: Path) -> None:
         raise RuntimeError("Runtime-Smoke-Test fehlgeschlagen: " + " ".join(detail[-3:]))
 
 
+def _source_identity(source: Path) -> str:
+    """Return a stable identity even when a mounted checkout has no build marker."""
+    digest = hashlib.sha256()
+    for candidate in sorted(source.rglob("*")):
+        relative = candidate.relative_to(source)
+        if any(part in SKIP_NAMES or part == "__pycache__" for part in relative.parts):
+            continue
+        if not candidate.is_file() or candidate.suffix in {".pyc", ".pyo"}:
+            continue
+        digest.update(relative.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(candidate.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:12]
+
+
 def _initial_release(bundle: Path, runtime_root: Path) -> Path:
     current = read_release_link(runtime_root, "current")
     if current is not None:
@@ -75,13 +97,13 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
     except OSError:
         identity = ""
     if not identity:
-        identity = hashlib.sha256((source / "requirements.txt").read_bytes()).hexdigest()[:12]
+        identity = _source_identity(source)
     prefix = "legacy" if source == runtime_root else "bundled"
     release = releases_dir(runtime_root) / f"{prefix}-{identity}"
     if release.is_dir():
         try:
             _smoke_release(release)
-        except Exception:
+        except (OSError, RuntimeError, subprocess.SubprocessError):
             # A hard power loss may leave the first copy or venv incomplete.
             # It was never linked as current, so rebuilding it is safe.
             shutil.rmtree(release, ignore_errors=True)
