@@ -567,6 +567,10 @@ class AppState:
         self.total_jobs = 0
         self.done_jobs = 0
         self.counted_queue_slugs: set[str] = set()
+        # Nur die Slugs, deren Katalog-/Hoster-Vorbereitung gerade wirklich
+        # läuft. Die UI darf nicht die komplette Staffel als gleichzeitig
+        # geprüft darstellen.
+        self.preparing_queue_slugs: set[str] = set()
         # Logische Queue-Jobs, die auf den persistenten Provider-Circuit-Breaker
         # warten. Sie bleiben in ``picked`` und werden nicht terminal gezählt.
         self.provider_waiting_jobs: Dict[str, dict] = {}
@@ -3266,14 +3270,27 @@ def _queue_slug_claimed(slug: str) -> bool:
 
 
 def serienstream_provider_status() -> dict:
+    active_jobs = state.dl_queue.active_jobs()
+    pending_jobs = (
+        state.dl_queue.pending_jobs()
+        if hasattr(state.dl_queue, "pending_jobs") else []
+    )
+    download_slugs = {
+        slug
+        for job in (*active_jobs, *pending_jobs)
+        if not getattr(job, "is_preparation_job", False)
+        for slug in _job_queue_slugs(job)
+    }
     with state.queue_claim_lock:
         claimed = set(state.picked)
         waiting_slugs = set(state.provider_waiting_jobs) & claimed
+        preparing_slugs = set(state.preparing_queue_slugs) & claimed
         with state.download_state_lock:
             counted = set(state.counted_queue_slugs)
         fallback_slugs = {
             slug for slug in claimed & counted
             if slug not in waiting_slugs
+            and slug not in download_slugs
             and parse_episode_slug(slug) is not None
             and provider_for_value(slug) == "serienstream"
         }
@@ -3281,6 +3298,8 @@ def serienstream_provider_status() -> dict:
         "serienstream", waiting_episode_count=len(waiting_slugs),
     )
     status["fallback_episode_count"] = len(fallback_slugs)
+    status["checking_episode_count"] = len(fallback_slugs & preparing_slugs)
+    status["queued_fallback_episode_count"] = len(fallback_slugs - preparing_slugs)
     status["cached_redirect_count"] = state.resolved_link_cache.count()
     return status
 
@@ -3293,10 +3312,34 @@ def build_queue_payload() -> dict:
             "count": 0,
             "groups": [],
             "providers": {"serienstream": serienstream_provider_status()},
+            "activity": {
+                "active_preparations": 0,
+                "pending_preparations": 0,
+                "active_downloads": state.dl_queue.active_count(),
+            },
         }
     groups: "OrderedDict[str, List[str]]" = OrderedDict()
     for slug in slugs:
         groups.setdefault(queue_group_name(slug), []).append(slug)
+    active_jobs = state.dl_queue.active_jobs()
+    pending_jobs = (
+        state.dl_queue.pending_jobs()
+        if hasattr(state.dl_queue, "pending_jobs") else []
+    )
+    active_download_slugs = {
+        slug
+        for job in active_jobs
+        if not getattr(job, "is_preparation_job", False)
+        for slug in _job_queue_slugs(job)
+    }
+    pending_download_slugs = {
+        slug
+        for job in pending_jobs
+        if not getattr(job, "is_preparation_job", False)
+        for slug in _job_queue_slugs(job)
+    }
+    with state.queue_claim_lock:
+        preparing_slugs = set(state.preparing_queue_slugs)
     result_groups = []
     provider_status = serienstream_provider_status()
     serienstream_paused = provider_status.get("state") != HEALTHY
@@ -3311,6 +3354,17 @@ def build_queue_payload() -> dict:
             checking_fallback = (
                 serienstream_paused
                 and not waiting_provider
+                and slug in preparing_slugs
+                and parse_episode_slug(slug) is not None
+                and provider_for_value(slug) == "serienstream"
+                and slug in state.counted_queue_slugs
+            )
+            queued_fallback = (
+                serienstream_paused
+                and not waiting_provider
+                and not checking_fallback
+                and slug not in active_download_slugs
+                and slug not in pending_download_slugs
                 and parse_episode_slug(slug) is not None
                 and provider_for_value(slug) == "serienstream"
                 and slug in state.counted_queue_slugs
@@ -3321,8 +3375,11 @@ def build_queue_payload() -> dict:
                 "content_language": _movie_content_language(movie, fallback=slug),
                 "done": slug in state.done_slugs,
                 "status": (
-                    "waiting_provider" if waiting_provider
+                    "downloading" if slug in active_download_slugs
+                    else "download_ready" if slug in pending_download_slugs
+                    else "waiting_provider" if waiting_provider
                     else "checking_fallback" if checking_fallback
+                    else "queued_fallback" if queued_fallback
                     else "waiting"
                 ),
                 "next_probe_at": (
@@ -3335,6 +3392,17 @@ def build_queue_payload() -> dict:
         "count": len(slugs),
         "groups": result_groups,
         "providers": {"serienstream": provider_status},
+        "activity": {
+            "active_preparations": sum(
+                bool(getattr(job, "is_preparation_job", False)) for job in active_jobs
+            ),
+            "pending_preparations": sum(
+                bool(getattr(job, "is_preparation_job", False)) for job in pending_jobs
+            ),
+            "active_downloads": len(active_jobs) - sum(
+                bool(getattr(job, "is_preparation_job", False)) for job in active_jobs
+            ),
+        },
     }
 
 
@@ -3938,7 +4006,58 @@ def _execute_provider_probe(item: Optional[dict]) -> None:
     _resume_waiting_provider_jobs(item)
 
 
+def _retry_one_waiting_fallback() -> bool:
+    """Prüft genau eine wartende Episode erneut ausschließlich bei Fallbacks.
+
+    SerienStream bleibt dabei im Cooldown und wird von ``run_download_queue``
+    nicht angefragt. Das verhindert, dass ein kurzer Huhu-/Moflix-Aussetzer eine
+    Episode unnötig bis zur deutlich späteren SerienStream-Probe festhält.
+    """
+    if not state.queue_prepare_lock.acquire(blocking=False):
+        return False
+    item = None
+    slug = ""
+    try:
+        if state.provider_health.status("serienstream")["state"] != COOLDOWN:
+            return False
+        with state.queue_claim_lock:
+            item = next(iter(state.provider_waiting_jobs.values()), None)
+            if item is None:
+                return False
+            slug = item["slug"]
+            state.provider_waiting_jobs.pop(slug, None)
+            if slug not in state.picked or slug not in state.counted_queue_slugs:
+                return False
+            state.preparing_queue_slugs.add(slug)
+        parsed = parse_episode_slug(slug)
+        label = (
+            f"S{parsed[1]:02d}E{parsed[2]:02d}" if parsed else slug
+        )
+        log(f"Fallback wird kontrolliert erneut geprüft: {label}.")
+        broadcast({"type": "queue_update", "queue": build_queue_payload()})
+        run_download_queue(
+            [(item["movie"], slug)],
+            item["out_root"],
+            movie_fallbacks=item["movie_fallbacks"],
+        )
+        return True
+    except Exception as exc:
+        log(f"Fallback-Wiederholung für «{slug}» fehlgeschlagen: {exc}", "warn")
+        if item is not None and slug:
+            _defer_provider_episode(
+                item["movie"], slug, item["out_root"], item["movie_fallbacks"],
+            )
+        return True
+    finally:
+        if slug:
+            with state.queue_claim_lock:
+                state.preparing_queue_slugs.discard(slug)
+            broadcast({"type": "queue_update", "queue": build_queue_payload()})
+        state.queue_prepare_lock.release()
+
+
 def _provider_retry_worker() -> None:
+    next_fallback_retry = time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
     try:
         while True:
             with state.queue_claim_lock:
@@ -3954,7 +4073,20 @@ def _provider_retry_worker() -> None:
                 state.provider_retry_wake_event.clear()
                 continue
             if status["remaining_seconds"] > 0:
-                state.provider_retry_wake_event.wait(min(30, status["remaining_seconds"]))
+                delay = max(0.0, next_fallback_retry - time.monotonic())
+                if delay <= 0:
+                    if _retry_one_waiting_fallback():
+                        next_fallback_retry = (
+                            time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
+                        )
+                    else:
+                        # Eine normale Episodenvorbereitung hat Vorrang. Kurz
+                        # danach erneut versuchen, ohne im Sekundentakt zu loggen.
+                        next_fallback_retry = time.monotonic() + 5
+                    continue
+                state.provider_retry_wake_event.wait(min(
+                    30, status["remaining_seconds"], delay,
+                ))
                 state.provider_retry_wake_event.clear()
                 continue
             if state.provider_health.begin_probe("serienstream"):
@@ -9172,6 +9304,8 @@ class _QueuePreparationJob:
     Queue einen zweiten Scheduler oder mehr als zwei parallele Jobs zu öffnen.
     """
 
+    is_preparation_job = True
+
     def __init__(
         self, jobs: List[tuple], out_root: Path,
         movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
@@ -9193,10 +9327,15 @@ class _QueuePreparationJob:
 
     def _run(self):
         queued_slugs: set[str] = set()
+        marked_preparing = False
         try:
             with state.queue_prepare_lock:
                 if self._cancelled.is_set():
                     return
+                with state.queue_claim_lock:
+                    state.preparing_queue_slugs.update(self.queue_slugs & state.picked)
+                    marked_preparing = True
+                broadcast({"type": "queue_update", "queue": build_queue_payload()})
                 queued_slugs = run_download_queue(
                     self.jobs,
                     self.out_root,
@@ -9212,6 +9351,9 @@ class _QueuePreparationJob:
                     movie.title, Path(""), slug=slug,
                 )
         finally:
+            if marked_preparing:
+                with state.queue_claim_lock:
+                    state.preparing_queue_slugs.difference_update(self.queue_slugs)
             if not self._cancelled.is_set():
                 for movie, slug in self.jobs:
                     if slug not in queued_slugs and _queue_slug_claimed(slug):
@@ -9231,6 +9373,8 @@ class _QueuePreparationJob:
                         lambda job: bool(self.queue_slugs & set(getattr(job, "queue_slugs", [])))
                         or getattr(job, "queue_slug", "") in self.queue_slugs
                     )
+            if marked_preparing:
+                broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
 
 def _enqueue_automatic_downloads(
@@ -9544,6 +9688,7 @@ def _drop_queue_claims(slugs: set[str]) -> None:
         return
     with state.queue_claim_lock:
         state.picked.difference_update(slugs)
+        state.preparing_queue_slugs.difference_update(slugs)
         for slug in slugs:
             state.provider_waiting_jobs.pop(slug, None)
         state.provider_retry_wake_event.set()
@@ -9556,6 +9701,7 @@ def _release_removed_queue_slugs(slugs: set[str]) -> None:
     with state.queue_lifecycle_lock:
         with state.queue_claim_lock:
             state.picked.difference_update(slugs)
+            state.preparing_queue_slugs.difference_update(slugs)
             for slug in slugs:
                 state.provider_waiting_jobs.pop(slug, None)
             state.provider_retry_wake_event.set()
@@ -9676,6 +9822,7 @@ async def api_download_cancel():
                 cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
                 refresh_partial_success = bool(had_queue_activity and state.done_slugs)
             state.picked.clear()
+            state.preparing_queue_slugs.clear()
             state.provider_waiting_jobs.clear()
             state.provider_retry_wake_event.set()
             with state.download_state_lock:

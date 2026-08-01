@@ -997,6 +997,11 @@ class DownloadQueue:
         with self._lock:
             return len(self._jobs)
 
+    def pending_jobs(self) -> list:
+        """Liefert einen threadsicheren Snapshot der noch nicht gestarteten Jobs."""
+        with self._lock:
+            return [job for _job_id, job in self._jobs]
+
     def active_count(self) -> int:
         with self._lock:
             return len(self._active)

@@ -485,9 +485,15 @@ function renderQueue(payload) {
       status.className = "queue-item-status";
       status.textContent = it.done
         ? "Fertig"
-        : (it.status === "waiting_provider"
+        : (it.status === "downloading"
+          ? "Lädt"
+          : (it.status === "download_ready"
+            ? "Download bereit"
+            : (it.status === "waiting_provider"
           ? "Provider-Pause"
-          : (it.status === "checking_fallback" ? "Ersatzquelle" : "Wartet"));
+          : (it.status === "checking_fallback"
+            ? "Prüft Ersatz"
+            : (it.status === "queued_fallback" ? "Fallback vorgemerkt" : "Wartet")))));
       const removeBtn = document.createElement("button");
       removeBtn.className = "remove-btn";
       removeBtn.type = "button";
@@ -508,6 +514,26 @@ function renderQueue(payload) {
     }
   }
   syncFpQueueIndicators();
+
+  const activity = payload.activity || {};
+  const activeDownloads = Math.max(0, Number(activity.active_downloads) || 0);
+  const activePreparations = Math.max(0, Number(activity.active_preparations) || 0);
+  const pendingPreparations = Math.max(0, Number(activity.pending_preparations) || 0);
+  if (!activeDownloads && activePreparations) {
+    setDownloadState(
+      "active",
+      "Ersatzquelle wird gesucht",
+      `${activePreparations} aktiv · ${pendingPreparations} Folgen vorgemerkt`,
+      state.download.percent,
+    );
+  } else if (!activeDownloads && !activePreparations && pendingPreparations) {
+    setDownloadState(
+      "active",
+      "Fallback-Warteschlange läuft",
+      `${pendingPreparations} Folgen werden nacheinander geprüft`,
+      state.download.percent,
+    );
+  }
 }
 
 function renderSerienstreamHealth(provider) {
@@ -525,7 +551,8 @@ function renderSerienstreamHealth(provider) {
   const remaining = Math.max(0, Number(provider.remaining_seconds) || 0);
   const minutes = Math.max(1, Math.ceil(remaining / 60));
   const waiting = Math.max(0, Number(provider.waiting_episode_count) || 0);
-  const checking = Math.max(0, Number(provider.fallback_episode_count) || 0);
+  const checking = Math.max(0, Number(provider.checking_episode_count) || 0);
+  const queued = Math.max(0, Number(provider.queued_fallback_episode_count) || 0);
   const probeText = provider.state === "probing"
     ? "Automatischer Test läuft"
     : `Nächster automatischer Test: in ${minutes} Minuten`;
@@ -533,7 +560,10 @@ function renderSerienstreamHealth(provider) {
   if (checking) {
     queueParts.push(`${checking} ${checking === 1 ? "Episode prüft" : "Episoden prüfen"} Ersatzquellen`);
   }
-  if (waiting || !checking) {
+  if (queued) {
+    queueParts.push(`${queued} ${queued === 1 ? "Episode ist" : "Episoden sind"} vorgemerkt`);
+  }
+  if (waiting || (!checking && !queued)) {
     queueParts.push(`${waiting} ${waiting === 1 ? "Episode wartet" : "Episoden warten"}`);
   }
   document.getElementById("serienstream-health-detail").textContent =

@@ -33,6 +33,7 @@ def isolated_state(monkeypatch, tmp_path):
     server.state.picked.clear()
     server.state.fp_movies.clear()
     server.state.counted_queue_slugs.clear()
+    server.state.preparing_queue_slugs.clear()
     server.state.provider_waiting_jobs.clear()
     server.state.queue_content_keys.clear()
     server.state.fallback_series_cache.clear()
@@ -230,6 +231,7 @@ def test_cooldown_queue_distinguishes_fallback_checks_from_provider_waits():
         "slug": waiting_slug,
         "movie": server.state.fp_movies[waiting_slug],
     }
+    server.state.preparing_queue_slugs.add(checking_slug)
     server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
 
     payload = server.build_queue_payload()
@@ -243,7 +245,47 @@ def test_cooldown_queue_distinguishes_fallback_checks_from_provider_waits():
     assert items[checking_slug]["status"] == "checking_fallback"
     assert items[waiting_slug]["status"] == "waiting_provider"
     assert status["fallback_episode_count"] == 1
+    assert status["checking_episode_count"] == 1
+    assert status["queued_fallback_episode_count"] == 0
     assert status["waiting_episode_count"] == 1
+
+
+def test_waiting_episode_retries_fallback_without_serienstream_probe(
+    monkeypatch, tmp_path,
+):
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_waiting_jobs[slug] = {
+        "slug": slug,
+        "movie": movie,
+        "out_root": tmp_path,
+        "movie_fallbacks": None,
+    }
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    calls = []
+    monkeypatch.setattr(
+        server,
+        "run_download_queue",
+        lambda jobs, out_root, movie_fallbacks=None: calls.append(
+            (jobs, out_root, movie_fallbacks)
+        ) or {slug},
+    )
+    monkeypatch.setattr(
+        server,
+        "_probe_serienstream_once",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("SerienStream probe must not run")
+        ),
+    )
+
+    assert server._retry_one_waiting_fallback()
+    assert len(calls) == 1
+    assert calls[0][0] == [(movie, slug)]
+    assert slug not in server.state.provider_waiting_jobs
+    assert slug not in server.state.preparing_queue_slugs
+    assert not server.state.queue_prepare_lock.locked()
 
 
 def test_waiting_episode_claim_survives_queue_persistence(monkeypatch, tmp_path):
