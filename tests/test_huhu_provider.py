@@ -1,0 +1,121 @@
+from types import SimpleNamespace
+
+import pytest
+
+import config
+from providers.huhu import HuhuScraper
+from session_manager import ProviderBlockedError
+
+
+class Response:
+    def __init__(self, data, status=200, text=""):
+        self._data = data
+        self.status_code = status
+        self.text = text
+
+    def json(self):
+        return self._data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+def scraper_with(*responses):
+    scraper = HuhuScraper()
+    pending = iter(responses)
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return next(pending)
+
+    scraper.session = SimpleNamespace(post=post)
+    return scraper, calls
+
+
+def test_huhu_search_and_series_use_tmdb_id_and_exact_episode_numbers():
+    catalog = Response({"items": [{
+        "type": "series",
+        "ids": {"tmdb_id": "123"},
+        "name": "Exact Show",
+        "releaseDate": "2024-01-02",
+        "images": {"poster": "https://image.invalid/poster.jpg"},
+    }]})
+    item = Response({
+        "type": "series",
+        "ids": {"tmdb_id": "123"},
+        "name": "Exact Show",
+        "episodes": [
+            {"season": 2, "episode": 5, "name": "Five"},
+            {"season": 2, "episode": 4, "name": "Four"},
+            {"season": 3, "episode": 1, "name": "Next"},
+        ],
+        "images": {},
+    })
+    scraper, calls = scraper_with(catalog, item)
+
+    results = scraper.search_series("Exact Show")
+    series = scraper.get_series(results[0].sample_slug)
+
+    assert results[0].title == "Exact Show  [Huhu]"
+    assert results[0].base_slug == "huhu:123:exact-show"
+    assert [(ep.season, ep.episode) for ep in series.seasons[2]] == [(2, 4), (2, 5)]
+    assert series.seasons[2][0].slug == "huhu:123:exact-show-s02e04"
+    assert calls[0][1]["json"]["catalogId"] == "tmdb.series"
+    assert calls[1][1]["json"]["ids"] == {"tmdb_id": "123"}
+
+
+def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
+    sources = Response([
+        {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"], "tag": "1080p"},
+        {"type": "url", "url": "https://dood.to/d/two", "languages": ["de"]},
+        {"type": "url", "url": "https://filemoon.to/e/three", "languages": ["en"]},
+        {"type": "url", "url": "https://bs.to/serie/x/1/1", "languages": ["de"]},
+        {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"]},
+    ])
+    scraper, calls = scraper_with(sources)
+
+    movie = scraper.get_movie("huhu:123:exact-show-s02e04")
+
+    assert [hoster.name for hoster in movie.hosters] == ["VOE", "Doodstream"]
+    assert [hoster.language for hoster in movie.hosters] == ["de", "de"]
+    payload = calls[0][1]["json"]
+    assert payload["ids"] == {"tmdb_id": "123"}
+    assert payload["episode"] == {"ids": {}, "season": 2, "episode": 4}
+
+
+@pytest.mark.parametrize("status, text, reason", [
+    (429, "too many requests", "rate_limit"),
+    (403, "cloudflare turnstile", "cloudflare_gate"),
+])
+def test_huhu_protection_responses_are_respected(status, text, reason):
+    scraper, _calls = scraper_with(Response({}, status=status, text=text))
+    with pytest.raises(ProviderBlockedError) as error:
+        scraper.search_series("Exact Show")
+    assert error.value.reason == reason
+
+
+def test_existing_installation_enables_huhu_once_and_keeps_it_configurable(monkeypatch):
+    writes = []
+    monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
+    old = {
+        "series_provider_priority": "serienstream,moflix,megakino,filmpalast",
+        "series_provider_enabled": "serienstream,moflix,megakino,filmpalast",
+    }
+
+    migrated = config._migrate_provider_catalog(old)
+
+    assert migrated["series_provider_priority"].split(",")[:3] == [
+        "serienstream", "huhu", "moflix",
+    ]
+    assert "huhu" in migrated["series_provider_enabled"].split(",")
+    assert len(writes) == 1
+
+    # Nach der Migration darf ein Benutzer Huhu wieder deaktivieren; der
+    # Revisionsmarker verhindert eine erneute Zwangsaktivierung.
+    migrated["series_provider_enabled"] = "serienstream,moflix"
+    assert config._migrate_provider_catalog(migrated)["series_provider_enabled"] == (
+        "serienstream,moflix"
+    )
+    assert len(writes) == 1

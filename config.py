@@ -56,6 +56,9 @@ SERIES_PROVIDER_COOLDOWN_MULTIPLIER = _env_positive_float(
 SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS = _env_positive_int(
     "SERIES_PROVIDER_FALLBACK_CACHE_TTL_SECONDS", 30 * 60,
 )
+SERIES_PROVIDER_TRANSIENT_ERROR_TTL_SECONDS = _env_positive_int(
+    "SERIES_PROVIDER_TRANSIENT_ERROR_TTL_SECONDS", 60,
+)
 SERIES_RESOLVED_LINK_CACHE_TTL_SECONDS = _env_positive_int(
     "SERIES_RESOLVED_LINK_CACHE_TTL_SECONDS", 15 * 60,
 )
@@ -86,6 +89,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
+PROVIDER_CATALOG_REVISION = 1
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -317,9 +321,47 @@ def normalize_provider_order(value, supported) -> List[str]:
     return normalized
 
 
+def _migrate_provider_catalog(values: dict) -> dict:
+    """Aktiviert neue Standardanbieter in Altinstallationen genau einmal.
+
+    Ohne Revisionsmarker wuerde ein fehlender Huhu-Schluessel bei jedem Start
+    wieder aktiviert und koennte in der UI nie dauerhaft abgeschaltet werden.
+    """
+    try:
+        revision = int(values.get("provider_catalog_revision", "0") or 0)
+    except (TypeError, ValueError):
+        revision = 0
+    if revision >= PROVIDER_CATALOG_REVISION:
+        return values
+
+    updates = {"provider_catalog_revision": str(PROVIDER_CATALOG_REVISION)}
+    priority_raw = values.get("series_provider_priority")
+    if priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+        requested = {
+            item.strip().casefold()
+            for item in str(priority_raw).split(",")
+            if item.strip()
+        }
+        if "huhu" not in requested:
+            order = normalize_provider_order(priority_raw, SERIES_PROVIDER_DEFAULTS)
+            order.remove("huhu")
+            order.insert(SERIES_PROVIDER_DEFAULTS.index("huhu"), "huhu")
+            updates["series_provider_priority"] = ",".join(order)
+
+    enabled_raw = values.get("series_provider_enabled")
+    if enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+        enabled = normalize_provider_selection(enabled_raw, SERIES_PROVIDER_DEFAULTS)
+        if "huhu" not in enabled:
+            enabled.append("huhu")
+            updates["series_provider_enabled"] = ",".join(enabled)
+
+    _update_all(updates)
+    return {**values, **updates}
+
+
 def load_provider_priorities() -> dict:
     """Lädt die Reihenfolge, in der Katalogquellen gesucht und versucht werden."""
-    values = _read_all()
+    values = _migrate_provider_catalog(_read_all())
     movie_value = values.get("movie_provider_priority", "")
     movies = normalize_provider_order(movie_value, MOVIE_PROVIDER_DEFAULTS)
     # FilmFrei24 kam später hinzu und ist eine direkte HLS-Quelle. Bestehende
@@ -371,7 +413,7 @@ def normalize_content_languages(value) -> List[str]:
 
 def load_provider_enabled() -> dict:
     """Lädt die tatsächlich aktiven Quellen; Altinstallationen behalten alle."""
-    values = _read_all()
+    values = _migrate_provider_catalog(_read_all())
     movies_raw = values.get("movie_provider_enabled")
     series_raw = values.get("series_provider_enabled")
     anime_raw = values.get("anime_provider_enabled")

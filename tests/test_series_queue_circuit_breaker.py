@@ -36,6 +36,7 @@ def isolated_state(monkeypatch, tmp_path):
     server.state.provider_waiting_jobs.clear()
     server.state.queue_content_keys.clear()
     server.state.fallback_series_cache.clear()
+    server.state.fallback_provider_errors.clear()
     server.state.done_slugs.clear()
     server.state.total_jobs = 0
     server.state.done_jobs = 0
@@ -117,6 +118,27 @@ def test_fallback_uses_exact_series_season_episode_and_ttl_cache(monkeypatch):
     assert calls == {"search": 1, "load": 1}
 
 
+def test_huhu_fallback_uses_known_tmdb_id_without_title_search(monkeypatch):
+    series = FilmpalastSeries(
+        title="Exact Show",
+        base_slug="huhu:123:exact-show",
+        url="https://huhu.to/item?id=123",
+        seasons={2: [SeriesEpisode(2, 4, "huhu:123:exact-show-s02e04", "https://x")]},
+    )
+    loaded = []
+    monkeypatch.setattr(
+        server, "_search_series_for_provider",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("title search used")),
+    )
+    monkeypatch.setattr(
+        server, "_load_series_for_provider",
+        lambda provider, value: loaded.append((provider, value)) or series,
+    )
+
+    assert server._fallback_get_series("huhu", "Exact Show", tmdb_id="123") is series
+    assert loaded == [("huhu", "huhu:123:tmdb")]
+
+
 def test_network_error_is_not_negative_cached(monkeypatch):
     calls = {"count": 0}
 
@@ -127,6 +149,25 @@ def test_network_error_is_not_negative_cached(monkeypatch):
     monkeypatch.setattr(server, "_search_series_for_provider", fail)
     assert server._fallback_get_series("filmpalast", "Exact Show") is None
     assert server._fallback_get_series("filmpalast", "Exact Show") is None
+    assert calls["count"] == 1
+
+
+def test_transient_provider_error_expires_without_negative_series_cache(monkeypatch):
+    calls = {"count": 0}
+    clock = {"now": 100.0}
+
+    def fail(*_args):
+        calls["count"] += 1
+        raise ConnectionError("temporary")
+
+    monkeypatch.setattr(server.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(server.appconfig, "SERIES_PROVIDER_TRANSIENT_ERROR_TTL_SECONDS", 10)
+    monkeypatch.setattr(server, "_search_series_for_provider", fail)
+    assert server._fallback_get_series("moflix", "Exact Show") is None
+    clock["now"] += 9
+    assert server._fallback_get_series("moflix", "Exact Show") is None
+    clock["now"] += 2
+    assert server._fallback_get_series("moflix", "Exact Show") is None
     assert calls["count"] == 2
 
 
@@ -319,3 +360,50 @@ def test_successful_fallback_is_enqueued_normally(monkeypatch, tmp_path):
     assert queued == {slug}
     assert enqueued[0].provider == "filmpalast"
     assert slug not in server.state.provider_waiting_jobs
+
+
+def test_empty_prepared_episode_fallbacks_do_not_suppress_live_moflix_search(
+    monkeypatch, tmp_path,
+):
+    slug = "serienstream:exact-show-s02e04"
+    primary = episode_movie("serienstream", slug, hosters=False)
+    moflix = episode_movie("moflix", "exact-show-s02e04")
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    searches = []
+
+    def find(*_args, **_kwargs):
+        searches.append((_args, _kwargs))
+        return [moflix]
+
+    monkeypatch.setattr(server, "find_episode_fallbacks", find)
+
+    def extract(movie, *_args, **_kwargs):
+        return SimpleNamespace(
+            stream_info=("https://cdn.invalid/video.m3u8", "hls")
+            if movie.provider == "moflix" else None,
+            gated=movie.provider == "serienstream",
+            provider=movie.provider,
+            content_language="de",
+            hoster_used="Direct",
+            hoster_url_used="https://cdn.invalid/video.m3u8",
+            source_hoster_url="https://cdn.invalid/video.m3u8",
+            referer=movie.url,
+            origin="https://cdn.invalid",
+            quality="HD",
+        )
+
+    monkeypatch.setattr(server, "_extract_from_movie", extract)
+    enqueued = []
+    monkeypatch.setattr(
+        server, "_enqueue_hoster_attempt",
+        lambda **kwargs: enqueued.append(kwargs["movie"]) or True,
+    )
+    queued = server.run_download_queue(
+        [(primary, slug)], tmp_path, movie_fallbacks={slug: []}, start_queue=False,
+    )
+    assert queued == {slug}
+    assert len(searches) == 1
+    assert enqueued[0].provider == "moflix"

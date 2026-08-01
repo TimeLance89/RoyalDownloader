@@ -72,6 +72,7 @@ from providers.filmfrei24 import (
     SOURCE_PREFIX as FILMFREI24_PREFIX,
 )
 from providers.moflix import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
+from providers.huhu import HuhuScraper, SOURCE_PREFIX as HUHU_PREFIX
 from providers.einschalten import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
 from providers.kinox import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
 from providers.kinoger import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
@@ -519,6 +520,10 @@ class AppState:
         # Rate-Limiting) über alle Aufrufe erhalten bleibt.
         self.sto_scraper: Optional[SerienstreamScraper] = None
         self.sto_lock = threading.Lock()
+        self.moflix_scraper: Optional[MoflixScraper] = None
+        self.moflix_lock = threading.RLock()
+        self.huhu_scraper: Optional[HuhuScraper] = None
+        self.huhu_lock = threading.RLock()
         self.mkissa_scraper: Optional[MkissaScraper] = None
         self.mkissa_lock = threading.RLock()
 
@@ -543,6 +548,7 @@ class AppState:
         # Netzwerk-/Cloudflare-Fehler werden bewusst nicht negativ gecacht.
         self.fallback_series_cache: Dict[str, tuple[float, Optional[FilmpalastSeries]]] = {}
         self.fallback_series_cache_lock = threading.RLock()
+        self.fallback_provider_errors: Dict[str, tuple[float, str]] = {}
 
         self.watchlist_new_slugs: Dict[str, set] = {}
 
@@ -974,6 +980,18 @@ def get_sto_scraper() -> SerienstreamScraper:
     if state.sto_scraper is None:
         state.sto_scraper = SerienstreamScraper(progress_cb=log)
     return state.sto_scraper
+
+
+def get_moflix_scraper() -> MoflixScraper:
+    if state.moflix_scraper is None:
+        state.moflix_scraper = MoflixScraper(progress_cb=log)
+    return state.moflix_scraper
+
+
+def get_huhu_scraper() -> HuhuScraper:
+    if state.huhu_scraper is None:
+        state.huhu_scraper = HuhuScraper(progress_cb=log)
+    return state.huhu_scraper
 
 
 def get_mkissa_scraper() -> MkissaScraper:
@@ -1469,7 +1487,11 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
                 _mark_serienstream_blocked(exc.reason, str(exc))
                 raise
     elif slug.startswith(MOFLIX_PREFIX):
-        movie = MoflixScraper(progress_cb=log).get_movie(slug)
+        with state.moflix_lock:
+            movie = get_moflix_scraper().get_movie(slug)
+    elif slug.startswith(HUHU_PREFIX):
+        with state.huhu_lock:
+            movie = get_huhu_scraper().get_movie(slug)
     elif slug.startswith(EINSCHALTEN_PREFIX):
         movie = EinschaltenScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(KINOX_PREFIX):
@@ -2108,7 +2130,11 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         with state.fp_lock:
             return get_fp_scraper().search_series(query)
     if provider == "moflix":
-        return MoflixScraper(progress_cb=log).search_series(query)
+        with state.moflix_lock:
+            return get_moflix_scraper().search_series(query)
+    if provider == "huhu":
+        with state.huhu_lock:
+            return get_huhu_scraper().search_series(query)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).search_series(query)
     if provider == "megakino":
@@ -2129,7 +2155,11 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         with state.fp_lock:
             return get_fp_scraper().get_series(value)
     if provider == "moflix":
-        return MoflixScraper(progress_cb=log).get_series(value)
+        with state.moflix_lock:
+            return get_moflix_scraper().get_series(value)
+    if provider == "huhu":
+        with state.huhu_lock:
+            return get_huhu_scraper().get_series(value)
     if provider == "kinoger":
         return KinogerScraper(progress_cb=log).get_series(value)
     if provider == "megakino":
@@ -2412,6 +2442,9 @@ def _fetch_series_provider_page(
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }
+    if provider == "huhu":
+        with state.huhu_lock:
+            return list(get_huhu_scraper().list_series(source_page))
     scraper_class = scraper_classes.get(provider)
     if scraper_class is None:
         return []
@@ -2677,7 +2710,7 @@ def _series_search_title(value: str) -> str:
     is_megakino = v.startswith(MEGAKINO_PREFIX) or "megakino.org" in v.casefold()
     is_xcine = v.startswith(XCINE_PREFIX) or "xcine.ru" in v.casefold()
     for pfx in (
-        SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
+        SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
         KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
         SFLIX_PREFIX, RIDOMOVIES_PREFIX,
     ):
@@ -3967,13 +4000,25 @@ def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
     return tuple(aliases)
 
 
-def _fallback_get_series(provider: str, title: str) -> Optional[FilmpalastSeries]:
+def _fallback_get_series(
+    provider: str, title: str, tmdb_id: str = "",
+) -> Optional[FilmpalastSeries]:
     """Sucht die Serie «title» beim Fallback-Anbieter per Titel-Match und lädt sie.
     Ergebnis (auch None) wird pro Download-Lauf gecacht, damit nicht jede Episode
     denselben Anbieter erneut durchsucht."""
-    key = f"{provider}:{_norm_title(title)}"
+    exact_tmdb_id = str(tmdb_id or "").strip() if provider == "huhu" else ""
+    if exact_tmdb_id and not exact_tmdb_id.isdigit():
+        exact_tmdb_id = ""
+    key = (
+        f"{provider}:tmdb:{exact_tmdb_id}"
+        if exact_tmdb_id else f"{provider}:{_norm_title(title)}"
+    )
     now = time.time()
     with state.fallback_series_cache_lock:
+        provider_error = state.fallback_provider_errors.get(provider)
+        if provider_error and provider_error[0] > now:
+            return None
+        state.fallback_provider_errors.pop(provider, None)
         cached = state.fallback_series_cache.get(key)
         if cached and cached[0] > now:
             return cached[1]
@@ -3981,19 +4026,34 @@ def _fallback_get_series(provider: str, title: str) -> Optional[FilmpalastSeries
     series: Optional[FilmpalastSeries] = None
     matched = False
     try:
-        results = _search_series_for_provider(provider, title)
-        wanted = _norm_title(title)
-        best = next(
-            (result for result in results if _norm_title(result.title) == wanted),
-            None,
-        )
-        matched = best is not None
-        series = _load_series_for_provider(provider, best.sample_slug) if best else None
+        if exact_tmdb_id:
+            matched = True
+            series = _load_series_for_provider(
+                provider, f"{HUHU_PREFIX}{exact_tmdb_id}:tmdb",
+            )
+        else:
+            results = _search_series_for_provider(provider, title)
+            wanted = _norm_title(title)
+            best = next(
+                (result for result in results if _norm_title(result.title) == wanted),
+                None,
+            )
+            matched = best is not None
+            series = _load_series_for_provider(provider, best.sample_slug) if best else None
     except Exception as exc:
-        log(f"  {provider}-Fallback-Suche fehlgeschlagen: {exc}", "warn")
+        label = PROVIDER_LABELS.get(provider, provider)
+        log(f"  {label}-Fallback-Suche vorübergehend nicht erreichbar: {exc}", "warn")
         # Netzwerk-/Cloudflare-Fehler sind kein bestaetigtes "nicht vorhanden".
-        # Kein Negativcache, damit eine spätere Episode erneut versucht.
+        # Nur eine kurze providerweite Sperre verhindert, dass derselbe Fehler
+        # fuer jeden Alias und jede Episode sofort erneut ausgelöst wird.
+        with state.fallback_series_cache_lock:
+            state.fallback_provider_errors[provider] = (
+                now + appconfig.SERIES_PROVIDER_TRANSIENT_ERROR_TTL_SECONDS,
+                str(exc),
+            )
         return None
+    with state.fallback_series_cache_lock:
+        state.fallback_provider_errors.pop(provider, None)
     if series and not series.seasons:
         return None
     if matched and series is None:
@@ -4037,32 +4097,51 @@ def find_episode_fallbacks(
         search_titles.append(candidate)
 
     source_provider = provider_for_value(source_slug) if source_slug else ""
+    tmdb_id = ""
+    parsed_source = parse_episode_slug(source_slug)
+    source_base_slug = parsed_source[0] if parsed_source else source_slug
+    with state.watchlist_lock:
+        watch_entry = watchlist_lookup(source_base_slug)
+        if watch_entry:
+            tmdb_id = str(watch_entry.get("tmdb_id") or "").strip()
     fallback_providers = SERIES_FALLBACK_PROVIDERS or tuple(provider_priority("series"))
+    searched_labels = [
+        PROVIDER_LABELS.get(provider, provider)
+        for provider in fallback_providers
+        if provider != source_provider
+    ]
+    if searched_labels:
+        log(
+            f"  Fallback-Suche S{season:02d}E{episode:02d}: "
+            + " → ".join(searched_labels)
+        )
     for provider in fallback_providers:
         if provider == source_provider:
             continue
         series = None
         for search_title in search_titles:
-            series = _fallback_get_series(provider, search_title)
+            series = _fallback_get_series(provider, search_title, tmdb_id=tmdb_id)
             if series:
                 break
         if not series:
             continue
         ep = next((e for e in series.seasons.get(season, []) if e.episode == episode), None)
         if not ep:
-            log(f"  {provider}: S{season:02d}E{episode:02d} nicht im Katalog", "warn")
+            label = PROVIDER_LABELS.get(provider, provider)
+            log(f"  {label}: S{season:02d}E{episode:02d} nicht im Katalog", "warn")
             continue
-        log(f"  → Fallback {provider}: S{season:02d}E{episode:02d} gefunden, lade Hoster …")
+        label = PROVIDER_LABELS.get(provider, provider)
+        log(f"  → Fallback {label}: S{season:02d}E{episode:02d} gefunden, lade Hoster …")
         try:
             movie = load_movie_for_slug(ep.slug)
         except Exception as exc:
-            log(f"  {provider}-Fallback Laden fehlgeschlagen: {exc}", "warn")
+            log(f"  {label}-Fallback Laden fehlgeschlagen: {exc}", "warn")
             movie = None
         if movie and movie.hosters and movie.url not in seen_urls:
             seen_urls.add(movie.url)
             movies.append(movie)
             continue
-        log(f"  {provider}: keine nutzbaren Hoster für die Episode", "warn")
+        log(f"  {label}: keine nutzbaren Hoster für die Episode", "warn")
     return movies
 
 
@@ -5215,7 +5294,15 @@ def run_download_queue(
                 continue
             source_movies.append(fallback_movie)
             seen_source_urls.add(fallback_movie.url)
-        source_fallbacks_loaded = [movie_fallbacks is not None and movie_slug in movie_fallbacks]
+        # Ein leerer, früher aufgebauter Episoden-Fallback-Eintrag beweist
+        # nicht, dass alle Anbieter im jetzigen Moment erfolglos sind. Gerade
+        # bei einer späteren SerienStream-Sperre muss die exakte Laufzeitsuche
+        # (Moflix/Huhu/weitere) noch einmal stattfinden dürfen. Erst dieser
+        # Lauf markiert die Suche für den aktuellen Versuch als vollständig.
+        source_fallbacks_loaded = [
+            movie_fallbacks is not None and movie_slug in movie_fallbacks
+            if not ep_info else False
+        ]
         # Gilt für den kompletten Versuch dieses Slugs, quellenübergreifend:
         # ein Embed ohne Stream-URL bleibt für diesen Lauf ausgeschlossen.
         barren_hoster_urls: set = set()
@@ -7153,7 +7240,7 @@ def _handle_telegram_series_request(chat_id: str, request: dict):
     title = str(request.get("title") or "").strip()
     if (
         title.startswith((
-            SERIENSTREAM_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX,
+            SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX,
             KINOX_PREFIX, KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
         ))
         or title.startswith("http://")
@@ -9122,9 +9209,9 @@ def _enqueue_automatic_downloads(
                 # erst kurz vor ihrem echten Queue-Slot extrahiert statt stapelweise.
                 for job in jobs:
                     slug = job[1]
-                    # Key-Praesenz bedeutet in run_download_queue bewusst:
-                    # "alle Katalog-Fallbacks wurden bereits gesucht". Ohne
-                    # explizite Map darf deshalb kein leerer Key entstehen.
+                    # Vorbereitete Quellen sind Hinweise. Bei Episoden gilt
+                    # selbst ein leerer Key nicht als endgültige Anbietersuche,
+                    # weil sich Verfügbarkeit und Provider-Cooldowns ändern.
                     fallbacks = {}
                     if movie_fallbacks is not None and slug in movie_fallbacks:
                         fallbacks[slug] = list(movie_fallbacks[slug])

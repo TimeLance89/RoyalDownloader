@@ -11,6 +11,7 @@ movie, series, episode, and hoster models live in `models.py`.
 | `filmpalast.py` | Filmpalast | German | Movies, series |
 | `megakino.py` | MegaKino | German | Movies, series |
 | `moflix.py` | Moflix | German | Movies, series |
+| `huhu.py` | Huhu | German | Series |
 | `einschalten.py` | Einschalten | German | Movies |
 | `kinox.py` | Kinox | German | Movies |
 | `kinoger.py` | KinoGer | German | Movies, series |
