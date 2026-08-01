@@ -38,7 +38,7 @@ services:
       APP_USERNAME: ${APP_USERNAME:-}
       APP_PASSWORD: ${APP_PASSWORD:-}
       # Public/tunnel deployments must fail closed if account data is missing.
-      APP_REQUIRE_AUTH: ${APP_REQUIRE_AUTH:-false}
+      APP_REQUIRE_AUTH: ${APP_REQUIRE_AUTH:-true}
       # Enable only when the origin port is reachable exclusively through Cloudflare.
       TRUST_CLOUDFLARE_HEADERS: ${TRUST_CLOUDFLARE_HEADERS:-false}
       JELLYFIN_URL: ${JELLYFIN_URL:-}

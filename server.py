@@ -265,6 +265,11 @@ def auth_required() -> bool:
     return auth_configured()
 
 
+def setup_required() -> bool:
+    """Ob die Erst- bzw. Sicherheitsmigration noch abgeschlossen werden muss."""
+    return not appconfig.is_initialized() or not auth_configured()
+
+
 def verify_credentials(username: str, password: str) -> bool:
     """Prüft Zugangsdaten gegen das hinterlegte Konto (zeitkonstant)."""
     account = auth_account()
@@ -466,6 +471,10 @@ class AppState:
         self.series_path: str = appconfig.load_series_path()  # Zielordner Serien (getrennt)
         self.ui_language: str = appconfig.load_ui_language()
         self.ui_language_lock = threading.RLock()
+        # Der Setup-Abschluss enthält absichtlich langsame Prüfungen. Ein
+        # nicht-blockierender Prozess-Lock verhindert, dass zwei Requests
+        # gleichzeitig dasselbe erste Administratorkonto beanspruchen.
+        self.setup_completion_lock = threading.Lock()
         self.watchlist: List[dict] = appconfig.load_watchlist()
         self.watchlist_lock = threading.RLock()
         self.movie_subscriptions: List[dict] = appconfig.load_movie_subscriptions()
@@ -8414,18 +8423,20 @@ async def lifespan(app: FastAPI):
     import asyncio
     _main_loop = asyncio.get_event_loop()
     bind_host = os.environ.get("HOST", "127.0.0.1")
-    # Bewusst nur eine Warnung, kein Startabbruch: der Dienst läuft im
-    # Container 24/7 und darf sich nach einem Update nicht selbst aussperren.
-    # Die Oberfläche weist zusätzlich sichtbar auf das fehlende Konto hin.
+    # Im Fail-closed-Modus bleibt der Prozess für Erstsetup und Migration
+    # erreichbar, die Middleware sperrt aber alle fachlichen APIs. So kann eine
+    # Bestandsinstallation ohne Konto sicher nachgerüstet werden.
     if bind_host not in ("127.0.0.1", "localhost", "::1") and not auth_configured():
         if fail_closed_auth_enabled():
-            raise RuntimeError(
-                "APP_REQUIRE_AUTH ist aktiv, aber es ist kein Konto konfiguriert."
+            logger.warning(
+                "APP_REQUIRE_AUTH ist aktiv: Bis ein Administratorkonto "
+                "eingerichtet wurde, sind nur Setup- und Liveness-Routen erreichbar."
             )
-        logger.warning(
-            "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
-            "Konto in den Einstellungen unter „Anmeldung“ anlegen."
-        )
+        else:
+            logger.warning(
+                "SICHERHEIT: Webserver ist im Netzwerk ohne Anmeldung erreichbar. "
+                "Konto einrichten oder APP_REQUIRE_AUTH=true setzen."
+            )
     removed_staging = await asyncio.to_thread(
         cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
     )
@@ -8475,19 +8486,20 @@ app = FastAPI(lifespan=lifespan)
 # Ohne Anmeldung erreichbar. Die statischen Dateien gehören dazu, weil die
 # Anmeldemaske Teil der Oberfläche ist – sie enthalten keine Nutzerdaten,
 # alle Inhalte kommen über die geschützten /api-Routen.
-PUBLIC_API_PATHS = frozenset({
-    "/api/health",
-    "/api/auth/status",
-    "/api/auth/login",
-    "/api/auth/logout",
-    "/api/ui/config",
-    "/api/ui/translate",
-    "/api/v1/capabilities",
-    "/api/v1/health",
-    "/api/v1/auth/status",
-    "/api/v1/auth/login",
-    "/api/v1/auth/logout",
-})
+PUBLIC_API_METHODS = {
+    "/api/health": frozenset({"GET"}),
+    "/api/auth/status": frozenset({"GET"}),
+    "/api/auth/login": frozenset({"POST"}),
+    "/api/auth/logout": frozenset({"POST"}),
+    "/api/ui/config": frozenset({"GET"}),
+    "/api/ui/translate": frozenset({"POST"}),
+    "/api/v1/capabilities": frozenset({"GET"}),
+    "/api/v1/health": frozenset({"GET"}),
+    "/api/v1/auth/status": frozenset({"GET"}),
+    "/api/v1/auth/login": frozenset({"POST"}),
+    "/api/v1/auth/logout": frozenset({"POST"}),
+    "/api/v1/ui/config": frozenset({"GET"}),
+}
 # Übergang für frühe native Clients: Ein Mobile-Bearer darf nur die fachlichen
 # Legacy-Gegenstücke der v1-Kern-API verwenden, nie Einstellungen, Updater,
 # Setup oder andere Browser-Administrationsrouten.
@@ -8546,11 +8558,20 @@ def _same_origin(request: Request) -> bool:
     )
 
 
-def _is_public_path(path: str) -> bool:
-    if path in PUBLIC_API_PATHS:
+def _is_public_path(path: str, method: str = "GET") -> bool:
+    normalized_method = str(method or "GET").upper()
+    if normalized_method in PUBLIC_API_METHODS.get(path, ()):
         return True
     # Vor abgeschlossener Ersteinrichtung braucht der Assistent seine Routen.
-    if path.startswith("/api/setup/") and not appconfig.is_initialized():
+    if path.startswith("/api/setup/") and setup_required():
+        return True
+    # Die Sprachwahl ist Bestandteil des Assistenten, nach dessen Abschluss
+    # ist derselbe schreibende Endpunkt jedoch geschützt.
+    if (
+        path in {"/api/ui/config", "/api/v1/ui/config"}
+        and normalized_method == "POST"
+        and setup_required()
+    ):
         return True
     return not path.startswith("/api/")
 
@@ -8601,7 +8622,7 @@ async def require_authentication(request: Request, call_next):
                 content={"detail": "Zu viele Übersetzungsanfragen. Bitte kurz warten."},
                 headers={"Retry-After": "60"},
             ), path)
-    if _is_public_path(path) or request_is_authenticated(
+    if _is_public_path(path, request.method) or request_is_authenticated(
         request.headers,
         request.cookies,
         client_key(request),
@@ -8653,7 +8674,7 @@ async def api_v1_capabilities():
         "minimum_api_version": API_VERSION,
         "build": SERVER_BUILD or None,
         "initialized": appconfig.is_initialized(),
-        "setup_required": not appconfig.is_initialized(),
+        "setup_required": setup_required(),
         "authentication": {
             "configured": auth_configured(),
             "required": auth_required(),
@@ -8694,12 +8715,8 @@ async def api_v1_health():
 
 @app.get("/api/health")
 async def api_health():
-    return {
-        "status": "ok",
-        "initialized": appconfig.is_initialized(),
-        "queue_active": state.dl_queue.active_count(),
-        "queue_pending": state.dl_queue.pending_count(),
-    }
+    """Legacy-Liveness ohne interne Queue- oder Konfigurationsdaten."""
+    return {"status": "ok"}
 
 
 @app.exception_handler(Exception)
@@ -8773,7 +8790,7 @@ def _auth_status_payload(request: Request, auth_method: Optional[str] = None) ->
         "authenticated": authenticated,
         "username": account.get("username", "") if authenticated or not configured else "",
         "source": account.get("source", "none"),
-        "setup_required": not appconfig.is_initialized(),
+        "setup_required": setup_required(),
         # Bestandsinstallation ohne Konto: die Oberfläche zeigt dafür einen
         # Hinweis mit direktem Weg in die Konto-Einstellungen.
         "prompt_setup": appconfig.is_initialized() and not configured,
@@ -10413,7 +10430,7 @@ def _prepare_media_directory(raw_path: str, label: str) -> dict:
 @app.get("/api/setup/status")
 async def api_setup_status():
     return {
-        "required": not appconfig.is_initialized(),
+        "required": setup_required(),
         "config_path": str(appconfig.config_path()),
         "defaults": {
             "save_path": state.save_path,
@@ -10449,16 +10466,32 @@ async def api_setup_status():
 
 @app.post("/api/setup/complete")
 async def api_setup_complete(body: SetupCompleteBody, request: Request):
+    if not state.setup_completion_lock.acquire(blocking=False):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "setup_in_progress",
+                "message": "Die Ersteinrichtung wird bereits abgeschlossen.",
+            },
+        )
+    try:
+        return await _api_setup_complete_locked(body, request)
+    finally:
+        state.setup_completion_lock.release()
+
+
+async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
     # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
     already_initialized = appconfig.is_initialized()
-    if already_initialized and not request_is_authenticated(
+    account_was_configured = auth_configured()
+    if already_initialized and account_was_configured and not request_is_authenticated(
         request.headers, request.cookies, client_key(request),
     ):
         raise HTTPException(401, "Anmeldung erforderlich.")
     account_hash = ""
     account_user = ""
-    if not auth_configured():
+    if not account_was_configured:
         # Neuinstallation: ohne Konto wird nicht abgeschlossen.
         try:
             account_user = appauth.validate_username(body.auth_username)
@@ -10571,6 +10604,21 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
         raise HTTPException(400, "Für Telegram fehlt der Bot-Token.")
     for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
         await run_in_threadpool(_prepare_media_directory, value, label)
+
+    # Auch wenn alle Vorprüfungen lange gedauert haben, darf direkt vor dem
+    # atomaren Konfigurations-Commit kein anderer Abschluss gewonnen haben.
+    # Der Prozess-Lock wird über Prüfung, Commit und Sitzungserzeugung gehalten.
+    if (
+        (not already_initialized and appconfig.is_initialized())
+        or (not account_was_configured and auth_configured())
+    ):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "setup_already_completed",
+                "message": "Die Ersteinrichtung wurde bereits abgeschlossen.",
+            },
+        )
 
     ok = await run_in_threadpool(
         appconfig.save_initial_setup,
