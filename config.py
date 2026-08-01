@@ -89,7 +89,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 1
+PROVIDER_CATALOG_REVISION = 2
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -335,6 +335,30 @@ def _migrate_provider_catalog(values: dict) -> dict:
         return values
 
     updates = {"provider_catalog_revision": str(PROVIDER_CATALOG_REVISION)}
+    movie_priority_raw = values.get("movie_provider_priority")
+    if movie_priority_raw is not None:
+        movie_order = normalize_provider_order(
+            movie_priority_raw, MOVIE_PROVIDER_DEFAULTS,
+        )
+        # Revision 2: Huhu wird primaere Filmquelle, FilmFrei24 bewusst letzte
+        # Reserve. Die relative Benutzerreihenfolge aller anderen Quellen
+        # bleibt bei der einmaligen Migration erhalten.
+        for provider in ("huhu", "filmfrei24"):
+            if provider in movie_order:
+                movie_order.remove(provider)
+        movie_order.insert(0, "huhu")
+        movie_order.append("filmfrei24")
+        updates["movie_provider_priority"] = ",".join(movie_order)
+
+    movie_enabled_raw = values.get("movie_provider_enabled")
+    if movie_enabled_raw is not None:
+        movie_enabled = normalize_provider_selection(
+            movie_enabled_raw, MOVIE_PROVIDER_DEFAULTS,
+        )
+        if "huhu" not in movie_enabled:
+            movie_enabled.append("huhu")
+            updates["movie_provider_enabled"] = ",".join(movie_enabled)
+
     priority_raw = values.get("series_provider_priority")
     if priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
         requested = {

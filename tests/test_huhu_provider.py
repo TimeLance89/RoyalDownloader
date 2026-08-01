@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import pytest
 
 import config
+import server
 from providers.huhu import HuhuScraper
+from providers.models import FilmpalastMovie, HosterInfo
 from session_manager import ProviderBlockedError
 
 
@@ -66,6 +68,38 @@ def test_huhu_search_and_series_use_tmdb_id_and_exact_episode_numbers():
     assert calls[1][1]["json"]["ids"] == {"tmdb_id": "123"}
 
 
+def test_huhu_movie_search_and_source_use_exact_tmdb_id():
+    catalog = Response({"items": [{
+        "type": "movie",
+        "ids": {"tmdb_id": "550"},
+        "name": "Fight Club",
+        "releaseDate": "1999-10-15",
+        "images": {"poster": "https://image.invalid/fight-club.jpg"},
+    }]})
+    sources = Response([
+        {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"]},
+        {"type": "url", "url": "https://dood.to/d/two", "languages": ["en"]},
+    ])
+    scraper, calls = scraper_with(catalog, sources)
+
+    results = scraper.search("Fight Club")
+    movie = scraper.get_movie(results[0].slug)
+
+    assert results[0].title == "Fight Club  [Huhu]"
+    assert results[0].slug == "huhu-movie:550:fight-club"
+    assert results[0].year == "1999"
+    assert movie.title == "Fight Club"
+    assert [hoster.name for hoster in movie.hosters] == ["VOE"]
+    assert calls[0][1]["json"]["catalogId"] == "tmdb.movie"
+    assert calls[1][1]["json"] == {
+        "language": "de",
+        "region": "DE",
+        "type": "movie",
+        "ids": {"tmdb_id": "550"},
+        "name": "fight-club",
+    }
+
+
 def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
     sources = Response([
         {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"], "tag": "1080p"},
@@ -119,3 +153,55 @@ def test_existing_installation_enables_huhu_once_and_keeps_it_configurable(monke
         "serienstream,moflix"
     )
     assert len(writes) == 1
+
+
+def test_movie_provider_migration_puts_huhu_first_and_filmfrei_last(monkeypatch):
+    writes = []
+    monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
+    old = {
+        "provider_catalog_revision": "1",
+        "movie_provider_priority": (
+            "filmfrei24,filmpalast,megakino,moflix,einschalten,kinox,"
+            "kinoger,xcine,sflix,ridomovies"
+        ),
+        "movie_provider_enabled": (
+            "filmfrei24,filmpalast,megakino,moflix,einschalten,kinox,"
+            "kinoger,xcine,sflix,ridomovies"
+        ),
+    }
+
+    migrated = config._migrate_provider_catalog(old)
+    order = migrated["movie_provider_priority"].split(",")
+
+    assert order[0] == "huhu"
+    assert order[-1] == "filmfrei24"
+    assert "huhu" in migrated["movie_provider_enabled"].split(",")
+    assert writes == [{
+        "provider_catalog_revision": "2",
+        "movie_provider_priority": migrated["movie_provider_priority"],
+        "movie_provider_enabled": migrated["movie_provider_enabled"],
+    }]
+
+
+def test_new_install_movie_defaults_start_with_huhu_and_end_with_filmfrei():
+    assert config.MOVIE_PROVIDER_DEFAULTS[0] == "huhu"
+    assert config.MOVIE_PROVIDER_DEFAULTS[-1] == "filmfrei24"
+
+
+def test_server_routes_huhu_movie_slug_to_huhu_adapter(monkeypatch):
+    movie = FilmpalastMovie(
+        title="Fight Club",
+        url="https://huhu.to/item?type=movie&id=550",
+        hosters=[HosterInfo("VOE", "https://voe.sx/e/one")],
+    )
+    calls = []
+    scraper = SimpleNamespace(
+        get_movie=lambda slug: calls.append(slug) or movie,
+    )
+    monkeypatch.setattr(server, "get_huhu_scraper", lambda: scraper)
+
+    loaded = server.load_movie_for_slug("huhu-movie:550:fight-club")
+
+    assert calls == ["huhu-movie:550:fight-club"]
+    assert loaded.provider == "huhu"
+    assert loaded.content_language == "de"

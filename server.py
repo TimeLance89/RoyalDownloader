@@ -72,7 +72,11 @@ from providers.filmfrei24 import (
     SOURCE_PREFIX as FILMFREI24_PREFIX,
 )
 from providers.moflix import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
-from providers.huhu import HuhuScraper, SOURCE_PREFIX as HUHU_PREFIX
+from providers.huhu import (
+    HuhuScraper,
+    MOVIE_SOURCE_PREFIX as HUHU_MOVIE_PREFIX,
+    SOURCE_PREFIX as HUHU_PREFIX,
+)
 from providers.einschalten import EinschaltenScraper, SOURCE_PREFIX as EINSCHALTEN_PREFIX
 from providers.kinox import KinoxScraper, SOURCE_PREFIX as KINOX_PREFIX
 from providers.kinoger import KinogerScraper, SOURCE_PREFIX as KINOGER_PREFIX
@@ -530,6 +534,7 @@ class AppState:
         self.fp_provider_genres: set = set()
         self.filmfrei24_provider_genres: set = set()
         self.moflix_provider_genres: set = set()
+        self.huhu_provider_genres: set = set()
         self.einschalten_provider_genres: set = set()
         self.kinox_provider_genres: set = set()
         self.kinoger_provider_genres: set = set()
@@ -1489,7 +1494,7 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     elif slug.startswith(MOFLIX_PREFIX):
         with state.moflix_lock:
             movie = get_moflix_scraper().get_movie(slug)
-    elif slug.startswith(HUHU_PREFIX):
+    elif slug.startswith((HUHU_PREFIX, HUHU_MOVIE_PREFIX)):
         with state.huhu_lock:
             movie = get_huhu_scraper().get_movie(slug)
     elif slug.startswith(EINSCHALTEN_PREFIX):
@@ -1529,9 +1534,14 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
         with state.fp_lock:
             return list(get_fp_scraper().search(q))
 
+    def _huhu():
+        with state.huhu_lock:
+            return list(get_huhu_scraper().search(q))
+
     searches = {
         "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).search(q),
         "filmpalast": _fp,
+        "huhu": _huhu,
         "moflix": lambda: MoflixScraper(progress_cb=log).search(q),
         "einschalten": lambda: EinschaltenScraper(progress_cb=log).search(q),
         "kinox": lambda: KinoxScraper(progress_cb=log).search(q),
@@ -1789,6 +1799,16 @@ def _fetch_movie_provider_page(
                 results = scraper.list_movies(mode, source_page)
         return _apply_provider_metadata_many(results, provider)
 
+    if provider == "huhu":
+        with state.huhu_lock:
+            scraper = get_huhu_scraper()
+            results = (
+                scraper.list_by_genre(provider_genre, source_page)
+                if mode == "genre"
+                else scraper.list_movies(mode, source_page)
+            )
+        return _apply_provider_metadata_many(results, provider)
+
     scraper_classes = {
         "filmfrei24": FilmFrei24Scraper,
         "moflix": MoflixScraper,
@@ -1869,6 +1889,7 @@ def _movie_provider_genres(provider: str) -> set:
     return {
         "filmfrei24": state.filmfrei24_provider_genres,
         "filmpalast": state.fp_provider_genres,
+        "huhu": state.huhu_provider_genres,
         "moflix": state.moflix_provider_genres,
         "einschalten": state.einschalten_provider_genres,
         "kinox": state.kinox_provider_genres,
@@ -8530,6 +8551,7 @@ async def api_genres():
         loaders = {
             "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).list_genres(),
             "filmpalast": lambda: get_fp_scraper().list_genres(),
+            "huhu": lambda: get_huhu_scraper().list_genres(),
             "moflix": lambda: MoflixScraper(progress_cb=log).list_genres(),
             "einschalten": lambda: EinschaltenScraper(progress_cb=log).list_genres(),
             "kinox": lambda: KinoxScraper(progress_cb=log).list_genres(),
@@ -8556,6 +8578,7 @@ async def api_genres():
     provider_genres = await run_in_threadpool(_work)
     ff_c = provider_genres["filmfrei24"]
     fp_c = provider_genres["filmpalast"]
+    hh_c = provider_genres["huhu"]
     mx_c = provider_genres["moflix"]
     es_c = provider_genres["einschalten"]
     kx_c = provider_genres["kinox"]
@@ -8566,6 +8589,7 @@ async def api_genres():
     rm_c = provider_genres["ridomovies"]
     state.filmfrei24_provider_genres = ff_c
     state.fp_provider_genres = fp_c
+    state.huhu_provider_genres = hh_c
     state.moflix_provider_genres = mx_c
     state.einschalten_provider_genres = es_c
     state.kinox_provider_genres = kx_c
@@ -8578,7 +8602,7 @@ async def api_genres():
         {
             canonical_movie_genre(genre)
             for genre in (
-                ff_c | fp_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
+                ff_c | fp_c | hh_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
                 | rm_c
             )
         },
