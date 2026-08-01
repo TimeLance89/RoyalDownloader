@@ -3267,10 +3267,20 @@ def _queue_slug_claimed(slug: str) -> bool:
 
 def serienstream_provider_status() -> dict:
     with state.queue_claim_lock:
-        waiting = len(set(state.provider_waiting_jobs) & set(state.picked))
+        claimed = set(state.picked)
+        waiting_slugs = set(state.provider_waiting_jobs) & claimed
+        with state.download_state_lock:
+            counted = set(state.counted_queue_slugs)
+        fallback_slugs = {
+            slug for slug in claimed & counted
+            if slug not in waiting_slugs
+            and parse_episode_slug(slug) is not None
+            and provider_for_value(slug) == "serienstream"
+        }
     status = state.provider_health.status(
-        "serienstream", waiting_episode_count=waiting,
+        "serienstream", waiting_episode_count=len(waiting_slugs),
     )
+    status["fallback_episode_count"] = len(fallback_slugs)
     status["cached_redirect_count"] = state.resolved_link_cache.count()
     return status
 
@@ -3288,6 +3298,8 @@ def build_queue_payload() -> dict:
     for slug in slugs:
         groups.setdefault(queue_group_name(slug), []).append(slug)
     result_groups = []
+    provider_status = serienstream_provider_status()
+    serienstream_paused = provider_status.get("state") != HEALTHY
     for name, gslugs in groups.items():
         items = []
         for slug in sorted(gslugs, key=episode_sort_key):
@@ -3296,12 +3308,23 @@ def build_queue_payload() -> dict:
             label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
             provider = _movie_provider(movie, slug)
             waiting_provider = slug in state.provider_waiting_jobs
+            checking_fallback = (
+                serienstream_paused
+                and not waiting_provider
+                and parse_episode_slug(slug) is not None
+                and provider_for_value(slug) == "serienstream"
+                and slug in state.counted_queue_slugs
+            )
             items.append({
                 "slug": slug, "title": title, "hoster_label": label,
                 "provider": provider,
                 "content_language": _movie_content_language(movie, fallback=slug),
                 "done": slug in state.done_slugs,
-                "status": "waiting_provider" if waiting_provider else "waiting",
+                "status": (
+                    "waiting_provider" if waiting_provider
+                    else "checking_fallback" if checking_fallback
+                    else "waiting"
+                ),
                 "next_probe_at": (
                     state.provider_health.next_probe_at("serienstream")
                     if waiting_provider else 0
@@ -3311,7 +3334,7 @@ def build_queue_payload() -> dict:
     return {
         "count": len(slugs),
         "groups": result_groups,
-        "providers": {"serienstream": serienstream_provider_status()},
+        "providers": {"serienstream": provider_status},
     }
 
 
@@ -4099,11 +4122,14 @@ def find_episode_fallbacks(
     episode: int,
     aliases: tuple[str, ...] = (),
     source_slug: str = "",
+    excluded_providers: Optional[set[str]] = None,
+    limit: int = 0,
 ) -> List[FilmpalastMovie]:
     """Lädt dieselbe Episode bei allen passenden Fallback-Katalogen.
 
-    Die vollständige Liste wird benötigt, damit auch ein späterer Laufzeitfehler
-    des ersten Fallback-Hosters noch zur nächsten Quelle wechseln kann.
+    ``limit=1`` startet den ersten exakten Treffer sofort. Weitere Kataloge
+    werden erst bei einem Laufzeitfehler dieses Treffers nachgeladen; so hält
+    ein langsamer oder gesperrter späterer Anbieter den Download nicht auf.
     """
     movies: List[FilmpalastMovie] = []
     seen_urls: set[str] = set()
@@ -4118,6 +4144,11 @@ def find_episode_fallbacks(
         search_titles.append(candidate)
 
     source_provider = provider_for_value(source_slug) if source_slug else ""
+    skipped_providers = {
+        str(provider or "").strip().casefold()
+        for provider in (excluded_providers or set())
+        if str(provider or "").strip()
+    }
     tmdb_id = ""
     parsed_source = parse_episode_slug(source_slug)
     source_base_slug = parsed_source[0] if parsed_source else source_slug
@@ -4137,7 +4168,7 @@ def find_episode_fallbacks(
             + " → ".join(searched_labels)
         )
     for provider in fallback_providers:
-        if provider == source_provider:
+        if provider == source_provider or provider in skipped_providers:
             continue
         series = None
         for search_title in search_titles:
@@ -4161,6 +4192,8 @@ def find_episode_fallbacks(
         if movie and movie.hosters and movie.url not in seen_urls:
             seen_urls.add(movie.url)
             movies.append(movie)
+            if limit > 0 and len(movies) >= limit:
+                break
             continue
         log(f"  {label}: keine nutzbaren Hoster für die Episode", "warn")
     return movies
@@ -4881,12 +4914,18 @@ def _enqueue_hoster_attempt(
             on_job_progress(-1, "Hoster erschöpft · suche alternative Quellen …", label)
             if ep_info:
                 series_title = strip_episode_suffix(source_movies[0].title) or source_movies[0].title
+                tried_providers = {
+                    _movie_provider(candidate, movie_slug)
+                    for candidate in source_movies
+                }
+                tried_providers.discard("")
                 alternatives = find_episode_fallbacks(
                     series_title,
                     ep_info[1],
                     ep_info[2],
                     aliases=_episode_fallback_aliases(movie_slug, series_title),
                     source_slug=movie_slug,
+                    excluded_providers=tried_providers,
                 )
                 seen = {m.url for m in source_movies}
                 source_movies.extend(m for m in alternatives if m.url not in seen)
@@ -5366,11 +5405,10 @@ def run_download_queue(
             result.gated = True
         gate_seen = [bool(result.gated)]
 
-        # Scheitert bereits die Extraktion/Probe, denselben Inhalt sofort bei
-        # allen Katalog-Fallbacks versuchen. Das gilt nicht nur bei Captcha.
+        # Scheitert bereits die Extraktion/Probe, denselben Inhalt sofort beim
+        # ersten exakten Katalog-Fallback versuchen. Das gilt nicht nur bei Captcha.
         if not result.stream_info:
             if not source_fallbacks_loaded[0]:
-                source_fallbacks_loaded[0] = True
                 if ep_info:
                     alternatives = find_episode_fallbacks(
                         orig_series_title,
@@ -5378,16 +5416,23 @@ def run_download_queue(
                         ep_info[2],
                         aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
                         source_slug=movie_slug,
+                        limit=1,
                     )
                     source_movies.extend(
                         candidate for candidate in alternatives
                         if candidate.url not in {m.url for m in source_movies}
                     )
+                    # Ein erster exakter Treffer wird sofort versucht. Erst
+                    # wenn dessen Extraktion oder Download scheitert, werden
+                    # die übrigen Kataloge geladen.
+                    source_fallbacks_loaded[0] = not bool(alternatives)
                 else:
+                    source_fallbacks_loaded[0] = True
                     source_movies.extend(find_movie_source_fallbacks(
                         source_movies[0], movie_slug, {m.url for m in source_movies},
                     ))
-            for next_index in range(1, len(source_movies)):
+            next_index = 1
+            while next_index < len(source_movies):
                 next_movie = source_movies[next_index]
                 log(f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}", "warn")
                 with state.hoster_extract_lock:
@@ -5397,12 +5442,57 @@ def run_download_queue(
                         barren_hoster_urls=barren_hoster_urls,
                     )
                 gate_seen[0] = gate_seen[0] or bool(source_result.gated)
+                next_index += 1
                 if not source_result.stream_info:
                     continue
                 movie = next_movie
                 result = source_result
-                source_index = next_index
+                source_index = next_index - 1
                 break
+
+            # Der schnellste Katalogtreffer hatte zwar Hoster, ließ sich aber
+            # nicht extrahieren. Jetzt erst die restlichen Provider laden und
+            # in derselben Vorbereitung weiterprobieren.
+            if ep_info and not result.stream_info and not source_fallbacks_loaded[0]:
+                source_fallbacks_loaded[0] = True
+                tried_providers = {
+                    _movie_provider(candidate, movie_slug)
+                    for candidate in source_movies
+                }
+                tried_providers.discard("")
+                alternatives = find_episode_fallbacks(
+                    orig_series_title,
+                    ep_info[1],
+                    ep_info[2],
+                    aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
+                    source_slug=movie_slug,
+                    excluded_providers=tried_providers,
+                )
+                known_urls = {candidate.url for candidate in source_movies}
+                source_movies.extend(
+                    candidate for candidate in alternatives
+                    if candidate.url not in known_urls
+                )
+                while next_index < len(source_movies):
+                    next_movie = source_movies[next_index]
+                    log(
+                        f"  Wechsle Quelle: {strip_source_suffix(next_movie.title)}",
+                        "warn",
+                    )
+                    with state.hoster_extract_lock:
+                        source_result = _extract_from_movie(
+                            next_movie,
+                            unsupported_domains,
+                            barren_hoster_urls=barren_hoster_urls,
+                        )
+                    gate_seen[0] = gate_seen[0] or bool(source_result.gated)
+                    next_index += 1
+                    if not source_result.stream_info:
+                        continue
+                    movie = next_movie
+                    result = source_result
+                    source_index = next_index - 1
+                    break
 
         if not result.stream_info:
             if gate_seen[0]:

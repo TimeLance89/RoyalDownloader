@@ -485,7 +485,9 @@ function renderQueue(payload) {
       status.className = "queue-item-status";
       status.textContent = it.done
         ? "Fertig"
-        : (it.status === "waiting_provider" ? "Provider-Pause" : "Wartet");
+        : (it.status === "waiting_provider"
+          ? "Provider-Pause"
+          : (it.status === "checking_fallback" ? "Ersatzquelle" : "Wartet"));
       const removeBtn = document.createElement("button");
       removeBtn.className = "remove-btn";
       removeBtn.type = "button";
@@ -523,11 +525,19 @@ function renderSerienstreamHealth(provider) {
   const remaining = Math.max(0, Number(provider.remaining_seconds) || 0);
   const minutes = Math.max(1, Math.ceil(remaining / 60));
   const waiting = Math.max(0, Number(provider.waiting_episode_count) || 0);
+  const checking = Math.max(0, Number(provider.fallback_episode_count) || 0);
   const probeText = provider.state === "probing"
     ? "Automatischer Test läuft"
     : `Nächster automatischer Test: in ${minutes} Minuten`;
+  const queueParts = [];
+  if (checking) {
+    queueParts.push(`${checking} ${checking === 1 ? "Episode prüft" : "Episoden prüfen"} Ersatzquellen`);
+  }
+  if (waiting || !checking) {
+    queueParts.push(`${waiting} ${waiting === 1 ? "Episode wartet" : "Episoden warten"}`);
+  }
   document.getElementById("serienstream-health-detail").textContent =
-    `Grund: ${reasonLabels[provider.reason] || provider.reason || "Schutzsperre"} · ${probeText} · ${waiting} ${waiting === 1 ? "Episode wartet" : "Episoden warten"}`;
+    `Grund: ${reasonLabels[provider.reason] || provider.reason || "Schutzsperre"} · ${probeText} · ${queueParts.join(" · ")}`;
   document.getElementById("serienstream-retry").disabled = provider.state === "probing";
 }
 

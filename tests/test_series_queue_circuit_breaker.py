@@ -139,6 +139,37 @@ def test_huhu_fallback_uses_known_tmdb_id_without_title_search(monkeypatch):
     assert loaded == [("huhu", "huhu:123:tmdb")]
 
 
+def test_first_exact_fallback_starts_without_searching_later_providers(monkeypatch):
+    huhu_series = FilmpalastSeries(
+        title="Exact Show",
+        base_slug="huhu:123:exact-show",
+        url="https://huhu.to/item?id=123",
+        seasons={2: [SeriesEpisode(2, 4, "huhu:123:exact-show-s02e04", "https://x")]},
+    )
+    calls = []
+    monkeypatch.setattr(
+        server, "provider_priority",
+        lambda _kind: ["serienstream", "huhu", "moflix"],
+    )
+    monkeypatch.setattr(
+        server, "_fallback_get_series",
+        lambda provider, *_args, **_kwargs: calls.append(provider) or huhu_series,
+    )
+    monkeypatch.setattr(
+        server, "load_movie_for_slug",
+        lambda slug: episode_movie("huhu", slug),
+    )
+
+    results = server.find_episode_fallbacks(
+        "Exact Show", 2, 4,
+        source_slug="serienstream:exact-show-s02e04",
+        limit=1,
+    )
+
+    assert [movie.provider for movie in results] == ["huhu"]
+    assert calls == ["huhu"]
+
+
 def test_network_error_is_not_negative_cached(monkeypatch):
     calls = {"count": 0}
 
@@ -184,6 +215,35 @@ def test_without_fallback_episode_stays_waiting_not_failed():
     assert item["status"] == "waiting_provider"
     assert slug in server.state.picked
     assert server.state.done_jobs == 0
+
+
+def test_cooldown_queue_distinguishes_fallback_checks_from_provider_waits():
+    checking_slug = "serienstream:exact-show-s02e04"
+    waiting_slug = "serienstream:exact-show-s02e05"
+    for slug in (checking_slug, waiting_slug):
+        server.state.picked.add(slug)
+        server.state.counted_queue_slugs.add(slug)
+        server.state.fp_movies[slug] = episode_movie(
+            "serienstream", slug, hosters=False,
+        )
+    server.state.provider_waiting_jobs[waiting_slug] = {
+        "slug": waiting_slug,
+        "movie": server.state.fp_movies[waiting_slug],
+    }
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+
+    payload = server.build_queue_payload()
+    items = {
+        item["slug"]: item
+        for group in payload["groups"]
+        for item in group["items"]
+    }
+    status = payload["providers"]["serienstream"]
+
+    assert items[checking_slug]["status"] == "checking_fallback"
+    assert items[waiting_slug]["status"] == "waiting_provider"
+    assert status["fallback_episode_count"] == 1
+    assert status["waiting_episode_count"] == 1
 
 
 def test_waiting_episode_claim_survives_queue_persistence(monkeypatch, tmp_path):
