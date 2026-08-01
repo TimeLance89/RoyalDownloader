@@ -412,6 +412,53 @@ def client_key(request) -> str:
 # App-State (Ein-Nutzer, in-memory – entspricht den Instanzvariablen der
 # früheren tkinter-App-Klasse)
 # ---------------------------------------------------------------------------
+class _PreparationSlots:
+    """Begrenzt teure Vorbereitungen, ohne sie global zu serialisieren.
+
+    Provider- und Browseradapter besitzen weiterhin ihre eigenen Locks. Zwei
+    Slots erlauben aber, dass eine langsame Katalogsuche einer Serie nicht alle
+    anderen Serien hinter sich festhaelt. ``locked`` bedeutet hier bewusst
+    "mindestens ein Slot aktiv" und erhaelt damit die bestehende Busy-Pruefung.
+    """
+
+    def __init__(self, limit: int):
+        self._limit = max(1, int(limit))
+        self._semaphore = threading.BoundedSemaphore(self._limit)
+        self._state_lock = threading.Lock()
+        self._active = 0
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        if not blocking:
+            acquired = self._semaphore.acquire(blocking=False)
+        elif timeout is None or timeout < 0:
+            acquired = self._semaphore.acquire()
+        else:
+            acquired = self._semaphore.acquire(timeout=timeout)
+        if acquired:
+            with self._state_lock:
+                self._active += 1
+        return acquired
+
+    def release(self) -> None:
+        with self._state_lock:
+            if self._active <= 0:
+                raise RuntimeError("Vorbereitungs-Slot wurde zu oft freigegeben")
+            self._active -= 1
+        self._semaphore.release()
+
+    def locked(self) -> bool:
+        with self._state_lock:
+            return self._active > 0
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.release()
+        return False
+
+
 class AppState:
     def __init__(self):
         self.save_path: str = appconfig.load()              # Zielordner Filme
@@ -560,9 +607,12 @@ class AppState:
         self.voe_pool: Optional[VOEBrowserPool] = None
         self.embed_pool: Optional[VOEBrowserPool] = None
 
-        self.dl_queue = DownloadQueue(max_parallel=2)
+        # Zwei echte Downloads plus zwei separat begrenzte Vorbereitungen. Die
+        # Vorbereitung belegt keinen Download-Slot; provider-spezifische Locks
+        # verhindern weiterhin paralleles Hämmern derselben Quelle.
+        self.dl_queue = DownloadQueue(max_parallel=2, max_preparations=2)
         self.download_state_lock = threading.Lock()
-        self.queue_prepare_lock = threading.Lock()
+        self.queue_prepare_lock = _PreparationSlots(2)
         self.queue_lifecycle_lock = threading.RLock()
         self.total_jobs = 0
         self.done_jobs = 0
@@ -9319,18 +9369,16 @@ async def api_anime_detail(
 
 # ── Warteschlange ────────────────────────────────────────────────────────────
 class _QueuePreparationJob:
-    """Löst neu hinzugefügte Inhalte innerhalb derselben 2-Slot-Queue auf.
+    """Löst neu hinzugefügte Inhalte mit eigener Scheduler-Kapazität auf.
 
-    Dadurch starten neue Einträge automatisch, ohne neben der bestehenden
-    Queue einen zweiten Scheduler oder mehr als zwei parallele Jobs zu öffnen.
+    Der gemeinsame Scheduler bleibt fuer Abbruch/Reihenfolge zustaendig, aber
+    Vorbereitungen zaehlen nicht gegen die zwei echten Download-Slots.
     """
 
     is_preparation_job = True
-    # Der DownloadQueue-Scheduler behandelt gleiche Host-Gruppen mit seinem
-    # per-host-Limit (standardmaessig 1). Ohne diese Gruppe starteten zwei
-    # Vorbereitungsjobs gleichzeitig; einer wartete dann nur auf
-    # queue_prepare_lock und belegte trotzdem den zweiten echten Download-Slot.
-    # Ein bereits aufgeloester CDN-/Hoster-Download kann diesen Slot nun nutzen.
+    # Reine Diagnose-/Kompatibilitaetsgruppe. Der Scheduler begrenzt
+    # Vorbereitungen separat; echte Providerzugriffe bleiben durch ihre
+    # adaptereigenen Locks geschuetzt.
     host_group = "__series_preparation__"
 
     def __init__(

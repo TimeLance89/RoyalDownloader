@@ -68,6 +68,20 @@ def test_series_preparations_share_one_scheduler_group():
     assert first.host_group == second.host_group == "__series_preparation__"
 
 
+def test_two_preparations_can_progress_without_global_head_of_line_blocking():
+    slots = server._PreparationSlots(2)
+
+    assert slots.acquire(blocking=False)
+    assert slots.acquire(blocking=False)
+    assert not slots.acquire(blocking=False)
+    assert slots.locked()
+
+    slots.release()
+    assert slots.locked()
+    slots.release()
+    assert not slots.locked()
+
+
 def test_serienstream_remains_first_source(monkeypatch):
     monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
     ordered = server._ordered_episode_sources([

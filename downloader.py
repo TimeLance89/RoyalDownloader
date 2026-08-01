@@ -931,10 +931,13 @@ class DownloadQueue:
     """
     Download-Queue mit konfigurierbarer Parallelität.
 
-    `max_parallel` = Anzahl gleichzeitiger Downloads (default 2).
+    `max_parallel` = Anzahl gleichzeitiger echter Downloads (default 2).
     Intelligenter Default: 2 ist gut weil:
     - 1 zu langsam (zwei 1GB-Filme hintereinander wären doppelt so lang)
     - 3+ problematisch (Browser-Pool serialisiert VOE-Extraktionen ohnehin)
+
+    `max_preparations` = separate, kleine Kapazitaet fuer Quellen-/Hoster-
+    Vorbereitungen. Vorbereitungen belegen dadurch keinen Download-Slot.
 
     `per_host_limit` = gleichzeitige Downloads je Host-Gruppe (default 1,
     via DOWNLOAD_PER_HOST_PARALLEL konfigurierbar). Verhindert, dass beide
@@ -943,12 +946,18 @@ class DownloadQueue:
     `on_queue_done` wird NUR aufgerufen wenn ALLE Jobs durch sind (Erfolg oder Abbruch).
     """
 
-    def __init__(self, max_parallel: int = 2, per_host_limit: int = PER_HOST_MAX_PARALLEL):
+    def __init__(
+        self,
+        max_parallel: int = 2,
+        per_host_limit: int = PER_HOST_MAX_PARALLEL,
+        max_preparations: int = 1,
+    ):
         self._jobs: list = []
         self._active: Dict[int, tuple] = {}  # job_id -> (job, thread, start_time)
         self._lock = threading.Lock()
         self._running = False
         self._max_parallel = max(1, max_parallel)
+        self._max_preparations = max(1, max_preparations)
         self._per_host_limit = max(1, per_host_limit)
         self._next_job_id = 0
         self._scheduler_generation = 0
@@ -1073,29 +1082,40 @@ class DownloadQueue:
                 with self._lock:
                     self._active.pop(jid, None)
 
-            # 2. Starte neue Jobs wenn Slot frei. Pro Host-Gruppe laeuft nur
-            #    eine begrenzte Anzahl gleichzeitig, damit sich zwei Slots am
-            #    selben (drosselnden) Server nicht gegenseitig ausbremsen.
-            #    Gesperrte Jobs bleiben in Reihenfolge liegen; der Slot nimmt
-            #    den naechsten Job eines anderen Hosts.
+            # 2. Starte neue Jobs wenn Kapazitaet frei ist. Quellen-
+            #    Vorbereitungen und echte Downloads besitzen getrennte Slots:
+            #    Eine langsame Ersatzquellensuche darf die bereits aufgeloesten
+            #    Downloads nicht auf einen einzigen Worker reduzieren.
+            #
+            #    Das Host-Limit gilt nur fuer echte Downloads. Provider- und
+            #    Browserzugriffe der Vorbereitungen werden eine Ebene hoeher
+            #    durch deren eigene Locks begrenzt.
             with self._lock:
-                while (
-                    self._running
-                    and generation == self._scheduler_generation
-                    and len(self._active) < self._max_parallel
-                    and self._jobs
-                ):
+                while self._running and generation == self._scheduler_generation and self._jobs:
                     active_hosts: Dict[str, int] = {}
+                    active_downloads = 0
+                    active_preparations = 0
                     for active_job, _thread, _started in self._active.values():
+                        if getattr(active_job, "is_preparation_job", False):
+                            active_preparations += 1
+                            continue
+                        active_downloads += 1
                         group = getattr(active_job, "host_group", "")
                         if group:
                             active_hosts[group] = active_hosts.get(group, 0) + 1
                     index = next(
                         (
                             i for i, (_jid, queued) in enumerate(self._jobs)
-                            if active_hosts.get(
-                                getattr(queued, "host_group", ""), 0
-                            ) < self._per_host_limit
+                            if (
+                                active_preparations < self._max_preparations
+                                if getattr(queued, "is_preparation_job", False)
+                                else (
+                                    active_downloads < self._max_parallel
+                                    and active_hosts.get(
+                                        getattr(queued, "host_group", ""), 0
+                                    ) < self._per_host_limit
+                                )
+                            )
                         ),
                         None,
                     )
