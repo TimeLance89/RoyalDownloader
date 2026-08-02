@@ -2678,9 +2678,10 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             unique.append(result)
         return unique
 
+    catalog_mode = mode
     cold_wave_budget = [SERIES_MAX_COLD_WAVES_PER_REQUEST]
     first_pages = _load_series_provider_pages(
-        mode,
+        catalog_mode,
         letter,
         [(provider, 1) for provider in active],
         cold_wave_budget,
@@ -2696,8 +2697,35 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
         claimed_identities,
     )
 
+    if mode == "trending" and not catalog_entries:
+        # SerienStream ist die einzige Quelle mit einem echten Popularitätssignal.
+        # Bei CAPTCHA, Rate-Limit oder deaktivierter Quelle darf die Startseite
+        # deshalb trotzdem nicht dauerhaft leer bleiben. In diesem Fall zeigen
+        # wir verfügbare Serien aus den übrigen aktiven Katalogen an.
+        active = [provider for provider in priority if provider != "serienstream"]
+        catalog_mode = "discover"
+        cold_wave_budget = [SERIES_MAX_COLD_WAVES_PER_REQUEST]
+        fallback_pages = _load_series_provider_pages(
+            catalog_mode,
+            letter,
+            [(provider, 1) for provider in active],
+            cold_wave_budget,
+        )
+        first_wave = {
+            provider: unique_page(provider, fallback_pages.get((provider, 1), []))
+            for provider in active
+        }
+        claimed_identities.clear()
+        catalog_entries = _mix_series_provider_results(
+            first_wave,
+            priority,
+            claimed_identities,
+        )
+
     paginated = [
-        provider for provider in active if _series_provider_is_paginated(provider, mode)
+        provider
+        for provider in active
+        if _series_provider_is_paginated(provider, catalog_mode)
     ]
     exhausted = {provider for provider in paginated if not first_wave[provider]}
     duplicate_only_pages = {provider: 0 for provider in paginated}
@@ -2711,7 +2739,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             break
         try:
             next_pages = _load_series_provider_pages(
-                mode,
+                catalog_mode,
                 letter,
                 [(provider, next_source_page) for provider in pending],
                 cold_wave_budget,

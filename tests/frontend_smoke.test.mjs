@@ -62,6 +62,14 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(html, /app\.js\?v=royal-20260802-1/);
 });
 
+test("home series rail falls back when the trending provider is unavailable", () => {
+  assert.match(html, /screens\/home\.js\?v=royal-20260802-2/);
+  assert.match(app, /function homePopularSeriesEntries\(\)/);
+  assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
+  assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
+  assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
 test("feature modules load in dependency order before bootstrap", () => {
   const sources = [...html.matchAll(/<script src="\/([^"?]+)/g)]
     .map((match) => match[1]);

@@ -528,6 +528,22 @@ function homeNewEntries() {
   ));
 }
 
+function homePopularSeriesEntries() {
+  const preferred = state.home.trendingSeries.length
+    ? state.home.trendingSeries
+    : uniqueHomeEntries([
+      ...state.home.newSeries.map(homeSeriesEntry),
+      ...state.home.discoverySeries.map(homeSeriesEntry),
+    ]).map((entry) => entry.item);
+  const title = document.getElementById("home-series-title");
+  if (title) {
+    title.textContent = state.home.trendingSeries.length
+      ? "Serien, die gerade alle sehen"
+      : "Serien aus deinen aktiven Quellen";
+  }
+  return allowedHomeEntries(preferred.map(homeSeriesEntry));
+}
+
 function homePersonalizedEntries() {
   const profile = loadDiscoveryProfile();
   const recent = new Set(profile.recent.slice(0, 18).map((event) => event.key));
@@ -901,7 +917,7 @@ function renderHome() {
   renderHomeHero();
   renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
   renderHomeRail("home-movies-track", homePersonalizedEntries());
-  renderHomeRail("home-series-track", allowedHomeEntries(state.home.trendingSeries.map(homeSeriesEntry)));
+  renderHomeRail("home-series-track", homePopularSeriesEntries());
   renderHomeRail("home-genre-track", homeGenreEntries());
   renderHomeRail("home-explore-track", homeExploreEntries());
   renderHomeRail("home-gems-track", homeGemEntries());

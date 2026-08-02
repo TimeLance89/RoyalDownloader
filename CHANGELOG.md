@@ -2,6 +2,8 @@
 
 ## 2026-08-02 – Modularization safety baseline
 
+- Keep the home-page series rail populated from other active providers when
+  SerienStream trending data is unavailable because of a CAPTCHA or rate limit.
 - Extracted the HTTP authentication, origin-validation, and response-hardening
   policy from `server.py` behind an injected application boundary.
 - Moved the web and native authentication endpoints into an independently
