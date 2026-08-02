@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+No unreleased changes.
+
+## v1.0.0-rc.2 – 2026-08-02
+
 - Add persistent **Stable** (`main`) and **Overnight** (`overnight`) update
   channels while keeping Stable as the backward-compatible default.
 - Keep the existing exact-commit staging, backup, restart, and rollback path
@@ -14,6 +18,13 @@
 - Offer an Overnight commit only after the complete Quality workflow has
   succeeded for that exact revision; missing, pending, or failed results remain
   unavailable.
+- Classify releases from their semantic tag: release candidates and other
+  hyphenated versions are pre-releases, while stable versions are no longer
+  marked as pre-releases unconditionally.
+
+This is a **release candidate**, not the final `v1.0.0` release. External
+providers may change pages, domains, availability, or protection mechanisms at
+any time.
 
 ## v1.0.0-rc.1 – 2026-08-02
 
