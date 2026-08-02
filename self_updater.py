@@ -275,6 +275,7 @@ class SelfUpdater:
             "web/app.js",
             "web/i18n.js",
             "update_checker.py",
+            "update_channels.py",
             "providers/__init__.py",
             "providers/catalog.py",
             "providers/models.py",

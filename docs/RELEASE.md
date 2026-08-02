@@ -114,7 +114,10 @@ Stop if `git status --short` shows local source changes; preserve or review them
 before switching. Do not delete `data/` or `runtime/`. The queue is restored
 from persistent state after startup. Keep automatic application updates in
 manual mode when the installation must remain pinned to the release candidate;
-the in-app updater otherwise follows its configured `main` branch.
+the in-app updater otherwise follows the selected channel. Existing
+installations default to **Stable** (`main`). **Overnight** (`overnight`) is an
+explicit development-channel opt-in; follow the
+[channel switching and promotion guide](UPDATE_CHANNELS.md).
 
 After the first health check, restart once and verify the same persistent state:
 
@@ -150,3 +153,7 @@ docker compose up -d
 
 Always verify `/api/health`, the displayed application version and build SHA,
 queue recovery, and both media mounts after rollback.
+
+Channel changes use the same staged runtime and rollback point. Returning from
+Overnight to Stable is blocked behind an explicit confirmation when `main` is
+older or diverged; persistent data is not removed or migrated by that switch.

@@ -145,25 +145,46 @@ def create_administration_router(backend) -> APIRouter:
 @router.get("/api/v1/updater/status")
 @router.get("/api/updater/status")
 async def api_updater_status(force: bool = False):
-    payload = await run_in_threadpool(UPDATE_CHECKER.check, force)
+    config = _updater_config_payload()
+    channel = appconfig.normalize_update_channel(config.get("update_channel"))
+    branch = appconfig.update_branch_for_channel(channel)
+    payload = await run_in_threadpool(UPDATE_CHECKER.check_branch, branch, force)
+    possible_downgrade = bool(
+        channel == "stable"
+        and payload.get("current_sha")
+        and payload.get("latest_sha")
+        and payload.get("comparison") in {"behind", "diverged"}
+    )
     payload["application_version"] = APP_VERSION
+    payload["update_channel"] = channel
+    payload["update_branch"] = branch
+    payload["possible_downgrade"] = possible_downgrade
+    payload["channel_switch_requires_confirmation"] = possible_downgrade
     payload["installer"] = UPDATE_INSTALLER.status()
-    payload["config"] = _updater_config_payload()
+    payload["config"] = config
     return payload
 
 
 class UpdateInstallBody(BaseModel):
     target_sha: str
+    confirm_channel_switch: bool = False
 
 
 @router.post("/api/v1/updater/install")
 @router.post("/api/updater/install")
 async def api_updater_install(body: UpdateInstallBody):
-    update = await run_in_threadpool(UPDATE_CHECKER.check, True)
+    update = await api_updater_status(True)
     target_sha = str(update.get("latest_sha") or "")
     if not target_sha or target_sha != body.target_sha.strip():
         raise HTTPException(409, "Der angebotene GitHub-Stand hat sich geändert; bitte erneut prüfen.")
-    if update.get("update_available") is not True:
+    possible_downgrade = bool(update.get("possible_downgrade"))
+    if possible_downgrade and not body.confirm_channel_switch:
+        raise HTTPException(
+            409,
+            "Der Wechsel zu Stable kann einen älteren Stand aktivieren. "
+            "Bitte Branchwechsel ausdrücklich bestätigen.",
+        )
+    if update.get("update_available") is not True and not possible_downgrade:
         raise HTTPException(409, "Für diesen Build ist kein installierbares Update verfügbar.")
     try:
         installer = _start_update_when_idle(target_sha)
@@ -194,6 +215,7 @@ async def api_updater_rollback():
 class UpdaterConfigBody(BaseModel):
     update_mode: str = appconfig.UPDATE_MODE_MANUAL
     auto_update_interval_hours: int = 6
+    update_channel: str | None = None
 
 
 @router.get("/api/v1/updater/config")
@@ -209,11 +231,17 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     if mode not in appconfig.UPDATE_MODES:
         raise HTTPException(400, "Update-Modus muss 'manual' oder 'automatic' sein.")
     interval = max(1, min(168, int(body.auto_update_interval_hours or 6)))
-    if not await run_in_threadpool(appconfig.save_updater, mode, interval):
+    current = await run_in_threadpool(appconfig.load_updater)
+    raw_channel = current["update_channel"] if body.update_channel is None else body.update_channel
+    channel = str(raw_channel or "").strip().casefold()
+    if channel not in appconfig.UPDATE_CHANNELS:
+        raise HTTPException(400, "Update-Kanal muss 'stable' oder 'overnight' sein.")
+    if not await run_in_threadpool(appconfig.save_updater, mode, interval, channel):
         raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
     updater_cfg = await run_in_threadpool(appconfig.load_updater)
     with state.updater_config_lock:
         state.updater_cfg = updater_cfg
+    UPDATE_CHECKER.set_branch(updater_cfg["update_branch"])
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
         _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
     else:

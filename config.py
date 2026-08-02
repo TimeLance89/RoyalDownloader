@@ -22,6 +22,13 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir, in_container, persistent_container_path
+from update_channels import (
+    DEFAULT_UPDATE_CHANNEL,
+    UPDATE_CHANNELS,
+    normalize_update_channel,
+    update_branch_for_channel,
+    update_channel_for_branch,
+)
 from providers.catalog import (
     PROVIDER_CATALOG,
     provider_keys,
@@ -936,21 +943,42 @@ def load_updater() -> dict:
     if interval is None:
         interval = _env_int("AUTO_UPDATE_INTERVAL_HOURS")
     interval = max(1, min(168, interval or 6))
+    configured_channel = values.get("update_channel", "").strip()
+    if not configured_channel:
+        configured_channel = os.environ.get("UPDATE_CHANNEL", "").strip()
+    if not configured_channel:
+        configured_channel = update_channel_for_branch(
+            os.environ.get("UPDATE_GITHUB_BRANCH", ""),
+        )
+    channel = normalize_update_channel(configured_channel)
     return {
         "update_mode": mode,
         "auto_update": mode == UPDATE_MODE_AUTOMATIC,
         "auto_update_interval_hours": interval,
+        "update_channel": channel,
+        "update_branch": update_branch_for_channel(channel),
     }
 
 
-def save_updater(update_mode: str, auto_update_interval_hours: int = 6) -> bool:
+def save_updater(
+    update_mode: str,
+    auto_update_interval_hours: int = 6,
+    update_channel: Optional[str] = None,
+) -> bool:
     mode = str(update_mode or "").strip().lower()
     if mode not in UPDATE_MODES:
         mode = UPDATE_MODE_MANUAL
     interval = max(1, min(168, int(auto_update_interval_hours or 6)))
+    if update_channel is None:
+        channel = normalize_update_channel(
+            _read_all().get("update_channel", DEFAULT_UPDATE_CHANNEL),
+        )
+    else:
+        channel = normalize_update_channel(update_channel)
     return _update_all({
         "update_mode": mode,
         "auto_update_interval_hours": str(interval),
+        "update_channel": channel,
     })
 
 

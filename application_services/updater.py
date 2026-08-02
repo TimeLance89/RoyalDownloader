@@ -113,6 +113,9 @@ YTDLP_AUTO_UPDATE = os.environ.get(
 def _updater_config_payload() -> dict:
     with state.updater_config_lock:
         config = dict(state.updater_cfg)
+    channel = appconfig.normalize_update_channel(config.get("update_channel"))
+    config["update_channel"] = channel
+    config["update_branch"] = appconfig.update_branch_for_channel(channel)
     with state.updater_runtime_lock:
         runtime = dict(state.updater_runtime)
     return {**config, **runtime}
@@ -161,11 +164,14 @@ def _start_update_when_idle(target_sha: str) -> dict:
 
 def _attempt_automatic_update() -> str:
     with state.updater_config_lock:
-        if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
+        config = dict(state.updater_cfg)
+        if config.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
             return "manual"
+    channel = appconfig.normalize_update_channel(config.get("update_channel"))
+    branch = appconfig.update_branch_for_channel(channel)
 
     try:
-        update = UPDATE_CHECKER.check(True)
+        update = UPDATE_CHECKER.check_branch(branch, True)
     except Exception as exc:
         message = f"GitHub-Prüfung fehlgeschlagen: {exc}"
         _set_updater_runtime("error", message, checked=True)
@@ -177,6 +183,18 @@ def _attempt_automatic_update() -> str:
         _set_updater_runtime("error", message, checked=True)
         log(f"Automatische Updateprüfung fehlgeschlagen: {message}", "warn")
         return "error"
+    if (
+        channel == "stable"
+        and update.get("comparison") in {"behind", "diverged"}
+        and update.get("current_sha")
+        and update.get("latest_sha")
+    ):
+        _set_updater_runtime(
+            "manual_required",
+            "Der Wechsel zu Stable kann einen älteren Build aktivieren und muss bestätigt werden.",
+            checked=True,
+        )
+        return "manual_required"
     if update.get("update_available") is not True:
         if update.get("comparison") in {"identical", "behind"}:
             _set_updater_runtime("current", "Kein Update verfügbar.", checked=True)

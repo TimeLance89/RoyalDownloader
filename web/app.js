@@ -464,6 +464,22 @@ async function initApp() {
   });
   document.getElementById("updater-check").addEventListener("click", () => checkForUpdates(true));
   document.getElementById("updater-install").addEventListener("click", installUpdate);
+  document.getElementById("updater-channel").addEventListener("change", (event) => {
+    const select = event.currentTarget;
+    const previous = select.dataset.savedChannel || "stable";
+    if (
+      select.value === "overnight"
+      && previous !== "overnight"
+      && !window.confirm(
+        "Zum Overnight-Kanal wechseln? Dieser Entwicklungskanal erhält Änderungen früher und kann instabil sein. Updates nutzen weiterhin Backup und Rollback.",
+      )
+    ) {
+      select.value = previous;
+    }
+    document.getElementById("updater-channel-hint").textContent = select.value === "overnight"
+      ? "Overnight · früher Zugriff aus overnight; kann instabil sein."
+      : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
+  });
   document.getElementById("updater-mode").addEventListener("change", (event) => {
     document.getElementById("updater-interval").disabled = event.target.value !== "automatic";
     document.getElementById("updater-mode-status").textContent = event.target.value === "automatic"

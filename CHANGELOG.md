@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add persistent **Stable** (`main`) and **Overnight** (`overnight`) update
+  channels while keeping Stable as the backward-compatible default.
+- Keep the existing exact-commit staging, backup, restart, and rollback path
+  for both channels; require explicit confirmation when returning to Stable
+  may activate an older or diverged build.
+- Show channel, branch, application version, installed build, available build,
+  and development/downgrade warnings in the update UI and API.
+- Run the complete quality workflow for both branches and require official
+  release commits to be contained in `main`.
+
 ## v1.0.0-rc.1 – 2026-08-02
 
 - Publish the first officially versioned Royal Downloader release candidate.

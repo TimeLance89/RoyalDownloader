@@ -1542,7 +1542,7 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
 .updater-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .updater-mode-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(130px, 0.55fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(130px, 0.55fr);
   gap: 10px;
 }
 .updater-mode-grid label { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
@@ -1583,6 +1583,16 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
 .updater-interval-input input:focus { outline: none; }
 .updater-interval-input > span { padding-right: 10px; color: var(--text-dim); font-size: 10px; }
 .updater-mode-status { margin-top: -3px; font-size: 10px; }
+.updater-channel-hint { margin-top: -3px; font-size: 10px; }
+.updater-switch-warning {
+  padding: 9px 10px;
+  border: 1px solid rgba(232, 189, 97, 0.42);
+  border-radius: 9px;
+  color: var(--yellow);
+  background: rgba(232, 189, 97, 0.08);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
 .updater-kicker {
   display: block;
   margin-bottom: 4px;

@@ -8,6 +8,7 @@
 | [Android and mobile API](ANDROID_API.md) | Legacy contract, additive API v1, authentication, and WebSocket events |
 | [Docker and NAS operation](DOCKER.md) | Installation, volumes, environment variables, updates, and integrations |
 | [Release operations](RELEASE.md) | Version-pinned installation, upgrade, backup, health verification, and rollback |
+| [Update channels](UPDATE_CHANNELS.md) | Stable/Overnight selection, safe switching, and promotion to main |
 | [Architecture boundaries](ARCHITECTURE.md) | Dependency direction, module ownership, and lock order |
 | [Completed modularization](MODULARIZATION.md) | Large backend/frontend refactor, compatibility guarantees, and extension guide |
 | [Dependency updates](DEPENDENCY_UPDATES.md) | Reviewed dependency and image update policy |

@@ -1,0 +1,78 @@
+# Stable and Overnight update channels
+
+[← Documentation index](README.md)
+
+Royal Downloader has two explicit source-update channels. **Stable** is the
+recommended default for normal installations. **Overnight** is an opt-in
+development and test channel.
+
+| UI channel | Git branch | Intended use |
+|---|---|---|
+| Stable | `main` | Reviewed release candidates and stable releases |
+| Overnight | `overnight` | Earlier fixes and development changes that passed CI but need practical testing |
+
+The selected `update_channel` is stored in the existing persistent
+`data/FilmeDownloader/settings.ini`. An installation without that key uses
+`stable`; its updater therefore continues to read only `main`. The API exposes
+both `update_channel` and the derived `update_branch`, so the UI and updater
+cannot select different sources.
+
+## Switching from Stable to Overnight
+
+1. Back up `.env`, `data/`, and `runtime/`.
+2. Open **Settings → Updates and maintenance**.
+3. Select **Overnight** and acknowledge the development-channel warning.
+4. Save settings and check for updates.
+5. Install the offered `overnight` revision through the normal updater.
+
+Overnight may change frequently and may contain defects not present on Stable.
+It still uses the exact-commit download, staging, smoke check, atomic runtime
+activation, queue-safe restart, and rollback flow. A passing CI run means the
+automated gates succeeded; it is not a stability guarantee.
+
+## Switching from Overnight to Stable
+
+Select **Stable** and save. The updater compares the installed commit with
+`main`. If `main` is behind the installed build or the histories have diverged,
+the status is marked as a possible downgrade/branch change. Automatic
+installation pauses and the user must explicitly confirm the target commit.
+
+For Docker/NAS runtime installations, the new revision is staged and tested
+before activation. `runtime/current` changes atomically and
+`runtime/previous` keeps the previous complete source and dependency set.
+Neither channel switching nor rollback deletes `data/`, `.env`, the queue,
+configuration, or mounted media directories. Do not use `git reset`,
+`git clean`, or delete persistent directories to change channels.
+
+After switching, verify:
+
+```bash
+curl --fail http://127.0.0.1:8765/api/health
+curl --fail http://127.0.0.1:8765/api/v1/updater/config
+```
+
+Then restart the container once and confirm that the channel, queue, and media
+mounts remain unchanged.
+
+## Development and promotion workflow
+
+1. Develop feature/fix branches against `overnight`.
+2. Merge reviewed changes into `overnight` only after the complete quality
+   gates pass.
+3. Test Overnight builds in practice and fix known regressions there.
+4. Open a pull request from `overnight` to `main`.
+5. Run the complete quality gates again on the promotion PR.
+6. Merge deliberately into `main`; no workflow automatically promotes it.
+7. Update the central application version and changelog on `main`.
+8. Publish the Stable release or release candidate from a commit contained in
+   `main`.
+
+Both `main` and `overnight` run Python and frontend tests, syntax checks, Ruff,
+Bandit, dependency audit, Docker build, health, persistence, and restart smoke
+checks. The release workflow additionally rejects tags whose commit is not an
+ancestor of `main`.
+
+No registry image is introduced by this channel model. If images are added
+later, release tags and `stable` belong to Stable; Overnight may use
+`overnight` and `overnight-<commit>`. Release candidates must never update
+`latest`.
