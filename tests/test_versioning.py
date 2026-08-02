@@ -88,6 +88,8 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
     assert 'tags:\n      - "v*"' in release
     assert 'paths:\n      - app_version.py' in release
     assert "workflow_dispatch:" in release
+    assert "github.actor == github.repository_owner" in release
+    assert "Release request: ${tag_name}" in release
     assert "uses: ./.github/workflows/quality.yml" in release
     assert "needs: quality" in release
     assert "Build container image" in quality
