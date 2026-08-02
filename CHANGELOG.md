@@ -10,6 +10,8 @@
   including recovery of completed files from unsafe container locations.
 - Split the monolithic browser application into ordered core, feature-screen,
   account, setup, and bootstrap modules with a load-order regression check.
+- Replaced the monolithic stylesheet with an ordered manifest of focused base,
+  legacy-layer, screen, and media override stylesheets.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

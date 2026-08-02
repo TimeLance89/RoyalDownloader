@@ -34,6 +34,11 @@ updates, and queue UI live in `core.js`; individual feature areas live below
 Screen modules may depend on core and earlier domain modules but do not perform
 startup themselves.
 
+CSS cascade order is declared only in `style.css`. Design tokens load first,
+followed by the historical `legacy` layer split across focused files, followed
+by ordered feature overrides in `web/styles/`. Moving a rule between files must
+preserve that phase unless the cascade change is intentional and tested.
+
 ## Lock ownership and order
 
 When more than one lock is required, acquire only in this order and release in

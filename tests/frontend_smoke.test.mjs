@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
+const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const appModulePaths = [
   "core.js",
   "screens/home.js",
@@ -67,6 +68,30 @@ test("feature modules load in dependency order before bootstrap", () => {
   const positions = appModulePaths.map((path) => sources.indexOf(path));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+});
+
+test("the stylesheet manifest preserves every ordered CSS module", () => {
+  const imports = [...stylesheet.matchAll(/@import url\("\/([^"?]+)/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(imports, [
+    "styles/base.css",
+    "styles/legacy-foundation.css",
+    "styles/legacy-components.css",
+    "styles/legacy-account.css",
+    "styles/legacy-layout.css",
+    "styles/legacy-details.css",
+    "styles/overrides-core.css",
+    "styles/movie-subscriptions.css",
+    "styles/login.css",
+    "styles/library.css",
+    "styles/movie-home.css",
+    "styles/search.css",
+    "styles/series.css",
+    "styles/catalog.css",
+  ]);
+  for (const path of imports) {
+    assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);
+  }
 });
 
 test("the document has unique IDs and CI checks nested JavaScript", () => {
