@@ -27,22 +27,24 @@ def _walk_routes(routes):
 
 def test_api_route_method_pairs_are_unique_and_explicitly_owned():
     pairs = []
-    domain_owned_routes = {
+    explicitly_owned_routes = {
         id(route)
         for router in DOMAIN_ROUTERS.values()
         for route in router.routes
     }
+    for route in server.app.routes:
+        nested_router = getattr(route, "original_router", None)
+        if nested_router is not None:
+            explicitly_owned_routes.update(
+                id(child) for child in _walk_routes(nested_router.routes)
+            )
     for route in _walk_routes(server.app.routes):
         path = getattr(route, "path", "")
         if not path.startswith(("/api/", "/ws")):
             continue
         # Extracted routers are represented by FastAPI as nested router nodes;
         # legacy handlers remain explicitly assigned to a domain router.
-        assert id(route) in domain_owned_routes or path in {
-            "/api/health",
-            "/api/v1/health",
-            "/api/v1/diagnostics/caches",
-        }
+        assert id(route) in explicitly_owned_routes
         for method in getattr(route, "methods", ()) or ("WEBSOCKET",):
             pairs.append((method, path))
 

@@ -4,6 +4,8 @@
 
 - Extracted the HTTP authentication, origin-validation, and response-hardening
   policy from `server.py` behind an injected application boundary.
+- Moved the web and native authentication endpoints into an independently
+  tested router while retaining all legacy and `/api/v1` contracts.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

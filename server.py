@@ -70,6 +70,13 @@ from resolved_link_cache import ResolvedLinkCache
 from runtime_cache import BoundedTTLCache
 from api_system_router import create_system_router
 from api_domain_routers import install_domain_routers
+from api_auth_router import (
+    ApiV1LoginBody,
+    AuthConfigBody,
+    AuthDependencies,
+    LoginBody,
+    create_auth_router,
+)
 from api_security import SecurityDependencies, install_authentication_middleware
 from runtime_paths import data_dir, in_container, persistent_container_path
 from network_guard import is_public_http_url
@@ -8902,24 +8909,6 @@ async def handle_session_persistence_error(request, exc):
 
 
 # ── Anmeldung ───────────────────────────────────────────────────────────────
-class LoginBody(BaseModel):
-    username: str = Field(max_length=appauth.MAX_USERNAME_LENGTH)
-    password: str = Field(max_length=appauth.MAX_PASSWORD_LENGTH)
-
-
-class ApiV1LoginBody(LoginBody):
-    device_label: str = Field(default="", max_length=120)
-    # Frühe Mobile-Prototypen verwendeten diesen Namen. Additiv akzeptieren,
-    # im dokumentierten v1-Vertrag bleibt `device_label` kanonisch.
-    device_name: str = Field(default="", max_length=120)
-
-
-class AuthConfigBody(BaseModel):
-    username: str
-    password: str
-    current_password: Optional[str] = ""
-
-
 def _request_is_secure(request: Request) -> bool:
     forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
     return forwarded == "https" or request.url.scheme == "https"
@@ -8940,292 +8929,35 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
     )
 
 
-def _auth_status_payload(request: Request, auth_method: Optional[str] = None) -> dict:
-    account = auth_account()
-    configured = bool(account.get("configured"))
-    authenticated = (
-        request_is_authenticated(request.headers, request.cookies, client_key(request))
-        if auth_method is None
-        else (not auth_required() or auth_method != "none")
-    )
-    return {
-        "configured": configured,
-        "required": auth_required(),
-        "authenticated": authenticated,
-        "username": account.get("username", "") if authenticated or not configured else "",
-        "source": account.get("source", "none"),
-        "setup_required": setup_required(),
-        # Bestandsinstallation ohne Konto: die Oberfläche zeigt dafür einen
-        # Hinweis mit direktem Weg in die Konto-Einstellungen.
-        "prompt_setup": appconfig.is_initialized() and not configured,
-        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
-        "min_username_length": appauth.MIN_USERNAME_LENGTH,
-    }
-
-
-@app.get("/api/auth/status")
-async def api_auth_status(request: Request):
-    return JSONResponse(
-        _auth_status_payload(request),
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-@app.get("/api/v1/auth/status")
-async def api_v1_auth_status(request: Request):
-    auth_method = request_auth_method(
-        request.headers,
-        request.cookies,
-        client_key(request),
-        versioned=True,
-        allow_basic=False,
-    )
-    payload = _auth_status_payload(request, auth_method=auth_method)
-    payload.update({
-        "api_version": API_VERSION,
-        "auth_method": auth_method,
-        "token_ttl_seconds": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "token_idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
-    })
-    return JSONResponse(
-        payload,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-async def _create_login_session(
-    username: str,
-    password: str,
-    request: Request,
-    label: str,
-    session_kind: str,
-) -> tuple[str, dict, str]:
-    """Gemeinsame Login-Prüfung für Web-Cookie und v1-Bearer-Token."""
-    key = client_key(request)
-    blocked = LOGIN_GUARD.retry_after(key)
-    if blocked:
-        raise HTTPException(
-            429,
-            f"Zu viele Fehlversuche. Bitte {blocked} Sekunden warten.",
-            headers={"Retry-After": str(blocked)},
-        )
-    if not auth_configured():
-        raise HTTPException(400, "Es ist kein Konto eingerichtet.")
-    ok = await run_in_threadpool(
-        verify_credentials, username.strip(), password,
-    )
-    if not ok:
-        lockout = LOGIN_GUARD.register_failure(key)
-        log(f"Fehlgeschlagene Anmeldung von {key}.", "warn")
-        if lockout:
-            raise HTTPException(
-                429,
-                f"Zu viele Fehlversuche. Bitte {lockout} Sekunden warten.",
-                headers={"Retry-After": str(lockout)},
-            )
-        remaining = LOGIN_GUARD.remaining_attempts(key)
-        raise HTTPException(
-            401,
-            f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
-        )
-    LOGIN_GUARD.register_success(key)
-    session_label = str(label or "").strip()[:120]
-    token = SESSION_STORE.create(label=session_label, kind=session_kind)
-    payload = _auth_status_payload(request)
-    payload.update({"authenticated": True, "username": auth_account().get("username", "")})
-    log("Anmeldung erfolgreich.")
-    return token, payload, session_label
-
-
-@app.post("/api/auth/login")
-async def api_auth_login(body: LoginBody, request: Request):
-    token, payload, _label = await _create_login_session(
-        body.username,
-        body.password,
-        request,
-        request.headers.get("user-agent", ""),
-        appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse(payload)
-    _set_session_cookie(response, request, token)
-    return response
-
-
-@app.post("/api/v1/auth/login")
-async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):
-    requested_label = (
-        body.device_label
-        or body.device_name
-        or request.headers.get("user-agent", "")
-        or "API client"
-    )
-    token, payload, session_label = await _create_login_session(
-        body.username,
-        body.password,
-        request,
-        requested_label,
-        appauth.SESSION_KIND_MOBILE,
-    )
-    payload.update({
-        "api_version": API_VERSION,
-        "auth_method": "bearer",
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "idle_timeout_seconds": appauth.DEFAULT_SESSION_IDLE_SECONDS,
-        "device_label": session_label,
-    })
-    return JSONResponse(
-        payload,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
-@app.post("/api/auth/logout")
-async def api_auth_logout(request: Request):
-    SESSION_STORE.revoke(
-        _session_token(request.cookies), kind=appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse({"ok": True})
-    response.delete_cookie(appauth.SESSION_COOKIE_NAME, path="/")
-    return response
-
-
-@app.post("/api/v1/auth/logout")
-async def api_v1_auth_logout(request: Request):
-    token = _bearer_token(request.headers)
-    revoked = int(bool(
-        token and SESSION_STORE.revoke(token, kind=appauth.SESSION_KIND_MOBILE)
-    ))
-    response = JSONResponse({"ok": True, "revoked": revoked})
-    return response
-
-
-@app.get("/api/v1/auth/config")
-@app.get("/api/auth/config")
-async def api_auth_config_get(request: Request):
-    account = auth_account()
-    session_kind = (
-        appauth.SESSION_KIND_MOBILE
-        if request.url.path.startswith("/api/v1/")
-        else appauth.SESSION_KIND_WEB
-    )
-    return {
-        "configured": bool(account.get("configured")),
-        "username": account.get("username", ""),
-        "source": account.get("source", "none"),
-        "active_sessions": SESSION_STORE.count(session_kind),
-        "min_password_length": appauth.MIN_PASSWORD_LENGTH,
-        "min_username_length": appauth.MIN_USERNAME_LENGTH,
-    }
-
-
-@app.post("/api/auth/config")
-async def api_auth_config_set(body: AuthConfigBody, request: Request):
-    account = auth_account()
-    configured = bool(account.get("configured"))
-    # Ist bereits ein Konto vorhanden, muss das aktuelle Passwort bestätigt
-    # werden – sonst könnte eine gekaperte Sitzung das Konto stillschweigend
-    # übernehmen. Ohne Konto (Bestandsinstallation) ist das die Ersteinrichtung.
-    if configured:
-        confirmed = await run_in_threadpool(
-            verify_credentials, account.get("username", ""), body.current_password or "",
-        )
-        if not confirmed:
-            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
-    try:
-        username = appauth.validate_username(body.username)
-        password = appauth.validate_password(body.password)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    password_hash = await run_in_threadpool(appauth.hash_password, password)
-    # Alle bestehenden Sitzungen verlieren ihre Gültigkeit; das aufrufende
-    # Gerät bekommt nach erfolgreicher Kontospeicherung sofort eine neue. Der
-    # Widerruf geschieht zuerst dauerhaft: So kann ein Fehler beim Schreiben
-    # der Sitzungsdatei nicht nach einem Neustart alte Tokens wiederbeleben.
-    SESSION_STORE.revoke_all()
-    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
-        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
-    token = SESSION_STORE.create(
-        label=request.headers.get("user-agent", "")[:120],
-        kind=appauth.SESSION_KIND_WEB,
-    )
-    response = JSONResponse({
-        "ok": True,
-        "configured": True,
-        "username": username,
-        "source": "settings",
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
-    })
-    _set_session_cookie(response, request, token)
-    log(f"Zugangsdaten aktualisiert (Benutzer „{username}“).")
-    return response
-
-
-@app.post("/api/v1/auth/config")
-async def api_v1_auth_config_set(body: AuthConfigBody, request: Request):
-    account = auth_account()
-    if bool(account.get("configured")):
-        confirmed = await run_in_threadpool(
-            verify_credentials, account.get("username", ""), body.current_password or "",
-        )
-        if not confirmed:
-            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
-    try:
-        username = appauth.validate_username(body.username)
-        password = appauth.validate_password(body.password)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    password_hash = await run_in_threadpool(appauth.hash_password, password)
-    SESSION_STORE.revoke_all()
-    if not await run_in_threadpool(appconfig.save_auth, username, password_hash):
-        raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
-    session_label = (request.headers.get("user-agent", "") or "Android")[:120]
-    token = SESSION_STORE.create(
-        label=session_label,
-        kind=appauth.SESSION_KIND_MOBILE,
-    )
-    log(f"Zugangsdaten über die Android-App aktualisiert (Benutzer „{username}“).")
-    return {
-        "ok": True,
-        "configured": True,
-        "username": username,
-        "source": "settings",
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": appauth.DEFAULT_SESSION_TTL_SECONDS,
-        "device_label": session_label,
-    }
-
-
-@app.post("/api/auth/sessions/revoke")
-async def api_auth_sessions_revoke(request: Request):
-    removed = SESSION_STORE.revoke_all(
-        keep_token=authenticated_web_token(request.cookies),
-        kind=appauth.SESSION_KIND_WEB,
-    )
-    log(f"{removed} andere Sitzung(en) beendet.")
-    return {
-        "ok": True,
-        "revoked": removed,
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_WEB),
-    }
-
-
-@app.post("/api/v1/auth/sessions/revoke")
-async def api_v1_auth_sessions_revoke(request: Request):
-    keep_token = authenticated_mobile_token(request.headers)
-    removed = SESSION_STORE.revoke_all(
-        keep_token=keep_token, kind=appauth.SESSION_KIND_MOBILE,
-    )
-    log(f"{removed} andere Sitzung(en) beendet.")
-    return {
-        "ok": True,
-        "revoked": removed,
-        "active_sessions": SESSION_STORE.count(appauth.SESSION_KIND_MOBILE),
-        "current_session_preserved": bool(keep_token),
-    }
+app.include_router(create_auth_router(AuthDependencies(
+    api_version=API_VERSION,
+    appauth=appauth,
+    appconfig=appconfig,
+    login_guard=lambda: LOGIN_GUARD,
+    session_store=lambda: SESSION_STORE,
+    client_key=lambda request: client_key(request),
+    auth_account=lambda: auth_account(),
+    auth_required=lambda: auth_required(),
+    auth_configured=lambda: auth_configured(),
+    setup_required=lambda: setup_required(),
+    request_is_authenticated=lambda *args, **kwargs: request_is_authenticated(
+        *args, **kwargs,
+    ),
+    request_auth_method=lambda *args, **kwargs: request_auth_method(
+        *args, **kwargs,
+    ),
+    verify_credentials=lambda username, password: verify_credentials(
+        username, password,
+    ),
+    authenticated_web_token=lambda cookies: authenticated_web_token(cookies),
+    authenticated_mobile_token=lambda *args, **kwargs: authenticated_mobile_token(
+        *args, **kwargs,
+    ),
+    bearer_token=lambda headers: _bearer_token(headers),
+    session_token=lambda cookies: _session_token(cookies),
+    request_is_secure=lambda request: _request_is_secure(request),
+    log=lambda *args, **kwargs: log(*args, **kwargs),
+)))
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────

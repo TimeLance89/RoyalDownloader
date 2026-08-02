@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: Security baseline
-        run: bandit -q -ll -r api_security.py auth.py network_guard.py runtime_cache.py self_updater.py ytdlp_updater.py
+        run: bandit -q -ll -r api_auth_router.py api_security.py auth.py network_guard.py runtime_cache.py self_updater.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
