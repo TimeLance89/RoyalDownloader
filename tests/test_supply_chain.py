@@ -52,6 +52,7 @@ def test_legacy_updater_dependency_sentinel_stays_compatible():
 def test_update_and_native_start_install_from_lock():
     assert "requirements.lock" in _content("self_updater.py")
     assert '"app_version.py"' in _content("self_updater.py")
+    assert '"update_channels.py"' in _content("self_updater.py")
     assert '"application_services/runtime.py"' in _content("self_updater.py")
     assert "self_updater, server" in _content("self_updater.py")
     assert "-r requirements.lock" in _content("start.sh")

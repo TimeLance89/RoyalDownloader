@@ -9,9 +9,6 @@ on:
     paths:
       - app_version.py
   workflow_dispatch:
-  issues:
-    types:
-      - opened
 
 permissions:
   contents: read
@@ -22,10 +19,6 @@ concurrency:
 
 jobs:
   quality:
-    if: >-
-      github.event_name != 'issues' ||
-      (github.actor == github.repository_owner &&
-      startsWith(github.event.issue.title, 'Release request: v'))
     uses: ./.github/workflows/quality.yml
     permissions:
       contents: read
@@ -42,20 +35,17 @@ jobs:
           fetch-depth: 0
 
       - name: Resolve and validate release tag
-        env:
-          RELEASE_REQUEST_TITLE: ${{ github.event.issue.title }}
         run: |
           version="$(python -c 'from app_version import APP_VERSION; print(APP_VERSION)')"
           tag_name="v${version}"
+          git fetch --no-tags origin main
 
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             test "${tag_name}" = "${GITHUB_REF_NAME}"
             test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+            git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
           else
             test "${GITHUB_REF}" = "refs/heads/main"
-            if [ "${GITHUB_EVENT_NAME}" = "issues" ]; then
-              test "${RELEASE_REQUEST_TITLE}" = "Release request: ${tag_name}"
-            fi
             test -z "$(git tag --list "${tag_name}")"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

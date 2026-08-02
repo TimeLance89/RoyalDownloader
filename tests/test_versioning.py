@@ -41,9 +41,24 @@ def test_frontend_renders_api_version_separately_from_build_revision():
 
 def test_updater_status_adds_version_without_replacing_revision_fields(monkeypatch):
     class Checker:
+        branch = "main"
+
+        @classmethod
+        def set_branch(cls, branch):
+            cls.branch = branch
+
         @staticmethod
         def check(_force):
-            return {"current_sha": "a" * 40, "latest_sha": "b" * 40}
+            return {
+                "branch": Checker.branch,
+                "current_sha": "a" * 40,
+                "latest_sha": "b" * 40,
+            }
+
+        @classmethod
+        def check_branch(cls, branch, force=False):
+            cls.set_branch(branch)
+            return cls.check(force)
 
     class Installer:
         @staticmethod
@@ -88,8 +103,8 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
     assert 'tags:\n      - "v*"' in release
     assert 'paths:\n      - app_version.py' in release
     assert "workflow_dispatch:" in release
-    assert "github.actor == github.repository_owner" in release
-    assert "Release request: ${tag_name}" in release
+    assert 'git merge-base --is-ancestor "${GITHUB_SHA}" origin/main' in release
+    assert "issues:" not in release
     assert "uses: ./.github/workflows/quality.yml" in release
     assert "needs: quality" in release
     assert "Build container image" in quality

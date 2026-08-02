@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - overnight
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -53,7 +54,7 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 .
 
       - name: Security baseline
-        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py api_websocket_router.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
+        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py network_guard.py runtime_cache.py self_updater.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
@@ -63,7 +64,7 @@ jobs:
 
       - name: Run tests with critical-module coverage
         run: |
-          coverage run --source=application_services,app_state,auth,network_guard,runtime_cache,self_updater,websocket_manager,ytdlp_updater -m pytest -q
+          coverage run --source=application_services,app_state,auth,config,network_guard,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q
           coverage report --skip-covered
           coverage xml -o coverage.xml
 
@@ -104,6 +105,9 @@ jobs:
           python -c 'import json; assert json.load(open("health.json")) == {"status": "ok"}'
           curl --fail --silent http://127.0.0.1:18765/api/v1/capabilities > capabilities.json
           python -c 'import json,os; from app_version import APP_VERSION; p=json.load(open("capabilities.json")); assert p["application_version"] == APP_VERSION; assert p["build"] == os.environ["GITHUB_SHA"][:12]'
+          python -c 'import json; p=json.load(open("capabilities.json")); assert p["update_channels"] == {"stable": "main", "overnight": "overnight"}'
+          curl --fail --silent http://127.0.0.1:18765/api/v1/updater/config > updater-config.json
+          python -c 'import json; p=json.load(open("updater-config.json")); assert p["update_channel"] == "stable"; assert p["update_branch"] == "main"'
           test -d "${smoke_root}/data/FilmeDownloader"
           docker restart royal-quality-smoke
           for attempt in $(seq 1 30); do

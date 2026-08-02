@@ -70,6 +70,8 @@ and Jellyfin remains the source of truth for content already in the library.
   survive restarts, brute-force protection, and device sign-out.
 - **Multilingual web UI** with language selection during onboarding and in settings.
 - **In-app updater** plus queue-safe automatic updates for Royal Downloader and yt-dlp.
+- **Stable and Overnight channels** with persistent selection, explicit
+  development warnings, and guarded return-to-Stable branch changes.
 
 ## Recent improvements
 
@@ -159,6 +161,12 @@ the documented [upgrade path to `v1.0.0-rc.1`](docs/RELEASE.md#upgrade-from-cont
 Do not delete or replace `data/`; preserve `runtime/` until the upgraded
 container has passed its health check and the rollback decision is complete.
 
+The updater defaults to **Stable** (`main`). Advanced testers can opt into
+**Overnight** (`overnight`) under **Settings → Updates and maintenance**. The
+choice persists in `data/FilmeDownloader/settings.ini`; returning to Stable
+requires confirmation when it would activate an older or diverged commit. See
+the [update channel guide](docs/UPDATE_CHANNELS.md) before opting in.
+
 ## Architecture
 
 ```mermaid
@@ -171,7 +179,7 @@ flowchart LR
     Q --> MEDIA["Movie and series folders"]
     MEDIA --> JF
     SEERR["Seerr"] --> API
-    GH["GitHub main"] --> UPD["In-app updater"]
+    GH["GitHub main / overnight"] --> UPD["Stable / Overnight updater"]
     UPD --> API
 ```
 
@@ -199,6 +207,7 @@ passwords, API keys, cookies, private addresses, chat IDs, and media paths.
 | Consolidated feature and behavior changes | [CHANGELOG.md](CHANGELOG.md) |
 | Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
 | Release installation, upgrade, backup, verification, and rollback | [docs/RELEASE.md](docs/RELEASE.md) |
+| Stable/Overnight channels, safe switching, and promotion | [docs/UPDATE_CHANNELS.md](docs/UPDATE_CHANNELS.md) |
 | Native Android clients | The app source is maintained separately; use the documented API contract below. |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |

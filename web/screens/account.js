@@ -162,10 +162,17 @@ function shortRevision(value) {
 
 function applyUpdaterConfig(cfg) {
   const mode = cfg.update_mode === "automatic" ? "automatic" : "manual";
+  const channel = cfg.update_channel === "overnight" ? "overnight" : "stable";
   const interval = Math.max(1, Math.min(168, Number(cfg.auto_update_interval_hours) || 6));
+  const channelSelect = document.getElementById("updater-channel");
   const modeSelect = document.getElementById("updater-mode");
   const intervalInput = document.getElementById("updater-interval");
   const status = document.getElementById("updater-mode-status");
+  channelSelect.value = channel;
+  channelSelect.dataset.savedChannel = channel;
+  document.getElementById("updater-channel-hint").textContent = channel === "overnight"
+    ? "Overnight · früher Zugriff aus overnight; kann instabil sein."
+    : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
   modeSelect.value = mode;
   intervalInput.value = String(interval);
   intervalInput.disabled = mode !== "automatic";
@@ -200,13 +207,23 @@ function applyUpdaterStatus(data) {
   const badge = document.getElementById("updater-badge");
   const repository = document.getElementById("updater-repository");
   const installButton = document.getElementById("updater-install");
+  const channel = data.update_channel === "overnight" ? "overnight" : "stable";
+  const branch = data.update_branch || data.branch || (channel === "overnight" ? "overnight" : "main");
+  const channelLabel = channel === "overnight" ? "Overnight" : "Stable";
+  const switchWarning = document.getElementById("updater-switch-warning");
   if (data.config) applyUpdaterConfig(data.config);
   document.getElementById("updater-version").textContent =
     String(data.application_version || "unbekannt");
   document.getElementById("updater-current").textContent = shortRevision(data.current_sha);
   document.getElementById("updater-latest").textContent = shortRevision(data.latest_sha);
   installButton.dataset.sha = String(data.latest_sha || "");
-  document.getElementById("updater-branch-label").textContent = `GitHub · ${data.branch || "main"}`;
+  installButton.textContent = "Jetzt updaten";
+  installButton.dataset.confirmChannelSwitch = data.channel_switch_requires_confirmation ? "true" : "false";
+  document.getElementById("updater-branch-label").textContent = `${channelLabel} · ${branch}`;
+  switchWarning.classList.toggle("hidden", !data.possible_downgrade);
+  switchWarning.textContent = data.possible_downgrade
+    ? "Rückwechsel zu Stable erkannt: Der Zielstand kann älter sein. Vor der Installation ist eine ausdrückliche Bestätigung erforderlich; der vorhandene Backup- und Rollback-Ablauf bleibt aktiv."
+    : "";
   if (String(data.repository_url || "").startsWith("https://github.com/")) {
     repository.href = data.repository_url;
   }
@@ -227,14 +244,32 @@ function applyUpdaterStatus(data) {
     detail.textContent = data.error;
     return;
   }
+  if (channel === "overnight" && data.quality_approved === false) {
+    card.dataset.state = data.quality_gate === "failed" ? "error" : "unknown";
+    badge.textContent = data.quality_gate === "failed" ? "!" : "CI";
+    status.textContent = data.quality_gate === "failed"
+      ? "Overnight-Quality fehlgeschlagen"
+      : "Overnight wird noch geprüft";
+    detail.textContent = "Dieser Commit wird erst nach erfolgreichen vollständigen Quality Gates als Update angeboten.";
+    return;
+  }
+  if (data.possible_downgrade) {
+    card.dataset.state = "available";
+    badge.textContent = "↘";
+    status.textContent = "Bestätigter Branchwechsel erforderlich";
+    detail.textContent = `Der Stable-Stand auf ${branch} liegt hinter dem installierten Build oder ist davon abgezweigt.`;
+    installButton.textContent = "Zu Stable wechseln";
+    installButton.classList.remove("hidden");
+    return;
+  }
   if (data.update_available === true) {
     const commits = Number(data.ahead_by || 0);
     card.dataset.state = "available";
     badge.textContent = "↑";
     status.textContent = "Update verfügbar";
     detail.textContent = commits
-      ? `${commits} ${commits === 1 ? "neuer Commit" : "neue Commits"} auf ${data.branch || "main"}`
-      : `Neuer Stand auf ${data.branch || "main"}`;
+      ? `${commits} ${commits === 1 ? "neuer Commit" : "neue Commits"} auf ${channelLabel} (${branch})`
+      : `Neuer Stand auf ${channelLabel} (${branch})`;
     installButton.classList.remove("hidden");
     if (installer.supported === false) {
       detail.textContent += ` · ${installer.reason || "Automatische Installation nicht möglich"}`;
@@ -330,9 +365,13 @@ async function installUpdate() {
   const button = document.getElementById("updater-install");
   const targetSha = button.dataset.sha || "";
   if (!targetSha) return;
+  const needsConfirmation = button.dataset.confirmChannelSwitch === "true";
+  if (needsConfirmation && !window.confirm(
+    "Zu Stable wechseln? Der Stable-Build kann älter sein. Einstellungen und Daten werden nicht gelöscht; vor der Aktivierung bleibt der vorhandene Rollback-Punkt erhalten.",
+  )) return;
   button.disabled = true;
   try {
-    const response = await api.updaterInstall(targetSha);
+    const response = await api.updaterInstall(targetSha, needsConfirmation);
     applyUpdaterInstallStatus(response.installer || {});
     scheduleUpdaterInstallPoll();
   } catch (error) {
@@ -477,11 +516,13 @@ async function saveAllSettings() {
     applyAutomationCfg(auto);
     applyUpdaterConfig(await api.updaterConfigSet({
       update_mode: document.getElementById("updater-mode").value,
+      update_channel: document.getElementById("updater-channel").value,
       auto_update_interval_hours: Math.max(
         1,
         Math.min(168, parseInt(document.getElementById("updater-interval").value, 10) || 6),
       ),
     }));
+    await checkForUpdates(true);
     const seerr = await api.seerrConfigSet({
       enabled: document.getElementById("seerr-enabled").checked,
       url: document.getElementById("seerr-url").value.trim(),

@@ -391,6 +391,19 @@ Authentifizierung wird beim Handshake und anschließend spätestens alle 30 Seku
 | `updater_install` | `{installer}` |
 | `updater_config` | `{config}` |
 
+Die Updater-Konfiguration enthält additiv `update_channel` und den daraus
+abgeleiteten `update_branch`. Erlaubt sind `stable` → `main` und `overnight` →
+`overnight`; fehlende Werte bedeuten rückwärtskompatibel Stable. Der
+Update-Status kennzeichnet einen erkannten Rückwechsel zu einem älteren oder
+divergierten Stable-Stand mit `possible_downgrade` und
+`channel_switch_requires_confirmation`. `POST /api/updater/install` akzeptiert
+dafür additiv `confirm_channel_switch`; ältere Clients bleiben für normale
+Updates unverändert funktionsfähig.
+
+Für Overnight kommen additiv `quality_gate` und `quality_approved` hinzu; ein
+Commit bleibt bei fehlender, laufender oder fehlgeschlagener Quality-Prüfung
+nicht installierbar.
+
 Die Events besitzen keine Event-ID, Sequenz oder Replay-Funktion. `progress` enthält keine Job-ID. Legacy-Clients müssen nach jedem Connect `GET /api/queue` und `GET /api/watchlist` nachladen.
 
 ## Additive API v1
@@ -405,6 +418,7 @@ v1 ersetzt keine Legacy-Route. Kernrouten sind zusätzliche Dekoratoren auf dens
 {
   "name": "Royal Downloader",
   "application_version": "1.0.0-rc.1",
+  "update_channels": {"stable": "main", "overnight": "overnight"},
   "api_version": 1,
   "supported_api_versions": [1],
   "minimum_api_version": 1,

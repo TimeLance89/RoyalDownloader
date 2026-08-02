@@ -241,7 +241,8 @@ All variables are optional and have operational defaults.
 |---|---|---|
 | `APP_COMMIT_SHA` | empty | Optional CI revision override; normal builds detect Git automatically |
 | `UPDATE_GITHUB_REPOSITORY` | `TimeLance89/RoyalDownloader` | Repository used by the updater |
-| `UPDATE_GITHUB_BRANCH` | `main` | Branch compared by the updater |
+| `UPDATE_CHANNEL` | `stable` | Initial channel (`stable` or `overnight`) when no UI value is stored |
+| `UPDATE_GITHUB_BRANCH` | `main` | Legacy initial-channel compatibility (`main` → Stable, `overnight` → Overnight); the saved UI channel takes precedence |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token with read-only repository contents access; prevents the low anonymous API limit |
 | `UPDATE_MODE` | `manual` | `manual` or `automatic`; a value saved in the UI takes precedence |
 | `AUTO_UPDATE_INTERVAL_HOURS` | `6` | Automatic application update interval, limited to 1–168 hours |
@@ -335,7 +336,11 @@ Docker images record their source revision before Git metadata is removed.
 Folder- or archive-based NAS deployments can also identify recent `main`
 revisions without a manual `APP_COMMIT_SHA`.
 
-Two modes are available under **Settings → Updates**:
+Two channels and two installation modes are available under **Settings → Updates**:
+
+- **Stable** (recommended) reads only `main`.
+- **Overnight** reads only `overnight`, exposes changes earlier, and may be
+  less stable. Selecting it requires acknowledging a warning.
 
 - **Manual:** show an install button when a new revision is available.
 - **Automatic:** check GitHub on the configured interval and install only when
@@ -344,6 +349,14 @@ Two modes are available under **Settings → Updates**:
 A busy queue defers the update and triggers a new check after queue completion.
 A local development revision that diverges from `main` is never overwritten
 automatically.
+
+The selected channel is stored in the mounted
+`data/FilmeDownloader/settings.ini` and survives container replacement and
+restart. When returning to Stable would activate an older or diverged commit,
+automatic installation pauses and the UI requires explicit confirmation. The
+normal staged update creates/retains the `runtime/previous` rollback point and
+does not delete configuration, queue state, or media. See
+[Stable and Overnight update channels](UPDATE_CHANNELS.md).
 
 The installer downloads the exact offered GitHub revision, verifies and extracts
 the archive, updates Python dependencies when required, writes the new build ID,

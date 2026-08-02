@@ -12,9 +12,15 @@ from urllib.parse import quote
 
 import requests
 
+from update_channels import (
+    DEFAULT_UPDATE_BRANCH,
+    UPDATE_CHANNEL_BRANCHES,
+    UPDATE_CHANNEL_OVERNIGHT,
+)
+
 
 DEFAULT_REPOSITORY = "TimeLance89/RoyalDownloader"
-DEFAULT_BRANCH = "main"
+DEFAULT_BRANCH = DEFAULT_UPDATE_BRANCH
 RECENT_COMMIT_SCAN_LIMIT = 5
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
@@ -100,7 +106,9 @@ def write_build_commit_marker(app_dir: Optional[Path] = None) -> str:
 
 def _git_blob_sha(content: bytes) -> str:
     header = f"blob {len(content)}\0".encode("ascii")
-    return hashlib.sha1(header + content).hexdigest()
+    # Git object identity is defined as SHA-1 for these repositories; this is
+    # compatibility hashing, not a password, signature, or security decision.
+    return hashlib.sha1(header + content, usedforsecurity=False).hexdigest()
 
 
 class UpdateChecker:
@@ -135,6 +143,16 @@ class UpdateChecker:
         self._lock = threading.Lock()
         self._inferred_commit = self._read_inferred_commit()
         self._inferred_verified = False
+
+    def set_branch(self, branch: str) -> str:
+        """Switch the checked branch and invalidate branch-specific cache."""
+        normalized = str(branch or "").strip() or DEFAULT_BRANCH
+        with self._lock:
+            if normalized != self.branch:
+                self.branch = normalized
+                self._cache = None
+                self._cache_time = 0.0
+        return self.branch
 
     def _inferred_marker_path(self) -> Optional[Path]:
         explicit = os.environ.get("UPDATE_INSTALLED_COMMIT_FILE", "").strip()
@@ -280,6 +298,25 @@ class UpdateChecker:
             raise RuntimeError("GitHub hat eine ungültige Commitliste geliefert")
         return [item for item in payload if isinstance(item, dict)]
 
+    def _quality_gate_state(self, commit: str) -> str:
+        if self.branch != UPDATE_CHANNEL_BRANCHES[UPDATE_CHANNEL_OVERNIGHT]:
+            return "not_required"
+        payload = self._get_json(
+            f"commits/{quote(commit, safe='')}/check-runs?per_page=100",
+        )
+        runs = [
+            item for item in payload.get("check_runs", [])
+            if isinstance(item, dict) and item.get("name") == "verify"
+        ]
+        if any(
+            item.get("status") == "completed" and item.get("conclusion") == "success"
+            for item in runs
+        ):
+            return "passed"
+        if any(item.get("status") != "completed" for item in runs):
+            return "pending"
+        return "failed" if runs else "missing"
+
     def _check_uncached(self) -> dict:
         current = detect_local_commit(self.app_dir)
         base = {
@@ -308,6 +345,12 @@ class UpdateChecker:
                 "latest_url": latest.get("html_url") or self.repository_url,
                 "latest_message": str(commit_data.get("message") or "").splitlines()[0],
             })
+            quality_gate = self._quality_gate_state(latest_sha)
+            quality_approved = quality_gate in {"not_required", "passed"}
+            base.update({
+                "quality_gate": quality_gate,
+                "quality_approved": quality_approved,
+            })
             if not current:
                 try:
                     current = self._infer_local_commit(latest_sha, latest)
@@ -328,7 +371,11 @@ class UpdateChecker:
             behind_by = max(0, int(comparison.get("behind_by") or 0))
             base.update({
                 "comparison": status,
-                "update_available": status in {"ahead", "diverged"} and ahead_by > 0,
+                "update_available": (
+                    quality_approved
+                    and status in {"ahead", "diverged"}
+                    and ahead_by > 0
+                ),
                 "ahead_by": ahead_by,
                 "behind_by": behind_by,
             })
@@ -339,14 +386,27 @@ class UpdateChecker:
 
     def check(self, force: bool = False) -> dict:
         with self._lock:
-            now = time.monotonic()
-            if (
-                not force
-                and self._cache is not None
-                and (now - self._cache_time) < self.cache_seconds
-            ):
-                return dict(self._cache)
-            result = self._check_uncached()
-            self._cache = dict(result)
-            self._cache_time = now
-            return result
+            return self._check_locked(force)
+
+    def check_branch(self, branch: str, force: bool = False) -> dict:
+        """Atomically select and check one branch for a consistent response."""
+        normalized = str(branch or "").strip() or DEFAULT_BRANCH
+        with self._lock:
+            if normalized != self.branch:
+                self.branch = normalized
+                self._cache = None
+                self._cache_time = 0.0
+            return self._check_locked(force)
+
+    def _check_locked(self, force: bool) -> dict:
+        now = time.monotonic()
+        if (
+            not force
+            and self._cache is not None
+            and (now - self._cache_time) < self.cache_seconds
+        ):
+            return dict(self._cache)
+        result = self._check_uncached()
+        self._cache = dict(result)
+        self._cache_time = now
+        return result

@@ -137,7 +137,12 @@ const api = {
   },
   updaterConfigGet() { return this.get("/api/updater/config"); },
   updaterConfigSet(cfg) { return this.post("/api/updater/config", cfg); },
-  updaterInstall(targetSha) { return this.post("/api/updater/install", { target_sha: targetSha }); },
+  updaterInstall(targetSha, confirmChannelSwitch = false) {
+    return this.post("/api/updater/install", {
+      target_sha: targetSha,
+      confirm_channel_switch: confirmChannelSwitch,
+    });
+  },
   updaterInstallStatus() { return this.get("/api/updater/install/status"); },
   browseDir(path) { return this.get("/api/browse-dir?" + new URLSearchParams({ path: path || "" })); },
 

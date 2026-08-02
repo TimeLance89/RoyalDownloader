@@ -299,6 +299,7 @@ from taste_profile import TasteProfileStore
 import config as appconfig
 import auth as appauth
 from app_version import APP_VERSION
+from update_channels import UPDATE_CHANNEL_BRANCHES
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -332,7 +333,7 @@ PUBLIC_TRANSLATE_WORK_LIMITER = appauth.RateLimiter(
 )
 UPDATE_CHECKER = UpdateChecker(
     repository=os.environ.get("UPDATE_GITHUB_REPOSITORY", "TimeLance89/RoyalDownloader"),
-    branch=os.environ.get("UPDATE_GITHUB_BRANCH", "main"),
+    branch=appconfig.load_updater()["update_branch"],
     app_dir=APP_DIR,
 )
 UI_TRANSLATOR = UITranslator()
@@ -561,6 +562,7 @@ def _capabilities_payload():
     return {
         "name": "Royal Downloader",
         "application_version": APP_VERSION,
+        "update_channels": dict(UPDATE_CHANNEL_BRANCHES),
         "api_version": API_VERSION,
         "supported_api_versions": [API_VERSION],
         "minimum_api_version": API_VERSION,

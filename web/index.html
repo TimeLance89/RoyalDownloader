@@ -1153,6 +1153,13 @@
             <span id="updater-badge" class="updater-badge" aria-hidden="true">GH</span>
           </div>
           <div class="updater-mode-grid">
+            <label for="updater-channel">
+              <span>Update-Kanal</span>
+              <select id="updater-channel">
+                <option value="stable">Stable (empfohlen)</option>
+                <option value="overnight">Overnight (Entwicklung)</option>
+              </select>
+            </label>
             <label for="updater-mode">
               <span>Installationsmodus</span>
               <select id="updater-mode">
@@ -1168,6 +1175,8 @@
               </span>
             </label>
           </div>
+          <div id="updater-channel-hint" class="dim updater-channel-hint">Stable · geprüfte und freigegebene Änderungen aus main.</div>
+          <div id="updater-switch-warning" class="updater-switch-warning hidden" role="alert"></div>
           <div id="updater-mode-status" class="dim updater-mode-status">Manuelle Installation</div>
           <div class="updater-track" aria-label="Installierter und neuester Build">
             <div class="updater-revision">
@@ -1743,7 +1752,7 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260731-3"></script>
+<script src="/api.js?v=royal-20260802-1"></script>
 <script src="/i18n.js"></script>
 <script src="/store.js?v=royal-20260801-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
@@ -1755,8 +1764,8 @@
 <script src="/screens/library.js?v=royal-20260802-1"></script>
 <script src="/screens/notifications.js?v=royal-20260802-1"></script>
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
-<script src="/screens/account.js?v=royal-20260802-1"></script>
+<script src="/screens/account.js?v=royal-20260802-2"></script>
 <script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260802-1"></script>
+<script src="/app.js?v=royal-20260802-2"></script>
 </body>
 </html>

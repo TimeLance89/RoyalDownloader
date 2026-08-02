@@ -51,14 +51,19 @@ python -m compileall -q providers application_services tests
 find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 node --test tests/frontend_smoke.test.mjs
 ruff check --select E9,F63,F7,F82 .
-bandit -q -ll -r application_services api_*.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
+bandit -q -ll -r application_services api_*.py app_state.py auth.py config.py media_paths.py network_guard.py runtime_cache.py self_updater.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
 pip-audit -r requirements.lock
 docker compose config --quiet
-coverage run --source=application_services,app_state,auth,network_guard,runtime_cache,self_updater,websocket_manager,ytdlp_updater -m pytest -q
+coverage run --source=application_services,app_state,auth,config,network_guard,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q
 coverage report --skip-covered
 ```
 
 ## Pull requests
+
+Normal development targets `overnight`. After its full CI gates and practical
+testing pass, promote it deliberately with a pull request from `overnight` to
+`main`. Never automate that merge. Version and changelog updates for official
+releases belong on `main`; release tags must point to commits contained there.
 
 - Keep each pull request focused on one topic.
 - Write a short imperative title.
