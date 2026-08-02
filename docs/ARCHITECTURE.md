@@ -23,6 +23,7 @@ publish structural events without waiting on a slow browser connection.
 | Auth and setup | `api_auth_router.py`, `api_setup_router.py` | sessions, first-run transaction |
 | Discovery | `api_discovery_router.py` | provider catalogs and metadata |
 | Queue | `api_queue_router.py` | claims, scheduler, download lifecycle |
+| Library | `api_library_router.py` | subscriptions, watchlist, cleanup |
 | Jellyfin | `api_jellyfin_router.py` | library snapshots and matching |
 | Integrations | `api_integrations_router.py` | Telegram, Seerr, TMDB |
 | Administration | `api_system_router.py` | health, diagnostics, updates |
@@ -47,6 +48,8 @@ add reverse imports from the router into `server.py`.
 The same transitional facade pattern is used by `api_queue_router.py`, whose
 service helpers remain re-exported by the composition root for Telegram, Seerr,
 watchlist, and compatibility tests.
+`api_library_router.py` owns the cover proxy, movie subscriptions, watchlist,
+and watched-media cleanup as one persistence and queue-coordination boundary.
 
 CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed

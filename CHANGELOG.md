@@ -21,6 +21,8 @@
   diagnostics and both API aliases.
 - Extracted taste-profile, queue lifecycle, preparation, removal, and download
   cancellation into the queue domain router without changing internal callers.
+- Extracted the cover proxy, film subscriptions, series watchlist, watched-state
+  reconciliation, and automatic library cleanup into a library domain router.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

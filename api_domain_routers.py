@@ -10,6 +10,7 @@ from fastapi import APIRouter, FastAPI
 DOMAIN_ROUTERS = {
     "discovery": APIRouter(tags=["discovery"]),
     "queue": APIRouter(tags=["queue"]),
+    "library": APIRouter(tags=["library"]),
     "jellyfin": APIRouter(tags=["jellyfin"]),
     "integrations": APIRouter(tags=["integrations"]),
     "administration": APIRouter(tags=["administration"]),
@@ -19,6 +20,10 @@ _PREFIXES = {
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
         "/api/taste", "/api/v1/taste", "/ws", "/api/v1/ws",
+    ),
+    "library": (
+        "/api/cover", "/api/v1/cover", "/api/movie-subscriptions",
+        "/api/v1/movie-subscriptions", "/api/watchlist", "/api/v1/watchlist",
     ),
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
