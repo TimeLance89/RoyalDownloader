@@ -15,6 +15,9 @@ locks. The composition root creates one `AppState`; routers and services receive
 that instance and must not create parallel state containers.
 Bounded per-client event delivery is owned by `websocket_manager.py`; producers
 publish structural events without waiting on a slow browser connection.
+The authenticated WebSocket handshake, origin validation, route aliases, and
+initial snapshot live in `api_websocket_router.py`; delivery and transport
+backpressure remain independent from HTTP authentication policy.
 
 ## Target modules
 
@@ -27,6 +30,7 @@ publish structural events without waiting on a slow browser connection.
 | Jellyfin settings | `api_administration_router.py` | library snapshots and matching |
 | Integration settings | `api_administration_router.py` | Telegram, Seerr, TMDB |
 | Administration | `api_administration_router.py`, `api_system_router.py` | config, health, diagnostics, updates |
+| Live updates | `api_websocket_router.py` | authentication, snapshots, bounded delivery |
 | HTTP security | `api_security.py` | public routes, origin checks, response headers |
 
 The administration, authentication, and setup routers plus the HTTP security
@@ -57,6 +61,13 @@ CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed
 by ordered feature overrides in `web/styles/`. Moving a rule between files must
 preserve that phase unless the cascade change is intentional and tested.
+
+`web/index.html` remains the declarative DOM shell: splitting it into fetched
+fragments would make application startup asynchronous and weaken the existing
+element-ID contract. Its behavior is guarded separately while executable code
+and cascade ownership stay in feature modules. Source-size checks prevent the
+composition root, browser bootstrap, screen scripts, and stylesheets from
+growing back into unbounded monoliths.
 
 ## Lock ownership and order
 

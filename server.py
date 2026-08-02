@@ -206,6 +206,11 @@ from api_administration_router import (
 from api_security import SecurityDependencies, install_authentication_middleware
 from app_state import AppState, _PreparationSlots
 from websocket_manager import WSManager, _WSClient
+from api_websocket_router import (
+    WebSocketDependencies,
+    create_websocket_router,
+    websocket_origin_allowed as _websocket_origin_allowed,
+)
 from media_paths import (
     prepare_media_directory,
     recover_misplaced_media,
@@ -8562,25 +8567,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(lifespan=lifespan)
-app.include_router(create_system_router(state.runtime_cache_diagnostics))
-install_authentication_middleware(
-    app,
-    SecurityDependencies(
-        setup_required=setup_required,
-        request_is_authenticated=request_is_authenticated,
-        authenticated_mobile_token=authenticated_mobile_token,
-        bearer_token=_bearer_token,
-        session_token=_session_token,
-        client_key=client_key,
-        request_is_secure=lambda request: _request_is_secure(request),
-        public_translate_limiter=PUBLIC_TRANSLATE_LIMITER,
-    ),
-)
-
-
-@app.get("/api/v1/capabilities")
-async def api_v1_capabilities():
+def _capabilities_payload():
     """Stabiler, öffentlicher Kompatibilitäts-Handshake für native Clients."""
     return {
         "name": "Royal Downloader",
@@ -8620,6 +8607,25 @@ async def api_v1_capabilities():
             "authentication": ["bearer"],
         },
     }
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(
+    create_system_router(state.runtime_cache_diagnostics, _capabilities_payload),
+)
+install_authentication_middleware(
+    app,
+    SecurityDependencies(
+        setup_required=setup_required,
+        request_is_authenticated=request_is_authenticated,
+        authenticated_mobile_token=authenticated_mobile_token,
+        bearer_token=_bearer_token,
+        session_token=_session_token,
+        client_key=client_key,
+        request_is_secure=lambda request: _request_is_secure(request),
+        public_translate_limiter=PUBLIC_TRANSLATE_LIMITER,
+    ),
+)
 
 
 @app.exception_handler(Exception)
@@ -8717,120 +8723,28 @@ register_domain_router("library", library_router)
 app.router.routes.extend(library_router.routes)
 
 
-# ── WebSocket (Log / Fortschritt / Queue-Events) ────────────────────────────
-def websocket_snapshot_payload() -> dict:
-    """Konsistenter Startzustand für neue v1-WebSocket-Verbindungen."""
-    with state.download_state_lock:
-        download = {
-            "done_jobs": state.done_jobs,
-            "total_jobs": state.total_jobs,
-            "successful_jobs": len(state.done_slugs),
-            "failed_jobs": max(0, state.done_jobs - len(state.done_slugs)),
-            "active": state.dl_queue.active_count(),
-            "pending": state.dl_queue.pending_count(),
-        }
-    return {
-        "type": "snapshot",
-        "api_version": API_VERSION,
-        "event_schema_version": EVENT_SCHEMA_VERSION,
-        "timestamp": time.time(),
-        "queue": build_queue_payload(),
-        "watchlist": watchlist_payload()["watchlist"],
-        "download": download,
-    }
-
-
-def _websocket_origin_allowed(websocket: WebSocket) -> bool:
-    """Cookie-WebSockets akzeptieren nur den Ursprung der eigenen Oberfläche."""
-    origin = websocket.headers.get("origin", "")
-    if not origin:
-        # Native Clients und nicht-browserbasierte Werkzeuge senden keinen
-        # Origin-Header. Sie benötigen ohnehin ein explizites Bearer-Token.
-        return True
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    forwarded = (
-        websocket.headers.get("x-forwarded-proto", "")
-        .split(",")[0]
-        .strip()
-        .casefold()
-    )
-    if forwarded in {"https", "wss"}:
-        effective_scheme = "https"
-    elif forwarded in {"http", "ws"}:
-        effective_scheme = "http"
-    else:
-        effective_scheme = (
-            "https" if websocket.url.scheme.casefold() in {"https", "wss"} else "http"
-        )
-    return bool(parsed.netloc) and (
-        parsed.netloc.casefold() == websocket.headers.get("host", "").casefold()
-        and parsed.scheme.casefold() == effective_scheme
-    )
-
-
-def _websocket_is_authenticated(
-    websocket: WebSocket,
-    *,
-    versioned: bool,
-    touch: bool,
-) -> bool:
-    if not auth_required():
-        return True
-    if authenticated_mobile_token(websocket.headers, touch=touch):
-        return True
-    if versioned:
-        return False
-    return bool(
-        _websocket_origin_allowed(websocket)
-        and authenticated_web_token(websocket.cookies, touch=touch)
-    )
-
-
-@app.websocket("/api/v1/ws")
-@app.websocket("/ws")
-async def ws_endpoint(websocket: WebSocket):
-    # JavaScript kann beim WebSocket-Handshake keinen Authorization-Header
-    # setzen, und Browser hängen gespeicherte Basic-Zugangsdaten dort nicht an.
-    # Das Sitzungscookie wird dagegen mitgeschickt – erst damit funktionieren
-    # Live-Log, Fortschritt und Queue-Updates bei aktivierter Anmeldung. Native
-    # Clients dürfen dasselbe Sitzungsformat als Bearer-Header senden.
-    is_v1 = websocket.scope.get("path") == "/api/v1/ws"
-    if not _websocket_is_authenticated(
-        websocket, versioned=is_v1, touch=True,
-    ):
-        await websocket.close(code=1008, reason="Anmeldung erforderlich")
-        return
-    await ws_manager.connect(
-        websocket,
-        initial_payload_factory=websocket_snapshot_payload if is_v1 else None,
-    )
-    loop = asyncio.get_running_loop()
-    recheck_interval = max(0.01, float(WEBSOCKET_AUTH_RECHECK_SECONDS))
-    next_auth_check = loop.time() + recheck_interval
-    try:
-        while True:
-            try:
-                await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=max(0.0, next_auth_check - loop.time()),
-                )
-            except asyncio.TimeoutError:
-                pass
-            now = loop.time()
-            if now >= next_auth_check:
-                if not _websocket_is_authenticated(
-                    websocket, versioned=is_v1, touch=False,
-                ):
-                    await websocket.close(code=1008, reason="Sitzung abgelaufen")
-                    break
-                next_auth_check = now + recheck_interval
-    except WebSocketDisconnect:
-        pass
-    finally:
-        ws_manager.disconnect(websocket)
+(
+    websocket_router,
+    websocket_snapshot_payload,
+    _websocket_is_authenticated,
+) = create_websocket_router(WebSocketDependencies(
+    api_version=API_VERSION,
+    event_schema_version=EVENT_SCHEMA_VERSION,
+    auth_recheck_seconds=WEBSOCKET_AUTH_RECHECK_SECONDS,
+    state=state,
+    manager=ws_manager,
+    build_queue_payload=lambda: build_queue_payload(),
+    watchlist_payload=lambda: watchlist_payload(),
+    auth_required=lambda: auth_required(),
+    authenticated_mobile_token=lambda *args, **kwargs: authenticated_mobile_token(
+        *args, **kwargs,
+    ),
+    authenticated_web_token=lambda *args, **kwargs: authenticated_web_token(
+        *args, **kwargs,
+    ),
+))
+register_domain_router("live_updates", websocket_router)
+app.router.routes.extend(websocket_router.routes)
 
 
 # Statische Web-Oberfläche (muss NACH allen /api- und /ws-Routen gemountet

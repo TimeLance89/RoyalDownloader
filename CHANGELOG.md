@@ -16,6 +16,8 @@
   from `server.py` into a dedicated `app_state.py` component.
 - Extracted bounded WebSocket delivery and added ordering and slow-client
   regression tests.
+- Extracted the authenticated WebSocket handshake, origin checks, aliases, and
+  initial snapshot from the composition root without changing client contracts.
 - Moved movie, series, anime, TMDB metadata, and targeted Jellyfin discovery
   endpoints into their production domain router while preserving flat route
   diagnostics and both API aliases.
@@ -27,6 +29,8 @@
   automation, Telegram, and Seerr configuration into an administration router.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
+- Added enforceable module-size boundaries and prevented HTTP endpoints from
+  drifting back into the `server.py` composition root.
 
 ## 2026-08-01 – Legacy updater migration fix
 

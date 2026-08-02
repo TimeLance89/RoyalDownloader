@@ -12,13 +12,15 @@ DOMAIN_ROUTERS = {
     "queue": APIRouter(tags=["queue"]),
     "library": APIRouter(tags=["library"]),
     "administration": APIRouter(tags=["administration"]),
+    "live_updates": APIRouter(tags=["live-updates"]),
 }
 
 _PREFIXES = {
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
-        "/api/taste", "/api/v1/taste", "/ws", "/api/v1/ws",
+        "/api/taste", "/api/v1/taste",
     ),
+    "live_updates": ("/ws", "/api/v1/ws"),
     "library": (
         "/api/cover", "/api/v1/cover", "/api/movie-subscriptions",
         "/api/v1/movie-subscriptions", "/api/watchlist", "/api/v1/watchlist",
