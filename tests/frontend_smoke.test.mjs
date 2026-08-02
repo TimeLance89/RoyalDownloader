@@ -3,10 +3,25 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
-const app = readFileSync(new URL("../web/app.js", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
+const appModulePaths = [
+  "core.js",
+  "screens/home.js",
+  "screens/movies.js",
+  "screens/series.js",
+  "screens/anime.js",
+  "screens/library.js",
+  "screens/notifications.js",
+  "screens/settings.js",
+  "screens/account.js",
+  "screens/setup.js",
+  "app.js",
+];
+const app = appModulePaths
+  .map((path) => readFileSync(new URL(`../web/${path}`, import.meta.url), "utf8"))
+  .join("\n");
 const frontend = `${login}\n${app}`;
 
 function requiresIds(...ids) {
@@ -43,7 +58,15 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260801-2/);
+  assert.match(html, /app\.js\?v=royal-20260802-1/);
+});
+
+test("feature modules load in dependency order before bootstrap", () => {
+  const sources = [...html.matchAll(/<script src="\/([^"?]+)/g)]
+    .map((match) => match[1]);
+  const positions = appModulePaths.map((path) => sources.indexOf(path));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
 });
 
 test("the document has unique IDs and CI checks nested JavaScript", () => {

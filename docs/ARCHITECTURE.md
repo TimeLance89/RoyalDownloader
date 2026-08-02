@@ -28,8 +28,11 @@ and the atomic setup transaction remain in the composition root and are
 injected into their HTTP modules. Persistent media-path validation lives in
 `media_paths.py`. These modules therefore own their policy without importing
 server globals. Frontend API transport, mutable store, and design tokens now
-live in `api.js`, `store.js`, and `style-tokens.css`; subsequent screen modules
-may depend on those files but not on one another.
+live in `api.js`, `store.js`, and `style-tokens.css`. Shared navigation, live
+updates, and queue UI live in `core.js`; individual feature areas live below
+`web/screens/`, and `app.js` only performs final event binding and startup.
+Screen modules may depend on core and earlier domain modules but do not perform
+startup themselves.
 
 ## Lock ownership and order
 

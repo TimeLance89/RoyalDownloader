@@ -8,6 +8,8 @@
   tested router while retaining all legacy and `/api/v1` contracts.
 - Extracted the first-run setup routes and persistent media-path validation,
   including recovery of completed files from unsafe container locations.
+- Split the monolithic browser application into ordered core, feature-screen,
+  account, setup, and bootstrap modules with a load-order regression check.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 
