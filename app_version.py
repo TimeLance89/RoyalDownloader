@@ -2,4 +2,4 @@
 
 __all__ = ("APP_VERSION",)
 
-APP_VERSION = "1.0.0-rc.1"
+APP_VERSION = "1.0.0-rc.2"

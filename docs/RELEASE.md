@@ -5,7 +5,7 @@
 
 ## Release status
 
-The current official release is **`v1.0.0-rc.1`**. It is a release candidate,
+The current official release is **`v1.0.0-rc.2`**. It is a release candidate,
 not the final `v1.0.0`. It preserves the existing HTTP, `/api/v1`, WebSocket,
 Docker, update, and persistent-data contracts, but should still be validated on
 the target NAS before unattended operation.
@@ -29,7 +29,7 @@ chat IDs, media paths, or unsanitized logs in GitHub issues.
 ## Fresh Docker installation
 
 ```bash
-git clone --branch v1.0.0-rc.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -65,7 +65,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.0.0-rc.1` and reports the source revision separately
+`application_version` as `1.0.0-rc.2` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -99,13 +99,13 @@ snapshot policy. Do not copy Seerr SQLite files while Seerr is running.
 ## Upgrade from continuous `main`
 
 This path moves an existing checkout that previously followed `main` to the
-first versioned release candidate without changing persistent formats:
+current versioned release candidate without changing persistent formats:
 
 ```bash
 docker compose down
 git fetch --tags origin
 git status --short
-git switch --detach v1.0.0-rc.1
+git switch --detach v1.0.0-rc.2
 APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 curl --fail http://127.0.0.1:8765/api/health
 ```
@@ -157,3 +157,15 @@ queue recovery, and both media mounts after rollback.
 Channel changes use the same staged runtime and rollback point. Returning from
 Overnight to Stable is blocked behind an explicit confirmation when `main` is
 older or diverged; persistent data is not removed or migrated by that switch.
+
+## Protected release path
+
+`main` and `overnight` are protected against direct changes, force-pushes, and
+deletion. Pull requests must be current, resolve review conversations, and pass
+the `verify` Quality check. The restrictions also apply to administrators.
+
+The release workflow runs the complete Quality workflow before creating an
+annotated tag. Only the tag-triggered run creates the GitHub Release. Tags with
+a semantic pre-release suffix, for example `v1.0.0-rc.2`, are marked as
+pre-releases. A future stable tag such as `v1.0.0` is not marked as a
+pre-release merely because it uses the same workflow.
