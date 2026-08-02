@@ -298,6 +298,7 @@ from movie_subscription_policy import (
 from taste_profile import TasteProfileStore
 import config as appconfig
 import auth as appauth
+from app_version import APP_VERSION
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -559,6 +560,7 @@ def _capabilities_payload():
     """Stabiler, öffentlicher Kompatibilitäts-Handshake für native Clients."""
     return {
         "name": "Royal Downloader",
+        "application_version": APP_VERSION,
         "api_version": API_VERSION,
         "supported_api_versions": [API_VERSION],
         "minimum_api_version": API_VERSION,

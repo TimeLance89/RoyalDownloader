@@ -1,0 +1,47 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+    permissions:
+      contents: read
+
+  publish:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out annotated tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require an annotated tag
+        run: |
+          test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+          version="$(python -c 'from app_version import APP_VERSION; print(APP_VERSION)')"
+          test "v${version}" = "${GITHUB_REF_NAME}"
+
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --prerelease \
+            --title "RoyalDownloader ${GITHUB_REF_NAME}" \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
+            --generate-notes

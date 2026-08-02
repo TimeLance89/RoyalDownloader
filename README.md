@@ -26,6 +26,13 @@ checked against Jellyfin, and written directly to mounted media folders.
 > store content for which you have the required rights. You are responsible for
 > complying with applicable laws, copyright rules, and provider terms.
 
+> [!WARNING]
+> **Current release: `v1.0.0-rc.1` (Release Candidate).** This is the first
+> officially versioned build and may still expose issues before the final
+> `v1.0.0`. Back up persistent data before upgrading. See the
+> [release operations guide](docs/RELEASE.md) for installation, upgrade,
+> backup, verification, and rollback steps.
+
 ## Why Royal Downloader?
 
 Most self-hosted media workflows depend on several disconnected tools. Royal
@@ -122,7 +129,7 @@ Requirements:
 - Write access to the Jellyfin movie and series directories
 
 ```bash
-git clone https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```
@@ -132,6 +139,7 @@ Set at least `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` in `.env`, then start:
 ```bash
 docker compose up -d --build
 docker compose logs -f seriendownloader
+curl --fail http://127.0.0.1:8765/api/health
 ```
 
 Open `http://<NAS-IP>:8765`. The first-run wizard configures the interface
@@ -145,6 +153,11 @@ automation, Telegram, and the administrator account used to sign in.
 
 See the complete [Docker and NAS guide](docs/DOCKER.md) for volume, Seerr, DNS,
 update, and migration details.
+
+Existing installations that previously followed continuous `main` should use
+the documented [upgrade path to `v1.0.0-rc.1`](docs/RELEASE.md#upgrade-from-continuous-main).
+Do not delete or replace `data/`; preserve `runtime/` until the upgraded
+container has passed its health check and the rollback decision is complete.
 
 ## Architecture
 
@@ -176,12 +189,16 @@ environment, runs compile/import smoke tests, and atomically switches the
 source and dependency set for rollback. It preserves `data`, `.env`, media
 folders, and persistent settings.
 
+Keep `.env`, `data/`, and private logs out of GitHub issues. They may contain
+passwords, API keys, cookies, private addresses, chat IDs, and media paths.
+
 ## Documentation
 
 | Topic | Document |
 |---|---|
 | Consolidated feature and behavior changes | [CHANGELOG.md](CHANGELOG.md) |
 | Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
+| Release installation, upgrade, backup, verification, and rollback | [docs/RELEASE.md](docs/RELEASE.md) |
 | Native Android clients | The app source is maintained separately; use the documented API contract below. |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |

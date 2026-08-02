@@ -2,7 +2,12 @@
 
 [← Project overview](../README.md) ·
 [Jellyfin recommendations](JELLYFIN_RECOMMENDER.md) ·
+[Release operations](RELEASE.md) ·
 [Repository migration](REPOSITORY_RENAME.md)
+
+> [!WARNING]
+> The current official build is **`v1.0.0-rc.1`**, a release candidate. Pin
+> fresh installations to that tag and back up persistent state before upgrading.
 
 ## Contents
 
@@ -16,6 +21,7 @@
 - [Interface language](#interface-language)
 - [Provider catalog](#provider-catalog)
 - [Updates](#updates)
+- [Release installation and recovery](#release-installation-and-recovery)
 - [Telegram requests](#telegram-requests)
 
 ## Moonfin and Seerr (Fire TV)
@@ -120,8 +126,11 @@ Docker Compose creates a self-contained image with dependencies installed during
 the image build:
 
 ```bash
+git clone --branch v1.0.0-rc.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+cd RoyalDownloader
 cp .env.example .env
 docker compose up -d --build
+curl --fail http://127.0.0.1:8765/api/health
 ```
 
 Open `http://<NAS-IP>:8765`.
@@ -181,6 +190,11 @@ otherwise they can forge the source address used by login rate limiting.
 
 Deployment A stores data directly in the mounted project directory. Deployment B
 uses bind mounts defined in `docker-compose.yml`.
+
+Do not place `/movies` or `/serien` inside the container's writable layer. Both
+must be explicit persistent mounts. Keep `data/` and `runtime/` mounted as shown
+above so queue state, configuration, active releases, and rollback state survive
+container replacement.
 
 ## Environment variables
 
@@ -350,6 +364,22 @@ active application directory is not persistent.
 
 yt-dlp has a separate queue-safe update loop. It checks the stable channel on
 its own interval and never replaces the executable during an active download.
+
+## Release installation and recovery
+
+The authoritative procedure for `v1.0.0-rc.1` is the
+[release operations guide](RELEASE.md). It covers:
+
+- prerequisites and a fresh version-pinned Compose installation;
+- the `.env`, directory, ownership, and movie/series mount requirements;
+- backup of `.env`, `data/`, and `runtime/` before an update;
+- migration from continuous `main` to the release tag;
+- `/api/health`, capabilities, restart, and persistent-data verification;
+- source rollback and the existing atomic runtime rollback mechanism.
+
+Never attach `.env`, `settings.ini`, database files, cookies, tokens, or
+unsanitized logs to a public GitHub issue. External providers may change their
+domains, pages, or protection mechanisms independently of Royal Downloader.
 
 ## Telegram requests
 

@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 import auth as appauth
 import config as appconfig
 from api_setup_router import SetupCompleteBody
+from app_version import APP_VERSION
 from jellyfin_client import JellyfinClient
 from media_paths import prepare_media_directory, recover_misplaced_media
 from providers.catalog import (
@@ -145,6 +146,7 @@ def create_administration_router(backend) -> APIRouter:
 @router.get("/api/updater/status")
 async def api_updater_status(force: bool = False):
     payload = await run_in_threadpool(UPDATE_CHECKER.check, force)
+    payload["application_version"] = APP_VERSION
     payload["installer"] = UPDATE_INSTALLER.status()
     payload["config"] = _updater_config_payload()
     return payload

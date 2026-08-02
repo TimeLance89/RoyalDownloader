@@ -201,6 +201,8 @@ function applyUpdaterStatus(data) {
   const repository = document.getElementById("updater-repository");
   const installButton = document.getElementById("updater-install");
   if (data.config) applyUpdaterConfig(data.config);
+  document.getElementById("updater-version").textContent =
+    String(data.application_version || "unbekannt");
   document.getElementById("updater-current").textContent = shortRevision(data.current_sha);
   document.getElementById("updater-latest").textContent = shortRevision(data.latest_sha);
   installButton.dataset.sha = String(data.latest_sha || "");
