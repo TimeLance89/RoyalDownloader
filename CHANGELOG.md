@@ -12,6 +12,8 @@
   account, setup, and bootstrap modules with a load-order regression check.
 - Replaced the monolithic stylesheet with an ordered manifest of focused base,
   legacy-layer, screen, and media override stylesheets.
+- Moved process state, cache ownership, provider singletons, and lock ownership
+  from `server.py` into a dedicated `app_state.py` component.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

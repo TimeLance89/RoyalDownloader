@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: Security baseline
-        run: bandit -q -ll -r api_auth_router.py api_security.py api_setup_router.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py ytdlp_updater.py
+        run: bandit -q -ll -r api_auth_router.py api_security.py api_setup_router.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
@@ -68,7 +68,7 @@ jobs:
 
       - name: Run tests with critical-module coverage
         run: |
-          coverage run --source=auth,network_guard,runtime_cache,self_updater,ytdlp_updater -m pytest -q
+          coverage run --source=app_state,auth,network_guard,runtime_cache,self_updater,ytdlp_updater -m pytest -q
           coverage report --skip-covered
           coverage xml -o coverage.xml
 

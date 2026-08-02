@@ -10,6 +10,10 @@ Routers validate and translate HTTP only. Services own runtime state and
 locking. Provider and persistence modules do blocking I/O and never import a
 router. `server.py` remains the composition root during migration.
 
+`app_state.py` is the single owner of mutable process state and its associated
+locks. The composition root creates one `AppState`; routers and services receive
+that instance and must not create parallel state containers.
+
 ## Target modules
 
 | Area | Router | Service ownership |
