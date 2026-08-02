@@ -1,4 +1,6 @@
 // ── Filmkatalog und Filmdetails ──────────────────────────────────────────
+let fpJellyfinRequestSeq = 0;
+
 function fpStatusMessage() {
   const visibleSlugs = new Set(state.fp.results.map((r) => r.slug));
   const visiblePicks = [...state.queuedSlugs].filter((s) => visibleSlugs.has(s)).length;
@@ -99,6 +101,7 @@ function fpResultYear(result) {
 }
 
 async function refreshFpJellyfinStatus() {
+  const requestId = ++fpJellyfinRequestSeq;
   const items = state.fp.results.map((r) => ({
     slug: r.slug,
     title: r.title,
@@ -108,13 +111,21 @@ async function refreshFpJellyfinStatus() {
   if (!items.length) return;
   try {
     const response = await api.jellyfinMatches(items);
+    if (requestId !== fpJellyfinRequestSeq) return;
+    if (!response.configured || !response.available) {
+      setFpDetailJellyfinStatus(response.configured ? "unavailable" : "unconfigured");
+      return;
+    }
     for (const result of state.fp.results) {
       if (Object.hasOwn(response.matches || {}, result.slug)) {
         result.in_jellyfin = !!response.matches[result.slug];
       }
     }
     updateFpJellyfinBadges();
-  } catch (e) { /* JF bleibt optional. */ }
+  } catch (e) {
+    if (requestId !== fpJellyfinRequestSeq) return;
+    setFpDetailJellyfinStatus("unavailable");
+  }
 }
 
 function updateSeriesStatus(series) {
@@ -918,6 +929,14 @@ function setFpDetailJellyfinStatus(owned) {
   if (owned === false) {
     badge.classList.add("is-missing");
     label.textContent = "Nicht in Jellyfin";
+    return;
+  }
+  if (owned === "unavailable") {
+    label.textContent = "Jellyfin nicht erreichbar";
+    return;
+  }
+  if (owned === "unconfigured") {
+    label.textContent = "Jellyfin nicht eingerichtet";
     return;
   }
   badge.classList.add("is-checking");

@@ -148,6 +148,10 @@ class AppState:
         self.jellyfin_library_time: float = 0.0
         self.jellyfin_library_available: bool = False
         self.jellyfin_library_retry_after: float = 0.0
+        self.jellyfin_movie_identities: list[dict] | None = None
+        self.jellyfin_movie_identities_time: float = 0.0
+        self.jellyfin_movie_identities_available: bool = False
+        self.jellyfin_movie_identities_retry_after: float = 0.0
         self.jellyfin_episodes: list[dict] | None = None
         self.jellyfin_episodes_time: float = 0.0
         self.jellyfin_episodes_available: bool = False
@@ -172,6 +176,7 @@ class AppState:
         self.jellyfin_cache_lock = threading.RLock()
         self.jellyfin_config_update_lock = threading.Lock()
         self.jellyfin_library_fetch_lock = threading.Lock()
+        self.jellyfin_movie_identities_fetch_lock = threading.Lock()
         self.jellyfin_episodes_fetch_lock = threading.Lock()
         self.jellyfin_series_fetch_lock = threading.Lock()
         self.jellyfin_targeted_fetch_lock = threading.Lock()
