@@ -120,7 +120,8 @@ def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():
     assert release.count("--prerelease") == 1
     assert '"${release_flags[@]}"' in release
     assert "gh release create" in release
-    assert "if: startsWith(github.ref, 'refs/tags/')" in release
+    assert 'gh release view "${RELEASE_TAG}"' in release
+    assert 'git rev-list -n 1 "${tag_name}"' in release
     assert "--verify-tag" in release
     assert 'git cat-file -t "${GITHUB_REF_NAME}"' in release
     assert 'git tag --annotate "${tag_name}" "${GITHUB_SHA}"' in release
