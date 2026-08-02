@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-No unreleased changes.
+- Fix the mobile bottom navigation so it spans the viewport, respects device
+  safe areas, and distributes all currently visible tabs evenly without a
+  five-column wrap conflict.
 
 ## v1.0.0-rc.2 – 2026-08-02
 
