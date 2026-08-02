@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,24 +25,38 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out annotated tag
+      - name: Check out release revision
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Require an annotated tag
+      - name: Resolve and validate release tag
         run: |
-          test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
           version="$(python -c 'from app_version import APP_VERSION; print(APP_VERSION)')"
-          test "v${version}" = "${GITHUB_REF_NAME}"
+          tag_name="v${version}"
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "${tag_name}" = "${GITHUB_REF_NAME}"
+            test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
+          else
+            test "${GITHUB_REF}" = "refs/heads/main"
+            test -z "$(git tag --list "${tag_name}")"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag --annotate "${tag_name}" "${GITHUB_SHA}" \
+              --message "RoyalDownloader ${tag_name}"
+            git push origin "refs/tags/${tag_name}"
+          fi
+
+          echo "RELEASE_TAG=${tag_name}" >> "${GITHUB_ENV}"
 
       - name: Create GitHub pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "${RELEASE_TAG}" \
             --verify-tag \
             --prerelease \
-            --title "RoyalDownloader ${GITHUB_REF_NAME}" \
-            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
+            --title "RoyalDownloader ${RELEASE_TAG}" \
+            --notes-file "docs/releases/${RELEASE_TAG}.md" \
             --generate-notes
