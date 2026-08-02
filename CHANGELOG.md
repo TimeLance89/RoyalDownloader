@@ -16,6 +16,9 @@
   from `server.py` into a dedicated `app_state.py` component.
 - Extracted bounded WebSocket delivery and added ordering and slow-client
   regression tests.
+- Moved movie, series, anime, TMDB metadata, and targeted Jellyfin discovery
+  endpoints into their production domain router while preserving flat route
+  diagnostics and both API aliases.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

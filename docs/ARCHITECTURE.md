@@ -40,6 +40,11 @@ updates, and queue UI live in `core.js`; individual feature areas live below
 Screen modules may depend on core and earlier domain modules but do not perform
 startup themselves.
 
+The discovery router is physically extracted and receives a migration facade
+from the composition root. Calls are resolved dynamically to retain provider
+test seams. New discovery services should be injected explicitly; they must not
+add reverse imports from the router into `server.py`.
+
 CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed
 by ordered feature overrides in `web/styles/`. Moving a rule between files must

@@ -20,17 +20,19 @@ _PREFIXES = {
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
         "/ws", "/api/v1/ws",
     ),
-    "jellyfin": ("/api/jellyfin", "/api/v1/jellyfin"),
-    "integrations": (
-        "/api/telegram", "/api/v1/telegram", "/api/seerr", "/api/v1/seerr",
-        "/api/tmdb/config", "/api/v1/tmdb/config",
-    ),
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
         "/api/movie", "/api/v1/movie", "/api/series", "/api/v1/series",
         "/api/anime", "/api/v1/anime", "/api/home", "/api/v1/home",
         "/api/search", "/api/v1/search", "/api/tmdb/movie",
-        "/api/tmdb/movies", "/api/tmdb/series",
+        "/api/v1/tmdb/movie", "/api/tmdb/movies", "/api/v1/tmdb/movies",
+        "/api/tmdb/series", "/api/v1/tmdb/series", "/api/jellyfin/matches",
+        "/api/v1/jellyfin/matches",
+    ),
+    "jellyfin": ("/api/jellyfin", "/api/v1/jellyfin"),
+    "integrations": (
+        "/api/telegram", "/api/v1/telegram", "/api/seerr", "/api/v1/seerr",
+        "/api/tmdb/config", "/api/v1/tmdb/config",
     ),
 }
 
@@ -46,6 +48,13 @@ def _domain(path: str) -> str | None:
     return "administration" if path.startswith("/api/") else None
 
 
+def register_domain_router(name: str, router: APIRouter) -> None:
+    """Replace a transitional owner with its extracted production router."""
+    if name not in DOMAIN_ROUTERS:
+        raise KeyError(f"Unknown API domain: {name}")
+    DOMAIN_ROUTERS[name] = router
+
+
 def install_domain_routers(app: FastAPI) -> dict[str, int]:
     """Move directly registered API routes into domain routers once."""
     counts = {name: 0 for name in DOMAIN_ROUTERS}
@@ -55,7 +64,8 @@ def install_domain_routers(app: FastAPI) -> dict[str, int]:
         if domain is None:
             continue
         app.router.routes.remove(route)
-        DOMAIN_ROUTERS[domain].routes.append(route)
+        if route not in DOMAIN_ROUTERS[domain].routes:
+            DOMAIN_ROUTERS[domain].routes.append(route)
         counts[domain] += 1
     # Keep the same route objects visible on ``app.routes`` for compatibility
     # with diagnostics and tests that enumerate the legacy application, while
