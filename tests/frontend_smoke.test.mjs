@@ -6,6 +6,7 @@ const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8")
 const app = readFileSync(new URL("../web/app.js", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
+const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const frontend = `${login}\n${app}`;
 
 function requiresIds(...ids) {
@@ -43,4 +44,11 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
   assert.match(html, /app\.js\?v=royal-20260801-2/);
+});
+
+test("the document has unique IDs and CI checks nested JavaScript", () => {
+  const ids = [...html.matchAll(/\sid=["']([^"']+)["']/g)].map((match) => match[1]);
+  assert.equal(ids.length, new Set(ids).size, "index.html contains duplicate IDs");
+  assert.match(workflow, /find web -type f -name '\*\.js'/);
+  assert.doesNotMatch(workflow, /find web -maxdepth 1/);
 });

@@ -70,6 +70,7 @@ from resolved_link_cache import ResolvedLinkCache
 from runtime_cache import BoundedTTLCache
 from api_system_router import create_system_router
 from api_domain_routers import install_domain_routers
+from api_security import SecurityDependencies, install_authentication_middleware
 from runtime_paths import data_dir, in_container, persistent_container_path
 from network_guard import is_public_http_url
 from providers.filmfrei24 import (
@@ -8824,187 +8825,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(create_system_router(state.runtime_cache_diagnostics))
-
-
-# Ohne Anmeldung erreichbar. Die statischen Dateien gehören dazu, weil die
-# Anmeldemaske Teil der Oberfläche ist – sie enthalten keine Nutzerdaten,
-# alle Inhalte kommen über die geschützten /api-Routen.
-PUBLIC_API_METHODS = {
-    "/api/health": frozenset({"GET"}),
-    "/api/auth/status": frozenset({"GET"}),
-    "/api/auth/login": frozenset({"POST"}),
-    "/api/auth/logout": frozenset({"POST"}),
-    "/api/ui/config": frozenset({"GET"}),
-    "/api/ui/translate": frozenset({"POST"}),
-    "/api/v1/capabilities": frozenset({"GET"}),
-    "/api/v1/health": frozenset({"GET"}),
-    "/api/v1/auth/status": frozenset({"GET"}),
-    "/api/v1/auth/login": frozenset({"POST"}),
-    "/api/v1/auth/logout": frozenset({"POST"}),
-    "/api/v1/ui/config": frozenset({"GET"}),
-}
-# Übergang für frühe native Clients: Ein Mobile-Bearer darf nur die fachlichen
-# Legacy-Gegenstücke der v1-Kern-API verwenden, nie Einstellungen, Updater,
-# Setup oder andere Browser-Administrationsrouten.
-MOBILE_LEGACY_API_PATHS = frozenset({
-    "/api/genres",
-    "/api/movies",
-    "/api/movies/preload",
-    "/api/tmdb/movie",
-    "/api/tmdb/movies",
-    "/api/tmdb/series",
-    "/api/jellyfin/matches",
-    "/api/series",
-    "/api/series/load",
-    "/api/series/jellyfin-status",
-    "/api/anime",
-    "/api/queue",
-    "/api/queue/add",
-    "/api/queue/remove",
-    "/api/queue/clear",
-    "/api/download/cancel",
-    "/api/watchlist",
-    "/api/watchlist/add",
-    "/api/watchlist/mode",
-    "/api/watchlist/remove",
-    "/api/watchlist/check",
-    "/api/watchlist/open",
-    "/api/movie-subscriptions",
-    "/api/movie-subscriptions/check",
-    "/api/movie-subscriptions/remove",
-})
-# Zustandsändernde Methoden: ein fremder Ursprung darf sie nicht auslösen.
-UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-
-
-def _same_origin(request: Request) -> bool:
-    """Prüft den Origin-Header gegen den eigenen Host.
-
-    Zusammen mit `SameSite=Lax` am Sitzungscookie ist das der CSRF-Schutz:
-    Lax verhindert, dass das Cookie bei einem fremden Formular-POST überhaupt
-    mitgeschickt wird, die Origin-Prüfung fängt den Rest ab. Fehlt der Header
-    (klassische API-Clients wie curl senden ihn nicht), greift sie nicht –
-    solche Clients weisen sich per Bearer oder weiterhin per Basic aus.
-    """
-    origin = request.headers.get("origin", "")
-    if not origin:
-        return True
-    try:
-        parsed = urlparse(origin)
-    except ValueError:
-        return False
-    host = request.headers.get("host", "").casefold()
-    effective_scheme = "https" if _request_is_secure(request) else "http"
-    return bool(parsed.netloc) and (
-        parsed.netloc.casefold() == host
-        and parsed.scheme.casefold() == effective_scheme
-    )
-
-
-def _is_public_path(path: str, method: str = "GET") -> bool:
-    normalized_method = str(method or "GET").upper()
-    if normalized_method in PUBLIC_API_METHODS.get(path, ()):
-        return True
-    # Vor abgeschlossener Ersteinrichtung braucht der Assistent seine Routen.
-    if path.startswith("/api/setup/") and setup_required():
-        return True
-    # Die Sprachwahl ist Bestandteil des Assistenten, nach dessen Abschluss
-    # ist derselbe schreibende Endpunkt jedoch geschützt.
-    if (
-        path in {"/api/ui/config", "/api/v1/ui/config"}
-        and normalized_method == "POST"
-        and setup_required()
-    ):
-        return True
-    return not path.startswith("/api/")
-
-
-def _is_mobile_legacy_path(path: str) -> bool:
-    return (
-        path in MOBILE_LEGACY_API_PATHS
-        or path.startswith("/api/movie/")
-        or path.startswith("/api/anime/")
-    )
-
-
-def _harden_http_response(request: Request, response: Response, path: str) -> Response:
-    """Einheitliche Browser- und Cloudflare-Härtung für jede HTTP-Antwort."""
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
-    if path.startswith("/api/"):
-        # Auch bei versehentlich aktivierter Cloudflare-Cache-Regel dürfen
-        # authentifizierte oder konfigurationsabhängige DTOs nie am Edge landen.
-        response.headers["Cache-Control"] = "no-store"
-        response.headers.setdefault("Pragma", "no-cache")
-    if _request_is_secure(request):
-        # Kein includeSubDomains: Der Betreiber kontrolliert möglicherweise
-        # nicht jede Subdomain derselben Zone.
-        response.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000",
-        )
-    return response
-
-
-@app.middleware("http")
-async def require_authentication(request: Request, call_next):
-    path = request.url.path
-    is_v1 = path.startswith("/api/v1/")
-    if request.method in UNSAFE_METHODS and not _same_origin(request):
-        return _harden_http_response(request, JSONResponse(
-            status_code=403,
-            content={"detail": "Anfrage von einem fremden Ursprung wurde abgewiesen."},
-        ), path)
-    if path == "/api/ui/translate" and not request_is_authenticated(
-        request.headers, request.cookies, client_key(request),
-    ):
-        if not PUBLIC_TRANSLATE_LIMITER.allow(client_key(request)):
-            return _harden_http_response(request, JSONResponse(
-                status_code=429,
-                content={"detail": "Zu viele Übersetzungsanfragen. Bitte kurz warten."},
-                headers={"Retry-After": "60"},
-            ), path)
-    if _is_public_path(path, request.method) or request_is_authenticated(
-        request.headers,
-        request.cookies,
-        client_key(request),
-        versioned=is_v1,
-        allow_mobile_bearer=is_v1 or _is_mobile_legacy_path(path),
-        allow_basic=not is_v1,
-    ):
-        response = await call_next(request)
-        return _harden_http_response(request, response, path)
-    if (
-        not is_v1
-        and not _is_mobile_legacy_path(path)
-        and authenticated_mobile_token(request.headers, touch=False)
-    ):
-        return _harden_http_response(request, JSONResponse(
-            status_code=403,
-            content={
-                "detail": "Diese Route ist für Mobile-Sitzungen nicht freigegeben.",
-                "code": "access_denied",
-            },
-            headers={"Cache-Control": "no-store"},
-        ), path)
-    supplied_session = bool(
-        _bearer_token(request.headers)
-        if is_v1
-        else (_bearer_token(request.headers) or _session_token(request.cookies))
-    )
-    return _harden_http_response(request, JSONResponse(
-        status_code=401,
-        content={
-            "detail": (
-                "Die Sitzung ist abgelaufen oder wurde widerrufen."
-                if supplied_session
-                else "Anmeldung erforderlich."
-            ),
-            "code": "session_expired" if supplied_session else "auth_required",
-        },
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    ), path)
+install_authentication_middleware(
+    app,
+    SecurityDependencies(
+        setup_required=setup_required,
+        request_is_authenticated=request_is_authenticated,
+        authenticated_mobile_token=authenticated_mobile_token,
+        bearer_token=_bearer_token,
+        session_token=_session_token,
+        client_key=client_key,
+        request_is_secure=lambda request: _request_is_secure(request),
+        public_translate_limiter=PUBLIC_TRANSLATE_LIMITER,
+    ),
+)
 
 
 @app.get("/api/v1/capabilities")

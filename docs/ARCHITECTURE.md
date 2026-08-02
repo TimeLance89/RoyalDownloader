@@ -20,11 +20,14 @@ router. `server.py` remains the composition root during migration.
 | Jellyfin | `api_jellyfin_router.py` | library snapshots and matching |
 | Integrations | `api_integrations_router.py` | Telegram, Seerr, TMDB |
 | Administration | `api_system_router.py` | health, diagnostics, updates |
+| HTTP security | `api_security.py` | public routes, origin checks, response headers |
 
-The administration router is the first extracted production router. Frontend
-API transport, mutable store, and design tokens now live in `api.js`,
-`store.js`, and `style-tokens.css`; subsequent screen modules may depend on
-those files but not on one another.
+The administration router and HTTP security boundary are the first extracted
+production modules. Authentication storage remains in the composition root and
+is injected into `api_security.py`; the security module therefore owns policy
+without depending on server globals. Frontend API transport, mutable store, and
+design tokens now live in `api.js`, `store.js`, and `style-tokens.css`;
+subsequent screen modules may depend on those files but not on one another.
 
 ## Lock ownership and order
 

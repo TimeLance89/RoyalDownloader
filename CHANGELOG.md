@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-02 – Modularization safety baseline
+
+- Extracted the HTTP authentication, origin-validation, and response-hardening
+  policy from `server.py` behind an injected application boundary.
+- Added regression checks for unique API route ownership, duplicate HTML IDs,
+  mobile catalog pagination, and JavaScript files in nested frontend modules.
+
 ## 2026-08-01 – Legacy updater migration fix
 
 - Unblocked dependency-bearing updates from revision `6457b78d` by preserving
