@@ -7,9 +7,7 @@ public contract unchanged and makes later source extraction mechanical.
 
 from fastapi import APIRouter, FastAPI
 
-
 DOMAIN_ROUTERS = {
-    "auth_setup": APIRouter(tags=["auth-setup"]),
     "discovery": APIRouter(tags=["discovery"]),
     "queue": APIRouter(tags=["queue"]),
     "jellyfin": APIRouter(tags=["jellyfin"]),
@@ -18,9 +16,6 @@ DOMAIN_ROUTERS = {
 }
 
 _PREFIXES = {
-    "auth_setup": (
-        "/api/auth", "/api/v1/auth", "/api/setup", "/api/v1/setup",
-    ),
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
         "/ws", "/api/v1/ws",

@@ -14,7 +14,7 @@ router. `server.py` remains the composition root during migration.
 
 | Area | Router | Service ownership |
 |---|---|---|
-| Auth and setup | `api_auth_router.py` | sessions, first-run transaction |
+| Auth and setup | `api_auth_router.py`, `api_setup_router.py` | sessions, first-run transaction |
 | Discovery | `api_discovery_router.py` | provider catalogs and metadata |
 | Queue | `api_queue_router.py` | claims, scheduler, download lifecycle |
 | Jellyfin | `api_jellyfin_router.py` | library snapshots and matching |
@@ -22,10 +22,11 @@ router. `server.py` remains the composition root during migration.
 | Administration | `api_system_router.py` | health, diagnostics, updates |
 | HTTP security | `api_security.py` | public routes, origin checks, response headers |
 
-The administration router, authentication router, and HTTP security boundary
-are the first extracted production modules. Authentication storage remains in
-the composition root and is injected into `api_auth_router.py` and
-`api_security.py`; both modules therefore own HTTP policy without depending on
+The administration, authentication, and setup routers plus the HTTP security
+boundary are the first extracted production modules. Authentication storage
+and the atomic setup transaction remain in the composition root and are
+injected into their HTTP modules. Persistent media-path validation lives in
+`media_paths.py`. These modules therefore own their policy without importing
 server globals. Frontend API transport, mutable store, and design tokens now
 live in `api.js`, `store.js`, and `style-tokens.css`; subsequent screen modules
 may depend on those files but not on one another.

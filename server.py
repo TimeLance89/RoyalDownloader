@@ -77,7 +77,12 @@ from api_auth_router import (
     LoginBody,
     create_auth_router,
 )
+from api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
 from api_security import SecurityDependencies, install_authentication_middleware
+from media_paths import (
+    prepare_media_directory,
+    recover_misplaced_media,
+)
 from runtime_paths import data_dir, in_container, persistent_container_path
 from network_guard import is_public_http_url
 from providers.filmfrei24 import (
@@ -10325,134 +10330,25 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     return {**_updater_config_payload(), "saved": True}
 
 
-class SetupCompleteBody(BaseModel):
-    save_path: str
-    series_path: str = ""
-    ui_language: str = "de"
-    jellyfin_url: str = ""
-    jellyfin_api_key: str = ""
-    jellyfin_user_id: str = ""
-    jellyfin_user_name: str = ""
-    tmdb_api_key: str = ""
-    telegram_enabled: bool = False
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    auto_download: bool = False
-    check_interval_min: int = 30
-    dl_window_start: Optional[int] = None
-    dl_window_end: Optional[int] = None
-    movie_provider_order: Optional[List[str]] = None
-    series_provider_order: Optional[List[str]] = None
-    anime_provider_order: Optional[List[str]] = None
-    movie_providers: Optional[List[str]] = None
-    series_providers: Optional[List[str]] = None
-    anime_providers: Optional[List[str]] = None
-    content_languages: Optional[List[str]] = None
-    auth_username: str = ""
-    auth_password: str = ""
-
-
 def _prepare_media_directory(raw_path: str, label: str) -> dict:
-    path = Path(raw_path).expanduser()
-    if in_container() and not persistent_container_path(path):
-        env_name = "SERIES_DIR" if "Serie" in label else "DOWNLOAD_DIR"
-        expected = os.environ.get(env_name, "").strip()
-        suggestion = f" Verwende den gemounteten Containerpfad {expected}." if expected else ""
-        raise HTTPException(
-            400,
-            f"{label} liegt nicht auf einem persistenten Docker-Mount.{suggestion}",
-        )
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        if not path.is_dir():
-            raise OSError("Pfad ist kein Ordner")
-        with tempfile.NamedTemporaryFile(prefix=".royal-write-test-", dir=path, delete=True) as probe:
-            probe.write(b"ok")
-            probe.flush()
-            os.fsync(probe.fileno())
-        usage = shutil.disk_usage(path)
-    except OSError as exc:
-        raise HTTPException(400, f"{label} ist nicht beschreibbar: {exc}") from exc
-    if usage.free < 512 * 1024 * 1024:
-        raise HTTPException(400, f"{label} hat weniger als 512 MB freien Speicher.")
-    return {"path": str(path), "free": usage.free}
-
-
-def _recovery_destination(target: Path, relative: Path) -> Path:
-    destination = target / relative
-    if not destination.exists():
-        return destination
-    for number in range(1, 1000):
-        candidate = destination.with_name(
-            f"{destination.stem}~recovered-{number}{destination.suffix}"
-        )
-        if not candidate.exists():
-            return candidate
-    raise FileExistsError(f"Kein freier Wiederherstellungsname für {relative}")
+    return prepare_media_directory(
+        raw_path,
+        label,
+        in_container_check=in_container,
+        persistent_path_check=persistent_container_path,
+    )
 
 
 def _recover_misplaced_media(label: str, old_path: str, effective_path: str) -> dict:
-    """Copy completed media out of an unsafe container layer without deleting it."""
-    source = Path(old_path).expanduser().resolve(strict=False)
-    target = Path(effective_path).expanduser().resolve(strict=False)
-    result = {"label": label, "source": str(source), "target": str(target), "copied": 0, "errors": []}
-    if (
-        source == target
-        or not source.is_dir()
-        or persistent_container_path(source)
-        or not persistent_container_path(target)
-    ):
-        return result
-    suffixes = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
-    episode_pattern = re.compile(
-        r"(?:^|[. _-])s\d{1,2}e\d{1,3}(?:$|[. _-])", re.IGNORECASE,
+    return recover_misplaced_media(
+        label,
+        old_path,
+        effective_path,
+        persistent_path_check=persistent_container_path,
     )
-    for media in source.rglob("*"):
-        try:
-            relative = media.relative_to(source)
-            looks_like_episode = bool(
-                episode_pattern.search(media.stem)
-                or any(
-                    re.match(r"^(?:staffel|season|s)\s*0*\d+\b", part, re.IGNORECASE)
-                    for part in relative.parts[:-1]
-                )
-            )
-            if (
-                not media.is_file()
-                or media.is_symlink()
-                or media.suffix.casefold() not in suffixes
-                or ".downloading" in relative.parts
-                or (label == "Serien" and not looks_like_episode)
-                or (label == "Filme" and looks_like_episode)
-            ):
-                continue
-            exact_destination = target / relative
-            if (
-                exact_destination.is_file()
-                and exact_destination.stat().st_size == media.stat().st_size
-            ):
-                continue
-            destination = _recovery_destination(target, relative)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            temp = destination.with_name(f".{destination.name}.recover-{uuid.uuid4().hex}")
-            try:
-                shutil.copy2(media, temp)
-                with temp.open("rb") as handle:
-                    os.fsync(handle.fileno())
-                if temp.stat().st_size != media.stat().st_size:
-                    raise OSError("Wiederherstellungskopie ist unvollständig")
-                os.link(temp, destination)
-                temp.unlink()
-                result["copied"] += 1
-            finally:
-                temp.unlink(missing_ok=True)
-        except OSError as exc:
-            result["errors"].append(f"{media}: {exc}")
-    return result
 
 
-@app.get("/api/setup/status")
-async def api_setup_status():
+def _setup_status_payload() -> dict:
     return {
         "required": setup_required(),
         "config_path": str(appconfig.config_path()),
@@ -10488,20 +10384,11 @@ async def api_setup_status():
     }
 
 
-@app.post("/api/setup/complete")
-async def api_setup_complete(body: SetupCompleteBody, request: Request):
-    if not state.setup_completion_lock.acquire(blocking=False):
-        raise HTTPException(
-            409,
-            detail={
-                "code": "setup_in_progress",
-                "message": "Die Ersteinrichtung wird bereits abgeschlossen.",
-            },
-        )
-    try:
-        return await _api_setup_complete_locked(body, request)
-    finally:
-        state.setup_completion_lock.release()
+app.include_router(create_setup_router(SetupDependencies(
+    status_payload=lambda: _setup_status_payload(),
+    completion_lock=lambda: state.setup_completion_lock,
+    complete=lambda body, request: _api_setup_complete_locked(body, request),
+)))
 
 
 async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
