@@ -85,6 +85,7 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
 
     assert "workflow_call:" in quality
     assert 'tags:\n      - "v*"' in release
+    assert "workflow_dispatch:" in release
     assert "uses: ./.github/workflows/quality.yml" in release
     assert "needs: quality" in release
     assert "Build container image" in quality
@@ -92,5 +93,7 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
     assert "--prerelease" in release
     assert "--verify-tag" in release
     assert 'git cat-file -t "${GITHUB_REF_NAME}"' in release
+    assert 'git tag --annotate "${tag_name}" "${GITHUB_SHA}"' in release
+    assert 'test "${GITHUB_REF}" = "refs/heads/main"' in release
     assert ":latest" not in release.casefold()
     assert "--latest" not in release.casefold()
