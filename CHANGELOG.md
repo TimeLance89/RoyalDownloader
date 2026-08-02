@@ -21,6 +21,9 @@ No unreleased changes.
 - Classify releases from their semantic tag: release candidates and other
   hyphenated versions are pre-releases, while stable versions are no longer
   marked as pre-releases unconditionally.
+- Make tag and Release creation idempotent in the same quality-gated workflow;
+  GitHub-token tag pushes intentionally do not rely on recursively starting a
+  second workflow.
 
 This is a **release candidate**, not the final `v1.0.0` release. External
 providers may change pages, domains, availability, or protection mechanisms at

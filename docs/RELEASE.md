@@ -165,7 +165,9 @@ deletion. Pull requests must be current, resolve review conversations, and pass
 the `verify` Quality check. The restrictions also apply to administrators.
 
 The release workflow runs the complete Quality workflow before creating an
-annotated tag. Only the tag-triggered run creates the GitHub Release. Tags with
-a semantic pre-release suffix, for example `v1.0.0-rc.2`, are marked as
-pre-releases. A future stable tag such as `v1.0.0` is not marked as a
-pre-release merely because it uses the same workflow.
+annotated tag and its GitHub Release. Both operations are idempotent, so a safe
+rerun accepts only the same tag target and never duplicates an existing
+Release. Tags with a semantic pre-release suffix, for example
+`v1.0.0-rc.2`, are marked as pre-releases. A future stable tag such as
+`v1.0.0` is not marked as a pre-release merely because it uses the same
+workflow.

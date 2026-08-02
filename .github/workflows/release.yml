@@ -46,21 +46,28 @@ jobs:
             git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
           else
             test "${GITHUB_REF}" = "refs/heads/main"
-            test -z "$(git tag --list "${tag_name}")"
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag --annotate "${tag_name}" "${GITHUB_SHA}" \
-              --message "RoyalDownloader ${tag_name}"
-            git push origin "refs/tags/${tag_name}"
+            if git rev-parse --verify --quiet "refs/tags/${tag_name}"; then
+              test "$(git rev-list -n 1 "${tag_name}")" = "${GITHUB_SHA}"
+              test "$(git cat-file -t "${tag_name}")" = "tag"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag --annotate "${tag_name}" "${GITHUB_SHA}" \
+                --message "RoyalDownloader ${tag_name}"
+              git push origin "refs/tags/${tag_name}"
+            fi
           fi
 
           echo "RELEASE_TAG=${tag_name}" >> "${GITHUB_ENV}"
 
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; nothing to publish."
+            exit 0
+          fi
           release_flags=()
           if [[ "${RELEASE_TAG}" == *-* ]]; then
             release_flags+=(--prerelease)
