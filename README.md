@@ -201,8 +201,9 @@ RoyalDownloader/
 ├─ web/                       framework-free web application
 ├─ docs/                      installation and operations documentation
 ├─ api_*_router.py            domain-owned FastAPI and WebSocket routes
+├─ application_services/      catalogs, downloads, integrations, and automation
 ├─ app_state.py               shared runtime state, caches, and locks
-├─ server.py                  composition root and service orchestration
+├─ server.py                  application wiring, lifecycle, and static hosting
 ├─ downloader.py              queue, transfer, and integrity verification
 ├─ jellyfin_client.py         library matching and de-duplication
 ├─ self_updater.py            verified GitHub update workflow

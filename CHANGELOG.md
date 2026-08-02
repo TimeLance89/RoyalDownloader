@@ -2,6 +2,9 @@
 
 ## 2026-08-02 – Modularization safety baseline
 
+- Reduced `server.py` from 13,394 lines to a sub-800-line composition root by
+  extracting thirteen focused application-service modules while retaining all
+  established integration and test seams.
 - Keep the home-page series rail populated from other active providers when
   SerienStream trending data is unavailable because of a CAPTCHA or rate limit.
 - Extracted the HTTP authentication, origin-validation, and response-hardening

@@ -265,6 +265,8 @@ class SelfUpdater:
         root = roots[0]
         required_files = (
             "server.py",
+            "application_services/__init__.py",
+            "application_services/runtime.py",
             "requirements.txt",
             "requirements.lock",
             "ui_translator.py",
@@ -478,7 +480,7 @@ class SelfUpdater:
                 str(python), "-c",
                 "import compileall,sys; sys.path.insert(0, sys.argv[1]); "
                 "assert compileall.compile_dir(sys.argv[1], quiet=1); "
-                "import config, downloader, extractor, update_checker, self_updater",
+                "import config, downloader, extractor, update_checker, self_updater, server",
                 str(release),
             ],
             cwd=str(release), capture_output=True, text=True, timeout=180, check=False,

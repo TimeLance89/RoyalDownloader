@@ -29,12 +29,13 @@ The refactor establishes these rules:
 
 | Entry point | Before | After | Result |
 |---|---:|---:|---|
-| `server.py` | 13,394 lines | 8,790 lines | Composition root and remaining service orchestration |
+| `server.py` | 13,394 lines | under 800 lines | Composition, lifecycle, dependency injection, and static hosting |
 | `web/app.js` | 7,170 lines | 553 lines | Bootstrap and final event binding only |
 | `web/style.css` | 13,247 lines | 15 lines | Ordered stylesheet manifest |
 | API router modules | transitional ownership | 8 production routers | Routes grouped by domain |
 | Frontend screen modules | none | 10 modules | Feature-specific browser behavior |
 | Focused stylesheets | none | 14 modules | Explicit cascade phases and feature ownership |
+| Application services | monolithic composition root | 13 focused modules | Catalogs, downloads, integrations, persistence, and automation |
 
 `web/index.html` intentionally remains a synchronous declarative DOM shell.
 Loading HTML fragments asynchronously would weaken the existing element-ID and
@@ -57,7 +58,20 @@ that file.
 | `app_state.py` | Mutable process state, locks, caches, provider instances, and queue state |
 | `websocket_manager.py` | Bounded per-client event delivery and slow-client isolation |
 | `media_paths.py` | Persistent media-path validation and misplaced-file recovery |
-| `server.py` | Application composition, dependency injection, lifespan, and remaining service orchestration |
+| `application_services/auth.py` | Authentication policy and request identity |
+| `application_services/updater.py` | Logging, live publication, and runtime updates |
+| `application_services/media_clients.py` | Provider clients, Jellyfin snapshots, and TMDB metadata |
+| `application_services/movie_catalog.py` | Movie routing, matching, and catalog assembly |
+| `application_services/series_catalog.py` | Series routing, matching, catalog assembly, and media paths |
+| `application_services/persistence.py` | Persistent snapshots, queue identity, and client payloads |
+| `application_services/download_lifecycle.py` | Completion, provider health, and episode fallback lifecycle |
+| `application_services/source_resolution.py` | Hoster extraction and cross-provider source resolution |
+| `application_services/download_queue.py` | Existing-media checks and download execution |
+| `application_services/telegram_requests.py` | Telegram selection, pagination, and completion |
+| `application_services/seerr.py` | Seerr polling, matching, and request synchronization |
+| `application_services/telegram_commands.py` | Telegram parsing, commands, and callbacks |
+| `application_services/automation.py` | Scheduled library checks and automatic downloads |
+| `server.py` | Application composition, dependency injection, lifespan, and static hosting |
 
 The required dependency direction is:
 
@@ -161,7 +175,7 @@ The restructuring is protected by the following checks:
 - locked-dependency vulnerability audit;
 - source-size budgets for the composition root and frontend modules.
 
-At completion, the repository passed 149 Python tests and 6 frontend contract
+At completion, the repository passed 154 Python tests and 7 frontend contract
 tests. The dependency audit reported no known vulnerabilities.
 
 ## Adding a new feature
@@ -194,12 +208,19 @@ custom caches must serve the complete `web/` directory and must not retain an
 old `index.html` across a deployment. Royal Downloader's normal static-file
 responses already prevent stale application entry points.
 
-## Remaining direction
+## Composition-root boundary
 
-The largest remaining file is the composition root because it still contains
-service orchestration and compatibility facades. Future extraction should move
-cohesive services only when their state, I/O, and tests can move together. Line
-count alone is not a reason to break an atomic workflow across unrelated files.
+The composition root is intentionally limited to shared construction,
+application lifespan, router binding, exception handling, authentication-cookie
+wiring, and static hosting. CI rejects a `server.py` of 1,000 lines or more and
+rejects application-service modules of 1,250 lines or more. It also rejects new
+HTTP route decorators in the composition root.
+
+The compatibility registry dynamically republishes the historical service
+symbols from their owning modules. This keeps installed integrations and test
+seams stable without moving implementation back into `server.py`. Future work
+may replace individual registry seams with narrower typed dependency objects,
+but must preserve the current public API and complete regression coverage.
 
 The authoritative dependency and lock rules remain in
 [ARCHITECTURE.md](ARCHITECTURE.md). This document records the completed change,

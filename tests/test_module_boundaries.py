@@ -20,9 +20,15 @@ def test_composition_root_does_not_take_back_http_routes():
 
 
 def test_modularized_entrypoints_stay_small():
-    assert _line_count(ROOT / "server.py") < 9_000
+    assert _line_count(ROOT / "server.py") < 1_000
     assert _line_count(ROOT / "web" / "app.js") < 700
     assert _line_count(ROOT / "web" / "style.css") < 50
+
+
+def test_application_services_stay_focused():
+    services = list((ROOT / "application_services").glob("*.py"))
+    assert len(services) >= 10
+    assert max(map(_line_count, services)) < 1_250
 
 
 def test_frontend_feature_files_do_not_become_new_monoliths():

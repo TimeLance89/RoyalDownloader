@@ -8,7 +8,8 @@ dependency direction:
 
 Routers validate and translate HTTP only. Services own runtime state and
 locking. Provider and persistence modules do blocking I/O and never import a
-router. `server.py` remains the composition root during migration.
+router. `server.py` is the composition root and contains no provider, catalog,
+download, persistence, Telegram, Seerr, or automation implementation.
 
 `app_state.py` is the single owner of mutable process state and its associated
 locks. The composition root creates one `AppState`; routers and services receive
@@ -56,6 +57,15 @@ watchlist, and compatibility tests.
 and watched-media cleanup as one persistence and queue-coordination boundary.
 `api_administration_router.py` owns all runtime configuration mutations and
 their validation, including setup completion and integration settings.
+
+Application behavior is grouped below `application_services/`: authentication,
+updates, media clients, movie and series catalogs, persistence, download
+lifecycle, source resolution, queue execution, Telegram requests and commands,
+Seerr synchronization, and scheduled automation. The temporary compatibility
+registry in `application_services/runtime.py` republishes established service
+seams on the composition root so external integrations and tests keep working.
+New code should depend directly on an owning service instead of adding another
+composition-root seam.
 
 CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed
