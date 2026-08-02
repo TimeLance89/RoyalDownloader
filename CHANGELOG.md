@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.0.0-rc.1 – 2026-08-02
+
+- Publish the first officially versioned Royal Downloader release candidate.
+- Establish the modular backend and frontend architecture as the documented
+  release baseline while preserving legacy, `/api/v1`, and WebSocket contracts.
+- Document reproducible Docker and NAS installation, persistent `data/` and
+  `runtime/` storage, backup, update, and rollback procedures.
+- Retain persistent queue recovery across container and application restarts.
+- Include the existing Jellyfin, TMDB, Telegram, and Seerr integrations.
+- Include ordered provider fallbacks, persistent provider health states, and
+  controlled retries for temporarily unavailable sources.
+- Include the existing authentication, path, dependency, update, and runtime
+  hardening together with automated tests and CI validation.
+- Include the fast Jellyfin movie identity index so movie availability checks
+  no longer wait for the full media-quality library payload.
+
+This is a **release candidate**, not the final `v1.0.0` release. External
+providers may change their pages, domains, availability, or protection
+mechanisms at any time; the release cannot guarantee uninterrupted access to
+third-party sources.
+
 ## 2026-08-02 – Modularization safety baseline
 
 - Reduced `server.py` from 13,394 lines to a sub-800-line composition root by
@@ -69,9 +90,8 @@
 - Extract the system API router, frontend store, and CSS design-token layer;
   document service boundaries and lock ownership for further extraction.
 
-This file records user-visible Royal Downloader changes. The project currently
-ships continuously from `main`; entries are therefore grouped by date instead
-of a separately maintained release version.
+Older entries below record the continuous `main` history that preceded the
+first versioned release candidate.
 
 ## 2026-08-01
 

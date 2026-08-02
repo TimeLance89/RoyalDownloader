@@ -404,6 +404,7 @@ v1 ersetzt keine Legacy-Route. Kernrouten sind zusätzliche Dekoratoren auf dens
 ```json
 {
   "name": "Royal Downloader",
+  "application_version": "1.0.0-rc.1",
   "api_version": 1,
   "supported_api_versions": [1],
   "minimum_api_version": 1,
@@ -440,7 +441,10 @@ v1 ersetzt keine Legacy-Route. Kernrouten sind zusätzliche Dekoratoren auf dens
 }
 ```
 
-`build` kann `null` sein. `GET /api/v1/health` liefert öffentlich nur `{status:"ok",api_version:1}` und offenbart keine Queue-Zähler.
+`application_version` bezeichnet die veröffentlichte Anwendungsversion; `build`
+bezeichnet davon getrennt die konkrete Commit-Revision und kann `null` sein.
+Beide Felder sind additiv. `GET /api/v1/health` liefert öffentlich weiterhin nur
+`{status:"ok",api_version:1}` und offenbart keine Queue-Zähler.
 
 ### Bearer-Sitzung
 

@@ -265,6 +265,7 @@ class SelfUpdater:
         root = roots[0]
         required_files = (
             "server.py",
+            "app_version.py",
             "application_services/__init__.py",
             "application_services/runtime.py",
             "requirements.txt",

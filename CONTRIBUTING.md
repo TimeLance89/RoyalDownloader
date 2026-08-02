@@ -47,15 +47,15 @@ Run at least the following before opening a pull request:
 
 ```bash
 python -m py_compile *.py
-python -m compileall -q providers
-docker compose config
-node --check web/app.js
-```
-
-Run the regression suite when the local test package is available:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m compileall -q providers application_services tests
+find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+node --test tests/frontend_smoke.test.mjs
+ruff check --select E9,F63,F7,F82 .
+bandit -q -ll -r application_services api_*.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
+pip-audit -r requirements.lock
+docker compose config --quiet
+coverage run --source=application_services,app_state,auth,network_guard,runtime_cache,self_updater,websocket_manager,ytdlp_updater -m pytest -q
+coverage report --skip-covered
 ```
 
 ## Pull requests

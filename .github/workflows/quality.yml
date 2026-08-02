@@ -6,6 +6,7 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -48,14 +49,8 @@ jobs:
       - name: Frontend contract smoke tests
         run: node --test tests/frontend_smoke.test.mjs
 
-      - name: Incremental Python correctness baseline
-        shell: bash
-        run: |
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          mapfile -t changed < <(git diff --name-only "$base" HEAD -- '*.py' 2>/dev/null || true)
-          if [ "${#changed[@]}" -gt 0 ]; then
-            ruff check --select E9,F63,F7,F82 "${changed[@]}"
-          fi
+      - name: Python correctness baseline
+        run: ruff check --select E9,F63,F7,F82 .
 
       - name: Security baseline
         run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py api_websocket_router.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
@@ -71,6 +66,54 @@ jobs:
           coverage run --source=application_services,app_state,auth,network_guard,runtime_cache,self_updater,websocket_manager,ytdlp_updater -m pytest -q
           coverage report --skip-covered
           coverage xml -o coverage.xml
+
+      - name: Build container image
+        run: |
+          docker build \
+            --build-arg APP_COMMIT_SHA="${GITHUB_SHA}" \
+            --tag royal-downloader:quality \
+            .
+
+      - name: Smoke-test fresh and persistent container startup
+        shell: bash
+        run: |
+          smoke_root="${RUNNER_TEMP}/royal-quality-smoke"
+          mkdir -p "${smoke_root}/runtime" "${smoke_root}/data" \
+            "${smoke_root}/movies" "${smoke_root}/series"
+          sudo chown -R 1000:1000 "${smoke_root}"
+          cleanup() { docker rm -f royal-quality-smoke >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name royal-quality-smoke \
+            --publish 127.0.0.1:18765:8765 \
+            --env APP_REQUIRE_AUTH=false \
+            --volume "${smoke_root}/runtime:/runtime" \
+            --volume "${smoke_root}/data:/app/data" \
+            --volume "${smoke_root}/movies:/movies" \
+            --volume "${smoke_root}/series:/serien" \
+            royal-downloader:quality
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:18765/api/health > health.json; then
+              break
+            fi
+            if [ "${attempt}" -eq 90 ]; then
+              docker logs royal-quality-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          python -c 'import json; assert json.load(open("health.json")) == {"status": "ok"}'
+          curl --fail --silent http://127.0.0.1:18765/api/v1/capabilities > capabilities.json
+          python -c 'import json,os; from app_version import APP_VERSION; p=json.load(open("capabilities.json")); assert p["application_version"] == APP_VERSION; assert p["build"] == os.environ["GITHUB_SHA"][:12]'
+          test -d "${smoke_root}/data/FilmeDownloader"
+          docker restart royal-quality-smoke
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18765/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs royal-quality-smoke
+          exit 1
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v6
