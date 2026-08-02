@@ -13,6 +13,8 @@ router. `server.py` remains the composition root during migration.
 `app_state.py` is the single owner of mutable process state and its associated
 locks. The composition root creates one `AppState`; routers and services receive
 that instance and must not create parallel state containers.
+Bounded per-client event delivery is owned by `websocket_manager.py`; producers
+publish structural events without waiting on a slow browser connection.
 
 ## Target modules
 

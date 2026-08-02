@@ -14,6 +14,8 @@
   legacy-layer, screen, and media override stylesheets.
 - Moved process state, cache ownership, provider singletons, and lock ownership
   from `server.py` into a dedicated `app_state.py` component.
+- Extracted bounded WebSocket delivery and added ordering and slow-client
+  regression tests.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

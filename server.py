@@ -80,6 +80,7 @@ from api_auth_router import (
 from api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
 from api_security import SecurityDependencies, install_authentication_middleware
 from app_state import AppState, _PreparationSlots
+from websocket_manager import WSManager, _WSClient
 from media_paths import (
     prepare_media_directory,
     recover_misplaced_media,
@@ -448,97 +449,6 @@ state = AppState()
 # ---------------------------------------------------------------------------
 # WebSocket-Broadcast (Log / Fortschritt / Queue-Events)
 # ---------------------------------------------------------------------------
-class _WSClient:
-    def __init__(self, websocket: WebSocket, queue_size: int):
-        self.websocket = websocket
-        self.queue: asyncio.Queue = asyncio.Queue(maxsize=queue_size)
-        self.sender_task: Optional[asyncio.Task] = None
-        self.close_task: Optional[asyncio.Task] = None
-        self.closing = False
-
-
-class WSManager:
-    """Serialisierte, begrenzte Auslieferung je WebSocket-Client."""
-
-    def __init__(self, queue_size: int = WEBSOCKET_CLIENT_QUEUE_SIZE):
-        self.clients: Dict[WebSocket, _WSClient] = {}
-        self.queue_size = max(1, int(queue_size))
-
-    async def connect(
-        self,
-        ws: WebSocket,
-        initial_payload: Optional[dict] = None,
-        initial_payload_factory: Optional[Callable[[], dict]] = None,
-    ):
-        await ws.accept()
-        client = _WSClient(ws, self.queue_size)
-        # Nach accept() bis zur Registrierung gibt es bewusst kein await. Ein
-        # parallel aus einem Worker-Thread angekündigtes Event läuft erst danach
-        # auf dem Main-Loop und landet somit hinter dem initialen Snapshot.
-        if initial_payload_factory is not None:
-            initial_payload = initial_payload_factory()
-        if initial_payload is not None:
-            client.queue.put_nowait(initial_payload)
-        self.clients[ws] = client
-        client.sender_task = asyncio.create_task(self._sender(client))
-
-    def disconnect(self, ws: WebSocket):
-        client = self.clients.pop(ws, None)
-        if client is None:
-            return
-        client.closing = True
-        try:
-            current = asyncio.current_task()
-        except RuntimeError:
-            current = None
-        for task in (client.sender_task, client.close_task):
-            if task is not None and task is not current and not task.done():
-                task.cancel()
-
-    async def _sender(self, client: _WSClient):
-        try:
-            while True:
-                payload = await client.queue.get()
-                await client.websocket.send_json(payload)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            pass
-        finally:
-            self.disconnect(client.websocket)
-
-    async def _close_slow_client(self, client: _WSClient):
-        try:
-            await client.websocket.close(
-                code=1013,
-                reason="Live-Updates konnten nicht schnell genug zugestellt werden.",
-            )
-        except Exception:
-            pass
-        finally:
-            self.disconnect(client.websocket)
-
-    def publish(self, data: dict):
-        """Muss auf dem Main-Loop laufen; blockiert keinen Produzenten-Thread."""
-        for client in list(self.clients.values()):
-            if client.closing:
-                continue
-            try:
-                client.queue.put_nowait(data)
-            except asyncio.QueueFull:
-                # Keine strukturellen Events wegwerfen: Der Client wird getrennt
-                # und erhält beim Reconnect einen vollständigen neuen Snapshot.
-                client.closing = True
-                client.close_task = asyncio.create_task(
-                    self._close_slow_client(client)
-                )
-
-    async def send_all(self, data: dict):
-        """Kompatibilitätswrapper für bestehende interne Tests/Aufrufer."""
-        self.publish(data)
-        await asyncio.sleep(0)
-
-
 ws_manager = WSManager()
 _main_loop = None  # wird in lifespan gesetzt
 _telegram_bot: Optional[TelegramBot] = None
