@@ -11,8 +11,6 @@ DOMAIN_ROUTERS = {
     "discovery": APIRouter(tags=["discovery"]),
     "queue": APIRouter(tags=["queue"]),
     "library": APIRouter(tags=["library"]),
-    "jellyfin": APIRouter(tags=["jellyfin"]),
-    "integrations": APIRouter(tags=["integrations"]),
     "administration": APIRouter(tags=["administration"]),
 }
 
@@ -33,11 +31,6 @@ _PREFIXES = {
         "/api/v1/tmdb/movie", "/api/tmdb/movies", "/api/v1/tmdb/movies",
         "/api/tmdb/series", "/api/v1/tmdb/series", "/api/jellyfin/matches",
         "/api/v1/jellyfin/matches",
-    ),
-    "jellyfin": ("/api/jellyfin", "/api/v1/jellyfin"),
-    "integrations": (
-        "/api/telegram", "/api/v1/telegram", "/api/seerr", "/api/v1/seerr",
-        "/api/tmdb/config", "/api/v1/tmdb/config",
     ),
 }
 

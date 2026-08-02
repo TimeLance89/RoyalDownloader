@@ -23,6 +23,8 @@
   cancellation into the queue domain router without changing internal callers.
 - Extracted the cover proxy, film subscriptions, series watchlist, watched-state
   reconciliation, and automatic library cleanup into a library domain router.
+- Extracted updater, setup transaction, storage, provider, Jellyfin, TMDB,
+  automation, Telegram, and Seerr configuration into an administration router.
 - Added regression checks for unique API route ownership, duplicate HTML IDs,
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 

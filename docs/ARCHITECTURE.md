@@ -24,9 +24,9 @@ publish structural events without waiting on a slow browser connection.
 | Discovery | `api_discovery_router.py` | provider catalogs and metadata |
 | Queue | `api_queue_router.py` | claims, scheduler, download lifecycle |
 | Library | `api_library_router.py` | subscriptions, watchlist, cleanup |
-| Jellyfin | `api_jellyfin_router.py` | library snapshots and matching |
-| Integrations | `api_integrations_router.py` | Telegram, Seerr, TMDB |
-| Administration | `api_system_router.py` | health, diagnostics, updates |
+| Jellyfin settings | `api_administration_router.py` | library snapshots and matching |
+| Integration settings | `api_administration_router.py` | Telegram, Seerr, TMDB |
+| Administration | `api_administration_router.py`, `api_system_router.py` | config, health, diagnostics, updates |
 | HTTP security | `api_security.py` | public routes, origin checks, response headers |
 
 The administration, authentication, and setup routers plus the HTTP security
@@ -50,6 +50,8 @@ service helpers remain re-exported by the composition root for Telegram, Seerr,
 watchlist, and compatibility tests.
 `api_library_router.py` owns the cover proxy, movie subscriptions, watchlist,
 and watched-media cleanup as one persistence and queue-coordination boundary.
+`api_administration_router.py` owns all runtime configuration mutations and
+their validation, including setup completion and integration settings.
 
 CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed

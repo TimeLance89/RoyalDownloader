@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: Security baseline
-        run: bandit -q -ll -r api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
+        run: bandit -q -ll -r api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py app_state.py auth.py media_paths.py network_guard.py runtime_cache.py self_updater.py websocket_manager.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
