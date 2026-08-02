@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_application_version_has_expected_release_candidate_value():
-    assert APP_VERSION == "1.0.0-rc.1"
+    assert APP_VERSION == "1.0.0-rc.2"
 
 
 def test_capabilities_add_version_without_changing_health_contracts():
@@ -75,22 +75,28 @@ def test_updater_status_adds_version_without_replacing_revision_fields(monkeypat
     assert payload["latest_sha"] == "b" * 40
 
 
-def test_release_documents_do_not_reference_another_semantic_version():
+def test_current_release_documents_use_the_central_semantic_version():
     documents = [
         ROOT / "README.md",
-        ROOT / "CHANGELOG.md",
         ROOT / "docs" / "RELEASE.md",
-        ROOT / "docs" / "releases" / "v1.0.0-rc.1.md",
+        ROOT / "docs" / "DOCKER.md",
+        ROOT / "docs" / "releases" / "v1.0.0-rc.2.md",
     ]
     referenced_versions = set()
     for document in documents:
         text = document.read_text(encoding="utf-8")
-        assert "v1.0.0-rc.1" in text, document
+        assert "v1.0.0-rc.2" in text, document
         referenced_versions.update(re.findall(r"v\d+\.\d+\.\d+-rc\.\d+", text))
-    assert referenced_versions == {"v1.0.0-rc.1"}
+    assert referenced_versions == {"v1.0.0-rc.2"}
+
+    android_api = (ROOT / "docs" / "ANDROID_API.md").read_text(encoding="utf-8")
+    assert f'"application_version": "{APP_VERSION}"' in android_api
+
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert changelog.index("## v1.0.0-rc.2") < changelog.index("## v1.0.0-rc.1")
 
 
-def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
+def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():
     quality = (ROOT / ".github" / "workflows" / "quality.yml").read_text(
         encoding="utf-8",
     )
@@ -109,7 +115,12 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
     assert "needs: quality" in release
     assert "Build container image" in quality
     assert "Smoke-test fresh and persistent container startup" in quality
-    assert "--prerelease" in release
+    assert 'if [[ "${RELEASE_TAG}" == *-* ]]; then' in release
+    assert "release_flags+=(--prerelease)" in release
+    assert release.count("--prerelease") == 1
+    assert '"${release_flags[@]}"' in release
+    assert "gh release create" in release
+    assert "if: startsWith(github.ref, 'refs/tags/')" in release
     assert "--verify-tag" in release
     assert 'git cat-file -t "${GITHUB_REF_NAME}"' in release
     assert 'git tag --annotate "${tag_name}" "${GITHUB_SHA}"' in release

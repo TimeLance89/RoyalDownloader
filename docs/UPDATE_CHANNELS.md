@@ -74,6 +74,11 @@ commit and fails closed while it is pending, missing, or unsuccessful. The
 release workflow additionally rejects tags whose commit is not an ancestor of
 `main`.
 
+Both permanent branches are protected on GitHub. Changes require a pull
+request, the branch must be current, the `verify` status check must pass, and
+review conversations must be resolved. These rules also apply to repository
+administrators. Force-pushes and deletion of `main` or `overnight` are blocked.
+
 No registry image is introduced by this channel model. If images are added
 later, release tags and `stable` belong to Stable; Overnight may use
 `overnight` and `overnight-<commit>`. Release candidates must never update

@@ -27,8 +27,8 @@ checked against Jellyfin, and written directly to mounted media folders.
 > complying with applicable laws, copyright rules, and provider terms.
 
 > [!WARNING]
-> **Current release: `v1.0.0-rc.1` (Release Candidate).** This is the first
-> officially versioned build and may still expose issues before the final
+> **Current release: `v1.0.0-rc.2` (Release Candidate).** This build may still
+> expose issues before the final
 > `v1.0.0`. Back up persistent data before upgrading. See the
 > [release operations guide](docs/RELEASE.md) for installation, upgrade,
 > backup, verification, and rollback steps.
@@ -131,7 +131,7 @@ Requirements:
 - Write access to the Jellyfin movie and series directories
 
 ```bash
-git clone --branch v1.0.0-rc.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```
@@ -157,7 +157,7 @@ See the complete [Docker and NAS guide](docs/DOCKER.md) for volume, Seerr, DNS,
 update, and migration details.
 
 Existing installations that previously followed continuous `main` should use
-the documented [upgrade path to `v1.0.0-rc.1`](docs/RELEASE.md#upgrade-from-continuous-main).
+the documented [upgrade path to `v1.0.0-rc.2`](docs/RELEASE.md#upgrade-from-continuous-main).
 Do not delete or replace `data/`; preserve `runtime/` until the upgraded
 container has passed its health check and the rollback decision is complete.
 

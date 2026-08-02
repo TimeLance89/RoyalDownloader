@@ -56,13 +56,18 @@ jobs:
 
           echo "RELEASE_TAG=${tag_name}" >> "${GITHUB_ENV}"
 
-      - name: Create GitHub pre-release
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_flags=()
+          if [[ "${RELEASE_TAG}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "${RELEASE_TAG}" \
             --verify-tag \
-            --prerelease \
             --title "RoyalDownloader ${RELEASE_TAG}" \
             --notes-file "docs/releases/${RELEASE_TAG}.md" \
-            --generate-notes
+            --generate-notes \
+            "${release_flags[@]}"
