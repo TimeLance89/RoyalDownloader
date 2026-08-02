@@ -44,6 +44,9 @@ The discovery router is physically extracted and receives a migration facade
 from the composition root. Calls are resolved dynamically to retain provider
 test seams. New discovery services should be injected explicitly; they must not
 add reverse imports from the router into `server.py`.
+The same transitional facade pattern is used by `api_queue_router.py`, whose
+service helpers remain re-exported by the composition root for Telegram, Seerr,
+watchlist, and compatibility tests.
 
 CSS cascade order is declared only in `style.css`. Design tokens load first,
 followed by the historical `legacy` layer split across focused files, followed

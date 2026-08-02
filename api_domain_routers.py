@@ -18,7 +18,7 @@ DOMAIN_ROUTERS = {
 _PREFIXES = {
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
-        "/ws", "/api/v1/ws",
+        "/api/taste", "/api/v1/taste", "/ws", "/api/v1/ws",
     ),
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
