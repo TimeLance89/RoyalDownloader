@@ -31,6 +31,8 @@
   mobile catalog pagination, and JavaScript files in nested frontend modules.
 - Added enforceable module-size boundaries and prevented HTTP endpoints from
   drifting back into the `server.py` composition root.
+- Added a consolidated modularization guide covering ownership, compatibility,
+  extension rules, validation, and deployment impact.
 
 ## 2026-08-01 – Legacy updater migration fix
 

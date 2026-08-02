@@ -189,6 +189,7 @@ folders, and persistent settings.
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
 | Development and pull requests | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Architecture boundaries and lock ownership | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Completed backend and frontend modularization | [docs/MODULARIZATION.md](docs/MODULARIZATION.md) |
 | Reviewed dependency/image updates and rollback | [docs/DEPENDENCY_UPDATES.md](docs/DEPENDENCY_UPDATES.md) |
 | Private vulnerability reporting | [SECURITY.md](SECURITY.md) |
 
@@ -199,7 +200,9 @@ RoyalDownloader/
 ├─ providers/                 isolated movie, series, and anime adapters
 ├─ web/                       framework-free web application
 ├─ docs/                      installation and operations documentation
-├─ server.py                  FastAPI, WebSocket, and automation layer
+├─ api_*_router.py            domain-owned FastAPI and WebSocket routes
+├─ app_state.py               shared runtime state, caches, and locks
+├─ server.py                  composition root and service orchestration
 ├─ downloader.py              queue, transfer, and integrity verification
 ├─ jellyfin_client.py         library matching and de-duplication
 ├─ self_updater.py            verified GitHub update workflow
