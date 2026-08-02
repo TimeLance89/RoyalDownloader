@@ -84,7 +84,9 @@ def test_tag_release_waits_for_quality_and_publishes_only_a_prerelease():
     )
 
     assert "workflow_call:" in quality
+    assert 'branches:\n      - main' in release
     assert 'tags:\n      - "v*"' in release
+    assert 'paths:\n      - app_version.py' in release
     assert "workflow_dispatch:" in release
     assert "uses: ./.github/workflows/quality.yml" in release
     assert "needs: quality" in release

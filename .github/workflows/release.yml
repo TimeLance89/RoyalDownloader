@@ -2,8 +2,12 @@ name: Publish release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+    paths:
+      - app_version.py
   workflow_dispatch:
 
 permissions:
@@ -35,7 +39,7 @@ jobs:
           version="$(python -c 'from app_version import APP_VERSION; print(APP_VERSION)')"
           tag_name="v${version}"
 
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             test "${tag_name}" = "${GITHUB_REF_NAME}"
             test "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag"
           else
