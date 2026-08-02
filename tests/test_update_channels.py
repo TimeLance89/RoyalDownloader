@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 import config
 import server
+import update_checker
 from update_checker import UpdateChecker
 from update_channels import (
     DEFAULT_UPDATE_CHANNEL,
@@ -59,6 +60,87 @@ def test_switching_checker_branch_invalidates_cached_branch_result(tmp_path):
     assert checker.branch == "overnight"
     assert checker._cache is None
     assert checker._cache_time == 0.0
+
+
+@pytest.mark.parametrize(
+    ("check_run", "expected_gate", "expected_approved", "expected_update"),
+    (
+        (
+            {"name": "verify", "status": "completed", "conclusion": "success"},
+            "passed",
+            True,
+            True,
+        ),
+        (
+            {"name": "verify", "status": "in_progress", "conclusion": None},
+            "pending",
+            False,
+            False,
+        ),
+        (
+            {"name": "verify", "status": "completed", "conclusion": "failure"},
+            "failed",
+            False,
+            False,
+        ),
+    ),
+)
+def test_overnight_update_requires_successful_quality_for_exact_commit(
+    monkeypatch,
+    tmp_path,
+    check_run,
+    expected_gate,
+    expected_approved,
+    expected_update,
+):
+    current_sha = "a" * 40
+    latest_sha = "b" * 40
+    checker = UpdateChecker(branch="overnight", app_dir=tmp_path)
+    monkeypatch.setattr(update_checker, "detect_local_commit", lambda _path: current_sha)
+
+    def fake_get_json(path):
+        if path == "commits/overnight":
+            return {
+                "sha": latest_sha,
+                "html_url": f"https://github.com/example/commit/{latest_sha}",
+                "commit": {"message": "tested Overnight build"},
+            }
+        if path == f"commits/{latest_sha}/check-runs?per_page=100":
+            return {"check_runs": [check_run]}
+        if path == f"compare/{current_sha}...{latest_sha}":
+            return {"status": "ahead", "ahead_by": 1, "behind_by": 0}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(checker, "_get_json", fake_get_json)
+
+    result = checker.check(force=True)
+
+    assert result["latest_sha"] == latest_sha
+    assert result["quality_gate"] == expected_gate
+    assert result["quality_approved"] is expected_approved
+    assert result["update_available"] is expected_update
+
+
+def test_missing_overnight_quality_result_fails_closed(monkeypatch, tmp_path):
+    checker = UpdateChecker(branch="overnight", app_dir=tmp_path)
+    monkeypatch.setattr(
+        checker,
+        "_get_json",
+        lambda _path: {"check_runs": [{"name": "unrelated", "status": "completed"}]},
+    )
+
+    assert checker._quality_gate_state("b" * 40) == "missing"
+
+
+def test_stable_does_not_require_overnight_quality_gate(monkeypatch, tmp_path):
+    checker = UpdateChecker(branch="main", app_dir=tmp_path)
+    monkeypatch.setattr(
+        checker,
+        "_get_json",
+        lambda _path: pytest.fail("Stable must not query Overnight check runs"),
+    )
+
+    assert checker._quality_gate_state("b" * 40) == "not_required"
 
 
 def test_channel_selection_is_persisted_and_survives_reload(isolated_config):

@@ -400,6 +400,10 @@ divergierten Stable-Stand mit `possible_downgrade` und
 dafür additiv `confirm_channel_switch`; ältere Clients bleiben für normale
 Updates unverändert funktionsfähig.
 
+Für Overnight kommen additiv `quality_gate` und `quality_approved` hinzu; ein
+Commit bleibt bei fehlender, laufender oder fehlgeschlagener Quality-Prüfung
+nicht installierbar.
+
 Die Events besitzen keine Event-ID, Sequenz oder Replay-Funktion. `progress` enthält keine Job-ID. Legacy-Clients müssen nach jedem Connect `GET /api/queue` und `GET /api/watchlist` nachladen.
 
 ## Additive API v1

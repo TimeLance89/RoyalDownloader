@@ -11,6 +11,9 @@
   and development/downgrade warnings in the update UI and API.
 - Run the complete quality workflow for both branches and require official
   release commits to be contained in `main`.
+- Offer an Overnight commit only after the complete Quality workflow has
+  succeeded for that exact revision; missing, pending, or failed results remain
+  unavailable.
 
 ## v1.0.0-rc.1 – 2026-08-02
 

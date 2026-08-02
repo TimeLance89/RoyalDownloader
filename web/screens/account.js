@@ -244,6 +244,15 @@ function applyUpdaterStatus(data) {
     detail.textContent = data.error;
     return;
   }
+  if (channel === "overnight" && data.quality_approved === false) {
+    card.dataset.state = data.quality_gate === "failed" ? "error" : "unknown";
+    badge.textContent = data.quality_gate === "failed" ? "!" : "CI";
+    status.textContent = data.quality_gate === "failed"
+      ? "Overnight-Quality fehlgeschlagen"
+      : "Overnight wird noch geprüft";
+    detail.textContent = "Dieser Commit wird erst nach erfolgreichen vollständigen Quality Gates als Update angeboten.";
+    return;
+  }
   if (data.possible_downgrade) {
     card.dataset.state = "available";
     badge.textContent = "↘";

@@ -183,6 +183,13 @@ def _attempt_automatic_update() -> str:
         _set_updater_runtime("error", message, checked=True)
         log(f"Automatische Updateprüfung fehlgeschlagen: {message}", "warn")
         return "error"
+    if update.get("quality_approved") is False:
+        _set_updater_runtime(
+            "unavailable",
+            "Der Overnight-Build wird erst nach erfolgreichen Quality Gates angeboten.",
+            checked=True,
+        )
+        return "unavailable"
     if (
         channel == "stable"
         and update.get("comparison") in {"behind", "diverged"}

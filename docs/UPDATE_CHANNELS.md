@@ -69,8 +69,10 @@ mounts remain unchanged.
 
 Both `main` and `overnight` run Python and frontend tests, syntax checks, Ruff,
 Bandit, dependency audit, Docker build, health, persistence, and restart smoke
-checks. The release workflow additionally rejects tags whose commit is not an
-ancestor of `main`.
+checks. The updater also checks the Quality result for the exact Overnight
+commit and fails closed while it is pending, missing, or unsuccessful. The
+release workflow additionally rejects tags whose commit is not an ancestor of
+`main`.
 
 No registry image is introduced by this channel model. If images are added
 later, release tags and `stable` belong to Stable; Overnight may use
