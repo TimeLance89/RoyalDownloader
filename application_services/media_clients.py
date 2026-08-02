@@ -142,6 +142,10 @@ def _set_runtime_jellyfin_config(cfg: dict) -> None:
         state.jellyfin_library_time = 0.0
         state.jellyfin_library_available = False
         state.jellyfin_library_retry_after = 0.0
+        state.jellyfin_movie_identities = None
+        state.jellyfin_movie_identities_time = 0.0
+        state.jellyfin_movie_identities_available = False
+        state.jellyfin_movie_identities_retry_after = 0.0
         state.jellyfin_episodes = None
         state.jellyfin_episodes_time = 0.0
         state.jellyfin_episodes_available = False
@@ -257,6 +261,42 @@ def get_jellyfin_library(force: bool = False) -> Optional[List[dict]]:
                 state.jellyfin_library_available = False
                 state.jellyfin_library_retry_after = time.time() + JELLYFIN_ERROR_RETRY_SECONDS
             return state.jellyfin_library
+
+
+def get_jellyfin_movie_identities(force: bool = False) -> Optional[List[dict]]:
+    """Kleiner, unabhängiger Index für interaktive Film-Badges."""
+    with state.jellyfin_movie_identities_fetch_lock:
+        with state.jellyfin_cache_lock:
+            client = get_jellyfin_client()
+            generation = state.jellyfin_config_generation
+            now = time.time()
+            if not client.configured:
+                return None
+            if not force and now < state.jellyfin_movie_identities_retry_after:
+                return state.jellyfin_movie_identities
+            needs_fetch = (
+                force
+                or state.jellyfin_movie_identities is None
+                or not state.jellyfin_movie_identities_available
+                or (now - state.jellyfin_movie_identities_time) > JELLYFIN_CACHE_TTL
+            )
+            if not needs_fetch:
+                return state.jellyfin_movie_identities
+        fresh = client.list_movie_identities()
+        with state.jellyfin_cache_lock:
+            if generation != state.jellyfin_config_generation:
+                return state.jellyfin_movie_identities
+            if fresh is not None:
+                state.jellyfin_movie_identities = fresh
+                state.jellyfin_movie_identities_time = time.time()
+                state.jellyfin_movie_identities_available = True
+                state.jellyfin_movie_identities_retry_after = 0.0
+            else:
+                state.jellyfin_movie_identities_available = False
+                state.jellyfin_movie_identities_retry_after = (
+                    time.time() + JELLYFIN_ERROR_RETRY_SECONDS
+                )
+            return state.jellyfin_movie_identities
 
 
 def get_jellyfin_episodes(force: bool = False) -> Optional[List[dict]]:
@@ -528,6 +568,7 @@ _SERVICE_EXPORTS = (
     "JELLYFIN_TARGETED_CACHE_TTL",
     "JELLYFIN_TARGETED_ERROR_RETRY_SECONDS",
     "get_jellyfin_library",
+    "get_jellyfin_movie_identities",
     "get_jellyfin_episodes",
     "get_jellyfin_series",
     "get_jellyfin_targeted_episodes",

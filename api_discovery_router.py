@@ -56,6 +56,7 @@ get_fp_scraper = _unbound_dependency
 get_huhu_scraper = _unbound_dependency
 get_jellyfin_client = _unbound_dependency
 get_jellyfin_library = _unbound_dependency
+get_jellyfin_movie_identities = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
@@ -84,6 +85,7 @@ _DYNAMIC_CALLS = (
     "get_huhu_scraper",
     "get_jellyfin_client",
     "get_jellyfin_library",
+    "get_jellyfin_movie_identities",
     "get_mkissa_scraper",
     "get_series_for_value",
     "get_tmdb_client",
@@ -233,9 +235,12 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     for result in result_dicts:
         if result.get("provider"):
             result["title"] = clean_movie_title(result.get("title", ""))
-    jf_items = await run_in_threadpool(get_jellyfin_library)
+    # Der Katalog benötigt ausschließlich Filmidentitäten. Der vollständige
+    # Qualitätsindex (MediaSources/Path) ist erheblich größer und bleibt den
+    # Abo-/Upgrade-Jobs vorbehalten.
+    jf_items = await run_in_threadpool(get_jellyfin_movie_identities)
     with state.jellyfin_cache_lock:
-        jf_available = state.jellyfin_library_available
+        jf_available = state.jellyfin_movie_identities_available
     if jf_items is not None and jf_available:
         jf_client = get_jellyfin_client()
         for rd in result_dicts:
@@ -339,20 +344,23 @@ async def api_tmdb_movie(item: MovieMetadataItem):
 async def api_jellyfin_matches(body: MovieMetadataBody):
     """Aktualisiert nur die JF-Badges, ohne Anbieter oder Streams neu zu laden."""
     def _work():
-        items = get_jellyfin_library()
-        with state.jellyfin_cache_lock:
-            library_available = state.jellyfin_library_available
-        if items is None or not library_available:
-            return {}
         client = get_jellyfin_client()
-        return {
+        if not client.configured:
+            return {"configured": False, "available": True, "matches": {}}
+        items = get_jellyfin_movie_identities()
+        with state.jellyfin_cache_lock:
+            library_available = state.jellyfin_movie_identities_available
+        if items is None or not library_available:
+            return {"configured": True, "available": False, "matches": {}}
+        matches = {
             item.slug: client.match(
                 clean_movie_title(item.title), item.year,
                 items=items, tmdb_id=item.tmdb_id,
             )
             for item in body.items[:100]
         }
-    return {"matches": await run_in_threadpool(_work)}
+        return {"configured": True, "available": True, "matches": matches}
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/tmdb/movies")

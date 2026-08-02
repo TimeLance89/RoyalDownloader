@@ -180,6 +180,37 @@ class JellyfinClient:
             "path": str(it.get("Path") or ""),
         } for it in items]
 
+    def list_movie_identities(self, limit: int = 1000) -> Optional[List[dict]]:
+        """Liefert nur die Felder, die ein schneller Filmabgleich benötigt.
+
+        MediaSources und Path können bei großen Bibliotheken die Antwort um
+        Größenordnungen aufblähen. Sie gehören deshalb bewusst nicht in den
+        interaktiven Badge-Check.
+        """
+        items = self._list_items({
+            "IncludeItemTypes": "Movie",
+            "Recursive": "true",
+            "CollapseBoxSetItems": "false",
+            "ExcludeLocationTypes": "Virtual,Offline",
+            "IsMissing": "false",
+            "IsPlaceHolder": "false",
+            "Fields": "ProductionYear,OriginalTitle,SortName,ProviderIds",
+        }, limit, "Jellyfin-Filmabgleich")
+        if items is None:
+            return None
+        return [{
+            "id": str(item.get("Id") or ""),
+            "name": str(item.get("Name") or ""),
+            "original_title": str(item.get("OriginalTitle") or ""),
+            "sort_name": str(item.get("SortName") or ""),
+            "year": item.get("ProductionYear"),
+            "tmdb_id": str(
+                (item.get("ProviderIds") or {}).get("Tmdb")
+                or (item.get("ProviderIds") or {}).get("TheMovieDb")
+                or ""
+            ),
+        } for item in items]
+
     def list_movies_with_user_data(
         self, user_id: str, limit: int = 1000,
     ) -> Optional[List[dict]]:
