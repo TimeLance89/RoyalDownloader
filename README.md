@@ -210,6 +210,7 @@ passwords, API keys, cookies, private addresses, chat IDs, and media paths.
 | Stable/Overnight channels, safe switching, and promotion | [docs/UPDATE_CHANNELS.md](docs/UPDATE_CHANNELS.md) |
 | Native Android clients | The app source is maintained separately; use the documented API contract below. |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
+| Persistent queue jobs, history, migration, and job controls | [docs/QUEUE_JOBS.md](docs/QUEUE_JOBS.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
 | Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |

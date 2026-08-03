@@ -442,7 +442,7 @@ async function initApp() {
   });
   document.getElementById("cancel-btn").addEventListener("click", async () => {
     const resp = await api.downloadCancel();
-    renderQueue(resp.queue);
+    refreshQueueUiAfterChange(resp);
     setDownloadState("cancelled", "Abgebrochen", "Downloads wurden gestoppt", state.download.percent);
   });
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));

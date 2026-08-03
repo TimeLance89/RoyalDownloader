@@ -90,6 +90,14 @@ const api = {
   },
   queueRemove(slug) { return this.post("/api/queue/remove", { slug }); },
   queueClear() { return this.post("/api/queue/clear"); },
+  queueJobs() { return this.get("/api/queue/jobs"); },
+  queueHistory() { return this.get("/api/queue/history"); },
+  queueJobCancel(jobId) { return this.post(`/api/queue/jobs/${encodeURIComponent(jobId)}/cancel`); },
+  queueJobRetry(jobId) { return this.post(`/api/queue/jobs/${encodeURIComponent(jobId)}/retry`); },
+  queueJobMove(jobId, direction) {
+    return this.post(`/api/queue/jobs/${encodeURIComponent(jobId)}/move`, { direction });
+  },
+  queueJobResume(jobId) { return this.post(`/api/queue/jobs/${encodeURIComponent(jobId)}/resume`); },
 
   downloadCancel() { return this.post("/api/download/cancel"); },
 

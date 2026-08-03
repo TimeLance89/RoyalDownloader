@@ -65,6 +65,7 @@ from downloader import (
     probe_stream_url, validate_media_file, cleanup_stale_staging,
     _sanitize as sanitize_filename,
 )
+from queue_jobs import HISTORY_LIMIT, new_job
 from session_manager import ProviderBlockedError, _cookie_file_for
 from hoster_intel import HosterIntel
 from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth

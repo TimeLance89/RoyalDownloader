@@ -217,7 +217,7 @@ Anime verwendet derzeit MKissa und besitzt keine Watchlist-/Jellyfin-Verknüpfun
 
 ```text
 GET /api/queue
-→ {queue:{count,groups[]}}
+→ {queue:{count,jobs[],groups[]}}
 ```
 
 Queue-Snapshot:
@@ -229,6 +229,7 @@ Queue-Snapshot:
     "name": "Filme",
     "items": [{
       "slug": "...",
+      "job_id": "a persistent opaque ID",
       "title": "...",
       "hoster_label": "VOE",
       "provider": "filmpalast",
@@ -255,7 +256,25 @@ POST /api/download/cancel {}
 
 `queue/add` löst Providerdaten auf und startet akzeptierte Einträge automatisch. `queue/clear` entfernt wartende Einträge; `/download/cancel` bricht den gesamten Lauf ab.
 
-Aktuelle Grenzen: keine stabilen Job-IDs, keine persistierte Reihenfolge/Abschlusshistorie und kein REST-Fortschritt mit Bytes, Geschwindigkeit oder ETA.
+Die neuen Job-Verträge sind unter `/api` und `/api/v1` identisch verfügbar:
+
+```text
+GET  /queue/jobs
+GET  /queue/history
+POST /queue/jobs/{job_id}/cancel
+POST /queue/jobs/{job_id}/retry
+POST /queue/jobs/{job_id}/move    {direction:"up"|"down"}
+POST /queue/jobs/{job_id}/resume
+```
+
+Asynchron akzeptierte Aktionen antworten mit `202`. Ein Job enthält mindestens
+`job_id`, `media_type`, `title`, `slug`, `provider`, `hoster`, `quality`,
+`content_language`, `status`, Zeitstempel, Fortschritt, Byte-Zähler,
+Geschwindigkeit, ETA, Fehler, Versuche, Retry-Zeitpunkt und finalen Pfad.
+Terminale Jobs bleiben in einer persistenten Historie der letzten 500 Jobs.
+Laufende Downloads können mit der gegenwärtigen Engine nicht sicher pausiert
+werden; `/pause` meldet deshalb explizit `running_pause_not_supported` statt
+einen Scheinzustand zu speichern.
 
 ## Watchlist und Serienautomatisierung
 
@@ -569,7 +588,6 @@ Danach folgen dieselben Events wie über `/ws`. Bei jedem Reconnect ersetzt der 
 
 - Kernantworten besitzen noch keine FastAPI-`response_model`-DTOs.
 - Provider-Slugs sind öffentliche IDs und nicht langfristig stabil.
-- Queue-Einträge besitzen keine Job-ID oder persistierten Detailfortschritt.
 - Watchlist-Antworten enthalten interne Persistenzfelder und freie Fehlertexte.
 - Fach- und Validierungsfehler besitzen noch nicht durchgängig einheitliche maschinenlesbare Codes; Authentifizierungsfehler unterscheiden mindestens `auth_required` und `session_expired`.
 - v1-Events haben nach dem Snapshot keine Event-ID, Sequenz oder Replay-Funktion.
