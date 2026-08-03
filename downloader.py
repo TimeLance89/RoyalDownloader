@@ -458,6 +458,8 @@ class DownloadJob:
         provider: str = "",
         content_language: str = "",
         queue_priority: int = 100,
+        job_id: str = "",
+        on_start: Optional[Callable[[], None]] = None,
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -477,7 +479,11 @@ class DownloadJob:
         self.host_group = host_group_for_url(stream_url)
         self.failure_kind = ""
         self.average_speed_bps = 0.0
-        self.job_id = uuid.uuid4().hex
+        self.job_id = str(job_id or "").strip() or uuid.uuid4().hex
+        self.downloaded_bytes = 0
+        self.total_bytes: Optional[int] = None
+        self.eta_seconds: Optional[int] = None
+        self.on_start = on_start or (lambda: None)
         self._preferred_staging_root = out_path.parent / ".downloading"
         self._fallback_staging_root = STAGING_DIR
         self._staging_root = self._preferred_staging_root
@@ -510,6 +516,7 @@ class DownloadJob:
             if self._cancelled:
                 self.on_done(False, "Abgebrochen")
                 return
+            self.on_start()
             # Die Hoster-Probe läuft bereits über yt-dlp. Deshalb denselben Weg
             # auch für den echten Download zuerst nutzen; der generische
             # Extraktor verarbeitet direkte MP4-URLs zuverlässiger als ein
@@ -892,6 +899,7 @@ class DownloadJob:
                     self._terminate_process_tree()
                     break
             pct = self._parse_progress(line)
+            self._update_progress_metrics(line, pct)
             self.on_progress(pct, self._friendly_ytdlp_message(line))
 
         try:
@@ -915,6 +923,26 @@ class DownloadJob:
     def _parse_progress(self, line: str) -> float:
         m = re.search(r"(\d+\.?\d*)\s*%", line)
         return float(m.group(1)) if m else -1.0
+
+    def _update_progress_metrics(self, line: str, pct: float) -> None:
+        total_match = re.search(
+            r"\bof\s+~?\s*(\d+(?:\.\d+)?)\s*([KMGTPE]?i?B)\b",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if total_match:
+            value = float(total_match.group(1))
+            unit = total_match.group(2).casefold()
+            power = {"": 0, "k": 1, "m": 2, "g": 3, "t": 4, "p": 5, "e": 6}.get(
+                unit[0] if len(unit) > 1 else "", 0,
+            )
+            self.total_bytes = int(value * ((1024 if "i" in unit else 1000) ** power))
+        if self.total_bytes and pct >= 0:
+            self.downloaded_bytes = int(self.total_bytes * min(100.0, pct) / 100.0)
+        eta_match = re.search(r"\bETA\s+(?:(\d+):)?(\d{1,2}):(\d{2})\b", line)
+        if eta_match:
+            hours = int(eta_match.group(1) or 0)
+            self.eta_seconds = hours * 3600 + int(eta_match.group(2)) * 60 + int(eta_match.group(3))
 
     @staticmethod
     def _parse_speed_bps(line: str) -> Optional[float]:
@@ -996,6 +1024,7 @@ class DownloadJob:
             if any(bad in content_type for bad in ("text/", "html", "json", "xml")):
                 return False, f"Stream lieferte keinen Film ({content_type or 'unbekannter Content-Type'})"
             total = int(resp.headers.get("Content-Length", 0))
+            self.total_bytes = total or None
             downloaded = 0
             started = time.monotonic()
             speed_watchdog = None if self.allow_slow else _ByteGrowthWatchdog(started_at=started)
@@ -1008,6 +1037,7 @@ class DownloadJob:
                         return False, "Abgebrochen"
                     f.write(chunk)
                     downloaded += len(chunk)
+                    self.downloaded_bytes = downloaded
                     now = time.monotonic()
                     self.average_speed_bps = downloaded / max(now - started, 0.001)
                     if speed_watchdog and speed_watchdog.observe(downloaded, now):
@@ -1018,6 +1048,9 @@ class DownloadJob:
                         )
                     if total > 0:
                         pct = downloaded / total * 100
+                        self.eta_seconds = int(
+                            max(0, total - downloaded) / max(self.average_speed_bps, 1)
+                        )
                         self.on_progress(pct, f"{downloaded // 1024 // 1024} MB")
             if total > 0 and downloaded < total:
                 return False, f"Stream endete vorzeitig ({downloaded}/{total} Bytes)"
@@ -1105,6 +1138,21 @@ class DownloadQueue:
                     kept.append(queued)
             self._jobs = kept
             return removed
+
+    def move_pending(self, predicate: Callable[[DownloadJob], bool], direction: str) -> bool:
+        """Move one not-yet-started physical job without resetting the queue."""
+        with self._lock:
+            index = next(
+                (i for i, (_jid, job) in enumerate(self._jobs) if predicate(job)),
+                None,
+            )
+            if index is None:
+                return False
+            target = index - 1 if direction == "up" else index + 1
+            if target < 0 or target >= len(self._jobs):
+                return True
+            self._jobs[index], self._jobs[target] = self._jobs[target], self._jobs[index]
+            return True
 
     def cancel_active(self, predicate: Callable[[DownloadJob], bool]) -> list:
         """Bricht passende aktive Jobs ab und gibt die Jobobjekte zurück."""

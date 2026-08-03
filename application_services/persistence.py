@@ -230,10 +230,216 @@ def _persist_movie_subscriptions_background() -> bool:
 
 def _persist_queue_state() -> bool:
     with state.queue_claim_lock:
-        snapshot = set(state.picked)
-        # Lock bis nach dem atomaren Replace halten. Sonst kann ein älterer
-        # Snapshot einen neueren Abschluss nachträglich überschreiben.
-        return _persist_background_snapshot("queue", snapshot)
+        snapshot = _queue_state_snapshot()
+    # File I/O is deliberately outside the queue lock. Monotonic snapshot
+    # revisions prevent a delayed older writer from replacing newer state.
+    return _persist_background_snapshot("queue", snapshot)
+
+
+def _queue_state_snapshot(
+    *,
+    active_jobs: Optional[List[dict]] = None,
+    history: Optional[List[dict]] = None,
+) -> dict:
+    """Return one transaction containing active jobs and terminal history."""
+    with state.queue_claim_lock:
+        state.queue_persistence_revision = int(state.queue_persistence_revision) + 1
+        if active_jobs is None:
+            active_jobs = [
+                job for job in state.queue_jobs.values()
+                if job.get("slug") in state.picked
+            ]
+        if history is None:
+            history = state.queue_history
+        return {
+            "schema_version": 2,
+            "revision": state.queue_persistence_revision,
+            "jobs": deepcopy(active_jobs),
+            "history": deepcopy(list(history)[:HISTORY_LIMIT]),
+        }
+
+
+def _queue_job_for_slug(slug: str) -> Optional[dict]:
+    with state.queue_claim_lock:
+        job_id = state.queue_job_by_slug.get(str(slug))
+        return state.queue_jobs.get(job_id) if job_id else None
+
+
+def _queue_job_for_id(job_id: str, *, include_history: bool = False) -> Optional[dict]:
+    with state.queue_claim_lock:
+        job = state.queue_jobs.get(str(job_id))
+        if job is not None or not include_history:
+            return job
+        return next(
+            (item for item in state.queue_history if item.get("job_id") == str(job_id)),
+            None,
+        )
+
+
+def _ensure_queue_job(slug: str, movie=None, *, job_id: str = "") -> dict:
+    """Create a logical identity once; provider/hoster retries reuse it."""
+    slug = str(slug)
+    with state.queue_claim_lock:
+        existing_id = state.queue_job_by_slug.get(slug)
+        if existing_id and existing_id in state.queue_jobs:
+            job = state.queue_jobs[existing_id]
+            if movie is not None and (
+                not job.get("title") or job.get("title") == slug
+            ):
+                job["title"] = str(getattr(movie, "title", "") or slug)
+            return job
+        job = new_job(
+            slug,
+            job_id=job_id or None,
+            title=str(getattr(movie, "title", "") or slug),
+        )
+        state.queue_jobs[job["job_id"]] = job
+        state.queue_job_by_slug[slug] = job["job_id"]
+        return job
+
+
+def _update_queue_job(slug: str, *, persist: bool = True, **changes) -> Optional[dict]:
+    with state.queue_claim_lock:
+        job = _queue_job_for_slug(slug)
+        if job is None:
+            job = _ensure_queue_job(slug, state.fp_movies.get(slug))
+        for key, value in changes.items():
+            if key in job and value is not None:
+                job[key] = value
+        snapshot = deepcopy(job)
+    if persist and not _persist_queue_state():
+        log(f"Queue-Job {job['job_id']} konnte nicht gespeichert werden.", "warn")
+    return snapshot
+
+
+def _terminal_queue_job(
+    slug: str,
+    status: str,
+    *,
+    error: str = "",
+    final_path: str = "",
+    persist: bool = True,
+) -> Optional[dict]:
+    with state.queue_claim_lock:
+        job_id = state.queue_job_by_slug.pop(str(slug), "")
+        job = state.queue_jobs.pop(job_id, None) if job_id else None
+        state.queue_job_persist_times.pop(str(slug), None)
+        if job is None:
+            return None
+        job["status"] = status
+        job["completed_at"] = time.time()
+        job["error"] = str(error or "")[:500]
+        job["final_path"] = str(final_path or "")
+        if status == "completed":
+            job["progress"] = 100.0
+        state.queue_history = [
+            item for item in state.queue_history if item.get("job_id") != job_id
+        ]
+        state.queue_history.insert(0, job)
+        del state.queue_history[HISTORY_LIMIT:]
+        snapshot = deepcopy(job)
+    if persist and not _persist_queue_state():
+        log(f"Terminaler Queue-Job {job_id} konnte nicht gespeichert werden.", "warn")
+    return snapshot
+
+
+def _queue_terminal_snapshot(
+    slug: str,
+    status: str,
+    *,
+    error: str = "",
+    final_path: str = "",
+) -> tuple[dict, Optional[dict]]:
+    """Build a durable terminal transition before worker state is changed."""
+    with state.queue_claim_lock:
+        job = _queue_job_for_slug(slug)
+        if job is None:
+            return _queue_state_snapshot(), None
+        terminal = deepcopy(job)
+        terminal.update({
+            "status": status,
+            "completed_at": time.time(),
+            "error": str(error or "")[:500],
+            "final_path": str(final_path or ""),
+        })
+        if status == "completed":
+            terminal["progress"] = 100.0
+        active = [
+            deepcopy(item) for item in state.queue_jobs.values()
+            if item.get("job_id") != terminal["job_id"]
+        ]
+        history = [terminal] + [
+            deepcopy(item) for item in state.queue_history
+            if item.get("job_id") != terminal["job_id"]
+        ]
+        return _queue_state_snapshot(active_jobs=active, history=history), terminal
+
+
+def _apply_terminal_queue_job(terminal: dict) -> None:
+    with state.queue_claim_lock:
+        job_id = str(terminal.get("job_id") or "")
+        slug = str(terminal.get("slug") or "")
+        state.queue_jobs.pop(job_id, None)
+        if state.queue_job_by_slug.get(slug) == job_id:
+            state.queue_job_by_slug.pop(slug, None)
+        state.queue_job_persist_times.pop(slug, None)
+        state.queue_history = [
+            deepcopy(terminal),
+            *(
+                item for item in state.queue_history
+                if item.get("job_id") != job_id
+            ),
+        ][:HISTORY_LIMIT]
+
+
+def _retry_queue_job(job_id: str) -> Optional[dict]:
+    """Move one failed/cancelled history record back to the active queue."""
+    with state.queue_claim_lock:
+        index = next(
+            (i for i, item in enumerate(state.queue_history) if item.get("job_id") == job_id),
+            None,
+        )
+        if index is None:
+            return None
+        job = state.queue_history[index]
+        if job.get("status") not in {"failed", "cancelled"}:
+            return None
+        slug = str(job.get("slug") or "")
+        if not slug or slug in state.queue_job_by_slug:
+            return None
+        state.queue_history.pop(index)
+        job.update({
+            "status": "queued",
+            "started_at": 0.0,
+            "completed_at": 0.0,
+            "progress": 0.0,
+            "downloaded_bytes": 0,
+            "total_bytes": None,
+            "speed_bps": 0.0,
+            "eta_seconds": None,
+            "error": "",
+            "next_retry_at": 0.0,
+            "final_path": "",
+        })
+        state.queue_jobs[job_id] = job
+        state.queue_job_by_slug[slug] = job_id
+        state.picked.add(slug)
+        return deepcopy(job)
+
+
+def queue_jobs_payload() -> dict:
+    with state.queue_claim_lock:
+        jobs = deepcopy([
+            job for job in state.queue_jobs.values()
+            if job.get("slug") in state.picked
+        ])
+    return {"count": len(jobs), "jobs": jobs}
+
+
+def queue_history_payload() -> dict:
+    with state.queue_claim_lock:
+        history = deepcopy(state.queue_history)
+    return {"count": len(history), "limit": HISTORY_LIMIT, "jobs": history}
 
 
 def _persist_new_queue_claims(slugs) -> bool:
@@ -246,6 +452,9 @@ def _persist_new_queue_claims(slugs) -> bool:
         state.preparing_queue_slugs.difference_update(claimed)
         for slug in claimed:
             state.provider_waiting_jobs.pop(slug, None)
+            job_id = state.queue_job_by_slug.pop(slug, "")
+            if job_id:
+                state.queue_jobs.pop(job_id, None)
     # Der erste Fehlversuch enthielt noch die neuen Claims. Der Retry-Snapshot
     # muss deshalb sofort durch den zurückgerollten Zustand ersetzt werden.
     _persist_queue_state()
@@ -311,10 +520,19 @@ def serienstream_provider_status() -> dict:
 
 def build_queue_payload() -> dict:
     with state.queue_claim_lock:
-        slugs = sorted(state.picked)
+        slugs = [
+            job["slug"] for job in state.queue_jobs.values()
+            if job.get("slug") in state.picked
+        ]
+        slugs.extend(sorted(set(state.picked) - set(slugs)))
+        jobs_snapshot = deepcopy([
+            job for job in state.queue_jobs.values()
+            if job.get("slug") in state.picked
+        ])
     if not slugs:
         return {
             "count": 0,
+            "jobs": [],
             "groups": [],
             "providers": {"serienstream": serienstream_provider_status()},
             "persistence": _persistence_status("queue"),
@@ -352,7 +570,7 @@ def build_queue_payload() -> dict:
     serienstream_paused = provider_status.get("state") != HEALTHY
     for name, gslugs in groups.items():
         items = []
-        for slug in sorted(gslugs, key=episode_sort_key):
+        for slug in gslugs:
             movie = state.fp_movies.get(slug)
             title = movie.title if movie else slug
             label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
@@ -379,11 +597,21 @@ def build_queue_payload() -> dict:
                 and provider_for_value(slug) == "serienstream"
                 and slug in state.counted_queue_slugs
             )
+            logical_job = _queue_job_for_slug(slug) or {}
+            derived_status = (
+                "downloading" if slug in active_download_slugs
+                else "queued" if slug in pending_download_slugs
+                else "waiting_provider" if waiting_provider
+                else "preparing" if (checking_fallback or preparing_source)
+                else "queued"
+            )
             items.append({
+                **deepcopy(logical_job),
                 "slug": slug, "title": title, "hoster_label": label,
                 "provider": provider,
                 "content_language": _movie_content_language(movie, fallback=slug),
                 "done": slug in state.done_slugs,
+                "job_status": derived_status,
                 "status": (
                     "downloading" if slug in active_download_slugs
                     else "download_ready" if slug in pending_download_slugs
@@ -401,6 +629,7 @@ def build_queue_payload() -> dict:
         result_groups.append({"name": name, "items": items})
     return {
         "count": len(slugs),
+        "jobs": jobs_snapshot,
         "groups": result_groups,
         "providers": {"serienstream": provider_status},
         "persistence": _persistence_status("queue"),
@@ -538,6 +767,17 @@ _SERVICE_EXPORTS = (
     "_persist_watchlist_background",
     "_persist_movie_subscriptions_background",
     "_persist_queue_state",
+    "_queue_state_snapshot",
+    "_queue_job_for_slug",
+    "_queue_job_for_id",
+    "_ensure_queue_job",
+    "_update_queue_job",
+    "_terminal_queue_job",
+    "_queue_terminal_snapshot",
+    "_apply_terminal_queue_job",
+    "_retry_queue_job",
+    "queue_jobs_payload",
+    "queue_history_payload",
     "_persist_new_queue_claims",
     "_queue_slug_claimed",
     "serienstream_provider_status",

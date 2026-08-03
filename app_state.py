@@ -222,10 +222,24 @@ class AppState:
         self.series_list_cache: dict[tuple, tuple] = {}
         self.series_list_cache_lock = threading.Lock()
         self.series_catalog_lock = threading.Lock()
-        self.picked: set = set(appconfig.load_queue())
+        queue_document, queue_migrated = appconfig.load_queue_state()
+        self.queue_jobs: "OrderedDict[str, dict]" = OrderedDict(
+            (job["job_id"], job) for job in queue_document["jobs"]
+        )
+        self.queue_job_by_slug: dict[str, str] = {
+            job["slug"]: job["job_id"] for job in self.queue_jobs.values()
+        }
+        self.queue_history: list[dict] = list(queue_document["history"])
+        self.queue_persistence_revision = int(queue_document.get("revision") or 0)
+        self.queue_job_persist_times: dict[str, float] = {}
+        self.picked: set = set(self.queue_job_by_slug)
         self.queue_content_keys: dict[str, str] = {}
         self.done_slugs: set = set()
         self.queue_claim_lock = threading.RLock()
+        if queue_migrated and not appconfig.save_queue_state(queue_document):
+            logger.error(
+                "Die alte Download-Queue konnte nicht in das Job-Format migriert werden."
+            )
 
         self.fp_scraper: FilmpalastScraper | None = None
         self.fp_lock = threading.Lock()

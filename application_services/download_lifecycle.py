@@ -14,8 +14,45 @@ globals().update(import_backend_namespace())
 # ---------------------------------------------------------------------------
 # Download-Pipeline (1:1 aus main.py._build_and_start_queue portiert)
 # ---------------------------------------------------------------------------
-def on_job_progress(pct: float, msg: str, label: str):
+def on_job_progress(
+    pct: float,
+    msg: str,
+    label: str,
+    *,
+    slug: str = "",
+    job_id: str = "",
+    downloaded_bytes: int = 0,
+    total_bytes=None,
+    speed_bps: float = 0.0,
+    eta_seconds=None,
+):
     payload = {"type": "progress", "label": label, "msg": msg}
+    if slug:
+        now = time.monotonic()
+        with state.queue_claim_lock:
+            last_persisted = float(state.queue_job_persist_times.get(slug) or 0)
+            should_persist = pct >= 100 or now - last_persisted >= 1.0
+            if should_persist:
+                state.queue_job_persist_times[slug] = now
+        logical = _update_queue_job(
+            slug,
+            persist=False,
+            status="downloading",
+            progress=max(0.0, pct) if pct >= 0 else None,
+            downloaded_bytes=max(0, int(downloaded_bytes or 0)),
+            total_bytes=total_bytes,
+            speed_bps=max(0.0, float(speed_bps or 0)),
+            eta_seconds=eta_seconds,
+        )
+        if should_persist:
+            _persist_queue_state()
+        if logical:
+            payload["job"] = logical
+            job_id = logical["job_id"]
+    if job_id:
+        payload["job_id"] = job_id
+    if slug:
+        payload["slug"] = slug
     if pct >= 0:
         payload["pct"] = pct
     broadcast(payload)
@@ -67,10 +104,18 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
         log(f"Fertig: {label} -> {out_path}")
     else:
         log(f"Fehler {label}: {msg}", "err")
+    terminal_job = None
     if slug:
         # `picked` bildet ausschließlich noch offene Warteschlangen-Einträge ab.
         # Erst hier entfernen: Laufzeit-Fallbacks erreichen diese Funktion erst
         # nach Erfolg oder nachdem wirklich alle Anbieter ausgeschöpft sind.
+        terminal_job = _terminal_queue_job(
+            slug,
+            "completed" if ok else ("cancelled" if msg == "Abgebrochen" else "failed"),
+            error="" if ok else msg,
+            final_path=str(out_path) if ok else "",
+            persist=False,
+        )
         _persist_queue_state()
         watchlist_changed = False
         with state.watchlist_lock:
@@ -116,6 +161,8 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
             _seerr_job_result(seerr_job, slug, ok, msg, out_path)
     broadcast({
         "type": "job_done", "ok": ok, "label": label, "slug": slug, "msg": msg,
+        "job_id": (terminal_job or {}).get("job_id", ""),
+        "job": terminal_job,
         "done_jobs": done_jobs, "total_jobs": total_jobs,
         "successful_jobs": successful_jobs, "failed_jobs": failed_jobs,
         "active": state.dl_queue.active_count(), "pending": state.dl_queue.pending_count(),
@@ -547,6 +594,7 @@ def _retry_one_waiting_fallback() -> bool:
             if slug not in state.picked or slug not in state.counted_queue_slugs:
                 return False
             state.preparing_queue_slugs.add(slug)
+            _update_queue_job(slug, persist=False, status="preparing")
         parsed = parse_episode_slug(slug)
         label = (
             f"S{parsed[1]:02d}E{parsed[2]:02d}" if parsed else slug
@@ -644,6 +692,12 @@ def _defer_provider_episode(
             "out_root": Path(out_root),
             "movie_fallbacks": movie_fallbacks,
         }
+        _update_queue_job(
+            slug,
+            persist=False,
+            status="waiting_provider",
+            next_retry_at=state.provider_health.next_probe_at("serienstream"),
+        )
     _persist_queue_state()
     broadcast({"type": "queue_update", "queue": build_queue_payload()})
     _ensure_provider_retry_worker()

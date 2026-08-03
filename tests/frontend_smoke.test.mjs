@@ -63,7 +63,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260802-2/);
+  assert.match(html, /app\.js\?v=royal-20260803-1/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
@@ -115,7 +115,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260802-2/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260803-1/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -129,4 +129,16 @@ test("mobile navigation fills the viewport and distributes visible tabs", () => 
     accountStyles,
     /grid-template-columns:\s*repeat\(5,\s*1fr\)/,
   );
+});
+
+test("persistent queue jobs expose mobile controls and separate history", () => {
+  requiresIds("queue-list", "queue-history-list", "queue-history-count");
+  assert.match(api, /queueJobCancel\(jobId\)/);
+  assert.match(api, /queueJobRetry\(jobId\)/);
+  assert.match(api, /queueJobMove\(jobId, direction\)/);
+  assert.match(api, /queueJobResume\(jobId\)/);
+  assert.match(app, /row\.dataset\.jobId/);
+  assert.match(app, /function renderQueueHistory\(jobs\)/);
+  assert.match(app, /function updateQueueJobProgress\(jobId, job\)/);
+  assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
 });

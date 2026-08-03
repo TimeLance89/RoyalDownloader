@@ -21,6 +21,9 @@ def isolated_persistence_state(monkeypatch):
     previous_watchlist = server.state.watchlist
     previous_movies = server.state.movie_subscriptions
     previous_picked = set(server.state.picked)
+    previous_queue_jobs = server.state.queue_jobs.copy()
+    previous_queue_job_by_slug = dict(server.state.queue_job_by_slug)
+    previous_queue_history = list(server.state.queue_history)
     previous_fp_movies = dict(server.state.fp_movies)
     previous_watchlist_new_slugs = {
         key: set(value) for key, value in server.state.watchlist_new_slugs.items()
@@ -36,6 +39,9 @@ def isolated_persistence_state(monkeypatch):
     server.state.movie_subscriptions = previous_movies
     server.state.picked.clear()
     server.state.picked.update(previous_picked)
+    server.state.queue_jobs = previous_queue_jobs
+    server.state.queue_job_by_slug = previous_queue_job_by_slug
+    server.state.queue_history = previous_queue_history
     server.state.fp_movies.clear()
     server.state.fp_movies.update(previous_fp_movies)
     server.state.watchlist_new_slugs.clear()
@@ -156,7 +162,9 @@ def test_background_queue_claim_is_not_started_as_durable_on_failure(monkeypatch
 
     assert slug not in server.state.picked
     with server.state.persistence_status_lock:
-        assert server.state.persistence_pending["queue"]["snapshot"] == set()
+        snapshot = server.state.persistence_pending["queue"]["snapshot"]
+        assert snapshot["jobs"] == []
+        assert snapshot["history"] == []
 
 
 def test_background_failure_is_visible_and_retryable(monkeypatch):
