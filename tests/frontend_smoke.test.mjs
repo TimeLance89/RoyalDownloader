@@ -139,8 +139,11 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /const MOOD_MATCH_RULES = \{/);
   assert.match(app, /pool = pool\.filter\(\(entry\) => moodMatchesIntent\(entry, answers\)\)/);
   assert.match(app, /horror:[\s\S]*?required: \["Horror", "Slasher", "Splatter"\]/);
+  assert.match(app, /fallback: \["Thriller", "Mystery", "Krimi", "Crime"\]/);
   assert.match(app, /hardExcluded: \["Komödie", "Comedy", "Animation", "Romanze", "Musik"\]/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260805-2/);
+  assert.match(app, /left\.tier - right\.tier \|\| right\.score - left\.score/);
+  assert.match(app, /keine beliebigen Fülltreffer/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260805-3/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
 });
