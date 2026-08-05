@@ -5,8 +5,8 @@ let initialDataStarted = false;
 
 const setupStepCopy = {
   1: {
-    title: "Welche Sprache passt zu dir?",
-    intro: "Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.",
+    title: "Wie möchtest du Royal verwenden?",
+    intro: "Als normale Anwendung auf diesem Computer oder als dauerhaften Dienst auf einem NAS.",
   },
   2: {
     title: "Welche Inhalte möchtest du?",
@@ -140,6 +140,7 @@ async function finishSetup() {
   setSetupStatus("Ordner und Einstellungen werden angelegt …");
   try {
     await api.setupComplete({
+      deployment_mode: selectedDeploymentMode("setup-deployment-mode"),
       save_path: document.getElementById("setup-save-path").value.trim(),
       series_path: document.getElementById("setup-series-path").value.trim(),
       ui_language: document.getElementById("setup-ui-language").value,
@@ -189,6 +190,12 @@ async function initSetupWizard() {
     if (!data.required) return false;
     setupRequired = true;
     const defaults = data.defaults || {};
+    const deploymentMode = defaults.deployment_mode === "nas" ? "nas" : "desktop";
+    const setupMode = document.querySelector(
+      `input[name="setup-deployment-mode"][value="${deploymentMode}"]`,
+    );
+    if (setupMode) setupMode.checked = true;
+    updateDeploymentModeHints("setup", deploymentMode);
     const jf = defaults.jellyfin || {};
     const tmdb = defaults.tmdb || {};
     const telegram = defaults.telegram || {};

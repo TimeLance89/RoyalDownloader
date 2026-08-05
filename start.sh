@@ -12,6 +12,18 @@
 set -e
 cd "$(dirname "$0")"
 
+# The application loads .env itself. Read only the mode here without sourcing
+# the file as shell code; secrets and paths therefore remain literal data.
+deployment_mode="${ROYAL_DEPLOYMENT_MODE:-$(python -c "from environment_file import read_env; print(read_env().get('ROYAL_DEPLOYMENT_MODE', 'nas'))")}"
+if [ "$deployment_mode" = "desktop" ]; then
+    echo "[start.sh] Desktop mode selected; starting the normal local application."
+    export HOST="${HOST:-127.0.0.1}"
+    export OPEN_BROWSER="${OPEN_BROWSER:-1}"
+    exec python server.py
+fi
+
+echo "[start.sh] NAS mode active."
+
 # --- DNS for NAS deployments and provider blocking --------------------------
 # The container uses ordinary resolvers. A local resolver may encrypt its
 # upstream connection. DNS_OVERRIDE=0 preserves Docker's existing resolv.conf.

@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir, in_container, persistent_container_path
+from environment_file import (
+    MODE_DESKTOP,
+    normalize_deployment_mode,
+)
 from queue_jobs import atomic_save as atomic_save_queue_jobs
 from queue_jobs import load_document as load_queue_document
 from queue_jobs import new_job, normalize_document
@@ -338,6 +342,21 @@ def save_media_paths(movie_path: str, series_path: str) -> bool:
         "save_path": str(movie_path).strip(),
         "series_path": str(series_path).strip(),
     }, ensure_save_path=False)
+
+
+def load_deployment_mode() -> str:
+    values = _read_all()
+    configured = values.get("deployment_mode", "").strip()
+    if configured:
+        return normalize_deployment_mode(configured)
+    env_mode = os.environ.get("ROYAL_DEPLOYMENT_MODE", "").strip()
+    if env_mode:
+        return normalize_deployment_mode(env_mode)
+    return "nas" if in_container() else MODE_DESKTOP
+
+
+def save_deployment_mode(mode: str) -> bool:
+    return _update_all({"deployment_mode": normalize_deployment_mode(mode)})
 
 
 # ---------------------------------------------------------------------------
@@ -821,6 +840,7 @@ def save_initial_setup(
     anime_providers=None,
     auth_username: str = "",
     auth_password_hash: str = "",
+    deployment_mode: str = MODE_DESKTOP,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -856,6 +876,7 @@ def save_initial_setup(
         }
     return _update_all({
         **account,
+        "deployment_mode": normalize_deployment_mode(deployment_mode),
         "save_path": save_path.strip(),
         "series_path": series_path.strip(),
         "ui_language": normalize_ui_language(ui_language),

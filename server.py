@@ -10,6 +10,10 @@ Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht darüber.
 Start: python server.py  (öffnet automatisch den Browser)
 """
 
+from environment_file import load_project_env
+
+load_project_env()
+
 import asyncio
 import logging
 import os

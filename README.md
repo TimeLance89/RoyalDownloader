@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Self-hosted media automation for Jellyfin, Telegram, and Seerr.</strong><br>
-  Built for reliable 24/7 operation on Docker and NAS systems.
+  Runs as a normal desktop application or as a reliable 24/7 NAS service.
 </p>
 
 <p align="center">
@@ -122,7 +122,26 @@ The default German movie order starts with **Filmpalast → Huhu** and ends with
 **Huhu → Moflix → MegaKino → Filmpalast** are the first fallback providers.
 All orders can be changed in onboarding or settings.
 
-## Quick start with Docker Compose
+## Quick start on a normal computer
+
+Requirements:
+
+- Python 3.12 or newer
+- Google Chrome or Chromium
+
+On Windows, double-click `start_windows.cmd`. Alternatively:
+
+```powershell
+py -3 -m pip install -r requirements.lock
+py -3 server.py
+```
+
+The browser opens locally. During first-run setup choose **Computer**. Royal
+uses normal folders on the current machine and creates `.env` from
+`.env.example` automatically. The same mode also works on macOS and Linux with
+`python server.py`.
+
+## Quick start with Docker Compose or NAS
 
 Requirements:
 
@@ -144,9 +163,12 @@ docker compose logs -f seriendownloader
 curl --fail http://127.0.0.1:8765/api/health
 ```
 
-Open `http://<NAS-IP>:8765`. The first-run wizard configures the interface
-language, content languages, providers, storage paths, Jellyfin, TMDB,
-automation, Telegram, and the administrator account used to sign in.
+Open `http://<NAS-IP>:8765` and choose **NAS / Server**. The first-run wizard
+configures the interface language, content languages, providers, storage paths,
+Jellyfin, TMDB, automation, Telegram, and the administrator account. Mounted
+source deployments using `start.sh` create `.env` automatically when only
+`.env.example` exists. Docker Compose users may still create `.env` before the
+first build to define host-side media mounts.
 
 > [!TIP]
 > Never expose port `8765` directly to the public internet. Existing
