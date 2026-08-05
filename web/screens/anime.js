@@ -39,6 +39,7 @@ function renderAnimeFeature() {
     anime.year,
     anime.media_type || "Anime",
     tracks,
+    jellyfinStatusText(mediaJellyfinStatus(anime)),
   ].filter(Boolean).join(" · ");
   feature.setAttribute("aria-label", `${anime.title} öffnen`);
   feature.onclick = () => openAnimeDetail(anime, feature);
@@ -64,6 +65,10 @@ function renderAnimeResults() {
     : ""}
         <span class="anime-card-fallback">${escapeHtml(mediaCardInitials(anime.title))}</span>
         <span class="anime-card-type" translate="no">${escapeHtml(anime.media_type || "TV")}</span>
+        <span class="catalog-jellyfin-badge is-${escapeHtml(mediaJellyfinStatus(anime))}"
+          title="${escapeHtml(jellyfinStatusText(mediaJellyfinStatus(anime)))}">
+          ${mediaJellyfinStatus(anime) === "owned" ? "✓ JF" : mediaJellyfinStatus(anime) === "missing" ? "– JF" : "JF ?"}
+        </span>
         <span class="anime-card-open" aria-hidden="true">↗</span>
       </span>
       <span class="anime-card-copy">
@@ -180,6 +185,12 @@ async function animeBrowse(mode, page = 1) {
     if (requestSeq === state.anime.requestSeq) {
       state.anime.loading = false;
       renderAnimeResults();
+      void refreshCatalogJellyfinStatus(
+        state.anime.results.map(homeAnimeEntry),
+        () => {
+          if (requestSeq === state.anime.requestSeq) renderAnimeResults();
+        },
+      );
     }
   }
 }
@@ -213,7 +224,11 @@ async function loadAnimeDetail({ keepSelection = false } = {}) {
       state.anime.episodePage,
     );
     if (detailSeq !== state.anime.detailSeq || animeId !== state.anime.currentId) return;
-    state.anime.current = detail;
+    state.anime.current = {
+      ...detail,
+      jellyfin_status: state.anime.current?.jellyfin_status || "checking",
+      in_jellyfin: state.anime.current?.in_jellyfin,
+    };
     state.anime.translation = detail.translation;
     state.anime.episodePage = detail.page;
     syncAnimeQueueFlags();
@@ -243,6 +258,7 @@ function renderAnimeDetail() {
     anime.year,
     anime.rating ? `★ ${Number(anime.rating).toFixed(1)}` : "",
     ...(anime.genres || []).slice(0, 4),
+    jellyfinStatusText(mediaJellyfinStatus(anime)),
   ].filter(Boolean);
   document.getElementById("anime-detail-meta").innerHTML =
     meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("");

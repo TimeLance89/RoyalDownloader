@@ -58,6 +58,7 @@ get_huhu_scraper = _unbound_dependency
 get_jellyfin_client = _unbound_dependency
 get_jellyfin_library = _unbound_dependency
 get_jellyfin_movie_identities = _unbound_dependency
+get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
@@ -87,6 +88,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_client",
     "get_jellyfin_library",
     "get_jellyfin_movie_identities",
+    "get_jellyfin_series",
     "get_mkissa_scraper",
     "get_series_for_value",
     "get_tmdb_client",
@@ -311,6 +313,7 @@ class MovieMetadataItem(BaseModel):
     title: str
     year: str = ""
     tmdb_id: int | None = None
+    media_type: str = "movie"
 
 
 class MovieMetadataBody(BaseModel):
@@ -346,24 +349,56 @@ async def api_tmdb_movie(item: MovieMetadataItem):
 @router.post("/api/v1/jellyfin/matches")
 @router.post("/api/jellyfin/matches")
 async def api_jellyfin_matches(body: MovieMetadataBody):
-    """Aktualisiert nur die JF-Badges, ohne Anbieter oder Streams neu zu laden."""
+    """Liefert schnelle Bibliotheks-Badges für Filme, Serien und Anime."""
     def _work():
         client = get_jellyfin_client()
         if not client.configured:
-            return {"configured": False, "available": True, "matches": {}}
-        items = get_jellyfin_movie_identities()
+            return {
+                "configured": False, "available": True, "matches": {},
+                "statuses": {item.slug: "unconfigured" for item in body.items[:100]},
+            }
+        requested = body.items[:100]
+        needs_movies = any(item.media_type == "movie" for item in requested)
+        needs_series = any(item.media_type != "movie" for item in requested)
+        movie_items = get_jellyfin_movie_identities() if needs_movies else []
+        series_items = get_jellyfin_series() if needs_series else []
         with state.jellyfin_cache_lock:
-            library_available = state.jellyfin_movie_identities_available
-        if items is None or not library_available:
-            return {"configured": True, "available": False, "matches": {}}
-        matches = {
-            item.slug: client.match(
-                clean_movie_title(item.title), item.year,
-                items=items, tmdb_id=item.tmdb_id,
+            movie_available = not needs_movies or bool(
+                movie_items is not None and state.jellyfin_movie_identities_available
             )
-            for item in body.items[:100]
+            series_available = not needs_series or bool(
+                series_items is not None and state.jellyfin_series_available
+            )
+        statuses = {}
+        matches = {}
+        for item in requested:
+            if item.media_type == "movie":
+                if not movie_available:
+                    statuses[item.slug] = "unavailable"
+                    continue
+                owned = client.match(
+                    clean_movie_title(item.title), item.year,
+                    items=movie_items, tmdb_id=item.tmdb_id,
+                )
+            else:
+                if not series_available:
+                    statuses[item.slug] = "unavailable"
+                    continue
+                series_ids = client.series_ids_for(
+                    item.title, tmdb_id=item.tmdb_id, items=series_items,
+                )
+                if series_ids is None:
+                    statuses[item.slug] = "ambiguous"
+                    continue
+                owned = bool(series_ids)
+            matches[item.slug] = owned
+            statuses[item.slug] = "owned" if owned else "missing"
+        return {
+            "configured": True,
+            "available": movie_available and series_available,
+            "matches": matches,
+            "statuses": statuses,
         }
-        return {"configured": True, "available": True, "matches": matches}
     return await run_in_threadpool(_work)
 
 

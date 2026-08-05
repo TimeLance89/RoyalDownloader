@@ -162,7 +162,7 @@ function renderSeriesResults(appendFrom = 0) {
     row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
     if (loading) row.setAttribute("aria-busy", "true");
 
-    const visual = createResultCardVisual(result, result.title, "series");
+    const visual = createResultCardVisual(result, result.title, "series", mediaJellyfinStatus(result));
     const copy = document.createElement("span");
     copy.className = "result-card-copy";
     const title = document.createElement("strong");
@@ -180,7 +180,9 @@ function renderSeriesResults(appendFrom = 0) {
     const stateLabel = document.createElement("span");
     stateLabel.className = "result-card-state status-ready";
     stateLabel.textContent = loading ? "Öffnet …" : "Staffeln öffnen";
-    meta.append(year, stateLabel);
+    const jellyfin = document.createElement("span");
+    setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
+    meta.append(year, stateLabel, jellyfin);
     copy.append(title, subtitle, meta);
 
     row.append(visual, copy);
@@ -199,7 +201,7 @@ function updateSeriesResultArtwork(baseSlug) {
   const row = findSeriesResultCard(baseSlug);
   if (!result || !row) return;
   row.querySelector(".result-card-visual")?.replaceWith(
-    createResultCardVisual(result, result.title, "series"),
+    createResultCardVisual(result, result.title, "series", mediaJellyfinStatus(result)),
   );
 }
 
@@ -231,6 +233,13 @@ function applySeriesResults(data, { append = false } = {}) {
   state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
   state.series.loadError = "";
   renderSeriesResults(appendFrom);
+  const browseGeneration = state.series.browseRequestSeq;
+  void refreshCatalogJellyfinStatus(
+    state.series.results.map(homeSeriesEntry),
+    () => {
+      if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
+    },
+  );
   renderSeriesCatalogHero();
   void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then((hydratedBaseSlugs) => {
     for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
