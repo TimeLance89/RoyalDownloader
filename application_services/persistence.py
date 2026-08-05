@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import uuid
+
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -252,7 +254,7 @@ def _queue_state_snapshot(
         if history is None:
             history = state.queue_history
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "revision": state.queue_persistence_revision,
             "jobs": deepcopy(active_jobs),
             "history": deepcopy(list(history)[:HISTORY_LIMIT]),
@@ -298,11 +300,24 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = "") -> dict:
         return job
 
 
-def _update_queue_job(slug: str, *, persist: bool = True, **changes) -> Optional[dict]:
+def _update_queue_job(
+    slug: str,
+    *,
+    persist: bool = True,
+    expected_job_id: str = "",
+    expected_attempt_id: str = "",
+    **changes,
+) -> Optional[dict]:
     with state.queue_claim_lock:
         job = _queue_job_for_slug(slug)
         if job is None:
+            if expected_job_id or expected_attempt_id:
+                return None
             job = _ensure_queue_job(slug, state.fp_movies.get(slug))
+        if expected_job_id and job.get("job_id") != expected_job_id:
+            return None
+        if expected_attempt_id and job.get("attempt_id") != expected_attempt_id:
+            return None
         for key, value in changes.items():
             if key in job and value is not None:
                 job[key] = value
@@ -319,13 +334,21 @@ def _terminal_queue_job(
     error: str = "",
     final_path: str = "",
     persist: bool = True,
+    expected_job_id: str = "",
+    expected_attempt_id: str = "",
 ) -> Optional[dict]:
     with state.queue_claim_lock:
-        job_id = state.queue_job_by_slug.pop(str(slug), "")
-        job = state.queue_jobs.pop(job_id, None) if job_id else None
-        state.queue_job_persist_times.pop(str(slug), None)
+        job_id = state.queue_job_by_slug.get(str(slug), "")
+        job = state.queue_jobs.get(job_id) if job_id else None
         if job is None:
             return None
+        if expected_job_id and job.get("job_id") != expected_job_id:
+            return None
+        if expected_attempt_id and job.get("attempt_id") != expected_attempt_id:
+            return None
+        state.queue_job_by_slug.pop(str(slug), None)
+        state.queue_jobs.pop(job_id, None)
+        state.queue_job_persist_times.pop(str(slug), None)
         job["status"] = status
         job["completed_at"] = time.time()
         job["error"] = str(error or "")[:500]
@@ -409,9 +432,11 @@ def _retry_queue_job(job_id: str) -> Optional[dict]:
             return None
         state.queue_history.pop(index)
         job.update({
+            "attempt_id": uuid.uuid4().hex,
             "status": "queued",
             "started_at": 0.0,
             "completed_at": 0.0,
+            "cancel_requested_at": 0.0,
             "progress": 0.0,
             "downloaded_bytes": 0,
             "total_bytes": None,

@@ -42,7 +42,10 @@ selection. They are never silently downloaded as a normal release.
 
 ### Initial NAS setup
 
-1. Copy the repository to the NAS and copy `.env.example` to `.env`.
+1. Copy the repository to the NAS. For a mounted-source `start.sh` deployment,
+   the first-run wizard creates `.env` from `.env.example`. For Docker Compose,
+   copy `.env.example` to `.env` before starting when custom host mounts are
+   required.
 2. Set `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` to the actual Jellyfin media
    directories. Royal Downloader and Jellyfin must see the same host folders.
 3. Prepare the Seerr data directory:
@@ -198,7 +201,9 @@ container replacement.
 
 ## Environment variables
 
-All variables are optional and have operational defaults.
+Environment variables have operational defaults. A valid TMDB key or read
+access token is nevertheless required before the first-run wizard can finish;
+it may be entered in the wizard instead of `.env`.
 
 ### Runtime, storage, and networking
 
@@ -314,9 +319,10 @@ is used. Set a LibreTranslate base URL for a fully self-hosted translation path.
 
 ## TMDB metadata
 
-With a TMDB key, artwork, descriptions, genres, release dates, ratings, and
-runtime prefer TMDB data. Providers remain responsible for discovery, hosters,
-and downloads. If TMDB is unavailable or no reliable match exists, provider
+The first-run wizard requires a valid TMDB key or read access token. Artwork,
+descriptions, genres, release dates, ratings, and runtime then prefer TMDB data.
+Providers remain responsible for discovery, hosters, and downloads. If TMDB is
+temporarily unavailable or no reliable match exists, provider
 metadata is retained automatically.
 
 ## Provider catalog

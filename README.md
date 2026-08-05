@@ -3,132 +3,120 @@
 </p>
 
 <p align="center">
-  <strong>Self-hosted media automation for Jellyfin, Telegram, and Seerr.</strong><br>
-  Built for reliable 24/7 operation on Docker and NAS systems.
+  <strong>Your private media hub for movies, series, and anime.</strong><br>
+  Run it locally on a computer or continuously on a NAS.
 </p>
 
 <p align="center">
-  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Version" src="https://img.shields.io/badge/Version-1.0.0--rc.2-E50914">
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white">
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Web_API-009688?logo=fastapi&logoColor=white">
-  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
   <img alt="Jellyfin" src="https://img.shields.io/badge/Jellyfin-Integration-00A4DC?logo=jellyfin&logoColor=white">
   <img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg">
-  <img alt="Status" src="https://img.shields.io/badge/Status-active-success">
 </p>
 
-Royal Downloader combines discovery, provider routing, a persistent download
-queue, library checks, and media automation in one web application. Movies,
-series, and anime are discovered through configurable language-aware providers,
-checked against Jellyfin, and written directly to mounted media folders.
+Royal Downloader combines discovery, library matching, provider routing, a
+persistent download queue, and media automation in one interface. Content that
+already exists in Jellyfin is detected and is not offered for download again.
 
 > [!IMPORTANT]
 > Royal Downloader is intended for private, self-hosted use. Only access and
 > store content for which you have the required rights. You are responsible for
-> complying with applicable laws, copyright rules, and provider terms.
+> complying with applicable laws and provider terms.
 
 > [!WARNING]
-> **Current release: `v1.0.0-rc.2` (Release Candidate).** This build may still
-> expose issues before the final
-> `v1.0.0`. Back up persistent data before upgrading. See the
-> [release operations guide](docs/RELEASE.md) for installation, upgrade,
-> backup, verification, and rollback steps.
+> **`v1.0.0-rc.2` is a release candidate.** Back up at least `.env` and `data/`
+> before updating. Upgrade and rollback instructions are available in the
+> [release guide](docs/RELEASE.md).
 
-## Why Royal Downloader?
-
-Most self-hosted media workflows depend on several disconnected tools. Royal
-Downloader keeps the full route visible and controllable:
+## What Royal handles
 
 ```text
-discover → match → de-duplicate → select provider → download → verify → scan Jellyfin
+Discover → Check Jellyfin → Select provider → Download → Verify → Update library
 ```
 
-Its provider fallback logic is designed for sources that may disappear, throttle
-downloads, present anti-bot gates, or expose different language tracks. Queue
-state survives restarts, individual failures do not discard the remaining work,
-and Jellyfin remains the source of truth for content already in the library.
+| Area | Features |
+|---|---|
+| **Discovery** | Movies, series, anime, language-aware catalogs, TMDB metadata, daily Top 10, and personal recommendations |
+| **Downloads** | Persistent queue, resume support, integrity checks, provider fallbacks, and safe restarts |
+| **Jellyfin** | Detection of existing movies, seasons, and episodes, playback status, and recommendation collections |
+| **Automation** | Series subscriptions, Telegram requests, Seerr/Moonfin, and scheduled downloads |
+| **Administration** | User accounts, persistent sessions, device sign-out, updates, and Stable/Overnight channels |
+| **Personalization** | A private taste profile based on selections, feedback, downloads, and Jellyfin playback |
 
-## Highlights
+## One project, two operating modes
 
-- **Movies, series, and anime** in a responsive desktop and mobile interface.
-- **Language-aware provider catalog** with separate German and English content
-  profiles, provider priorities, and explicit download-language metadata.
-- **Cross-provider discovery** with deterministic mixing, de-duplication,
-  source distribution, and configurable fallback order.
-- **Persistent queue** with resume support, integrity checks, hoster fallbacks,
-  slow-source detection, and safe restart behavior.
-- **Jellyfin de-duplication** for movies, series, seasons, and individual episodes.
-- **Series subscriptions** for all missing content, the latest season, or the
-  next season based on a Jellyfin user's watched state.
-- **Telegram bot** for movie and series requests, queue status, storage status,
-  and completion notifications.
-- **Seerr and Moonfin bridge** for media requests without requiring Radarr or Sonarr.
-- **TMDB metadata** for artwork, descriptions, genres, ratings, and runtime.
-- **Jellyfin recommendations** maintained as an automatically updated collection.
-- **Private cross-device taste profile** learned from discovery, downloads,
-  subscriptions, explicit feedback, and Jellyfin playback without a cloud service.
-- **Account-based sign-in** with a hashed password, persistent sessions that
-  survive restarts, brute-force protection, and device sign-out.
-- **Multilingual web UI** with language selection during onboarding and in settings.
-- **In-app updater** plus queue-safe automatic updates for Royal Downloader and yt-dlp.
-- **Stable and Overnight channels** with persistent selection, explicit
-  development warnings, and guarded return-to-Stable branch changes.
+The first-run wizard asks where Royal should run. The selection can later be
+changed under **Settings → General → Operating mode**.
 
-## Recent improvements
+| | Computer | NAS / home server |
+|---|---|---|
+| **Use case** | Regular Windows, macOS, or Linux application | Continuous service on the home network |
+| **Network** | Accessible only on the current computer | Accessible throughout the local network |
+| **Browser** | Opens automatically at startup | Open `http://<NAS-IP>:8765` from another device |
+| **Start command** | `start_windows.cmd` or `python server.py` | `start.sh` or Docker Compose |
+| **Default storage** | Local folders | Mounted media directories |
 
-- Added **Huhu** as a German movie and series provider, including exact
-  season/episode matching and integration into the configurable fallback order.
-- Made **Filmpalast the primary movie source**, followed by Huhu, and moved
-  FilmFrei24 to the end of the default movie fallback chain.
-- Added persistent provider health states for SerienStream. CAPTCHA and
-  rate-limit responses pause the provider, retain waiting episodes, and allow
-  only one controlled probe instead of repeatedly loading the blocked source.
-- Kept movie downloads moving independently from paused or slow series
-  fallbacks, while resolved transfers continue at the configured concurrency.
-- Improved Jellyfin details with targeted per-series episode checks, explicit
-  stale-state handling, and provider-independent subscription recognition.
-- Added a private, shared taste profile for web and native clients, learned
-  from browsing, downloads, subscriptions, feedback, and Jellyfin playback.
+When only `.env.example` exists, the first-run wizard automatically creates a
+matching `.env` when setup is completed. Custom variables are preserved when
+the operating mode is changed later.
 
-See [CHANGELOG.md](CHANGELOG.md) for the consolidated project history.
+## Quick start: Windows
 
-## Provider catalog
+Requirements:
 
-Providers are selectable and reorderable during onboarding and later in
-settings. Their language is part of the central catalog and follows every
-download job.
+- Python 3.12 or newer
+- Google Chrome or Chromium
 
-| Provider | Content language | Movies | Series | Anime |
-|---|---:|:---:|:---:|:---:|
-| FilmFrei24 | German | ✓ |  |  |
-| Filmpalast | German | ✓ | ✓ |  |
-| Huhu | German | ✓ | ✓ |  |
-| MegaKino | German | ✓ | ✓ |  |
-| Moflix | German | ✓ | ✓ |  |
-| Einschalten | German | ✓ |  |  |
-| Kinox | German | ✓ |  |  |
-| KinoGer | German | ✓ | ✓ |  |
-| XCine | German | ✓ | ✓ |  |
-| SerienStream | German |  | ✓ |  |
-| SFlix | English | ✓ | ✓ |  |
-| Ridomovies | English | ✓ | ✓ |  |
-| MKissa | English |  |  | ✓ |
+Download or clone the repository, then double-click
+[`start_windows.cmd`](start_windows.cmd). The launcher checks the Python
+dependencies and opens Royal locally in the browser.
 
-> [!NOTE]
-> Third-party providers can change or become unavailable without notice.
-> Provider adapters are therefore isolated, ordered, and designed to fail over.
+Alternatively, use PowerShell:
 
-The default German movie order starts with **Filmpalast → Huhu** and ends with
-**FilmFrei24**. For German series, **SerienStream** remains the primary source;
-**Huhu → Moflix → MegaKino → Filmpalast** are the first fallback providers.
-All orders can be changed in onboarding or settings.
+```powershell
+py -3 -m pip install -r requirements.lock
+py -3 server.py
+```
 
-## Quick start with Docker Compose
+Select **Regular computer** in the wizard and choose separate movie and series
+directories.
+
+## Quick start: macOS or Linux
+
+```bash
+git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+cd RoyalDownloader
+python3 -m pip install -r requirements.lock
+python3 server.py
+```
+
+Select **Regular computer**. Royal binds to the local machine and opens the
+interface in the default browser.
+
+## Quick start: NAS with `start.sh`
+
+This mode is intended for NAS systems that mount the project directory into a
+Python container.
+
+```bash
+git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+cd RoyalDownloader
+bash start.sh
+```
+
+`start.sh` prepares Chromium, ffmpeg, the Python dependencies, and the
+versioned runtime. Select **NAS / home server** during first-run setup. If
+`.env` is missing, it is created from `.env.example`.
+
+## Quick start: Docker Compose
 
 Requirements:
 
 - Docker Engine
 - Docker Compose v2
-- Write access to the Jellyfin movie and series directories
+- Write access to the movie and series directories
 
 ```bash
 git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
@@ -136,7 +124,14 @@ cd RoyalDownloader
 cp .env.example .env
 ```
 
-Set at least `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` in `.env`, then start:
+Set at least these host paths in `.env` before starting:
+
+```dotenv
+MOVIES_HOST_DIR=/path/to/Movies
+SERIES_HOST_DIR=/path/to/Series
+```
+
+Start and verify the service:
 
 ```bash
 docker compose up -d --build
@@ -144,114 +139,152 @@ docker compose logs -f seriendownloader
 curl --fail http://127.0.0.1:8765/api/health
 ```
 
-Open `http://<NAS-IP>:8765`. The first-run wizard configures the interface
-language, content languages, providers, storage paths, Jellyfin, TMDB,
-automation, Telegram, and the administrator account used to sign in.
+Royal is now available at `http://<NAS-IP>:8765`. Docker Compose requires
+`.env` before the first build because Docker reads the host media paths from
+that file.
 
 > [!TIP]
-> Never expose port `8765` directly to the public internet. Existing
-> installations keep running without an account and show a reminder in
-> **Settings → Access**, where the account can be created at any time.
+> Never expose port `8765` directly to the public internet. Use a secured
+> reverse proxy or tunnel for remote access and follow the
+> [Docker and NAS guide](docs/DOCKER.md).
 
-See the complete [Docker and NAS guide](docs/DOCKER.md) for volume, Seerr, DNS,
-update, and migration details.
+## First-run setup
 
-Existing installations that previously followed continuous `main` should use
-the documented [upgrade path to `v1.0.0-rc.2`](docs/RELEASE.md#upgrade-from-continuous-main).
-Do not delete or replace `data/`; preserve `runtime/` until the upgraded
-container has passed its health check and the rollback decision is complete.
+The wizard guides you through the complete configuration in six steps:
 
-The updater defaults to **Stable** (`main`). Advanced testers can opt into
-**Overnight** (`overnight`) under **Settings → Updates and maintenance**. The
-choice persists in `data/FilmeDownloader/settings.ini`; returning to Stable
-requires confirmation when it would activate an older or diverged commit. See
-the [update channel guide](docs/UPDATE_CHANNELS.md) before opting in.
+1. **Operating mode and language** – computer or NAS and interface language
+2. **Sources** – content languages, providers, and fallback order
+3. **Storage** – separate movie and series directories
+4. **Library** – optional Jellyfin connection and required TMDB access
+5. **Automation** – subscriptions, download windows, and Telegram
+6. **Access** – local administrator account
+
+The setup starts in English. Selecting another language immediately translates
+the visible wizard. A valid TMDB API key or read access token is required to
+complete setup and is verified before the configuration is saved.
+
+Credentials, API keys, cookies, and private paths must never be committed to
+Git or included in public bug reports.
+
+## Integrations
+
+- **Jellyfin** detects existing media and supplies playback status and library
+  information.
+- **TMDB** is required during setup and supplies stable IDs, artwork,
+  descriptions, genres, runtime, and ratings.
+- **Telegram** accepts media requests and reports queue, storage, and completion
+  status.
+- **Seerr / Moonfin** sends media requests directly to Royal without requiring
+  Radarr or Sonarr.
+- **GitHub Updater** installs verified revisions and retains the previous
+  version for rollback.
+
+<details>
+<summary><strong>Show supported providers</strong></summary>
+
+| Provider | Language | Movies | Series | Anime |
+|---|:---:|:---:|:---:|:---:|
+| Filmpalast | DE | ✓ | ✓ | |
+| Huhu | DE | ✓ | ✓ | |
+| MegaKino | DE | ✓ | ✓ | |
+| Moflix | DE | ✓ | ✓ | |
+| FilmFrei24 | DE | ✓ | | |
+| Einschalten | DE | ✓ | | |
+| Kinox | DE | ✓ | | |
+| KinoGer | DE | ✓ | ✓ | |
+| XCine | DE | ✓ | ✓ | |
+| SerienStream | DE | | ✓ | |
+| SFlix | EN | ✓ | ✓ | |
+| Ridomovies | EN | ✓ | ✓ | |
+| MKissa | EN | | | ✓ |
+
+Third-party providers can change or become unavailable at any time. Royal keeps
+the adapters isolated and moves through the configured fallback order when a
+provider fails.
+
+</details>
+
+## Data and updates
+
+| Path | Contents | Backup |
+|---|---|---|
+| `.env` | Operating mode, mounts, update token, and optional environment variables | Required |
+| `data/` | Settings, account, queue, subscriptions, cookies, and taste profile | Required |
+| `runtime/` | Active and previous versioned application releases | Recommended |
+| Media directories | Completed movies and series | Use your own backup strategy |
+
+The updater builds new revisions in isolation, runs verification checks, and
+only then switches atomically to the new version. `runtime/previous` remains
+available for rollback. Select **Stable** or **Overnight** under
+**Settings → Updates and maintenance**.
+
+If GitHub's anonymous API limit is reached, create a fine-grained read-only
+token and store it in `.env`:
+
+```dotenv
+UPDATE_GITHUB_TOKEN=github_pat_your_token
+```
+
+For Stable, repository contents read access is sufficient. Overnight also
+needs read access to checks. Restart Royal after changing `.env`.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    UI["Web UI / Telegram / Moonfin"] --> API["Royal Downloader"]
-    API --> CAT["Language-aware provider catalog"]
-    API --> TMDB["TMDB metadata"]
-    API --> JF["Jellyfin matching"]
-    API --> Q["Persistent download queue"]
-    Q --> MEDIA["Movie and series folders"]
-    MEDIA --> JF
+    CLIENTS["Web UI · Telegram · Moonfin"] --> API["Royal API"]
+    API --> CATALOG["Provider catalog"]
+    API --> TMDB["TMDB"]
+    API <--> JELLYFIN["Jellyfin"]
+    API --> QUEUE["Persistent queue"]
+    QUEUE --> MEDIA["Movie and series directories"]
+    MEDIA --> JELLYFIN
     SEERR["Seerr"] --> API
-    GH["GitHub main / overnight"] --> UPD["Stable / Overnight updater"]
-    UPD --> API
+    UPDATE["Stable / Overnight"] --> API
 ```
 
-## Persistent data and updates
+<details>
+<summary><strong>Show project structure</strong></summary>
 
-| Path | Purpose | Backup |
-|---|---|---|
-| `./data` | Settings, subscriptions, queue, taste profile, cookies, and Seerr state | Required |
-| `./runtime` | Versioned releases, isolated dependencies, active and previous revision | Recommended |
-| Movie and series mounts | Completed media files | Use your own backup policy |
+```text
+RoyalDownloader/
+├─ application_services/    catalogs, downloads, and integrations
+├─ providers/               isolated movie, series, and anime adapters
+├─ web/                     responsive framework-free web application
+├─ docs/                    operations, API, and architecture documentation
+├─ api_*_router.py          FastAPI and WebSocket endpoints
+├─ server.py                application lifecycle and web hosting
+├─ downloader.py            queue, transfer, and integrity verification
+├─ jellyfin_client.py       library matching and de-duplication
+├─ environment_file.py      safe .env generation and mode management
+├─ start_windows.cmd        Windows launcher
+├─ start.sh                 NAS and container bootstrap
+├─ docker-compose.yml       Docker deployment
+└─ .env.example             documented configuration template
+```
 
-The updater builds each revision in a staged release with its own Python
-environment, runs compile/import smoke tests, and atomically switches the
-`runtime/current` link only after success. `runtime/previous` keeps the complete
-source and dependency set for rollback. It preserves `data`, `.env`, media
-folders, and persistent settings. Unreferenced older releases are removed
-automatically; the active and rollback releases remain available.
-
-Keep `.env`, `data/`, and private logs out of GitHub issues. They may contain
-passwords, API keys, cookies, private addresses, chat IDs, and media paths.
+</details>
 
 ## Documentation
 
 | Topic | Document |
 |---|---|
-| Consolidated feature and behavior changes | [CHANGELOG.md](CHANGELOG.md) |
-| Docker and NAS installation, volumes, environment variables, and integrations | [docs/DOCKER.md](docs/DOCKER.md) |
-| Release installation, upgrade, backup, verification, and rollback | [docs/RELEASE.md](docs/RELEASE.md) |
-| Stable/Overnight channels, safe switching, and promotion | [docs/UPDATE_CHANNELS.md](docs/UPDATE_CHANNELS.md) |
-| Native Android clients | The app source is maintained separately; use the documented API contract below. |
-| Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
-| Persistent queue jobs, history, migration, and job controls | [docs/QUEUE_JOBS.md](docs/QUEUE_JOBS.md) |
-| Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
-| Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
-| Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |
+| Changes and new features | [CHANGELOG.md](CHANGELOG.md) |
+| Docker, NAS, volumes, and remote access | [docs/DOCKER.md](docs/DOCKER.md) |
+| Installation, upgrades, backups, and rollback | [docs/RELEASE.md](docs/RELEASE.md) |
+| Stable and Overnight channels | [docs/UPDATE_CHANNELS.md](docs/UPDATE_CHANNELS.md) |
+| Queue jobs and history | [docs/QUEUE_JOBS.md](docs/QUEUE_JOBS.md) |
+| Jellyfin recommendations | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
+| Personalization and privacy | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
+| Android API and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
+| Architecture and ownership boundaries | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Development and pull requests | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Architecture boundaries and lock ownership | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| Completed backend and frontend modularization | [docs/MODULARIZATION.md](docs/MODULARIZATION.md) |
-| Reviewed dependency/image updates and rollback | [docs/DEPENDENCY_UPDATES.md](docs/DEPENDENCY_UPDATES.md) |
 | Private vulnerability reporting | [SECURITY.md](SECURITY.md) |
-
-## Project structure
-
-```text
-RoyalDownloader/
-├─ providers/                 isolated movie, series, and anime adapters
-├─ web/                       framework-free web application
-├─ docs/                      installation and operations documentation
-├─ api_*_router.py            domain-owned FastAPI and WebSocket routes
-├─ application_services/      catalogs, downloads, integrations, and automation
-├─ app_state.py               shared runtime state, caches, and locks
-├─ server.py                  application wiring, lifecycle, and static hosting
-├─ downloader.py              queue, transfer, and integrity verification
-├─ jellyfin_client.py         library matching and de-duplication
-├─ self_updater.py            verified GitHub update workflow
-├─ docker-compose.yml         NAS and Docker Compose deployment
-├─ Dockerfile                 reproducible runtime image
-└─ start.sh                   mounted-folder NAS bootstrap
-```
-
-## Roadmap
-
-- Additional content languages and provider adapters
-- Broader anime coverage
-- More provider health and routing intelligence
-- Better diagnostics for unattended installations
 
 ## Contributing
 
-Bug reports and focused pull requests are welcome. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md), use the matching GitHub issue form, and
-remove credentials, cookies, private addresses, and media paths from all logs.
+Bug reports and focused pull requests are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) first and remove all private data from logs
+and screenshots.
 
-Royal Downloader is actively developed at
-[TimeLance89/RoyalDownloader](https://github.com/TimeLance89/RoyalDownloader).
+Development: [TimeLance89/RoyalDownloader](https://github.com/TimeLance89/RoyalDownloader)

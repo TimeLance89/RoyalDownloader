@@ -459,6 +459,7 @@ class DownloadJob:
         content_language: str = "",
         queue_priority: int = 100,
         job_id: str = "",
+        attempt_id: str = "",
         on_start: Optional[Callable[[], None]] = None,
     ):
         self.stream_url = stream_url
@@ -480,6 +481,7 @@ class DownloadJob:
         self.failure_kind = ""
         self.average_speed_bps = 0.0
         self.job_id = str(job_id or "").strip() or uuid.uuid4().hex
+        self.attempt_id = str(attempt_id or "").strip() or uuid.uuid4().hex
         self.downloaded_bytes = 0
         self.total_bytes: Optional[int] = None
         self.eta_seconds: Optional[int] = None
@@ -487,7 +489,7 @@ class DownloadJob:
         self._preferred_staging_root = out_path.parent / ".downloading"
         self._fallback_staging_root = STAGING_DIR
         self._staging_root = self._preferred_staging_root
-        self.staging_dir = self._staging_root / self.job_id
+        self.staging_dir = self._staging_root / self.attempt_id
         self.staging_path = self.staging_dir / ("download" + (out_path.suffix or ".mp4"))
         self.on_progress = on_progress or (lambda pct, msg: None)
         self.on_done = on_done or (lambda ok, msg: None)
@@ -628,7 +630,7 @@ class DownloadJob:
 
     def _set_staging_root(self, root: Path):
         self._staging_root = root
-        self.staging_dir = root / self.job_id
+        self.staging_dir = root / self.attempt_id
         self.staging_path = self.staging_dir / ("download" + (self.out_path.suffix or ".mp4"))
 
     def _prepare_staging(self) -> tuple:
@@ -645,7 +647,7 @@ class DownloadJob:
                 created = True
                 marker = self.staging_dir / ".royal-downloader-job"
                 with marker.open("x", encoding="ascii") as handle:
-                    handle.write(self.job_id)
+                    handle.write(self.attempt_id)
                     handle.flush()
                     os.fsync(handle.fileno())
                 return True, ""
@@ -690,7 +692,7 @@ class DownloadJob:
                 if exc.errno != errno.EXDEV:
                     raise
 
-            temp_target = target.parent / f".{candidate.name}.{self.job_id}.tmp"
+            temp_target = target.parent / f".{candidate.name}.{self.attempt_id}.tmp"
             try:
                 with source.open("rb") as src, temp_target.open("xb") as dst:
                     while True:
@@ -728,7 +730,7 @@ class DownloadJob:
         }
         try:
             staging_parent = self.staging_dir.parent.resolve(strict=False)
-            if self.staging_dir.name != self.job_id or staging_parent not in allowed_roots:
+            if self.staging_dir.name != self.attempt_id or staging_parent not in allowed_roots:
                 logger.error("Unsicheres Staging-Cleanup verweigert: %s", self.staging_dir)
                 return
             if self.staging_dir.is_symlink():

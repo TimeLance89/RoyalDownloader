@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
+const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
@@ -58,6 +59,33 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /configGet\(\)/);
 });
 
+test("setup and settings expose desktop and NAS deployment modes", () => {
+  for (const id of [
+    "setup-mode-desktop",
+    "setup-mode-nas",
+    "deployment-mode-desktop",
+    "deployment-mode-nas",
+    "deployment-mode-status",
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`));
+  assert.match(html, /Normaler Computer/);
+  assert.match(html, /NAS \/ Heimserver/);
+  assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
+  assert.match(api, /deployment_mode: deploymentMode/);
+});
+
+test("fresh setup starts in English and prioritizes live setup translation", () => {
+  assert.match(html, /<option value="en" translate="no" selected>English<\/option>/);
+  assert.match(app, /defaults\.ui_language_configured\s*\? defaults\.ui_language\s*:\s*"en"/);
+  assert.match(app, /changeSetupLanguage\(event\.target\.value, true\)/);
+  assert.match(app, /#setup-wizard \.setup-stage-head/);
+  assert.match(localization, /priorityRoot = null/);
+  assert.match(localization, /translateTexts/);
+  assert.match(html, /i18n\.js\?v=royal-20260805-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260805-6/);
+  assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
+  assert.match(app, /TMDB ist erforderlich/);
+});
+
 test("movie and series catalogs lazy-load for mobile document scrolling", () => {
   for (const id of ["tab-filme", "fp-infinite", "tab-serien", "series-infinite"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
@@ -67,7 +95,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-8/);
+  assert.match(html, /app\.js\?v=royal-20260805-10/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -108,12 +136,21 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260805-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-9/);
+  assert.match(html, /api\.js\?v=royal-20260805-3/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-10/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
+test("Top 10 rotates daily instead of weekly", () => {
+  assert.match(html, /Heute neu/);
+  assert.match(html, /Top 10 des Tages/);
+  assert.match(home, /HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1"/);
+  assert.match(home, /function dailyStableEntries/);
+  assert.match(home, /const period = localDateKey\(\)/);
+  assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
 });
 
 test("only Top 10 cards may fall back to portrait posters", () => {
@@ -259,7 +296,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260803-1/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260805-2/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -301,7 +338,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260805-8/);
+  assert.match(html, /style\.css\?v=royal-20260805-9/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

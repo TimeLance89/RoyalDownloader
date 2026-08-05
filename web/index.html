@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-8">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-9">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -246,7 +246,7 @@
         <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
-              <span class="home-rail-eyebrow">Diese Woche</span>
+              <span class="home-rail-eyebrow">Heute neu</span>
               <h2 id="home-top-title">Top 10</h2>
             </div>
             <div class="home-rail-controls">
@@ -254,7 +254,7 @@
               <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 dieser Woche"></div>
+          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 des Tages"></div>
         </section>
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
@@ -918,6 +918,25 @@
               </div>
             </header>
             <div class="settings-card-grid settings-general-grid">
+        <div class="settings-group settings-card deployment-settings settings-card-wide">
+          <h3>Betriebsmodus</h3>
+          <p class="dim settings-hint">Bestimmt, ob Royal nur auf diesem Computer oder dauerhaft im Netzwerk läuft.</p>
+          <div class="runtime-mode-selector" role="radiogroup" aria-label="Betriebsmodus">
+            <label class="runtime-mode-card">
+              <input id="deployment-mode-desktop" type="radio" name="deployment-mode" value="desktop">
+              <span class="runtime-mode-visual is-desktop" aria-hidden="true"><i></i><b></b></span>
+              <span><strong>Computer</strong><small>Windows, macOS oder Linux · Browser öffnet lokal</small></span>
+              <em>Dieser PC</em>
+            </label>
+            <label class="runtime-mode-card">
+              <input id="deployment-mode-nas" type="radio" name="deployment-mode" value="nas">
+              <span class="runtime-mode-visual is-nas" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>NAS / Server</strong><small>Dauerbetrieb · Netzwerkzugriff · start.sh</small></span>
+              <em>24 / 7</em>
+            </label>
+          </div>
+          <p id="deployment-mode-status" class="dim small-status" role="status" aria-live="polite"></p>
+        </div>
         <div class="settings-group settings-card language-settings">
           <h3>Sprache &amp; Oberfläche</h3>
           <p class="dim settings-hint">Die Oberfläche wird automatisch übersetzt. Deutsch bleibt bei Verbindungsproblemen als sicherer Fallback erhalten.</p>
@@ -1453,7 +1472,7 @@
       <ol class="setup-progress">
         <li class="active" data-setup-marker="1" aria-current="step">
           <span class="setup-marker-number">01</span>
-          <span><strong>Sprache</strong><small>Oberfläche</small></span>
+          <span><strong>Betriebsart</strong><small>Computer oder NAS</small></span>
         </li>
         <li data-setup-marker="2">
           <span class="setup-marker-number">02</span>
@@ -1484,18 +1503,35 @@
 
     <section class="setup-stage">
       <header class="setup-stage-head">
-        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 5</span>
+        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 6</span>
         <h1 id="setup-title">Welche Sprache passt zu dir?</h1>
         <p id="setup-intro">Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.</p>
       </header>
 
       <div class="setup-panels">
         <div class="setup-panel" data-setup-step="1">
+          <div class="setup-section-title"><strong>Wo läuft Royal?</strong><span>entscheidet den Startweg</span></div>
+          <p class="setup-copy">Die Auswahl richtet Netzwerkzugriff, Browserstart und die neue .env passend ein.</p>
+          <div class="runtime-mode-selector is-setup" role="radiogroup" aria-label="Betriebsmodus wählen">
+            <label class="runtime-mode-card">
+              <input id="setup-mode-desktop" type="radio" name="setup-deployment-mode" value="desktop" checked>
+              <span class="runtime-mode-visual is-desktop" aria-hidden="true"><i></i><b></b></span>
+              <span><strong>Normaler Computer</strong><small>Für Windows, macOS oder Linux. Startet lokal und öffnet den Browser.</small></span>
+              <em>Empfohlen</em>
+            </label>
+            <label class="runtime-mode-card">
+              <input id="setup-mode-nas" type="radio" name="setup-deployment-mode" value="nas">
+              <span class="runtime-mode-visual is-nas" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>NAS / Heimserver</strong><small>Dauerbetrieb im Netzwerk. Nutzt start.sh oder Docker Compose.</small></span>
+              <em>24 / 7</em>
+            </label>
+          </div>
+          <div class="setup-divider"></div>
           <label class="setup-field setup-language-field" for="setup-ui-language">
             <span>Sprache</span>
             <select id="setup-ui-language" aria-label="Sprache für die Oberfläche">
               <option value="de" translate="no">Deutsch</option>
-              <option value="en" translate="no">English</option>
+              <option value="en" translate="no" selected>English</option>
               <option value="es" translate="no">Español</option>
               <option value="fr" translate="no">Français</option>
               <option value="it" translate="no">Italiano</option>
@@ -1612,11 +1648,11 @@
             <small>Erforderlich, damit die nächste Staffel erst nach einer vollständig gesehenen Staffel geladen wird.</small>
           </label>
           <div class="setup-divider"></div>
-          <div class="setup-section-title"><strong>TMDB</strong><span>optional</span></div>
-          <p class="setup-copy">Lädt deutsche Cover, Beschreibungen, Genres und Laufzeiten.</p>
+          <div class="setup-section-title"><strong>TMDB</strong><span>erforderlich</span></div>
+          <p class="setup-copy">Liefert eindeutige Treffer, Cover, Beschreibungen, Genres und Laufzeiten.</p>
           <label class="setup-field" for="setup-tmdb-key">
-            <span>API-Key oder Read Access Token</span>
-            <input id="setup-tmdb-key" type="password" autocomplete="new-password" placeholder="TMDB-Zugang">
+            <span>API-Key oder Read Access Token <em>Erforderlich</em></span>
+            <input id="setup-tmdb-key" type="password" autocomplete="new-password" placeholder="TMDB-Zugang" required aria-required="true">
           </label>
         </div>
 
@@ -1853,21 +1889,21 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260805-2"></script>
-<script src="/i18n.js"></script>
+<script src="/api.js?v=royal-20260805-3"></script>
+<script src="/i18n.js?v=royal-20260805-1"></script>
 <script src="/store.js?v=royal-20260805-4"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260805-4"></script>
-<script src="/screens/home.js?v=royal-20260805-9"></script>
+<script src="/screens/home.js?v=royal-20260805-10"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/screens/movies.js?v=royal-20260805-5"></script>
 <script src="/screens/series.js?v=royal-20260805-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260802-1"></script>
 <script src="/screens/notifications.js?v=royal-20260805-2"></script>
-<script src="/screens/settings.js?v=royal-20260802-1"></script>
-<script src="/screens/account.js?v=royal-20260802-2"></script>
-<script src="/screens/setup.js?v=royal-20260805-3"></script>
-<script src="/app.js?v=royal-20260805-8"></script>
+<script src="/screens/settings.js?v=royal-20260805-2"></script>
+<script src="/screens/account.js?v=royal-20260805-3"></script>
+<script src="/screens/setup.js?v=royal-20260805-6"></script>
+<script src="/app.js?v=royal-20260805-10"></script>
 </body>
 </html>

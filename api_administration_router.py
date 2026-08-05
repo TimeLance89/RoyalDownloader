@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 import auth as appauth
 import config as appconfig
+from environment_file import DEPLOYMENT_MODES, ENV_PATH, write_project_env
 from api_setup_router import SetupCompleteBody
 from app_version import APP_VERSION
 from jellyfin_client import JellyfinClient
@@ -272,7 +273,10 @@ def _setup_status_payload() -> dict:
     return {
         "required": setup_required(),
         "config_path": str(appconfig.config_path()),
+        "env_path": str(ENV_PATH),
+        "env_exists": ENV_PATH.is_file(),
         "defaults": {
+            "deployment_mode": appconfig.load_deployment_mode(),
             "save_path": state.save_path,
             "series_path": state.series_path,
             "ui_language": state.ui_language,
@@ -305,6 +309,20 @@ def _setup_status_payload() -> dict:
 
 
 
+async def _validate_setup_tmdb_key(api_key: str, ui_language: str) -> None:
+    if not api_key:
+        raise HTTPException(400, "TMDB ist für die Einrichtung erforderlich.")
+    language = appconfig.tmdb_language_for_ui(ui_language)
+    valid = await run_in_threadpool(
+        TMDBClient(api_key=api_key, language=language).validate,
+    )
+    if not valid:
+        raise HTTPException(
+            400,
+            "Der TMDB API-Key oder Read Access Token ist ungültig oder TMDB nicht erreichbar.",
+        )
+
+
 async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
     # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
@@ -326,6 +344,9 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         account_hash = await run_in_threadpool(appauth.hash_password, account_password)
     movie_path = body.save_path.strip()
     series_path = body.series_path.strip() or movie_path
+    deployment_mode = str(body.deployment_mode or "").strip().casefold()
+    if deployment_mode not in DEPLOYMENT_MODES:
+        raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
     jellyfin_url = body.jellyfin_url.strip()
     with state.jellyfin_cache_lock:
         previous_jellyfin = dict(state.jellyfin_cfg)
@@ -338,6 +359,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     )
     jellyfin_user_id = body.jellyfin_user_id.strip()
     jellyfin_user_name = body.jellyfin_user_name.strip()
+    tmdb_api_key = body.tmdb_api_key.strip() or str(state.tmdb_cfg.get("api_key") or "").strip()
     movie_order = (
         [str(value).strip().casefold() for value in body.movie_provider_order]
         if body.movie_provider_order is not None
@@ -425,10 +447,18 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
             if selected is None:
                 raise HTTPException(400, "Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
             jellyfin_user_name = selected["name"]
+    await _validate_setup_tmdb_key(tmdb_api_key, body.ui_language)
     if body.telegram_enabled and not (body.telegram_bot_token.strip() or state.telegram_cfg.get("bot_token", "")):
         raise HTTPException(400, "Für Telegram fehlt der Bot-Token.")
     for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
         await run_in_threadpool(_prepare_media_directory, value, label)
+
+    try:
+        env_result = await run_in_threadpool(
+            write_project_env, deployment_mode, movie_path, series_path,
+        )
+    except OSError as exc:
+        raise HTTPException(500, f".env konnte nicht erstellt werden: {exc}") from exc
 
     # Auch wenn alle Vorprüfungen lange gedauert haben, darf direkt vor dem
     # atomaren Konfigurations-Commit kein anderer Abschluss gewonnen haben.
@@ -453,7 +483,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         jellyfin_api_key,
         jellyfin_user_id,
         jellyfin_user_name,
-        body.tmdb_api_key or state.tmdb_cfg.get("api_key", ""),
+        tmdb_api_key,
         body.telegram_enabled,
         body.telegram_bot_token or state.telegram_cfg.get("bot_token", ""),
         body.telegram_chat_id,
@@ -471,6 +501,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         anime_providers,
         account_user,
         account_hash,
+        deployment_mode,
     )
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
@@ -512,6 +543,10 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         "series_path": state.series_path,
         "ui_language": state.ui_language,
         "auth_configured": auth_configured(),
+        "deployment_mode": appconfig.load_deployment_mode(),
+        "env_path": env_result["path"],
+        "env_created": env_result["created"],
+        "restart_required": True,
     }
     if not account_hash:
         return payload
@@ -625,12 +660,19 @@ async def api_ui_translate(body: UITranslationBody, request: Request):
 class ConfigBody(BaseModel):
     save_path: str
     series_path: str | None = None
+    deployment_mode: str | None = None
 
 
 @router.get("/api/v1/config")
 @router.get("/api/config")
 async def api_config_get():
-    return {"save_path": state.save_path, "series_path": state.series_path}
+    return {
+        "save_path": state.save_path,
+        "series_path": state.series_path,
+        "deployment_mode": appconfig.load_deployment_mode(),
+        "env_path": str(ENV_PATH),
+        "env_exists": ENV_PATH.is_file(),
+    }
 
 
 @router.post("/api/v1/config")
@@ -638,6 +680,10 @@ async def api_config_get():
 async def api_config_set(body: ConfigBody):
     movie_path = body.save_path.strip()
     series = (body.series_path or "").strip() or movie_path
+    previous_mode = appconfig.load_deployment_mode()
+    deployment_mode = previous_mode if body.deployment_mode is None else str(body.deployment_mode).strip().casefold()
+    if deployment_mode not in DEPLOYMENT_MODES:
+        raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
     if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
@@ -646,14 +692,29 @@ async def api_config_set(body: ConfigBody):
         ok = appconfig.save(movie_path)
         # Serien-Pfad optional: leer/None -> gleicher Ordner wie Filme (Fallback).
         ok_series = appconfig.save_series_path(series)
-        return ok, ok_series, appconfig.load_series_path()
+        ok_mode = appconfig.save_deployment_mode(deployment_mode)
+        return ok, ok_series, ok_mode, appconfig.load_series_path()
 
-    ok, ok_series, saved_series_path = await run_in_threadpool(_save_paths)
-    if not (ok and ok_series):
+    ok, ok_series, ok_mode, saved_series_path = await run_in_threadpool(_save_paths)
+    if not (ok and ok_series and ok_mode):
         raise HTTPException(500, "Speicherorte konnten nicht gespeichert werden.")
+    try:
+        env_result = await run_in_threadpool(
+            write_project_env, deployment_mode, movie_path, saved_series_path,
+        )
+    except OSError as exc:
+        raise HTTPException(500, f".env konnte nicht aktualisiert werden: {exc}") from exc
     state.save_path = movie_path
     state.series_path = saved_series_path
-    return {"save_path": state.save_path, "series_path": state.series_path, "saved": True}
+    return {
+        "save_path": state.save_path,
+        "series_path": state.series_path,
+        "deployment_mode": deployment_mode,
+        "env_path": env_result["path"],
+        "env_created": env_result["created"],
+        "restart_required": deployment_mode != previous_mode,
+        "saved": True,
+    }
 
 
 class ProviderPriorityBody(BaseModel):

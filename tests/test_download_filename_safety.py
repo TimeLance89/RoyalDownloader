@@ -52,3 +52,18 @@ def test_commit_never_overwrites_existing_media(tmp_path: Path):
     assert first_target.read_bytes() == b"first"
     assert second_target not in {target, first_target}
     assert second_target.read_bytes() == b"second"
+
+
+def test_staging_is_isolated_per_attempt(tmp_path: Path):
+    first = DownloadJob(
+        "https://example.test/video.mp4", "mp4", tmp_path / "movie.mp4",
+        job_id="logical-job", attempt_id="attempt-one",
+    )
+    second = DownloadJob(
+        "https://example.test/video.mp4", "mp4", tmp_path / "movie.mp4",
+        job_id="logical-job", attempt_id="attempt-two",
+    )
+
+    assert first.staging_dir != second.staging_dir
+    assert first.staging_dir.name == "attempt-one"
+    assert second.staging_dir.name == "attempt-two"

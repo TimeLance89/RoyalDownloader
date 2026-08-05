@@ -13,6 +13,46 @@ const i18n = (() => {
     uk: "Українська",
   };
   const ATTRIBUTES = ["placeholder", "title", "aria-label"];
+  const LOCAL_TRANSLATIONS = {
+    en: new Map(Object.entries({
+      "ROYAL DOWNLOAD": "ROYAL DOWNLOAD",
+      "Einrichtungsfortschritt": "Setup progress",
+      "ERSTEINRICHTUNG": "INITIAL SETUP",
+      "Betriebsart": "Operating mode",
+      "Computer oder NAS": "Computer or NAS",
+      "Quellen": "Sources",
+      "Filme & Serien": "Movies & series",
+      "Speicherorte": "Storage locations",
+      "Ordner & Queue": "Folders & queue",
+      "Bibliothek": "Library",
+      "Jellyfin & TMDB": "Jellyfin & TMDB",
+      "Automatik": "Automation",
+      "Downloads & Telegram": "Downloads & Telegram",
+      "Zugang": "Access",
+      "Konto anlegen": "Create account",
+      "Konfiguration": "Configuration",
+      "SCHRITT 1 VON 6": "STEP 1 OF 6",
+      "Welche Sprache passt zu dir?": "Which language works for you?",
+      "Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.": "The interface switches immediately. Content and provider names stay unchanged.",
+      "Wo läuft Royal?": "Where will Royal run?",
+      "entscheidet den Startweg": "determines how Royal starts",
+      "Die Auswahl richtet Netzwerkzugriff, Browserstart und die neue .env passend ein.": "This choice configures network access, browser startup, and the new .env file.",
+      "Normaler Computer": "Regular computer",
+      "Für Windows, macOS oder Linux. Startet lokal und öffnet den Browser.": "For Windows, macOS, or Linux. Runs locally and opens the browser.",
+      "Empfohlen": "Recommended",
+      "NAS / Heimserver": "NAS / home server",
+      "Dauerbetrieb im Netzwerk. Nutzt start.sh oder Docker Compose.": "Always-on network service using start.sh or Docker Compose.",
+      "Sprache": "Language",
+      "Die Auswahl wird sofort als Vorschau angewendet.": "The setup switches language immediately.",
+      "Die Steuerung spricht deine Sprache": "Royal speaks your language",
+      "Im nächsten Schritt bestimmst du Inhaltssprachen und passende Kataloge für Filme und Serien.": "Next, choose content languages and matching movie and series catalogs.",
+      "Zurück": "Back",
+      "Nächster Schritt": "Next step",
+      "Einrichtung abschließen": "Complete setup",
+      "Betriebsmodus wählen": "Choose operating mode",
+      "Sprache für die Oberfläche": "Interface language",
+    })),
+  };
   const SKIP_SELECTOR = [
     "script", "style", "code", "pre", "textarea",
     "[translate='no']", "[data-i18n-ignore]",
@@ -180,7 +220,9 @@ const i18n = (() => {
   }
 
   function translationCache(target) {
-    if (!translations.has(target)) translations.set(target, new Map());
+    if (!translations.has(target)) {
+      translations.set(target, new Map(LOCAL_TRANSLATIONS[target] || []));
+    }
     return translations.get(target);
   }
 
@@ -309,6 +351,13 @@ const i18n = (() => {
     connected.forEach((entry) => renderEntry(entry, cache.get(entry.source) || entry.source));
   }
 
+  async function translateTexts(values, options = {}) {
+    const sources = values.map((value) => String(value ?? ""));
+    if (language === SOURCE_LANGUAGE) return sources;
+    const cache = await resolveTranslations(language, sources, options);
+    return sources.map((source) => cache.get(source) || source);
+  }
+
   function queueTranslation(entries) {
     for (const entry of entries) pendingEntries.add(entry);
     if (pendingTimer) clearTimeout(pendingTimer);
@@ -372,6 +421,7 @@ const i18n = (() => {
   async function changeLanguage(value, {
     persist = false,
     userInitiated = false,
+    priorityRoot = null,
   } = {}) {
     const target = normalizeLanguage(value);
     generation += 1;
@@ -386,11 +436,26 @@ const i18n = (() => {
       setStatus("Deutsch · Ausgangssprache");
     } else {
       setStatus("Oberfläche wird automatisch übersetzt …");
-      await translateEntries(entries, { userInitiated });
+      const requestedRoots = Array.isArray(priorityRoot) ? priorityRoot : [priorityRoot];
+      const priorityElements = requestedRoots
+        .filter(Boolean)
+        .map((root) => (typeof root === "string" ? document.querySelector(root) : root))
+        .filter(Boolean);
+      const priorityEntries = priorityElements.length ? new Set() : entries;
+      for (const element of priorityElements) {
+        for (const entry of collect(element)) priorityEntries.add(entry);
+      }
+      await translateEntries(priorityEntries, { userInitiated });
       const engineLabel = lastEngine === "browser"
         ? "lokal im Browser"
         : lastEngine === "fallback" ? "deutscher Fallback" : "serverseitig";
       setStatus(`${languages[target]} · automatisch ${engineLabel}`);
+      if (priorityElements.length) {
+        const remaining = new Set([...entries].filter((entry) => !priorityEntries.has(entry)));
+        translateEntries(remaining, { userInitiated }).catch((error) => {
+          console.warn("Restliche Oberfläche konnte nicht übersetzt werden:", error);
+        });
+      }
     }
     if (persist) {
       const response = await api.uiConfigSet(target);
@@ -420,6 +485,7 @@ const i18n = (() => {
   return {
     initialize,
     changeLanguage,
+    translateTexts,
     browserDefaultLanguage,
     locale,
     get language() { return language; },

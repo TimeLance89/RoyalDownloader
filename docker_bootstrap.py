@@ -163,6 +163,7 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
 
 def main() -> None:
     bundle = Path(__file__).resolve().parent
+    os.environ["APP_SOURCE_DIR"] = str(bundle)
     configured = os.environ.get("APP_RUNTIME_DIR", "").strip()
     if not configured:
         os.chdir(bundle)

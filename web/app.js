@@ -580,9 +580,19 @@ async function initApp() {
     buttonId: "setup-jellyfin-users-load",
   }));
   document.getElementById("setup-ui-language").addEventListener("change", (event) => {
-    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+    changeSetupLanguage(event.target.value, true).catch((error) => {
       setSetupStatus(`Sprache konnte nicht geladen werden: ${error.message}`, true);
     });
+  });
+  document.querySelectorAll('input[name="setup-deployment-mode"]').forEach((radio) => {
+    radio.addEventListener("change", () => updateDeploymentModeHints(
+      "setup", selectedDeploymentMode("setup-deployment-mode"),
+    ));
+  });
+  document.querySelectorAll('input[name="deployment-mode"]').forEach((radio) => {
+    radio.addEventListener("change", () => updateDeploymentModeHints(
+      "settings", selectedDeploymentMode(),
+    ));
   });
   document.getElementById("setup-next").addEventListener("click", () => {
     if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1);

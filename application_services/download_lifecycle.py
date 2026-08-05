@@ -21,6 +21,7 @@ def on_job_progress(
     *,
     slug: str = "",
     job_id: str = "",
+    attempt_id: str = "",
     downloaded_bytes: int = 0,
     total_bytes=None,
     speed_bps: float = 0.0,
@@ -28,6 +29,13 @@ def on_job_progress(
 ):
     payload = {"type": "progress", "label": label, "msg": msg}
     if slug:
+        current = _queue_job_for_slug(slug)
+        if not current or (
+            job_id and current.get("job_id") != job_id
+        ) or (
+            attempt_id and current.get("attempt_id") != attempt_id
+        ) or current.get("status") == "cancelling":
+            return False
         now = time.monotonic()
         with state.queue_claim_lock:
             last_persisted = float(state.queue_job_persist_times.get(slug) or 0)
@@ -37,6 +45,8 @@ def on_job_progress(
         logical = _update_queue_job(
             slug,
             persist=False,
+            expected_job_id=job_id,
+            expected_attempt_id=attempt_id,
             status="downloading",
             progress=max(0.0, pct) if pct >= 0 else None,
             downloaded_bytes=max(0, int(downloaded_bytes or 0)),
@@ -51,11 +61,14 @@ def on_job_progress(
             job_id = logical["job_id"]
     if job_id:
         payload["job_id"] = job_id
+    if attempt_id:
+        payload["attempt_id"] = attempt_id
     if slug:
         payload["slug"] = slug
     if pct >= 0:
         payload["pct"] = pct
     broadcast(payload)
+    return True
 
 
 def _failure_record(previous, message: str) -> dict:
@@ -78,11 +91,29 @@ def _watchlist_retry_allowed(slug: str) -> bool:
     return True
 
 
-def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str = "", slug: str = ""):
+def on_job_done(
+    ok: bool,
+    msg: str,
+    label: str,
+    out_path: Path,
+    hoster_url: str = "",
+    slug: str = "",
+    job_id: str = "",
+    attempt_id: str = "",
+):
     # Der Counter-Eintrag ist das einmalige Abschlusstoken. Entfernen/Abbruch
     # kann es vor einem verspäteten Callback konsumieren; dieser wird dann
     # vollständig ignoriert und kann done/total nicht mehr verfälschen.
     with state.queue_claim_lock:
+        current = _queue_job_for_slug(slug) if slug else None
+        if slug and (
+            current is None
+            or (job_id and current.get("job_id") != job_id)
+            or (attempt_id and current.get("attempt_id") != attempt_id)
+        ):
+            return False
+        if current and current.get("status") == "cancelling":
+            ok, msg = False, "Abgebrochen"
         with state.download_state_lock:
             if slug and slug not in state.counted_queue_slugs:
                 return False
@@ -115,6 +146,8 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
             error="" if ok else msg,
             final_path=str(out_path) if ok else "",
             persist=False,
+            expected_job_id=job_id,
+            expected_attempt_id=attempt_id,
         )
         _persist_queue_state()
         watchlist_changed = False
@@ -162,6 +195,7 @@ def on_job_done(ok: bool, msg: str, label: str, out_path: Path, hoster_url: str 
     broadcast({
         "type": "job_done", "ok": ok, "label": label, "slug": slug, "msg": msg,
         "job_id": (terminal_job or {}).get("job_id", ""),
+        "attempt_id": (terminal_job or {}).get("attempt_id", attempt_id),
         "job": terminal_job,
         "done_jobs": done_jobs, "total_jobs": total_jobs,
         "successful_jobs": successful_jobs, "failed_jobs": failed_jobs,
