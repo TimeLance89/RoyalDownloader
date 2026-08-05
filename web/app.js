@@ -387,6 +387,34 @@ async function initApp() {
   });
 
   // Bibliothek
+  document.getElementById("wl-hero-open").addEventListener("click", () => {
+    if (state.wl.heroBaseSlug) openWatchlistEntry(state.wl.heroBaseSlug);
+  });
+  document.getElementById("wl-hero-check").addEventListener("click", async () => {
+    if (!state.wl.heroBaseSlug) return;
+    document.getElementById("wl-status").textContent = "Archivstück wird geprüft …";
+    const data = await api.watchlistCheck([state.wl.heroBaseSlug]);
+    applyWatchlist(data.watchlist);
+    document.getElementById("wl-status").textContent = "Status aktualisiert";
+  });
+  document.querySelectorAll("[data-library-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wl.filter = button.dataset.libraryFilter || "all";
+      renderWatchlist();
+    });
+  });
+  document.getElementById("wl-search").addEventListener("input", (event) => {
+    state.wl.draftQuery = event.currentTarget.value;
+  });
+  document.getElementById("wl-search-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.wl.query = String(state.wl.draftQuery || "").trim();
+    renderWatchlist();
+  });
+  document.getElementById("wl-sort").addEventListener("change", (event) => {
+    state.wl.sort = event.currentTarget.value || "attention";
+    renderWatchlist();
+  });
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
     const data = await api.watchlistCheck(null);

@@ -329,7 +329,7 @@ function renderMoodMatchResults() {
   grid.replaceChildren();
   moodState.results.forEach((entry, index) => {
     const card = createHomeCard(entry, 0, index < 4, index === 0 ? "mood-lead" : "mood-result");
-    card.addEventListener("click", () => closeMoodMatch(false), { capture: true });
+    card.addEventListener("click", suspendMoodMatchForDetail, { capture: true });
     grid.appendChild(card);
   });
   const back = document.getElementById("mood-back");
@@ -386,7 +386,9 @@ function renderMoodMatch() {
 
 function openMoodMatch(trigger = null) {
   moodMatchReturnFocus = trigger || document.activeElement;
-  state.home.mood = { step: 0, answers: {}, results: [], open: true, recordedKey: "" };
+  state.home.mood = {
+    step: 0, answers: {}, results: [], open: true, recordedKey: "", returnAfterDetail: false,
+  };
   const modal = document.getElementById("mood-modal");
   modal.classList.remove("hidden");
   document.body.classList.add("mood-open");
@@ -395,14 +397,34 @@ function openMoodMatch(trigger = null) {
   requestAnimationFrame(() => document.querySelector("#mood-options .mood-option")?.focus());
 }
 
-function closeMoodMatch(restoreFocus = true) {
+function closeMoodMatch(restoreFocus = true, preserveDetailReturn = false) {
   const modal = document.getElementById("mood-modal");
   if (modal.classList.contains("hidden")) return;
   modal.classList.add("hidden");
   document.body.classList.remove("mood-open");
   state.home.mood.open = false;
+  if (!preserveDetailReturn) state.home.mood.returnAfterDetail = false;
   if (state.tab === "home") scheduleHomeHeroRotation();
   if (restoreFocus) moodMatchReturnFocus?.focus();
+}
+
+function suspendMoodMatchForDetail() {
+  state.home.mood.returnAfterDetail = true;
+  closeMoodMatch(false, true);
+}
+
+function resumeMoodMatchAfterDetail() {
+  const moodState = state.home.mood;
+  if (!moodState?.returnAfterDetail) return false;
+  moodState.returnAfterDetail = false;
+  moodState.open = true;
+  const modal = document.getElementById("mood-modal");
+  modal.classList.remove("hidden");
+  document.body.classList.add("mood-open");
+  stopHomeHeroRotation();
+  renderMoodMatch();
+  requestAnimationFrame(() => document.querySelector("#mood-result-grid .home-card")?.focus());
+  return true;
 }
 
 async function moodMatchNext() {

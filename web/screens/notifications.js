@@ -96,6 +96,45 @@ async function refreshNotifications() {
   }
 }
 
+function watchlistNeedsAttention(entry) {
+  return Boolean(
+    entry.new_count || entry.cleanup_last_error
+    || entry.status === "blocked" || entry.status === "failed",
+  );
+}
+
+function libraryVisibleItems() {
+  const query = String(state.wl.query || "").trim().toLocaleLowerCase("de-DE");
+  const filtered = state.wl.items.filter((entry) => {
+    if (query && !String(entry.title || "").toLocaleLowerCase("de-DE").includes(query)) return false;
+    if (state.wl.filter === "attention") return watchlistNeedsAttention(entry);
+    if (state.wl.filter === "current") return entry.status === "current";
+    if (state.wl.filter === "queued") return entry.status === "queued" || Number(entry.queued_count) > 0;
+    return true;
+  });
+  return filtered.sort((left, right) => {
+    if (state.wl.sort === "title") return String(left.title).localeCompare(String(right.title), "de");
+    if (state.wl.sort === "recent") return Number(right.last_checked || 0) - Number(left.last_checked || 0);
+    return Number(watchlistNeedsAttention(right)) - Number(watchlistNeedsAttention(left))
+      || Number(right.new_count || 0) - Number(left.new_count || 0)
+      || String(left.title).localeCompare(String(right.title), "de");
+  });
+}
+
+function showLibraryHero(entry) {
+  state.wl.heroBaseSlug = entry?.base_slug || "";
+  const heroArt = document.getElementById("library-hero-art");
+  const heroArtwork = api.coverUrl(entry?.backdrop_url || "").replace(/"/g, "%22");
+  heroArt.style.backgroundImage = heroArtwork ? `url("${heroArtwork}")` : "";
+  heroArt.classList.toggle("has-artwork", Boolean(heroArtwork));
+  document.getElementById("library-hero-title").textContent = entry?.title || "Meine Liste";
+  document.getElementById("library-hero-description").textContent = entry
+    ? watchlistStatusText(entry)
+    : "Füge Serien hinzu und baue dein persönliches Royal Archiv auf.";
+  document.getElementById("wl-hero-open").disabled = !entry;
+  document.getElementById("wl-hero-check").disabled = !entry;
+}
+
 function renderWatchlist() {
   const container = document.getElementById("wl-list");
   container.innerHTML = "";
@@ -110,19 +149,21 @@ function renderWatchlist() {
   }, 0);
   document.getElementById("wl-total-count").textContent = String(state.wl.items.length);
   document.getElementById("wl-attention-count").textContent = String(attentionCount);
+  document.getElementById("wl-current-count").textContent = String(
+    state.wl.items.filter((entry) => entry.status === "current").length,
+  );
+  document.getElementById("wl-queued-count").textContent = String(
+    state.wl.items.reduce((sum, entry) => sum + Number(entry.queued_count || 0), 0),
+  );
   document.getElementById("wl-selected-count").textContent = String(state.wl.selected.size);
-  const heroEntry = state.wl.items.find((entry) =>
-    entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed"
-  ) || state.wl.items[0];
-  const heroArt = document.getElementById("library-hero-art");
-  const heroArtwork = api.coverUrl(heroEntry?.backdrop_url || heroEntry?.cover_url || "").replace(/"/g, "%22");
-  heroArt.style.backgroundImage = heroArtwork ? `url("${heroArtwork}")` : "";
-  heroArt.classList.toggle("has-artwork", Boolean(heroArtwork));
-  document.getElementById("library-hero-description").textContent = heroEntry
-    ? (attentionCount
-      ? `${attentionCount} ${attentionCount === 1 ? "Update wartet" : "Updates warten"} auf dich.`
-      : "Alles, was du verfolgst – vollständig und startklar.")
-    : "Füge Serien hinzu und baue deine persönliche Sammlung auf.";
+  const heroEntry = state.wl.items.find((entry) => entry.base_slug === state.wl.heroBaseSlug)
+    || state.wl.items.find(watchlistNeedsAttention) || state.wl.items[0];
+  showLibraryHero(heroEntry);
+  const visibleItems = libraryVisibleItems();
+  document.getElementById("wl-visible-count").textContent = String(visibleItems.length);
+  document.querySelectorAll("[data-library-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.libraryFilter === state.wl.filter);
+  });
   document.getElementById("wl-check-all").disabled = state.wl.items.length === 0;
   for (const id of ["wl-check-selected", "wl-open", "wl-remove"]) {
     document.getElementById(id).disabled = state.wl.selected.size === 0;
@@ -140,11 +181,21 @@ function renderWatchlist() {
     return;
   }
 
-  state.wl.items.forEach((entry, index) => {
+  if (!visibleItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "library-empty is-filtered";
+    empty.innerHTML = `
+      <span class="library-empty-mark" aria-hidden="true">⌕</span>
+      <strong>Kein Archivtreffer</strong>
+      <span>Filter ändern oder einen anderen Titel mit Enter suchen.</span>
+    `;
+    container.appendChild(empty);
+    return;
+  }
+
+  visibleItems.forEach((entry, index) => {
     const isSelected = state.wl.selected.has(entry.base_slug);
-    const needsAttention = Boolean(
-      entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed"
-    );
+    const needsAttention = watchlistNeedsAttention(entry);
     const row = document.createElement("div");
     row.className = "wl-row library-card"
       + (isSelected ? " selected" : "")
@@ -182,9 +233,9 @@ function renderWatchlist() {
     identity.className = "library-card-identity";
     const artwork = document.createElement("span");
     artwork.className = "library-card-artwork";
-    if (entry.cover_url) {
+    if (entry.backdrop_url) {
       const image = document.createElement("img");
-      image.src = api.coverUrl(entry.cover_url);
+      image.src = api.coverUrl(entry.backdrop_url);
       image.alt = "";
       image.loading = "lazy";
       image.addEventListener("error", () => artwork.classList.add("is-fallback"), { once: true });
@@ -207,6 +258,18 @@ function renderWatchlist() {
     statusText.textContent = watchlistStatusText(entry);
     copy.append(title, statusText);
     identity.append(artwork, copy);
+
+    const knownEpisodes = Array.isArray(entry.known_slugs) ? entry.known_slugs.length : 0;
+    const missingEpisodes = Number(entry.new_count || 0);
+    const archivePercent = knownEpisodes
+      ? Math.max(0, Math.min(100, ((knownEpisodes - missingEpisodes) / knownEpisodes) * 100))
+      : (needsAttention ? 18 : 100);
+    const progress = document.createElement("span");
+    progress.className = "library-card-progress";
+    progress.setAttribute("aria-label", `Archivstand ${Math.round(archivePercent)} Prozent`);
+    const progressFill = document.createElement("i");
+    progressFill.style.width = `${archivePercent}%`;
+    progress.appendChild(progressFill);
 
     const episodeStatus = document.createElement("div");
     episodeStatus.className = "library-episode-status";
@@ -243,7 +306,9 @@ function renderWatchlist() {
     });
     footer.append(rule, open);
 
-    row.append(top, identity, episodeStatus, footer);
+    row.append(top, identity, progress, episodeStatus, footer);
+    row.addEventListener("pointerenter", () => showLibraryHero(entry));
+    row.addEventListener("focusin", () => showLibraryHero(entry));
     row.addEventListener("click", () => toggleWlSelect(entry.base_slug));
     row.addEventListener("dblclick", () => openWatchlistEntry(entry.base_slug));
     row.addEventListener("keydown", (event) => {

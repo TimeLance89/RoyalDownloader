@@ -630,7 +630,12 @@ function closeMediaModal(modalId, restoreFocus = true) {
   modal.classList.remove("is-open");
   modal.hidden = true;
   if (!activeMediaModal()) document.body.classList.remove("media-modal-open");
-  if (restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
+  const resumedMood = restoreFocus
+    && typeof resumeMoodMatchAfterDetail === "function"
+    && resumeMoodMatchAfterDetail();
+  if (!resumedMood && restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
+    returnFocus.focus();
+  }
 }
 
 function closeAllMediaModals(restoreFocus = true) {

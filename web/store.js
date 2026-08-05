@@ -33,7 +33,10 @@ function createInitialState() {
       currentId: "", current: null, translation: "", episodePage: 1,
       picked: new Set(), searchReturn: null,
     },
-    wl: { items: [], selected: new Set(), loaded: false },
+    wl: {
+      items: [], selected: new Set(), loaded: false,
+      filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",
+    },
     movieSubscriptions: { items: [], loaded: false },
     queue: { count: 0, groups: [], loaded: false },
     download: { active: false, percent: 0, completed: 0, total: 0, failed: 0 },

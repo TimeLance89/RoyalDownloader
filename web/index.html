@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-5">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-6">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -806,19 +806,47 @@
       <header class="library-hero">
         <div id="library-hero-art" class="library-hero-art" aria-hidden="true"></div>
         <div class="library-hero-copy">
-          <span class="library-kicker"><i aria-hidden="true"></i> DEINE SERIEN</span>
-          <h1>Meine Liste</h1>
+          <span class="library-kicker"><i aria-hidden="true"></i> ROYAL ARCHIV · DEINE SERIEN</span>
+          <h1 id="library-hero-title">Meine Liste</h1>
           <p id="library-hero-description">Alles, was du verfolgst – bereit, wenn du es bist.</p>
+          <div class="library-hero-actions">
+            <button id="wl-hero-open" class="library-hero-action is-primary" type="button">▶ Jetzt öffnen</button>
+            <button id="wl-hero-check" class="library-hero-action" type="button">↻ Status prüfen</button>
+          </div>
           <div class="library-hero-meta" aria-label="Status deiner Liste">
             <span><strong id="wl-total-count">0</strong> Serien</span>
             <span><strong id="wl-attention-count">0</strong> offen</span>
+            <span><strong id="wl-current-count">0</strong> vollständig</span>
+            <span><strong id="wl-queued-count">0</strong> in Queue</span>
           </div>
         </div>
       </header>
       <div class="library-panel">
+        <div class="library-index" aria-label="Bibliothek filtern">
+          <div class="library-filter-tabs" role="group" aria-label="Statusfilter">
+            <button type="button" class="is-active" data-library-filter="all">Alles</button>
+            <button type="button" data-library-filter="attention">Handlungsbedarf</button>
+            <button type="button" data-library-filter="current">Vollständig</button>
+            <button type="button" data-library-filter="queued">Queue</button>
+          </div>
+          <form id="wl-search-form" class="library-search" role="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="wl-search" type="search" placeholder="Archiv durchsuchen · Enter" autocomplete="off">
+            <button type="submit">Suchen</button>
+          </form>
+          <label class="library-sort">
+            <span>Sortierung</span>
+            <select id="wl-sort">
+              <option value="attention">Wichtig zuerst</option>
+              <option value="title">A–Z</option>
+              <option value="recent">Zuletzt geprüft</option>
+            </select>
+          </label>
+        </div>
         <div class="library-commandbar">
           <div class="library-command-copy">
-            <h2>Deine Bibliothek</h2>
+            <span class="library-section-code">ARCHIV / <b id="wl-visible-count">0</b></span>
+            <h2>Dein Medienregal</h2>
             <span id="wl-status" class="dim" role="status" aria-live="polite">Bereit zur Prüfung</span>
           </div>
           <div class="library-actions">
@@ -1827,19 +1855,19 @@
 
 <script src="/api.js?v=royal-20260805-2"></script>
 <script src="/i18n.js"></script>
-<script src="/store.js?v=royal-20260805-3"></script>
+<script src="/store.js?v=royal-20260805-4"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260805-3"></script>
+<script src="/core.js?v=royal-20260805-4"></script>
 <script src="/screens/home.js?v=royal-20260805-9"></script>
-<script src="/screens/mood.js?v=royal-20260805-4"></script>
+<script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/screens/movies.js?v=royal-20260805-3"></script>
 <script src="/screens/series.js?v=royal-20260805-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260802-1"></script>
-<script src="/screens/notifications.js?v=royal-20260802-1"></script>
+<script src="/screens/notifications.js?v=royal-20260805-2"></script>
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
 <script src="/screens/account.js?v=royal-20260802-2"></script>
 <script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260805-6"></script>
+<script src="/app.js?v=royal-20260805-7"></script>
 </body>
 </html>
