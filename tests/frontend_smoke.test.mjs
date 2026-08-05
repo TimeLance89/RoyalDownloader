@@ -67,7 +67,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260802-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -150,4 +150,12 @@ test("scheduled episodes stay disabled and hero trailers return to artwork", () 
   assert.match(app, /playerState === 0/);
   assert.doesNotMatch(app, /controls=0&loop=1/);
   assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
+});
+
+test("taste feedback is a compact accessible two-way control", () => {
+  assert.match(html, /class="taste-feedback" role="group" aria-label="Serie bewerten"/);
+  assert.match(html, /class="btn btn-ghost taste-like"/);
+  assert.match(html, /class="btn btn-ghost taste-dislike"/);
+  assert.match(app, /like\.querySelector\("\.taste-icon"\)\.textContent = liked \? "♥" : "♡"/);
+  assert.match(app, /dislike\.querySelector\("\.taste-icon"\)\.textContent = disliked \? "⊗" : "⊘"/);
 });

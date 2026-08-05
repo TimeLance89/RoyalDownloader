@@ -473,25 +473,42 @@
   .media-modal .series-action-bar {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "selection selection"
+      "watch trailer"
+      "taste taste"
+      "jellyfin jellyfin"
+      "download download";
   }
 
   .media-modal .series-selection-status {
+    grid-area: selection;
     grid-column: 1 / -1;
-    grid-row: 1;
     align-items: flex-start;
     margin: 0;
     padding: 2px 3px 6px;
   }
 
   .media-modal .series-jellyfin-status {
+    grid-area: jellyfin;
     grid-column: 1 / -1;
-    grid-row: 3;
     justify-content: center;
+  }
+
+  .media-modal .series-action-bar .taste-feedback {
+    grid-area: taste;
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .media-modal #series-watch-btn,
   .media-modal .series-trailer-btn,
   .media-modal #series-add-btn { width: 100%; }
+
+  .media-modal #series-watch-btn { grid-area: watch; }
+  .media-modal .series-trailer-btn { grid-area: trailer; }
+  .media-modal #series-add-btn { grid-area: download; }
 
   .media-modal .series-episodes-head {
     align-items: flex-start;
@@ -523,6 +540,17 @@
   .media-modal .series-hero-copy { min-height: 370px; }
   .media-modal .series-detail-kicker { font-size: 8px; }
   .media-modal .series-detail-meta span { font-size: 10px; }
+
+  .media-modal .series-action-bar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "selection"
+      "watch"
+      "taste"
+      "trailer"
+      "jellyfin"
+      "download";
+  }
 
   .media-modal .series-action-bar { grid-template-columns: 1fr; }
   .media-modal .series-selection-status,
