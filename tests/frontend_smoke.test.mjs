@@ -67,7 +67,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-6/);
+  assert.match(html, /app\.js\?v=royal-20260805-7/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -176,7 +176,11 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /await prepareMoodCandidates\(\)/);
   assert.match(app, /return moodIntentTier\(entry, answers\) < 3/);
   assert.match(app, /Genres und Metadaten werden vervollständigt/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260805-4/);
+  assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
+  assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
+  assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
+  assert.match(html, /core\.js\?v=royal-20260805-4/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
 });
@@ -278,6 +282,23 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(app, /function renderQueueHistory\(jobs\)/);
   assert.match(app, /function updateQueueJobProgress\(jobId, job\)/);
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
+});
+
+test("Royal archive behaves like a searchable media center", () => {
+  requiresIds(
+    "library-hero-title", "wl-hero-open", "wl-hero-check",
+    "wl-search-form", "wl-search", "wl-sort", "wl-visible-count",
+  );
+  for (const filter of ["all", "attention", "current", "queued"]) {
+    assert.match(html, new RegExp(`data-library-filter=["']${filter}["']`));
+  }
+  assert.match(app, /function libraryVisibleItems\(\)/);
+  assert.match(app, /function showLibraryHero\(entry\)/);
+  assert.match(app, /getElementById\("wl-search-form"\)\.addEventListener\("submit"/);
+  assert.match(app, /entry\.backdrop_url/);
+  assert.match(app, /library-card-progress/);
+  assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
+  assert.match(html, /style\.css\?v=royal-20260805-6/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
