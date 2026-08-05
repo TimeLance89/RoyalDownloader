@@ -195,7 +195,8 @@ The updater builds each revision in a staged release with its own Python
 environment, runs compile/import smoke tests, and atomically switches the
 `runtime/current` link only after success. `runtime/previous` keeps the complete
 source and dependency set for rollback. It preserves `data`, `.env`, media
-folders, and persistent settings.
+folders, and persistent settings. Unreferenced older releases are removed
+automatically; the active and rollback releases remain available.
 
 Keep `.env`, `data/`, and private logs out of GitHub issues. They may contain
 passwords, API keys, cookies, private addresses, chat IDs, and media paths.

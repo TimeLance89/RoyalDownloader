@@ -17,6 +17,7 @@ import config as appconfig
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
+from providers.filmo import FilmoScraper
 from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
@@ -133,6 +134,7 @@ async def api_genres():
     def _work():
         loaders = {
             "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).list_genres(),
+            "filmo": lambda: FilmoScraper(progress_cb=log).list_genres(),
             "filmpalast": lambda: get_fp_scraper().list_genres(),
             "huhu": lambda: get_huhu_scraper().list_genres(),
             "moflix": lambda: MoflixScraper(progress_cb=log).list_genres(),
@@ -160,6 +162,7 @@ async def api_genres():
 
     provider_genres = await run_in_threadpool(_work)
     ff_c = provider_genres["filmfrei24"]
+    fo_c = provider_genres["filmo"]
     fp_c = provider_genres["filmpalast"]
     hh_c = provider_genres["huhu"]
     mx_c = provider_genres["moflix"]
@@ -171,6 +174,7 @@ async def api_genres():
     sf_c = provider_genres["sflix"]
     rm_c = provider_genres["ridomovies"]
     state.filmfrei24_provider_genres = ff_c
+    state.filmo_provider_genres = fo_c
     state.fp_provider_genres = fp_c
     state.huhu_provider_genres = hh_c
     state.moflix_provider_genres = mx_c
@@ -185,7 +189,7 @@ async def api_genres():
         {
             canonical_movie_genre(genre)
             for genre in (
-                ff_c | fp_c | hh_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
+                ff_c | fo_c | fp_c | hh_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
                 | rm_c
             )
         },

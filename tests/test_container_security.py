@@ -1,9 +1,13 @@
 from pathlib import Path
+import os
+
+import pytest
 
 import container_entrypoint
 
 
 ROOT = Path(__file__).resolve().parents[1]
+requires_posix = pytest.mark.skipif(os.name != "posix", reason="requires POSIX user IDs")
 
 
 def test_image_and_compose_run_unprivileged_with_reduced_privileges():
@@ -17,6 +21,7 @@ def test_image_and_compose_run_unprivileged_with_reduced_privileges():
     assert "APP_GID: ${PGID:-1000}" in compose
 
 
+@requires_posix
 def test_smoke_check_writes_only_required_mounts(monkeypatch, tmp_path):
     for name in ("runtime", "data", "movies", "series"):
         monkeypatch.setenv(
@@ -33,6 +38,7 @@ def test_smoke_check_writes_only_required_mounts(monkeypatch, tmp_path):
     assert sorted(path.name for path in tmp_path.iterdir()) == ["data", "movies", "runtime", "series"]
 
 
+@requires_posix
 def test_smoke_check_rejects_root(monkeypatch):
     monkeypatch.setattr(container_entrypoint.os, "getuid", lambda: 0)
     try:

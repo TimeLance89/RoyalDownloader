@@ -102,7 +102,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 3
+PROVIDER_CATALOG_REVISION = 4
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -398,7 +398,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
 
     updates = {"provider_catalog_revision": str(PROVIDER_CATALOG_REVISION)}
     movie_priority_raw = values.get("movie_provider_priority")
-    if movie_priority_raw is not None:
+    if movie_priority_raw is not None and revision < 3:
         movie_order = normalize_provider_order(
             movie_priority_raw, MOVIE_PROVIDER_DEFAULTS,
         )
@@ -414,7 +414,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
         updates["movie_provider_priority"] = ",".join(movie_order)
 
     movie_enabled_raw = values.get("movie_provider_enabled")
-    if movie_enabled_raw is not None:
+    if movie_enabled_raw is not None and revision < 3:
         movie_enabled = normalize_provider_selection(
             movie_enabled_raw, MOVIE_PROVIDER_DEFAULTS,
         )
@@ -423,7 +423,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
             updates["movie_provider_enabled"] = ",".join(movie_enabled)
 
     priority_raw = values.get("series_provider_priority")
-    if priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+    if revision < 3 and priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
         requested = {
             item.strip().casefold()
             for item in str(priority_raw).split(",")
@@ -436,11 +436,38 @@ def _migrate_provider_catalog(values: dict) -> dict:
             updates["series_provider_priority"] = ",".join(order)
 
     enabled_raw = values.get("series_provider_enabled")
-    if enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+    if revision < 3 and enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
         enabled = normalize_provider_selection(enabled_raw, SERIES_PROVIDER_DEFAULTS)
         if "huhu" not in enabled:
             enabled.append("huhu")
             updates["series_provider_enabled"] = ",".join(enabled)
+
+    # Revision 4: Filmo wird bei bestehenden Installationen einmalig an seiner
+    # Standardposition aktiviert, ohne eine spätere Benutzerauswahl zu ändern.
+    if movie_priority_raw is not None and revision < 4:
+        requested = {
+            item.strip().casefold()
+            for item in str(movie_priority_raw).split(",")
+            if item.strip()
+        }
+        if "filmo" not in requested:
+            movie_order = normalize_provider_order(
+                updates.get("movie_provider_priority", movie_priority_raw),
+                MOVIE_PROVIDER_DEFAULTS,
+            )
+            movie_order.remove("filmo")
+            position = min(MOVIE_PROVIDER_DEFAULTS.index("filmo"), len(movie_order))
+            movie_order.insert(position, "filmo")
+            updates["movie_provider_priority"] = ",".join(movie_order)
+
+    if movie_enabled_raw is not None and revision < 4:
+        movie_enabled = normalize_provider_selection(
+            updates.get("movie_provider_enabled", movie_enabled_raw),
+            MOVIE_PROVIDER_DEFAULTS,
+        )
+        if "filmo" not in movie_enabled:
+            movie_enabled.append("filmo")
+            updates["movie_provider_enabled"] = ",".join(movie_enabled)
 
     _update_all(updates)
     return {**values, **updates}

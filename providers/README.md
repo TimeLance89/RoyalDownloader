@@ -8,6 +8,7 @@ movie, series, episode, and hoster models live in `models.py`.
 | Module | Provider | Language | Media |
 |---|---|---:|---|
 | `filmfrei24.py` | FilmFrei24 | German | Movies |
+| `filmo.py` | Filmo | German and hoster-specific | Movies |
 | `filmpalast.py` | Filmpalast | German | Movies, series |
 | `megakino.py` | MegaKino | German | Movies, series |
 | `moflix.py` | Moflix | German | Movies, series |

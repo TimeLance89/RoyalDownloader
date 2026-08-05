@@ -8,10 +8,14 @@ command -v uv >/dev/null || {
 
 uv pip compile requirements.in \
   --python-version 3.12 \
-  --generate-hashes \
+  --universal \
+  --no-annotate \
+  --no-header \
   --output-file requirements.lock
 uv pip compile requirements-dev.in \
   --python-version 3.12 \
-  --generate-hashes \
+  --universal \
+  --no-annotate \
+  --no-header \
   --output-file requirements-dev.lock
-uv run --with pip-audit pip-audit --require-hashes -r requirements.lock
+uv run --with pip-audit pip-audit -r requirements.lock
