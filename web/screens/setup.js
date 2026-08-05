@@ -356,9 +356,12 @@ async function refreshGenres() {
   if (state.fp.activeGenre !== "Alle Genres" && !genres.includes(state.fp.activeGenre)) {
     state.fp.activeGenre = "Alle Genres";
   }
-  document.getElementById("genre-count").textContent = `${genres.length} Genres verfügbar`;
+  document.getElementById("genre-count").textContent = `${genres.length} Filmwelten`;
   const genresAvailable = genres.length > 0;
   document.getElementById("genre-random").disabled = !genresAvailable;
-  document.getElementById("genre-toggle").disabled = !genresAvailable;
+  const genreToggle = document.getElementById("genre-toggle");
+  genreToggle.disabled = !genresAvailable;
+  genreToggle.dataset.collapsedLabel = `${genres.length} Genres`;
+  setGenreBrowserExpanded(false);
   setActiveGenreFilter(state.fp.activeGenre);
 }

@@ -356,10 +356,14 @@ MOVIE_MAX_COLD_WAVES_PER_REQUEST = 2
 TMDB_MOVIE_BATCH_MAX_WORKERS = 8
 TMDB_MOVIE_SEARCH_MAX_RESULTS = 40
 MOVIE_GENRE_GROUPS = {
+    "Abenteuer": ("Abenteuer", "Adventure"),
     "Animation": ("Animation", "Zeichentrick"),
-    "Biografie": ("Biografie", "Biographie"),
-    "Dokumentation": ("Dokumentation", "Dokumentarfilm"),
+    "Biografie": ("Biografie", "Biographie", "Biography"),
+    "Dokumentation": ("Dokumentation", "Dokumentarfilm", "Documentary"),
+    "Familie": ("Familie", "Family"),
     "Geschichte": ("Geschichte", "Historie"),
+    "Komödie": ("Komödie", "Comedy"),
+    "Krimi": ("Krimi", "Crime"),
     "Krieg": ("Krieg", "Kriegsfilm"),
     "Romantik": ("Romantik", "Romance", "Liebesfilm"),
     "Science-Fiction": ("Science-Fiction", "Science Fiction", "Sci-Fi"),

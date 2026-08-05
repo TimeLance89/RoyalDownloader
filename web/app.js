@@ -234,10 +234,7 @@ async function initApp() {
     if (button) fpGenreChange(button.dataset.genre);
   });
   document.getElementById("genre-toggle").addEventListener("click", (e) => {
-    const filter = document.getElementById("genre-filter");
-    const expanded = filter.classList.toggle("is-expanded");
-    e.currentTarget.setAttribute("aria-expanded", String(expanded));
-    e.currentTarget.querySelector(".genre-toggle-label").textContent = expanded ? "Weniger zeigen" : "Alle zeigen";
+    setGenreBrowserExpanded(e.currentTarget.getAttribute("aria-expanded") !== "true");
   });
   document.getElementById("genre-random").addEventListener("click", () => {
     const genres = [...document.querySelectorAll("#genre-filter [data-genre]")]

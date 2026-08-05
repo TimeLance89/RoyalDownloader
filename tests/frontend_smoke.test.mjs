@@ -67,7 +67,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-7/);
+  assert.match(html, /app\.js\?v=royal-20260805-8/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -155,7 +155,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-6/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-7/);
   assert.match(app, /function movieGenrePresentation\(genre\)/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
@@ -301,7 +301,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260805-7/);
+  assert.match(html, /style\.css\?v=royal-20260805-8/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
