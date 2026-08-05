@@ -944,12 +944,12 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  // Das bevorzugte Format bleibt erhalten, vorhandenes alternatives Artwork
-  // verhindert aber leere Karten bei Titeln ohne TMDB-Backdrop oder -Poster.
-  const artworkCandidates = [
-    rank ? media.cover_url : media.backdrop_url,
-    rank ? media.backdrop_url : media.cover_url,
-  ]
+  // Poster gehören ausschließlich in die hochformatige Top-10-Darstellung.
+  // Alle 16:9-Karten warten auf das nachgeladene Wallpaper, statt ein Poster
+  // unpassend auf Landschaftsformat zu beschneiden.
+  const artworkCandidates = (rank
+    ? [media.cover_url, media.backdrop_url]
+    : [media.backdrop_url])
     .flatMap((url) => api.coverCandidates(url))
     .filter((url, index, urls) => url && urls.indexOf(url) === index);
   if (artworkCandidates.length) {

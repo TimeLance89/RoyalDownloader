@@ -105,11 +105,16 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-6/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-7/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
+test("only Top 10 cards may fall back to portrait posters", () => {
+  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
+  assert.doesNotMatch(app, /rank \? media\.backdrop_url : media\.cover_url/);
 });
 
 test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
