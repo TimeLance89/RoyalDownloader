@@ -962,10 +962,12 @@ def _calculate_watchlist_entry_state(
     jf_series: list[dict] | None = None,
 ) -> dict:
     """Berechnet den Zustand ohne globale Watchlist-Daten zu verändern."""
+    serienstream_entry = str(entry.get("base_slug") or "").startswith("serienstream:")
     previous_keys = {
         parsed[1:]
         for slug in entry.get("known_slugs", [])
         if (parsed := parse_episode_slug(slug)) is not None
+        and not (serienstream_entry and parsed[1] <= 0)
     }
     current_keys = {(episode.season, episode.episode) for episode in series.all_episodes}
     vanished_keys = previous_keys - current_keys
