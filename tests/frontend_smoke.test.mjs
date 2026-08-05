@@ -152,6 +152,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   requiresIds("home-program-note", "home-discovery-shuffle");
   assert.match(app, /function homeDiscoveryLanes\(\)/);
   assert.match(app, /function takeDistinctHomeLane\(entries, seen, limit, minimum = 4\)/);
+  assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
   assert.match(stylesheet, /catalog\.css\?v=royal-20260805-5/);
