@@ -362,7 +362,7 @@ function renderQueue(payload) {
       status.className = "queue-item-status";
       const statusLabels = {
         queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Provider-Pause",
-        downloading: "Lädt", paused: "Pausiert",
+        downloading: "Lädt", paused: "Pausiert", cancelling: "Wird abgebrochen",
       };
       status.textContent = statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
       const actions = document.createElement("span");
@@ -387,16 +387,18 @@ function renderQueue(payload) {
         });
         actions.appendChild(button);
       };
-      if (item.job_id && item.job_status !== "downloading") {
+      if (item.job_id && !["downloading", "cancelling"].includes(item.job_status)) {
         addAction("↑", `${item.title} nach oben`, () => api.queueJobMove(item.job_id, "up"));
         addAction("↓", `${item.title} nach unten`, () => api.queueJobMove(item.job_id, "down"));
       }
       if (item.job_id && item.job_status === "waiting_provider") {
         addAction("▶", `${item.title} fortsetzen`, () => api.queueJobResume(item.job_id));
       }
-      addAction("✕", `${item.title} abbrechen`, () => (
-        item.job_id ? api.queueJobCancel(item.job_id) : api.queueRemove(item.slug)
-      ));
+      if (item.job_status !== "cancelling") {
+        addAction("✕", `${item.title} abbrechen`, () => (
+          item.job_id ? api.queueJobCancel(item.job_id) : api.queueRemove(item.slug)
+        ));
+      }
       row.append(position, content, status, actions);
       list.appendChild(row);
     }

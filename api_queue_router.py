@@ -134,6 +134,13 @@ class _QueuePreparationJob:
         self.out_root = out_root
         self.movie_fallbacks = movie_fallbacks or {}
         self.queue_slugs = {slug for _movie, slug in jobs}
+        self.queue_attempts = {}
+        self.queue_job_ids = {}
+        for slug in self.queue_slugs:
+            logical = _queue_job_for_slug(slug)
+            if logical:
+                self.queue_attempts[slug] = str(logical.get("attempt_id") or "")
+                self.queue_job_ids[slug] = str(logical.get("job_id") or "")
         self.queue_slug = next(iter(self.queue_slugs)) if len(self.queue_slugs) == 1 else ""
         # Filme laufen auf einer unabhängigen, zuverlässigeren Route und sollen
         # nicht hinter hunderten Serien-Fallbacks auf ihre Vorbereitung warten.
@@ -162,7 +169,13 @@ class _QueuePreparationJob:
                 with state.queue_claim_lock:
                     state.preparing_queue_slugs.update(self.queue_slugs & state.picked)
                     for slug in self.queue_slugs & state.picked:
-                        _update_queue_job(slug, persist=False, status="preparing")
+                        _update_queue_job(
+                            slug,
+                            persist=False,
+                            expected_job_id=self.queue_job_ids.get(slug, ""),
+                            expected_attempt_id=self.queue_attempts.get(slug, ""),
+                            status="preparing",
+                        )
                     marked_preparing = True
                 _persist_queue_state()
                 broadcast({"type": "queue_update", "queue": build_queue_payload()})
@@ -179,6 +192,8 @@ class _QueuePreparationJob:
                 on_job_done(
                     False, f"Vorbereitung fehlgeschlagen: {exc}",
                     movie.title, Path(""), slug=slug,
+                    job_id=self.queue_job_ids.get(slug, ""),
+                    attempt_id=self.queue_attempts.get(slug, ""),
                 )
         finally:
             if marked_preparing:
@@ -193,6 +208,8 @@ class _QueuePreparationJob:
                             movie.title,
                             Path(""),
                             slug=slug,
+                            job_id=self.queue_job_ids.get(slug, ""),
+                            attempt_id=self.queue_attempts.get(slug, ""),
                         )
             # Falls während einer laufenden Extraktion abgebrochen wurde, dürfen
             # danach erzeugte echte DownloadJobs nicht liegenbleiben/anlaufen.
@@ -203,6 +220,27 @@ class _QueuePreparationJob:
                         lambda job: bool(self.queue_slugs & set(getattr(job, "queue_slugs", [])))
                         or getattr(job, "queue_slug", "") in self.queue_slugs
                     )
+                active_jobs = state.dl_queue.active_jobs()
+                for movie, slug in self.jobs:
+                    if not any(
+                        physical is not self
+                        and _physical_matches_attempt(
+                            physical,
+                            slug,
+                            self.queue_job_ids.get(slug, ""),
+                            self.queue_attempts.get(slug, ""),
+                        )
+                        for physical in active_jobs
+                    ):
+                        on_job_done(
+                            False,
+                            "Abgebrochen",
+                            movie.title,
+                            Path(""),
+                            slug=slug,
+                            job_id=self.queue_job_ids.get(slug, ""),
+                            attempt_id=self.queue_attempts.get(slug, ""),
+                        )
             if marked_preparing:
                 broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
@@ -705,6 +743,80 @@ def _job_queue_slugs(job) -> set[str]:
     return slugs
 
 
+def _physical_matches_attempt(
+    physical, slug: str, job_id: str, attempt_id: str,
+) -> bool:
+    attempts = getattr(physical, "queue_attempts", None)
+    if isinstance(attempts, dict):
+        return (
+            slug in _job_queue_slugs(physical)
+            and attempts.get(slug) == attempt_id
+            and getattr(physical, "queue_job_ids", {}).get(slug) == job_id
+        )
+    return (
+        getattr(physical, "queue_slug", "") == slug
+        and getattr(physical, "job_id", "") == job_id
+        and getattr(physical, "attempt_id", "") == attempt_id
+    )
+
+
+def _request_queue_cancel(slug: str, reason: str = "Abgebrochen") -> tuple:
+    """Persist cancellation intent, then signal only that exact attempt."""
+    candidate = None
+    previous_status = None
+    with state.queue_lifecycle_lock, state.queue_claim_lock:
+        job = _queue_job_for_slug(slug)
+        if not job:
+            return None, [], []
+        job_id = str(job.get("job_id") or "")
+        attempt_id = str(job.get("attempt_id") or "")
+        if job.get("status") != "cancelling":
+            previous_status = job.get("status")
+            job["status"] = "cancelling"
+            job["cancel_requested_at"] = time.time()
+            candidate = _queue_state_snapshot()
+    if candidate is not None:
+        try:
+            _require_persistent_snapshot("queue", candidate)
+        except HTTPException:
+            with state.queue_lifecycle_lock, state.queue_claim_lock:
+                current = _queue_job_for_slug(slug)
+                if current and current.get("attempt_id") == attempt_id:
+                    current["status"] = previous_status
+                    current["cancel_requested_at"] = 0.0
+            raise
+
+    predicate = lambda physical: _physical_matches_attempt(  # noqa: E731
+        physical, slug, job_id, attempt_id,
+    )
+    with state.queue_lifecycle_lock:
+        removed = state.dl_queue.remove_pending(predicate)
+        active = state.dl_queue.cancel_active(predicate)
+        removed.extend(state.dl_queue.remove_pending(predicate))
+
+    if not active:
+        finalized = on_job_done(
+            False,
+            reason,
+            str(job.get("title") or slug),
+            Path(""),
+            slug=slug,
+            job_id=job_id,
+            attempt_id=attempt_id,
+        )
+        if not finalized:
+            with state.queue_claim_lock:
+                state.picked.discard(slug)
+            _terminal_queue_job(
+                slug,
+                "cancelled",
+                error=reason,
+                expected_job_id=job_id,
+                expected_attempt_id=attempt_id,
+            )
+    return _queue_job_for_id(job_id, include_history=True), removed, active
+
+
 def _drop_queue_claims(slugs: set[str]) -> None:
     if not slugs:
         return
@@ -740,18 +852,8 @@ def _release_removed_queue_slugs(slugs: set[str], *, persist: bool = True) -> No
 def _cancel_queue_slugs(slugs: set[str], reason: str) -> None:
     if not slugs:
         return
-    with state.queue_lifecycle_lock:
-        for slug in slugs:
-            _terminal_queue_job(
-                slug, "cancelled", error=reason, persist=False,
-            )
-        state.dl_queue.remove_pending(lambda job: bool(slugs & _job_queue_slugs(job)))
-        state.dl_queue.cancel_active(lambda job: bool(slugs & _job_queue_slugs(job)))
-        state.dl_queue.remove_pending(lambda job: bool(slugs & _job_queue_slugs(job)))
-        _release_removed_queue_slugs(slugs)
     for slug in slugs:
-        _telegram_terminal_without_job(slug, False, reason, Path(""))
-        _seerr_terminal_without_job(slug, False, reason, Path(""))
+        _request_queue_cancel(slug, reason)
     broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
 
@@ -784,31 +886,7 @@ def _cancel_withdrawn_watchlist_slugs(slugs: set[str], reason: str) -> set[str]:
 @router.post("/api/queue/remove")
 async def api_queue_remove(body: QueueRemoveBody):
     def _work():
-        with state.queue_lifecycle_lock:
-            with state.queue_claim_lock:
-                candidate, terminal = _queue_terminal_snapshot(
-                    body.slug, "cancelled", error="Abgebrochen",
-                )
-            _require_persistent_snapshot("queue", candidate)
-            if terminal:
-                _apply_terminal_queue_job(terminal)
-            removed = state.dl_queue.remove_pending(
-                lambda job: body.slug in _job_queue_slugs(job)
-            )
-            active = state.dl_queue.cancel_active(
-                lambda job: body.slug in _job_queue_slugs(job)
-            )
-            # Ein Vorbereitungsjob kann während des Abbruchs noch einen echten
-            # Download eingereiht haben; deshalb Pending erneut leeren.
-            removed.extend(state.dl_queue.remove_pending(
-                lambda job: body.slug in _job_queue_slugs(job)
-            ))
-            _release_removed_queue_slugs({body.slug}, persist=False)
-            removed.extend(state.dl_queue.remove_pending(
-                lambda job: body.slug in _job_queue_slugs(job)
-            ))
-        _telegram_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(body.slug, False, "Abgebrochen", Path(""))
+        _job, removed, active = _request_queue_cancel(body.slug)
         return len(removed), len(active), build_queue_payload()
 
     removed, active, queue = await run_in_threadpool(_work)
@@ -824,43 +902,14 @@ async def api_queue_remove(body: QueueRemoveBody):
 @router.post("/api/queue/clear")
 async def api_queue_clear():
     def _work():
-        with state.queue_lifecycle_lock:
-            active_slugs = {
-                slug for job in state.dl_queue.active_jobs()
-                for slug in _job_queue_slugs(job)
-            }
-            with state.queue_claim_lock:
-                removed_slugs = set(state.picked) - active_slugs
-                now = time.time()
-                terminals = []
-                for slug in removed_slugs:
-                    job = _queue_job_for_slug(slug)
-                    if job:
-                        terminal = dict(job)
-                        terminal.update({
-                            "status": "cancelled",
-                            "completed_at": now,
-                            "error": "Abgebrochen",
-                        })
-                        terminals.append(terminal)
-                candidate = _queue_state_snapshot(
-                    active_jobs=[
-                        job for job in state.queue_jobs.values()
-                        if job.get("slug") not in removed_slugs
-                    ],
-                    history=terminals + state.queue_history,
-                )
-            _require_persistent_snapshot("queue", candidate)
-            for terminal in terminals:
-                _apply_terminal_queue_job(terminal)
-            removed = state.dl_queue.remove_pending(lambda _job: True)
-            removed_slugs.update(
-                slug for job in removed for slug in _job_queue_slugs(job)
-            )
-            _release_removed_queue_slugs(removed_slugs, persist=False)
+        active_slugs = {
+            slug for job in state.dl_queue.active_jobs()
+            for slug in _job_queue_slugs(job)
+        }
+        with state.queue_claim_lock:
+            removed_slugs = set(state.picked) - active_slugs
         for slug in removed_slugs:
-            _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-            _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
+            _request_queue_cancel(slug)
         return removed_slugs, build_queue_payload()
 
     removed_slugs, queue = await run_in_threadpool(_work)
@@ -897,32 +946,11 @@ def _job_or_404(job_id: str, *, include_history: bool = False) -> dict:
 @router.post("/api/queue/jobs/{job_id}/cancel", status_code=202)
 async def api_queue_job_cancel(job_id: str):
     def _work():
-        with state.queue_lifecycle_lock, state.queue_claim_lock:
-            job = _job_or_404(job_id)
-            slug = str(job["slug"])
-            candidate, terminal = _queue_terminal_snapshot(
-                slug, "cancelled", error="Abgebrochen",
-            )
-        _require_persistent_snapshot("queue", candidate)
-        with state.queue_lifecycle_lock:
-            if _queue_job_for_id(job_id) is None:
-                current = _queue_job_for_id(job_id, include_history=True)
-                return current, 0, 0, False
-            if terminal:
-                _apply_terminal_queue_job(terminal)
-            removed = state.dl_queue.remove_pending(
-                lambda physical: slug in _job_queue_slugs(physical)
-            )
-            active = state.dl_queue.cancel_active(
-                lambda physical: slug in _job_queue_slugs(physical)
-            )
-            removed.extend(state.dl_queue.remove_pending(
-                lambda physical: slug in _job_queue_slugs(physical)
-            ))
-            _release_removed_queue_slugs({slug}, persist=False)
-        _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-        return terminal, len(removed), len(active), True
+        job = _job_or_404(job_id)
+        if job.get("status") == "cancelling":
+            return dict(job), 0, 0, False
+        current, removed, active = _request_queue_cancel(str(job["slug"]))
+        return current, len(removed), len(active), True
 
     terminal, removed, active, cancelled = await run_in_threadpool(_work)
     queue = build_queue_payload()
@@ -941,6 +969,8 @@ async def api_queue_job_cancel(job_id: str):
 async def api_queue_job_retry(job_id: str):
     def _work():
         previous = dict(_job_or_404(job_id, include_history=True))
+        if previous.get("status") == "cancelling":
+            raise HTTPException(409, detail={"code": "queue_job_cancelling"})
         if previous.get("status") not in {"failed", "cancelled"}:
             raise HTTPException(409, detail={"code": "queue_job_not_retryable"})
         retried = _retry_queue_job(job_id)
@@ -1068,39 +1098,17 @@ async def api_queue_job_pause(job_id: str):
 @router.post("/api/download/cancel")
 async def api_download_cancel():
     def _work():
+        had_queue_activity = bool(
+            state.dl_queue.active_count() or state.dl_queue.pending_count()
+        )
+        with state.queue_claim_lock:
+            cancelled_slugs = set(state.picked)
+            with state.download_state_lock:
+                refresh_partial_success = bool(had_queue_activity and state.done_slugs)
+        for slug in cancelled_slugs:
+            _request_queue_cancel(slug)
         with state.queue_lifecycle_lock:
-            had_queue_activity = bool(
-                state.dl_queue.active_count() or state.dl_queue.pending_count()
-            )
-            now = time.time()
-            with state.queue_claim_lock:
-                terminals = []
-                for job in state.queue_jobs.values():
-                    terminal = dict(job)
-                    terminal.update({
-                        "status": "cancelled",
-                        "completed_at": now,
-                        "error": "Abgebrochen",
-                    })
-                    terminals.append(terminal)
-                candidate = _queue_state_snapshot(
-                    active_jobs=[], history=terminals + state.queue_history,
-                )
-            _require_persistent_snapshot("queue", candidate)
-            for terminal in terminals:
-                _apply_terminal_queue_job(terminal)
             state.dl_queue.cancel_all()
-            with state.queue_claim_lock:
-                with state.download_state_lock:
-                    cancelled_slugs = set(state.picked) | set(state.counted_queue_slugs)
-                    refresh_partial_success = bool(had_queue_activity and state.done_slugs)
-                state.picked.clear()
-                state.preparing_queue_slugs.clear()
-                state.provider_waiting_jobs.clear()
-                state.provider_retry_wake_event.set()
-                with state.download_state_lock:
-                    state.counted_queue_slugs.clear()
-                    state.total_jobs = state.done_jobs
             with state.hoster_extract_lock:
                 for attribute in ("voe_pool", "embed_pool"):
                     pool = getattr(state, attribute)
@@ -1110,9 +1118,6 @@ async def api_download_cancel():
                         except Exception as exc:
                             log(f"Browser-Pool konnte nicht geschlossen werden: {exc}", "warn")
                         setattr(state, attribute, None)
-        for slug in cancelled_slugs:
-            _telegram_terminal_without_job(slug, False, "Abgebrochen", Path(""))
-            _seerr_terminal_without_job(slug, False, "Abgebrochen", Path(""))
         return refresh_partial_success, build_queue_payload()
 
     refresh_partial_success, queue = await run_in_threadpool(_work)

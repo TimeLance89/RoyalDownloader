@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 HISTORY_LIMIT = 500
 ACTIVE_STATES = {
-    "queued", "preparing", "waiting_provider", "downloading", "paused",
+    "queued", "preparing", "waiting_provider", "downloading", "paused", "cancelling",
 }
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 JOB_STATES = ACTIVE_STATES | TERMINAL_STATES
@@ -57,6 +57,7 @@ def new_job(
     now = time.time() if created_at is None else float(created_at)
     return {
         "job_id": _text(job_id) or uuid.uuid4().hex,
+        "attempt_id": uuid.uuid4().hex,
         "media_type": media_type_for_slug(slug),
         "title": _text(title) or _text(slug),
         "slug": _text(slug),
@@ -68,6 +69,7 @@ def new_job(
         "created_at": now,
         "started_at": 0.0,
         "completed_at": 0.0,
+        "cancel_requested_at": 0.0,
         "progress": 0.0,
         "downloaded_bytes": 0,
         "total_bytes": None,
@@ -97,6 +99,7 @@ def normalize_job(
     )
     job.update({key: deepcopy(raw[key]) for key in job if key in raw})
     job["job_id"] = _text(job.get("job_id")) or fallback_id
+    job["attempt_id"] = _text(job.get("attempt_id")) or uuid.uuid4().hex
     job["slug"] = slug
     job["media_type"] = (
         _text(job.get("media_type"))
@@ -110,8 +113,10 @@ def normalize_job(
     # safely re-queued with the same logical identity and attempt counter.
     if active and recover_active and status in {"preparing", "downloading"}:
         status = "queued"
+    elif active and recover_active and status == "cancelling":
+        status = "cancelled"
     job["status"] = status
-    for key in ("created_at", "started_at", "completed_at", "progress", "speed_bps", "next_retry_at"):
+    for key in ("created_at", "started_at", "completed_at", "cancel_requested_at", "progress", "speed_bps", "next_retry_at"):
         try:
             job[key] = float(job.get(key) or 0)
         except (TypeError, ValueError):
@@ -152,17 +157,22 @@ def normalize_document(
         active_raw, history_raw, migrated = [], [], bool(data is not None)
 
     jobs: list[dict[str, Any]] = []
+    recovered_history: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_slugs: set[str] = set()
     for raw in active_raw:
         job = normalize_job(raw, active=True, recover_active=recover_active)
         if not job or job["job_id"] in seen_ids or job["slug"] in seen_slugs:
             continue
-        jobs.append(job)
+        if job["status"] in TERMINAL_STATES:
+            job["completed_at"] = job.get("completed_at") or time.time()
+            recovered_history.append(job)
+        else:
+            jobs.append(job)
         seen_ids.add(job["job_id"])
         seen_slugs.add(job["slug"])
 
-    history: list[dict[str, Any]] = []
+    history: list[dict[str, Any]] = recovered_history
     for raw in history_raw:
         job = normalize_job(raw, active=False)
         if not job or job["job_id"] in seen_ids:

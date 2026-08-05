@@ -597,6 +597,7 @@ def _enqueue_hoster_attempt(
     gate_retry: Optional[Callable[[], bool]] = None,
     slow_candidates: Optional[List[tuple]] = None,
     last_resort: bool = False,
+    attempt_id: str = "",
 ):
     """Startet einen Downloadversuch und schaltet bei Laufzeitfehlern auf den
     nächsten Hoster um. Ein logischer Job wird erst nach Erfolg oder nach dem
@@ -613,8 +614,13 @@ def _enqueue_hoster_attempt(
     hoster_used = result.hoster_used
     label = f"{movie.title}  ({hoster_used})"
     logical_job = _ensure_queue_job(movie_slug, movie)
-    _update_queue_job(
+    logical_attempt_id = attempt_id or str(logical_job.get("attempt_id") or "")
+    if attempt_id and logical_job.get("attempt_id") != attempt_id:
+        return False
+    updated = _update_queue_job(
         movie_slug,
+        expected_job_id=logical_job["job_id"],
+        expected_attempt_id=logical_attempt_id,
         status="queued",
         title=movie.title,
         provider=result.provider or _movie_provider(movie, movie_slug),
@@ -625,9 +631,17 @@ def _enqueue_hoster_attempt(
             or _movie_content_language(movie, fallback=movie_slug)
         ),
     )
+    if updated is None:
+        return False
     log(f"  Stream bereit ({hoster_used}): {stream_url[:60]}…")
 
     def _attempt_done(ok: bool, msg: str):
+        current = _queue_job_for_slug(movie_slug)
+        if not current or (
+            current.get("job_id") != logical_job["job_id"]
+            or current.get("attempt_id") != logical_attempt_id
+        ):
+            return
         if result.hoster_url_used:
             state.hoster_intel.record_download(
                 result.hoster_url_used,
@@ -637,21 +651,33 @@ def _enqueue_hoster_attempt(
                 failure_kind=getattr(job, "failure_kind", ""),
             )
         if ok:
-            if not parse_episode_slug(movie_slug):
+            accepted = on_job_done(
+                True, msg, label, out_path,
+                slug=movie_slug,
+                job_id=logical_job["job_id"],
+                attempt_id=logical_attempt_id,
+            )
+            terminal = _queue_job_for_id(logical_job["job_id"], include_history=True)
+            if (
+                accepted
+                and terminal
+                and terminal.get("attempt_id") == logical_attempt_id
+                and terminal.get("status") == "completed"
+                and not parse_episode_slug(movie_slug)
+            ):
                 _movie_subscription_download_finished(movie_slug, out_path, result.quality)
-            on_job_done(True, msg, label, out_path, slug=movie_slug)
             return
         if msg == "Abgebrochen":
-            on_job_done(False, msg, label, out_path, slug=movie_slug)
+            on_job_done(False, msg, label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
         if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
+            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
         is_slow = getattr(job, "failure_kind", "") == "slow"
         if last_resort:
             final_msg = "; ".join(attempt_errors + [f"Letzte langsame Reserve: {msg}"])
-            on_job_done(False, final_msg, label, out_path, slug=movie_slug)
+            on_job_done(False, final_msg, label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
         if is_slow:
             source_key = result.source_hoster_url or result.hoster_url_used
@@ -699,9 +725,10 @@ def _enqueue_hoster_attempt(
                     source_fallbacks_loaded, refreshed_hoster_urls,
                     barren_hoster_urls, cancelled,
                     gate_seen, gate_retry, slow_candidates, last_resort,
+                    attempt_id=logical_attempt_id,
                 ):
                     return
-                on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
+                on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
                 return
 
         attempt_errors.append(f"{hoster_used}: {msg}")
@@ -710,7 +737,7 @@ def _enqueue_hoster_attempt(
         log(f"  {hoster_used}-Download fehlgeschlagen – versuche nächsten Anbieter", "warn")
         on_job_progress(
             -1, f"{hoster_used} ausgefallen · wechsle Anbieter …", label,
-            slug=movie_slug, job_id=logical_job["job_id"],
+            slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
         )
 
         with state.hoster_extract_lock:
@@ -728,9 +755,10 @@ def _enqueue_hoster_attempt(
                 source_fallbacks_loaded, refreshed_hoster_urls,
                 barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
+                attempt_id=logical_attempt_id,
             ):
                 return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
+            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
         # Alle Hoster dieses Katalogtreffers sind verbraucht. Nun denselben Inhalt
@@ -740,7 +768,7 @@ def _enqueue_hoster_attempt(
             source_fallbacks_loaded[0] = True
             on_job_progress(
                 -1, "Hoster erschöpft · suche alternative Quellen …", label,
-                slug=movie_slug, job_id=logical_job["job_id"],
+                slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
             )
             if ep_info:
                 series_title = strip_episode_suffix(source_movies[0].title) or source_movies[0].title
@@ -782,16 +810,17 @@ def _enqueue_hoster_attempt(
                 source_fallbacks_loaded, refreshed_hoster_urls,
                 barren_hoster_urls, cancelled,
                 gate_seen, gate_retry, slow_candidates, last_resort,
+                attempt_id=logical_attempt_id,
             ):
                 return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
+            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
         if ep_info and gate_seen[0] and gate_retry and gate_retry():
             log("  serienstream-Captcha aktiv – Episode nach Cooldown erneut versuchen.", "warn")
             on_job_progress(
                 -1, "Captcha-Cooldown · Wiederholung vorgemerkt …", label,
-                slug=movie_slug, job_id=logical_job["job_id"],
+                slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
             )
             return
 
@@ -812,6 +841,7 @@ def _enqueue_hoster_attempt(
                 label,
                 slug=movie_slug,
                 job_id=logical_job["job_id"],
+                attempt_id=logical_attempt_id,
             )
             if _enqueue_hoster_attempt(
                 reserve_movie,
@@ -831,19 +861,22 @@ def _enqueue_hoster_attempt(
                 gate_retry,
                 [],
                 True,
+                attempt_id=logical_attempt_id,
             ):
                 return
-            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug)
+            on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
 
         reason = "serienstream-Captcha aktiv" if gate_seen[0] else "alle Anbieter und Filmquellen ausgeschöpft"
         final_msg = "; ".join(attempt_errors + [reason])
-        on_job_done(False, final_msg, label, out_path, slug=movie_slug)
+        on_job_done(False, final_msg, label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
 
     def _download_started():
         current = _queue_job_for_slug(movie_slug) or logical_job
         _update_queue_job(
             movie_slug,
+            expected_job_id=logical_job["job_id"],
+            expected_attempt_id=logical_attempt_id,
             status="downloading",
             started_at=current.get("started_at") or time.time(),
             attempts=int(current.get("attempts") or 0) + 1,
@@ -870,6 +903,7 @@ def _enqueue_hoster_attempt(
             label,
             slug=movie_slug,
             job_id=logical_job["job_id"],
+            attempt_id=logical_attempt_id,
             downloaded_bytes=job.downloaded_bytes,
             total_bytes=job.total_bytes,
             speed_bps=job.average_speed_bps,
@@ -878,12 +912,21 @@ def _enqueue_hoster_attempt(
         on_done=_attempt_done,
         on_start=_download_started,
         job_id=logical_job["job_id"],
+        attempt_id=logical_attempt_id,
         allow_slow=last_resort,
         queue_priority=0 if not parse_episode_slug(movie_slug) else 100,
     )
     with state.queue_lifecycle_lock:
         with state.queue_claim_lock:
-            if (cancelled and cancelled()) or movie_slug not in state.picked:
+            current = _queue_job_for_slug(movie_slug)
+            if (
+                (cancelled and cancelled())
+                or movie_slug not in state.picked
+                or not current
+                or current.get("job_id") != logical_job["job_id"]
+                or current.get("attempt_id") != logical_attempt_id
+                or current.get("status") == "cancelling"
+            ):
                 return False
             add_front = getattr(state.dl_queue, "add_front", None)
             # Langsame Reserven ohne Speed-Limit koennen stundenlang kriechen.
