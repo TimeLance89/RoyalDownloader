@@ -194,6 +194,8 @@ async def api_genres():
                 ff_c | fo_c | fp_c | hh_c | mx_c | es_c | kx_c | kg_c | mk_c | xc_c | sf_c
                 | rm_c
             )
+            if canonical_movie_genre(genre).casefold()
+            not in {"deutsch", "englisch", "english", "german"}
         },
         key=str.casefold,
     )

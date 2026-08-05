@@ -68,6 +68,16 @@ function setActiveGenreFilter(genre) {
   });
 }
 
+function setGenreBrowserExpanded(expanded) {
+  const filter = document.getElementById("genre-filter");
+  const toggle = document.getElementById("genre-toggle");
+  filter.classList.toggle("is-expanded", expanded);
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.querySelector(".genre-toggle-label").textContent = expanded
+    ? "Weniger Genres"
+    : (toggle.dataset.collapsedLabel || "Alle Genres");
+}
+
 function mergeCatalogItems(current, incoming, keyFor) {
   const merged = current.slice();
   const known = new Set(current.map(keyFor));
@@ -812,6 +822,7 @@ function ensureFpResults() {
 
 async function fpGenreChange(genre) {
   clearFpSearchContext();
+  setGenreBrowserExpanded(false);
   if (genre === "Alle Genres") {
     await fpShowList("new");
     return;
