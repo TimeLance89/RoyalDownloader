@@ -1,8 +1,10 @@
 import asyncio
 import json
 from collections import OrderedDict
+from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 import api_queue_router
 import queue_jobs
@@ -87,6 +89,7 @@ def test_restart_requeues_active_states_without_changing_identity():
 def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     failed = queue_jobs.new_job("provider:movie", job_id="stable-job")
     failed.update({"status": "failed", "completed_at": 10, "error": "provider down"})
+    failed_attempt_id = failed["attempt_id"]
     server.state.queue_history.append(failed)
 
     retried = server._retry_queue_job("stable-job")
@@ -94,6 +97,7 @@ def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     assert retried["job_id"] == "stable-job"
     assert retried["slug"] == "provider:movie"
     assert retried["status"] == "queued"
+    assert retried["attempt_id"] != failed_attempt_id
     assert server.state.queue_job_by_slug["provider:movie"] == "stable-job"
     assert "provider:movie" in server.state.picked
 
@@ -159,6 +163,88 @@ def test_job_cancel_is_persisted_and_retained_in_history(monkeypatch):
     assert response["job"]["status"] == "cancelled"
     assert server.state.queue_history[0]["job_id"] == "cancel-me"
     assert "provider:movie" not in server.state.picked
+
+
+def test_active_cancel_blocks_retry_and_late_attempt_callbacks(monkeypatch):
+    job = queue_jobs.new_job("provider:movie", job_id="race-job")
+    old_attempt_id = job["attempt_id"]
+    server.state.queue_jobs = OrderedDict([(job["job_id"], job)])
+    server.state.queue_job_by_slug[job["slug"]] = job["job_id"]
+    server.state.picked.add(job["slug"])
+    server.state.counted_queue_slugs.add(job["slug"])
+
+    class PhysicalJob:
+        queue_slug = job["slug"]
+        job_id = job["job_id"]
+        attempt_id = old_attempt_id
+
+        def cancel(self):
+            self.cancelled = True
+
+    physical = PhysicalJob()
+
+    class ActiveQueue:
+        def remove_pending(self, _predicate):
+            return []
+
+        def cancel_active(self, predicate):
+            if predicate(physical):
+                physical.cancel()
+                return [physical]
+            return []
+
+        def active_jobs(self):
+            return [physical]
+
+        def active_count(self):
+            return 1
+
+        def pending_count(self):
+            return 0
+
+    monkeypatch.setattr(server.state, "dl_queue", ActiveQueue())
+    monkeypatch.setattr(server.appconfig, "save_queue", lambda _document: True)
+
+    response = asyncio.run(api_queue_router.api_queue_job_cancel("race-job"))
+
+    assert response["job"]["status"] == "cancelling"
+    assert not server.state.queue_history
+    assert job["slug"] in server.state.picked
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(api_queue_router.api_queue_job_retry("race-job"))
+    assert exc.value.detail["code"] == "queue_job_cancelling"
+
+    assert server.on_job_done(
+        False, "worker stopped", "Movie", Path(""),
+        slug=job["slug"], job_id=job["job_id"], attempt_id=old_attempt_id,
+    ) is True
+    assert server.state.queue_history[0]["status"] == "cancelled"
+
+    retried = server._retry_queue_job(job["job_id"])
+    assert retried["attempt_id"] != old_attempt_id
+    assert server.on_job_progress(
+        90, "late progress", "Movie",
+        slug=job["slug"], job_id=job["job_id"], attempt_id=old_attempt_id,
+    ) is False
+    assert server.on_job_done(
+        True, "late completion", "Movie", Path("late.mp4"),
+        slug=job["slug"], job_id=job["job_id"], attempt_id=old_attempt_id,
+    ) is False
+    assert server.state.queue_jobs[job["job_id"]]["status"] == "queued"
+
+
+def test_restart_finalizes_cancelling_attempt_in_history():
+    job = queue_jobs.new_job("provider:movie", job_id="cancel-on-restart")
+    job["status"] = "cancelling"
+
+    document, _migrated = queue_jobs.normalize_document({
+        "schema_version": queue_jobs.SCHEMA_VERSION,
+        "jobs": [job],
+        "history": [],
+    })
+
+    assert document["jobs"] == []
+    assert document["history"][0]["status"] == "cancelled"
 
 
 def test_rest_aliases_and_pause_contract_are_additive():
