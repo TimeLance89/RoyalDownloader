@@ -1,6 +1,42 @@
 // ── Filmkatalog und Filmdetails ──────────────────────────────────────────
 let fpJellyfinRequestSeq = 0;
 
+const MOVIE_GENRE_PRESENTATIONS = {
+  action: ["↯", "Puls & Tempo", "ember"],
+  abenteuer: ["⌁", "Weite & Wagnis", "tungsten"],
+  adventure: ["⌁", "Weite & Wagnis", "tungsten"],
+  animation: ["✦", "Gezeichnete Welten", "violet"],
+  anime: ["✦", "Gezeichnete Welten", "violet"],
+  comedy: ["◡", "Leicht & schräg", "tungsten"],
+  komodie: ["◡", "Leicht & schräg", "tungsten"],
+  drama: ["◐", "Nähe & Konflikt", "violet"],
+  fantasy: ["◇", "Mythen & Magie", "violet"],
+  horror: ["⌾", "Dunkel & verstörend", "ember"],
+  krimi: ["⌕", "Spuren & Abgründe", "cyan"],
+  crime: ["⌕", "Spuren & Abgründe", "cyan"],
+  musik: ["♪", "Klang & Bühne", "mint"],
+  mystery: ["?", "Rätsel & Schatten", "cyan"],
+  romance: ["♡", "Nähe & Sehnsucht", "rose"],
+  romanze: ["♡", "Nähe & Sehnsucht", "rose"],
+  sciencefiction: ["◉", "Zukunft & Kosmos", "cyan"],
+  scifi: ["◉", "Zukunft & Kosmos", "cyan"],
+  thriller: ["△", "Druck & Wendungen", "ember"],
+  western: ["☼", "Staub & Legenden", "tungsten"],
+  dokumentation: ["□", "Wahre Geschichten", "mint"],
+  documentary: ["□", "Wahre Geschichten", "mint"],
+  familie: ["⌂", "Gemeinsam schauen", "mint"],
+  family: ["⌂", "Gemeinsam schauen", "mint"],
+};
+
+function movieGenrePresentation(genre) {
+  const key = String(genre || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+  return MOVIE_GENRE_PRESENTATIONS[key] || ["◆", "Eine andere Perspektive", "neutral"];
+}
+
 function fpStatusMessage() {
   const visibleSlugs = new Set(state.fp.results.map((r) => r.slug));
   const visiblePicks = [...state.queuedSlugs].filter((s) => visibleSlugs.has(s)).length;
@@ -308,6 +344,9 @@ function updateFpJellyfinBadges() {
   const selected = resultsBySlug.get(state.fp.selectedSlug);
   if (selected && typeof selected.in_jellyfin === "boolean") {
     setFpDetailJellyfinStatus(selected.in_jellyfin);
+    const movie = state.fp.moviesCache[selected.slug]
+      || metadataPreviewMovie(state.fp.metadataCache[selected.slug] || basicMovieMetadata(selected));
+    configureFpDetailAction(selected.slug, movie, !state.fp.moviesCache[selected.slug]);
   }
 }
 
@@ -1297,12 +1336,15 @@ function configureFpTrailer(movie) {
 function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const addBtn = document.getElementById("fp-detail-add");
   const queued = state.queuedSlugs.has(slug);
+  const owned = fpDetailJellyfinValue(slug, movie) === true;
   const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
-  addBtn.disabled = !queued && !metadataOnly && !hasHosters;
+  addBtn.hidden = owned && !queued;
+  addBtn.disabled = (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
   addBtn.textContent = queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen";
 
   addBtn.onclick = async () => {
     const shouldRemove = state.queuedSlugs.has(slug);
+    if (!shouldRemove && fpDetailJellyfinValue(slug, movie) === true) return;
     addBtn.disabled = true;
     addBtn.textContent = shouldRemove ? "Entferne …" : metadataOnly ? "Prüfe …" : "Füge hinzu …";
     try {
