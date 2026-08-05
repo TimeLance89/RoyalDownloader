@@ -330,7 +330,7 @@ function homeAnimeEntry(item) {
 }
 
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
-const HOME_WEEKLY_TOP_KEY = "royal-home-weekly-top-v1";
+const HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1";
 
 function homeEntryKey(entry) {
   if (!entry?.item) return "";
@@ -353,13 +353,6 @@ function localDateKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function localWeekKey(date = new Date()) {
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const weekday = monday.getDay() || 7;
-  monday.setDate(monday.getDate() - weekday + 1);
-  return localDateKey(monday);
 }
 
 function stableDiscoveryHash(value) {
@@ -597,12 +590,12 @@ function homeAllEntries() {
   ]));
 }
 
-function weeklyStableEntries(entries, limit = 10) {
-  const period = localWeekKey();
+function dailyStableEntries(entries, limit = 10) {
+  const period = localDateKey();
   const available = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
   let stored = null;
   try {
-    stored = JSON.parse(localStorage.getItem(HOME_WEEKLY_TOP_KEY) || "null");
+    stored = JSON.parse(localStorage.getItem(HOME_DAILY_TOP_KEY) || "null");
   } catch {
     stored = null;
   }
@@ -616,7 +609,7 @@ function weeklyStableEntries(entries, limit = 10) {
       - stableDiscoveryHash(`${period}|top|${homeEntryKey(b)}`));
   const selected = [...ordered, ...fill].slice(0, limit);
   try {
-    localStorage.setItem(HOME_WEEKLY_TOP_KEY, JSON.stringify({
+    localStorage.setItem(HOME_DAILY_TOP_KEY, JSON.stringify({
       period,
       keys: selected.map(homeEntryKey),
     }));
@@ -627,7 +620,7 @@ function weeklyStableEntries(entries, limit = 10) {
 }
 
 function homeTopEntries() {
-  return weeklyStableEntries(allowedHomeEntries(interleaveHomeEntries(
+  return dailyStableEntries(allowedHomeEntries(interleaveHomeEntries(
     state.home.topMovies.map(homeMovieEntry),
     state.home.trendingSeries.map(homeSeriesEntry),
     20,

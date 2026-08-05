@@ -18,7 +18,7 @@ const setupStepCopy = {
   },
   4: {
     title: "Bibliothek und Filmdaten",
-    intro: "Beide Verbindungen sind optional und können später in den Einstellungen ergänzt werden.",
+    intro: "Jellyfin bleibt optional. TMDB ist für eindeutige Treffer und vollständige Filmdaten erforderlich.",
   },
   5: {
     title: "Downloads automatisieren",
@@ -29,6 +29,40 @@ const setupStepCopy = {
     intro: "Ein Konto schützt die Oberfläche. Ohne Anmeldung könnte jedes Gerät im Netzwerk Downloads auslösen.",
   },
 };
+
+const setupEnglishStepCopy = {
+  1: {
+    title: "How would you like to use Royal?",
+    intro: "As a regular app on this computer or as an always-on service on a NAS.",
+  },
+  2: {
+    title: "What would you like to watch?",
+    intro: "Choose content languages and matching sources. Their order controls search and fallbacks.",
+  },
+  3: {
+    title: "Where should your media be stored?",
+    intro: "Folders are created when needed. The downloader needs write access to both locations.",
+  },
+  4: {
+    title: "Library and movie data",
+    intro: "Jellyfin remains optional. TMDB is required for reliable matching and complete movie data.",
+  },
+  5: {
+    title: "Automate downloads",
+    intro: "Choose what Royal may run automatically. Every value can be changed later.",
+  },
+  6: {
+    title: "Secure your access",
+    intro: "An account protects Royal. Without sign-in, every device on the network could start downloads.",
+  },
+};
+
+let localizedSetupStepCopy = setupEnglishStepCopy;
+let localizedSetupStepLabels = Array.from(
+  { length: 6 },
+  (_, index) => `STEP ${index + 1} OF 6`,
+);
+let setupLanguageGeneration = 0;
 
 const SETUP_STEP_COUNT = 6;
 
@@ -50,9 +84,9 @@ function showSetupStep(nextStep) {
     if (markerStep === setupStep) marker.setAttribute("aria-current", "step");
     else marker.removeAttribute("aria-current");
   });
-  document.getElementById("setup-step-label").textContent = `SCHRITT ${setupStep} VON ${SETUP_STEP_COUNT}`;
-  document.getElementById("setup-title").textContent = setupStepCopy[setupStep].title;
-  document.getElementById("setup-intro").textContent = setupStepCopy[setupStep].intro;
+  document.getElementById("setup-step-label").textContent = localizedSetupStepLabels[setupStep - 1];
+  document.getElementById("setup-title").textContent = localizedSetupStepCopy[setupStep].title;
+  document.getElementById("setup-intro").textContent = localizedSetupStepCopy[setupStep].intro;
   document.getElementById("setup-back").classList.toggle("hidden", setupStep === 1);
   document.getElementById("setup-next").classList.toggle("hidden", setupStep === SETUP_STEP_COUNT);
   document.getElementById("setup-finish").classList.toggle("hidden", setupStep !== SETUP_STEP_COUNT);
@@ -62,6 +96,65 @@ function showSetupStep(nextStep) {
     + `[data-setup-step="${setupStep}"] input:not([type="checkbox"])`,
   );
   if (focusTarget) window.setTimeout(() => focusTarget.focus(), 40);
+}
+
+async function localizeSetupStepCopy(language, userInitiated = false) {
+  if (language === "en") {
+    localizedSetupStepCopy = setupEnglishStepCopy;
+    localizedSetupStepLabels = Array.from(
+      { length: SETUP_STEP_COUNT },
+      (_, index) => `STEP ${index + 1} OF ${SETUP_STEP_COUNT}`,
+    );
+    return;
+  }
+  if (language === "de") {
+    localizedSetupStepCopy = setupStepCopy;
+    localizedSetupStepLabels = Array.from(
+      { length: SETUP_STEP_COUNT },
+      (_, index) => `SCHRITT ${index + 1} VON ${SETUP_STEP_COUNT}`,
+    );
+    return;
+  }
+  const sources = [];
+  for (let step = 1; step <= SETUP_STEP_COUNT; step += 1) {
+    sources.push(setupStepCopy[step].title, setupStepCopy[step].intro);
+  }
+  sources.push(...Array.from(
+    { length: SETUP_STEP_COUNT },
+    (_, index) => `SCHRITT ${index + 1} VON ${SETUP_STEP_COUNT}`,
+  ));
+  const translated = await i18n.translateTexts(sources, { userInitiated });
+  localizedSetupStepCopy = {};
+  for (let step = 1; step <= SETUP_STEP_COUNT; step += 1) {
+    localizedSetupStepCopy[step] = {
+      title: translated[(step - 1) * 2],
+      intro: translated[((step - 1) * 2) + 1],
+    };
+  }
+  localizedSetupStepLabels = translated.slice(SETUP_STEP_COUNT * 2);
+}
+
+async function changeSetupLanguage(language, userInitiated = false) {
+  const wizard = document.getElementById("setup-wizard");
+  const requestGeneration = ++setupLanguageGeneration;
+  wizard.setAttribute("aria-busy", "true");
+  try {
+    await i18n.changeLanguage(language, {
+      userInitiated,
+      priorityRoot: [
+        "#setup-wizard .setup-rail",
+        "#setup-wizard .setup-stage-head",
+        `#setup-wizard [data-setup-step="${setupStep}"]`,
+        "#setup-wizard .setup-actions",
+      ],
+    });
+    if (requestGeneration !== setupLanguageGeneration) return;
+    await localizeSetupStepCopy(i18n.language, userInitiated);
+    if (requestGeneration !== setupLanguageGeneration) return;
+    showSetupStep(setupStep);
+  } finally {
+    if (requestGeneration === setupLanguageGeneration) wizard.removeAttribute("aria-busy");
+  }
 }
 
 function validateSetupStep(step) {
@@ -85,6 +178,16 @@ function validateSetupStep(step) {
       if (!series.value.trim()) series.setAttribute("aria-invalid", "true");
       setSetupStatus("Film- und Serienordner müssen angegeben werden.", true);
       (!movie.value.trim() ? movie : series).focus();
+      return false;
+    }
+  }
+  if (step === 4) {
+    const tmdb = document.getElementById("setup-tmdb-key");
+    tmdb.removeAttribute("aria-invalid");
+    if (!tmdb.value.trim() && tmdb.dataset.hasSecret !== "true") {
+      tmdb.setAttribute("aria-invalid", "true");
+      setSetupStatus("TMDB ist erforderlich. Trage einen API-Key oder Read Access Token ein.", true);
+      tmdb.focus();
       return false;
     }
   }
@@ -132,7 +235,7 @@ function parseSetupHour(id) {
 }
 
 async function finishSetup() {
-  if (!validateSetupStep(5) || !validateSetupStep(6)) return;
+  if (!validateSetupStep(4) || !validateSetupStep(5) || !validateSetupStep(6)) return;
   const finish = document.getElementById("setup-finish");
   const back = document.getElementById("setup-back");
   finish.disabled = true;
@@ -206,11 +309,13 @@ async function initSetupWizard() {
     }
     const setupLanguage = defaults.ui_language_configured
       ? defaults.ui_language
-      : i18n.browserDefaultLanguage();
+      : "en";
     document.getElementById("setup-ui-language").value = setupLanguage;
     document.getElementById("ui-language").value = setupLanguage;
     if (setupLanguage !== i18n.language) {
-      await i18n.changeLanguage(setupLanguage);
+      await changeSetupLanguage(setupLanguage);
+    } else {
+      await localizeSetupStepCopy(setupLanguage);
     }
     document.getElementById("setup-save-path").value = defaults.save_path || "";
     document.getElementById("setup-series-path").value = defaults.series_path || defaults.save_path || "";

@@ -309,6 +309,20 @@ def _setup_status_payload() -> dict:
 
 
 
+async def _validate_setup_tmdb_key(api_key: str, ui_language: str) -> None:
+    if not api_key:
+        raise HTTPException(400, "TMDB ist für die Einrichtung erforderlich.")
+    language = appconfig.tmdb_language_for_ui(ui_language)
+    valid = await run_in_threadpool(
+        TMDBClient(api_key=api_key, language=language).validate,
+    )
+    if not valid:
+        raise HTTPException(
+            400,
+            "Der TMDB API-Key oder Read Access Token ist ungültig oder TMDB nicht erreichbar.",
+        )
+
+
 async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
     # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
@@ -345,6 +359,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     )
     jellyfin_user_id = body.jellyfin_user_id.strip()
     jellyfin_user_name = body.jellyfin_user_name.strip()
+    tmdb_api_key = body.tmdb_api_key.strip() or str(state.tmdb_cfg.get("api_key") or "").strip()
     movie_order = (
         [str(value).strip().casefold() for value in body.movie_provider_order]
         if body.movie_provider_order is not None
@@ -432,6 +447,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
             if selected is None:
                 raise HTTPException(400, "Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
             jellyfin_user_name = selected["name"]
+    await _validate_setup_tmdb_key(tmdb_api_key, body.ui_language)
     if body.telegram_enabled and not (body.telegram_bot_token.strip() or state.telegram_cfg.get("bot_token", "")):
         raise HTTPException(400, "Für Telegram fehlt der Bot-Token.")
     for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
@@ -467,7 +483,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         jellyfin_api_key,
         jellyfin_user_id,
         jellyfin_user_name,
-        body.tmdb_api_key or state.tmdb_cfg.get("api_key", ""),
+        tmdb_api_key,
         body.telegram_enabled,
         body.telegram_bot_token or state.telegram_cfg.get("bot_token", ""),
         body.telegram_chat_id,

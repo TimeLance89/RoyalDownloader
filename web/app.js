@@ -580,7 +580,7 @@ async function initApp() {
     buttonId: "setup-jellyfin-users-load",
   }));
   document.getElementById("setup-ui-language").addEventListener("change", (event) => {
-    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+    changeSetupLanguage(event.target.value, true).catch((error) => {
       setSetupStatus(`Sprache konnte nicht geladen werden: ${error.message}`, true);
     });
   });
