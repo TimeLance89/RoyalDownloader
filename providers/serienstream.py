@@ -42,7 +42,7 @@ from providers.models import (
     parse_episode_slug,
 )
 from session_manager import SessionManager, GATE_BLOCKED
-from series_episode_filter import available_episode_numbers
+from series_episode_filter import episode_listings
 
 logger = logging.getLogger(__name__)
 
@@ -394,17 +394,19 @@ class SerienstreamScraper:
     def _episodes_from_soup(
         soup: BeautifulSoup, slug: str, season: int,
     ) -> List[SeriesEpisode]:
-        # S.to trägt auch für noch unveröffentlichte "Demnächst"-Zeilen schon
-        # eine Episoden-URL im onclick ein. Nur tatsächlich abrufbare Zeilen
-        # übernehmen, sonst landen zukünftige Folgen in Abo und Downloadqueue.
-        ep_nums = available_episode_numbers(str(soup), slug, season)
+        # Kommende Folgen bleiben für die UI sichtbar. Termin und Sperrstatus
+        # werden mitgeführt, damit weder Auswahl noch Automatik sie einplanen.
+        listings = episode_listings(str(soup), slug, season)
         eps: List[SeriesEpisode] = []
-        for en in ep_nums:
+        for listing in listings:
+            en = listing.episode
             eps.append(SeriesEpisode(
                 season=season, episode=en,
                 slug=f"{SOURCE_PREFIX}{slug}-s{season:02d}e{en:02d}",
                 url=f"{BASE_URL}/serie/{slug}/staffel-{season}/episode-{en}",
                 release_name="",
+                release_at=listing.release_at,
+                release_label=listing.release_label,
             ))
         return eps
 

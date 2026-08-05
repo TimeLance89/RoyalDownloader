@@ -1036,6 +1036,8 @@ let fpDetailHeroTrailerTimer = null;
 let fpDetailHeroTrailerToken = 0;
 let fpDetailHeroTrailerCurrentTime = 0;
 let fpDetailHeroTrailerKey = "";
+const completedFilmHeroTrailers = new Set();
+const completedSeriesHeroTrailers = new Set();
 const FP_TRAILER_MUTED_KEY = "royal-trailer-muted-v1";
 const heroTrailerTimeResolvers = new Map();
 
@@ -1090,6 +1092,36 @@ window.addEventListener("message", (event) => {
   let payload = event.data;
   if (typeof payload === "string") {
     try { payload = JSON.parse(payload); } catch { return; }
+  }
+  const playerState = payload?.event === "onStateChange"
+    ? Number(payload.info)
+    : Number(payload?.info?.playerState);
+  if (Number.isFinite(playerState)) {
+    for (const [frameId, kind] of [
+      ["fp-detail-hero-frame", "film"],
+      ["series-detail-hero-frame", "series"],
+    ]) {
+      const frame = document.getElementById(frameId);
+      if (!frame || event.source !== frame.contentWindow) continue;
+      if (playerState === 1) {
+        // Erst nach echtem Videostart einblenden: So bleibt YouTubes großes
+        // Start-/Pause-Piktogramm hinter dem bereits sichtbaren Wallpaper.
+        window.setTimeout(() => {
+          if (!frame.getAttribute("src")) return;
+          frame.parentElement?.classList.add("is-playing");
+          frame.closest(".media-modal-panel")?.classList.add("is-trailer-playing");
+        }, 350);
+      } else if (playerState === 0) {
+        if (kind === "film") {
+          completedFilmHeroTrailers.add(fpDetailHeroTrailerKey);
+          stopFpDetailHeroTrailer();
+        } else {
+          completedSeriesHeroTrailers.add(seriesDetailHeroTrailerKey);
+          stopSeriesDetailHeroTrailer();
+        }
+      }
+      break;
+    }
   }
   const currentTime = Number(payload?.info?.currentTime);
   if (!Number.isFinite(currentTime) || currentTime < 0) return;
@@ -1163,7 +1195,11 @@ function stopFpDetailHeroTrailer() {
 function scheduleFpDetailHeroTrailer(movie) {
   stopFpDetailHeroTrailer();
   const key = fpTrailerYoutubeKey(movie);
-  if (!key || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (
+    !key
+    || completedFilmHeroTrailers.has(key)
+    || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  ) return;
   fpDetailHeroTrailerKey = key;
   fpDetailHeroTrailerCurrentTime = 0;
   const token = fpDetailHeroTrailerToken;
@@ -1172,7 +1208,6 @@ function scheduleFpDetailHeroTrailer(movie) {
       token !== fpDetailHeroTrailerToken
       || document.getElementById("fp-detail-modal").hidden
     ) return;
-    const panel = document.getElementById("fp-detail-panel");
     const shell = document.getElementById("fp-detail-hero-trailer");
     const frame = document.getElementById("fp-detail-hero-frame");
     const muteButton = document.getElementById("fp-detail-hero-mute");
@@ -1181,15 +1216,13 @@ function scheduleFpDetailHeroTrailer(movie) {
     frame.onload = () => {
       if (token !== fpDetailHeroTrailerToken) return;
       listenForHeroTrailerTime(frame);
-      shell.classList.add("is-playing");
-      panel.classList.add("is-trailer-playing");
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
-      + `?autoplay=1&mute=1&controls=0&loop=1&playlist=${encodeURIComponent(key)}`
-      + `&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`
+      + `?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&modestbranding=1`
+      + `&disablekb=1&fs=0&iv_load_policy=3&enablejsapi=1`
       + `&origin=${encodeURIComponent(window.location.origin)}`;
   }, 2000);
 }

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260803-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-2">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -439,9 +439,13 @@
                   <button id="fp-detail-subscribe" class="btn btn-ghost detail-subscribe-btn" type="button">
                     + Film abonnieren
                   </button>
-                  <div class="taste-feedback" aria-label="Film bewerten">
-                    <button id="fp-taste-like" class="btn btn-ghost" type="button" aria-pressed="false">♡ Mehr davon</button>
-                    <button id="fp-taste-dislike" class="btn btn-ghost" type="button" aria-pressed="false">⊘ Nicht für mich</button>
+                  <div class="taste-feedback" role="group" aria-label="Film bewerten">
+                    <button id="fp-taste-like" class="btn btn-ghost taste-like" type="button" aria-pressed="false">
+                      <span class="taste-icon" aria-hidden="true">♡</span><span class="taste-label">Mehr davon</span>
+                    </button>
+                    <button id="fp-taste-dislike" class="btn btn-ghost taste-dislike" type="button" aria-pressed="false">
+                      <span class="taste-icon" aria-hidden="true">⊘</span><span class="taste-label">Nicht für mich</span>
+                    </button>
                   </div>
                   <button id="fp-detail-add" class="btn btn-accent detail-download-btn" disabled>↓ Herunterladen</button>
                 </div>
@@ -600,9 +604,13 @@
             </section>
             <div class="series-action-bar">
               <button id="series-watch-btn" class="btn btn-ghost">+ Abonnieren</button>
-              <div class="taste-feedback" aria-label="Serie bewerten">
-                <button id="series-taste-like" class="btn btn-ghost" type="button" aria-pressed="false">♡ Mehr davon</button>
-                <button id="series-taste-dislike" class="btn btn-ghost" type="button" aria-pressed="false">⊘ Nicht für mich</button>
+              <div class="taste-feedback" role="group" aria-label="Serie bewerten">
+                <button id="series-taste-like" class="btn btn-ghost taste-like" type="button" aria-pressed="false">
+                  <span class="taste-icon" aria-hidden="true">♡</span><span class="taste-label">Mehr davon</span>
+                </button>
+                <button id="series-taste-dislike" class="btn btn-ghost taste-dislike" type="button" aria-pressed="false">
+                  <span class="taste-icon" aria-hidden="true">⊘</span><span class="taste-label">Nicht für mich</span>
+                </button>
               </div>
               <button id="series-detail-trailer" class="btn btn-ghost series-trailer-btn" type="button" hidden>
                 <span aria-hidden="true">▶</span> Trailer
@@ -634,6 +642,7 @@
                 <span><i class="is-downloaded"></i>Geladen</span>
                 <span><i class="is-selected"></i>Ausgewählt</span>
                 <span><i class="is-jellyfin"></i>Jellyfin</span>
+                <span><i class="is-scheduled"></i>Terminiert</span>
               </div>
               <div id="series-tiles" class="tiles-scroll"></div>
             </section>
@@ -1761,9 +1770,9 @@
 <script src="/store.js?v=royal-20260801-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260803-1"></script>
-<script src="/screens/home.js?v=royal-20260802-2"></script>
-<script src="/screens/movies.js?v=royal-20260802-1"></script>
-<script src="/screens/series.js?v=royal-20260802-1"></script>
+<script src="/screens/home.js?v=royal-20260805-1"></script>
+<script src="/screens/movies.js?v=royal-20260805-1"></script>
+<script src="/screens/series.js?v=royal-20260805-1"></script>
 <script src="/screens/anime.js?v=royal-20260802-1"></script>
 <script src="/screens/library.js?v=royal-20260802-1"></script>
 <script src="/screens/notifications.js?v=royal-20260802-1"></script>

@@ -404,8 +404,16 @@ function updateTasteFeedbackButtons() {
     if (!like || !dislike) continue;
     like.disabled = !target;
     dislike.disabled = !target;
-    like.setAttribute("aria-pressed", String(action === "like" || action === "favorite"));
-    dislike.setAttribute("aria-pressed", String(action === "dislike" || action === "dismiss"));
+    const liked = action === "like" || action === "favorite";
+    const disliked = action === "dislike" || action === "dismiss";
+    like.setAttribute("aria-pressed", String(liked));
+    dislike.setAttribute("aria-pressed", String(disliked));
+    like.setAttribute("aria-label", liked ? "Bewertung Mehr davon entfernen" : "Mehr davon empfehlen");
+    dislike.setAttribute("aria-label", disliked ? "Bewertung Nicht für mich entfernen" : "Nicht für mich markieren");
+    like.title = liked ? "Bewertung entfernen" : "Ähnliche Inhalte stärker empfehlen";
+    dislike.title = disliked ? "Bewertung entfernen" : "Ähnliche Inhalte seltener empfehlen";
+    like.querySelector(".taste-icon").textContent = liked ? "♥" : "♡";
+    dislike.querySelector(".taste-icon").textContent = disliked ? "⊗" : "⊘";
   }
 }
 

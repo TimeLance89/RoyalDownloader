@@ -287,6 +287,7 @@
 .media-modal .series-state-legend .is-downloaded { background: #46d369; border-color: #70e58b; }
 .media-modal .series-state-legend .is-selected { background: #e50914; border-color: #ff5860; }
 .media-modal .series-state-legend .is-jellyfin { background: #6fa8dc; border-color: #9ac8ef; }
+.media-modal .series-state-legend .is-scheduled { background: #d9a514; border-color: #f0c84b; }
 
 .media-modal .series-detail-panel .tiles-scroll {
   min-height: 180px;
@@ -395,6 +396,34 @@
   box-shadow: 0 9px 24px -14px rgba(229, 9, 20, .9);
 }
 
+.media-modal .series-detail-panel .ep-tile.scheduled {
+  position: relative;
+  color: #f4d56c;
+  background: linear-gradient(145deg, rgba(217, 165, 20, .16), rgba(36, 36, 36, .96));
+  border-color: rgba(240, 200, 75, .5);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.media-modal .series-detail-panel .ep-tile.scheduled::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #d9a514;
+}
+
+.media-modal .series-detail-panel .ep-tile .ep-release {
+  max-width: 100%;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #f0c84b;
+  font: 700 7px/1.1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .media-modal .series-detail-panel .ep-tile.in-jellyfin::after {
   top: 7px;
   right: 7px;
@@ -444,25 +473,42 @@
   .media-modal .series-action-bar {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "selection selection"
+      "watch trailer"
+      "taste taste"
+      "jellyfin jellyfin"
+      "download download";
   }
 
   .media-modal .series-selection-status {
+    grid-area: selection;
     grid-column: 1 / -1;
-    grid-row: 1;
     align-items: flex-start;
     margin: 0;
     padding: 2px 3px 6px;
   }
 
   .media-modal .series-jellyfin-status {
+    grid-area: jellyfin;
     grid-column: 1 / -1;
-    grid-row: 3;
     justify-content: center;
+  }
+
+  .media-modal .series-action-bar .taste-feedback {
+    grid-area: taste;
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .media-modal #series-watch-btn,
   .media-modal .series-trailer-btn,
   .media-modal #series-add-btn { width: 100%; }
+
+  .media-modal #series-watch-btn { grid-area: watch; }
+  .media-modal .series-trailer-btn { grid-area: trailer; }
+  .media-modal #series-add-btn { grid-area: download; }
 
   .media-modal .series-episodes-head {
     align-items: flex-start;
@@ -494,6 +540,17 @@
   .media-modal .series-hero-copy { min-height: 370px; }
   .media-modal .series-detail-kicker { font-size: 8px; }
   .media-modal .series-detail-meta span { font-size: 10px; }
+
+  .media-modal .series-action-bar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "selection"
+      "watch"
+      "taste"
+      "trailer"
+      "jellyfin"
+      "download";
+  }
 
   .media-modal .series-action-bar { grid-template-columns: 1fr; }
   .media-modal .series-selection-status,
