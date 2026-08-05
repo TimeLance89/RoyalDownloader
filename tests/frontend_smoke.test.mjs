@@ -7,6 +7,7 @@ const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8")
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
+const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -108,7 +109,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260805-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-8/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-9/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -118,6 +119,32 @@ test("home series rail falls back when the trending provider is unavailable", ()
 test("only Top 10 cards may fall back to portrait posters", () => {
   assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
   assert.doesNotMatch(app, /rank \? media\.backdrop_url : media\.cover_url/);
+});
+
+test("series wallpaper hydration updates every duplicate catalog object", async () => {
+  const trending = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
+  const discovery = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
+  const context = vm.createContext({
+    console,
+    api: {
+      tmdbSeries: async () => ({
+        series: {
+          "same-series": {
+            backdrop_url: "/wallpaper.jpg",
+            genres: ["Drama"],
+          },
+        },
+      }),
+    },
+    renderHome: () => {},
+  });
+  vm.runInContext(home.slice(home.indexOf("async function hydrateHomeSeriesArtwork")), context);
+  context.items = [trending, discovery];
+  await vm.runInContext("hydrateHomeSeriesArtwork(items, { render: false })", context);
+  assert.equal(trending.backdrop_url, "/wallpaper.jpg");
+  assert.equal(discovery.backdrop_url, "/wallpaper.jpg");
+  assert.deepEqual(trending.genres, ["Drama"]);
+  assert.deepEqual(discovery.genres, ["Drama"]);
 });
 
 test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
