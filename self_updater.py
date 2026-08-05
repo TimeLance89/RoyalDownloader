@@ -17,7 +17,13 @@ from urllib.parse import quote
 
 import requests
 
-from runtime_release import activate_release, read_release_link, releases_dir, rollback_release
+from runtime_release import (
+    activate_release,
+    prune_releases,
+    read_release_link,
+    releases_dir,
+    rollback_release,
+)
 
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -503,6 +509,7 @@ class SelfUpdater:
                 raise RuntimeError("Release-Ziel existiert mit einer anderen Revision")
             self._smoke_release(final_release, self._release_python(final_release))
             activate_release(runtime_root, final_release)
+            self._prune_runtime_releases(runtime_root)
             return
 
         staging = release_root / f".staging-{target_sha[:12]}-{uuid.uuid4().hex}"
@@ -527,6 +534,7 @@ class SelfUpdater:
             try:
                 activate_release(runtime_root, final_release)
                 activated = True
+                self._prune_runtime_releases(runtime_root)
             except Exception:
                 if old_release is not None:
                     activate_release(runtime_root, old_release)
@@ -540,6 +548,14 @@ class SelfUpdater:
                 current = read_release_link(runtime_root, "current")
                 if current != final_release:
                     shutil.rmtree(final_release, ignore_errors=True)
+
+    @staticmethod
+    def _prune_runtime_releases(runtime_root: Path) -> None:
+        """Best-effort cleanup must not invalidate a successful update."""
+        try:
+            prune_releases(runtime_root)
+        except OSError:
+            pass
 
     def _install(self, target_sha: str) -> None:
         with tempfile.TemporaryDirectory(prefix="seriendownloader-update-") as tmp:

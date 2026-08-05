@@ -134,7 +134,8 @@ def recover_misplaced_media(
             )
             try:
                 shutil.copy2(media, temp)
-                with temp.open("rb") as handle:
+                # Windows requires a writable descriptor for fsync().
+                with temp.open("rb+") as handle:
                     os.fsync(handle.fileno())
                 if temp.stat().st_size != media.stat().st_size:
                     raise OSError("Wiederherstellungskopie ist unvollständig")

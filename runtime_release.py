@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from pathlib import Path
 
 
 RELEASE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+DEFAULT_RELEASE_RETENTION = 2
 
 
 def releases_dir(runtime_root: Path) -> Path:
@@ -74,3 +76,41 @@ def rollback_release(runtime_root: Path) -> Path:
     if current is not None:
         atomic_release_link(root, "previous", current)
     return previous
+
+
+def prune_releases(
+    runtime_root: Path,
+    keep: int = DEFAULT_RELEASE_RETENTION,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Remove old releases while always preserving current and previous."""
+    if keep < 2:
+        raise ValueError("Mindestens current und previous müssen erhalten bleiben")
+
+    root = Path(runtime_root).resolve()
+    release_root = releases_dir(root)
+    protected = {
+        target
+        for name in ("current", "previous")
+        if (target := read_release_link(root, name)) is not None
+    }
+    candidates: list[Path] = []
+    for entry in release_root.iterdir():
+        if not entry.is_dir() or entry.is_symlink() or entry.name.startswith("."):
+            continue
+        if not RELEASE_NAME_RE.fullmatch(entry.name):
+            continue
+        try:
+            target = entry.resolve(strict=True)
+        except OSError:
+            continue
+        if target.is_relative_to(release_root) and target not in protected:
+            candidates.append(target)
+
+    slots = max(0, keep - len(protected))
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    removed = candidates[slots:]
+    if not dry_run:
+        for release in removed:
+            shutil.rmtree(release)
+    return removed

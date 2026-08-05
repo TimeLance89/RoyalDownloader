@@ -1,13 +1,22 @@
 from pathlib import Path
+import os
 
 import pytest
 from fastapi import HTTPException
 
 import config
+import api_administration_router
 import runtime_paths
 import server
 
 
+requires_linux_mounts = pytest.mark.skipif(
+    os.name != "posix",
+    reason="requires Linux container mount paths",
+)
+
+
+@requires_linux_mounts
 def test_container_path_requires_a_non_ephemeral_mount(monkeypatch):
     mountinfo = (
         "1 0 0:1 / / rw - overlay overlay rw\n"
@@ -29,6 +38,7 @@ def test_container_path_requires_a_non_ephemeral_mount(monkeypatch):
     assert not runtime_paths.persistent_container_path(Path("/tmp/Show"))
 
 
+@requires_linux_mounts
 def test_config_replaces_unsafe_saved_path_with_docker_mount(monkeypatch):
     monkeypatch.setattr(config, "_read_all", lambda: {
         "save_path": "/volume1/Filme",
@@ -62,7 +72,7 @@ def test_misplaced_episode_is_copied_to_series_mount_without_deleting_source(
     movie.write_bytes(b"movie")
     target.mkdir()
     monkeypatch.setattr(
-        server, "persistent_container_path",
+        api_administration_router, "persistent_container_path",
         lambda path: Path(path).resolve(strict=False) == target.resolve(strict=False),
     )
 
