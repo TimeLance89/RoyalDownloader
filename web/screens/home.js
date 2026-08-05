@@ -248,19 +248,35 @@ async function refreshCatalogJellyfinStatus(entries, render) {
     tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
     media_type: kind === "movie" ? "movie" : "series",
   }));
-  try {
-    const response = await api.jellyfinMatches(requests);
-    for (const entry of unique) {
-      const key = homeEntryKey(entry);
-      const status = response.statuses?.[key]
-        || (Object.hasOwn(response.matches || {}, key)
-          ? (response.matches[key] ? "owned" : "missing")
-          : (response.configured ? "unavailable" : "unconfigured"));
-      entry.item.jellyfin_status = status;
-      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
+  const statusByKey = new Map();
+  const batches = [];
+  for (let index = 0; index < requests.length; index += 100) {
+    batches.push(requests.slice(index, index + 100));
+  }
+  const responses = await Promise.allSettled(
+    batches.map((batch) => api.jellyfinMatches(batch)),
+  );
+  responses.forEach((result, batchIndex) => {
+    const batch = batches[batchIndex];
+    if (result.status !== "fulfilled") {
+      batch.forEach((request) => statusByKey.set(request.slug, "unavailable"));
+      return;
     }
-  } catch {
-    unique.forEach((entry) => { entry.item.jellyfin_status = "unavailable"; });
+    const response = result.value;
+    batch.forEach((request) => {
+      const status = response.statuses?.[request.slug]
+        || (Object.hasOwn(response.matches || {}, request.slug)
+          ? (response.matches[request.slug] ? "owned" : "missing")
+          : (response.configured ? "checking" : "unconfigured"));
+      statusByKey.set(request.slug, status);
+    });
+  });
+  for (const entry of unique) {
+    const status = statusByKey.get(homeEntryKey(entry)) || "checking";
+    entry.item.jellyfin_status = status;
+    if (status === "owned" || status === "missing") {
+      entry.item.in_jellyfin = status === "owned";
+    }
   }
   if (render) render();
 }
@@ -1326,8 +1342,9 @@ async function performGlobalSearch(query, requestId) {
         .map((entry) => entry.item),
       { render: false },
     ),
-    refreshCatalogJellyfinStatus(state.globalSearch.results, null),
   ]);
+  if (requestId !== state.globalSearch.requestSeq) return;
+  await refreshCatalogJellyfinStatus(state.globalSearch.results, null);
   if (requestId !== state.globalSearch.requestSeq) return;
   renderGlobalSearchResults();
 }
@@ -1341,6 +1358,12 @@ function syncGlobalSearchDraft() {
   state.globalSearch.submitted = false;
   state.globalSearch.results = [];
   renderGlobalSearchResults();
+}
+
+function openGlobalSearch() {
+  state.globalSearch.active = true;
+  renderGlobalSearchResults();
+  document.getElementById("global-search-input")?.focus();
 }
 
 function runGlobalSearch() {

@@ -63,10 +63,11 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-3/);
+  assert.match(html, /app\.js\?v=royal-20260805-4/);
 });
 
 test("searches run only after an explicit submit", () => {
+  assert.match(app, /globalSearchToggle\.addEventListener\("click", openGlobalSearch\)/);
   assert.match(app, /globalSearchInput\.addEventListener\("input", syncGlobalSearchDraft\)/);
   assert.match(app, /if \(event\.key === "Enter"\) \{[\s\S]*?runGlobalSearch\(\)/);
   for (const [inputId, panelId] of [
@@ -84,6 +85,8 @@ test("searches run only after an explicit submit", () => {
   assert.doesNotMatch(app, /debounceTimer/);
   assert.doesNotMatch(app, /addEventListener\("focus", \(\) => \{\s*renderSearchSuggestions/);
   assert.doesNotMatch(app, /value\.trim\(\)\) homeSearch\(\)/);
+  assert.match(app, /globalSearchPage\.addEventListener\("click", \(event\) => \{/);
+  assert.match(app, /if \(event\.target\.closest\("\.global-search-head, \.home-card"\)\) return;/);
 });
 
 test("global search covers every catalog and exposes Jellyfin filters", () => {
@@ -96,10 +99,12 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /media_type: kind === "movie" \? "movie" : "series"/);
   assert.match(app, /setFpJellyfinBadge\(jellyfin, mediaJellyfinStatus\(result\)\)/);
   assert.match(app, /state\.anime\.results\.map\(homeAnimeEntry\)/);
+  assert.match(app, /for \(let index = 0; index < requests\.length; index \+= 100\)/);
+  assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-3/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);

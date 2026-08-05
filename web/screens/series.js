@@ -234,16 +234,12 @@ function applySeriesResults(data, { append = false } = {}) {
   state.series.loadError = "";
   renderSeriesResults(appendFrom);
   const browseGeneration = state.series.browseRequestSeq;
-  void refreshCatalogJellyfinStatus(
-    state.series.results.map(homeSeriesEntry),
-    () => {
-      if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
-    },
-  );
   renderSeriesCatalogHero();
-  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then((hydratedBaseSlugs) => {
+  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(async (hydratedBaseSlugs) => {
     for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
     renderSeriesCatalogHero();
+    await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
+    if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
   });
   updateSeriesInfiniteState();
   recheckSeriesInfinite();

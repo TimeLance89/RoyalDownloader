@@ -68,10 +68,8 @@ async function initApp() {
   });
   const globalSearchInput = document.getElementById("global-search-input");
   const globalSearchToggle = document.getElementById("global-search-toggle");
-  globalSearchToggle.addEventListener("click", () => {
-    if (globalSearchInput.value.trim()) runGlobalSearch();
-    else globalSearchInput.focus();
-  });
+  const globalSearchPage = document.getElementById("global-search-page");
+  globalSearchToggle.addEventListener("click", openGlobalSearch);
   globalSearchInput.addEventListener("focus", () => {
     document.getElementById("global-search-shell").classList.add("is-expanded");
     globalSearchToggle.setAttribute("aria-expanded", "true");
@@ -107,6 +105,16 @@ async function initApp() {
   document.getElementById("global-search-jellyfin").addEventListener("click", () => {
     state.globalSearch.jellyfinOnly = !state.globalSearch.jellyfinOnly;
     renderGlobalSearchResults();
+  });
+  globalSearchPage.addEventListener("click", (event) => {
+    if (event.target.closest(".global-search-head, .home-card")) return;
+    closeGlobalSearch();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!state.globalSearch.active) return;
+    if (document.getElementById("global-search-shell").contains(event.target)) return;
+    if (globalSearchPage.contains(event.target)) return;
+    closeGlobalSearch();
   });
   document.getElementById("home-search-btn").addEventListener("click", homeSearch);
   document.getElementById("home-search-close").addEventListener("click", closeHomeSearch);
