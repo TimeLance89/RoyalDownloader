@@ -9,6 +9,7 @@ function createInitialState() {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
       heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
+      mood: { step: 0, answers: {}, results: [], open: false },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
     fp: {
