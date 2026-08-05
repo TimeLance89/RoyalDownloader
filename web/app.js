@@ -584,6 +584,16 @@ async function initApp() {
       setSetupStatus(`Sprache konnte nicht geladen werden: ${error.message}`, true);
     });
   });
+  document.querySelectorAll('input[name="setup-deployment-mode"]').forEach((radio) => {
+    radio.addEventListener("change", () => updateDeploymentModeHints(
+      "setup", selectedDeploymentMode("setup-deployment-mode"),
+    ));
+  });
+  document.querySelectorAll('input[name="deployment-mode"]').forEach((radio) => {
+    radio.addEventListener("change", () => updateDeploymentModeHints(
+      "settings", selectedDeploymentMode(),
+    ));
+  });
   document.getElementById("setup-next").addEventListener("click", () => {
     if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1);
   });

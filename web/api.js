@@ -114,7 +114,13 @@ const api = {
   },
 
   configGet() { return this.get("/api/config"); },
-  configSet(savePath, seriesPath) { return this.post("/api/config", { save_path: savePath, series_path: seriesPath }); },
+  configSet(savePath, seriesPath, deploymentMode) {
+    return this.post("/api/config", {
+      save_path: savePath,
+      series_path: seriesPath,
+      deployment_mode: deploymentMode,
+    });
+  },
   providerPriorityGet() { return this.get("/api/providers/config"); },
   providerPrioritySet(cfg) { return this.post("/api/providers/config", cfg); },
   providerStatusGet() { return this.get("/api/providers/status"); },

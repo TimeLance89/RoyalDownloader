@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 
 class SetupCompleteBody(BaseModel):
+    deployment_mode: str = "desktop"
     save_path: str
     series_path: str = ""
     ui_language: str = "de"

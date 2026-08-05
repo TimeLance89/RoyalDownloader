@@ -471,9 +471,10 @@ async function saveAllSettings() {
   status.textContent = "Speichere …";
   try {
     await api.uiConfigSet(document.getElementById("ui-language").value);
-    await api.configSet(
+    const runtimeConfig = await api.configSet(
       document.getElementById("save-path").value.trim(),
       document.getElementById("series-path").value.trim(),
+      selectedDeploymentMode(),
     );
     applyProviderPriority(await api.providerPrioritySet({
       movies: state.providers.movies,
@@ -556,7 +557,9 @@ async function saveAllSettings() {
       document.getElementById("fp-status").textContent = `Fehler: ${error.message}`;
     });
     const t = new Date().toLocaleTimeString(i18n.locale(), { hour: "2-digit", minute: "2-digit" });
-    status.textContent = `✓ Gespeichert (${t})`;
+    status.textContent = runtimeConfig.restart_required
+      ? `✓ Gespeichert (${t}) · Neustart aktiviert den neuen Betriebsmodus.`
+      : `✓ Gespeichert (${t})`;
     if (state.wl.loaded) refreshWatchlist();
   } catch (e) {
     status.textContent = "✗ Fehler: " + e.message;

@@ -42,7 +42,10 @@ selection. They are never silently downloaded as a normal release.
 
 ### Initial NAS setup
 
-1. Copy the repository to the NAS and copy `.env.example` to `.env`.
+1. Copy the repository to the NAS. For a mounted-source `start.sh` deployment,
+   the first-run wizard creates `.env` from `.env.example`. For Docker Compose,
+   copy `.env.example` to `.env` before starting when custom host mounts are
+   required.
 2. Set `MOVIES_HOST_DIR` and `SERIES_HOST_DIR` to the actual Jellyfin media
    directories. Royal Downloader and Jellyfin must see the same host folders.
 3. Prepare the Seerr data directory:

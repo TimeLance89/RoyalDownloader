@@ -58,6 +58,20 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /configGet\(\)/);
 });
 
+test("setup and settings expose desktop and NAS deployment modes", () => {
+  for (const id of [
+    "setup-mode-desktop",
+    "setup-mode-nas",
+    "deployment-mode-desktop",
+    "deployment-mode-nas",
+    "deployment-mode-status",
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`));
+  assert.match(html, /Normaler Computer/);
+  assert.match(html, /NAS \/ Heimserver/);
+  assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
+  assert.match(api, /deployment_mode: deploymentMode/);
+});
+
 test("movie and series catalogs lazy-load for mobile document scrolling", () => {
   for (const id of ["tab-filme", "fp-infinite", "tab-serien", "series-infinite"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
@@ -67,7 +81,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-8/);
+  assert.match(html, /app\.js\?v=royal-20260805-9/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -108,7 +122,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260805-2/);
+  assert.match(html, /api\.js\?v=royal-20260805-3/);
   assert.match(html, /screens\/home\.js\?v=royal-20260805-9/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
@@ -259,7 +273,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260803-1/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260805-2/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -301,7 +315,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260805-8/);
+  assert.match(html, /style\.css\?v=royal-20260805-9/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
