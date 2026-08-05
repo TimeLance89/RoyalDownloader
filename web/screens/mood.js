@@ -88,28 +88,38 @@ const MOOD_MATCH_PROFILES = {
 const MOOD_MATCH_RULES = {
   horror: {
     required: ["Horror", "Slasher", "Splatter"],
+    fallback: ["Thriller", "Mystery", "Krimi", "Crime"],
     excluded: ["Familie", "Kinder"],
     hardExcluded: ["Komödie", "Comedy", "Animation", "Romanze", "Musik"],
+    fallbackExcluded: ["Dokumentation", "Dokumentarfilm", "Documentary", "Geschichte"],
   },
   adrenaline: {
     required: ["Action", "Thriller", "Krimi", "Crime", "Abenteuer"],
+    fallback: ["Mystery", "Drama", "Science-Fiction", "Science Fiction"],
     excluded: ["Familie", "Kinder"],
     hardExcluded: ["Romanze", "Musik"],
+    fallbackExcluded: ["Dokumentation", "Dokumentarfilm", "Documentary"],
   },
   laugh: {
     required: ["Komödie", "Comedy"],
+    fallback: ["Animation", "Familie", "Romanze"],
     excluded: ["Horror"],
     hardExcluded: [],
+    fallbackExcluded: ["Thriller", "Krimi", "Crime"],
   },
   wonder: {
     required: ["Science-Fiction", "Science Fiction", "Sci-Fi", "Fantasy", "Abenteuer"],
+    fallback: ["Animation", "Mystery", "Familie"],
     excluded: [],
     hardExcluded: [],
+    fallbackExcluded: ["Dokumentation", "Dokumentarfilm", "Documentary"],
   },
   comfort: {
     required: ["Komödie", "Comedy", "Romanze", "Familie", "Drama", "Musik"],
+    fallback: ["Animation", "Abenteuer"],
     excluded: ["Horror", "Splatter", "Slasher"],
     hardExcluded: ["Thriller", "Krimi", "Crime"],
+    fallbackExcluded: [],
   },
 };
 
@@ -131,17 +141,25 @@ function moodHasAnyGenre(genres, names) {
   return names.some((name) => moodHasGenre(genres, name));
 }
 
-function moodMatchesIntent(entry, answers) {
+function moodIntentTier(entry, answers) {
   // Familienmodus hat eigene, strengere Schutzregeln und darf die gewählte
   // Stimmung zugunsten einer sicheren gemeinsamen Auswahl abschwächen.
-  if (answers.company === "family") return true;
+  if (answers.company === "family") return 0;
   const genres = normalizedMoodGenres(homeEntryMedia(entry));
   const rules = MOOD_MATCH_RULES[answers.mood];
-  if (!rules || !genres.size) return false;
-  if (!moodHasAnyGenre(genres, rules.required)) return false;
-  if (moodHasAnyGenre(genres, rules.excluded)) return false;
-  if (answers.intensity === "hard" && moodHasAnyGenre(genres, rules.hardExcluded)) return false;
-  return true;
+  if (!rules || !genres.size) return 2;
+  const intensityExclusions = answers.intensity === "hard" ? rules.hardExcluded : [];
+  if (moodHasAnyGenre(genres, [...rules.excluded, ...intensityExclusions])) return 2;
+  if (moodHasAnyGenre(genres, rules.required)) return 0;
+  if (
+    moodHasAnyGenre(genres, rules.fallback)
+    && !moodHasAnyGenre(genres, rules.fallbackExcluded)
+  ) return 1;
+  return 2;
+}
+
+function moodMatchesIntent(entry, answers) {
+  return moodIntentTier(entry, answers) < 2;
 }
 
 function moodFamilyPool(entries) {
@@ -205,8 +223,12 @@ function moodMatchResults(answers) {
   pool = pool.filter((entry) => moodMatchesIntent(entry, answers));
   const profile = loadDiscoveryProfile();
   return uniqueHomeEntries(pool)
-    .map((entry) => ({ entry, score: moodMatchScore(entry, answers, profile) }))
-    .sort((left, right) => right.score - left.score)
+    .map((entry) => ({
+      entry,
+      tier: moodIntentTier(entry, answers),
+      score: moodMatchScore(entry, answers, profile),
+    }))
+    .sort((left, right) => left.tier - right.tier || right.score - left.score)
     .slice(0, 12)
     .map(({ entry }) => entry);
 }
@@ -251,6 +273,8 @@ function renderMoodMatchResults() {
   const answers = moodState.answers;
   const profile = MOOD_MATCH_PROFILES[answers.mood] || MOOD_MATCH_PROFILES.wonder;
   moodState.results = moodMatchResults(answers);
+  const exactCount = moodState.results.filter((entry) => moodIntentTier(entry, answers) === 0).length;
+  const alternativeCount = moodState.results.length - exactCount;
   document.getElementById("mood-modal").dataset.tone = answers.company === "family" ? "family" : profile.tone;
   document.getElementById("mood-progress-bar").style.width = "100%";
   document.getElementById("mood-stage-number").textContent = "★";
@@ -260,7 +284,9 @@ function renderMoodMatchResults() {
     ? "Großes Kino für die ganze Runde."
     : profile.title;
   document.getElementById("mood-copy").textContent = moodState.results.length
-    ? `${moodState.results.length === 1 ? "1 klarer Treffer" : `${moodState.results.length} klare Treffer`} – erst nach Inhalt gefiltert, dann nach deinem Geschmack sortiert.`
+    ? alternativeCount
+      ? `${exactCount ? `${exactCount} direkte Treffer und ` : ""}${alternativeCount} passende ${alternativeCount === 1 ? "Alternative" : "Alternativen"} – keine beliebigen Fülltreffer.`
+      : `${exactCount === 1 ? "1 klarer Treffer" : `${exactCount} klare Treffer`} – erst nach Inhalt gefiltert, dann nach deinem Geschmack sortiert.`
     : "Kein Titel im geladenen Katalog erfüllt diese Kombination sauber. Ändere eine Antwort, statt unpassende Vorschläge zu erhalten.";
   document.getElementById("mood-options").replaceChildren();
   const results = document.getElementById("mood-results");
