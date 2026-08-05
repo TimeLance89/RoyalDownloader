@@ -188,6 +188,7 @@
     grid-template-areas:
       "download trailer"
       "subscribe subscribe"
+      "taste taste"
       "availability jellyfin";
     gap: 8px;
     padding: 10px;
@@ -198,6 +199,12 @@
   .media-modal .detail-trailer-btn,
   .media-modal .detail-subscribe-btn {
     width: 100%;
+  }
+
+  .media-modal .detail-head-actions .taste-feedback {
+    width: 100%;
+    grid-area: taste;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .media-modal .detail-subscribe-btn {
@@ -228,6 +235,7 @@
       "download"
       "trailer"
       "subscribe"
+      "taste"
       "availability"
       "jellyfin";
   }

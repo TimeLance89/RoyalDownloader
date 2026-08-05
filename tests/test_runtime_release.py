@@ -152,6 +152,53 @@ def test_unmarked_bundle_identity_changes_with_source(tmp_path):
     assert docker_bootstrap._source_identity(source) == second
 
 
+def test_changed_manual_bundle_replaces_persistent_current(monkeypatch, tmp_path):
+    bundle = tmp_path / "bundle"
+    runtime = tmp_path / "runtime"
+    current = runtime / "releases" / "old"
+    bundle.mkdir()
+    current.mkdir(parents=True)
+    (bundle / "server.py").write_text("# copied update\n", encoding="utf-8")
+    activated = []
+
+    monkeypatch.setattr(docker_bootstrap, "read_release_link", lambda *_args: current)
+    monkeypatch.setattr(docker_bootstrap, "_smoke_release", lambda *_args: None)
+    monkeypatch.setattr(
+        docker_bootstrap,
+        "_prepare_release",
+        lambda source, release: docker_bootstrap._copy_source(source, release),
+    )
+    monkeypatch.setattr(
+        docker_bootstrap, "activate_release",
+        lambda _root, release: activated.append(release),
+    )
+
+    release = docker_bootstrap._initial_release(bundle, runtime)
+
+    assert release.name.startswith("bundled-")
+    assert (release / "server.py").read_text(encoding="utf-8") == "# copied update\n"
+    assert activated == [release]
+    assert docker_bootstrap._bundle_identity(runtime) == release.name.removeprefix("bundled-")
+
+
+def test_unchanged_manual_bundle_keeps_in_app_updated_current(monkeypatch, tmp_path):
+    bundle = tmp_path / "bundle"
+    runtime = tmp_path / "runtime"
+    current = runtime / "releases" / "newer-in-app-release"
+    bundle.mkdir()
+    current.mkdir(parents=True)
+    (bundle / "server.py").write_text("# mounted bundle\n", encoding="utf-8")
+    identity = docker_bootstrap._source_identity(bundle)
+    docker_bootstrap._remember_bundle_identity(runtime, identity)
+    monkeypatch.setattr(docker_bootstrap, "read_release_link", lambda *_args: current)
+    monkeypatch.setattr(
+        docker_bootstrap, "activate_release",
+        lambda *_args: pytest.fail("unchanged bundle must not replace current"),
+    )
+
+    assert docker_bootstrap._initial_release(bundle, runtime) == current
+
+
 def test_legacy_runtime_copy_skips_transient_content(tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "release"

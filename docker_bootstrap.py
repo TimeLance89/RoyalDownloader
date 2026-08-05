@@ -20,8 +20,10 @@ from runtime_release import (
 
 SKIP_NAMES = {
     ".git", ".downloading", "#recycle", "__pycache__", "data", "downloads",
-    "debug", "runtime", "releases", "current", "previous",
+    "debug", "runtime", "releases", "current", "previous", ".venv",
+    ".pytest_cache", ".ruff_cache", ".bundle_identity",
 }
+BUNDLE_IDENTITY_FILE = ".bundle_identity"
 
 
 def _copy_source(source_root: Path, destination: Path) -> None:
@@ -90,10 +92,24 @@ def _source_identity(source: Path) -> str:
     return digest.hexdigest()[:12]
 
 
+def _bundle_identity(runtime_root: Path) -> str:
+    try:
+        return (runtime_root / BUNDLE_IDENTITY_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _remember_bundle_identity(runtime_root: Path, identity: str) -> None:
+    target = runtime_root / BUNDLE_IDENTITY_FILE
+    temporary = runtime_root / f".{BUNDLE_IDENTITY_FILE}.new-{os.getpid()}"
+    try:
+        temporary.write_text(identity + "\n", encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _initial_release(bundle: Path, runtime_root: Path) -> Path:
-    current = read_release_link(runtime_root, "current")
-    if current is not None:
-        return current
     source = runtime_root if (runtime_root / "server.py").is_file() else bundle
     marker = source / ".app_commit_sha"
     try:
@@ -103,6 +119,22 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
     if not identity:
         identity = _source_identity(source)
     prefix = "legacy" if source == runtime_root else "bundled"
+    current = read_release_link(runtime_root, "current")
+    if current is not None:
+        if source == runtime_root:
+            return current
+        # Das Bundle ist die manuell aufs NAS kopierte Projektfassung. Bleibt
+        # es unverändert, darf ein In-App-Update in ``current`` aktiv bleiben.
+        # Ändert sich das Bundle, ist die Kopie absichtlich neu und wird als
+        # geprüftes Release aktiviert. Ältere Installationen ohne Marker
+        # synchronisieren beim ersten Start mit dieser Bootstrap-Version einmal.
+        if _bundle_identity(runtime_root) == identity:
+            print(f"[bootstrap] Runtime bleibt aktiv: {current.name}", flush=True)
+            return current
+        print(
+            f"[bootstrap] Neue kopierte Projektfassung erkannt: bundled-{identity}",
+            flush=True,
+        )
     release = releases_dir(runtime_root) / f"{prefix}-{identity}"
     if release.is_dir():
         try:
@@ -114,6 +146,9 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
     if not release.exists():
         _prepare_release(source, release)
     activate_release(runtime_root, release)
+    if source != runtime_root:
+        _remember_bundle_identity(runtime_root, identity)
+    print(f"[bootstrap] Runtime aktiviert: {release.name}", flush=True)
     return release
 
 
