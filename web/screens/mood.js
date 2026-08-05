@@ -126,7 +126,10 @@ const MOOD_MATCH_RULES = {
 let moodMatchReturnFocus = null;
 
 function normalizedMoodGenres(media) {
-  return new Set((media.genres || [])
+  const rawGenres = [media.genres, media.genre, media.categories]
+    .flatMap((value) => Array.isArray(value) ? value : (value ? String(value).split(/[,;/|]/) : []));
+  return new Set(rawGenres
+    .map((genre) => typeof genre === "object" ? (genre.name || genre.title || "") : genre)
     .map((genre) => String(genre || "").trim().toLocaleLowerCase("de-DE"))
     .filter(Boolean));
 }
@@ -147,9 +150,11 @@ function moodIntentTier(entry, answers) {
   if (answers.company === "family") return 0;
   const genres = normalizedMoodGenres(homeEntryMedia(entry));
   const rules = MOOD_MATCH_RULES[answers.mood];
+  // Fehlende Metadaten sind kein Ausschluss. Solche Titel landen hinter den
+  // direkten und verwandten Treffern, damit der Modus niemals leerläuft.
   if (!rules || !genres.size) return 2;
   const intensityExclusions = answers.intensity === "hard" ? rules.hardExcluded : [];
-  if (moodHasAnyGenre(genres, [...rules.excluded, ...intensityExclusions])) return 2;
+  if (moodHasAnyGenre(genres, [...rules.excluded, ...intensityExclusions])) return 3;
   if (moodHasAnyGenre(genres, rules.required)) return 0;
   if (
     moodHasAnyGenre(genres, rules.fallback)
@@ -159,7 +164,7 @@ function moodIntentTier(entry, answers) {
 }
 
 function moodMatchesIntent(entry, answers) {
-  return moodIntentTier(entry, answers) < 2;
+  return moodIntentTier(entry, answers) < 3;
 }
 
 function moodFamilyPool(entries) {
@@ -169,11 +174,16 @@ function moodFamilyPool(entries) {
     return ["Animation", "Familie", "Kinder"].some((genre) => moodHasGenre(genres, genre));
   });
   if (strict.length >= 6) return strict;
-  return entries.filter((entry) => {
+  const broad = entries.filter((entry) => {
     const genres = normalizedMoodGenres(homeEntryMedia(entry));
     if (["Horror", "Erotik", "Thriller"].some((genre) => moodHasGenre(genres, genre))) return false;
     return ["Animation", "Familie", "Kinder", "Abenteuer", "Komödie", "Fantasy"]
       .some((genre) => moodHasGenre(genres, genre));
+  });
+  if (broad.length) return broad;
+  return entries.filter((entry) => {
+    const genres = normalizedMoodGenres(homeEntryMedia(entry));
+    return !moodHasAnyGenre(genres, ["Horror", "Erotik", "Thriller", "Krimi", "Crime"]);
   });
 }
 
@@ -233,6 +243,20 @@ function moodMatchResults(answers) {
     .map(({ entry }) => entry);
 }
 
+async function prepareMoodCandidates() {
+  const entries = homeAllEntries();
+  await Promise.allSettled([
+    hydrateHomeMovieArtwork(
+      entries.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+      { render: false },
+    ),
+    hydrateHomeSeriesArtwork(
+      entries.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+      { render: false },
+    ),
+  ]);
+}
+
 function moodAnswerLabel(stepKey, value) {
   return MOOD_MATCH_STEPS.find((step) => step.key === stepKey)
     ?.options.find((option) => option.value === value)?.title || value;
@@ -274,7 +298,8 @@ function renderMoodMatchResults() {
   const profile = MOOD_MATCH_PROFILES[answers.mood] || MOOD_MATCH_PROFILES.wonder;
   moodState.results = moodMatchResults(answers);
   const exactCount = moodState.results.filter((entry) => moodIntentTier(entry, answers) === 0).length;
-  const alternativeCount = moodState.results.length - exactCount;
+  const alternativeCount = moodState.results.filter((entry) => moodIntentTier(entry, answers) === 1).length;
+  const discoveryCount = moodState.results.length - exactCount - alternativeCount;
   document.getElementById("mood-modal").dataset.tone = answers.company === "family" ? "family" : profile.tone;
   document.getElementById("mood-progress-bar").style.width = "100%";
   document.getElementById("mood-stage-number").textContent = "★";
@@ -284,9 +309,11 @@ function renderMoodMatchResults() {
     ? "Großes Kino für die ganze Runde."
     : profile.title;
   document.getElementById("mood-copy").textContent = moodState.results.length
-    ? alternativeCount
-      ? `${exactCount ? `${exactCount} direkte Treffer und ` : ""}${alternativeCount} passende ${alternativeCount === 1 ? "Alternative" : "Alternativen"} – keine beliebigen Fülltreffer.`
-      : `${exactCount === 1 ? "1 klarer Treffer" : `${exactCount} klare Treffer`} – erst nach Inhalt gefiltert, dann nach deinem Geschmack sortiert.`
+    ? [
+      exactCount ? `${exactCount} ${exactCount === 1 ? "direkter Treffer" : "direkte Treffer"}` : "",
+      alternativeCount ? `${alternativeCount} ${alternativeCount === 1 ? "passende Alternative" : "passende Alternativen"}` : "",
+      discoveryCount ? `${discoveryCount} ${discoveryCount === 1 ? "weitere Entdeckung" : "weitere Entdeckungen"}` : "",
+    ].filter(Boolean).join(" · ")
     : "Kein Titel im geladenen Katalog erfüllt diese Kombination sauber. Ändere eine Antwort, statt unpassende Vorschläge zu erhalten.";
   document.getElementById("mood-options").replaceChildren();
   const results = document.getElementById("mood-results");
@@ -378,7 +405,7 @@ function closeMoodMatch(restoreFocus = true) {
   if (restoreFocus) moodMatchReturnFocus?.focus();
 }
 
-function moodMatchNext() {
+async function moodMatchNext() {
   const moodState = state.home.mood;
   if (moodState.step >= MOOD_MATCH_STEPS.length) {
     moodState.step = 0;
@@ -389,6 +416,14 @@ function moodMatchNext() {
   }
   const step = MOOD_MATCH_STEPS[moodState.step];
   if (!moodState.answers[step.key]) return;
+  if (moodState.step === MOOD_MATCH_STEPS.length - 1) {
+    const next = document.getElementById("mood-next");
+    next.disabled = true;
+    next.textContent = "Katalog wird ausgewertet …";
+    document.getElementById("mood-copy").textContent = "Genres und Metadaten werden vervollständigt.";
+    await prepareMoodCandidates();
+    if (!moodState.open) return;
+  }
   moodState.step += 1;
   renderMoodMatch();
 }

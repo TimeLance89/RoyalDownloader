@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
+const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -105,7 +107,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-7/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-8/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -142,10 +144,43 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /fallback: \["Thriller", "Mystery", "Krimi", "Crime"\]/);
   assert.match(app, /hardExcluded: \["Komödie", "Comedy", "Animation", "Romanze", "Musik"\]/);
   assert.match(app, /left\.tier - right\.tier \|\| right\.score - left\.score/);
-  assert.match(app, /keine beliebigen Fülltreffer/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260805-3/);
+  assert.match(app, /function prepareMoodCandidates\(\)/);
+  assert.match(app, /await prepareMoodCandidates\(\)/);
+  assert.match(app, /return moodIntentTier\(entry, answers\) < 3/);
+  assert.match(app, /Genres und Metadaten werden vervollständigt/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260805-4/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
+});
+
+test("mood recommendations remain useful without admitting contradictory filler", () => {
+  const entries = [
+    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"] } },
+    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"] } },
+    { kind: "movie", item: { slug: "unknown", title: "Unknown", genres: [] } },
+    { kind: "movie", item: { slug: "comedy", title: "Horror Comedy", genres: ["Horror", "Komödie"] } },
+    { kind: "movie", item: { slug: "family", title: "Family Adventure", genres: ["Animation", "Abenteuer"] } },
+  ];
+  const context = vm.createContext({
+    console,
+    state: { fp: { metadataCache: {} }, home: { mood: {} } },
+    homeEntryMedia: (entry) => entry.item,
+    homeEntryKey: (entry) => `${entry.kind}:${entry.item.slug}`,
+    homeAllEntries: () => entries,
+    allowedHomeEntries: (items) => items,
+    uniqueHomeEntries: (items) => items,
+    loadDiscoveryProfile: () => ({ genres: {}, recent: [] }),
+    stableDiscoveryHash: () => 0,
+    localDateKey: () => "2026-08-05",
+  });
+  vm.runInContext(mood, context);
+  const results = vm.runInContext(`moodMatchResults({
+    mood: "horror", company: "alone", intensity: "hard", format: "movie"
+  })`, context);
+  assert.deepEqual(
+    Array.from(results, (entry) => entry.item.title),
+    ["Slasher", "Dark Thriller", "Unknown"],
+  );
 });
 
 test("feature modules load in dependency order before bootstrap", () => {

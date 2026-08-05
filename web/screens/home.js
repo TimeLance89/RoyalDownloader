@@ -1592,7 +1592,8 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
         .filter((item) => {
           if (!item?.slug) return false;
           const known = { ...item, ...(state.fp.metadataCache[item.slug] || {}) };
-          return !known.cover_url || !known.backdrop_url;
+          return !known.cover_url || !known.backdrop_url
+            || !Array.isArray(known.genres) || !known.genres.length;
         })
         .map((item) => [item.slug, item]),
     ).values(),
@@ -1619,7 +1620,10 @@ async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
   const targets = [
     ...new Map(
       items
-        .filter((item) => item?.base_slug && (!item.cover_url || !item.backdrop_url))
+        .filter((item) => item?.base_slug && (
+          !item.cover_url || !item.backdrop_url
+          || !Array.isArray(item.genres) || !item.genres.length
+        ))
         .map((item) => [item.base_slug, item]),
     ).values(),
   ];
