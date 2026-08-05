@@ -63,7 +63,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-4/);
+  assert.match(html, /app\.js\?v=royal-20260805-5/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -104,11 +104,21 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-4/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-5/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
+test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
+  assert.match(html, /id=["']home-program-title["']/);
+  requiresIds("home-program-note", "home-discovery-shuffle");
+  assert.match(app, /function homeDiscoveryLanes\(\)/);
+  assert.match(app, /function takeDistinctHomeLane\(entries, seen, limit, minimum = 4\)/);
+  assert.match(app, /function shuffleHomeDiscovery\(\)/);
+  assert.match(app, /layout === "spotlight"/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-4/);
 });
 
 test("feature modules load in dependency order before bootstrap", () => {

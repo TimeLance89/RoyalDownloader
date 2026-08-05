@@ -8,7 +8,7 @@ function createInitialState() {
     home: {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
-      heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "",
+      heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
     fp: {

@@ -31,6 +31,7 @@ async function initApp() {
     if (kind && key) openHomeEntry(kind, key);
   });
   document.getElementById("home-hero-list").addEventListener("click", () => switchTab("bibliothek"));
+  document.getElementById("home-discovery-shuffle").addEventListener("click", shuffleHomeDiscovery);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
     showHomeHero(state.home.heroIndex - 1, true);
     scheduleHomeHeroRotation();
