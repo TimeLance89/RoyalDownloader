@@ -372,7 +372,7 @@ function stableDiscoveryHash(value) {
 }
 
 function stableDailyOrder(entries, lane) {
-  const seed = `${localDateKey()}|${lane}`;
+  const seed = `${localDateKey()}|${Number(state.home.discoveryShuffle || 0)}|${lane}`;
   return entries.slice().sort((a, b) =>
     stableDiscoveryHash(`${seed}|${homeEntryKey(a)}`)
     - stableDiscoveryHash(`${seed}|${homeEntryKey(b)}`));
@@ -683,7 +683,7 @@ function homePersonalizedEntries() {
         : 0;
       const kindScore = Number(profile.kinds[entry.kind] || 0);
       const rating = Number(media.rating || 0);
-      const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|personal|${homeEntryKey(entry)}`) / 4294967295;
+      const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|${Number(state.home.discoveryShuffle || 0)}|personal|${homeEntryKey(entry)}`) / 4294967295;
       return { entry, score: dimensionScore + decadeScore + kindScore + rating * 0.12 + discoveryNoise * 2.2 };
     })
     .sort((a, b) => b.score - a.score)
@@ -734,6 +734,43 @@ function homeGemEntries() {
       - stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(b.entry)}`))
     .map(({ entry }) => entry);
   return candidates.slice(0, 24);
+}
+
+function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
+  const unique = uniqueHomeEntries(entries);
+  const selected = unique.filter((entry) => !seen.has(homeEntryKey(entry))).slice(0, limit);
+  if (selected.length < minimum) {
+    const selectedKeys = new Set(selected.map(homeEntryKey));
+    selected.push(...unique
+      .filter((entry) => !selectedKeys.has(homeEntryKey(entry)))
+      .slice(0, minimum - selected.length));
+  }
+  selected.forEach((entry) => seen.add(homeEntryKey(entry)));
+  return selected;
+}
+
+function homeDiscoveryLanes() {
+  const top = homeTopEntries();
+  const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
+  const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
+  return {
+    personal: takeDistinctHomeLane(homePersonalizedEntries(), seen, 7, 7),
+    explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
+    series: takeDistinctHomeLane(stableDailyOrder(homePopularSeriesEntries(), "series-lane"), seen, 16),
+    top,
+    genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16),
+    gems: takeDistinctHomeLane(stableDailyOrder(homeGemEntries(), "gems-lane"), seen, 16),
+    fresh: takeDistinctHomeLane(stableDailyOrder(homeNewEntries(), "fresh-lane"), seen, 16),
+  };
+}
+
+function shuffleHomeDiscovery() {
+  state.home.discoveryShuffle = Number(state.home.discoveryShuffle || 0) + 1;
+  state.home.heroIndex = 0;
+  renderHome();
+  const button = document.getElementById("home-discovery-shuffle");
+  button?.classList.remove("is-shuffling");
+  requestAnimationFrame(() => button?.classList.add("is-shuffling"));
 }
 
 function homeHeroCandidates() {
@@ -879,7 +916,7 @@ function updateHomeRailNavigation(track) {
   });
 }
 
-function createHomeCard(entry, rank = 0, eager = false) {
+function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
   const media = { ...item, ...metadata };
@@ -887,6 +924,7 @@ function createHomeCard(entry, rank = 0, eager = false) {
   const card = document.createElement("button");
   card.type = "button";
   card.className = `home-card home-card-${kind}${rank ? " is-ranked" : ""}`;
+  if (variant) card.classList.add(`is-${variant}`);
   card.dataset.kind = kind;
   card.dataset.key = key;
   const kindLabel = kind === "movie" ? "Film" : kind === "anime" ? "Anime" : "Serie";
@@ -994,9 +1032,10 @@ function createHomeCard(entry, rank = 0, eager = false) {
   return card;
 }
 
-function renderHomeRail(trackId, entries, { ranked = false } = {}) {
+function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
+  track.classList.toggle("is-spotlight-track", layout === "spotlight");
   track.replaceChildren();
   requestAnimationFrame(() => updateHomeRailNavigation(track));
   if (!entries.length) {
@@ -1015,9 +1054,11 @@ function renderHomeRail(trackId, entries, { ranked = false } = {}) {
     }
     return;
   }
-  entries.forEach((entry, index) => {
+  const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
+  visibleEntries.forEach((entry, index) => {
     const eagerCount = ranked ? 5 : 3;
-    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount));
+    const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
+    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
   });
 }
 
@@ -1037,14 +1078,21 @@ function renderHome() {
   if (genreEyebrow) {
     genreEyebrow.textContent = favoriteGenre ? "Aus deinen Klicks und Downloads" : "Zum Kennenlernen";
   }
+  const programNote = document.getElementById("home-program-note");
+  if (programNote) {
+    programNote.textContent = favoriteGenre
+      ? `Neue Blickwinkel rund um ${favoriteGenre} – ohne dieselben Titel in jeder Reihe.`
+      : "Filme und Serien aus verschiedenen Richtungen – ohne dieselben Titel in jeder Reihe.";
+  }
   renderHomeHero();
-  renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
-  renderHomeRail("home-movies-track", homePersonalizedEntries());
-  renderHomeRail("home-series-track", homePopularSeriesEntries());
-  renderHomeRail("home-genre-track", homeGenreEntries());
-  renderHomeRail("home-explore-track", homeExploreEntries());
-  renderHomeRail("home-gems-track", homeGemEntries());
-  renderHomeRail("home-new-track", homeNewEntries());
+  const lanes = homeDiscoveryLanes();
+  renderHomeRail("home-movies-track", lanes.personal, { layout: "spotlight" });
+  renderHomeRail("home-explore-track", lanes.explore);
+  renderHomeRail("home-series-track", lanes.series);
+  renderHomeRail("home-top-track", lanes.top, { ranked: true });
+  renderHomeRail("home-genre-track", lanes.genre);
+  renderHomeRail("home-gems-track", lanes.gems);
+  renderHomeRail("home-new-track", lanes.fresh);
   scheduleHomeHeroRotation();
 }
 
