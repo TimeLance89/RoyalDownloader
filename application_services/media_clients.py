@@ -217,7 +217,8 @@ def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
         for ep in series.seasons.get(season_number, [])
     }
     unreleased_keys = _unreleased_episode_keys(tmdb_id, set(by_key))
-    return {by_key[key] for key in unreleased_keys}
+    scheduled = {ep.slug for ep in series.all_episodes if not ep.is_released}
+    return {by_key[key] for key in unreleased_keys} | scheduled
 
 
 JELLYFIN_CACHE_TTL = 300  # Sekunden – wie lange die komplette Filmliste gecacht wird

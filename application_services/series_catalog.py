@@ -1091,10 +1091,11 @@ def series_to_dict(
             episodes.append({
                 "season": ep.season, "episode": ep.episode, "slug": ep.slug,
                 "url": ep.url, "release_name": ep.release_name,
+                "release_at": ep.release_at, "release_label": ep.release_label,
                 "queued": ep.slug in state.picked,
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,
-                "unreleased": ep.slug in unreleased_slugs,
+                "unreleased": ep.slug in unreleased_slugs or not ep.is_released,
             })
         seasons.append({"season": s, "episodes": episodes})
     provider = provider_for_value(series.url or series.base_slug)

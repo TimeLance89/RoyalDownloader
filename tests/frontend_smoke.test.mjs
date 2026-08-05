@@ -142,3 +142,12 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(app, /function updateQueueJobProgress\(jobId, job\)/);
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
 });
+
+test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
+  assert.match(html, /is-scheduled[^\n]*Terminiert/);
+  assert.match(app, /ep\.unreleased \? `Folge \$\{ep\.episode\}, verfügbar ab/);
+  assert.match(app, /completedSeriesHeroTrailers\.add/);
+  assert.match(app, /playerState === 0/);
+  assert.doesNotMatch(app, /controls=0&loop=1/);
+  assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
+});

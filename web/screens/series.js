@@ -539,7 +539,11 @@ function stopSeriesDetailHeroTrailer() {
 
 function scheduleSeriesDetailHeroTrailer(series) {
   const key = fpTrailerYoutubeKey(series);
-  if (!key || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+  if (
+    !key
+    || completedSeriesHeroTrailers.has(key)
+    || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  ) {
     stopSeriesDetailHeroTrailer();
     return;
   }
@@ -554,22 +558,19 @@ function scheduleSeriesDetailHeroTrailer(series) {
       token !== seriesDetailHeroTrailerToken
       || document.getElementById("series-detail-modal").hidden
     ) return;
-    const panel = document.querySelector("#series-detail-modal .series-detail-panel");
     const frame = document.getElementById("series-detail-hero-frame");
     const muteButton = document.getElementById("series-detail-hero-mute");
     shell.hidden = false;
     frame.onload = () => {
       if (token !== seriesDetailHeroTrailerToken) return;
       listenForHeroTrailerTime(frame);
-      shell.classList.add("is-playing");
-      panel.classList.add("is-trailer-playing");
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
-      + `?autoplay=1&mute=1&controls=0&loop=1&playlist=${encodeURIComponent(key)}`
-      + `&playsinline=1&rel=0&modestbranding=1&enablejsapi=1`
+      + `?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&modestbranding=1`
+      + `&disablekb=1&fs=0&iv_load_policy=3&enablejsapi=1`
       + `&origin=${encodeURIComponent(window.location.origin)}`;
   }, 2000);
 }
@@ -634,8 +635,19 @@ function showSeriesDetail(series, sampleSlug) {
 function tileClass(ep) {
   if (isEpisodeQueued(ep)) return "queued";
   if (ep.downloaded) return "downloaded";
+  if (ep.unreleased) return "scheduled";
   if (state.series.epPicked.has(ep.slug) && isEpisodeSelectable(ep)) return "selected";
   return "available";
+}
+
+function episodeReleaseText(ep) {
+  const release = new Date(ep?.release_at || "");
+  if (!Number.isNaN(release.getTime())) {
+    return new Intl.DateTimeFormat("de-DE", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    }).format(release).replace(",", " ·").toLocaleUpperCase("de-DE");
+  }
+  return ep?.release_label || "DEMNÄCHST";
 }
 
 function renderSeriesTiles() {
@@ -680,19 +692,29 @@ function renderSeriesTiles() {
     for (const ep of seasonObj.episodes) {
       const tile = document.createElement("button");
       tile.className = "ep-tile " + tileClass(ep) + (ep.in_jellyfin ? " in-jellyfin" : "");
-      tile.setAttribute("aria-label", `Folge ${ep.episode}`);
+      const releaseText = ep.unreleased ? episodeReleaseText(ep) : "";
+      tile.setAttribute(
+        "aria-label",
+        ep.unreleased ? `Folge ${ep.episode}, verfügbar ab ${releaseText}` : `Folge ${ep.episode}`,
+      );
       const episodeLabel = document.createElement("span");
       episodeLabel.textContent = "FOLGE";
       const episodeNumber = document.createElement("strong");
       episodeNumber.textContent = String(ep.episode).padStart(2, "0");
       tile.append(episodeLabel, episodeNumber);
+      if (ep.unreleased) {
+        const release = document.createElement("small");
+        release.className = "ep-release";
+        release.textContent = releaseText;
+        tile.appendChild(release);
+      }
       tile.disabled = !isEpisodeSelectable(ep);
       if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
       else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
       else if (ep.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
       else if (ep.downloaded) tile.title = "Bereits heruntergeladen";
       else if (isEpisodeQueued(ep)) tile.title = "Bereits in der Warteschlange";
-      else if (ep.unreleased) tile.title = "Noch nicht veröffentlicht";
+      else if (ep.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;
       tile.addEventListener("click", () => toggleEpisodeTile(ep.slug));
       tiles.appendChild(tile);
     }

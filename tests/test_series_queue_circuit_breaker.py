@@ -41,6 +41,7 @@ def isolated_state(monkeypatch, tmp_path):
     server.state.queue_content_keys.clear()
     server.state.fallback_series_cache.clear()
     server.state.fallback_provider_errors.clear()
+    server.state.series_cache.clear()
     server.state.done_slugs.clear()
     server.state.total_jobs = 0
     server.state.done_jobs = 0
@@ -117,6 +118,27 @@ def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
     assert response["added"] == 20
     assert calls == []
     assert all(not server.state.fp_movies[slug].hosters for slug in slugs)
+
+
+def test_queue_add_rejects_known_scheduled_episode(monkeypatch):
+    slug = "serienstream:exact-show-s01e06"
+    server.state.series_cache["serienstream:exact-show"] = FilmpalastSeries(
+        title="Exact Show",
+        base_slug="serienstream:exact-show",
+        url="https://serienstream.to/serie/exact-show",
+        seasons={1: [SeriesEpisode(
+            1, 6, slug, "https://serienstream.to/serie/exact-show/staffel-1/episode-6",
+            release_at="2099-08-12T00:00:00+02:00",
+            release_label="12.08.2099 · 00:00",
+        )]},
+    )
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+
+    assert response["added"] == 0
+    assert response["skipped_details"][slug] == "noch nicht veröffentlicht (ab 12.08.2099 · 00:00)"
+    assert slug not in server.state.picked
 
 
 def test_jellyfin_duplicate_protection_still_rejects_episode(monkeypatch):

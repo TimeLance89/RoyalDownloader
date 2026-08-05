@@ -549,6 +549,24 @@ def _preferred_movie_sources(
     return chosen, sources
 
 
+def _scheduled_episode_reason(slug: str) -> str:
+    """Sperrt bekannte Anbietertermine auch bei direkten API-Aufrufen."""
+    parsed = parse_episode_slug(slug)
+    if not parsed:
+        return ""
+    series = state.series_cache.get(parsed[0])
+    if series is None:
+        return ""
+    episode = next((item for item in series.all_episodes if item.slug == slug), None)
+    if episode is None or episode.is_released:
+        return ""
+    return (
+        f"noch nicht veröffentlicht (ab {episode.release_label})"
+        if episode.release_label and episode.release_label != "Demnächst"
+        else "noch nicht veröffentlicht"
+    )
+
+
 @router.post("/api/v1/queue/add")
 @router.post("/api/queue/add")
 async def api_queue_add(body: QueueAddBody):
@@ -558,6 +576,11 @@ async def api_queue_add(body: QueueAddBody):
         skipped = 0
         skipped_details: dict[str, str] = {}
         for slug in body.slugs:
+            scheduled_reason = _scheduled_episode_reason(slug)
+            if scheduled_reason:
+                skipped += 1
+                skipped_details[slug] = scheduled_reason
+                continue
             with state.queue_lifecycle_lock:
                 physically_active = any(
                     slug in _job_queue_slugs(job) for job in state.dl_queue.active_jobs()
