@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 
@@ -110,6 +111,18 @@ class SeriesEpisode:
     slug: str
     url: str
     release_name: str = ""
+    release_at: str = ""
+    release_label: str = ""
+
+    @property
+    def is_released(self) -> bool:
+        if not self.release_at:
+            return not self.release_label
+        try:
+            release = datetime.fromisoformat(self.release_at)
+            return datetime.now(release.tzinfo) >= release
+        except (TypeError, ValueError):
+            return False
 
     @property
     def label(self) -> str:
