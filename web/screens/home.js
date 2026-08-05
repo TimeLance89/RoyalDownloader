@@ -760,7 +760,9 @@ function homeDiscoveryLanes() {
     top,
     genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16),
     gems: takeDistinctHomeLane(stableDailyOrder(homeGemEntries(), "gems-lane"), seen, 16),
-    fresh: takeDistinctHomeLane(stableDailyOrder(homeNewEntries(), "fresh-lane"), seen, 16),
+    // "Neu hinzugefügt" ist eine chronologische Katalogreihe, keine Discovery-Reihe.
+    // Titel dürfen hier auch vorkommen, wenn sie bereits weiter oben empfohlen wurden.
+    fresh: homeNewEntries(),
   };
 }
 
