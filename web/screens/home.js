@@ -197,11 +197,110 @@ function homeSeriesBySlug(baseSlug) {
     .find((item) => item.base_slug === baseSlug) || null;
 }
 
+function homeAnimeById(id) {
+  return [
+    ...state.anime.results,
+    ...state.globalSearch.results.filter((entry) => entry.kind === "anime").map((entry) => entry.item),
+  ].find((item) => String(item.id) === String(id)) || null;
+}
+
+function mediaJellyfinStatus(media) {
+  if (media?.jellyfin_status) return media.jellyfin_status;
+  if (typeof media?.in_jellyfin === "boolean") return media.in_jellyfin ? "owned" : "missing";
+  return "checking";
+}
+
+function jellyfinStatusText(status) {
+  const labels = {
+    owned: "✓ In Jellyfin",
+    missing: "Fehlt in Jellyfin",
+    checking: "Jellyfin wird geprüft",
+    unavailable: "Jellyfin nicht erreichbar",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  };
+  return labels[status] || labels.checking;
+}
+
+function setCatalogJellyfinBadge(badge, status) {
+  const labels = {
+    owned: "✓ In Jellyfin",
+    missing: "Fehlt in Jellyfin",
+    checking: "Jellyfin wird geprüft",
+    unavailable: "Jellyfin nicht erreichbar",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  };
+  const normalized = labels[status] ? status : "checking";
+  badge.className = `catalog-jellyfin-badge is-${normalized}`;
+  badge.textContent = normalized === "owned" ? "✓ JF" : normalized === "missing" ? "– JF" : "JF ?";
+  badge.title = labels[normalized];
+  badge.setAttribute("aria-label", labels[normalized]);
+}
+
+async function refreshCatalogJellyfinStatus(entries, render) {
+  const unique = uniqueHomeEntries(entries);
+  if (!unique.length) return;
+  const requests = unique.map(({ kind, item }) => ({
+    slug: homeEntryKey({ kind, item }),
+    title: item.title,
+    year: item.year || "",
+    tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
+    media_type: kind === "movie" ? "movie" : "series",
+  }));
+  const statusByKey = new Map();
+  const batches = [];
+  for (let index = 0; index < requests.length; index += 100) {
+    batches.push(requests.slice(index, index + 100));
+  }
+  const responses = await Promise.allSettled(
+    batches.map((batch) => api.jellyfinMatches(batch)),
+  );
+  responses.forEach((result, batchIndex) => {
+    const batch = batches[batchIndex];
+    if (result.status !== "fulfilled") {
+      batch.forEach((request) => statusByKey.set(request.slug, "unavailable"));
+      return;
+    }
+    const response = result.value;
+    batch.forEach((request) => {
+      const status = response.statuses?.[request.slug]
+        || (Object.hasOwn(response.matches || {}, request.slug)
+          ? (response.matches[request.slug] ? "owned" : "missing")
+          : (response.configured ? "checking" : "unconfigured"));
+      statusByKey.set(request.slug, status);
+    });
+  });
+  for (const entry of unique) {
+    const status = statusByKey.get(homeEntryKey(entry)) || "checking";
+    entry.item.jellyfin_status = status;
+    if (status === "owned" || status === "missing") {
+      entry.item.in_jellyfin = status === "owned";
+    }
+  }
+  if (render) render();
+}
+
+function refreshAllCatalogJellyfinStatuses() {
+  const entries = [
+    ...homeAllEntries(),
+    ...state.series.results.map(homeSeriesEntry),
+    ...state.anime.results.map(homeAnimeEntry),
+    ...state.globalSearch.results,
+  ];
+  return refreshCatalogJellyfinStatus(entries, () => {
+    renderHome();
+    renderSeriesResults();
+    renderAnimeResults();
+    renderGlobalSearchResults();
+  });
+}
+
 function uniqueHomeEntries(entries) {
   const seen = new Set();
   return entries.filter((entry) => {
     if (!entry?.item) return false;
-    const key = `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+    const key = homeEntryKey(entry);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -226,12 +325,19 @@ function homeSeriesEntry(item) {
   return { kind: "series", item };
 }
 
+function homeAnimeEntry(item) {
+  return { kind: "anime", item };
+}
+
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
 const HOME_WEEKLY_TOP_KEY = "royal-home-weekly-top-v1";
 
 function homeEntryKey(entry) {
   if (!entry?.item) return "";
-  return `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+  const key = entry.kind === "movie"
+    ? entry.item.slug
+    : entry.kind === "anime" ? entry.item.id : entry.item.base_slug;
+  return `${entry.kind}:${key}`;
 }
 
 function homeEntryMedia(entry) {
@@ -266,7 +372,7 @@ function stableDiscoveryHash(value) {
 }
 
 function stableDailyOrder(entries, lane) {
-  const seed = `${localDateKey()}|${lane}`;
+  const seed = `${localDateKey()}|${Number(state.home.discoveryShuffle || 0)}|${lane}`;
   return entries.slice().sort((a, b) =>
     stableDiscoveryHash(`${seed}|${homeEntryKey(a)}`)
     - stableDiscoveryHash(`${seed}|${homeEntryKey(b)}`));
@@ -577,7 +683,7 @@ function homePersonalizedEntries() {
         : 0;
       const kindScore = Number(profile.kinds[entry.kind] || 0);
       const rating = Number(media.rating || 0);
-      const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|personal|${homeEntryKey(entry)}`) / 4294967295;
+      const discoveryNoise = stableDiscoveryHash(`${localDateKey()}|${Number(state.home.discoveryShuffle || 0)}|personal|${homeEntryKey(entry)}`) / 4294967295;
       return { entry, score: dimensionScore + decadeScore + kindScore + rating * 0.12 + discoveryNoise * 2.2 };
     })
     .sort((a, b) => b.score - a.score)
@@ -628,6 +734,45 @@ function homeGemEntries() {
       - stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(b.entry)}`))
     .map(({ entry }) => entry);
   return candidates.slice(0, 24);
+}
+
+function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
+  const unique = uniqueHomeEntries(entries);
+  const selected = unique.filter((entry) => !seen.has(homeEntryKey(entry))).slice(0, limit);
+  if (selected.length < minimum) {
+    const selectedKeys = new Set(selected.map(homeEntryKey));
+    selected.push(...unique
+      .filter((entry) => !selectedKeys.has(homeEntryKey(entry)))
+      .slice(0, minimum - selected.length));
+  }
+  selected.forEach((entry) => seen.add(homeEntryKey(entry)));
+  return selected;
+}
+
+function homeDiscoveryLanes() {
+  const top = homeTopEntries();
+  const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
+  const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
+  return {
+    personal: takeDistinctHomeLane(homePersonalizedEntries(), seen, 7, 7),
+    explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
+    series: takeDistinctHomeLane(stableDailyOrder(homePopularSeriesEntries(), "series-lane"), seen, 16),
+    top,
+    genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16),
+    gems: takeDistinctHomeLane(stableDailyOrder(homeGemEntries(), "gems-lane"), seen, 16),
+    // "Neu hinzugefügt" ist eine chronologische Katalogreihe, keine Discovery-Reihe.
+    // Titel dürfen hier auch vorkommen, wenn sie bereits weiter oben empfohlen wurden.
+    fresh: homeNewEntries(),
+  };
+}
+
+function shuffleHomeDiscovery() {
+  state.home.discoveryShuffle = Number(state.home.discoveryShuffle || 0) + 1;
+  state.home.heroIndex = 0;
+  renderHome();
+  const button = document.getElementById("home-discovery-shuffle");
+  button?.classList.remove("is-shuffling");
+  requestAnimationFrame(() => button?.classList.add("is-shuffling"));
 }
 
 function homeHeroCandidates() {
@@ -732,6 +877,12 @@ function openHomeEntry(kind, key) {
     if (movie) selectFpRow(movie.slug, movie);
     return;
   }
+  if (kind === "anime") {
+    const anime = homeAnimeById(key);
+    closeGlobalSearch();
+    if (anime) openAnimeDetail(anime);
+    return;
+  }
   const series = homeSeriesBySlug(key);
   closeGlobalSearch();
   if (series) loadSeries(series);
@@ -767,17 +918,19 @@ function updateHomeRailNavigation(track) {
   });
 }
 
-function createHomeCard(entry, rank = 0, eager = false) {
+function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
   const media = { ...item, ...metadata };
-  const key = kind === "movie" ? item.slug : item.base_slug;
+  const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
   const card = document.createElement("button");
   card.type = "button";
   card.className = `home-card home-card-${kind}${rank ? " is-ranked" : ""}`;
+  if (variant) card.classList.add(`is-${variant}`);
   card.dataset.kind = kind;
   card.dataset.key = key;
-  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kind === "movie" ? "Film" : "Serie"}`);
+  const kindLabel = kind === "movie" ? "Film" : kind === "anime" ? "Anime" : "Serie";
+  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
 
   if (rank) {
     const number = document.createElement("span");
@@ -793,12 +946,12 @@ function createHomeCard(entry, rank = 0, eager = false) {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  // Das bevorzugte Format bleibt erhalten, vorhandenes alternatives Artwork
-  // verhindert aber leere Karten bei Titeln ohne TMDB-Backdrop oder -Poster.
-  const artworkCandidates = [
-    rank ? media.cover_url : media.backdrop_url,
-    rank ? media.backdrop_url : media.cover_url,
-  ]
+  // Poster gehören ausschließlich in die hochformatige Top-10-Darstellung.
+  // Alle 16:9-Karten warten auf das nachgeladene Wallpaper, statt ein Poster
+  // unpassend auf Landschaftsformat zu beschneiden.
+  const artworkCandidates = (rank
+    ? [media.cover_url, media.backdrop_url]
+    : [media.backdrop_url])
     .flatMap((url) => api.coverCandidates(url))
     .filter((url, index, urls) => url && urls.indexOf(url) === index);
   if (artworkCandidates.length) {
@@ -820,7 +973,9 @@ function createHomeCard(entry, rank = 0, eager = false) {
   }
   const type = document.createElement("span");
   type.className = "home-card-type";
-  type.textContent = kind === "movie" ? "FILM" : "SERIE";
+  type.textContent = kindLabel.toLocaleUpperCase("de-DE");
+  const jellyfin = document.createElement("span");
+  setCatalogJellyfinBadge(jellyfin, mediaJellyfinStatus(media));
   const overlay = document.createElement("span");
   overlay.className = "home-card-overlay";
   const title = document.createElement("strong");
@@ -857,15 +1012,15 @@ function createHomeCard(entry, rank = 0, eager = false) {
     media.rating ? `★ ${media.rating}` : "",
     media.year || "",
     media.runtime || "",
-    kind === "movie" ? "Film" : "Serie",
+    kindLabel,
   ].filter(Boolean).join(" · ");
   const previewGenres = document.createElement("span");
   previewGenres.className = "home-card-preview-genres";
   previewGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
-    || (kind === "movie" ? "Film entdecken" : "Serie entdecken");
+    || `${kindLabel} entdecken`;
   preview.append(previewActions, previewTitle, previewMeta, previewGenres);
 
-  art.append(type, overlay, preview);
+  art.append(type, jellyfin, overlay, preview);
   card.appendChild(art);
   card.addEventListener("pointerenter", () => updateHomeCardHoverEdge(card));
   card.addEventListener("pointerleave", () => {
@@ -879,9 +1034,10 @@ function createHomeCard(entry, rank = 0, eager = false) {
   return card;
 }
 
-function renderHomeRail(trackId, entries, { ranked = false } = {}) {
+function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
+  track.classList.toggle("is-spotlight-track", layout === "spotlight");
   track.replaceChildren();
   requestAnimationFrame(() => updateHomeRailNavigation(track));
   if (!entries.length) {
@@ -900,9 +1056,11 @@ function renderHomeRail(trackId, entries, { ranked = false } = {}) {
     }
     return;
   }
-  entries.forEach((entry, index) => {
+  const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
+  visibleEntries.forEach((entry, index) => {
     const eagerCount = ranked ? 5 : 3;
-    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount));
+    const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
+    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
   });
 }
 
@@ -922,14 +1080,21 @@ function renderHome() {
   if (genreEyebrow) {
     genreEyebrow.textContent = favoriteGenre ? "Aus deinen Klicks und Downloads" : "Zum Kennenlernen";
   }
+  const programNote = document.getElementById("home-program-note");
+  if (programNote) {
+    programNote.textContent = favoriteGenre
+      ? `Neue Blickwinkel rund um ${favoriteGenre} – ohne dieselben Titel in jeder Reihe.`
+      : "Filme und Serien aus verschiedenen Richtungen – ohne dieselben Titel in jeder Reihe.";
+  }
   renderHomeHero();
-  renderHomeRail("home-top-track", homeTopEntries(), { ranked: true });
-  renderHomeRail("home-movies-track", homePersonalizedEntries());
-  renderHomeRail("home-series-track", homePopularSeriesEntries());
-  renderHomeRail("home-genre-track", homeGenreEntries());
-  renderHomeRail("home-explore-track", homeExploreEntries());
-  renderHomeRail("home-gems-track", homeGemEntries());
-  renderHomeRail("home-new-track", homeNewEntries());
+  const lanes = homeDiscoveryLanes();
+  renderHomeRail("home-movies-track", lanes.personal, { layout: "spotlight" });
+  renderHomeRail("home-explore-track", lanes.explore);
+  renderHomeRail("home-series-track", lanes.series);
+  renderHomeRail("home-top-track", lanes.top, { ranked: true });
+  renderHomeRail("home-genre-track", lanes.genre);
+  renderHomeRail("home-gems-track", lanes.gems);
+  renderHomeRail("home-new-track", lanes.fresh);
   scheduleHomeHeroRotation();
 }
 
@@ -1146,9 +1311,29 @@ function renderGlobalSearchResults() {
   if (!state.globalSearch.active) return;
 
   grid.replaceChildren();
-  status.textContent = state.globalSearch.loading
+  const visibleResults = state.globalSearch.results.filter((entry) => {
+    const scopeMatches = state.globalSearch.scope === "all" || entry.kind === state.globalSearch.scope;
+    const libraryMatches = !state.globalSearch.jellyfinOnly || mediaJellyfinStatus(entry.item) === "owned";
+    return scopeMatches && libraryMatches;
+  });
+  document.querySelectorAll("[data-global-search-scope]").forEach((button) => {
+    const active = button.dataset.globalSearchScope === state.globalSearch.scope;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const libraryFilter = document.getElementById("global-search-jellyfin");
+  if (libraryFilter) {
+    libraryFilter.classList.toggle("is-active", state.globalSearch.jellyfinOnly);
+    libraryFilter.setAttribute("aria-pressed", String(state.globalSearch.jellyfinOnly));
+  }
+  const jellyfinCount = state.globalSearch.results.filter(
+    (entry) => mediaJellyfinStatus(entry.item) === "owned",
+  ).length;
+  status.textContent = !state.globalSearch.submitted
+    ? "Enter drücken, um alle Kataloge zu durchsuchen."
+    : state.globalSearch.loading
     ? `Suche nach «${state.globalSearch.query}» …`
-    : `${state.globalSearch.results.length} Treffer für «${state.globalSearch.query}»`;
+    : `${visibleResults.length} Treffer · ${jellyfinCount} davon in Jellyfin`;
   page.classList.toggle("is-loading", state.globalSearch.loading);
   if (state.globalSearch.loading) {
     for (let index = 0; index < 12; index += 1) {
@@ -1159,14 +1344,16 @@ function renderGlobalSearchResults() {
     }
     return;
   }
-  if (!state.globalSearch.results.length) {
+  if (!visibleResults.length) {
     const empty = document.createElement("div");
     empty.className = "global-search-empty";
-    empty.innerHTML = "<strong>Nichts gefunden</strong><span>Versuche einen anderen Titel, Namen oder ein Genre.</span>";
+    empty.innerHTML = state.globalSearch.submitted
+      ? "<strong>Nichts in diesem Filter</strong><span>Filter ändern oder einen anderen Titel suchen.</span>"
+      : "<strong>Bereit zum Suchen</strong><span>Suchbegriff prüfen und Enter drücken.</span>";
     grid.appendChild(empty);
     return;
   }
-  state.globalSearch.results.forEach((entry, index) => {
+  visibleResults.forEach((entry, index) => {
     grid.appendChild(createHomeCard(entry, 0, index < 8));
   });
 }
@@ -1176,15 +1363,22 @@ async function performGlobalSearch(query, requestId) {
   const settled = await Promise.allSettled([
     api.movies({ mode: "search", query }).then((data) => (data.results || []).map(homeMovieEntry)),
     api.series({ mode: "search", query }).then((data) => (data.results || []).map(homeSeriesEntry)),
+    api.anime({ mode: "search", query, page: 1 }).then((data) => (data.results || []).map(homeAnimeEntry)),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
   const groups = settled
     .filter((result) => result.status === "fulfilled")
     .map((result) => result.value);
-  state.globalSearch.results = groups.length > 1
-    ? interleaveHomeEntries(groups[0], groups[1], 60)
-    : uniqueHomeEntries(groups[0] || []).slice(0, 60);
-
+  const mixed = [];
+  const max = Math.max(0, ...groups.map((group) => group.length));
+  for (let index = 0; index < max && mixed.length < 60; index += 1) {
+    groups.forEach((group) => {
+      if (group[index] && mixed.length < 60) mixed.push(group[index]);
+    });
+  }
+  state.globalSearch.results = uniqueHomeEntries(mixed).slice(0, 60);
+  state.globalSearch.loading = false;
+  renderGlobalSearchResults();
   await Promise.allSettled([
     hydrateHomeMovieArtwork(
       state.globalSearch.results
@@ -1200,42 +1394,58 @@ async function performGlobalSearch(query, requestId) {
     ),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
-  state.globalSearch.loading = false;
+  await refreshCatalogJellyfinStatus(state.globalSearch.results, null);
+  if (requestId !== state.globalSearch.requestSeq) return;
   renderGlobalSearchResults();
 }
 
-function queueGlobalSearch(immediate = false) {
+function syncGlobalSearchDraft() {
+  const query = document.getElementById("global-search-input")?.value.trim() || "";
+  ++state.globalSearch.requestSeq;
+  state.globalSearch.query = query;
+  state.globalSearch.active = Boolean(query);
+  state.globalSearch.loading = false;
+  state.globalSearch.submitted = false;
+  state.globalSearch.results = [];
+  renderGlobalSearchResults();
+}
+
+function openGlobalSearch() {
+  state.globalSearch.active = true;
+  renderGlobalSearchResults();
+  document.getElementById("global-search-input")?.focus();
+}
+
+function runGlobalSearch() {
   const input = document.getElementById("global-search-input");
   const query = input.value.trim();
-  window.clearTimeout(state.globalSearch.debounceTimer);
   const requestId = ++state.globalSearch.requestSeq;
   state.globalSearch.query = query;
   if (!query) {
     state.globalSearch.active = false;
     state.globalSearch.loading = false;
+    state.globalSearch.submitted = false;
     state.globalSearch.results = [];
     renderGlobalSearchResults();
     return;
   }
   state.globalSearch.active = true;
   state.globalSearch.loading = true;
+  state.globalSearch.submitted = true;
   state.globalSearch.results = [];
   renderGlobalSearchResults();
-  state.globalSearch.debounceTimer = window.setTimeout(
-    () => performGlobalSearch(query, requestId),
-    immediate ? 0 : 320,
-  );
+  void performGlobalSearch(query, requestId);
 }
 
 function closeGlobalSearch({ restoreFocus = false } = {}) {
   const input = document.getElementById("global-search-input");
   if (!input) return;
-  window.clearTimeout(state.globalSearch.debounceTimer);
   ++state.globalSearch.requestSeq;
   state.globalSearch.query = "";
   state.globalSearch.results = [];
   state.globalSearch.active = false;
   state.globalSearch.loading = false;
+  state.globalSearch.submitted = false;
   input.value = "";
   renderGlobalSearchResults();
   if (restoreFocus) document.getElementById("global-search-toggle")?.focus();
@@ -1275,7 +1485,7 @@ async function homeSearch() {
   const input = document.getElementById("home-search");
   const query = input.value.trim();
   if (!query) {
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+    closeSearchSuggestions("home-search-suggestions", "home-search");
     return;
   }
   rememberSearch(query, state.home.search.scope);
@@ -1300,14 +1510,18 @@ async function homeSearch() {
     : uniqueHomeEntries(groups[0] || []).slice(0, 36);
   state.home.search.loading = false;
   renderHomeSearchResults();
-  hydrateHomeMovieArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
-    { render: false },
-  ).then(renderHomeSearchResults);
-  hydrateHomeSeriesArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
-    { render: false },
-  ).then(renderHomeSearchResults);
+  await Promise.allSettled([
+    hydrateHomeMovieArtwork(
+      state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+      { render: false },
+    ),
+    hydrateHomeSeriesArtwork(
+      state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+      { render: false },
+    ),
+  ]);
+  await refreshCatalogJellyfinStatus(state.home.search.results, null);
+  if (requestId === state.home.search.requestSeq) renderHomeSearchResults();
 }
 
 function closeHomeSearch() {
@@ -1367,6 +1581,7 @@ async function loadHomeData() {
       ...state.home.discoverySeries,
     ], { render: false }),
   ]);
+  await refreshCatalogJellyfinStatus(homeAllEntries(), null);
   state.home.loading = false;
   saveHomeCache();
   renderHome();
@@ -1379,7 +1594,8 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
         .filter((item) => {
           if (!item?.slug) return false;
           const known = { ...item, ...(state.fp.metadataCache[item.slug] || {}) };
-          return !known.cover_url || !known.backdrop_url;
+          return !known.cover_url || !known.backdrop_url
+            || !Array.isArray(known.genres) || !known.genres.length;
         })
         .map((item) => [item.slug, item]),
     ).values(),
@@ -1403,33 +1619,59 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
 }
 
 async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
-  const targets = [
-    ...new Map(
-      items
-        .filter((item) => item?.base_slug && (!item.cover_url || !item.backdrop_url))
-        .map((item) => [item.base_slug, item]),
-    ).values(),
-  ];
+  const groups = new Map();
+  items.filter((item) => item?.base_slug).forEach((item) => {
+    if (!groups.has(item.base_slug)) groups.set(item.base_slug, []);
+    groups.get(item.base_slug).push(item);
+  });
+  const targets = [];
+  groups.forEach((variants, baseSlug) => {
+    const sharedCover = variants.find((item) => item.cover_url)?.cover_url || "";
+    const sharedBackdrop = variants.find((item) => item.backdrop_url)?.backdrop_url || "";
+    const sharedGenres = variants.find((item) => Array.isArray(item.genres) && item.genres.length)?.genres || [];
+    variants.forEach((item) => {
+      if (!item.cover_url && sharedCover) item.cover_url = sharedCover;
+      if (!item.backdrop_url && sharedBackdrop) item.backdrop_url = sharedBackdrop;
+      if ((!Array.isArray(item.genres) || !item.genres.length) && sharedGenres.length) {
+        item.genres = sharedGenres.slice();
+      }
+    });
+    if (variants.some((item) => (
+      !item.backdrop_url || !Array.isArray(item.genres) || !item.genres.length
+    ))) {
+      const representative = variants[0];
+      targets.push({
+        base_slug: baseSlug,
+        title: representative.title,
+        year: representative.year || "",
+        variants,
+      });
+    }
+  });
   if (!targets.length) return [];
   const hydratedBaseSlugs = [];
   try {
-    const response = await api.tmdbSeries(targets.map((item) => ({
-      base_slug: item.base_slug,
-      title: item.title,
-      year: item.year || "",
+    const response = await api.tmdbSeries(targets.map((target) => ({
+      base_slug: target.base_slug,
+      title: target.title,
+      year: target.year,
     })));
-    for (const item of targets) {
-      const metadata = response.series?.[item.base_slug];
+    for (const target of targets) {
+      const metadata = response.series?.[target.base_slug];
       if (!metadata) continue;
-      const hadCover = Boolean(item.cover_url);
-      const hadBackdrop = Boolean(item.backdrop_url);
-      Object.assign(item, metadata, {
-        cover_url: metadata.cover_url || item.cover_url || "",
-        backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+      let hydrated = false;
+      target.variants.forEach((item) => {
+        const hadCover = Boolean(item.cover_url);
+        const hadBackdrop = Boolean(item.backdrop_url);
+        Object.assign(item, metadata, {
+          cover_url: metadata.cover_url || item.cover_url || "",
+          backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+        });
+        if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
+          hydrated = true;
+        }
       });
-      if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
-        hydratedBaseSlugs.push(item.base_slug);
-      }
+      if (hydrated) hydratedBaseSlugs.push(target.base_slug);
     }
     if (render) renderHome();
   } catch (error) {

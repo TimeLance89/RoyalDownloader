@@ -346,9 +346,15 @@ class SerienstreamScraper:
         description = self._extract_description(soup)
         genres = self._extract_genres(soup)
 
-        # Staffelnummern einsammeln (inkl. evtl. Staffel 0 = Specials)
+        # serienstream verwendet ``staffel-0`` fuer den separaten Reiter
+        # "Filme". Das sind keine Specials/Episoden der Serie und duerfen
+        # weder gezaehlt noch als Downloads angeboten werden.
         season_nums = sorted({
-            int(m) for m in re.findall(rf'/serie/{re.escape(slug)}/staffel-(\d+)', str(soup))
+            int(m)
+            for m in re.findall(
+                rf'/serie/{re.escape(slug)}/staffel-(\d+)', str(soup)
+            )
+            if int(m) > 0
         })
         if not season_nums:
             season_nums = [1]
@@ -419,6 +425,8 @@ class SerienstreamScraper:
         parsed = parse_episode_slug(raw)
         if parsed:
             slug, season, episode = parsed
+            if season <= 0:
+                return None
             url = f"{BASE_URL}/serie/{slug}/staffel-{season}/episode-{episode}"
             series_title = slug.replace("-", " ").title()
         elif url_or_slug.startswith("http"):
@@ -427,6 +435,8 @@ class SerienstreamScraper:
             if not m:
                 return None
             slug, season, episode = m.group(1), int(m.group(2)), int(m.group(3))
+            if season <= 0:
+                return None
             series_title = slug.replace("-", " ").title()
         else:
             return None

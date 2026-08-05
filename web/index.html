@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-8">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -30,6 +30,9 @@
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
       <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
+      <button id="mood-nav-open" class="mood-nav-open" type="button" data-mood-open>
+        <span class="tab-icon" aria-hidden="true">✦</span><span>Abendmodus</span>
+      </button>
       <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
     </nav>
     <div id="global-search-shell" class="global-search-shell">
@@ -38,7 +41,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16.5 16.5 4 4"></path></svg>
       </button>
       <input id="global-search-input" type="search" autocomplete="off"
-          placeholder="Titel, Personen, Genres" aria-label="Filme und Serien durchsuchen"
+          placeholder="Titel eingeben · Enter" aria-label="Filme, Serien und Anime durchsuchen"
           aria-controls="global-search-page" aria-expanded="false">
       <button id="global-search-clear" class="global-search-clear" type="button"
           aria-label="Suche schließen" hidden>×</button>
@@ -85,9 +88,48 @@
         <h1 id="global-search-title">Suchergebnisse</h1>
         <p id="global-search-status" aria-live="polite">Titel, Personen oder Genres eingeben.</p>
       </div>
+      <div class="global-search-filters" aria-label="Suchergebnisse filtern">
+        <button class="is-active" type="button" data-global-search-scope="all" aria-pressed="true">Alles</button>
+        <button type="button" data-global-search-scope="movie" aria-pressed="false">Filme</button>
+        <button type="button" data-global-search-scope="series" aria-pressed="false">Serien</button>
+        <button type="button" data-global-search-scope="anime" aria-pressed="false">Anime</button>
+        <button id="global-search-jellyfin" type="button" aria-pressed="false">✓ In Jellyfin</button>
+      </div>
     </header>
     <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
   </section>
+
+  <div id="mood-modal" class="mood-modal hidden" role="dialog" aria-modal="true"
+      aria-labelledby="mood-title" aria-describedby="mood-copy">
+    <button class="mood-backdrop" type="button" data-mood-close aria-label="Abendmodus schließen"></button>
+    <section class="mood-panel">
+      <header class="mood-head">
+        <div class="mood-brand"><span aria-hidden="true">R</span><strong>ABENDMODUS</strong></div>
+        <button id="mood-close" class="mood-close" type="button" data-mood-close aria-label="Abendmodus schließen">×</button>
+      </header>
+      <div class="mood-progress" aria-hidden="true"><span id="mood-progress-bar"></span></div>
+      <div class="mood-stage">
+        <aside class="mood-atmosphere" aria-hidden="true">
+          <span id="mood-stage-number">01</span>
+          <strong id="mood-stage-word">JETZT</strong>
+        </aside>
+        <div class="mood-content">
+          <span id="mood-step-label" class="mood-step-label">1 von 4</span>
+          <h2 id="mood-title">Wie soll sich der Abend anfühlen?</h2>
+          <p id="mood-copy">Nicht was du sonst schaust – was du jetzt brauchst.</p>
+          <div id="mood-options" class="mood-options" role="group"></div>
+          <div id="mood-results" class="mood-results" hidden>
+            <div id="mood-result-summary" class="mood-result-summary"></div>
+            <div id="mood-result-grid" class="mood-result-grid"></div>
+          </div>
+          <footer class="mood-actions">
+            <button id="mood-back" class="mood-back" type="button">Zurück</button>
+            <button id="mood-next" class="mood-next" type="button" disabled>Weiter <span aria-hidden="true">→</span></button>
+          </footer>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
     <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
@@ -168,8 +210,26 @@
         <div id="home-search-track" class="home-search-grid"></div>
       </section>
 
+      <section class="home-program" aria-labelledby="home-program-title">
+        <div class="home-program-copy">
+          <span class="home-program-kicker">DEIN ROYAL PROGRAMM</span>
+          <h2 id="home-program-title">Heute nicht das Übliche.</h2>
+          <p id="home-program-note">Royal stellt dir jeden Tag neue Wege durch Filme und Serien zusammen.</p>
+        </div>
+        <div class="home-program-actions">
+          <button id="home-program-mood" class="home-program-mood" type="button" data-mood-open>
+            <span aria-hidden="true">✦</span>
+            Abendmodus
+          </button>
+          <button id="home-discovery-shuffle" class="home-program-shuffle" type="button">
+            <span aria-hidden="true">↻</span>
+            Neu mischen
+          </button>
+        </div>
+      </section>
+
       <div class="home-rails" aria-live="polite">
-        <section class="home-rail" aria-labelledby="home-movies-title">
+        <section class="home-rail home-rail-spotlight" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Lernt aus deiner Auswahl</span>
@@ -183,7 +243,7 @@
           <div id="home-movies-track" class="home-track" aria-label="Persönliche Empfehlungen"></div>
         </section>
 
-        <section class="home-rail is-ranked" aria-labelledby="home-top-title">
+        <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Diese Woche</span>
@@ -197,7 +257,7 @@
           <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 dieser Woche"></div>
         </section>
 
-        <section class="home-rail" aria-labelledby="home-series-title">
+        <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
           <header class="home-rail-head">
             <h2 id="home-series-title">Serien, die gerade alle sehen</h2>
             <div class="home-rail-controls">
@@ -208,7 +268,7 @@
           <div id="home-series-track" class="home-track" aria-label="Angesagte Serien"></div>
         </section>
 
-        <section class="home-rail home-discovery-rail" aria-labelledby="home-genre-title">
+        <section class="home-rail home-rail-genre home-discovery-rail" aria-labelledby="home-genre-title">
           <header class="home-rail-head">
             <div>
               <span id="home-genre-eyebrow" class="home-rail-eyebrow">Nach deinem Geschmack</span>
@@ -222,7 +282,7 @@
           <div id="home-genre-track" class="home-track" aria-label="Empfehlungen nach Genre"></div>
         </section>
 
-        <section class="home-rail home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
+        <section class="home-rail home-rail-explore home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Raus aus der Komfortzone</span>
@@ -236,7 +296,7 @@
           <div id="home-explore-track" class="home-track" aria-label="Unerwartete Entdeckungen"></div>
         </section>
 
-        <section class="home-rail home-discovery-rail is-gems" aria-labelledby="home-gems-title">
+        <section class="home-rail home-rail-gems home-discovery-rail is-gems" aria-labelledby="home-gems-title">
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Abseits der ersten Reihe</span>
@@ -250,7 +310,7 @@
           <div id="home-gems-track" class="home-track" aria-label="Verborgene Schätze"></div>
         </section>
 
-        <section class="home-rail" aria-labelledby="home-new-title">
+        <section class="home-rail home-rail-new" aria-labelledby="home-new-title">
           <header class="home-rail-head">
             <div>
               <span class="home-rail-eyebrow">Frisch eingetroffen</span>
@@ -318,27 +378,27 @@
       <section class="genre-browser" aria-labelledby="genre-browser-title">
         <div class="genre-browser-summary">
           <div class="genre-browser-heading">
-            <span class="genre-browser-kicker">Für dich ausgewählt</span>
+            <span class="genre-browser-kicker">GENRE-ATLAS</span>
             <div class="genre-browser-title-row">
-              <strong id="genre-browser-title">Filme entdecken</strong>
+              <strong id="genre-browser-title">Welcher Filmkosmos darf es sein?</strong>
               <span id="genre-active">Alle Filme</span>
             </div>
           </div>
           <div class="genre-browser-actions">
             <span id="genre-count">Genres werden geladen …</span>
             <button id="genre-random" class="genre-action" type="button" disabled>
-              <span aria-hidden="true">↝</span> Zufallsgenre
+              <span aria-hidden="true">↝</span> Überrasch mich
             </button>
             <button id="genre-toggle" class="genre-action" type="button" aria-expanded="false" disabled>
-              <span class="genre-toggle-label">Alle zeigen</span>
+              <span class="genre-toggle-label">Alle Genres</span>
               <span class="genre-toggle-icon" aria-hidden="true">⌄</span>
             </button>
           </div>
         </div>
         <div id="genre-filter" class="genre-options" aria-label="Filmgenre auswählen">
           <button class="genre-chip is-active" type="button" data-genre="Alle Genres" aria-pressed="true">
-            <span class="genre-chip-mark" aria-hidden="true">◆</span>
-            Alle Filme
+            <span class="genre-chip-mark" aria-hidden="true">◎</span>
+            <span class="genre-chip-copy"><strong>Alle Filme</strong><small>Das ganze Programm</small></span>
           </button>
         </div>
       </section>
@@ -746,19 +806,47 @@
       <header class="library-hero">
         <div id="library-hero-art" class="library-hero-art" aria-hidden="true"></div>
         <div class="library-hero-copy">
-          <span class="library-kicker"><i aria-hidden="true"></i> DEINE SERIEN</span>
-          <h1>Meine Liste</h1>
+          <span class="library-kicker"><i aria-hidden="true"></i> ROYAL ARCHIV · DEINE SERIEN</span>
+          <h1 id="library-hero-title">Meine Liste</h1>
           <p id="library-hero-description">Alles, was du verfolgst – bereit, wenn du es bist.</p>
+          <div class="library-hero-actions">
+            <button id="wl-hero-open" class="library-hero-action is-primary" type="button">▶ Jetzt öffnen</button>
+            <button id="wl-hero-check" class="library-hero-action" type="button">↻ Status prüfen</button>
+          </div>
           <div class="library-hero-meta" aria-label="Status deiner Liste">
             <span><strong id="wl-total-count">0</strong> Serien</span>
             <span><strong id="wl-attention-count">0</strong> offen</span>
+            <span><strong id="wl-current-count">0</strong> vollständig</span>
+            <span><strong id="wl-queued-count">0</strong> in Queue</span>
           </div>
         </div>
       </header>
       <div class="library-panel">
+        <div class="library-index" aria-label="Bibliothek filtern">
+          <div class="library-filter-tabs" role="group" aria-label="Statusfilter">
+            <button type="button" class="is-active" data-library-filter="all">Alles</button>
+            <button type="button" data-library-filter="attention">Handlungsbedarf</button>
+            <button type="button" data-library-filter="current">Vollständig</button>
+            <button type="button" data-library-filter="queued">Queue</button>
+          </div>
+          <form id="wl-search-form" class="library-search" role="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="wl-search" type="search" placeholder="Archiv durchsuchen · Enter" autocomplete="off">
+            <button type="submit">Suchen</button>
+          </form>
+          <label class="library-sort">
+            <span>Sortierung</span>
+            <select id="wl-sort">
+              <option value="attention">Wichtig zuerst</option>
+              <option value="title">A–Z</option>
+              <option value="recent">Zuletzt geprüft</option>
+            </select>
+          </label>
+        </div>
         <div class="library-commandbar">
           <div class="library-command-copy">
-            <h2>Deine Bibliothek</h2>
+            <span class="library-section-code">ARCHIV / <b id="wl-visible-count">0</b></span>
+            <h2>Dein Medienregal</h2>
             <span id="wl-status" class="dim" role="status" aria-live="polite">Bereit zur Prüfung</span>
           </div>
           <div class="library-actions">
@@ -1765,20 +1853,21 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260803-1"></script>
+<script src="/api.js?v=royal-20260805-2"></script>
 <script src="/i18n.js"></script>
-<script src="/store.js?v=royal-20260801-1"></script>
+<script src="/store.js?v=royal-20260805-4"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260803-1"></script>
-<script src="/screens/home.js?v=royal-20260805-1"></script>
-<script src="/screens/movies.js?v=royal-20260805-1"></script>
-<script src="/screens/series.js?v=royal-20260805-1"></script>
-<script src="/screens/anime.js?v=royal-20260802-1"></script>
+<script src="/core.js?v=royal-20260805-4"></script>
+<script src="/screens/home.js?v=royal-20260805-9"></script>
+<script src="/screens/mood.js?v=royal-20260805-5"></script>
+<script src="/screens/movies.js?v=royal-20260805-5"></script>
+<script src="/screens/series.js?v=royal-20260805-4"></script>
+<script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260802-1"></script>
-<script src="/screens/notifications.js?v=royal-20260802-1"></script>
+<script src="/screens/notifications.js?v=royal-20260805-2"></script>
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
 <script src="/screens/account.js?v=royal-20260802-2"></script>
-<script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260803-1"></script>
+<script src="/screens/setup.js?v=royal-20260805-3"></script>
+<script src="/app.js?v=royal-20260805-8"></script>
 </body>
 </html>

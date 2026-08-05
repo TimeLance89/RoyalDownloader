@@ -84,6 +84,7 @@
 }
 
 .media-modal .detail-download-btn { order: 1; }
+.media-modal .detail-download-btn[hidden] { display: none !important; }
 .media-modal .detail-trailer-btn { order: 2; }
 .media-modal .detail-subscribe-btn { order: 3; }
 .media-modal .detail-availability { order: 4; margin-left: auto; }

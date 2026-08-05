@@ -11,7 +11,7 @@ async function initApp() {
   initSettingsNavigation();
   initCatalogInfiniteScroll();
 
-  document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+  document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
@@ -31,6 +31,16 @@ async function initApp() {
     if (kind && key) openHomeEntry(kind, key);
   });
   document.getElementById("home-hero-list").addEventListener("click", () => switchTab("bibliothek"));
+  document.getElementById("home-discovery-shuffle").addEventListener("click", shuffleHomeDiscovery);
+  document.querySelectorAll("[data-mood-open]").forEach((button) => {
+    button.addEventListener("click", () => openMoodMatch(button));
+  });
+  document.querySelectorAll("[data-mood-close]").forEach((button) => {
+    button.addEventListener("click", () => closeMoodMatch());
+  });
+  document.getElementById("mood-back").addEventListener("click", moodMatchBack);
+  document.getElementById("mood-next").addEventListener("click", moodMatchNext);
+  document.getElementById("mood-modal").addEventListener("keydown", handleMoodMatchKeydown);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
     showHomeHero(state.home.heroIndex - 1, true);
     scheduleHomeHeroRotation();
@@ -68,7 +78,8 @@ async function initApp() {
   });
   const globalSearchInput = document.getElementById("global-search-input");
   const globalSearchToggle = document.getElementById("global-search-toggle");
-  globalSearchToggle.addEventListener("click", () => globalSearchInput.focus());
+  const globalSearchPage = document.getElementById("global-search-page");
+  globalSearchToggle.addEventListener("click", openGlobalSearch);
   globalSearchInput.addEventListener("focus", () => {
     document.getElementById("global-search-shell").classList.add("is-expanded");
     globalSearchToggle.setAttribute("aria-expanded", "true");
@@ -80,11 +91,11 @@ async function initApp() {
       globalSearchToggle.setAttribute("aria-expanded", "false");
     }, 0);
   });
-  globalSearchInput.addEventListener("input", () => queueGlobalSearch());
+  globalSearchInput.addEventListener("input", syncGlobalSearchDraft);
   globalSearchInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      queueGlobalSearch(true);
+      runGlobalSearch();
     } else if (event.key === "Escape") {
       event.preventDefault();
       closeGlobalSearch({ restoreFocus: true });
@@ -95,15 +106,32 @@ async function initApp() {
     closeGlobalSearch({ restoreFocus: true });
     document.getElementById("global-search-shell").classList.remove("is-expanded");
   });
+  document.querySelectorAll("[data-global-search-scope]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.globalSearch.scope = button.dataset.globalSearchScope;
+      renderGlobalSearchResults();
+    });
+  });
+  document.getElementById("global-search-jellyfin").addEventListener("click", () => {
+    state.globalSearch.jellyfinOnly = !state.globalSearch.jellyfinOnly;
+    renderGlobalSearchResults();
+  });
+  globalSearchPage.addEventListener("click", (event) => {
+    if (event.target.closest(".global-search-head, .home-card")) return;
+    closeGlobalSearch();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!state.globalSearch.active) return;
+    if (document.getElementById("global-search-shell").contains(event.target)) return;
+    if (globalSearchPage.contains(event.target)) return;
+    closeGlobalSearch();
+  });
   document.getElementById("home-search-btn").addEventListener("click", homeSearch);
   document.getElementById("home-search-close").addEventListener("click", closeHomeSearch);
   document.getElementById("home-search-clear").addEventListener("click", closeHomeSearch);
   document.getElementById("home-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
-  });
-  document.getElementById("home-search").addEventListener("focus", () => {
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+    closeSearchSuggestions("home-search-suggestions", "home-search");
   });
   document.getElementById("home-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -127,7 +155,6 @@ async function initApp() {
         candidate.classList.toggle("is-active", active);
         candidate.setAttribute("aria-pressed", String(active));
       });
-      if (document.getElementById("home-search").value.trim()) homeSearch();
     });
   });
 
@@ -141,10 +168,7 @@ async function initApp() {
   });
   document.getElementById("fp-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
-  });
-  document.getElementById("fp-search").addEventListener("focus", () => {
-    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
+    closeSearchSuggestions("fp-search-suggestions", "fp-search");
   });
   document.getElementById("fp-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -210,10 +234,7 @@ async function initApp() {
     if (button) fpGenreChange(button.dataset.genre);
   });
   document.getElementById("genre-toggle").addEventListener("click", (e) => {
-    const filter = document.getElementById("genre-filter");
-    const expanded = filter.classList.toggle("is-expanded");
-    e.currentTarget.setAttribute("aria-expanded", String(expanded));
-    e.currentTarget.querySelector(".genre-toggle-label").textContent = expanded ? "Weniger zeigen" : "Alle zeigen";
+    setGenreBrowserExpanded(e.currentTarget.getAttribute("aria-expanded") !== "true");
   });
   document.getElementById("genre-random").addEventListener("click", () => {
     const genres = [...document.querySelectorAll("#genre-filter [data-genre]")]
@@ -260,10 +281,7 @@ async function initApp() {
   });
   document.getElementById("series-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
-  });
-  document.getElementById("series-search").addEventListener("focus", () => {
-    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
+    closeSearchSuggestions("series-search-suggestions", "series-search");
   });
   document.getElementById("series-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -366,6 +384,34 @@ async function initApp() {
   });
 
   // Bibliothek
+  document.getElementById("wl-hero-open").addEventListener("click", () => {
+    if (state.wl.heroBaseSlug) openWatchlistEntry(state.wl.heroBaseSlug);
+  });
+  document.getElementById("wl-hero-check").addEventListener("click", async () => {
+    if (!state.wl.heroBaseSlug) return;
+    document.getElementById("wl-status").textContent = "Archivstück wird geprüft …";
+    const data = await api.watchlistCheck([state.wl.heroBaseSlug]);
+    applyWatchlist(data.watchlist);
+    document.getElementById("wl-status").textContent = "Status aktualisiert";
+  });
+  document.querySelectorAll("[data-library-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wl.filter = button.dataset.libraryFilter || "all";
+      renderWatchlist();
+    });
+  });
+  document.getElementById("wl-search").addEventListener("input", (event) => {
+    state.wl.draftQuery = event.currentTarget.value;
+  });
+  document.getElementById("wl-search-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.wl.query = String(state.wl.draftQuery || "").trim();
+    renderWatchlist();
+  });
+  document.getElementById("wl-sort").addEventListener("change", (event) => {
+    state.wl.sort = event.currentTarget.value || "attention";
+    renderWatchlist();
+  });
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
     const data = await api.watchlistCheck(null);

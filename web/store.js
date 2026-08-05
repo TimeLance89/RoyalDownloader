@@ -3,12 +3,13 @@ function createInitialState() {
     tab: "home",
     globalSearch: {
       query: "", results: [], active: false, loading: false,
-      requestSeq: 0, debounceTimer: null,
+      requestSeq: 0, scope: "all", jellyfinOnly: false, submitted: false,
     },
     home: {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
-      heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "",
+      heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
+      mood: { step: 0, answers: {}, results: [], open: false },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
     fp: {
@@ -32,7 +33,10 @@ function createInitialState() {
       currentId: "", current: null, translation: "", episodePage: 1,
       picked: new Set(), searchReturn: null,
     },
-    wl: { items: [], selected: new Set(), loaded: false },
+    wl: {
+      items: [], selected: new Set(), loaded: false,
+      filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",
+    },
     movieSubscriptions: { items: [], loaded: false },
     queue: { count: 0, groups: [], loaded: false },
     download: { active: false, percent: 0, completed: 0, total: 0, failed: 0 },

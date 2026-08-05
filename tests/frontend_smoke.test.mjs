@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
+const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
+const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -14,6 +17,7 @@ const accountStyles = readFileSync(
 const appModulePaths = [
   "core.js",
   "screens/home.js",
+  "screens/mood.js",
   "screens/movies.js",
   "screens/series.js",
   "screens/anime.js",
@@ -63,15 +67,155 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260803-1/);
+  assert.match(html, /app\.js\?v=royal-20260805-8/);
+});
+
+test("searches run only after an explicit submit", () => {
+  assert.match(app, /globalSearchToggle\.addEventListener\("click", openGlobalSearch\)/);
+  assert.match(app, /globalSearchInput\.addEventListener\("input", syncGlobalSearchDraft\)/);
+  assert.match(app, /if \(event\.key === "Enter"\) \{[\s\S]*?runGlobalSearch\(\)/);
+  for (const [inputId, panelId] of [
+    ["home-search", "home-search-suggestions"],
+    ["fp-search", "fp-search-suggestions"],
+    ["series-search", "series-search-suggestions"],
+  ]) {
+    assert.match(
+      app,
+      new RegExp(`getElementById\\("${inputId}"\\)\\.addEventListener\\("input", \\(\\) => \\{\\s*syncSearchClearButtons\\(\\);\\s*closeSearchSuggestions\\("${panelId}", "${inputId}"\\);`),
+    );
+  }
+  assert.match(app, /getElementById\("anime-search"\)\.addEventListener\("keydown", \(event\) => \{\s*if \(event\.key !== "Enter"\) return;/);
+  assert.doesNotMatch(app, /queueGlobalSearch/);
+  assert.doesNotMatch(app, /debounceTimer/);
+  assert.doesNotMatch(app, /addEventListener\("focus", \(\) => \{\s*renderSearchSuggestions/);
+  assert.doesNotMatch(app, /value\.trim\(\)\) homeSearch\(\)/);
+  assert.match(app, /globalSearchPage\.addEventListener\("click", \(event\) => \{/);
+  assert.match(app, /if \(event\.target\.closest\("\.global-search-head, \.home-card"\)\) return;/);
+});
+
+test("global search covers every catalog and exposes Jellyfin filters", () => {
+  requiresIds("global-search-input", "global-search-page", "global-search-jellyfin");
+  for (const scope of ["all", "movie", "series", "anime"]) {
+    assert.match(html, new RegExp(`data-global-search-scope=["']${scope}["']`));
+  }
+  assert.match(app, /api\.anime\(\{ mode: "search", query, page: 1 \}\)/);
+  assert.match(app, /function refreshCatalogJellyfinStatus\(entries, render\)/);
+  assert.match(app, /media_type: kind === "movie" \? "movie" : "series"/);
+  assert.match(app, /setFpJellyfinBadge\(jellyfin, mediaJellyfinStatus\(result\)\)/);
+  assert.match(app, /state\.anime\.results\.map\(homeAnimeEntry\)/);
+  assert.match(app, /for \(let index = 0; index < requests\.length; index \+= 100\)/);
+  assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-1/);
+  assert.match(html, /api\.js\?v=royal-20260805-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-9/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
+test("only Top 10 cards may fall back to portrait posters", () => {
+  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
+  assert.doesNotMatch(app, /rank \? media\.backdrop_url : media\.cover_url/);
+});
+
+test("series wallpaper hydration updates every duplicate catalog object", async () => {
+  const trending = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
+  const discovery = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
+  const context = vm.createContext({
+    console,
+    api: {
+      tmdbSeries: async () => ({
+        series: {
+          "same-series": {
+            backdrop_url: "/wallpaper.jpg",
+            genres: ["Drama"],
+          },
+        },
+      }),
+    },
+    renderHome: () => {},
+  });
+  vm.runInContext(home.slice(home.indexOf("async function hydrateHomeSeriesArtwork")), context);
+  context.items = [trending, discovery];
+  await vm.runInContext("hydrateHomeSeriesArtwork(items, { render: false })", context);
+  assert.equal(trending.backdrop_url, "/wallpaper.jpg");
+  assert.equal(discovery.backdrop_url, "/wallpaper.jpg");
+  assert.deepEqual(trending.genres, ["Drama"]);
+  assert.deepEqual(discovery.genres, ["Drama"]);
+});
+
+test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
+  assert.match(html, /id=["']home-program-title["']/);
+  requiresIds("home-program-note", "home-discovery-shuffle");
+  assert.match(app, /function homeDiscoveryLanes\(\)/);
+  assert.match(app, /function takeDistinctHomeLane\(entries, seen, limit, minimum = 4\)/);
+  assert.match(app, /fresh: homeNewEntries\(\)/);
+  assert.match(app, /function shuffleHomeDiscovery\(\)/);
+  assert.match(app, /layout === "spotlight"/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-7/);
+  assert.match(app, /function movieGenrePresentation\(genre\)/);
+  assert.match(app, /addBtn\.hidden = owned && !queued/);
+});
+
+test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
+  requiresIds("mood-modal", "mood-options", "mood-results", "mood-back", "mood-next");
+  assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);
+  assert.match(html, /id="home-program-mood"[^>]*data-mood-open/);
+  assert.match(app, /const MOOD_MATCH_STEPS = \[/);
+  assert.match(app, /Dunkel & brutal/);
+  assert.match(app, /Mit der Familie/);
+  assert.match(app, /function moodFamilyPool\(entries\)/);
+  assert.match(app, /function moodMatchResults\(answers\)/);
+  assert.match(app, /const MOOD_MATCH_RULES = \{/);
+  assert.match(app, /pool = pool\.filter\(\(entry\) => moodMatchesIntent\(entry, answers\)\)/);
+  assert.match(app, /horror:[\s\S]*?required: \["Horror", "Slasher", "Splatter"\]/);
+  assert.match(app, /fallback: \["Thriller", "Mystery", "Krimi", "Crime"\]/);
+  assert.match(app, /hardExcluded: \["Komödie", "Comedy", "Animation", "Romanze", "Musik"\]/);
+  assert.match(app, /left\.tier - right\.tier \|\| right\.score - left\.score/);
+  assert.match(app, /function prepareMoodCandidates\(\)/);
+  assert.match(app, /await prepareMoodCandidates\(\)/);
+  assert.match(app, /return moodIntentTier\(entry, answers\) < 3/);
+  assert.match(app, /Genres und Metadaten werden vervollständigt/);
+  assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
+  assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
+  assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
+  assert.match(html, /core\.js\?v=royal-20260805-4/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
+  assert.match(app, /source: "mood-session"/);
+  assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
+});
+
+test("mood recommendations remain useful without admitting contradictory filler", () => {
+  const entries = [
+    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"] } },
+    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"] } },
+    { kind: "movie", item: { slug: "unknown", title: "Unknown", genres: [] } },
+    { kind: "movie", item: { slug: "comedy", title: "Horror Comedy", genres: ["Horror", "Komödie"] } },
+    { kind: "movie", item: { slug: "family", title: "Family Adventure", genres: ["Animation", "Abenteuer"] } },
+  ];
+  const context = vm.createContext({
+    console,
+    state: { fp: { metadataCache: {} }, home: { mood: {} } },
+    homeEntryMedia: (entry) => entry.item,
+    homeEntryKey: (entry) => `${entry.kind}:${entry.item.slug}`,
+    homeAllEntries: () => entries,
+    allowedHomeEntries: (items) => items,
+    uniqueHomeEntries: (items) => items,
+    loadDiscoveryProfile: () => ({ genres: {}, recent: [] }),
+    stableDiscoveryHash: () => 0,
+    localDateKey: () => "2026-08-05",
+  });
+  vm.runInContext(mood, context);
+  const results = vm.runInContext(`moodMatchResults({
+    mood: "horror", company: "alone", intensity: "hard", format: "movie"
+  })`, context);
+  assert.deepEqual(
+    Array.from(results, (entry) => entry.item.title),
+    ["Slasher", "Dark Thriller", "Unknown"],
+  );
 });
 
 test("feature modules load in dependency order before bootstrap", () => {
@@ -141,6 +285,23 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(app, /function renderQueueHistory\(jobs\)/);
   assert.match(app, /function updateQueueJobProgress\(jobId, job\)/);
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
+});
+
+test("Royal archive behaves like a searchable media center", () => {
+  requiresIds(
+    "library-hero-title", "wl-hero-open", "wl-hero-check",
+    "wl-search-form", "wl-search", "wl-sort", "wl-visible-count",
+  );
+  for (const filter of ["all", "attention", "current", "queued"]) {
+    assert.match(html, new RegExp(`data-library-filter=["']${filter}["']`));
+  }
+  assert.match(app, /function libraryVisibleItems\(\)/);
+  assert.match(app, /function showLibraryHero\(entry\)/);
+  assert.match(app, /getElementById\("wl-search-form"\)\.addEventListener\("submit"/);
+  assert.match(app, /entry\.backdrop_url/);
+  assert.match(app, /library-card-progress/);
+  assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
+  assert.match(html, /style\.css\?v=royal-20260805-8/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

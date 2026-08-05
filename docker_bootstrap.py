@@ -12,11 +12,20 @@ from pathlib import Path
 
 from runtime_release import (
     activate_release,
-    prune_releases,
     read_release_link,
     releases_dir,
     rollback_release,
 )
+
+try:
+    from runtime_release import prune_releases
+except ImportError:
+    # Übergang von älteren NAS-Ständen: Wird docker_bootstrap.py vor
+    # runtime_release.py kopiert, darf der Container nicht in einer
+    # Neustartschleife hängen. Bereinigung ist optional und folgt nach dem
+    # vollständigen Kopieren automatisch mit der neuen Runtime-Version.
+    def prune_releases(_runtime_root: Path) -> list[Path]:
+        return []
 
 SKIP_NAMES = {
     ".git", ".downloading", "#recycle", "__pycache__", "data", "downloads",

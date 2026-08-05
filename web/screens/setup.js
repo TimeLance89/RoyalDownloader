@@ -332,20 +332,36 @@ async function refreshGenres() {
     button.remove();
   });
   for (const genre of genres) {
+    const [mark, mood, tone] = movieGenrePresentation(genre);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "genre-chip";
     button.dataset.genre = genre;
+    button.dataset.tone = tone;
     button.setAttribute("aria-pressed", "false");
-    button.textContent = genre;
+    const symbol = document.createElement("span");
+    symbol.className = "genre-chip-mark";
+    symbol.setAttribute("aria-hidden", "true");
+    symbol.textContent = mark;
+    const copy = document.createElement("span");
+    copy.className = "genre-chip-copy";
+    const title = document.createElement("strong");
+    title.textContent = genre;
+    const subtitle = document.createElement("small");
+    subtitle.textContent = mood;
+    copy.append(title, subtitle);
+    button.append(symbol, copy);
     filter.appendChild(button);
   }
   if (state.fp.activeGenre !== "Alle Genres" && !genres.includes(state.fp.activeGenre)) {
     state.fp.activeGenre = "Alle Genres";
   }
-  document.getElementById("genre-count").textContent = `${genres.length} Genres verfügbar`;
+  document.getElementById("genre-count").textContent = `${genres.length} Filmwelten`;
   const genresAvailable = genres.length > 0;
   document.getElementById("genre-random").disabled = !genresAvailable;
-  document.getElementById("genre-toggle").disabled = !genresAvailable;
+  const genreToggle = document.getElementById("genre-toggle");
+  genreToggle.disabled = !genresAvailable;
+  genreToggle.dataset.collapsedLabel = `${genres.length} Genres`;
+  setGenreBrowserExpanded(false);
   setActiveGenreFilter(state.fp.activeGenre);
 }

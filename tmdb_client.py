@@ -88,6 +88,7 @@ class TMDBClient:
         self._series_id_cache: dict = {}
         self._series_match_cache: dict = {}
         self._season_cache: dict = {}
+        self._genre_cache: dict = {}
         self._now_playing_cache: tuple[float, set[int]] = (0.0, set())
         self._lock = threading.Lock()
 
@@ -161,6 +162,31 @@ class TMDBClient:
     def _preferred_region(self) -> str:
         parts = str(self.language or "").split("-", 1)
         return parts[1].upper() if len(parts) == 2 and len(parts[1]) == 2 else "US"
+
+    def _genre_names(self, media_type: str, genre_ids: list) -> list[str]:
+        ids = []
+        for value in genre_ids or []:
+            try:
+                ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        if not ids:
+            return []
+        cache_key = (media_type, self.language)
+        with self._lock:
+            mapping = self._genre_cache.get(cache_key)
+        if mapping is None:
+            data = self._request(
+                f"/genre/{media_type}/list", {"language": self.language},
+            ) or {}
+            mapping = {
+                int(item["id"]): str(item.get("name") or "").strip()
+                for item in data.get("genres", [])
+                if isinstance(item, dict) and str(item.get("id") or "").isdigit()
+            }
+            with self._lock:
+                self._genre_cache[cache_key] = mapping
+        return [mapping[genre_id] for genre_id in ids if mapping.get(genre_id)]
 
     def _movie_certification(self, details: dict) -> tuple[str, str]:
         countries = (details.get("release_dates") or {}).get("results") or []
@@ -374,7 +400,7 @@ class TMDBClient:
                 "cover_url": self._poster_url(best.get("poster_path") or ""),
                 "backdrop_url": self._backdrop_url(best.get("backdrop_path") or ""),
                 "description": best.get("overview") or "",
-                "genres": [],
+                "genres": self._genre_names("movie", best.get("genre_ids") or []),
                 "original_title": best.get("original_title") or "",
                 "release_date": best.get("release_date") or "",
                 "rating": round(float(best.get("vote_average") or 0), 1),
@@ -658,7 +684,7 @@ class TMDBClient:
                 "cover_url": self._poster_url(best.get("poster_path") or ""),
                 "backdrop_url": self._backdrop_url(best.get("backdrop_path") or ""),
                 "description": best.get("overview") or "",
-                "genres": [],
+                "genres": self._genre_names("tv", best.get("genre_ids") or []),
                 "rating": round(float(best.get("vote_average") or 0), 1),
                 "vote_count": int(best.get("vote_count") or 0),
                 "metadata_source": "TMDB",
