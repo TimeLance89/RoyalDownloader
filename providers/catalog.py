@@ -181,6 +181,15 @@ PROVIDER_CATALOG = {
         source_prefixes=("huhu:", "huhu-movie:"),
         domains=("huhu.to",),
     ),
+    "filmo": ProviderDefinition(
+        key="filmo",
+        label="Filmo",
+        content_language="de",
+        media_types=("movies",),
+        movie_priority=25,
+        source_prefixes=("filmo:",),
+        domains=("filmo.to",),
+    ),
     "einschalten": ProviderDefinition(
         key="einschalten",
         label="Einschalten",

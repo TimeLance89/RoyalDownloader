@@ -260,6 +260,7 @@ class AppState:
 
         self.fp_provider_genres: set = set()
         self.filmfrei24_provider_genres: set = set()
+        self.filmo_provider_genres: set = set()
         self.moflix_provider_genres: set = set()
         self.huhu_provider_genres: set = set()
         self.einschalten_provider_genres: set = set()
