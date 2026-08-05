@@ -1617,36 +1617,59 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
 }
 
 async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
-  const targets = [
-    ...new Map(
-      items
-        .filter((item) => item?.base_slug && (
-          !item.cover_url || !item.backdrop_url
-          || !Array.isArray(item.genres) || !item.genres.length
-        ))
-        .map((item) => [item.base_slug, item]),
-    ).values(),
-  ];
+  const groups = new Map();
+  items.filter((item) => item?.base_slug).forEach((item) => {
+    if (!groups.has(item.base_slug)) groups.set(item.base_slug, []);
+    groups.get(item.base_slug).push(item);
+  });
+  const targets = [];
+  groups.forEach((variants, baseSlug) => {
+    const sharedCover = variants.find((item) => item.cover_url)?.cover_url || "";
+    const sharedBackdrop = variants.find((item) => item.backdrop_url)?.backdrop_url || "";
+    const sharedGenres = variants.find((item) => Array.isArray(item.genres) && item.genres.length)?.genres || [];
+    variants.forEach((item) => {
+      if (!item.cover_url && sharedCover) item.cover_url = sharedCover;
+      if (!item.backdrop_url && sharedBackdrop) item.backdrop_url = sharedBackdrop;
+      if ((!Array.isArray(item.genres) || !item.genres.length) && sharedGenres.length) {
+        item.genres = sharedGenres.slice();
+      }
+    });
+    if (variants.some((item) => (
+      !item.backdrop_url || !Array.isArray(item.genres) || !item.genres.length
+    ))) {
+      const representative = variants[0];
+      targets.push({
+        base_slug: baseSlug,
+        title: representative.title,
+        year: representative.year || "",
+        variants,
+      });
+    }
+  });
   if (!targets.length) return [];
   const hydratedBaseSlugs = [];
   try {
-    const response = await api.tmdbSeries(targets.map((item) => ({
-      base_slug: item.base_slug,
-      title: item.title,
-      year: item.year || "",
+    const response = await api.tmdbSeries(targets.map((target) => ({
+      base_slug: target.base_slug,
+      title: target.title,
+      year: target.year,
     })));
-    for (const item of targets) {
-      const metadata = response.series?.[item.base_slug];
+    for (const target of targets) {
+      const metadata = response.series?.[target.base_slug];
       if (!metadata) continue;
-      const hadCover = Boolean(item.cover_url);
-      const hadBackdrop = Boolean(item.backdrop_url);
-      Object.assign(item, metadata, {
-        cover_url: metadata.cover_url || item.cover_url || "",
-        backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+      let hydrated = false;
+      target.variants.forEach((item) => {
+        const hadCover = Boolean(item.cover_url);
+        const hadBackdrop = Boolean(item.backdrop_url);
+        Object.assign(item, metadata, {
+          cover_url: metadata.cover_url || item.cover_url || "",
+          backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+        });
+        if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
+          hydrated = true;
+        }
       });
-      if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
-        hydratedBaseSlugs.push(item.base_slug);
-      }
+      if (hydrated) hydratedBaseSlugs.push(target.base_slug);
     }
     if (render) renderHome();
   } catch (error) {
