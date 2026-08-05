@@ -26,7 +26,7 @@ already exists in Jellyfin is detected and is not offered for download again.
 > complying with applicable laws and provider terms.
 
 > [!WARNING]
-> **`v1.0.0-rc.2` is a release candidate.** Back up at least `.env` and `data/`
+> **`v1.0.0-rc.3` is a release candidate.** Back up at least `.env` and `data/`
 > before updating. Upgrade and rollback instructions are available in the
 > [release guide](docs/RELEASE.md).
 
@@ -86,7 +86,7 @@ directories.
 ## Quick start: macOS or Linux
 
 ```bash
-git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python3 -m pip install -r requirements.lock
 python3 server.py
@@ -101,7 +101,7 @@ This mode is intended for NAS systems that mount the project directory into a
 Python container.
 
 ```bash
-git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 bash start.sh
 ```
@@ -119,7 +119,7 @@ Requirements:
 - Write access to the movie and series directories
 
 ```bash
-git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```

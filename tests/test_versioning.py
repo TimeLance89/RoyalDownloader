@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_application_version_has_expected_release_candidate_value():
-    assert APP_VERSION == "1.0.0-rc.2"
+    assert APP_VERSION == "1.0.0-rc.3"
 
 
 def test_capabilities_add_version_without_changing_health_contracts():
@@ -80,20 +80,20 @@ def test_current_release_documents_use_the_central_semantic_version():
         ROOT / "README.md",
         ROOT / "docs" / "RELEASE.md",
         ROOT / "docs" / "DOCKER.md",
-        ROOT / "docs" / "releases" / "v1.0.0-rc.2.md",
+        ROOT / "docs" / "releases" / "v1.0.0-rc.3.md",
     ]
     referenced_versions = set()
     for document in documents:
         text = document.read_text(encoding="utf-8")
-        assert "v1.0.0-rc.2" in text, document
+        assert "v1.0.0-rc.3" in text, document
         referenced_versions.update(re.findall(r"v\d+\.\d+\.\d+-rc\.\d+", text))
-    assert referenced_versions == {"v1.0.0-rc.2"}
+    assert referenced_versions == {"v1.0.0-rc.3"}
 
     android_api = (ROOT / "docs" / "ANDROID_API.md").read_text(encoding="utf-8")
     assert f'"application_version": "{APP_VERSION}"' in android_api
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert changelog.index("## v1.0.0-rc.2") < changelog.index("## v1.0.0-rc.1")
+    assert changelog.index("## v1.0.0-rc.3") < changelog.index("## v1.0.0-rc.2")
 
 
 def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():
