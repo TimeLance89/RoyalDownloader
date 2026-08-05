@@ -63,11 +63,43 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260803-1/);
+  assert.match(html, /app\.js\?v=royal-20260805-3/);
+});
+
+test("searches run only after an explicit submit", () => {
+  assert.match(app, /globalSearchInput\.addEventListener\("input", syncGlobalSearchDraft\)/);
+  assert.match(app, /if \(event\.key === "Enter"\) \{[\s\S]*?runGlobalSearch\(\)/);
+  for (const [inputId, panelId] of [
+    ["home-search", "home-search-suggestions"],
+    ["fp-search", "fp-search-suggestions"],
+    ["series-search", "series-search-suggestions"],
+  ]) {
+    assert.match(
+      app,
+      new RegExp(`getElementById\\("${inputId}"\\)\\.addEventListener\\("input", \\(\\) => \\{\\s*syncSearchClearButtons\\(\\);\\s*closeSearchSuggestions\\("${panelId}", "${inputId}"\\);`),
+    );
+  }
+  assert.match(app, /getElementById\("anime-search"\)\.addEventListener\("keydown", \(event\) => \{\s*if \(event\.key !== "Enter"\) return;/);
+  assert.doesNotMatch(app, /queueGlobalSearch/);
+  assert.doesNotMatch(app, /debounceTimer/);
+  assert.doesNotMatch(app, /addEventListener\("focus", \(\) => \{\s*renderSearchSuggestions/);
+  assert.doesNotMatch(app, /value\.trim\(\)\) homeSearch\(\)/);
+});
+
+test("global search covers every catalog and exposes Jellyfin filters", () => {
+  requiresIds("global-search-input", "global-search-page", "global-search-jellyfin");
+  for (const scope of ["all", "movie", "series", "anime"]) {
+    assert.match(html, new RegExp(`data-global-search-scope=["']${scope}["']`));
+  }
+  assert.match(app, /api\.anime\(\{ mode: "search", query, page: 1 \}\)/);
+  assert.match(app, /function refreshCatalogJellyfinStatus\(entries, render\)/);
+  assert.match(app, /media_type: kind === "movie" \? "movie" : "series"/);
+  assert.match(app, /setFpJellyfinBadge\(jellyfin, mediaJellyfinStatus\(result\)\)/);
+  assert.match(app, /state\.anime\.results\.map\(homeAnimeEntry\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-3/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);

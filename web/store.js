@@ -3,7 +3,7 @@ function createInitialState() {
     tab: "home",
     globalSearch: {
       query: "", results: [], active: false, loading: false,
-      requestSeq: 0, debounceTimer: null,
+      requestSeq: 0, scope: "all", jellyfinOnly: false, submitted: false,
     },
     home: {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],

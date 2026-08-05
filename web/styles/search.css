@@ -23,7 +23,7 @@
 }
 
 .global-search-shell:is(.is-expanded, .has-value, :focus-within) {
-  width: clamp(240px, 23vw, 370px);
+  width: clamp(300px, 29vw, 470px);
   background: rgba(15, 15, 15, .96);
   border-color: rgba(255, 255, 255, .38);
 }
@@ -105,6 +105,31 @@ body.global-search-open { overflow: hidden; }
   margin-bottom: 24px;
 }
 
+.global-search-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.global-search-filters button {
+  min-height: 34px;
+  padding: 0 13px;
+  color: rgba(255, 255, 255, .64);
+  background: #202020;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 4px;
+  font: 700 9px/1 "JetBrains Mono", monospace;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.global-search-filters button:hover,
+.global-search-filters button:focus-visible { color: #fff; border-color: rgba(255, 255, 255, .48); }
+.global-search-filters button.is-active { color: #fff; background: #e50914; border-color: #e50914; }
+#global-search-jellyfin.is-active { color: #d9ffe1; background: #14532d; border-color: #6fd67a; }
+
 .global-search-kicker {
   color: #e50914;
   font: 700 9px/1 "JetBrains Mono", monospace;
@@ -175,7 +200,8 @@ body.global-search-open { overflow: hidden; }
     width: min(58vw, 310px);
   }
   .global-search-page { padding: 84px 10px 105px; }
-  .global-search-head { min-height: 58px; margin-bottom: 17px; padding-inline: 3px; }
+  .global-search-head { min-height: 58px; margin-bottom: 17px; padding-inline: 3px; align-items: flex-start; flex-direction: column; gap: 14px; }
+  .global-search-filters { justify-content: flex-start; }
   .global-search-head h1 { font-size: 26px; }
   .global-search-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 7px; }
 }

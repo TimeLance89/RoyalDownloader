@@ -197,11 +197,94 @@ function homeSeriesBySlug(baseSlug) {
     .find((item) => item.base_slug === baseSlug) || null;
 }
 
+function homeAnimeById(id) {
+  return [
+    ...state.anime.results,
+    ...state.globalSearch.results.filter((entry) => entry.kind === "anime").map((entry) => entry.item),
+  ].find((item) => String(item.id) === String(id)) || null;
+}
+
+function mediaJellyfinStatus(media) {
+  if (media?.jellyfin_status) return media.jellyfin_status;
+  if (typeof media?.in_jellyfin === "boolean") return media.in_jellyfin ? "owned" : "missing";
+  return "checking";
+}
+
+function jellyfinStatusText(status) {
+  const labels = {
+    owned: "✓ In Jellyfin",
+    missing: "Fehlt in Jellyfin",
+    checking: "Jellyfin wird geprüft",
+    unavailable: "Jellyfin nicht erreichbar",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  };
+  return labels[status] || labels.checking;
+}
+
+function setCatalogJellyfinBadge(badge, status) {
+  const labels = {
+    owned: "✓ In Jellyfin",
+    missing: "Fehlt in Jellyfin",
+    checking: "Jellyfin wird geprüft",
+    unavailable: "Jellyfin nicht erreichbar",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  };
+  const normalized = labels[status] ? status : "checking";
+  badge.className = `catalog-jellyfin-badge is-${normalized}`;
+  badge.textContent = normalized === "owned" ? "✓ JF" : normalized === "missing" ? "– JF" : "JF ?";
+  badge.title = labels[normalized];
+  badge.setAttribute("aria-label", labels[normalized]);
+}
+
+async function refreshCatalogJellyfinStatus(entries, render) {
+  const unique = uniqueHomeEntries(entries);
+  if (!unique.length) return;
+  const requests = unique.map(({ kind, item }) => ({
+    slug: homeEntryKey({ kind, item }),
+    title: item.title,
+    year: item.year || "",
+    tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
+    media_type: kind === "movie" ? "movie" : "series",
+  }));
+  try {
+    const response = await api.jellyfinMatches(requests);
+    for (const entry of unique) {
+      const key = homeEntryKey(entry);
+      const status = response.statuses?.[key]
+        || (Object.hasOwn(response.matches || {}, key)
+          ? (response.matches[key] ? "owned" : "missing")
+          : (response.configured ? "unavailable" : "unconfigured"));
+      entry.item.jellyfin_status = status;
+      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
+    }
+  } catch {
+    unique.forEach((entry) => { entry.item.jellyfin_status = "unavailable"; });
+  }
+  if (render) render();
+}
+
+function refreshAllCatalogJellyfinStatuses() {
+  const entries = [
+    ...homeAllEntries(),
+    ...state.series.results.map(homeSeriesEntry),
+    ...state.anime.results.map(homeAnimeEntry),
+    ...state.globalSearch.results,
+  ];
+  return refreshCatalogJellyfinStatus(entries, () => {
+    renderHome();
+    renderSeriesResults();
+    renderAnimeResults();
+    renderGlobalSearchResults();
+  });
+}
+
 function uniqueHomeEntries(entries) {
   const seen = new Set();
   return entries.filter((entry) => {
     if (!entry?.item) return false;
-    const key = `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+    const key = homeEntryKey(entry);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -226,12 +309,19 @@ function homeSeriesEntry(item) {
   return { kind: "series", item };
 }
 
+function homeAnimeEntry(item) {
+  return { kind: "anime", item };
+}
+
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
 const HOME_WEEKLY_TOP_KEY = "royal-home-weekly-top-v1";
 
 function homeEntryKey(entry) {
   if (!entry?.item) return "";
-  return `${entry.kind}:${entry.kind === "movie" ? entry.item.slug : entry.item.base_slug}`;
+  const key = entry.kind === "movie"
+    ? entry.item.slug
+    : entry.kind === "anime" ? entry.item.id : entry.item.base_slug;
+  return `${entry.kind}:${key}`;
 }
 
 function homeEntryMedia(entry) {
@@ -732,6 +822,12 @@ function openHomeEntry(kind, key) {
     if (movie) selectFpRow(movie.slug, movie);
     return;
   }
+  if (kind === "anime") {
+    const anime = homeAnimeById(key);
+    closeGlobalSearch();
+    if (anime) openAnimeDetail(anime);
+    return;
+  }
   const series = homeSeriesBySlug(key);
   closeGlobalSearch();
   if (series) loadSeries(series);
@@ -771,13 +867,14 @@ function createHomeCard(entry, rank = 0, eager = false) {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
   const media = { ...item, ...metadata };
-  const key = kind === "movie" ? item.slug : item.base_slug;
+  const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
   const card = document.createElement("button");
   card.type = "button";
   card.className = `home-card home-card-${kind}${rank ? " is-ranked" : ""}`;
   card.dataset.kind = kind;
   card.dataset.key = key;
-  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kind === "movie" ? "Film" : "Serie"}`);
+  const kindLabel = kind === "movie" ? "Film" : kind === "anime" ? "Anime" : "Serie";
+  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
 
   if (rank) {
     const number = document.createElement("span");
@@ -820,7 +917,9 @@ function createHomeCard(entry, rank = 0, eager = false) {
   }
   const type = document.createElement("span");
   type.className = "home-card-type";
-  type.textContent = kind === "movie" ? "FILM" : "SERIE";
+  type.textContent = kindLabel.toLocaleUpperCase("de-DE");
+  const jellyfin = document.createElement("span");
+  setCatalogJellyfinBadge(jellyfin, mediaJellyfinStatus(media));
   const overlay = document.createElement("span");
   overlay.className = "home-card-overlay";
   const title = document.createElement("strong");
@@ -857,15 +956,15 @@ function createHomeCard(entry, rank = 0, eager = false) {
     media.rating ? `★ ${media.rating}` : "",
     media.year || "",
     media.runtime || "",
-    kind === "movie" ? "Film" : "Serie",
+    kindLabel,
   ].filter(Boolean).join(" · ");
   const previewGenres = document.createElement("span");
   previewGenres.className = "home-card-preview-genres";
   previewGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
-    || (kind === "movie" ? "Film entdecken" : "Serie entdecken");
+    || `${kindLabel} entdecken`;
   preview.append(previewActions, previewTitle, previewMeta, previewGenres);
 
-  art.append(type, overlay, preview);
+  art.append(type, jellyfin, overlay, preview);
   card.appendChild(art);
   card.addEventListener("pointerenter", () => updateHomeCardHoverEdge(card));
   card.addEventListener("pointerleave", () => {
@@ -1146,9 +1245,29 @@ function renderGlobalSearchResults() {
   if (!state.globalSearch.active) return;
 
   grid.replaceChildren();
-  status.textContent = state.globalSearch.loading
+  const visibleResults = state.globalSearch.results.filter((entry) => {
+    const scopeMatches = state.globalSearch.scope === "all" || entry.kind === state.globalSearch.scope;
+    const libraryMatches = !state.globalSearch.jellyfinOnly || mediaJellyfinStatus(entry.item) === "owned";
+    return scopeMatches && libraryMatches;
+  });
+  document.querySelectorAll("[data-global-search-scope]").forEach((button) => {
+    const active = button.dataset.globalSearchScope === state.globalSearch.scope;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const libraryFilter = document.getElementById("global-search-jellyfin");
+  if (libraryFilter) {
+    libraryFilter.classList.toggle("is-active", state.globalSearch.jellyfinOnly);
+    libraryFilter.setAttribute("aria-pressed", String(state.globalSearch.jellyfinOnly));
+  }
+  const jellyfinCount = state.globalSearch.results.filter(
+    (entry) => mediaJellyfinStatus(entry.item) === "owned",
+  ).length;
+  status.textContent = !state.globalSearch.submitted
+    ? "Enter drücken, um alle Kataloge zu durchsuchen."
+    : state.globalSearch.loading
     ? `Suche nach «${state.globalSearch.query}» …`
-    : `${state.globalSearch.results.length} Treffer für «${state.globalSearch.query}»`;
+    : `${visibleResults.length} Treffer · ${jellyfinCount} davon in Jellyfin`;
   page.classList.toggle("is-loading", state.globalSearch.loading);
   if (state.globalSearch.loading) {
     for (let index = 0; index < 12; index += 1) {
@@ -1159,14 +1278,16 @@ function renderGlobalSearchResults() {
     }
     return;
   }
-  if (!state.globalSearch.results.length) {
+  if (!visibleResults.length) {
     const empty = document.createElement("div");
     empty.className = "global-search-empty";
-    empty.innerHTML = "<strong>Nichts gefunden</strong><span>Versuche einen anderen Titel, Namen oder ein Genre.</span>";
+    empty.innerHTML = state.globalSearch.submitted
+      ? "<strong>Nichts in diesem Filter</strong><span>Filter ändern oder einen anderen Titel suchen.</span>"
+      : "<strong>Bereit zum Suchen</strong><span>Suchbegriff prüfen und Enter drücken.</span>";
     grid.appendChild(empty);
     return;
   }
-  state.globalSearch.results.forEach((entry, index) => {
+  visibleResults.forEach((entry, index) => {
     grid.appendChild(createHomeCard(entry, 0, index < 8));
   });
 }
@@ -1176,15 +1297,22 @@ async function performGlobalSearch(query, requestId) {
   const settled = await Promise.allSettled([
     api.movies({ mode: "search", query }).then((data) => (data.results || []).map(homeMovieEntry)),
     api.series({ mode: "search", query }).then((data) => (data.results || []).map(homeSeriesEntry)),
+    api.anime({ mode: "search", query, page: 1 }).then((data) => (data.results || []).map(homeAnimeEntry)),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
   const groups = settled
     .filter((result) => result.status === "fulfilled")
     .map((result) => result.value);
-  state.globalSearch.results = groups.length > 1
-    ? interleaveHomeEntries(groups[0], groups[1], 60)
-    : uniqueHomeEntries(groups[0] || []).slice(0, 60);
-
+  const mixed = [];
+  const max = Math.max(0, ...groups.map((group) => group.length));
+  for (let index = 0; index < max && mixed.length < 60; index += 1) {
+    groups.forEach((group) => {
+      if (group[index] && mixed.length < 60) mixed.push(group[index]);
+    });
+  }
+  state.globalSearch.results = uniqueHomeEntries(mixed).slice(0, 60);
+  state.globalSearch.loading = false;
+  renderGlobalSearchResults();
   await Promise.allSettled([
     hydrateHomeMovieArtwork(
       state.globalSearch.results
@@ -1198,44 +1326,53 @@ async function performGlobalSearch(query, requestId) {
         .map((entry) => entry.item),
       { render: false },
     ),
+    refreshCatalogJellyfinStatus(state.globalSearch.results, null),
   ]);
   if (requestId !== state.globalSearch.requestSeq) return;
-  state.globalSearch.loading = false;
   renderGlobalSearchResults();
 }
 
-function queueGlobalSearch(immediate = false) {
+function syncGlobalSearchDraft() {
+  const query = document.getElementById("global-search-input")?.value.trim() || "";
+  ++state.globalSearch.requestSeq;
+  state.globalSearch.query = query;
+  state.globalSearch.active = Boolean(query);
+  state.globalSearch.loading = false;
+  state.globalSearch.submitted = false;
+  state.globalSearch.results = [];
+  renderGlobalSearchResults();
+}
+
+function runGlobalSearch() {
   const input = document.getElementById("global-search-input");
   const query = input.value.trim();
-  window.clearTimeout(state.globalSearch.debounceTimer);
   const requestId = ++state.globalSearch.requestSeq;
   state.globalSearch.query = query;
   if (!query) {
     state.globalSearch.active = false;
     state.globalSearch.loading = false;
+    state.globalSearch.submitted = false;
     state.globalSearch.results = [];
     renderGlobalSearchResults();
     return;
   }
   state.globalSearch.active = true;
   state.globalSearch.loading = true;
+  state.globalSearch.submitted = true;
   state.globalSearch.results = [];
   renderGlobalSearchResults();
-  state.globalSearch.debounceTimer = window.setTimeout(
-    () => performGlobalSearch(query, requestId),
-    immediate ? 0 : 320,
-  );
+  void performGlobalSearch(query, requestId);
 }
 
 function closeGlobalSearch({ restoreFocus = false } = {}) {
   const input = document.getElementById("global-search-input");
   if (!input) return;
-  window.clearTimeout(state.globalSearch.debounceTimer);
   ++state.globalSearch.requestSeq;
   state.globalSearch.query = "";
   state.globalSearch.results = [];
   state.globalSearch.active = false;
   state.globalSearch.loading = false;
+  state.globalSearch.submitted = false;
   input.value = "";
   renderGlobalSearchResults();
   if (restoreFocus) document.getElementById("global-search-toggle")?.focus();
@@ -1275,7 +1412,7 @@ async function homeSearch() {
   const input = document.getElementById("home-search");
   const query = input.value.trim();
   if (!query) {
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+    closeSearchSuggestions("home-search-suggestions", "home-search");
     return;
   }
   rememberSearch(query, state.home.search.scope);
@@ -1300,14 +1437,18 @@ async function homeSearch() {
     : uniqueHomeEntries(groups[0] || []).slice(0, 36);
   state.home.search.loading = false;
   renderHomeSearchResults();
-  hydrateHomeMovieArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
-    { render: false },
-  ).then(renderHomeSearchResults);
-  hydrateHomeSeriesArtwork(
-    state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
-    { render: false },
-  ).then(renderHomeSearchResults);
+  await Promise.allSettled([
+    hydrateHomeMovieArtwork(
+      state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+      { render: false },
+    ),
+    hydrateHomeSeriesArtwork(
+      state.home.search.results.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+      { render: false },
+    ),
+  ]);
+  await refreshCatalogJellyfinStatus(state.home.search.results, null);
+  if (requestId === state.home.search.requestSeq) renderHomeSearchResults();
 }
 
 function closeHomeSearch() {
@@ -1367,6 +1508,7 @@ async function loadHomeData() {
       ...state.home.discoverySeries,
     ], { render: false }),
   ]);
+  await refreshCatalogJellyfinStatus(homeAllEntries(), null);
   state.home.loading = false;
   saveHomeCache();
   renderHome();

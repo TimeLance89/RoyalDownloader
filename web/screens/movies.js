@@ -113,6 +113,9 @@ async function refreshFpJellyfinStatus() {
     const response = await api.jellyfinMatches(items);
     if (requestId !== fpJellyfinRequestSeq) return;
     if (!response.configured || !response.available) {
+      const status = response.configured ? "unavailable" : "unconfigured";
+      state.fp.results.forEach((result) => { result.jellyfin_status = response.statuses?.[result.slug] || status; });
+      updateFpJellyfinBadges();
       setFpDetailJellyfinStatus(response.configured ? "unavailable" : "unconfigured");
       return;
     }
@@ -120,6 +123,8 @@ async function refreshFpJellyfinStatus() {
       if (Object.hasOwn(response.matches || {}, result.slug)) {
         result.in_jellyfin = !!response.matches[result.slug];
       }
+      result.jellyfin_status = response.statuses?.[result.slug]
+        || (response.configured ? (result.in_jellyfin ? "owned" : "missing") : "unconfigured");
     }
     updateFpJellyfinBadges();
   } catch (e) {
@@ -270,19 +275,25 @@ async function refreshSeriesJellyfinStatus(force = false) {
   }
 }
 
-function setFpJellyfinBadge(badge, owned) {
-  badge.className = `jellyfin-badge ${owned ? "owned" : "dim"}`;
-  badge.textContent = owned ? "JF · DA" : "—";
-  badge.title = owned
-    ? "Bereits in der Jellyfin-Bibliothek gefunden"
-    : "Nicht in der Jellyfin-Bibliothek gefunden";
+function setFpJellyfinBadge(badge, status) {
+  const normalized = typeof status === "boolean" ? (status ? "owned" : "missing") : status;
+  setCatalogJellyfinBadge(badge, normalized);
+  badge.classList.add("jellyfin-badge");
 }
 
-function setFpPosterJellyfinBadge(badge, owned) {
-  badge.hidden = !owned;
-  badge.textContent = "In Jellyfin";
-  badge.title = "Bereits in der Jellyfin-Bibliothek gefunden";
-  badge.setAttribute("aria-label", "In Jellyfin vorhanden");
+function setFpPosterJellyfinBadge(badge, status) {
+  const normalized = typeof status === "boolean" ? (status ? "owned" : "missing") : status;
+  setCatalogJellyfinBadge(badge, normalized);
+  badge.classList.add("result-card-library-badge");
+  badge.textContent = {
+    owned: "In Jellyfin",
+    missing: "Nicht in Jellyfin",
+    checking: "Jellyfin wird geprüft",
+    unavailable: "Jellyfin nicht erreichbar",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  }[normalized] || "Jellyfin wird geprüft";
+  badge.hidden = false;
 }
 
 function updateFpJellyfinBadges() {
@@ -290,9 +301,9 @@ function updateFpJellyfinBadges() {
   for (const row of document.querySelectorAll("#fp-results .row")) {
     const result = resultsBySlug.get(row.dataset.slug);
     const badge = row.querySelector(".jellyfin-badge");
-    if (result && badge) setFpJellyfinBadge(badge, !!result.in_jellyfin);
+    if (result && badge) setFpJellyfinBadge(badge, mediaJellyfinStatus(result));
     const posterBadge = row.querySelector(".result-card-library-badge");
-    if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, !!result.in_jellyfin);
+    if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
   }
   const selected = resultsBySlug.get(state.fp.selectedSlug);
   if (selected && typeof selected.in_jellyfin === "boolean") {
@@ -307,7 +318,7 @@ function mediaCardInitials(title) {
     .toUpperCase();
 }
 
-function createResultCardVisual(media, title, kind, inJellyfin = false) {
+function createResultCardVisual(media, title, kind, jellyfinStatus = "checking") {
   const visual = document.createElement("span");
   visual.className = "result-card-visual";
 
@@ -343,12 +354,9 @@ function createResultCardVisual(media, title, kind, inJellyfin = false) {
   openMark.textContent = "↗";
   openMark.setAttribute("aria-hidden", "true");
   visual.append(kindMark, openMark);
-  if (kind === "movie") {
-    const libraryBadge = document.createElement("span");
-    libraryBadge.className = "result-card-library-badge";
-    setFpPosterJellyfinBadge(libraryBadge, inJellyfin);
-    visual.appendChild(libraryBadge);
-  }
+  const libraryBadge = document.createElement("span");
+  setFpPosterJellyfinBadge(libraryBadge, jellyfinStatus);
+  visual.appendChild(libraryBadge);
   return visual;
 }
 
@@ -395,7 +403,7 @@ function updateFpResultCard(slug) {
   if (!result || !row) return;
   const oldVisual = row.querySelector(".result-card-visual");
   oldVisual?.replaceWith(createResultCardVisual(
-    fpResultMedia(result), result.title, "movie", !!result.in_jellyfin,
+    fpResultMedia(result), result.title, "movie", mediaJellyfinStatus(result),
   ));
   const availability = fpResultAvailability(result);
   const stateLabel = row.querySelector(".result-card-state");
@@ -477,7 +485,7 @@ function renderFpResults(appendFrom = 0) {
     row.setAttribute("aria-current", String(selected));
     row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
 
-    const visual = createResultCardVisual(media, result.title, "movie", !!result.in_jellyfin);
+    const visual = createResultCardVisual(media, result.title, "movie", mediaJellyfinStatus(result));
 
     const copy = document.createElement("span");
     copy.className = "result-card-copy";
@@ -500,7 +508,7 @@ function renderFpResults(appendFrom = 0) {
     status.className = `result-card-state status-${availability.tag}`;
     status.textContent = availability.label;
     const jellyfin = document.createElement("span");
-    setFpJellyfinBadge(jellyfin, !!result.in_jellyfin);
+    setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
     meta.append(rating, year, status, jellyfin);
     copy.append(title, subtitle, meta);
 
@@ -547,6 +555,7 @@ function applyFpResults(data, { append = false } = {}) {
   );
   state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
   renderFpResults(appendFrom);
+  void refreshFpJellyfinStatus();
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
   recheckFpInfinite();

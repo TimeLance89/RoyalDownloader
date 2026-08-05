@@ -259,6 +259,7 @@ function connectWs() {
     } else if (data.type === "jellyfin_update") {
       refreshFpJellyfinStatus();
       refreshSeriesJellyfinStatus();
+      refreshAllCatalogJellyfinStatuses();
       showPersistenceWarning("Serien-Abos", data.persistence);
       if (data.watchlist) applyWatchlist(data.watchlist);
       } else if (data.type === "watchlist_update") {

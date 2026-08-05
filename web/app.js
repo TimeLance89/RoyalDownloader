@@ -68,7 +68,10 @@ async function initApp() {
   });
   const globalSearchInput = document.getElementById("global-search-input");
   const globalSearchToggle = document.getElementById("global-search-toggle");
-  globalSearchToggle.addEventListener("click", () => globalSearchInput.focus());
+  globalSearchToggle.addEventListener("click", () => {
+    if (globalSearchInput.value.trim()) runGlobalSearch();
+    else globalSearchInput.focus();
+  });
   globalSearchInput.addEventListener("focus", () => {
     document.getElementById("global-search-shell").classList.add("is-expanded");
     globalSearchToggle.setAttribute("aria-expanded", "true");
@@ -80,11 +83,11 @@ async function initApp() {
       globalSearchToggle.setAttribute("aria-expanded", "false");
     }, 0);
   });
-  globalSearchInput.addEventListener("input", () => queueGlobalSearch());
+  globalSearchInput.addEventListener("input", syncGlobalSearchDraft);
   globalSearchInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      queueGlobalSearch(true);
+      runGlobalSearch();
     } else if (event.key === "Escape") {
       event.preventDefault();
       closeGlobalSearch({ restoreFocus: true });
@@ -95,15 +98,22 @@ async function initApp() {
     closeGlobalSearch({ restoreFocus: true });
     document.getElementById("global-search-shell").classList.remove("is-expanded");
   });
+  document.querySelectorAll("[data-global-search-scope]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.globalSearch.scope = button.dataset.globalSearchScope;
+      renderGlobalSearchResults();
+    });
+  });
+  document.getElementById("global-search-jellyfin").addEventListener("click", () => {
+    state.globalSearch.jellyfinOnly = !state.globalSearch.jellyfinOnly;
+    renderGlobalSearchResults();
+  });
   document.getElementById("home-search-btn").addEventListener("click", homeSearch);
   document.getElementById("home-search-close").addEventListener("click", closeHomeSearch);
   document.getElementById("home-search-clear").addEventListener("click", closeHomeSearch);
   document.getElementById("home-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
-  });
-  document.getElementById("home-search").addEventListener("focus", () => {
-    renderSearchSuggestions("all", "home-search", "home-search-suggestions", homeSearch);
+    closeSearchSuggestions("home-search-suggestions", "home-search");
   });
   document.getElementById("home-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -127,7 +137,6 @@ async function initApp() {
         candidate.classList.toggle("is-active", active);
         candidate.setAttribute("aria-pressed", String(active));
       });
-      if (document.getElementById("home-search").value.trim()) homeSearch();
     });
   });
 
@@ -141,10 +150,7 @@ async function initApp() {
   });
   document.getElementById("fp-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
-  });
-  document.getElementById("fp-search").addEventListener("focus", () => {
-    renderSearchSuggestions("movie", "fp-search", "fp-search-suggestions", fpSearch);
+    closeSearchSuggestions("fp-search-suggestions", "fp-search");
   });
   document.getElementById("fp-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -260,10 +266,7 @@ async function initApp() {
   });
   document.getElementById("series-search").addEventListener("input", () => {
     syncSearchClearButtons();
-    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
-  });
-  document.getElementById("series-search").addEventListener("focus", () => {
-    renderSearchSuggestions("series", "series-search", "series-search-suggestions", seriesSearch);
+    closeSearchSuggestions("series-search-suggestions", "series-search");
   });
   document.getElementById("series-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

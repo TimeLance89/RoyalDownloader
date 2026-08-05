@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-3">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -38,7 +38,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16.5 16.5 4 4"></path></svg>
       </button>
       <input id="global-search-input" type="search" autocomplete="off"
-          placeholder="Titel, Personen, Genres" aria-label="Filme und Serien durchsuchen"
+          placeholder="Titel eingeben · Enter" aria-label="Filme, Serien und Anime durchsuchen"
           aria-controls="global-search-page" aria-expanded="false">
       <button id="global-search-clear" class="global-search-clear" type="button"
           aria-label="Suche schließen" hidden>×</button>
@@ -84,6 +84,13 @@
         <span class="global-search-kicker">ROYAL SUCHE</span>
         <h1 id="global-search-title">Suchergebnisse</h1>
         <p id="global-search-status" aria-live="polite">Titel, Personen oder Genres eingeben.</p>
+      </div>
+      <div class="global-search-filters" aria-label="Suchergebnisse filtern">
+        <button class="is-active" type="button" data-global-search-scope="all" aria-pressed="true">Alles</button>
+        <button type="button" data-global-search-scope="movie" aria-pressed="false">Filme</button>
+        <button type="button" data-global-search-scope="series" aria-pressed="false">Serien</button>
+        <button type="button" data-global-search-scope="anime" aria-pressed="false">Anime</button>
+        <button id="global-search-jellyfin" type="button" aria-pressed="false">✓ In Jellyfin</button>
       </div>
     </header>
     <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
@@ -1767,18 +1774,18 @@
 
 <script src="/api.js?v=royal-20260803-1"></script>
 <script src="/i18n.js"></script>
-<script src="/store.js?v=royal-20260801-1"></script>
+<script src="/store.js?v=royal-20260805-3"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260803-1"></script>
-<script src="/screens/home.js?v=royal-20260805-1"></script>
-<script src="/screens/movies.js?v=royal-20260805-1"></script>
-<script src="/screens/series.js?v=royal-20260805-1"></script>
-<script src="/screens/anime.js?v=royal-20260802-1"></script>
+<script src="/core.js?v=royal-20260805-3"></script>
+<script src="/screens/home.js?v=royal-20260805-3"></script>
+<script src="/screens/movies.js?v=royal-20260805-3"></script>
+<script src="/screens/series.js?v=royal-20260805-3"></script>
+<script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260802-1"></script>
 <script src="/screens/notifications.js?v=royal-20260802-1"></script>
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
 <script src="/screens/account.js?v=royal-20260802-2"></script>
 <script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260803-1"></script>
+<script src="/app.js?v=royal-20260805-3"></script>
 </body>
 </html>
