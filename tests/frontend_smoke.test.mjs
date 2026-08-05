@@ -14,6 +14,7 @@ const accountStyles = readFileSync(
 const appModulePaths = [
   "core.js",
   "screens/home.js",
+  "screens/mood.js",
   "screens/movies.js",
   "screens/series.js",
   "screens/anime.js",
@@ -63,7 +64,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-5/);
+  assert.match(html, /app\.js\?v=royal-20260805-6/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -104,7 +105,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-5/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260805-6/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -118,7 +119,20 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /function takeDistinctHomeLane\(entries, seen, limit, minimum = 4\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-4/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-5/);
+});
+
+test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
+  requiresIds("mood-modal", "mood-options", "mood-results", "mood-back", "mood-next");
+  assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);
+  assert.match(html, /id="home-program-mood"[^>]*data-mood-open/);
+  assert.match(app, /const MOOD_MATCH_STEPS = \[/);
+  assert.match(app, /Dunkel & brutal/);
+  assert.match(app, /Mit der Familie/);
+  assert.match(app, /function moodFamilyPool\(entries\)/);
+  assert.match(app, /function moodMatchResults\(answers\)/);
+  assert.match(app, /source: "mood-session"/);
+  assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
 });
 
 test("feature modules load in dependency order before bootstrap", () => {

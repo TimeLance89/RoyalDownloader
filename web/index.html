@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-4">
+<link rel="stylesheet" href="/style.css?v=royal-20260805-5">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -30,6 +30,9 @@
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
       <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
+      <button id="mood-nav-open" class="mood-nav-open" type="button" data-mood-open>
+        <span class="tab-icon" aria-hidden="true">✦</span><span>Abendmodus</span>
+      </button>
       <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
     </nav>
     <div id="global-search-shell" class="global-search-shell">
@@ -95,6 +98,38 @@
     </header>
     <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
   </section>
+
+  <div id="mood-modal" class="mood-modal hidden" role="dialog" aria-modal="true"
+      aria-labelledby="mood-title" aria-describedby="mood-copy">
+    <button class="mood-backdrop" type="button" data-mood-close aria-label="Abendmodus schließen"></button>
+    <section class="mood-panel">
+      <header class="mood-head">
+        <div class="mood-brand"><span aria-hidden="true">R</span><strong>ABENDMODUS</strong></div>
+        <button id="mood-close" class="mood-close" type="button" data-mood-close aria-label="Abendmodus schließen">×</button>
+      </header>
+      <div class="mood-progress" aria-hidden="true"><span id="mood-progress-bar"></span></div>
+      <div class="mood-stage">
+        <aside class="mood-atmosphere" aria-hidden="true">
+          <span id="mood-stage-number">01</span>
+          <strong id="mood-stage-word">JETZT</strong>
+        </aside>
+        <div class="mood-content">
+          <span id="mood-step-label" class="mood-step-label">1 von 4</span>
+          <h2 id="mood-title">Wie soll sich der Abend anfühlen?</h2>
+          <p id="mood-copy">Nicht was du sonst schaust – was du jetzt brauchst.</p>
+          <div id="mood-options" class="mood-options" role="group"></div>
+          <div id="mood-results" class="mood-results" hidden>
+            <div id="mood-result-summary" class="mood-result-summary"></div>
+            <div id="mood-result-grid" class="mood-result-grid"></div>
+          </div>
+          <footer class="mood-actions">
+            <button id="mood-back" class="mood-back" type="button">Zurück</button>
+            <button id="mood-next" class="mood-next" type="button" disabled>Weiter <span aria-hidden="true">→</span></button>
+          </footer>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
     <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
@@ -181,10 +216,16 @@
           <h2 id="home-program-title">Heute nicht das Übliche.</h2>
           <p id="home-program-note">Royal stellt dir jeden Tag neue Wege durch Filme und Serien zusammen.</p>
         </div>
-        <button id="home-discovery-shuffle" class="home-program-shuffle" type="button">
-          <span aria-hidden="true">↻</span>
-          Neu mischen
-        </button>
+        <div class="home-program-actions">
+          <button id="home-program-mood" class="home-program-mood" type="button" data-mood-open>
+            <span aria-hidden="true">✦</span>
+            Abendmodus
+          </button>
+          <button id="home-discovery-shuffle" class="home-program-shuffle" type="button">
+            <span aria-hidden="true">↻</span>
+            Neu mischen
+          </button>
+        </div>
       </section>
 
       <div class="home-rails" aria-live="polite">
@@ -1789,7 +1830,8 @@
 <script src="/store.js?v=royal-20260805-3"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260805-3"></script>
-<script src="/screens/home.js?v=royal-20260805-5"></script>
+<script src="/screens/home.js?v=royal-20260805-6"></script>
+<script src="/screens/mood.js?v=royal-20260805-1"></script>
 <script src="/screens/movies.js?v=royal-20260805-3"></script>
 <script src="/screens/series.js?v=royal-20260805-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
@@ -1798,6 +1840,6 @@
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
 <script src="/screens/account.js?v=royal-20260802-2"></script>
 <script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260805-5"></script>
+<script src="/app.js?v=royal-20260805-6"></script>
 </body>
 </html>

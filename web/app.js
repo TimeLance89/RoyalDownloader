@@ -11,7 +11,7 @@ async function initApp() {
   initSettingsNavigation();
   initCatalogInfiniteScroll();
 
-  document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+  document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
@@ -32,6 +32,15 @@ async function initApp() {
   });
   document.getElementById("home-hero-list").addEventListener("click", () => switchTab("bibliothek"));
   document.getElementById("home-discovery-shuffle").addEventListener("click", shuffleHomeDiscovery);
+  document.querySelectorAll("[data-mood-open]").forEach((button) => {
+    button.addEventListener("click", () => openMoodMatch(button));
+  });
+  document.querySelectorAll("[data-mood-close]").forEach((button) => {
+    button.addEventListener("click", () => closeMoodMatch());
+  });
+  document.getElementById("mood-back").addEventListener("click", moodMatchBack);
+  document.getElementById("mood-next").addEventListener("click", moodMatchNext);
+  document.getElementById("mood-modal").addEventListener("keydown", handleMoodMatchKeydown);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
     showHomeHero(state.home.heroIndex - 1, true);
     scheduleHomeHeroRotation();
