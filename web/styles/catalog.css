@@ -181,13 +181,16 @@
 }
 
 #tab-filme .genre-browser {
-  margin-top: -20px;
-  padding: 0 0 18px;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 0;
+  margin-top: -28px;
+  padding: 18px 0 22px;
+  background:
+    linear-gradient(90deg, rgba(229, 9, 20, .1), transparent 34%),
+    #101010;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
 }
+
+#tab-filme .genre-browser-summary { padding: 0 18px; }
 
 #tab-filme .genre-browser-title-row strong {
   color: #fff;
@@ -195,12 +198,19 @@
   letter-spacing: -.035em;
 }
 
-#tab-filme .genre-browser-kicker { display: none; }
+#tab-filme .genre-browser-kicker {
+  display: block;
+  margin-bottom: 7px;
+  color: #e50914;
+  font: 700 9px/1 "JetBrains Mono", monospace;
+  letter-spacing: .2em;
+}
 
 #tab-filme .genre-options {
-  gap: 6px;
-  max-height: 42px;
-  margin-top: 12px;
+  gap: 8px;
+  max-height: 66px;
+  margin-top: 16px;
+  padding: 0 18px 2px;
   overflow-x: auto;
   overflow-y: hidden;
   flex-wrap: nowrap;
@@ -211,21 +221,86 @@
 
 #tab-filme .genre-chip,
 #tab-filme .genre-action {
-  min-height: 32px;
+  min-height: 34px;
   flex: 0 0 auto;
-  padding: 7px 12px;
+  padding: 8px 12px;
   color: #bcbcbc;
   background: #232323;
   border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 5px;
+  border-radius: 6px;
   font-size: 9px;
+}
+
+#tab-filme .genre-chip {
+  --genre-tone: #999;
+  min-width: 156px;
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 13px 8px 9px;
+  text-align: left;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--genre-tone) 8%, #1d1d1d), #191919 70%);
+  transition: border-color .18s ease, transform .18s ease, background .18s ease;
+}
+
+#tab-filme .genre-chip[data-tone="ember"] { --genre-tone: #ff4d57; }
+#tab-filme .genre-chip[data-tone="tungsten"] { --genre-tone: #e7ad50; }
+#tab-filme .genre-chip[data-tone="cyan"] { --genre-tone: #58b9d1; }
+#tab-filme .genre-chip[data-tone="violet"] { --genre-tone: #9b82e3; }
+#tab-filme .genre-chip[data-tone="mint"] { --genre-tone: #65b995; }
+#tab-filme .genre-chip[data-tone="rose"] { --genre-tone: #dc7899; }
+
+#tab-filme .genre-chip-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--genre-tone);
+  background: color-mix(in srgb, var(--genre-tone) 12%, #111);
+  border: 1px solid color-mix(in srgb, var(--genre-tone) 35%, transparent);
+  border-radius: 50%;
+  font: 600 16px/1 "DM Sans", sans-serif;
+}
+
+#tab-filme .genre-chip-copy { min-width: 0; display: grid; gap: 4px; }
+#tab-filme .genre-chip-copy strong {
+  overflow: hidden;
+  color: #f5f5f5;
+  font: 700 12px/1 "Archivo", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tab-filme .genre-chip-copy small {
+  overflow: hidden;
+  color: #888;
+  font: 500 8px/1 "DM Sans", sans-serif;
+  letter-spacing: .035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tab-filme .genre-chip:hover,
+#tab-filme .genre-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--genre-tone) 52%, transparent);
+  transform: translateY(-2px);
 }
 
 #tab-filme .genre-chip.is-active {
   color: #fff;
-  background: #e50914;
+  background: linear-gradient(135deg, rgba(229, 9, 20, .24), #211416 74%);
   border-color: #e50914;
+  box-shadow: inset 3px 0 0 #e50914;
 }
+
+#tab-filme .genre-chip.is-active .genre-chip-mark {
+  color: #fff;
+  background: #e50914;
+  border-color: #ff5b64;
+}
+
+#tab-filme .genre-chip.is-active .genre-chip-copy small { color: #d5a9ac; }
 
 #tab-filme .movie-subscriptions,
 #tab-serien .series-subscriptions {
@@ -526,9 +601,15 @@
 
   #tab-filme .movie-feature-controls { bottom: 18px; }
 
-  #tab-filme .genre-browser { margin-top: 0; padding-top: 12px; }
+  #tab-filme .genre-browser { margin-top: 0; padding-top: 14px; }
 
   #tab-filme .genre-browser-summary { align-items: flex-start; }
+
+  #tab-filme .genre-browser-title-row strong { font-size: 21px; }
+
+  #tab-filme .genre-options { padding-right: 12px; padding-left: 12px; }
+
+  #tab-filme .genre-chip { min-width: 144px; }
 
   #tab-filme .movie-subscriptions,
   #tab-serien .series-subscriptions {

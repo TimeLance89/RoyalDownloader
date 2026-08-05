@@ -155,7 +155,9 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-5/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-6/);
+  assert.match(app, /function movieGenrePresentation\(genre\)/);
+  assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
 
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
@@ -299,7 +301,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260805-6/);
+  assert.match(html, /style\.css\?v=royal-20260805-7/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

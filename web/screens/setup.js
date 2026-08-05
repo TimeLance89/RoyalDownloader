@@ -332,12 +332,25 @@ async function refreshGenres() {
     button.remove();
   });
   for (const genre of genres) {
+    const [mark, mood, tone] = movieGenrePresentation(genre);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "genre-chip";
     button.dataset.genre = genre;
+    button.dataset.tone = tone;
     button.setAttribute("aria-pressed", "false");
-    button.textContent = genre;
+    const symbol = document.createElement("span");
+    symbol.className = "genre-chip-mark";
+    symbol.setAttribute("aria-hidden", "true");
+    symbol.textContent = mark;
+    const copy = document.createElement("span");
+    copy.className = "genre-chip-copy";
+    const title = document.createElement("strong");
+    title.textContent = genre;
+    const subtitle = document.createElement("small");
+    subtitle.textContent = mood;
+    copy.append(title, subtitle);
+    button.append(symbol, copy);
     filter.appendChild(button);
   }
   if (state.fp.activeGenre !== "Alle Genres" && !genres.includes(state.fp.activeGenre)) {
