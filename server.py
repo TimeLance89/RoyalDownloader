@@ -65,6 +65,7 @@ from downloader import (
     probe_stream_url, validate_media_file, cleanup_stale_staging,
     _sanitize as sanitize_filename,
 )
+from queue_jobs import HISTORY_LIMIT, new_job
 from session_manager import ProviderBlockedError, _cookie_file_for
 from hoster_intel import HosterIntel
 from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
@@ -224,6 +225,7 @@ from providers.filmfrei24 import (
     FilmFrei24Scraper,
     SOURCE_PREFIX as FILMFREI24_PREFIX,
 )
+from providers.filmo import FilmoScraper, SOURCE_PREFIX as FILMO_PREFIX
 from providers.moflix import MoflixScraper, SOURCE_PREFIX as MOFLIX_PREFIX
 from providers.huhu import (
     HuhuScraper,
@@ -343,7 +345,7 @@ PROVIDER_LABELS = {
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
 MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
+    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
 })
 MOVIE_LIST_CACHE_TTL = 300
 MOVIE_LIST_FAILURE_CACHE_TTL = 30

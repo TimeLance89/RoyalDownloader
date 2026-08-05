@@ -176,17 +176,38 @@ def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(
     order = migrated["movie_provider_priority"].split(",")
 
     assert order[:2] == ["filmpalast", "huhu"]
+    assert order[2] == "filmo"
     assert order[-1] == "filmfrei24"
     assert "huhu" in migrated["movie_provider_enabled"].split(",")
+    assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert writes == [{
-        "provider_catalog_revision": "3",
+        "provider_catalog_revision": "4",
         "movie_provider_priority": migrated["movie_provider_priority"],
         "movie_provider_enabled": migrated["movie_provider_enabled"],
     }]
 
 
+def test_filmo_migration_preserves_revision_three_user_choices(monkeypatch):
+    writes = []
+    monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
+    old = {
+        "provider_catalog_revision": "3",
+        "movie_provider_priority": "megakino,filmpalast,filmfrei24",
+        "movie_provider_enabled": "megakino,filmpalast",
+    }
+
+    migrated = config._migrate_provider_catalog(old)
+
+    assert migrated["movie_provider_priority"].split(",")[:2] == ["megakino", "filmpalast"]
+    assert "filmo" in migrated["movie_provider_priority"].split(",")
+    assert "filmo" in migrated["movie_provider_enabled"].split(",")
+    assert "huhu" not in migrated["movie_provider_enabled"].split(",")
+    assert writes[0]["provider_catalog_revision"] == "4"
+
+
 def test_new_install_movie_defaults_start_with_filmpalast_then_huhu():
     assert config.MOVIE_PROVIDER_DEFAULTS[:2] == ("filmpalast", "huhu")
+    assert config.MOVIE_PROVIDER_DEFAULTS[2] == "filmo"
     assert config.MOVIE_PROVIDER_DEFAULTS[-1] == "filmfrei24"
 
 

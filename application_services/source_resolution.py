@@ -612,6 +612,19 @@ def _enqueue_hoster_attempt(
     stream_url, stream_type = result.stream_info
     hoster_used = result.hoster_used
     label = f"{movie.title}  ({hoster_used})"
+    logical_job = _ensure_queue_job(movie_slug, movie)
+    _update_queue_job(
+        movie_slug,
+        status="queued",
+        title=movie.title,
+        provider=result.provider or _movie_provider(movie, movie_slug),
+        hoster=hoster_used,
+        quality=result.quality,
+        content_language=(
+            result.content_language
+            or _movie_content_language(movie, fallback=movie_slug)
+        ),
+    )
     log(f"  Stream bereit ({hoster_used}): {stream_url[:60]}…")
 
     def _attempt_done(ok: bool, msg: str):
@@ -695,7 +708,10 @@ def _enqueue_hoster_attempt(
         if result.source_hoster_url:
             failed_hoster_urls.add(result.source_hoster_url)
         log(f"  {hoster_used}-Download fehlgeschlagen – versuche nächsten Anbieter", "warn")
-        on_job_progress(-1, f"{hoster_used} ausgefallen · wechsle Anbieter …", label)
+        on_job_progress(
+            -1, f"{hoster_used} ausgefallen · wechsle Anbieter …", label,
+            slug=movie_slug, job_id=logical_job["job_id"],
+        )
 
         with state.hoster_extract_lock:
             next_result = _extract_from_movie(
@@ -722,7 +738,10 @@ def _enqueue_hoster_attempt(
         ep_info = parse_episode_slug(movie_slug)
         if not source_fallbacks_loaded[0]:
             source_fallbacks_loaded[0] = True
-            on_job_progress(-1, "Hoster erschöpft · suche alternative Quellen …", label)
+            on_job_progress(
+                -1, "Hoster erschöpft · suche alternative Quellen …", label,
+                slug=movie_slug, job_id=logical_job["job_id"],
+            )
             if ep_info:
                 series_title = strip_episode_suffix(source_movies[0].title) or source_movies[0].title
                 tried_providers = {
@@ -770,7 +789,10 @@ def _enqueue_hoster_attempt(
 
         if ep_info and gate_seen[0] and gate_retry and gate_retry():
             log("  serienstream-Captcha aktiv – Episode nach Cooldown erneut versuchen.", "warn")
-            on_job_progress(-1, "Captcha-Cooldown · Wiederholung vorgemerkt …", label)
+            on_job_progress(
+                -1, "Captcha-Cooldown · Wiederholung vorgemerkt …", label,
+                slug=movie_slug, job_id=logical_job["job_id"],
+            )
             return
 
         if slow_candidates:
@@ -788,6 +810,8 @@ def _enqueue_hoster_attempt(
                 -1,
                 f"Keine schnellere Quelle · nutze {reserve_label} als Reserve …",
                 label,
+                slug=movie_slug,
+                job_id=logical_job["job_id"],
             )
             if _enqueue_hoster_attempt(
                 reserve_movie,
@@ -816,6 +840,18 @@ def _enqueue_hoster_attempt(
         final_msg = "; ".join(attempt_errors + [reason])
         on_job_done(False, final_msg, label, out_path, slug=movie_slug)
 
+    def _download_started():
+        current = _queue_job_for_slug(movie_slug) or logical_job
+        _update_queue_job(
+            movie_slug,
+            status="downloading",
+            started_at=current.get("started_at") or time.time(),
+            attempts=int(current.get("attempts") or 0) + 1,
+            provider=result.provider or _movie_provider(movie, movie_slug),
+            hoster=hoster_used,
+            quality=result.quality,
+        )
+
     job = DownloadJob(
         stream_url=stream_url,
         stream_type=stream_type,
@@ -828,8 +864,20 @@ def _enqueue_hoster_attempt(
         ),
         referer=result.referer,
         origin=result.origin,
-        on_progress=lambda pct, msg: on_job_progress(pct, msg, label),
+        on_progress=lambda pct, msg: on_job_progress(
+            pct,
+            msg,
+            label,
+            slug=movie_slug,
+            job_id=logical_job["job_id"],
+            downloaded_bytes=job.downloaded_bytes,
+            total_bytes=job.total_bytes,
+            speed_bps=job.average_speed_bps,
+            eta_seconds=job.eta_seconds,
+        ),
         on_done=_attempt_done,
+        on_start=_download_started,
+        job_id=logical_job["job_id"],
         allow_slow=last_resort,
         queue_priority=0 if not parse_episode_slug(movie_slug) else 100,
     )

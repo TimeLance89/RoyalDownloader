@@ -112,9 +112,13 @@ let watchlistSnapshotGeneration = 0;
 async function syncQueueSnapshot(context = "Queue-Synchronisierung", shouldApply = null) {
   const snapshotGeneration = ++queueSnapshotGeneration;
   try {
-    const response = await api.queueGet();
+    const [response, history] = await Promise.all([
+      api.queueGet(),
+      api.queueHistory(),
+    ]);
     if (snapshotGeneration !== queueSnapshotGeneration || (shouldApply && !shouldApply())) return false;
     renderQueue(response.queue);
+    renderQueueHistory(history.jobs || []);
     return true;
   } catch (error) {
     console.warn(`${context} fehlgeschlagen:`, error);
@@ -203,6 +207,7 @@ function connectWs() {
       const position = state.download.total
         ? `Datei ${Math.min(state.download.completed + 1, state.download.total)}/${state.download.total} · ` : "";
       setDownloadState("active", data.label || "Download läuft", `${position}${(data.msg || "").slice(0, 70)}`, overallPercent);
+      if (data.job_id) updateQueueJobProgress(data.job_id, data.job || data);
     } else if (data.type === "updater_install") {
       applyUpdaterInstallStatus(data.installer || {});
     } else if (data.type === "updater_config") {
@@ -302,81 +307,96 @@ function renderQueue(payload) {
   showPersistenceWarning("Downloadplan", payload.persistence);
   renderSerienstreamHealth(payload.providers?.serienstream || {});
   state.queuedSlugs = new Set();
-  for (const g of payload.groups) for (const it of g.items) state.queuedSlugs.add(it.slug);
+  for (const group of payload.groups) for (const item of group.items) state.queuedSlugs.add(item.slug);
   syncSeriesQueueFlags();
   syncAnimeQueueFlags();
 
   const count = Number(payload.count) || 0;
-  document.getElementById("queue-count").textContent =
-    `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;
+  document.getElementById("queue-count").textContent = `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;
   document.getElementById("mobile-queue-count").textContent = String(count);
   document.getElementById("queue-dock").classList.toggle("has-items", count > 0);
-
   const list = document.getElementById("queue-list");
   list.innerHTML = "";
   if (!payload.groups.length) {
     list.innerHTML = `<div class="queue-empty"><strong>Der Downloadplan ist leer</strong><span>Filme oder Episoden erscheinen hier, sobald du sie hinzufügst.</span></div>`;
-    syncFpQueueIndicators();
-    return;
   }
 
   let queuePosition = 0;
-  for (const g of payload.groups) {
-    const gEl = document.createElement("div");
-    gEl.className = "queue-group";
-    gEl.translate = false;
-    gEl.textContent = `${g.name}  (${g.items.length})`;
-    list.appendChild(gEl);
-    for (const it of g.items) {
+  for (const group of payload.groups) {
+    const heading = document.createElement("div");
+    heading.className = "queue-group";
+    heading.translate = false;
+    heading.textContent = `${group.name}  (${group.items.length})`;
+    list.appendChild(heading);
+    for (const item of group.items) {
       queuePosition += 1;
       const row = document.createElement("div");
-      row.className = "queue-item" + (it.done ? " done" : "");
+      row.className = "queue-item" + (item.done ? " done" : "");
+      row.dataset.jobId = item.job_id || "";
       const position = document.createElement("span");
       position.className = "queue-position";
       position.textContent = String(queuePosition).padStart(2, "0");
       const content = document.createElement("span");
       content.className = "queue-item-content";
-      const label = document.createElement("strong");
-      label.className = "queue-item-title";
-      label.translate = false;
-      label.textContent = it.title;
+      const title = document.createElement("strong");
+      title.className = "queue-item-title";
+      title.translate = false;
+      title.textContent = item.title;
       const route = document.createElement("span");
       route.className = "queue-item-route";
       route.translate = false;
-      const language = String(it.content_language || "").toUpperCase();
-      route.textContent = [language, it.hoster_label].filter(Boolean).join(" · ");
-      content.append(label, route);
+      const language = String(item.content_language || "").toUpperCase();
+      route.textContent = [language, item.provider, item.hoster || item.hoster_label].filter(Boolean).join(" · ");
+      const metrics = document.createElement("span");
+      metrics.className = "queue-item-metrics";
+      metrics.textContent = queueJobMetrics(item);
+      const progress = document.createElement("span");
+      progress.className = "queue-item-progress";
+      const progressFill = document.createElement("i");
+      progressFill.style.width = `${Math.max(0, Math.min(100, Number(item.progress) || 0))}%`;
+      progress.appendChild(progressFill);
+      content.append(title, route, metrics, progress);
+
       const status = document.createElement("span");
       status.className = "queue-item-status";
-      status.textContent = it.done
-        ? "Fertig"
-        : (it.status === "downloading"
-          ? "Lädt"
-          : (it.status === "download_ready"
-            ? "Download bereit"
-          : (it.status === "waiting_provider"
-          ? "Provider-Pause"
-          : (it.status === "checking_fallback"
-            ? "Prüft Ersatz"
-            : (it.status === "preparing_source"
-              ? "Prüft Quelle"
-              : (it.status === "queued_fallback" ? "Fallback vorgemerkt" : "Wartet"))))));
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "remove-btn";
-      removeBtn.type = "button";
-      removeBtn.textContent = "✕";
-      removeBtn.setAttribute("aria-label", `${it.title} aus der Queue entfernen`);
-      removeBtn.addEventListener("click", async () => {
-        removeBtn.disabled = true;
-        try {
-          const resp = await api.queueRemove(it.slug);
-          renderQueue(resp.queue);
-        } catch (error) {
-          console.warn("Queue-Eintrag konnte nicht entfernt werden:", error);
-          removeBtn.disabled = false;
-        }
-      });
-      row.append(position, content, status, removeBtn);
+      const statusLabels = {
+        queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Provider-Pause",
+        downloading: "Lädt", paused: "Pausiert",
+      };
+      status.textContent = statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
+      const actions = document.createElement("span");
+      actions.className = "queue-item-actions";
+      const addAction = (text, label, handler) => {
+        const button = document.createElement("button");
+        button.className = "queue-action-btn";
+        button.type = "button";
+        button.textContent = text;
+        button.setAttribute("aria-label", label);
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const response = await handler();
+            if (response.queue) renderQueue(response.queue);
+            const history = await api.queueHistory();
+            renderQueueHistory(history.jobs || []);
+          } catch (error) {
+            console.warn("Queue-Aktion fehlgeschlagen:", error);
+            button.disabled = false;
+          }
+        });
+        actions.appendChild(button);
+      };
+      if (item.job_id && item.job_status !== "downloading") {
+        addAction("↑", `${item.title} nach oben`, () => api.queueJobMove(item.job_id, "up"));
+        addAction("↓", `${item.title} nach unten`, () => api.queueJobMove(item.job_id, "down"));
+      }
+      if (item.job_id && item.job_status === "waiting_provider") {
+        addAction("▶", `${item.title} fortsetzen`, () => api.queueJobResume(item.job_id));
+      }
+      addAction("✕", `${item.title} abbrechen`, () => (
+        item.job_id ? api.queueJobCancel(item.job_id) : api.queueRemove(item.slug)
+      ));
+      row.append(position, content, status, actions);
       list.appendChild(row);
     }
   }
@@ -391,31 +411,92 @@ function renderQueue(payload) {
   const hasLiveProgress = downloadStage?.dataset.state === "active"
     && document.getElementById("dl-state-title")?.textContent !== "Bereit";
   if (activeDownloads && !hasLiveProgress) {
-    setDownloadState(
-      "active",
-      activeDownloads === 1 ? "Download läuft" : `${activeDownloads} Downloads laufen`,
-      pendingDownloads
-        ? `${pendingDownloads} weiterer Download ist bereit`
-        : "Stream geladen · Download aktiv",
-      state.download.percent,
-    );
+    setDownloadState("active", activeDownloads === 1 ? "Download läuft" : `${activeDownloads} Downloads laufen`,
+      pendingDownloads ? `${pendingDownloads} weiterer Download ist bereit` : "Stream geladen · Download aktiv",
+      state.download.percent);
   } else if (!activeDownloads && activePreparations) {
-    const serienstreamPaused = ["cooldown", "probing", "blocked"].includes(
-      payload.providers?.serienstream?.state,
-    );
-    setDownloadState(
-      "active",
-      serienstreamPaused ? "Ersatzquelle wird gesucht" : "Quelle wird geprüft",
-      `${activePreparations} aktiv · ${pendingPreparations} Folgen vorgemerkt`,
-      state.download.percent,
-    );
+    const paused = ["cooldown", "probing", "blocked"].includes(payload.providers?.serienstream?.state);
+    setDownloadState("active", paused ? "Ersatzquelle wird gesucht" : "Quelle wird geprüft",
+      `${activePreparations} aktiv · ${pendingPreparations} Folgen vorgemerkt`, state.download.percent);
   } else if (!activeDownloads && !activePreparations && pendingPreparations) {
-    setDownloadState(
-      "active",
-      "Fallback-Warteschlange läuft",
-      `${pendingPreparations} Folgen werden nacheinander geprüft`,
-      state.download.percent,
-    );
+    setDownloadState("active", "Fallback-Warteschlange läuft",
+      `${pendingPreparations} Folgen werden nacheinander geprüft`, state.download.percent);
+  }
+}
+
+function formatQueueBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (!bytes) return "";
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${Math.round(bytes / 1024)} KiB`;
+}
+
+function queueJobMetrics(job) {
+  const parts = [];
+  const downloaded = formatQueueBytes(job.downloaded_bytes);
+  const total = formatQueueBytes(job.total_bytes);
+  if (downloaded) parts.push(total ? `${downloaded} / ${total}` : downloaded);
+  const speed = formatQueueBytes(job.speed_bps);
+  if (speed) parts.push(`${speed}/s`);
+  const eta = Number(job.eta_seconds);
+  if (Number.isFinite(eta) && eta > 0) parts.push(`ETA ${Math.ceil(eta / 60)} Min.`);
+  return parts.join(" · ");
+}
+
+function updateQueueJobProgress(jobId, job) {
+  const row = [...document.querySelectorAll(".queue-item")]
+    .find((item) => item.dataset.jobId === String(jobId));
+  if (!row) return;
+  const fill = row.querySelector(".queue-item-progress i");
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, Number(job.progress ?? job.pct) || 0))}%`;
+  const metrics = row.querySelector(".queue-item-metrics");
+  if (metrics) metrics.textContent = queueJobMetrics(job);
+  const status = row.querySelector(".queue-item-status");
+  if (status) status.textContent = "Lädt";
+}
+
+function renderQueueHistory(jobs) {
+  const list = document.getElementById("queue-history-list");
+  const count = document.getElementById("queue-history-count");
+  if (!list || !count) return;
+  count.textContent = String(jobs.length);
+  list.innerHTML = "";
+  if (!jobs.length) {
+    list.innerHTML = '<div class="queue-empty">Noch keine abgeschlossenen Downloads.</div>';
+    return;
+  }
+  for (const job of jobs) {
+    const row = document.createElement("div");
+    row.className = `queue-history-item status-${job.status}`;
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = job.title || job.slug;
+    const detail = document.createElement("small");
+    const statusLabel = { completed: "Abgeschlossen", failed: "Fehlgeschlagen", cancelled: "Abgebrochen" }[job.status] || job.status;
+    detail.textContent = [statusLabel, job.error, job.final_path].filter(Boolean).join(" · ");
+    copy.append(title, detail);
+    row.appendChild(copy);
+    if (["failed", "cancelled"].includes(job.status)) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "queue-action-btn queue-retry-btn";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", async () => {
+        retry.disabled = true;
+        try {
+          const response = await api.queueJobRetry(job.job_id);
+          renderQueue(response.queue);
+          const history = await api.queueHistory();
+          renderQueueHistory(history.jobs || []);
+        } catch (error) {
+          console.warn("Retry fehlgeschlagen:", error);
+          retry.disabled = false;
+        }
+      });
+      row.appendChild(retry);
+    }
+    list.appendChild(row);
   }
 }
 
@@ -602,6 +683,9 @@ function handleMediaModalKeydown(event) {
 
 function refreshQueueUiAfterChange(resp) {
   renderQueue(resp.queue);
+  api.queueHistory()
+    .then((history) => renderQueueHistory(history.jobs || []))
+    .catch((error) => console.warn("Downloadhistorie konnte nicht aktualisiert werden:", error));
   if (resp.auto_started) {
     state.download.completed = resp.done_jobs;
     state.download.total = resp.total_jobs;

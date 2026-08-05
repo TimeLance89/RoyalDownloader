@@ -12,12 +12,16 @@ from pathlib import Path
 
 from runtime_release import (
     activate_release,
+    prune_releases,
     read_release_link,
     releases_dir,
     rollback_release,
 )
 
-SKIP_NAMES = {".git", "data", "downloads", "debug", "runtime", "releases", "current", "previous"}
+SKIP_NAMES = {
+    ".git", ".downloading", "#recycle", "__pycache__", "data", "downloads",
+    "debug", "runtime", "releases", "current", "previous",
+}
 
 
 def _copy_source(source_root: Path, destination: Path) -> None:
@@ -124,6 +128,10 @@ def main() -> None:
     if "--rollback" in sys.argv:
         rollback_release(runtime_root)
     release = _initial_release(bundle, runtime_root)
+    try:
+        prune_releases(runtime_root)
+    except OSError:
+        pass
     os.environ["APP_ACTIVE_RELEASE"] = str(release)
     os.environ["APP_BASE_PYTHON"] = sys.executable
     os.environ["APP_BOOTSTRAP_PATH"] = str(bundle / "docker_bootstrap.py")

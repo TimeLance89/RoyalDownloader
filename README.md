@@ -195,7 +195,8 @@ The updater builds each revision in a staged release with its own Python
 environment, runs compile/import smoke tests, and atomically switches the
 `runtime/current` link only after success. `runtime/previous` keeps the complete
 source and dependency set for rollback. It preserves `data`, `.env`, media
-folders, and persistent settings.
+folders, and persistent settings. Unreferenced older releases are removed
+automatically; the active and rollback releases remain available.
 
 Keep `.env`, `data/`, and private logs out of GitHub issues. They may contain
 passwords, API keys, cookies, private addresses, chat IDs, and media paths.
@@ -210,6 +211,7 @@ passwords, API keys, cookies, private addresses, chat IDs, and media paths.
 | Stable/Overnight channels, safe switching, and promotion | [docs/UPDATE_CHANNELS.md](docs/UPDATE_CHANNELS.md) |
 | Native Android clients | The app source is maintained separately; use the documented API contract below. |
 | Android API, compatibility, authentication, and WebSocket contract | [docs/ANDROID_API.md](docs/ANDROID_API.md) |
+| Persistent queue jobs, history, migration, and job controls | [docs/QUEUE_JOBS.md](docs/QUEUE_JOBS.md) |
 | Jellyfin recommendation collection | [docs/JELLYFIN_RECOMMENDER.md](docs/JELLYFIN_RECOMMENDER.md) |
 | Personalization signals, scoring, privacy, and API | [docs/PERSONALIZATION.md](docs/PERSONALIZATION.md) |
 | Migration from the previous repository name | [docs/REPOSITORY_RENAME.md](docs/REPOSITORY_RENAME.md) |

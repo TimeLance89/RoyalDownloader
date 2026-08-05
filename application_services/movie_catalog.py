@@ -200,6 +200,8 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     provider = provider_for_value(slug)
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith(FILMO_PREFIX):
+        movie = FilmoScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SERIENSTREAM_PREFIX):
         if not state.provider_health.request_allowed("serienstream"):
             raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
@@ -258,6 +260,7 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
 
     searches = {
         "filmfrei24": lambda: FilmFrei24Scraper(progress_cb=log).search(q),
+        "filmo": lambda: FilmoScraper(progress_cb=log).search(q),
         "filmpalast": _fp,
         "huhu": _huhu,
         "moflix": lambda: MoflixScraper(progress_cb=log).search(q),
@@ -529,6 +532,7 @@ def _fetch_movie_provider_page(
 
     scraper_classes = {
         "filmfrei24": FilmFrei24Scraper,
+        "filmo": FilmoScraper,
         "moflix": MoflixScraper,
         "einschalten": EinschaltenScraper,
         "kinox": KinoxScraper,
@@ -606,6 +610,7 @@ def _load_movie_provider_pages(
 def _movie_provider_genres(provider: str) -> set:
     return {
         "filmfrei24": state.filmfrei24_provider_genres,
+        "filmo": state.filmo_provider_genres,
         "filmpalast": state.fp_provider_genres,
         "huhu": state.huhu_provider_genres,
         "moflix": state.moflix_provider_genres,

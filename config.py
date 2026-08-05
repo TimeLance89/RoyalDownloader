@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from runtime_paths import data_dir, in_container, persistent_container_path
+from queue_jobs import atomic_save as atomic_save_queue_jobs
+from queue_jobs import load_document as load_queue_document
+from queue_jobs import new_job, normalize_document
 from update_channels import (
     DEFAULT_UPDATE_CHANNEL,
     UPDATE_CHANNELS,
@@ -99,7 +102,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 3
+PROVIDER_CATALOG_REVISION = 4
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -395,7 +398,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
 
     updates = {"provider_catalog_revision": str(PROVIDER_CATALOG_REVISION)}
     movie_priority_raw = values.get("movie_provider_priority")
-    if movie_priority_raw is not None:
+    if movie_priority_raw is not None and revision < 3:
         movie_order = normalize_provider_order(
             movie_priority_raw, MOVIE_PROVIDER_DEFAULTS,
         )
@@ -411,7 +414,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
         updates["movie_provider_priority"] = ",".join(movie_order)
 
     movie_enabled_raw = values.get("movie_provider_enabled")
-    if movie_enabled_raw is not None:
+    if movie_enabled_raw is not None and revision < 3:
         movie_enabled = normalize_provider_selection(
             movie_enabled_raw, MOVIE_PROVIDER_DEFAULTS,
         )
@@ -420,7 +423,7 @@ def _migrate_provider_catalog(values: dict) -> dict:
             updates["movie_provider_enabled"] = ",".join(movie_enabled)
 
     priority_raw = values.get("series_provider_priority")
-    if priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+    if revision < 3 and priority_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
         requested = {
             item.strip().casefold()
             for item in str(priority_raw).split(",")
@@ -433,11 +436,38 @@ def _migrate_provider_catalog(values: dict) -> dict:
             updates["series_provider_priority"] = ",".join(order)
 
     enabled_raw = values.get("series_provider_enabled")
-    if enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
+    if revision < 3 and enabled_raw is not None and "huhu" in SERIES_PROVIDER_DEFAULTS:
         enabled = normalize_provider_selection(enabled_raw, SERIES_PROVIDER_DEFAULTS)
         if "huhu" not in enabled:
             enabled.append("huhu")
             updates["series_provider_enabled"] = ",".join(enabled)
+
+    # Revision 4: Filmo wird bei bestehenden Installationen einmalig an seiner
+    # Standardposition aktiviert, ohne eine spätere Benutzerauswahl zu ändern.
+    if movie_priority_raw is not None and revision < 4:
+        requested = {
+            item.strip().casefold()
+            for item in str(movie_priority_raw).split(",")
+            if item.strip()
+        }
+        if "filmo" not in requested:
+            movie_order = normalize_provider_order(
+                updates.get("movie_provider_priority", movie_priority_raw),
+                MOVIE_PROVIDER_DEFAULTS,
+            )
+            movie_order.remove("filmo")
+            position = min(MOVIE_PROVIDER_DEFAULTS.index("filmo"), len(movie_order))
+            movie_order.insert(position, "filmo")
+            updates["movie_provider_priority"] = ",".join(movie_order)
+
+    if movie_enabled_raw is not None and revision < 4:
+        movie_enabled = normalize_provider_selection(
+            updates.get("movie_provider_enabled", movie_enabled_raw),
+            MOVIE_PROVIDER_DEFAULTS,
+        )
+        if "filmo" not in movie_enabled:
+            movie_enabled.append("filmo")
+            updates["movie_provider_enabled"] = ",".join(movie_enabled)
 
     _update_all(updates)
     return {**values, **updates}
@@ -1089,42 +1119,50 @@ def save_movie_subscriptions(entries: List[dict]) -> bool:
             return False
 
 
-def load_queue() -> List[str]:
+def load_queue_state() -> tuple[dict, bool]:
+    """Load the complete queue document and report whether migration is due."""
     path = _queue_file()
     if not path.exists():
-        return []
+        return normalize_document(None)
     with _config_lock:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, list):
-                return []
-            return list(dict.fromkeys(slug for slug in data if isinstance(slug, str) and slug.strip()))
+            return load_queue_document(path)
         except Exception as exc:
             logger.warning("Download-Queue nicht lesbar (%s): %s", path, exc)
-            return []
+            return normalize_document(None)
 
 
-def save_queue(slugs) -> bool:
-    cfg_dir = _config_dir()
+def load_queue() -> List[str]:
+    """Legacy compatibility view returning only active media slugs."""
+    document, _migrated = load_queue_state()
+    return [job["slug"] for job in document["jobs"]]
+
+
+def save_queue_state(document: dict) -> bool:
+    """Atomically persist active jobs and retained terminal history."""
     path = _queue_file()
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     with _config_lock:
         try:
-            cfg_dir.mkdir(parents=True, exist_ok=True)
-            payload = json.dumps(sorted(set(str(slug) for slug in slugs if slug)), ensure_ascii=False, indent=2)
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(payload)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, path)
+            if path.exists():
+                current, _migrated = load_queue_document(path)
+                if int(current.get("revision") or 0) > int(document.get("revision") or 0):
+                    return True
+            atomic_save_queue_jobs(path, document)
             return True
         except Exception as exc:
             logger.warning("Download-Queue konnte nicht gespeichert werden: %s", exc)
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
             return False
+
+
+def save_queue(slugs) -> bool:
+    """Persist the legacy slug view without discarding job IDs or history."""
+    if isinstance(slugs, dict):
+        return save_queue_state(slugs)
+    document, _migrated = load_queue_state()
+    wanted = list(dict.fromkeys(str(slug) for slug in slugs if slug))
+    existing = {job["slug"]: job for job in document["jobs"]}
+    document["jobs"] = [existing.get(slug) or new_job(slug) for slug in wanted]
+    return save_queue_state(document)
 
 
 def load_seerr_requests() -> dict:

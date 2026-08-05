@@ -2,13 +2,13 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Royal Downloader</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260802-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260803-1">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -1236,6 +1236,10 @@
               <button id="serienstream-retry" class="btn btn-ghost btn-sm" type="button">Jetzt einmal testen</button>
             </div>
             <div id="queue-list" class="queue-list"></div>
+            <details class="queue-history-panel">
+              <summary>Downloadhistorie <span id="queue-history-count">0</span></summary>
+              <div id="queue-history-list" class="queue-history-list"></div>
+            </details>
             <div class="download-actions queue-drawer-actions">
               <button id="queue-clear" class="btn btn-ghost">Queue leeren</button>
               <button id="cancel-btn" class="btn btn-ghost" disabled>Aktiven Download abbrechen</button>
@@ -1752,11 +1756,11 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260802-1"></script>
+<script src="/api.js?v=royal-20260803-1"></script>
 <script src="/i18n.js"></script>
 <script src="/store.js?v=royal-20260801-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260802-1"></script>
+<script src="/core.js?v=royal-20260803-1"></script>
 <script src="/screens/home.js?v=royal-20260802-2"></script>
 <script src="/screens/movies.js?v=royal-20260802-1"></script>
 <script src="/screens/series.js?v=royal-20260802-1"></script>
@@ -1766,6 +1770,6 @@
 <script src="/screens/settings.js?v=royal-20260802-1"></script>
 <script src="/screens/account.js?v=royal-20260802-2"></script>
 <script src="/screens/setup.js?v=royal-20260802-1"></script>
-<script src="/app.js?v=royal-20260802-2"></script>
+<script src="/app.js?v=royal-20260803-1"></script>
 </body>
 </html>

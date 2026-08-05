@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-No unreleased changes.
+- Introduce persistent logical download jobs with stable `job_id` values,
+  atomic queue/history snapshots, restart recovery, per-job REST controls, and
+  additive WebSocket job identity while retaining all slug-based contracts.
+- Retain the latest 500 completed, failed, or cancelled jobs and expose
+  progress, bytes, speed, ETA, retry, cancellation, and ordering in the web UI.
+- Fix the mobile bottom navigation so it spans the viewport, respects device
+  safe areas, and distributes all currently visible tabs evenly without a
+  five-column wrap conflict.
 
 ## v1.0.0-rc.2 – 2026-08-02
 

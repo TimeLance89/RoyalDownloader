@@ -1,10 +1,17 @@
 from pathlib import Path
+import os
 
 import pytest
 
 import docker_bootstrap
 import runtime_release
 from self_updater import SelfUpdater
+
+
+requires_directory_symlinks = pytest.mark.skipif(
+    os.name == "nt",
+    reason="versioned Docker runtime uses POSIX directory symlinks",
+)
 
 
 def _release(root: Path, name: str, dependency: str) -> Path:
@@ -15,6 +22,7 @@ def _release(root: Path, name: str, dependency: str) -> Path:
     return release
 
 
+@requires_directory_symlinks
 def test_atomic_activation_and_complete_rollback(tmp_path):
     old = _release(tmp_path, "old", "v1")
     new = _release(tmp_path, "new", "v2")
@@ -29,6 +37,32 @@ def test_atomic_activation_and_complete_rollback(tmp_path):
     assert runtime_release.read_release_link(tmp_path, "previous") == new
 
 
+def test_prune_releases_keeps_active_and_previous(monkeypatch, tmp_path):
+    old = _release(tmp_path, "old", "v1")
+    current = _release(tmp_path, "current-build", "v2")
+    stale = _release(tmp_path, "stale", "v0")
+    monkeypatch.setattr(
+        runtime_release,
+        "read_release_link",
+        lambda _root, name: current if name == "current" else old if name == "previous" else None,
+    )
+
+    assert runtime_release.prune_releases(tmp_path) == [stale]
+    assert old.is_dir() and current.is_dir()
+    assert not stale.exists()
+
+
+def test_prune_releases_dry_run_does_not_delete(tmp_path):
+    for name in ("one", "two", "three"):
+        _release(tmp_path, name, name)
+
+    removed = runtime_release.prune_releases(tmp_path, dry_run=True)
+
+    assert len(removed) == 1
+    assert all((runtime_release.releases_dir(tmp_path) / name).exists() for name in ("one", "two", "three"))
+
+
+@requires_directory_symlinks
 def test_interrupted_link_replace_keeps_old_runtime(monkeypatch, tmp_path):
     old = _release(tmp_path, "old", "v1")
     new = _release(tmp_path, "new", "v2")
@@ -46,6 +80,7 @@ def test_interrupted_link_replace_keeps_old_runtime(monkeypatch, tmp_path):
     assert runtime_release.read_release_link(tmp_path, "current") == old
 
 
+@requires_directory_symlinks
 def test_failed_staged_smoke_never_changes_current(monkeypatch, tmp_path):
     old = _release(tmp_path, "old", "v1")
     runtime_release.activate_release(tmp_path, old)
@@ -74,6 +109,7 @@ def test_failed_staged_smoke_never_changes_current(monkeypatch, tmp_path):
     assert not (runtime_release.releases_dir(tmp_path) / ("a" * 12)).exists()
 
 
+@requires_directory_symlinks
 def test_verified_staged_release_is_activated_once(monkeypatch, tmp_path):
     old = _release(tmp_path, "old", "v1")
     runtime_release.activate_release(tmp_path, old)
@@ -114,3 +150,19 @@ def test_unmarked_bundle_identity_changes_with_source(tmp_path):
     (source / "data").mkdir()
     (source / "data/state.json").write_text("changed", encoding="utf-8")
     assert docker_bootstrap._source_identity(source) == second
+
+
+def test_legacy_runtime_copy_skips_transient_content(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "release"
+    source.mkdir()
+    (source / "server.py").write_text("# server\n", encoding="utf-8")
+    for name in (".downloading", "#recycle", "__pycache__"):
+        folder = source / name
+        folder.mkdir()
+        (folder / "generated-file").write_text("not source", encoding="utf-8")
+
+    docker_bootstrap._copy_source(source, destination)
+
+    assert (destination / "server.py").is_file()
+    assert all(not (destination / name).exists() for name in (".downloading", "#recycle", "__pycache__"))

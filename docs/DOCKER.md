@@ -371,6 +371,10 @@ emergency command `docker compose run --rm seriendownloader python
 /opt/seriendownloader/docker_bootstrap.py --rollback`) switches back without
 rebuilding an image.
 
+After a successful update, unreferenced older releases are removed
+automatically. The active `current` and rollback `previous` releases are always
+retained.
+
 Mounted-folder deployments use `start.sh` to migrate their persistent source
 directory into `runtime/releases`. The install button remains disabled when the
 active application directory is not persistent.

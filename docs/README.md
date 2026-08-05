@@ -6,6 +6,7 @@
 |---|---|
 | [Changelog](../CHANGELOG.md) | Consolidated user-visible feature and behavior changes |
 | [Android and mobile API](ANDROID_API.md) | Legacy contract, additive API v1, authentication, and WebSocket events |
+| [Persistent queue jobs](QUEUE_JOBS.md) | Stable IDs, history, migration, controls, and persistence guarantees |
 | [Docker and NAS operation](DOCKER.md) | Installation, volumes, environment variables, updates, and integrations |
 | [Release operations](RELEASE.md) | Version-pinned installation, upgrade, backup, health verification, and rollback |
 | [Update channels](UPDATE_CHANNELS.md) | Stable/Overnight selection, safe switching, and promotion to main |
