@@ -17,6 +17,9 @@
   <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white">
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
   <img alt="Jellyfin" src="https://img.shields.io/badge/Jellyfin-Integration-00A4DC?logo=jellyfin&logoColor=white">
+  <a href="LICENSE">
+    <img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg">
+  </a>
 </p>
 
 <p align="center">
@@ -323,6 +326,16 @@ all private data from logs and screenshots.
 
 For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a
 public issue.
+
+## License
+
+RoyalDownloader is open-source software licensed under the
+[Apache License 2.0](LICENSE).
+
+See [NOTICE](NOTICE) for copyright and attribution information.
+
+Third-party libraries, services, trademarks, provider content, and media
+metadata remain subject to their respective licenses and terms.
 
 <p align="center">
   <strong>Built for private, self-hosted media workflows.</strong><br>
