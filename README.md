@@ -35,6 +35,23 @@ fallbacks, persistent download jobs, automation, and updates into one responsive
 web application. It avoids offering media already present in Jellyfin and keeps
 the complete path from request to library visible and controllable.
 
+
+<p align="center">
+  <a href="docs/assets/screenshots/home-desktop.webp">
+    <img
+      src="docs/assets/screenshots/home-desktop.webp"
+      alt="RoyalDownloader home screen with personalized discovery and recommendations"
+      width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <sub>
+    Personalized discovery, Jellyfin-aware availability, subscriptions, and a
+    live download queue in one responsive interface.
+  </sub>
+</p>
+
 > [!WARNING]
 > **`v1.0.0-rc.3` is a release candidate.** Back up at least `.env` and `data/`
 > before upgrading. See the [release guide](docs/RELEASE.md) for installation,
@@ -69,6 +86,69 @@ Discover → Match metadata → Check Jellyfin → Select provider → Queue
 | **Automation** | Series subscriptions, scheduled checks, Telegram requests, Seerr/Moonfin, and configurable download windows |
 | **Administration** | Local account, persistent sessions, device sign-out, backup-aware updates, rollback, and Stable/Overnight channels |
 | **Personalization** | A private taste profile based on selections, feedback, downloads, subscriptions, Mood Mode, and Jellyfin playback |
+
+
+## Interface preview
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/assets/screenshots/movies-overview.webp">
+        <img
+          src="docs/assets/screenshots/movies-overview.webp"
+          alt="RoyalDownloader movie discovery and subscriptions"
+          width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="docs/assets/screenshots/series-overview.webp">
+        <img
+          src="docs/assets/screenshots/series-overview.webp"
+          alt="RoyalDownloader series discovery and subscriptions"
+          width="100%">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <strong>Movie discovery</strong><br>
+      <sub>Browse current releases, genres, recommendations, and movie subscriptions.</sub>
+    </td>
+    <td align="center">
+      <strong>Series discovery</strong><br>
+      <sub>Track subscriptions, missing episodes, and Jellyfin availability.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/assets/screenshots/movie-details.webp">
+        <img
+          src="docs/assets/screenshots/movie-details.webp"
+          alt="RoyalDownloader detailed movie page"
+          width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="docs/assets/screenshots/my-list-archive.webp">
+        <img
+          src="docs/assets/screenshots/my-list-archive.webp"
+          alt="RoyalDownloader Royal Archive and tracked media"
+          width="100%">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <strong>Detailed media pages</strong><br>
+      <sub>Review metadata, Jellyfin state, streams, trailers, and download actions.</sub>
+    </td>
+    <td align="center">
+      <strong>Royal Archive</strong><br>
+      <sub>Manage tracked series, incomplete items, queue state, and library status.</sub>
+    </td>
+  </tr>
+</table>
+
 
 ## Quick start
 
