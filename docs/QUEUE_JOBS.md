@@ -2,18 +2,25 @@
 
 Die Warteschlange speichert aktive Jobs und die letzten 500 terminalen Jobs in
 `data/FilmeDownloader/download_queue.json`. Im Container liegt diese Datei
-damit unter dem bestehenden persistenten Mount `/app/data`; Medienziele und
-Staging-Verzeichnisse bleiben unverändert.
+damit unter dem bestehenden persistenten Mount `/app/data`; Medienziele bleiben
+unverändert. Jeder Ausführungsversuch erhält ein eigenes Staging-Verzeichnis.
 
-Jeder Inhalt erhält genau eine `job_id`. Provider-, Hoster- und Download-Retries
-ändern diese ID nicht. Der Medien-Slug bleibt als fachliche Zuordnung für
-Watchlist, Telegram und Seerr erhalten, ist aber nicht mehr die technische
-Job-Identität.
+Jeder Inhalt erhält genau eine stabile `job_id`. Jeder Start oder Benutzer-Retry
+erhält zusätzlich eine eindeutige `attempt_id`. Provider- und Hoster-Fallbacks
+innerhalb desselben Versuchs behalten beide IDs; ein neuer Retry behält die
+`job_id`, verwendet aber eine neue `attempt_id`. Der Medien-Slug bleibt als
+fachliche Zuordnung für Watchlist, Telegram und Seerr erhalten.
 
 ## Zustände
 
-Aktiv sind `queued`, `preparing`, `waiting_provider`, `downloading` und
-`paused`; terminal sind `completed`, `failed` und `cancelled`. Nach einem
+Aktiv sind `queued`, `preparing`, `waiting_provider`, `downloading`, `paused`
+und `cancelling`; terminal sind `completed`, `failed` und `cancelled`. Beim
+Abbruch wird zuerst `cancelling` persistent gespeichert. Ein Retry bleibt
+gesperrt, bis der physische Worker beendet und der Job als `cancelled` in die
+Historie verschoben wurde. Fortschritts- und Abschluss-Callbacks werden nur
+akzeptiert, wenn `job_id` und `attempt_id` dem aktuellen Versuch entsprechen.
+
+Nach einem
 Prozess- oder Containerneustart werden zuvor laufende Vorbereitungen und
 Downloads mit derselben ID sicher als `queued` wiederhergestellt. Dadurch wird
 kein halbfertiger In-Memory-Zustand als weiterlaufender Download ausgegeben.
@@ -41,4 +48,5 @@ bestehenden Queue-Persistenzstatus sichtbar und werden bei API-Transaktionen als
 `GET /api/queue`, die Slug-basierten Add-/Remove-/Clear-Routen und alle
 `/api/v1`-Aliasse bleiben erhalten. Neue Job- und Historienfelder sind additiv.
 Der versionierte WebSocket-Snapshot enthält den vollständigen Queue-Jobzustand;
-Fortschritts- und Abschlussereignisse tragen zusätzlich `job_id`.
+Fortschritts- und Abschlussereignisse tragen zusätzlich `job_id` und
+`attempt_id`.

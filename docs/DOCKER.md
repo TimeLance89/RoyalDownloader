@@ -6,7 +6,7 @@
 [Repository migration](REPOSITORY_RENAME.md)
 
 > [!WARNING]
-> The current official build is **`v1.0.0-rc.2`**, a release candidate. Pin
+> The current official build is **`v1.0.0-rc.3`**, a release candidate. Pin
 > fresh installations to that tag and back up persistent state before upgrading.
 
 ## Contents
@@ -129,7 +129,7 @@ Docker Compose creates a self-contained image with dependencies installed during
 the image build:
 
 ```bash
-git clone --branch v1.0.0-rc.2 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 docker compose up -d --build
@@ -390,7 +390,7 @@ its own interval and never replaces the executable during an active download.
 
 ## Release installation and recovery
 
-The authoritative procedure for `v1.0.0-rc.2` is the
+The authoritative procedure for `v1.0.0-rc.3` is the
 [release operations guide](RELEASE.md). It covers:
 
 - prerequisites and a fresh version-pinned Compose installation;

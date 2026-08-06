@@ -2,14 +2,41 @@
 
 ## Unreleased
 
+## v1.0.0-rc.3 – 2026-08-05
+
 - Introduce persistent logical download jobs with stable `job_id` values,
   atomic queue/history snapshots, restart recovery, per-job REST controls, and
   additive WebSocket job identity while retaining all slug-based contracts.
+- Add unique execution `attempt_id` values, a durable `cancelling` state,
+  retry blocking until worker completion, stale-callback protection, and
+  attempt-specific staging directories.
 - Retain the latest 500 completed, failed, or cancelled jobs and expose
   progress, bytes, speed, ETA, retry, cancellation, and ordering in the web UI.
-- Fix the mobile bottom navigation so it spans the viewport, respects device
-  safe areas, and distributes all currently visible tabs evenly without a
-  five-column wrap conflict.
+- Add Mood Mode, global movie/series/anime search, daily Top 10 rotation,
+  expanded discovery lanes, Royal Archive search, and improved family-safe
+  recommendations.
+- Preserve future episode release metadata, show scheduled episodes as
+  unavailable, and reject unreleased episodes across direct and automated
+  queue paths.
+- Add Filmo as a fully integrated movie provider and improve Huhu, fallback,
+  provider, and hoster metadata behavior.
+- Add Regular computer and NAS / home server modes, English-first live setup
+  translation, mandatory TMDB validation, safe `.env` generation, a Windows
+  launcher, and more reliable mounted-source runtime activation.
+- Improve Jellyfin availability matching, metadata hydration, mobile
+  navigation, catalog lazy loading, responsive layouts, accessibility, and
+  frontend cache invalidation.
+- Rewrite and expand installation, Docker, queue, provider, Android API,
+  update, backup, and rollback documentation.
+- Expand regression, frontend contract, provider, setup, deployment, queue,
+  security, dependency, container, persistence, and restart validation.
+
+The complete release notes are available in
+[`docs/releases/v1.0.0-rc.3.md`](docs/releases/v1.0.0-rc.3.md).
+
+This is a **release candidate**, not the final `v1.0.0` release. Back up at
+least `.env` and `data/` before updating. Third-party providers may change
+their pages, domains, availability, or protection mechanisms at any time.
 
 ## v1.0.0-rc.2 – 2026-08-02
 
