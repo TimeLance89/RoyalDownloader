@@ -8,6 +8,7 @@ service seam without re-importing the application.
 
 from __future__ import annotations
 
+import importlib
 import inspect
 from functools import wraps
 from types import ModuleType
@@ -16,6 +17,9 @@ from typing import Any
 
 _backend: ModuleType | None = None
 _service_namespaces: list[dict[str, Any]] = []
+_POST_SERVICE_MODULES = (
+    "application_services.movie_search_availability",
+)
 
 
 def register_backend(backend: ModuleType) -> None:
@@ -80,6 +84,8 @@ def publish_service(module_globals: dict[str, Any], names: tuple[str, ...]) -> N
 
 def refresh_services() -> None:
     """Bind dependencies published by services imported later in the chain."""
+    for module_name in _POST_SERVICE_MODULES:
+        importlib.import_module(module_name)
     available = import_backend_namespace()
     for namespace in _service_namespaces:
         for name, value in available.items():
