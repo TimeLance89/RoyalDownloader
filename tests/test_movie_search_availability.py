@@ -1,3 +1,5 @@
+"""Regression tests for provider-verified TMDB movie search."""
+
 import time
 
 import server
