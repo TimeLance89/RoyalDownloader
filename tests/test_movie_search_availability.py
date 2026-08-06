@@ -1,3 +1,5 @@
+import time
+
 import server
 from application_services import movie_search_availability as availability
 
@@ -80,6 +82,25 @@ def test_provider_failure_does_not_hide_other_verified_results(monkeypatch):
     results = server._tmdb_search_results("alpha beta")
 
     assert [item["tmdb_id"] for item in results] == [11]
+
+
+def test_parallel_verification_preserves_tmdb_relevance_order(monkeypatch):
+    movies = [
+        _movie(40, "First", "2022"),
+        _movie(41, "Second", "2023"),
+        _movie(42, "Third", "2024"),
+    ]
+    delays = {40: 0.03, 41: 0.02, 42: 0.01}
+
+    def resolver(tmdb_id):
+        time.sleep(delays[tmdb_id])
+        return [object()]
+
+    _configure(monkeypatch, movies, resolver)
+
+    results = server._tmdb_search_results("ordered")
+
+    assert [item["tmdb_id"] for item in results] == [40, 41, 42]
 
 
 def test_verified_search_results_are_cached_and_returned_as_copies(monkeypatch):
