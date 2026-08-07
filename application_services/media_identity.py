@@ -1,7 +1,7 @@
 """Canonical media identity, legacy matching, and filesystem naming.
 
 Royal historically used provider display titles directly for TMDB lookups,
-Jellyfin matching, and final filenames.  That made harmless filesystem
+Jellyfin matching, and final filenames. That made harmless filesystem
 sanitization (``?``, ``:``, ``/``) leak a ``~<hash>`` suffix into Jellyfin and
 made localized/provider-specific titles unnecessarily fragile.
 
@@ -20,7 +20,7 @@ import re
 import time
 import unicodedata
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import downloader as _downloader_module
 import jellyfin_client as _jellyfin_module
@@ -50,9 +50,9 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"lpt{number}" for number in range(1, 10)),
 }
 _FILENAME_COMPONENT_MAX_BYTES = 180
+_IDENTITY_NEGATIVE_CACHE_TTL = 60
 
 
-_ORIGINAL_BUILD_FILENAME = _downloader_module.build_filename
 _ORIGINAL_BUILD_MOVIE_FILENAME = _downloader_module.build_movie_filename
 _ORIGINAL_JELLYFIN_NORMALIZE = _jellyfin_module._normalize
 _ORIGINAL_JELLYFIN_TITLE_TOKENS = _jellyfin_module._title_tokens
@@ -62,26 +62,26 @@ _ORIGINAL_SERIES = _tmdb_module.TMDBClient.series
 _ORIGINAL_SERIES_MATCHES_ID = _tmdb_module.TMDBClient.series_matches_id
 
 
-def strip_legacy_identity_suffix(value: str) -> str:
-    """Remove Royal's historical collision/sanitization suffix from a title."""
-    text = str(value or "").strip()
-    text = _MEDIA_EXTENSION_RE.sub("", text)
-    return _LEGACY_ID_SUFFIX_RE.sub("", text).rstrip(" ._-~")
-
-
 def _path_stem(value: str) -> str:
+    """Return only a real media path stem; dotted display titles stay intact."""
     text = str(value or "").strip()
     if not text:
         return ""
-    try:
-        return Path(text).stem
-    except (OSError, ValueError):
+    if not _MEDIA_EXTENSION_RE.search(text):
         return text
+    filename = re.split(r"[/\\]", text)[-1]
+    return _MEDIA_EXTENSION_RE.sub("", filename)
+
+
+def strip_legacy_identity_suffix(value: str) -> str:
+    """Remove Royal's historical collision/sanitization suffix from a title."""
+    text = _path_stem(value)
+    return _LEGACY_ID_SUFFIX_RE.sub("", text).rstrip(" ._-~")
 
 
 def normalize_media_identity_title(value: str) -> str:
     """Stable comparison key for provider, TMDB, Jellyfin, and legacy paths."""
-    text = strip_legacy_identity_suffix(_path_stem(value))
+    text = strip_legacy_identity_suffix(value)
     text = _SOURCE_SUFFIX_RE.sub("", text)
     text = _QUALITY_SUFFIX_RE.sub("", text)
     text = _TRAILING_YEAR_RE.sub("", text)
@@ -97,7 +97,6 @@ def _clean_query_seed(title: str, media_type: str) -> str:
     value = " ".join(str(title or "").split()).strip()
     value = _SOURCE_SUFFIX_RE.sub("", value).strip()
     value = strip_legacy_identity_suffix(value)
-    value = _MEDIA_EXTENSION_RE.sub("", value).strip()
     if media_type == "movie":
         try:
             value = clean_movie_title(value)
@@ -121,7 +120,7 @@ def _clean_query_seed(title: str, media_type: str) -> str:
 def media_title_variants(title: str, media_type: str = "movie") -> tuple[str, ...]:
     """Return conservative aliases used only when the provider title misses.
 
-    The original title is always tried first.  Later variants repair common
+    The original title is always tried first. Later variants repair common
     provider/localization forms such as ``Sayara - Der Racheengel`` and
     ``Transformers 5: The Last Knight`` without hard-coding individual media.
     """
@@ -163,10 +162,8 @@ def media_title_variants(title: str, media_type: str = "movie") -> tuple[str, ..
         if len(right) >= 4:
             add(right)
 
-    # A provider may simply omit punctuation around a franchise subtitle.
-    punctuation_flat = re.sub(r"\s*[:|]\s*", " ", seed)
-    add(punctuation_flat)
-
+    # Some sources flatten punctuation around franchise subtitles entirely.
+    add(re.sub(r"\s*[:|]\s*", " ", seed))
     return tuple(variants[:8])
 
 
@@ -186,29 +183,76 @@ def _remember_summary(client, cache_name: str, key, value) -> None:
         cache[key] = value
 
 
+def _negative_cache_hit(client, key) -> bool:
+    now = time.time()
+    with client._lock:
+        cache = getattr(client, "_royal_identity_negative_cache", None)
+        if cache is None:
+            cache = {}
+            client._royal_identity_negative_cache = cache
+        cached_at = float(cache.get(key) or 0)
+        if cached_at and now - cached_at < _IDENTITY_NEGATIVE_CACHE_TTL:
+            return True
+        if cached_at:
+            cache.pop(key, None)
+    return False
+
+
+def _remember_negative(client, key) -> None:
+    with client._lock:
+        cache = getattr(client, "_royal_identity_negative_cache", None)
+        if cache is None:
+            cache = {}
+            client._royal_identity_negative_cache = cache
+        cache[key] = time.time()
+
+
+def _forget_negative(client, key) -> None:
+    with client._lock:
+        cache = getattr(client, "_royal_identity_negative_cache", None)
+        if isinstance(cache, dict):
+            cache.pop(key, None)
+
+
 def _identity_movie_summary(self, title: str, year: str = "") -> Optional[dict]:
-    original_key = (_tmdb_module._normalize(_clean_query_seed(title, "movie")), str(year or ""))
+    original_key = (
+        _tmdb_module._normalize(_clean_query_seed(title, "movie")),
+        str(year or ""),
+    )
     cached = _cached_summary(self, "_movie_summary_cache", original_key)
     if cached is not None:
         return cached
+    negative_key = ("movie", *original_key)
+    if _negative_cache_hit(self, negative_key):
+        return None
     for variant in media_title_variants(title, "movie"):
         result = _ORIGINAL_MOVIE_SUMMARY(self, variant, year)
         if result:
             _remember_summary(self, "_movie_summary_cache", original_key, result)
+            _forget_negative(self, negative_key)
             return result
+    _remember_negative(self, negative_key)
     return None
 
 
 def _identity_series_summary(self, title: str, year: str = "") -> Optional[dict]:
-    original_key = (_tmdb_module._normalize(_clean_query_seed(title, "series")), str(year or ""))
+    original_key = (
+        _tmdb_module._normalize(_clean_query_seed(title, "series")),
+        str(year or ""),
+    )
     cached = _cached_summary(self, "_series_summary_cache", original_key)
     if cached is not None:
         return cached
+    negative_key = ("series-summary", *original_key)
+    if _negative_cache_hit(self, negative_key):
+        return None
     for variant in media_title_variants(title, "series"):
         result = _ORIGINAL_SERIES_SUMMARY(self, variant, year)
         if result:
             _remember_summary(self, "_series_summary_cache", original_key, result)
+            _forget_negative(self, negative_key)
             return result
+    _remember_negative(self, negative_key)
     return None
 
 
@@ -219,6 +263,9 @@ def _identity_series(self, title: str, force: bool = False) -> Optional[dict]:
         cached = self._series_cache.get(original_key)
         if cached and not force and now - cached[0] < _tmdb_module._series_cache_ttl(cached[1]):
             return cached[1]
+    negative_key = ("series", original_key)
+    if not force and _negative_cache_hit(self, negative_key):
+        return None
 
     result = None
     for variant in media_title_variants(title, "series"):
@@ -227,6 +274,10 @@ def _identity_series(self, title: str, force: bool = False) -> Optional[dict]:
             break
     with self._lock:
         self._series_cache[original_key] = (now, result)
+    if result:
+        _forget_negative(self, negative_key)
+    else:
+        _remember_negative(self, negative_key)
     return result
 
 
@@ -250,9 +301,8 @@ def _item_has_legacy_royal_identity(item: dict, exact_wanted: str) -> bool:
         item.get("name"), item.get("original_title"), item.get("sort_name"),
         item.get("path"),
     ):
-        text = str(raw or "")
-        stem = _path_stem(text)
-        if not _LEGACY_ID_SUFFIX_RE.search(_MEDIA_EXTENSION_RE.sub("", stem)):
+        stem = _path_stem(str(raw or ""))
+        if not _LEGACY_ID_SUFFIX_RE.search(stem):
             continue
         if normalize_media_identity_title(stem) == exact_wanted:
             return True
@@ -306,14 +356,12 @@ def _identity_jellyfin_match(
         return False
 
     # A historical Royal filename is stronger evidence than Jellyfin metadata
-    # that may have been inferred incorrectly from that very filename.  This is
-    # deliberately restricted to an exact requested-title match with Royal's
-    # old deterministic suffix, so remakes/nearby franchise titles stay apart.
-    legacy_exact = [
-        item for item in matches
-        if exact_wanted and _item_has_legacy_royal_identity(item, exact_wanted)
-    ]
-    if legacy_exact:
+    # that may have been inferred incorrectly from that very filename. This is
+    # restricted to an exact requested-title match with Royal's old suffix, so
+    # remakes and nearby franchise installments remain separated.
+    if exact_wanted and any(
+        _item_has_legacy_royal_identity(item, exact_wanted) for item in matches
+    ):
         return True
 
     if year:
@@ -323,8 +371,6 @@ def _identity_jellyfin_match(
         ]
         if exact_year:
             matches = exact_year
-        elif any(item.get("year") is not None for item in matches):
-            return False
         else:
             return False
 
@@ -352,6 +398,8 @@ def _sanitize(name: str, max_bytes: int = _FILENAME_COMPONENT_MAX_BYTES) -> str:
 
     if len(cleaned.encode("utf-8")) <= max_bytes:
         return cleaned
+    # Only actual byte-length truncation needs a deterministic suffix. Ordinary
+    # punctuation replacement must remain human- and Jellyfin-readable.
     suffix = f"~{_downloader_module._stable_suffix(original)}"
     available = max(1, int(max_bytes) - len(suffix.encode("utf-8")))
     shortened = _downloader_module._truncate_utf8(cleaned, available)
@@ -377,16 +425,6 @@ def _canonical_movie_fields(title: str, year: str = "") -> tuple[str, str]:
     return clean_title, clean_year
 
 
-def _canonical_series_title(title: str) -> str:
-    clean_title = _clean_query_seed(title, "series") or str(title or "").strip()
-    try:
-        client = get_tmdb_client()
-        summary = client.series_summary(clean_title) if client.configured else None
-    except Exception:
-        summary = None
-    return str((summary or {}).get("title") or clean_title).strip()
-
-
 def build_movie_filename(movie_title: str, year: str = "") -> str:
     """Create a Jellyfin-friendly canonical filename without legacy hash noise."""
     title, canonical_year = _canonical_movie_fields(movie_title, year)
@@ -401,8 +439,8 @@ def build_movie_filename(movie_title: str, year: str = "") -> str:
 def build_filename(
     series_title: str, season: int, episode: int, ep_title: str = "",
 ) -> str:
-    """Create a canonical series episode filename while preserving SxxExx."""
-    canonical_title = _canonical_series_title(series_title)
+    """Create readable series episode names while preserving SxxExx identity."""
+    canonical_title = _clean_query_seed(series_title, "series") or str(series_title or "").strip()
     base = _sanitize(canonical_title).replace(" ", ".")
     code = f"S{season:02d}E{episode:02d}"
     title_part = f".{_sanitize(ep_title).replace(' ', '.')}" if ep_title else ""
@@ -473,7 +511,15 @@ def _existing_valid_movie_path(out_root: Path, movie) -> Optional[Path]:
     seen_paths: set[Path] = set()
 
     def add(path: Path) -> None:
-        if path in seen_paths or not path.is_file() or path.suffix.casefold() not in _VIDEO_SUFFIXES:
+        try:
+            is_file = path.is_file()
+        except OSError:
+            return
+        if (
+            path in seen_paths
+            or not is_file
+            or path.suffix.casefold() not in _VIDEO_SUFFIXES
+        ):
             return
         seen_paths.add(path)
         candidates.append(path)
@@ -485,8 +531,8 @@ def _existing_valid_movie_path(out_root: Path, movie) -> Optional[Path]:
         for path in expected.parent.glob(expected.stem + ".*"):
             add(path)
 
-        # Exact historical names are cheap to probe and avoid a full NAS scan in
-        # the common upgrade path.
+        # Probe exact historical names first to avoid a broad NAS scan in the
+        # common upgrade path.
         for alias in (str(getattr(movie, "title", "") or ""), *aliases):
             legacy_name = _ORIGINAL_BUILD_MOVIE_FILENAME(alias, requested_year)
             legacy = out_root / legacy_name
@@ -494,8 +540,8 @@ def _existing_valid_movie_path(out_root: Path, movie) -> Optional[Path]:
             for path in out_root.glob(Path(legacy_name).stem + ".*"):
                 add(path)
 
-        # Last-resort identity scan handles canonical Jellyfin names, alternate
-        # extensions, and quality suffixes from pre-existing libraries.
+        # Last-resort identity scan covers canonical Jellyfin names, alternate
+        # containers, and quality labels from an existing library.
         for path in out_root.iterdir():
             add(path)
     except OSError:
