@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from api_system_router import SERVER_INSTANCE, legacy_health, v1_health
@@ -6,9 +7,9 @@ from api_system_router import SERVER_INSTANCE, legacy_health, v1_health
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def test_health_endpoints_expose_current_server_instance():
-    legacy = await legacy_health()
-    v1 = await v1_health()
+def test_health_endpoints_expose_current_server_instance():
+    legacy = asyncio.run(legacy_health())
+    v1 = asyncio.run(v1_health())
 
     assert legacy == {"status": "ok", "instance": SERVER_INSTANCE}
     assert v1 == {"status": "ok", "api_version": 1, "instance": SERVER_INSTANCE}
