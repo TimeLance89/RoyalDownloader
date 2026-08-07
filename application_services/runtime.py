@@ -20,6 +20,7 @@ _service_namespaces: list[dict[str, Any]] = []
 _POST_SERVICE_MODULES = (
     "application_services.trailer_policy",
     "application_services.movie_search_availability",
+    "application_services.content_language_policy",
 )
 
 

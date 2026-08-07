@@ -116,6 +116,113 @@ function appendMediaLanguageMarker(element, media) {
   element.setAttribute("title", [previousTitle, `Inhaltssprache: ${marker.label}`].filter(Boolean).join(" · "));
 }
 
+function movieDownloadLanguageOptions(movie = {}) {
+  const grouped = new Map();
+  const sources = Array.isArray(movie.source_providers) ? movie.source_providers : [];
+  for (const source of sources) {
+    const language = normalizeUiContentLanguage(source?.content_language);
+    const hosterCount = Number(source?.hoster_count ?? source?.hosters?.length ?? 0);
+    if (!language || hosterCount <= 0) continue;
+    if (!grouped.has(language)) grouped.set(language, { language, providers: [], hosterCount: 0 });
+    const option = grouped.get(language);
+    option.hosterCount += hosterCount;
+    if (source?.label && !option.providers.includes(source.label)) option.providers.push(source.label);
+  }
+  return grouped;
+}
+
+function ensureMovieLanguageDialog() {
+  let modal = document.getElementById("movie-language-choice");
+  if (modal) return modal;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    .movie-language-choice{position:fixed;inset:0;z-index:10040;display:grid;place-items:center;padding:24px;background:rgba(4,6,12,.72);backdrop-filter:blur(12px)}
+    .movie-language-choice[hidden]{display:none}
+    .movie-language-panel{width:min(520px,100%);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:24px;background:linear-gradient(145deg,rgba(24,27,38,.98),rgba(10,12,19,.98));box-shadow:0 28px 90px rgba(0,0,0,.5);color:#fff}
+    .movie-language-kicker{display:block;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.16em;color:#9ca6bd}
+    .movie-language-panel h3{margin:0 0 8px;font-size:24px}
+    .movie-language-panel p{margin:0 0 18px;color:#b7bfd1;line-height:1.5}
+    .movie-language-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .movie-language-option{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:16px;background:rgba(255,255,255,.045);color:#fff;cursor:pointer}
+    .movie-language-option:hover,.movie-language-option:focus-visible{border-color:rgba(111,145,255,.7);background:rgba(111,145,255,.12);outline:none}
+    .movie-language-option b{font-size:26px}.movie-language-option span{display:grid;gap:3px}.movie-language-option strong{font-size:15px}.movie-language-option small{color:#9ca6bd}
+    .movie-language-cancel{margin-top:16px;width:100%;border:0;background:transparent;color:#aeb6c8;padding:10px;cursor:pointer}
+    @media(max-width:560px){.movie-language-options{grid-template-columns:1fr}.movie-language-panel{padding:20px;border-radius:20px}}
+  `;
+  document.head.appendChild(style);
+
+  modal = document.createElement("div");
+  modal.id = "movie-language-choice";
+  modal.className = "movie-language-choice";
+  modal.hidden = true;
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "movie-language-title");
+  modal.innerHTML = `
+    <section class="movie-language-panel">
+      <span class="movie-language-kicker">DOWNLOADSPRACHE</span>
+      <h3 id="movie-language-title">Welche Sprache möchtest du?</h3>
+      <p>Royal nutzt danach automatisch alle verfügbaren Anbieter-Fallbacks innerhalb dieser Sprache.</p>
+      <div class="movie-language-options">
+        <button class="movie-language-option" type="button" data-language="de"><b>🇩🇪</b><span><strong>Deutsch</strong><small></small></span></button>
+        <button class="movie-language-option" type="button" data-language="en"><b>🇬🇧</b><span><strong>English</strong><small></small></span></button>
+      </div>
+      <button class="movie-language-cancel" type="button">Abbrechen</button>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function chooseMovieDownloadLanguage(movie) {
+  const options = movieDownloadLanguageOptions(movie);
+  if (!mixedGermanEnglishContentEnabled() || !options.has("de") || !options.has("en")) {
+    return Promise.resolve(null);
+  }
+  const modal = ensureMovieLanguageDialog();
+  const previousFocus = document.activeElement;
+  for (const language of ["de", "en"]) {
+    const data = options.get(language);
+    const button = modal.querySelector(`[data-language="${language}"]`);
+    const providerText = data.providers.slice(0, 3).join(" · ");
+    const extraProviders = Math.max(0, data.providers.length - 3);
+    button.querySelector("small").textContent = [
+      `${data.hosterCount} Hoster`,
+      providerText,
+      extraProviders ? `+${extraProviders} weitere` : "",
+    ].filter(Boolean).join(" · ");
+  }
+  modal.hidden = false;
+  modal.querySelector('[data-language="en"]')?.focus();
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      modal.hidden = true;
+      modal.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKeydown);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+      resolve(value);
+    };
+    const onClick = (event) => {
+      const languageButton = event.target.closest("[data-language]");
+      if (languageButton) {
+        finish(languageButton.dataset.language || "");
+        return;
+      }
+      if (event.target === modal || event.target.closest(".movie-language-cancel")) finish("");
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") finish("");
+    };
+    modal.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKeydown);
+  });
+}
+
 function installMediaPresentationPolicy() {
   if (window.__royalMediaPresentationPolicyInstalled) return;
   window.__royalMediaPresentationPolicyInstalled = true;
@@ -155,6 +262,33 @@ function installMediaPresentationPolicy() {
       );
       if (alreadyActive) return;
       return originalScheduleFpDetailHeroTrailer(movie);
+    };
+  }
+
+  if (typeof configureFpDetailAction === "function") {
+    const originalConfigureFpDetailAction = configureFpDetailAction;
+    window.configureFpDetailAction = function languageAwareMovieDownload(slug, movie, metadataOnly = false) {
+      originalConfigureFpDetailAction(slug, movie, metadataOnly);
+      const button = document.getElementById("fp-detail-add");
+      if (
+        !button
+        || metadataOnly
+        || state.queuedSlugs.has(slug)
+        || !mixedGermanEnglishContentEnabled()
+      ) return;
+      const languages = movieDownloadLanguageOptions(movie);
+      if (!languages.has("de") || !languages.has("en")) return;
+      const originalClick = button.onclick;
+      button.onclick = async () => {
+        const language = await chooseMovieDownloadLanguage(movie);
+        if (!language) return;
+        const previous = state.fp.downloadSelections.get(slug) || {};
+        state.fp.downloadSelections.set(slug, {
+          provider: `language:${language}`,
+          quality: previous.quality || "",
+        });
+        await originalClick?.();
+      };
     };
   }
 }
