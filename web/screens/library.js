@@ -90,3 +90,183 @@ function renderSeriesSubscriptions() {
 async function refreshWatchlist() {
   return syncWatchlistSnapshot("Abo-Aktualisierung");
 }
+
+// ── Cross-catalog consistency: logical media identities ────────────────────
+// Provider URLs/slugs are source identities, not media identities. The visual
+// catalogs therefore collapse the same logical movie/series across providers
+// while preserving the first (priority) source as the navigation identity.
+function normalizeCatalogIdentityText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/&/g, " und ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function catalogMediaYear(item) {
+  const raw = String(item?.year || item?.release_date || item?.first_air_date || "");
+  return raw.match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+}
+
+function catalogMediaTitles(item) {
+  return new Set([
+    item?.title,
+    item?.original_title,
+    item?.original_name,
+  ].map(normalizeCatalogIdentityText).filter(Boolean));
+}
+
+function catalogLogicalMediaMatch(left, right) {
+  if (!left || !right) return false;
+  const leftTmdb = String(left.tmdb_id || "").trim();
+  const rightTmdb = String(right.tmdb_id || "").trim();
+  if (leftTmdb && rightTmdb) return leftTmdb === rightTmdb;
+
+  const leftYear = catalogMediaYear(left);
+  const rightYear = catalogMediaYear(right);
+  if (leftYear && rightYear && leftYear !== rightYear) return false;
+
+  const leftTitles = catalogMediaTitles(left);
+  const rightTitles = catalogMediaTitles(right);
+  if (![...leftTitles].some((title) => rightTitles.has(title))) return false;
+
+  // With an unknown year, avoid collapsing obvious separate remakes when both
+  // records have different explicit TMDB identities. That case was handled
+  // above; provider-only records may safely share an exact logical title.
+  return true;
+}
+
+function mergeCatalogArrayValues(left, right, keyFor = (value) => String(value || "")) {
+  const merged = [];
+  const known = new Set();
+  for (const value of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
+    if (value == null || value === "") continue;
+    const key = keyFor(value);
+    if (!key || known.has(key)) continue;
+    known.add(key);
+    merged.push(value);
+  }
+  return merged;
+}
+
+function catalogSourceIdentity(source) {
+  if (!source || typeof source !== "object") return "";
+  return String(source.key || source.provider || source.label || source.url || "").trim().toLocaleLowerCase();
+}
+
+function mergeCatalogMediaRecord(primary, secondary) {
+  const merged = { ...primary };
+  const preferSecondaryWhenMissing = [
+    "tmdb_id", "original_title", "original_name", "year", "release_date", "first_air_date",
+    "cover_url", "backdrop_url", "description", "rating", "vote_count", "content_language",
+  ];
+  for (const key of preferSecondaryWhenMissing) {
+    if ((merged[key] == null || merged[key] === "") && secondary?.[key] != null && secondary[key] !== "") {
+      merged[key] = secondary[key];
+    }
+  }
+  if (String(secondary?.description || "").length > String(merged.description || "").length) {
+    merged.description = secondary.description;
+  }
+
+  merged.genres = mergeCatalogArrayValues(merged.genres, secondary?.genres, (value) => normalizeCatalogIdentityText(value));
+  merged.sources = mergeCatalogArrayValues(merged.sources, secondary?.sources, catalogSourceIdentity);
+  merged.source_providers = mergeCatalogArrayValues(
+    merged.source_providers,
+    secondary?.source_providers,
+    catalogSourceIdentity,
+  );
+
+  const languageValues = [
+    ...(Array.isArray(merged.content_languages) ? merged.content_languages : []),
+    ...(Array.isArray(secondary?.content_languages) ? secondary.content_languages : []),
+    merged.content_language,
+    secondary?.content_language,
+    ...merged.sources.map((source) => source?.content_language),
+    ...merged.source_providers.map((source) => source?.content_language),
+  ];
+  merged.content_languages = mergeCatalogArrayValues([], languageValues, (value) => String(value || "").toLowerCase());
+
+  if (primary?.in_jellyfin === true || secondary?.in_jellyfin === true) {
+    merged.in_jellyfin = true;
+    merged.jellyfin_status = "owned";
+  } else if (!merged.jellyfin_status && secondary?.jellyfin_status) {
+    merged.jellyfin_status = secondary.jellyfin_status;
+  }
+
+  // Preserve the first item's slug/base_slug/provider. Provider priority is
+  // still meaningful for opening details and fallback order.
+  return merged;
+}
+
+function dedupeCatalogMedia(items) {
+  const output = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const duplicateIndex = output.findIndex((known) => catalogLogicalMediaMatch(known, item));
+    if (duplicateIndex < 0) {
+      output.push(item);
+      continue;
+    }
+    output[duplicateIndex] = mergeCatalogMediaRecord(output[duplicateIndex], item);
+  }
+  return output;
+}
+
+function cleanMediaCardInitials(title) {
+  const words = String(title || "")
+    .trim()
+    .split(/\s+/)
+    .filter((word) => /[\p{L}\p{N}]/u.test(word));
+  if (!words.length) return "RD";
+  return (words.length === 1
+    ? words[0].slice(0, 2)
+    : words.slice(0, 2).map((word) => word.match(/[\p{L}\p{N}]/u)?.[0] || "").join(""))
+    .toUpperCase();
+}
+
+function installCatalogConsistencyPolicy() {
+  if (window.__royalCatalogConsistencyInstalled) return;
+  window.__royalCatalogConsistencyInstalled = true;
+
+  if (typeof mergeCatalogItems === "function") {
+    const originalMergeCatalogItems = mergeCatalogItems;
+    window.mergeCatalogItems = function logicalCatalogMerge(current, incoming, keyFor) {
+      const merged = originalMergeCatalogItems(current, incoming, keyFor);
+      const looksLikeMedia = merged.some((item) => item?.title && (
+        item?.slug || item?.base_slug || item?.sample_slug || item?.tmdb_id
+      ));
+      return looksLikeMedia ? dedupeCatalogMedia(merged) : merged;
+    };
+  }
+
+  if (typeof applyFpResults === "function") {
+    const originalApplyFpResults = applyFpResults;
+    window.applyFpResults = function logicalMovieResults(data, options = {}) {
+      const payload = {
+        ...(data || {}),
+        results: dedupeCatalogMedia(data?.results || []),
+      };
+      return originalApplyFpResults(payload, options);
+    };
+  }
+
+  if (typeof applySeriesResults === "function") {
+    const originalApplySeriesResults = applySeriesResults;
+    window.applySeriesResults = function logicalSeriesResults(data, options = {}) {
+      const payload = {
+        ...(data || {}),
+        results: dedupeCatalogMedia(data?.results || []),
+      };
+      return originalApplySeriesResults(payload, options);
+    };
+  }
+
+  if (typeof mediaCardInitials === "function") {
+    window.mediaCardInitials = cleanMediaCardInitials;
+  }
+}
+
+installCatalogConsistencyPolicy();
