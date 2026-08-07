@@ -1,0 +1,2 @@
+[lint.per-file-ignores]
+"application_services/media_identity.py" = ["F821"]

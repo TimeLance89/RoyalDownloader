@@ -1,27 +1,29 @@
 from pathlib import Path
 
-from downloader import DownloadJob, _sanitize, build_filename, build_movie_filename
+import server as app
+from downloader import DownloadJob
 
 
 def test_normal_filenames_remain_readable_and_compatible():
-    assert build_movie_filename("The Chronology of Water", "2025") == (
+    assert app.build_movie_filename("The Chronology of Water", "2025") == (
         "The.Chronology.of.Water.2025.mp4"
     )
-    assert build_filename("Breaking Bad", 1, 3) == "Breaking.Bad.S01E03.mp4"
+    assert app.build_filename("Breaking Bad", 1, 3) == "Breaking.Bad.S01E03.mp4"
 
 
-def test_lossy_names_get_stable_collision_suffixes():
-    assert _sanitize("A/B") != _sanitize("AB")
-    assert _sanitize("Film. ") != _sanitize("Film")
-    assert _sanitize("A/B") == _sanitize("A/B")
-    assert "~" in _sanitize("A/B")
+def test_punctuation_sanitization_stays_readable_without_identity_hashes():
+    assert app._sanitize("A/B") == "A B"
+    assert app._sanitize("A:B") == "A B"
+    assert app._sanitize("Smile - Siehst du es auch?") == "Smile - Siehst du es auch"
+    assert "~" not in app.build_movie_filename("Smile - Siehst du es auch?", "")
+    assert "~" not in app.build_movie_filename("Transformers 5: The Last Knight", "")
 
 
 def test_reserved_empty_unicode_and_long_names_are_portable():
-    assert _sanitize("CON").startswith("_CON~")
-    assert _sanitize("\x00\n").startswith("Media~")
-    assert _sanitize("ＡＢＣ") == "ABC"
-    filename = build_movie_filename("Überlanger Titel " * 80, "2026")
+    assert app._sanitize("CON") == "_CON"
+    assert app._sanitize("\x00\n") == "Media"
+    assert app._sanitize("ＡＢＣ") == "ABC"
+    filename = app.build_movie_filename("Überlanger Titel " * 80, "2026")
     assert len(filename.encode("utf-8")) <= 240
     assert filename.endswith(".mp4")
 
