@@ -22,6 +22,7 @@ _POST_SERVICE_MODULES = (
     "application_services.movie_search_availability",
     "application_services.content_language_policy",
     "application_services.media_identity",
+    "application_services.media_identity_series_alias",
 )
 
 
