@@ -43,6 +43,16 @@
     white-space: nowrap;
   }
 
+  /* Keep the HTML/JS contract stable while matching the familiar streaming
+     reading order on desktop. Mobile keeps its own explicit order. */
+  .topbar .tabs [data-tab="home"] { order: 1; }
+  .topbar .tabs [data-tab="serien"] { order: 2; }
+  .topbar .tabs [data-tab="filme"] { order: 3; }
+  .topbar .tabs [data-tab="anime"] { order: 4; }
+  .topbar .tabs [data-tab="bibliothek"] { order: 5; }
+  .topbar .tabs .mood-nav-open { order: 6; }
+  .topbar .tabs .mobile-settings-tab { order: 7; }
+
   .topbar .tabs .tab-icon {
     display: none;
   }
