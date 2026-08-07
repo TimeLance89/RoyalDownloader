@@ -1,10 +1,11 @@
-"""Provider-verified TMDB movie search results."""
+"""Fast provider-verified TMDB movie search results."""
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
 from __future__ import annotations
 
 import threading
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -14,10 +15,8 @@ from runtime_cache import BoundedTTLCache
 
 globals().update(import_backend_namespace())
 
-# Search results are intentionally cached only briefly. Positive provider
-# sources keep their existing two-hour cache in ``state.movie_source_cache``;
-# this shorter result cache also prevents temporary provider outages from
-# hiding a title for an excessive amount of time.
+# Search results are intentionally cached only briefly. Provider detail pages
+# and positive source resolutions keep using their existing longer-lived caches.
 _MOVIE_SEARCH_AVAILABILITY_CACHE = BoundedTTLCache[
     tuple[str, tuple[str, ...], str], tuple[dict[str, Any], ...]
 ](
@@ -56,36 +55,114 @@ def _format_tmdb_movie(movie: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _verify_tmdb_movie_source(
+def _tmdb_movie_aliases(movie: dict[str, Any]) -> set[str]:
+    return {
+        key
+        for title in (movie.get("title"), movie.get("original_title"))
+        if title
+        for key in _movie_title_match_keys(str(title))
+    }
+
+
+def _candidate_provider(candidate: Any) -> str:
+    return str(
+        getattr(candidate, "provider", "")
+        or provider_for_value(str(getattr(candidate, "slug", "") or ""))
+    ).strip().casefold()
+
+
+def _match_provider_candidates(
+    tmdb_results: list[dict[str, Any]],
+    candidates: list[Any],
+) -> dict[int, list[Any]]:
+    """Assign provider search hits to exactly one TMDB identity.
+
+    Provider search is deliberately performed once for the user's query. The
+    returned hits are then intersected with TMDB by localized title, original
+    title and release year. Ambiguous provider hits without a usable year are
+    ignored rather than risking a false-positive movie card.
+    """
+    identities = [
+        (_tmdb_movie_aliases(movie), str(movie.get("year") or "").strip())
+        for movie in tmdb_results
+    ]
+    matched: dict[int, list[Any]] = defaultdict(list)
+    seen_slugs: dict[int, set[str]] = defaultdict(set)
+
+    for candidate in candidates:
+        if not getattr(candidate, "is_movie", False):
+            continue
+        title = str(getattr(candidate, "title", "") or "")
+        year = str(getattr(candidate, "year", "") or "")
+        matching_indexes = [
+            index
+            for index, (aliases, wanted_year) in enumerate(identities)
+            if aliases
+            and _movie_matches_tmdb_choice(title, year, aliases, wanted_year)
+        ]
+        if len(matching_indexes) != 1:
+            continue
+        index = matching_indexes[0]
+        slug = str(getattr(candidate, "slug", "") or "")
+        if not slug or slug in seen_slugs[index]:
+            continue
+        seen_slugs[index].add(slug)
+        matched[index].append(candidate)
+
+    positions = {
+        provider: index
+        for index, provider in enumerate(provider_priority("movies"))
+    }
+    for items in matched.values():
+        items.sort(
+            key=lambda candidate: positions.get(
+                _candidate_provider(candidate), len(positions)
+            )
+        )
+    return dict(matched)
+
+
+def _verify_tmdb_movie_candidates(
     index: int,
     movie: dict[str, Any],
+    candidates: list[Any],
 ) -> tuple[int, dict[str, Any] | None]:
-    try:
-        # The established resolver searches localized and original titles at
-        # every active provider, validates the release year, loads candidate
-        # details, requires real hosters, and stores ordered fallback sources.
-        sources = resolve_tmdb_movie_sources(movie["tmdb_id"])
-    except LookupError:
-        return index, None
-    except Exception as exc:
-        # One broken provider or one malformed candidate must never abort the
-        # remaining TMDB identities in this search.
-        log(
-            f"Anbieterprüfung für «{movie.get('title') or movie['tmdb_id']}» "
-            f"übersprungen: {exc}",
-            "warn",
-        )
-        return index, None
-    return index, movie if sources else None
+    """Confirm one TMDB identity with the cheapest usable provider candidate."""
+    aliases = _tmdb_movie_aliases(movie)
+    wanted_year = str(movie.get("year") or "").strip()
+
+    for candidate in candidates:
+        slug = str(getattr(candidate, "slug", "") or "")
+        try:
+            loaded = state.fp_movies.get(slug) or load_movie_for_slug(slug)
+        except Exception as exc:
+            log(
+                f"Filmquelle {getattr(candidate, 'title', slug)} nicht ladbar: {exc}",
+                "warn",
+            )
+            continue
+        if not loaded or not getattr(loaded, "hosters", None):
+            continue
+        if not _movie_matches_tmdb_choice(
+            str(getattr(loaded, "title", "") or ""),
+            str(getattr(loaded, "year", "") or getattr(candidate, "year", "") or ""),
+            aliases,
+            wanted_year,
+        ):
+            continue
+        state.fp_movies[slug] = loaded
+        return index, movie
+    return index, None
 
 
 def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
-    """Return only TMDB films confirmed by at least one active provider.
+    """Return only TMDB films confirmed by an active provider with hosters.
 
-    Every TMDB identity enters the existing exact source resolver. This avoids
-    false negatives when a provider knows only the localized title or only the
-    original title. Verification runs with bounded parallelism; provider-level
-    searches inside the resolver remain parallel and failure-isolated.
+    The expensive per-TMDB resolver used by detail/download flows is purposely
+    not called here. Instead all active providers are searched once in parallel
+    for the user's query. Only provider hits that match a TMDB title/original
+    title and year are detail-loaded, and checking stops for a movie as soon as
+    one usable source with hosters is confirmed.
     """
     query = " ".join(str(query or "").split()).strip()
     if not query:
@@ -101,8 +178,9 @@ def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
     except KeyError:
         pass
 
-    # A single-user installation can still submit the same search from several
-    # browser tabs. Re-checking inside the lock avoids duplicate provider waves.
+    # Prevent duplicate provider waves when several browser tabs submit the
+    # same search concurrently. Different queries are rare for one installation
+    # and the critical section is now bounded to one provider search wave.
     with _MOVIE_SEARCH_AVAILABILITY_LOCK:
         try:
             return _copy_cached_results(_MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key])
@@ -118,22 +196,45 @@ def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
             _MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key] = ()
             return []
 
+        try:
+            provider_candidates = list(search_movie_candidates(query))
+        except Exception as exc:
+            # search_movie_candidates already isolates individual providers;
+            # this protects the API from an unexpected aggregate failure.
+            log(f"Film-Anbieterprüfung übersprungen: {exc}", "warn")
+            provider_candidates = []
+
+        candidates_by_index = _match_provider_candidates(
+            tmdb_results,
+            provider_candidates,
+        )
+        if not candidates_by_index:
+            _MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key] = ()
+            return []
+
         verified_by_index: dict[int, dict[str, Any]] = {}
-        # Each resolver already fans out across the active providers. Limiting
-        # the outer pool prevents a 40-result TMDB search from creating an
-        # unbounded number of simultaneous network and detail requests.
-        with ThreadPoolExecutor(max_workers=min(3, len(tmdb_results))) as pool:
+        # Only TMDB identities that already have a matching provider search hit
+        # reach the detail/hoster stage. Each worker walks providers in user
+        # priority order and stops at the first confirmed source.
+        with ThreadPoolExecutor(
+            max_workers=min(8, len(candidates_by_index))
+        ) as pool:
             futures = [
-                pool.submit(_verify_tmdb_movie_source, index, movie)
-                for index, movie in enumerate(tmdb_results)
+                pool.submit(
+                    _verify_tmdb_movie_candidates,
+                    index,
+                    tmdb_results[index],
+                    candidates,
+                )
+                for index, candidates in candidates_by_index.items()
             ]
             for future in as_completed(futures):
                 index, movie = future.result()
                 if movie is not None:
                     verified_by_index[index] = movie
 
-        # Preserve TMDB relevance order even though provider checks finish in a
-        # different order.
+        # Preserve TMDB relevance order even though provider detail checks may
+        # finish in a different order.
         verified = [
             verified_by_index[index]
             for index in range(len(tmdb_results))
