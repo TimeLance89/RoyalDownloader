@@ -190,10 +190,19 @@ const api = {
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
+  _upgradeTmdbImageUrl(url) {
+    const parsed = new URL(url, location.origin);
+    if (parsed.protocol !== "https:" || parsed.hostname !== "image.tmdb.org") return parsed;
+    parsed.pathname = parsed.pathname
+      .replace(/^\/t\/p\/w500\//, "/t/p/w780/")
+      .replace(/^\/t\/p\/w1280\//, "/t/p/original/");
+    return parsed;
+  },
+
   coverUrl(url) {
     if (!url) return "";
     try {
-      const parsed = new URL(url, location.origin);
+      const parsed = this._upgradeTmdbImageUrl(url);
       if (parsed.origin === location.origin) return parsed.href;
       if (parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org") return parsed.href;
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
@@ -205,7 +214,7 @@ const api = {
   coverProxyUrl(url) {
     if (!url) return "";
     try {
-      const parsed = new URL(url, location.origin);
+      const parsed = this._upgradeTmdbImageUrl(url);
       if (parsed.origin === location.origin) return parsed.href;
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
       return "/api/cover?" + new URLSearchParams({ url: parsed.href });
@@ -216,3 +225,50 @@ const api = {
     return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
   },
 };
+
+// In-app updates replace the backend build while an already-open browser tab
+// can keep the previous CSS/JavaScript alive indefinitely. Capabilities already
+// exposes the current build SHA as a public, stable contract. Once it changes,
+// this tab belongs to the previous frontend build and must reload.
+let royalServerBuild = "";
+let royalServerHeartbeatTimer = null;
+let royalFrontendReloading = false;
+
+async function checkRoyalServerBuild() {
+  if (royalFrontendReloading) return;
+  try {
+    const response = await fetch("/api/v1/capabilities", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const build = String(data?.build || "").trim();
+    if (!build) return;
+    if (royalServerBuild && royalServerBuild !== build) {
+      royalFrontendReloading = true;
+      location.reload();
+      return;
+    }
+    royalServerBuild = build;
+  } catch (error) {
+    // A short connection failure is expected while an update restarts Royal.
+    // The next heartbeat compares against the new backend build.
+  }
+}
+
+function scheduleRoyalServerHeartbeat(delay = 5000) {
+  if (royalServerHeartbeatTimer) clearTimeout(royalServerHeartbeatTimer);
+  royalServerHeartbeatTimer = setTimeout(async () => {
+    await checkRoyalServerBuild();
+    if (!royalFrontendReloading) scheduleRoyalServerHeartbeat(document.hidden ? 15000 : 5000);
+  }, delay);
+}
+
+void checkRoyalServerBuild().finally(() => scheduleRoyalServerHeartbeat());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    void checkRoyalServerBuild();
+    scheduleRoyalServerHeartbeat(5000);
+  }
+});

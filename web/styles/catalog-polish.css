@@ -1,0 +1,341 @@
+/* ── Catalog polish: one cinematic language for movies + series ────────
+   This file intentionally loads after catalog.css. It keeps the existing
+   catalog structure, but aligns hero composition and poster geometry.
+*/
+
+/* Desktop heroes: artwork must actually span the complete stage. The previous
+   width-limited background left a large solid block on the left on wide
+   displays, which visually recreated the old hard split. The full-width image
+   now sits behind the copy and is shaped only by gradients. */
+#tab-filme > .movie-feature,
+#tab-serien > .series-feature {
+  min-height: clamp(470px, 36vw, 620px);
+  max-height: 620px;
+  isolation: isolate;
+}
+
+#tab-filme > .movie-feature::before,
+#tab-serien > .series-feature::before {
+  background:
+    linear-gradient(90deg,
+      rgba(10, 10, 10, .96) 0%,
+      rgba(10, 10, 10, .88) 18%,
+      rgba(10, 10, 10, .70) 31%,
+      rgba(10, 10, 10, .38) 45%,
+      rgba(10, 10, 10, .12) 58%,
+      rgba(10, 10, 10, 0) 74%),
+    linear-gradient(0deg,
+      #101010 0%,
+      rgba(16, 16, 16, .82) 9%,
+      rgba(16, 16, 16, .22) 29%,
+      transparent 58%);
+}
+
+#tab-filme > .movie-feature::after,
+#tab-serien > .series-feature::after {
+  height: 128px;
+  background: linear-gradient(transparent, #101010 92%);
+}
+
+#tab-filme .movie-feature-art,
+#tab-serien .series-feature-art {
+  inset: 0;
+  background-color: #101010;
+  background-position: center 38%;
+  background-repeat: no-repeat;
+  background-size: 100% auto;
+  /* Keep the source pixels untouched. Darkening/legibility belongs to the
+     overlay gradients above; GPU filters can soften scaled artwork. */
+  filter: none;
+  image-rendering: auto;
+  transform: none;
+}
+
+/* Poster-only fallbacks must not be stretched across the whole hero. */
+#tab-filme .movie-feature.is-poster-art .movie-feature-art,
+#tab-serien .series-feature.is-poster-art .series-feature-art {
+  inset: 0;
+  background-position: 76% center;
+  background-repeat: no-repeat;
+  background-size: auto 112%;
+}
+
+#tab-filme .movie-feature-copy,
+#tab-serien .series-feature-copy {
+  width: min(47%, 680px);
+  min-height: clamp(470px, 36vw, 620px);
+  padding-top: 64px;
+  padding-bottom: 86px;
+}
+
+#tab-filme .movie-feature h1,
+#tab-serien .series-feature h1 {
+  max-width: 12.5ch;
+  font-size: clamp(44px, 4.35vw, 70px);
+}
+
+/* Film + series shelves use exactly the same poster width. Using a fixed
+   track width rather than 1fr prevents one catalog from visually shrinking
+   merely because a different number of cards happens to fit the row. */
+#tab-filme #fp-results.result-shelf,
+#tab-serien #series-results.result-shelf {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 230px));
+  justify-content: start;
+  column-gap: clamp(16px, 1.35vw, 24px);
+  row-gap: clamp(30px, 2.7vw, 44px);
+}
+
+#tab-filme #fp-results .result-card,
+#tab-serien #series-results .result-card {
+  width: 100%;
+  min-width: 0;
+}
+
+#tab-filme #fp-results .result-card .result-card-visual,
+#tab-serien #series-results .result-card .result-card-visual {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+}
+
+/* Do not apply visual filters to poster pixels. High-DPI displays receive
+   larger TMDB assets in api.js; the browser only performs normal resampling. */
+#tab-filme #fp-results .result-card-poster,
+#tab-serien #series-results .result-card-poster,
+.home-card img,
+.anime-card-poster img {
+  filter: none;
+  image-rendering: auto;
+}
+
+#tab-filme #fp-results .result-card-fallback,
+#tab-serien #series-results .result-card-fallback {
+  background:
+    radial-gradient(circle at 70% 22%, rgba(229, 9, 20, .16), transparent 31%),
+    linear-gradient(145deg, #242424, #151515 72%);
+}
+
+@media (max-width: 1280px) and (min-width: 821px) {
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art {
+    background-position: center 38%;
+    background-size: 100% auto;
+  }
+
+  #tab-filme #fp-results.result-shelf,
+  #tab-serien #series-results.result-shelf {
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  #tab-filme > .movie-feature,
+  #tab-serien > .series-feature {
+    min-height: 430px;
+    max-height: 430px;
+  }
+
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art,
+  #tab-filme .movie-feature.is-poster-art .movie-feature-art,
+  #tab-serien .series-feature.is-poster-art .series-feature-art {
+    inset: 0;
+    background-position: 58% center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  #tab-filme > .movie-feature::before,
+  #tab-serien > .series-feature::before {
+    background:
+      linear-gradient(90deg, rgba(10, 10, 10, .44), transparent 78%),
+      linear-gradient(0deg, #101010 0%, rgba(16, 16, 16, .94) 31%, rgba(16, 16, 16, .16) 72%);
+  }
+
+  #tab-filme .movie-feature-copy,
+  #tab-serien .series-feature-copy {
+    width: 92%;
+    min-height: 430px;
+    padding: 24px 18px 48px;
+  }
+
+  #tab-filme #fp-results.result-shelf,
+  #tab-serien #series-results.result-shelf {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+}
+
+@media (max-width: 520px) {
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art,
+  #tab-filme .movie-feature.is-poster-art .movie-feature-art,
+  #tab-serien .series-feature.is-poster-art .series-feature-art {
+    background-position: 62% center;
+  }
+}
+
+/* ── Desktop navigation: calmer streaming hierarchy ──────────────────── */
+@media (min-width: 821px) {
+  .topbar {
+    min-height: 78px;
+    padding-inline: clamp(30px, 4.5vw, 86px);
+    gap: clamp(22px, 2.4vw, 44px);
+    background:
+      linear-gradient(180deg,
+        rgba(4, 4, 4, .98) 0%,
+        rgba(4, 4, 4, .91) 58%,
+        rgba(4, 4, 4, .58) 82%,
+        rgba(4, 4, 4, 0) 100%);
+  }
+
+  .topbar .brand {
+    flex: 0 0 auto;
+    min-width: clamp(126px, 9.2vw, 164px);
+  }
+
+  .topbar .brand-title {
+    font-size: clamp(29px, 2.45vw, 40px);
+    letter-spacing: -.07em;
+  }
+
+  .topbar .brand-sub {
+    right: 2px;
+    bottom: -10px;
+    font-size: 6px;
+    letter-spacing: .3em;
+    opacity: .82;
+  }
+
+  .topbar .tabs {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: clamp(5px, .72vw, 12px);
+    white-space: nowrap;
+  }
+
+  /* Preserve the HTML/JS contract and change only desktop reading order. */
+  .topbar .tabs [data-tab="home"] { order: 1; }
+  .topbar .tabs [data-tab="serien"] { order: 2; }
+  .topbar .tabs [data-tab="filme"] { order: 3; }
+  .topbar .tabs [data-tab="anime"] { order: 4; }
+  .topbar .tabs [data-tab="bibliothek"] { order: 5; }
+  .topbar .tabs .mood-nav-open { order: 6; }
+
+  /* Setup belongs to settings, not to the primary content navigation. Keep
+     the element for the existing JS/mobile contract, but remove it on desktop. */
+  .topbar .tabs .mobile-settings-tab {
+    display: none !important;
+  }
+
+  .topbar .tabs .tab-icon {
+    display: none;
+  }
+
+  .topbar .tabs .tab-btn,
+  .topbar .tabs .mood-nav-open {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    margin: 0;
+    padding: 10px clamp(9px, .72vw, 14px);
+    border: 0;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, .84);
+    background: transparent;
+    box-shadow: none;
+    font: 600 clamp(13px, .92vw, 16px)/1 "DM Sans", sans-serif;
+    letter-spacing: -.01em;
+    text-transform: none;
+    cursor: pointer;
+    transition: color .18s ease, background-color .18s ease, padding .18s ease;
+  }
+
+  .topbar .tabs .tab-btn::before,
+  .topbar .tabs .tab-btn::after,
+  .topbar .tabs .mood-nav-open::before,
+  .topbar .tabs .mood-nav-open::after {
+    display: none;
+  }
+
+  .topbar .tabs .tab-btn:hover,
+  .topbar .tabs .tab-btn:focus-visible,
+  .topbar .tabs .mood-nav-open:hover,
+  .topbar .tabs .mood-nav-open:focus-visible {
+    color: #fff;
+    background: rgba(255, 255, 255, .075);
+    outline: 0;
+    transform: none;
+  }
+
+  .topbar .tabs .tab-btn:focus-visible,
+  .topbar .tabs .mood-nav-open:focus-visible {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .72);
+  }
+
+  .topbar .tabs .tab-btn.active,
+  .topbar .tabs .anime-tab-button.active {
+    padding-inline: clamp(18px, 1.35vw, 25px);
+    color: #fff;
+    background: rgba(255, 255, 255, .18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 7px 22px rgba(0, 0, 0, .18);
+    font-weight: 700;
+  }
+
+  .topbar .tabs .mood-nav-open {
+    color: rgba(255, 255, 255, .72);
+  }
+
+  .topbar .global-search-shell {
+    margin-left: auto;
+  }
+
+  .topbar #settings-btn {
+    min-height: 38px;
+    padding-inline: 14px;
+    color: rgba(255, 255, 255, .86);
+    background: rgba(18, 18, 18, .58);
+    border-color: rgba(255, 255, 255, .13);
+    border-radius: 8px;
+  }
+
+  .topbar #settings-btn:hover,
+  .topbar #settings-btn:focus-visible {
+    color: #fff;
+    background: rgba(42, 42, 42, .88);
+    border-color: rgba(255, 255, 255, .24);
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1450px) {
+  .topbar {
+    padding-inline: 24px;
+    gap: 16px;
+  }
+
+  .topbar .brand {
+    min-width: 112px;
+  }
+
+  .topbar .brand-title {
+    font-size: 27px;
+  }
+
+  .topbar .tabs {
+    gap: 2px;
+  }
+
+  .topbar .tabs .tab-btn,
+  .topbar .tabs .mood-nav-open {
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+
+  .topbar .tabs .tab-btn.active,
+  .topbar .tabs .anime-tab-button.active {
+    padding-inline: 15px;
+  }
+}
