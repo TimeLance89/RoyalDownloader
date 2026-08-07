@@ -86,9 +86,8 @@ def test_inventory_considers_every_provider_hoster_and_selects_measured_best(mon
         "target_quality": "2160p",
     }
 
-    primary, fallbacks, rank, label = stream_quality._prepare_movie_subscription_upgrade(
-        entry, sources,
-    )
+    legacy_prepare = stream_quality._prepare_movie_subscription_upgrade.__wrapped__
+    primary, fallbacks, rank, label = legacy_prepare(entry, sources)
 
     assert len(calls) == 4
     assert {call[:2] for call in calls} == {
