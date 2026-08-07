@@ -109,7 +109,20 @@ def test_live_fallback_uses_tmdb_canonical_alias(monkeypatch):
 
 
 def test_live_fallback_returns_every_remaining_provider_without_six_source_cap(monkeypatch):
-    providers = ["filmfrei24", *[f"provider{index}" for index in range(1, 12)]]
+    providers = [
+        "filmfrei24",
+        "filmo",
+        "filmpalast",
+        "huhu",
+        "moflix",
+        "einschalten",
+        "kinox",
+        "kinoger",
+        "megakino",
+        "xcine",
+        "sflix",
+        "ridomovies",
+    ]
     primary = _movie("Batch Movie", "https://filmfrei24.test/batch", "filmfrei24")
     results = [
         _result("Batch Movie", f"slug-{provider}", provider)
