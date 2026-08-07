@@ -216,3 +216,51 @@ const api = {
     return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
   },
 };
+
+// In-app updates replace the Python process while an already-open browser tab
+// can keep the previous CSS/JavaScript alive indefinitely. The server health
+// endpoint carries a per-process instance token; when it changes, this tab is
+// stale and must reload. This also covers automatic updates where the UI never
+// observed the updater's short-lived `restarting` state.
+let royalServerInstance = "";
+let royalServerHeartbeatTimer = null;
+let royalFrontendReloading = false;
+
+async function checkRoyalServerInstance() {
+  if (royalFrontendReloading) return;
+  try {
+    const response = await fetch("/api/health", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const instance = String(data?.instance || "").trim();
+    if (!instance) return;
+    if (royalServerInstance && royalServerInstance !== instance) {
+      royalFrontendReloading = true;
+      location.reload();
+      return;
+    }
+    royalServerInstance = instance;
+  } catch (error) {
+    // A short connection failure is expected while an update restarts Royal.
+    // The next heartbeat compares against the new process instance.
+  }
+}
+
+function scheduleRoyalServerHeartbeat(delay = 5000) {
+  if (royalServerHeartbeatTimer) clearTimeout(royalServerHeartbeatTimer);
+  royalServerHeartbeatTimer = setTimeout(async () => {
+    await checkRoyalServerInstance();
+    if (!royalFrontendReloading) scheduleRoyalServerHeartbeat(document.hidden ? 15000 : 5000);
+  }, delay);
+}
+
+void checkRoyalServerInstance().finally(() => scheduleRoyalServerHeartbeat());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    void checkRoyalServerInstance();
+    scheduleRoyalServerHeartbeat(5000);
+  }
+});
