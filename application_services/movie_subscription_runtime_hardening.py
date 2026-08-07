@@ -172,6 +172,9 @@ def watchlist_auto_check_loop():
         time.sleep(_ORIGINAL_WATCHLIST_CHECK_DELAY(checked, total, interval_min))
 
 
+# Preserve the established service-ownership contract for diagnostics/tests.
+watchlist_auto_check_loop.__module__ = "application_services.automation"
+
 # Library routes resolve these names in their own module globals.
 library_router.check_movie_subscriptions = check_movie_subscriptions
 library_router.movie_subscriptions_payload = movie_subscriptions_payload
