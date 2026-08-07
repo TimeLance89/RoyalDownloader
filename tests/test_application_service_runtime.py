@@ -18,6 +18,7 @@ SERVICE_MODULES = (
     "seerr",
     "telegram_commands",
     "automation",
+    "movie_fallback_policy",
 )
 
 
@@ -38,8 +39,8 @@ def test_extracted_service_symbols_are_owned_by_service_modules():
         "series_catalog_page": "series_catalog",
         "build_queue_payload": "persistence",
         "find_episode_fallbacks": "download_lifecycle",
-        "find_movie_source_fallbacks": "source_resolution",
-        "run_download_queue": "download_queue",
+        "find_movie_source_fallbacks": "movie_fallback_policy",
+        "run_download_queue": "movie_fallback_policy",
         "_publish_telegram_movie_choices": "telegram_requests",
         "seerr_poll_once": "seerr",
         "handle_telegram_message": "telegram_commands",
