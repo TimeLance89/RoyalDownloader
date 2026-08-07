@@ -1,8 +1,8 @@
 """System and administration routes with no domain-state dependencies."""
 
-from collections.abc import Callable
 import os
 import time
+from collections.abc import Callable
 
 from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
