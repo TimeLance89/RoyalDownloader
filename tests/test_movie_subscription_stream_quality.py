@@ -1,5 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
+import threading
+from types import SimpleNamespace
 
 import downloader
 import server  # noqa: F401
@@ -188,3 +190,30 @@ def test_commit_records_actual_collision_safe_path(tmp_path):
     finally:
         commit_guard._committed_paths.pop("movie:test-commit", None)
         commit_guard._committed_profiles.pop("movie:test-commit", None)
+
+
+def test_subscription_source_bundle_refreshes_pinned_tmdb_cache(monkeypatch):
+    entry = {
+        "tmdb_id": 42,
+        "quality_source_refreshed_at": 0.0,
+    }
+    fake_state = SimpleNamespace(
+        movie_source_cache={"tmdb:42": ["stale"]},
+        movie_source_cache_lock=threading.RLock(),
+        movie_subscriptions_lock=threading.RLock(),
+    )
+    calls = []
+    monkeypatch.setattr(stream_quality, "state", fake_state)
+    monkeypatch.setattr(stream_quality.time, "time", lambda: 10_000.0)
+    monkeypatch.setattr(
+        stream_quality,
+        "_ORIGINAL_MOVIE_SUBSCRIPTION_SOURCES",
+        lambda current: calls.append(current) or ["fresh"],
+    )
+
+    result = stream_quality._movie_subscription_sources(entry)
+
+    assert result == ["fresh"]
+    assert calls == [entry]
+    assert "tmdb:42" not in fake_state.movie_source_cache
+    assert entry["quality_source_refreshed_at"] == 10_000.0
