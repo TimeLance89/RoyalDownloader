@@ -92,6 +92,17 @@ def _candidate_provider(candidate: Any) -> str:
     ).strip().casefold()
 
 
+def _candidate_content_language(candidate: Any, loaded: Any = None) -> str:
+    for value in (
+        getattr(loaded, "content_language", "") if loaded is not None else "",
+        getattr(candidate, "content_language", ""),
+    ):
+        normalized = normalize_content_language(str(value or ""))
+        if normalized:
+            return normalized
+    return provider_content_language(_candidate_provider(candidate))
+
+
 def _match_provider_candidates(
     tmdb_results: list[dict[str, Any]],
     candidates: list[Any],
@@ -171,7 +182,9 @@ def _verify_tmdb_movie_candidates(
         ):
             continue
         state.fp_movies[slug] = loaded
-        return index, movie
+        verified = dict(movie)
+        verified["content_language"] = _candidate_content_language(candidate, loaded)
+        return index, verified
     return index, None
 
 

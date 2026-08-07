@@ -18,6 +18,7 @@ from typing import Any
 _backend: ModuleType | None = None
 _service_namespaces: list[dict[str, Any]] = []
 _POST_SERVICE_MODULES = (
+    "application_services.trailer_policy",
     "application_services.movie_search_availability",
 )
 
