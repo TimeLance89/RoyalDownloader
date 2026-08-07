@@ -206,10 +206,9 @@ def _jellyfin_raw_profile(jf_client, item: dict) -> dict:
 def _current_profile(entry: dict) -> dict:
     """Resolve the real current Jellyfin/local profile, with height-only fallback."""
     current_rank = _safe_int(entry.get("current_quality_rank"))
-    stored = normalize_media_profile(entry.get("current_media_profile"))
-    if stored["height"] and (not current_rank or stored["height"] == current_rank):
-        return stored
 
+    # The file that exists *now* is authoritative.  A stored profile is only a
+    # fallback because users can replace/downgrade media outside RoyalDownloader.
     local_profile = _local_existing_profile(entry)
     if media_profile_complete(local_profile):
         return local_profile
@@ -232,6 +231,10 @@ def _current_profile(entry: dict) -> dict:
                 if media_profile_complete(profile):
                     return profile
                 current_rank = max(current_rank, _safe_int(item.get("quality_rank")))
+
+    stored = normalize_media_profile(entry.get("current_media_profile"))
+    if stored["height"] and (not current_rank or stored["height"] == current_rank):
+        return stored
     return media_profile_from_height(current_rank)
 
 
@@ -295,6 +298,12 @@ def _prepare_movie_subscription_upgrade(entry: dict, sources: list):
     baseline = _current_profile(entry)
     target = normalize_movie_quality(entry.get("target_quality"))
     with state.movie_subscriptions_lock:
+        # The measured inventory supersedes the old advertised-quality URL guard.
+        # Clear transient legacy candidate metadata so a stale signature cannot
+        # reject a genuine same-resolution HDR/audio upgrade on completion.
+        entry.pop("_upgrade_candidate_signature", None)
+        entry.pop("_upgrade_candidate_from_rank", None)
+        entry.pop("_upgrade_candidate_advertised_rank", None)
         raw_cache = entry.get(_PROBE_CACHE_FIELD)
         cache = dict(raw_cache) if isinstance(raw_cache, dict) else {}
 
