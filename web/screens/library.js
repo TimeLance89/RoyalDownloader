@@ -106,31 +106,42 @@ function normalizeCatalogIdentityText(value) {
     .replace(/\s+/g, " ");
 }
 
+function catalogIdentityView(item) {
+  if (!item) return {};
+  const slug = String(item.slug || "").trim();
+  const metadata = slug ? state.fp?.metadataCache?.[slug] : null;
+  return metadata ? { ...item, ...metadata } : item;
+}
+
 function catalogMediaYear(item) {
-  const raw = String(item?.year || item?.release_date || item?.first_air_date || "");
+  const identity = catalogIdentityView(item);
+  const raw = String(identity?.year || identity?.release_date || identity?.first_air_date || "");
   return raw.match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
 }
 
 function catalogMediaTitles(item) {
+  const identity = catalogIdentityView(item);
   return new Set([
-    item?.title,
-    item?.original_title,
-    item?.original_name,
+    identity?.title,
+    identity?.original_title,
+    identity?.original_name,
   ].map(normalizeCatalogIdentityText).filter(Boolean));
 }
 
 function catalogLogicalMediaMatch(left, right) {
   if (!left || !right) return false;
-  const leftTmdb = String(left.tmdb_id || "").trim();
-  const rightTmdb = String(right.tmdb_id || "").trim();
+  const leftIdentity = catalogIdentityView(left);
+  const rightIdentity = catalogIdentityView(right);
+  const leftTmdb = String(leftIdentity.tmdb_id || "").trim();
+  const rightTmdb = String(rightIdentity.tmdb_id || "").trim();
   if (leftTmdb && rightTmdb) return leftTmdb === rightTmdb;
 
-  const leftYear = catalogMediaYear(left);
-  const rightYear = catalogMediaYear(right);
+  const leftYear = catalogMediaYear(leftIdentity);
+  const rightYear = catalogMediaYear(rightIdentity);
   if (leftYear && rightYear && leftYear !== rightYear) return false;
 
-  const leftTitles = catalogMediaTitles(left);
-  const rightTitles = catalogMediaTitles(right);
+  const leftTitles = catalogMediaTitles(leftIdentity);
+  const rightTitles = catalogMediaTitles(rightIdentity);
   if (![...leftTitles].some((title) => rightTitles.has(title))) return false;
 
   // With an unknown year, avoid collapsing obvious separate remakes when both
@@ -215,6 +226,45 @@ function dedupeCatalogMedia(items) {
   return output;
 }
 
+function reconcileMovieCatalogDuplicates() {
+  const current = Array.isArray(state.fp.results) ? state.fp.results : [];
+  const selected = current.find((item) => item.slug === state.fp.selectedSlug) || null;
+  const reconciled = dedupeCatalogMedia(current);
+  if (reconciled.length === current.length) return false;
+
+  state.fp.results = reconciled;
+  if (selected && !reconciled.some((item) => item.slug === state.fp.selectedSlug)) {
+    state.fp.selectedSlug = reconciled.find((item) => catalogLogicalMediaMatch(item, selected))?.slug || null;
+  }
+  renderFpResults(0);
+  refreshMovieFeatureCandidates();
+  updateFpInfiniteState();
+  const status = document.getElementById("fp-status");
+  if (status) status.textContent = fpStatusMessage();
+  return true;
+}
+
+function reconcileSeriesCatalogDuplicates() {
+  const current = Array.isArray(state.series.results) ? state.series.results : [];
+  const reconciled = dedupeCatalogMedia(current);
+  if (reconciled.length === current.length) return false;
+
+  state.series.results = reconciled;
+  renderSeriesResults(0);
+  renderSeriesCatalogHero();
+  updateSeriesInfiniteState();
+  const sourceCount = state.series.sources.length;
+  const status = document.getElementById("series-status");
+  if (status) {
+    status.textContent = reconciled.length
+      ? (sourceCount
+        ? `${reconciled.length} Serie(n) · ${sourceCount} ${sourceCount === 1 ? "Quelle" : "Quellen"}`
+        : `${reconciled.length} Serie(n) gefunden`)
+      : "Keine Serie gefunden.";
+  }
+  return true;
+}
+
 function cleanMediaCardInitials(title) {
   const words = String(title || "")
     .trim()
@@ -261,6 +311,29 @@ function installCatalogConsistencyPolicy() {
         results: dedupeCatalogMedia(data?.results || []),
       };
       return originalApplySeriesResults(payload, options);
+    };
+  }
+
+  // Provider rows often do not yet contain TMDB identity. Reconcile once the
+  // asynchronous metadata preload has populated metadataCache, otherwise
+  // translated titles such as "Die Odyssee" / "The Odyssey" remain separate.
+  if (typeof preloadTmdbMetadata === "function") {
+    const originalPreloadTmdbMetadata = preloadTmdbMetadata;
+    window.preloadTmdbMetadata = async function logicalMovieMetadataPreload(...args) {
+      const result = await originalPreloadTmdbMetadata(...args);
+      reconcileMovieCatalogDuplicates();
+      return result;
+    };
+  }
+
+  // Series metadata is assigned to the result objects by this hydrator. The
+  // initial result pass therefore needs the same post-hydration reconciliation.
+  if (typeof hydrateHomeSeriesArtwork === "function") {
+    const originalHydrateHomeSeriesArtwork = hydrateHomeSeriesArtwork;
+    window.hydrateHomeSeriesArtwork = async function logicalSeriesMetadataHydration(...args) {
+      const result = await originalHydrateHomeSeriesArtwork(...args);
+      reconcileSeriesCatalogDuplicates();
+      return result;
     };
   }
 

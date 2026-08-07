@@ -3,10 +3,10 @@
    catalog structure, but aligns hero composition and poster geometry.
 */
 
-/* Desktop heroes: let the artwork occupy the complete stage instead of
-   starting at a hard 24% boundary. A width-based backdrop size shows much
-   more of common 16:9 TMDB artwork than background-size: cover in this very
-   wide banner, while the gradients keep copy readable. */
+/* Desktop heroes: artwork must actually span the complete stage. The previous
+   width-limited background left a large solid block on the left on wide
+   displays, which visually recreated the old hard split. The full-width image
+   now sits behind the copy and is shaped only by gradients. */
 #tab-filme > .movie-feature,
 #tab-serien > .series-feature {
   min-height: clamp(470px, 36vw, 620px);
@@ -18,16 +18,16 @@
 #tab-serien > .series-feature::before {
   background:
     linear-gradient(90deg,
-      #101010 0%,
-      rgba(16, 16, 16, .98) 14%,
-      rgba(16, 16, 16, .87) 29%,
-      rgba(16, 16, 16, .47) 48%,
-      rgba(16, 16, 16, .08) 70%,
-      rgba(16, 16, 16, 0) 84%),
+      rgba(10, 10, 10, .96) 0%,
+      rgba(10, 10, 10, .88) 18%,
+      rgba(10, 10, 10, .70) 31%,
+      rgba(10, 10, 10, .38) 45%,
+      rgba(10, 10, 10, .12) 58%,
+      rgba(10, 10, 10, 0) 74%),
     linear-gradient(0deg,
       #101010 0%,
-      rgba(16, 16, 16, .88) 9%,
-      rgba(16, 16, 16, .28) 29%,
+      rgba(16, 16, 16, .82) 9%,
+      rgba(16, 16, 16, .22) 29%,
       transparent 58%);
 }
 
@@ -41,10 +41,10 @@
 #tab-serien .series-feature-art {
   inset: 0;
   background-color: #101010;
-  background-position: right 40%;
+  background-position: center 38%;
   background-repeat: no-repeat;
-  background-size: clamp(980px, 63vw, 1400px) auto;
-  filter: saturate(1.02) contrast(1.025) brightness(.9);
+  background-size: 100% auto;
+  filter: saturate(1.03) contrast(1.025) brightness(.9);
   transform: none;
 }
 
@@ -104,8 +104,8 @@
 @media (max-width: 1280px) and (min-width: 821px) {
   #tab-filme .movie-feature-art,
   #tab-serien .series-feature-art {
-    background-position: 64% 42%;
-    background-size: auto 100%;
+    background-position: center 38%;
+    background-size: 100% auto;
   }
 
   #tab-filme #fp-results.result-shelf,
