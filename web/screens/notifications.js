@@ -1,71 +1,193 @@
 // ── Benachrichtigungs-Glocke ─────────────────────────────────────────────
+function ensureSubscriptionCenterStyles() {
+  if (document.querySelector('link[data-subscription-center-styles]')) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/styles/subscription-center.css?v=royal-20260807-1";
+  link.dataset.subscriptionCenterStyles = "true";
+  document.head.appendChild(link);
+}
+
+function notificationHasIssue(entry) {
+  return Boolean(entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed");
+}
+
+function notificationState(entry) {
+  if (notificationHasIssue(entry)) return "issue";
+  if (Number(entry.queued_count || 0) > 0 || entry.status === "queued") return "queued";
+  return "new";
+}
+
+function notificationStateLabel(entry) {
+  if (entry.status === "blocked") return "Quelle blockiert";
+  if (entry.status === "failed") return "Prüfung fehlgeschlagen";
+  if (entry.cleanup_last_error) return "Bereinigung prüfen";
+  const queued = Number(entry.queued_count || 0);
+  if (queued > 0 || entry.status === "queued") return `${queued || entry.new_count || 1} im Downloadplan`;
+  return `${Number(entry.new_count || 0)} neu`;
+}
+
+function ensureSubscriptionCenterChrome() {
+  ensureSubscriptionCenterStyles();
+  const bell = document.getElementById("notif-bell");
+  let issueBadge = document.getElementById("notif-issue-badge");
+  if (!issueBadge) {
+    issueBadge = document.createElement("span");
+    issueBadge.id = "notif-issue-badge";
+    issueBadge.className = "notif-issue-badge hidden";
+    issueBadge.textContent = "!";
+    issueBadge.setAttribute("aria-hidden", "true");
+    bell.appendChild(issueBadge);
+  }
+
+  let stats = document.getElementById("notif-stats");
+  if (!stats) {
+    stats = document.createElement("div");
+    stats.id = "notif-stats";
+    stats.className = "notif-stats";
+    stats.setAttribute("aria-label", "Abo-Status");
+    stats.innerHTML = `
+      <span class="notif-stat is-new"><strong id="notif-new-count">0</strong><small>Neue Episoden</small></span>
+      <span class="notif-stat is-issue"><strong id="notif-issue-count">0</strong><small>Probleme</small></span>
+      <span class="notif-stat is-ok"><strong id="notif-center-subscriptions">0</strong><small>Abonnements</small></span>
+    `;
+    document.querySelector(".notif-head")?.appendChild(stats);
+  }
+}
+
+function buildNotificationItem(entry) {
+  const item = document.createElement("button");
+  item.type = "button";
+  const stateName = notificationState(entry);
+  item.className = `notif-item is-${stateName}`;
+
+  const art = document.createElement("span");
+  art.className = "notif-item-art";
+  if (entry.backdrop_url) {
+    const image = document.createElement("img");
+    image.src = api.coverUrl(entry.backdrop_url);
+    image.alt = "";
+    image.loading = "lazy";
+    image.addEventListener("error", () => art.classList.add("is-fallback"), { once: true });
+    art.appendChild(image);
+  } else {
+    art.classList.add("is-fallback");
+  }
+  const monogram = document.createElement("span");
+  monogram.className = "notif-item-monogram";
+  monogram.textContent = subscriptionMonogram(entry.title);
+  art.appendChild(monogram);
+
+  const copy = document.createElement("span");
+  copy.className = "notif-item-copy";
+  const title = document.createElement("strong");
+  title.translate = false;
+  title.textContent = entry.title;
+  const mode = document.createElement("small");
+  mode.textContent = watchlistStatusText(entry);
+  const statePill = document.createElement("span");
+  statePill.className = `notif-state is-${stateName}`;
+  statePill.textContent = notificationStateLabel(entry);
+  copy.append(title, mode, statePill);
+
+  const count = document.createElement("span");
+  count.className = "notif-count";
+  const countValue = document.createElement("strong");
+  countValue.textContent = notificationHasIssue(entry)
+    ? "!"
+    : String(entry.failed_count || entry.new_count || entry.queued_count || 0);
+  const countLabel = document.createElement("small");
+  countLabel.textContent = notificationHasIssue(entry)
+    ? "Prüfen"
+    : (entry.new_count === 1 ? "Episode" : "Episoden");
+  count.append(countValue, countLabel);
+
+  const arrow = document.createElement("span");
+  arrow.className = "notif-item-arrow";
+  arrow.textContent = "›";
+  item.append(art, copy, count, arrow);
+  item.addEventListener("click", () => {
+    closeNotifDropdown();
+    openWatchlistEntry(entry.base_slug);
+  });
+  return item;
+}
+
+function appendNotificationSection(list, className, label, entries) {
+  if (!entries.length) return;
+  const section = document.createElement("section");
+  section.className = `notif-section ${className}`;
+  const heading = document.createElement("div");
+  heading.className = "notif-section-title";
+  const title = document.createElement("span");
+  title.textContent = label;
+  const count = document.createElement("span");
+  count.textContent = String(entries.length);
+  heading.append(title, count);
+  section.appendChild(heading);
+  entries.forEach((entry) => section.appendChild(buildNotificationItem(entry)));
+  list.appendChild(section);
+}
+
 function renderNotifBell() {
-  const withNotice = state.wl.items.filter((e) => e.new_count || e.cleanup_last_error || e.status === "blocked" || e.status === "failed");
-  const total = withNotice.reduce((sum, e) => sum + e.new_count, 0);
-  const issueCount = withNotice.filter((entry) => entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed").length;
+  ensureSubscriptionCenterChrome();
+  const withNotice = state.wl.items.filter((e) => e.new_count || notificationHasIssue(e));
+  const total = withNotice.reduce((sum, e) => sum + Number(e.new_count || 0), 0);
+  const issueEntries = withNotice.filter(notificationHasIssue);
+  const issueCount = issueEntries.length;
   const bell = document.getElementById("notif-bell");
   const badge = document.getElementById("notif-badge");
+  const issueBadge = document.getElementById("notif-issue-badge");
   const triggerLabel = document.getElementById("notif-trigger-label");
-  badge.textContent = total ? String(total) : "!";
-  badge.classList.toggle("hidden", total === 0 && issueCount === 0);
+
+  badge.textContent = String(total);
+  badge.classList.toggle("hidden", total === 0);
+  issueBadge.classList.toggle("hidden", issueCount === 0);
   bell.classList.toggle("is-active", total > 0 || issueCount > 0);
   bell.setAttribute("aria-label", total || issueCount
-    ? `Abo-Postfach öffnen: ${total} fehlende Episoden, ${issueCount} Probleme`
-    : "Abo-Postfach öffnen: alles aktuell");
+    ? `Abo-Inbox öffnen: ${total} neue Episoden, ${issueCount} Probleme`
+    : "Abo-Inbox öffnen: alles aktuell");
   triggerLabel.textContent = total
-    ? `${total} ${total === 1 ? "Episode fehlt" : "Episoden fehlen"}`
+    ? `${total} ${total === 1 ? "neue Episode" : "neue Episoden"}`
     : (issueCount ? `${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}` : "Alles aktuell");
-  document.getElementById("notif-summary").textContent = total || issueCount
-    ? `${total} fehlend · ${issueCount} problematisch`
-    : "Alles vollständig";
+
+  const summary = document.getElementById("notif-summary");
+  summary.textContent = total || issueCount
+    ? `${total} neu · ${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}`
+    : "Alle abonnierten Serien sind vollständig";
   document.getElementById("notif-subscription-count").textContent =
     `${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo" : "Abos"}`;
+  document.getElementById("notif-new-count").textContent = String(total);
+  document.getElementById("notif-issue-count").textContent = String(issueCount);
+  document.getElementById("notif-center-subscriptions").textContent = String(state.wl.items.length);
 
   const list = document.getElementById("notif-list");
   list.innerHTML = "";
   if (!withNotice.length) {
-    list.innerHTML = `<div class="notif-empty"><span class="notif-empty-seal">✓</span><strong>Alles vollständig</strong><small>Abonnierte Serien werden weiter automatisch auf fehlende Episoden geprüft.</small></div>`;
+    list.innerHTML = `
+      <div class="notif-empty">
+        <span class="notif-empty-seal">✓</span>
+        <strong>Alles auf dem neuesten Stand</strong>
+        <small>Royal überwacht deine abonnierten Serien weiter automatisch. Momentan fehlen keine Episoden und es gibt nichts zu prüfen.</small>
+        <span class="notif-empty-meta">${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo wird" : "Abos werden"} überwacht</span>
+      </div>
+    `;
     return;
   }
-  const sorted = [...withNotice].sort((a, b) =>
+
+  const issueSorted = [...issueEntries].sort((a, b) =>
     (b.failed_count || 0) - (a.failed_count || 0)
     || (b.new_count || 0) - (a.new_count || 0)
     || a.title.localeCompare(b.title, "de"));
-  for (const entry of sorted) {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "notif-item";
-    const mark = document.createElement("span");
-    mark.className = "notif-item-mark";
-    mark.textContent = subscriptionMonogram(entry.title);
-    const copy = document.createElement("span");
-    copy.className = "notif-item-copy";
-    const title = document.createElement("strong");
-    title.textContent = entry.title;
-    const mode = document.createElement("small");
-    mode.textContent = watchlistStatusText(entry);
-    copy.append(title, mode);
-    const count = document.createElement("span");
-    count.className = "notif-count";
-    const countValue = document.createElement("strong");
-    countValue.textContent = entry.status === "blocked" || entry.cleanup_last_error ? "!" : String(entry.failed_count || entry.new_count);
-    const countLabel = document.createElement("small");
-    countLabel.textContent = entry.status === "blocked"
-      ? "Blockiert"
-      : (entry.status === "failed"
-        ? "Fehler"
-        : (entry.cleanup_last_error ? "Löschen" : (entry.new_count === 1 ? "Episode" : "Episoden")));
-    count.append(countValue, countLabel);
-    const arrow = document.createElement("span");
-    arrow.className = "notif-item-arrow";
-    arrow.textContent = "›";
-    item.append(mark, copy, count, arrow);
-    item.addEventListener("click", () => {
-      closeNotifDropdown();
-      openWatchlistEntry(entry.base_slug);
-    });
-    list.appendChild(item);
-  }
+  const newSorted = withNotice
+    .filter((entry) => !notificationHasIssue(entry) && Number(entry.new_count || 0) > 0)
+    .sort((a, b) =>
+      Number(b.queued_count || 0) - Number(a.queued_count || 0)
+      || Number(b.new_count || 0) - Number(a.new_count || 0)
+      || a.title.localeCompare(b.title, "de"));
+
+  appendNotificationSection(list, "is-new", "Neu", newSorted);
+  appendNotificationSection(list, "is-issue", "Braucht Aufmerksamkeit", issueSorted);
 }
 
 function toggleNotifDropdown() {
@@ -81,15 +203,22 @@ function closeNotifDropdown() {
 }
 
 async function refreshNotifications() {
+  ensureSubscriptionCenterChrome();
   const button = document.getElementById("notif-refresh");
   button.disabled = true;
   button.classList.add("is-loading");
-  document.getElementById("notif-summary").textContent = "Abonnements werden geprüft …";
+  const summary = document.getElementById("notif-summary");
+  summary.textContent = "Abonnements werden geprüft …";
   try {
     const data = await api.watchlistCheck(null);
     applyWatchlist(data.watchlist);
+    const total = state.wl.items.reduce((sum, entry) => sum + Number(entry.new_count || 0), 0);
+    const issues = state.wl.items.filter(notificationHasIssue).length;
+    summary.textContent = total || issues
+      ? `Gerade eben geprüft · ${total} neu · ${issues} ${issues === 1 ? "Problem" : "Probleme"}`
+      : "Gerade eben geprüft · alles vollständig";
   } catch (error) {
-    document.getElementById("notif-summary").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    summary.textContent = `Prüfung fehlgeschlagen: ${error.message}`;
   } finally {
     button.disabled = false;
     button.classList.remove("is-loading");
