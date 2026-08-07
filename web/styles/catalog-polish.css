@@ -339,3 +339,615 @@
     padding-inline: 15px;
   }
 }
+
+/* ── Royal Download Dock ────────────────────────────────────────────────
+   Presentation-only upgrade of the existing persistent queue. Queue IDs,
+   WebSocket updates, retry/cancel controls and persistence contracts stay
+   untouched; this section only changes how the existing information reads. */
+
+#queue-dock .queue-panel {
+  --dock-accent: #e50914;
+  --dock-accent-soft: rgba(229, 9, 20, .14);
+  --dock-ready: #63c77b;
+  --dock-warn: #e1b85b;
+  --dock-error: #ff635f;
+  --dock-surface: rgba(12, 12, 13, .975);
+  --dock-surface-raised: rgba(23, 23, 25, .94);
+  --dock-line: rgba(255, 255, 255, .10);
+  --dock-muted: rgba(255, 255, 255, .58);
+}
+
+#queue-dock .download-kicker,
+#queue-dock .queue-dock-meta span,
+#queue-dock .queue-drawer-kicker {
+  color: var(--dock-accent);
+  letter-spacing: .17em;
+}
+
+#queue-dock .download-state-copy strong,
+#queue-dock .queue-dock-meta strong,
+#queue-dock .queue-activity-head strong,
+#queue-dock .queue-item-title {
+  color: #f7f7f7;
+}
+
+#queue-dock .download-stage[data-state="idle"] .download-percent,
+#queue-dock .download-stage[data-state="idle"] .progress-bar {
+  display: none;
+}
+
+#queue-dock .download-stage[data-state="idle"] .download-state-icon {
+  color: var(--dock-ready);
+  border-color: rgba(99, 199, 123, .38);
+  background: rgba(99, 199, 123, .08);
+}
+
+#queue-dock .download-stage[data-state="active"] .download-state-icon {
+  color: #fff;
+  border-color: rgba(229, 9, 20, .58);
+  background: linear-gradient(145deg, rgba(229, 9, 20, .34), rgba(229, 9, 20, .11));
+  box-shadow: 0 0 0 5px rgba(229, 9, 20, .06), 0 0 28px rgba(229, 9, 20, .16);
+}
+
+#queue-dock .download-stage[data-state="done"] .download-state-icon {
+  color: var(--dock-ready);
+  border-color: rgba(99, 199, 123, .45);
+  background: rgba(99, 199, 123, .09);
+}
+
+#queue-dock .download-stage[data-state="error"] .download-state-icon {
+  color: var(--dock-error);
+  border-color: rgba(255, 99, 95, .48);
+  background: rgba(255, 99, 95, .09);
+}
+
+#queue-dock .download-stage[data-state="cancelled"] .download-state-icon {
+  color: var(--dock-warn);
+  border-color: rgba(225, 184, 91, .42);
+  background: rgba(225, 184, 91, .08);
+}
+
+#queue-dock .download-percent {
+  color: #fff;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  letter-spacing: -.03em;
+}
+
+#queue-dock .progress-bar {
+  overflow: hidden;
+  background: rgba(255, 255, 255, .08);
+  border-radius: 999px;
+}
+
+#queue-dock .progress-fill {
+  background: linear-gradient(90deg, #bb0711, #e50914 55%, #ff4d57);
+  border-radius: inherit;
+  box-shadow: 0 0 16px rgba(229, 9, 20, .28);
+  transition: width .3s ease;
+}
+
+#queue-dock .queue-empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  text-align: center;
+}
+
+#queue-dock .queue-empty::before {
+  content: "↓";
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, .72);
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 50%;
+  font: 500 18px/1 "DM Sans", sans-serif;
+}
+
+#queue-dock .queue-group {
+  margin: 16px 2px 8px;
+  color: rgba(255, 255, 255, .47);
+  font: 700 9px/1.2 "JetBrains Mono", monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+#queue-dock .queue-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 78px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .018)),
+    rgba(11, 11, 12, .82);
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 13px;
+  box-shadow: none;
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+
+#queue-dock .queue-item::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: rgba(255, 255, 255, .16);
+}
+
+#queue-dock .queue-item:hover {
+  border-color: rgba(255, 255, 255, .15);
+  background-color: rgba(28, 28, 30, .92);
+  transform: translateY(-1px);
+}
+
+#queue-dock .queue-item.done::before {
+  background: var(--dock-ready);
+}
+
+#queue-dock .queue-position {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: rgba(255, 255, 255, .38);
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 9px;
+  font: 700 10px/1 "JetBrains Mono", monospace;
+}
+
+#queue-dock .queue-item-content {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+#queue-dock .queue-item-title {
+  overflow: hidden;
+  font: 650 13px/1.25 "DM Sans", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#queue-dock .queue-item-route,
+#queue-dock .queue-item-metrics {
+  overflow: hidden;
+  color: var(--dock-muted);
+  font: 500 9.5px/1.35 "DM Sans", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#queue-dock .queue-item-metrics:empty {
+  display: none;
+}
+
+#queue-dock .queue-item-progress {
+  display: block;
+  width: min(340px, 100%);
+  height: 3px;
+  margin-top: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .07);
+  border-radius: 999px;
+}
+
+#queue-dock .queue-item-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #b90812, #e50914, #ff4a55);
+  border-radius: inherit;
+}
+
+#queue-dock .queue-item-status {
+  min-width: max-content;
+  padding: 6px 9px;
+  color: rgba(255, 255, 255, .72);
+  background: rgba(255, 255, 255, .045);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 999px;
+  font: 650 9px/1 "DM Sans", sans-serif;
+}
+
+#queue-dock .queue-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#queue-dock .queue-action-btn {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 6px 8px;
+  color: rgba(255, 255, 255, .68);
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+
+#queue-dock .queue-action-btn:hover,
+#queue-dock .queue-action-btn:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, .085);
+  border-color: rgba(255, 255, 255, .18);
+  outline: none;
+}
+
+#queue-dock .queue-history-panel {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, .58);
+}
+
+#queue-dock .queue-history-panel > summary {
+  padding: 8px 2px;
+  font: 600 10px/1.2 "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+#queue-dock .queue-history-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+#queue-dock .queue-history-item {
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 10px;
+}
+
+#queue-dock .provider-health {
+  border-color: rgba(225, 184, 91, .28);
+  background: linear-gradient(110deg, rgba(225, 184, 91, .08), rgba(18, 18, 18, .86));
+}
+
+@media (min-width: 821px) {
+  .layout {
+    grid-template-rows: minmax(0, 1fr) 82px;
+    gap: 0;
+    padding-bottom: 0;
+  }
+
+  .sidebar {
+    height: 82px;
+  }
+
+  #queue-dock .queue-panel {
+    max-height: 82px;
+    padding: 0 0 80px;
+    background:
+      linear-gradient(180deg, rgba(21, 21, 22, .98), rgba(10, 10, 11, .985));
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -20px 60px -34px rgba(0, 0, 0, .96), inset 0 1px 0 rgba(255, 255, 255, .035);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    transition: max-height .32s cubic-bezier(.22, .8, .2, 1), border-color .2s ease, box-shadow .2s ease;
+  }
+
+  #queue-dock.queue-expanded .queue-panel {
+    max-height: min(66vh, 620px);
+    border-color: rgba(255, 255, 255, .14);
+    box-shadow: 0 -34px 90px -28px rgba(0, 0, 0, .98), 0 -8px 34px rgba(229, 9, 20, .055);
+  }
+
+  #queue-dock .queue-dock-bar {
+    height: 80px;
+    grid-template-columns: minmax(360px, 1.35fr) minmax(150px, .5fr) auto;
+    gap: clamp(14px, 2vw, 30px);
+    padding: 10px clamp(14px, 1.7vw, 30px);
+    background:
+      radial-gradient(circle at 16% 120%, rgba(229, 9, 20, .07), transparent 35%),
+      linear-gradient(180deg, rgba(18, 18, 19, .985), rgba(9, 9, 10, .995));
+    border-top: 1px solid rgba(255, 255, 255, .055);
+  }
+
+  #queue-dock .queue-dock-bar .download-stage {
+    min-height: 58px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 12px;
+  }
+
+  #queue-dock .queue-dock-bar .download-stage[data-state="active"] {
+    background: linear-gradient(90deg, rgba(229, 9, 20, .075), rgba(229, 9, 20, .01) 72%, transparent);
+    border-color: transparent;
+  }
+
+  #queue-dock .download-state-row {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 11px;
+  }
+
+  #queue-dock .download-state-icon {
+    width: 38px;
+    height: 38px;
+    border-width: 1px;
+    border-style: solid;
+    border-radius: 50%;
+    font-size: 17px;
+  }
+
+  #queue-dock .download-state-copy {
+    min-width: 0;
+  }
+
+  #queue-dock .download-state-copy strong {
+    display: block;
+    overflow: hidden;
+    max-width: 70ch;
+    font: 700 13px/1.2 "DM Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #queue-dock .download-state-copy .small-status {
+    display: block;
+    overflow: hidden;
+    margin-top: 2px;
+    color: rgba(255, 255, 255, .55);
+    font: 500 10px/1.25 "DM Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #queue-dock .download-percent {
+    font-size: 17px;
+  }
+
+  #queue-dock .queue-dock-bar .progress-bar {
+    height: 4px;
+    margin-top: 6px;
+  }
+
+  #queue-dock .queue-dock-meta {
+    padding-left: clamp(10px, 1vw, 18px);
+    border-left: 1px solid rgba(255, 255, 255, .075);
+  }
+
+  #queue-dock .queue-dock-meta strong {
+    margin-top: 2px;
+    font: 650 11px/1.2 "DM Sans", sans-serif;
+  }
+
+  #queue-dock .queue-dock-toggle {
+    min-height: 42px;
+    padding: 9px 14px;
+    color: rgba(255, 255, 255, .82);
+    background: rgba(255, 255, 255, .045);
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-radius: 10px;
+    font: 650 10px/1 "DM Sans", sans-serif;
+  }
+
+  #queue-dock .queue-dock-toggle:hover,
+  #queue-dock .queue-dock-toggle:focus-visible {
+    color: #fff;
+    background: rgba(255, 255, 255, .09);
+    border-color: rgba(255, 255, 255, .18);
+    transform: none;
+  }
+
+  #queue-dock .queue-toggle-chevron {
+    color: var(--dock-accent);
+  }
+
+  #queue-dock .queue-drawer {
+    grid-template-columns: minmax(0, 1.6fr) minmax(280px, .62fr);
+    gap: 18px;
+    height: min(53vh, 520px);
+    min-height: 330px;
+    padding: 18px clamp(18px, 2vw, 32px) 16px;
+    background:
+      radial-gradient(circle at 80% 0%, rgba(229, 9, 20, .055), transparent 30%),
+      linear-gradient(180deg, rgba(15, 15, 16, .995), rgba(9, 9, 10, .99));
+    border-bottom: 1px solid rgba(255, 255, 255, .07);
+  }
+
+  #queue-dock .queue-drawer-main > .panel-head {
+    margin-bottom: 10px;
+  }
+
+  #queue-dock .queue-drawer-heading {
+    gap: 4px;
+  }
+
+  #queue-dock .queue-drawer-heading .panel-title {
+    color: #f5f5f5;
+    font-family: "DM Sans", sans-serif;
+    font-size: 20px;
+    font-weight: 750;
+    letter-spacing: -.025em;
+  }
+
+  #queue-dock .queue-list {
+    padding-right: 4px;
+    overflow-y: auto;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .18) transparent;
+  }
+
+  #queue-dock .queue-drawer-actions {
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, .06);
+  }
+
+  #queue-dock .queue-drawer-actions #queue-clear,
+  #queue-dock .queue-drawer-actions #cancel-btn {
+    min-height: 36px;
+    color: rgba(255, 255, 255, .70);
+    background: rgba(255, 255, 255, .035);
+    border-color: rgba(255, 255, 255, .09);
+    border-radius: 9px;
+  }
+
+  #queue-dock .queue-drawer-actions #cancel-btn:not(:disabled) {
+    color: #fff;
+    border-color: rgba(229, 9, 20, .24);
+    background: rgba(229, 9, 20, .08);
+  }
+
+  #queue-dock .queue-activity {
+    gap: 10px;
+    padding: 0 0 0 18px;
+    border-left-color: rgba(255, 255, 255, .075);
+  }
+
+  #queue-dock .queue-activity-head {
+    gap: 3px;
+  }
+
+  #queue-dock .queue-activity-head strong {
+    font: 720 16px/1.2 "DM Sans", sans-serif;
+    letter-spacing: -.015em;
+  }
+
+  #queue-dock .queue-activity-head::after {
+    content: "Live-Ereignisse des aktuellen Durchlaufs";
+    color: rgba(255, 255, 255, .42);
+    font: 500 9px/1.3 "DM Sans", sans-serif;
+  }
+
+  #queue-dock .queue-activity .log-console {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0 4px 0 0;
+    overflow-y: auto;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    font-family: "DM Sans", sans-serif;
+  }
+
+  #queue-dock .queue-activity .log-line {
+    position: relative;
+    padding: 8px 9px 8px 24px;
+    color: rgba(255, 255, 255, .58);
+    background: rgba(255, 255, 255, .025);
+    border: 1px solid rgba(255, 255, 255, .05);
+    border-radius: 9px;
+    font-size: 9px;
+    line-height: 1.35;
+  }
+
+  #queue-dock .queue-activity .log-line::before {
+    content: "";
+    position: absolute;
+    left: 9px;
+    top: 12px;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, .28);
+    border-radius: 50%;
+  }
+
+  #queue-dock .queue-activity .log-line.ok::before { background: var(--dock-ready); }
+  #queue-dock .queue-activity .log-line.warn::before { background: var(--dock-warn); }
+  #queue-dock .queue-activity .log-line.err::before { background: var(--dock-error); }
+
+  #queue-dock .queue-activity .log-line:nth-last-child(n + 9) {
+    display: none;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1100px) {
+  #queue-dock .queue-dock-bar {
+    grid-template-columns: minmax(280px, 1fr) 112px auto;
+    gap: 10px;
+    padding-inline: 12px;
+  }
+
+  #queue-dock .queue-drawer {
+    grid-template-columns: minmax(0, 1fr) 250px;
+    gap: 12px;
+    padding-inline: 14px;
+  }
+
+  #queue-dock .queue-item {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  #queue-dock .queue-item-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 820px) {
+  body.queue-open #queue-dock .queue-panel {
+    background: linear-gradient(180deg, rgba(18, 18, 19, .995), rgba(8, 8, 9, .995));
+    border-color: rgba(255, 255, 255, .12);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -28px 70px -20px rgba(0, 0, 0, .96);
+  }
+
+  body.queue-open .queue-backdrop {
+    background: rgba(0, 0, 0, .68);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+
+  #queue-dock .queue-drawer {
+    padding: 16px 14px max(16px, env(safe-area-inset-bottom));
+  }
+
+  #queue-dock .queue-drawer-heading .panel-title {
+    color: #f5f5f5;
+    font-family: "DM Sans", sans-serif;
+    font-size: 19px;
+    letter-spacing: -.02em;
+  }
+
+  #queue-dock .queue-item {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 9px;
+    min-height: 72px;
+    padding: 9px;
+  }
+
+  #queue-dock .queue-item-status {
+    padding: 5px 7px;
+    font-size: 8px;
+  }
+
+  #queue-dock .queue-item-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+
+  #queue-dock .queue-drawer-actions {
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  #queue-dock .queue-dock-bar .download-stage {
+    margin: 0;
+    padding: 8px 10px;
+    background: linear-gradient(180deg, rgba(18, 18, 19, .98), rgba(9, 9, 10, .99));
+    border: 0;
+    border-radius: 14px;
+  }
+
+  #queue-dock .download-state-icon {
+    border-width: 1px;
+    border-style: solid;
+  }
+}
