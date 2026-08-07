@@ -1,6 +1,7 @@
-"""Regression tests for provider-verified TMDB movie search."""
+"""Regression tests for fast provider-verified TMDB movie search."""
 
 import time
+from types import SimpleNamespace
 
 import server
 from application_services import movie_search_availability as availability
@@ -33,57 +34,133 @@ def _movie(tmdb_id, title, year, original_title=""):
     }
 
 
-def _configure(monkeypatch, movies, resolver):
+def _candidate(slug, title, year, provider="filmpalast", is_movie=True):
+    return SimpleNamespace(
+        slug=slug,
+        title=title,
+        year=year,
+        provider=provider,
+        is_movie=is_movie,
+    )
+
+
+def _loaded(title, year, hosters=True):
+    return SimpleNamespace(
+        title=title,
+        year=year,
+        hosters=[object()] if hosters else [],
+    )
+
+
+def _configure(monkeypatch, movies, candidates, loader, providers=None):
     availability._MOVIE_SEARCH_AVAILABILITY_CACHE.clear()
     client = FakeTMDBClient(movies)
+    active = providers if providers is not None else ["filmpalast", "moflix"]
+    search_calls = []
+
     monkeypatch.setattr(server, "get_tmdb_client", lambda: client)
-    monkeypatch.setattr(
-        server,
-        "provider_priority",
-        lambda _kind: ["filmpalast", "moflix"],
-    )
-    monkeypatch.setattr(server, "resolve_tmdb_movie_sources", resolver)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: list(active))
+
+    def search(query):
+        search_calls.append(query)
+        return list(candidates)
+
+    monkeypatch.setattr(server, "search_movie_candidates", search)
+    monkeypatch.setattr(server, "load_movie_for_slug", loader)
+    monkeypatch.setattr(server, "provider_for_value", lambda _value: "filmpalast")
     monkeypatch.setattr(server, "log", lambda *_args, **_kwargs: None)
-    return client
+    monkeypatch.setattr(server.state, "fp_movies", {})
+    return client, search_calls, active
 
 
-def test_search_checks_every_tmdb_identity_and_keeps_only_verified_movies(monkeypatch):
+def test_search_uses_one_provider_wave_and_keeps_only_hosted_matches(monkeypatch):
     movies = [
         _movie(1, "Die Verurteilten", "1994", "The Shawshank Redemption"),
         _movie(2, "The Thing", "1982", "The Thing"),
         _movie(3, "The Thing", "2011", "The Thing"),
+        _movie(4, "Unrelated", "2024", "Unrelated"),
     ]
-    resolved = []
+    candidates = [
+        _candidate("fp:shawshank", "The Shawshank Redemption", "1994"),
+        _candidate("fp:thing-1982", "The Thing", "1982"),
+    ]
+    load_calls = []
 
-    def resolver(tmdb_id):
-        resolved.append(tmdb_id)
-        if tmdb_id == 1:
-            return [object()]
-        raise LookupError("no usable hoster")
+    def loader(slug):
+        load_calls.append(slug)
+        if slug == "fp:shawshank":
+            return _loaded("The Shawshank Redemption", "1994")
+        return _loaded("The Thing", "1982", hosters=False)
 
-    _configure(monkeypatch, movies, resolver)
+    _client, search_calls, _active = _configure(
+        monkeypatch, movies, candidates, loader
+    )
 
     results = server._tmdb_search_results("the")
 
     assert [item["tmdb_id"] for item in results] == [1]
     assert results[0]["slug"] == "tmdb:1"
     assert results[0]["provider"] == ""
-    assert set(resolved) == {1, 2, 3}
+    assert search_calls == ["the"]
+    assert set(load_calls) == {"fp:shawshank", "fp:thing-1982"}
 
 
-def test_provider_failure_does_not_hide_other_verified_results(monkeypatch):
-    movies = [_movie(10, "Alpha", "2020"), _movie(11, "Beta", "2021")]
+def test_unmatched_tmdb_results_never_trigger_detail_loads(monkeypatch):
+    movies = [_movie(index, f"Movie {index}", "2024") for index in range(1, 31)]
+    candidates = [_candidate("fp:movie-1", "Movie 1", "2024")]
+    load_calls = []
 
-    def resolver(tmdb_id):
-        if tmdb_id == 10:
+    def loader(slug):
+        load_calls.append(slug)
+        return _loaded("Movie 1", "2024")
+
+    _configure(monkeypatch, movies, candidates, loader)
+
+    results = server._tmdb_search_results("movie")
+
+    assert [item["tmdb_id"] for item in results] == [1]
+    assert load_calls == ["fp:movie-1"]
+
+
+def test_candidate_failure_falls_through_to_next_provider(monkeypatch):
+    movies = [_movie(10, "Alpha", "2020")]
+    candidates = [
+        _candidate("fp:alpha", "Alpha", "2020", "filmpalast"),
+        _candidate("moflix:alpha", "Alpha", "2020", "moflix"),
+    ]
+    load_calls = []
+
+    def loader(slug):
+        load_calls.append(slug)
+        if slug == "fp:alpha":
             raise RuntimeError("provider temporarily unavailable")
-        return [object()]
+        return _loaded("Alpha", "2020")
 
-    _configure(monkeypatch, movies, resolver)
+    _configure(monkeypatch, movies, candidates, loader)
 
-    results = server._tmdb_search_results("alpha beta")
+    results = server._tmdb_search_results("alpha")
 
-    assert [item["tmdb_id"] for item in results] == [11]
+    assert [item["tmdb_id"] for item in results] == [10]
+    assert load_calls == ["fp:alpha", "moflix:alpha"]
+
+
+def test_aggregate_provider_search_failure_returns_no_false_positive(monkeypatch):
+    movies = [_movie(11, "Beta", "2021")]
+    availability._MOVIE_SEARCH_AVAILABILITY_CACHE.clear()
+    client = FakeTMDBClient(movies)
+
+    monkeypatch.setattr(server, "get_tmdb_client", lambda: client)
+    monkeypatch.setattr(
+        server, "provider_priority", lambda _kind: ["filmpalast", "moflix"]
+    )
+    monkeypatch.setattr(
+        server,
+        "search_movie_candidates",
+        lambda _query: (_ for _ in ()).throw(RuntimeError("search failed")),
+    )
+    monkeypatch.setattr(server, "log", lambda *_args, **_kwargs: None)
+
+    assert server._tmdb_search_results("beta") == []
 
 
 def test_parallel_verification_preserves_tmdb_relevance_order(monkeypatch):
@@ -92,28 +169,60 @@ def test_parallel_verification_preserves_tmdb_relevance_order(monkeypatch):
         _movie(41, "Second", "2023"),
         _movie(42, "Third", "2024"),
     ]
-    delays = {40: 0.03, 41: 0.02, 42: 0.01}
+    candidates = [
+        _candidate("fp:first", "First", "2022"),
+        _candidate("fp:second", "Second", "2023"),
+        _candidate("fp:third", "Third", "2024"),
+    ]
+    delays = {"fp:first": 0.03, "fp:second": 0.02, "fp:third": 0.01}
+    titles = {
+        "fp:first": ("First", "2022"),
+        "fp:second": ("Second", "2023"),
+        "fp:third": ("Third", "2024"),
+    }
 
-    def resolver(tmdb_id):
-        time.sleep(delays[tmdb_id])
-        return [object()]
+    def loader(slug):
+        time.sleep(delays[slug])
+        title, year = titles[slug]
+        return _loaded(title, year)
 
-    _configure(monkeypatch, movies, resolver)
+    _configure(monkeypatch, movies, candidates, loader)
 
     results = server._tmdb_search_results("ordered")
 
     assert [item["tmdb_id"] for item in results] == [40, 41, 42]
 
 
+def test_ambiguous_yearless_provider_hit_is_not_used_for_two_tmdb_movies(monkeypatch):
+    movies = [
+        _movie(50, "The Thing", "1982", "The Thing"),
+        _movie(51, "The Thing", "2011", "The Thing"),
+    ]
+    candidates = [_candidate("fp:thing", "The Thing", "")]
+    load_calls = []
+
+    def loader(slug):
+        load_calls.append(slug)
+        return _loaded("The Thing", "1982")
+
+    _configure(monkeypatch, movies, candidates, loader)
+
+    assert server._tmdb_search_results("the thing") == []
+    assert load_calls == []
+
+
 def test_verified_search_results_are_cached_and_returned_as_copies(monkeypatch):
     movies = [_movie(20, "Cached", "2024")]
-    resolve_calls = []
+    candidates = [_candidate("fp:cached", "Cached", "2024")]
+    load_calls = []
 
-    def resolver(tmdb_id):
-        resolve_calls.append(tmdb_id)
-        return [object()]
+    def loader(slug):
+        load_calls.append(slug)
+        return _loaded("Cached", "2024")
 
-    client = _configure(monkeypatch, movies, resolver)
+    client, search_calls, _active = _configure(
+        monkeypatch, movies, candidates, loader
+    )
 
     first = server._tmdb_search_results("cached")
     first[0]["title"] = "mutated locally"
@@ -121,24 +230,32 @@ def test_verified_search_results_are_cached_and_returned_as_copies(monkeypatch):
 
     assert second[0]["title"] == "Cached"
     assert client.calls == 1
-    assert resolve_calls == [20]
+    assert search_calls == ["cached"]
+    assert load_calls == ["fp:cached"]
 
 
 def test_cache_key_changes_with_active_provider_configuration(monkeypatch):
     movies = [_movie(30, "Provider Key", "2024")]
-    resolve_calls = []
+    candidates = [_candidate("fp:key", "Provider Key", "2024")]
+    load_calls = []
 
-    def resolver(tmdb_id):
-        resolve_calls.append(tmdb_id)
-        return [object()]
+    def loader(slug):
+        load_calls.append(slug)
+        return _loaded("Provider Key", "2024")
 
-    client = _configure(monkeypatch, movies, resolver)
-    active = ["filmpalast"]
-    monkeypatch.setattr(server, "provider_priority", lambda _kind: list(active))
+    client, search_calls, active = _configure(
+        monkeypatch,
+        movies,
+        candidates,
+        loader,
+        providers=["filmpalast"],
+    )
 
     server._tmdb_search_results("provider key")
     active.append("moflix")
     server._tmdb_search_results("provider key")
 
     assert client.calls == 2
-    assert resolve_calls == [30, 30]
+    assert search_calls == ["provider key", "provider key"]
+    # The second run can reuse the already validated provider detail object.
+    assert load_calls == ["fp:key"]
