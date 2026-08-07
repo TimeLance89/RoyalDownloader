@@ -5,6 +5,8 @@ active provider was checked successfully.  This service keeps those seeds for
 fast failover while forcing one live search across every still-untried movie
 provider before a logical job may become terminal.
 """
+# Runtime service publication is intentionally invisible to static name resolution.
+# ruff: noqa: F821
 
 from __future__ import annotations
 
