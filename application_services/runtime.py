@@ -103,4 +103,23 @@ def refresh_services() -> None:
     # idempotent and uses the same dynamic backend seam as the service modules.
     from queue_performance import install_queue_performance
 
-    install_queue_performance(_registered_backend())
+    backend = _registered_backend()
+    controller = install_queue_performance(backend)
+    optimized_persist = backend._persist_queue_state
+
+    def persist_queue_state_with_claim_guard() -> bool:
+        # ``_persist_new_queue_claims`` is intentionally fail-closed.  During
+        # automatic scheduling a claim can briefly exist before its logical
+        # queue job is materialized.  Such an incomplete claim has no durable
+        # signature yet, so it must still exercise the real persistence path;
+        # otherwise a storage failure could be mistaken for a successful save.
+        with backend.state.queue_claim_lock:
+            unbacked_claim = any(
+                slug not in backend.state.queue_job_by_slug
+                for slug in backend.state.picked
+            )
+        if unbacked_claim:
+            return bool(controller._persist_delegate())
+        return bool(optimized_persist())
+
+    backend._persist_queue_state = persist_queue_state_with_claim_guard
