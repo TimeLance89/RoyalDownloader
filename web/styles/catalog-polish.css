@@ -1,0 +1,162 @@
+/* ── Catalog polish: one cinematic language for movies + series ────────
+   This file intentionally loads after catalog.css. It keeps the existing
+   catalog structure, but aligns hero composition and poster geometry.
+*/
+
+/* Desktop heroes: let the artwork occupy the complete stage instead of
+   starting at a hard 24% boundary. A width-based backdrop size shows much
+   more of common 16:9 TMDB artwork than background-size: cover in this very
+   wide banner, while the gradients keep copy readable. */
+#tab-filme > .movie-feature,
+#tab-serien > .series-feature {
+  min-height: clamp(470px, 36vw, 620px);
+  max-height: 620px;
+  isolation: isolate;
+}
+
+#tab-filme > .movie-feature::before,
+#tab-serien > .series-feature::before {
+  background:
+    linear-gradient(90deg,
+      #101010 0%,
+      rgba(16, 16, 16, .98) 14%,
+      rgba(16, 16, 16, .87) 29%,
+      rgba(16, 16, 16, .47) 48%,
+      rgba(16, 16, 16, .08) 70%,
+      rgba(16, 16, 16, 0) 84%),
+    linear-gradient(0deg,
+      #101010 0%,
+      rgba(16, 16, 16, .88) 9%,
+      rgba(16, 16, 16, .28) 29%,
+      transparent 58%);
+}
+
+#tab-filme > .movie-feature::after,
+#tab-serien > .series-feature::after {
+  height: 128px;
+  background: linear-gradient(transparent, #101010 92%);
+}
+
+#tab-filme .movie-feature-art,
+#tab-serien .series-feature-art {
+  inset: 0;
+  background-color: #101010;
+  background-position: right 40%;
+  background-repeat: no-repeat;
+  background-size: clamp(980px, 63vw, 1400px) auto;
+  filter: saturate(1.02) contrast(1.025) brightness(.9);
+  transform: none;
+}
+
+/* Poster-only fallbacks must not be stretched across the whole hero. */
+#tab-filme .movie-feature.is-poster-art .movie-feature-art,
+#tab-serien .series-feature.is-poster-art .series-feature-art {
+  inset: 0;
+  background-position: 76% center;
+  background-repeat: no-repeat;
+  background-size: auto 112%;
+}
+
+#tab-filme .movie-feature-copy,
+#tab-serien .series-feature-copy {
+  width: min(47%, 680px);
+  min-height: clamp(470px, 36vw, 620px);
+  padding-top: 64px;
+  padding-bottom: 86px;
+}
+
+#tab-filme .movie-feature h1,
+#tab-serien .series-feature h1 {
+  max-width: 12.5ch;
+  font-size: clamp(44px, 4.35vw, 70px);
+}
+
+/* Film + series shelves use exactly the same poster width. Using a fixed
+   track width rather than 1fr prevents one catalog from visually shrinking
+   merely because a different number of cards happens to fit the row. */
+#tab-filme #fp-results.result-shelf,
+#tab-serien #series-results.result-shelf {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 230px));
+  justify-content: start;
+  column-gap: clamp(16px, 1.35vw, 24px);
+  row-gap: clamp(30px, 2.7vw, 44px);
+}
+
+#tab-filme #fp-results .result-card,
+#tab-serien #series-results .result-card {
+  width: 100%;
+  min-width: 0;
+}
+
+#tab-filme #fp-results .result-card .result-card-visual,
+#tab-serien #series-results .result-card .result-card-visual {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+}
+
+#tab-filme #fp-results .result-card-fallback,
+#tab-serien #series-results .result-card-fallback {
+  background:
+    radial-gradient(circle at 70% 22%, rgba(229, 9, 20, .16), transparent 31%),
+    linear-gradient(145deg, #242424, #151515 72%);
+}
+
+@media (max-width: 1280px) and (min-width: 821px) {
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art {
+    background-position: 64% 42%;
+    background-size: auto 100%;
+  }
+
+  #tab-filme #fp-results.result-shelf,
+  #tab-serien #series-results.result-shelf {
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  #tab-filme > .movie-feature,
+  #tab-serien > .series-feature {
+    min-height: 430px;
+    max-height: 430px;
+  }
+
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art,
+  #tab-filme .movie-feature.is-poster-art .movie-feature-art,
+  #tab-serien .series-feature.is-poster-art .series-feature-art {
+    inset: 0;
+    background-position: 58% center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  #tab-filme > .movie-feature::before,
+  #tab-serien > .series-feature::before {
+    background:
+      linear-gradient(90deg, rgba(10, 10, 10, .44), transparent 78%),
+      linear-gradient(0deg, #101010 0%, rgba(16, 16, 16, .94) 31%, rgba(16, 16, 16, .16) 72%);
+  }
+
+  #tab-filme .movie-feature-copy,
+  #tab-serien .series-feature-copy {
+    width: 92%;
+    min-height: 430px;
+    padding: 24px 18px 48px;
+  }
+
+  #tab-filme #fp-results.result-shelf,
+  #tab-serien #series-results.result-shelf {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+}
+
+@media (max-width: 520px) {
+  #tab-filme .movie-feature-art,
+  #tab-serien .series-feature-art,
+  #tab-filme .movie-feature.is-poster-art .movie-feature-art,
+  #tab-serien .series-feature.is-poster-art .series-feature-art {
+    background-position: 62% center;
+  }
+}
