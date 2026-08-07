@@ -4,15 +4,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_streaming_navigation_loads_last_in_stylesheet_cascade():
+def navigation_css():
+    return (ROOT / "web" / "styles" / "catalog-polish.css").read_text(encoding="utf-8")
+
+
+def test_streaming_navigation_stays_in_existing_polish_layer():
     manifest = (ROOT / "web" / "style.css").read_text(encoding="utf-8")
-    polish = manifest.index('/styles/catalog-polish.css')
-    navigation = manifest.index('/styles/navigation.css')
-    assert navigation > polish
+    assert '/styles/catalog-polish.css' in manifest
+    assert '/styles/navigation.css' not in manifest
+    assert "Desktop navigation: calmer streaming hierarchy" in navigation_css()
 
 
 def test_desktop_navigation_uses_streaming_style_active_pill():
-    css = (ROOT / "web" / "styles" / "navigation.css").read_text(encoding="utf-8")
+    css = navigation_css()
     assert "@media (min-width: 821px)" in css
     assert ".topbar .tabs .tab-btn.active" in css
     assert "border-radius: 999px;" in css
@@ -23,7 +27,7 @@ def test_desktop_navigation_uses_streaming_style_active_pill():
 
 
 def test_desktop_navigation_matches_streaming_content_order_without_html_contract_changes():
-    css = (ROOT / "web" / "styles" / "navigation.css").read_text(encoding="utf-8")
+    css = navigation_css()
     expected = [
         '[data-tab="home"] { order: 1; }',
         '[data-tab="serien"] { order: 2; }',
@@ -36,7 +40,8 @@ def test_desktop_navigation_matches_streaming_content_order_without_html_contrac
         assert contract in css
 
 
-def test_navigation_layer_does_not_target_mobile_bottom_navigation():
-    css = (ROOT / "web" / "styles" / "navigation.css").read_text(encoding="utf-8")
-    assert ".mobile-tabs" not in css
-    assert ".topbar .tabs" in css
+def test_navigation_rules_are_scoped_to_desktop_topbar_not_mobile_bottom_nav():
+    css = navigation_css()
+    navigation_section = css.split("Desktop navigation: calmer streaming hierarchy", 1)[1]
+    assert ".mobile-tabs" not in navigation_section
+    assert ".topbar .tabs" in navigation_section
