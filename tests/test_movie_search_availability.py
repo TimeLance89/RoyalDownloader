@@ -105,6 +105,49 @@ def test_search_uses_one_provider_wave_and_keeps_only_hosted_matches(monkeypatch
     assert set(load_calls) == {"fp:shawshank", "fp:thing-1982"}
 
 
+def test_top_result_can_use_one_original_title_fallback_wave(monkeypatch):
+    movies = [
+        _movie(5, "Die Verurteilten", "1994", "The Shawshank Redemption"),
+        _movie(6, "Andere Verurteilte", "2024", "Other Convicts"),
+    ]
+    availability._MOVIE_SEARCH_AVAILABILITY_CACHE.clear()
+    client = FakeTMDBClient(movies)
+    search_calls = []
+
+    monkeypatch.setattr(server, "get_tmdb_client", lambda: client)
+    monkeypatch.setattr(
+        server, "provider_priority", lambda _kind: ["filmpalast", "moflix"]
+    )
+
+    def search(query):
+        search_calls.append(query)
+        if query == "The Shawshank Redemption":
+            return [
+                _candidate(
+                    "moflix:shawshank",
+                    "The Shawshank Redemption",
+                    "1994",
+                    "moflix",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(server, "search_movie_candidates", search)
+    monkeypatch.setattr(
+        server,
+        "load_movie_for_slug",
+        lambda _slug: _loaded("The Shawshank Redemption", "1994"),
+    )
+    monkeypatch.setattr(server, "provider_for_value", lambda _value: "moflix")
+    monkeypatch.setattr(server, "log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server.state, "fp_movies", {})
+
+    results = server._tmdb_search_results("Die Verurteilten")
+
+    assert [item["tmdb_id"] for item in results] == [5]
+    assert search_calls == ["Die Verurteilten", "The Shawshank Redemption"]
+
+
 def test_unmatched_tmdb_results_never_trigger_detail_loads(monkeypatch):
     movies = [_movie(index, f"Movie {index}", "2024") for index in range(1, 31)]
     candidates = [_candidate("fp:movie-1", "Movie 1", "2024")]
