@@ -281,6 +281,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/search.css",
     "styles/series.css",
     "styles/catalog.css",
+    "styles/catalog-polish.css",
   ]);
   for (const path of imports) {
     assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);
