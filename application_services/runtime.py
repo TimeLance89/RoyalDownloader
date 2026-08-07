@@ -21,6 +21,15 @@ _POST_SERVICE_MODULES = (
     "application_services.trailer_policy",
     "application_services.movie_search_availability",
     "application_services.content_language_policy",
+    "application_services.media_identity",
+    "application_services.media_identity_series_alias",
+    "application_services.movie_fallback_policy",
+    "application_services.movie_subscription_quality",
+    "application_services.movie_subscription_repeat_guard",
+    "application_services.movie_subscription_stream_quality",
+    "application_services.movie_subscription_probe_optimizer",
+    "application_services.movie_subscription_probe_targeting",
+    "application_services.movie_subscription_commit_guard",
 )
 
 
@@ -92,3 +101,30 @@ def refresh_services() -> None:
     for namespace in _service_namespaces:
         for name, value in available.items():
             namespace.setdefault(name, value)
+
+    # Queue performance policy depends on the complete service graph (queue
+    # persistence, lifecycle callbacks, and physical scheduler), so install it
+    # only after every runtime dependency has been published.  The installer is
+    # idempotent and uses the same dynamic backend seam as the service modules.
+    from queue_performance import install_queue_performance
+
+    backend = _registered_backend()
+    controller = install_queue_performance(backend)
+    optimized_persist = backend._persist_queue_state
+
+    def persist_queue_state_with_claim_guard() -> bool:
+        # ``_persist_new_queue_claims`` is intentionally fail-closed.  During
+        # automatic scheduling a claim can briefly exist before its logical
+        # queue job is materialized.  Such an incomplete claim has no durable
+        # signature yet, so it must still exercise the real persistence path;
+        # otherwise a storage failure could be mistaken for a successful save.
+        with backend.state.queue_claim_lock:
+            unbacked_claim = any(
+                slug not in backend.state.queue_job_by_slug
+                for slug in backend.state.picked
+            )
+        if unbacked_claim:
+            return bool(controller._persist_delegate())
+        return bool(optimized_persist())
+
+    backend._persist_queue_state = persist_queue_state_with_claim_guard
