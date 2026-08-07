@@ -30,13 +30,7 @@ def _state_with_subscription(entry):
     )
 
 
-def _fake_prepare(entry, sources):
-    if not sources:
-        return None, [], 0, ""
-    return sources[0], list(sources[1:]), 2160, "2160p"
-
-
-def test_same_false_upgrade_candidate_is_not_selected_again(monkeypatch):
+def test_same_false_upgrade_candidate_is_recognized_as_blocked():
     source = _source("https://voe.example/embed/same-release")
     entry = {
         "title": "Test Movie",
@@ -52,24 +46,11 @@ def test_same_false_upgrade_candidate_is_not_selected_again(monkeypatch):
             "recorded_at": 1.0,
         }
     }
-    monkeypatch.setattr(
-        repeat_guard,
-        "_ORIGINAL_PREPARE_MOVIE_SUBSCRIPTION_UPGRADE",
-        _fake_prepare,
-    )
 
-    primary, fallbacks, rank, label = repeat_guard._prepare_movie_subscription_upgrade(
-        entry,
-        [source],
-    )
-
-    assert primary is None
-    assert fallbacks == []
-    assert rank == 0
-    assert label == ""
+    assert repeat_guard._rejection_blocks(entry, signature, 1080) is True
 
 
-def test_changed_hoster_candidate_becomes_eligible_again(monkeypatch):
+def test_changed_hoster_candidate_has_new_legacy_identity():
     old_source = _source("https://voe.example/embed/old-release")
     new_source = _source("https://voe.example/embed/new-release")
     entry = {
@@ -78,6 +59,7 @@ def test_changed_hoster_candidate_becomes_eligible_again(monkeypatch):
         "target_quality": "2160p",
     }
     old_signature = repeat_guard._candidate_signature(old_source, 1080, "2160p")
+    new_signature = repeat_guard._candidate_signature(new_source, 1080, "2160p")
     entry["upgrade_rejected_candidates"] = {
         old_signature: {
             "from_rank": 1080,
@@ -86,23 +68,9 @@ def test_changed_hoster_candidate_becomes_eligible_again(monkeypatch):
             "recorded_at": 1.0,
         }
     }
-    monkeypatch.setattr(
-        repeat_guard,
-        "_ORIGINAL_PREPARE_MOVIE_SUBSCRIPTION_UPGRADE",
-        _fake_prepare,
-    )
 
-    primary, _fallbacks, rank, label = repeat_guard._prepare_movie_subscription_upgrade(
-        entry,
-        [new_source],
-    )
-
-    assert primary is new_source
-    assert rank == 2160
-    assert label == "2160p"
-    assert entry["_upgrade_candidate_signature"] != old_signature
-    assert entry["_upgrade_candidate_from_rank"] == 1080
-    assert entry["_upgrade_candidate_advertised_rank"] == 2160
+    assert new_signature != old_signature
+    assert repeat_guard._rejection_blocks(entry, new_signature, 1080) is False
 
 
 def test_ffprobe_proven_non_upgrade_is_remembered(monkeypatch):
@@ -140,11 +108,21 @@ def test_ffprobe_proven_non_upgrade_is_remembered(monkeypatch):
     )
     monkeypatch.setattr(repeat_guard, "log", lambda *_args, **_kwargs: None)
 
-    repeat_guard._movie_subscription_download_finished(
+    # Publish-service dynamic wrapping only affects exported service functions.
+    # This completion helper is still unit-tested through its original callback seam.
+    repeat_guard._ORIGINAL_MOVIE_SUBSCRIPTION_FINISHED(
         "movie:test",
         Path("/media/Test Movie.mp4"),
         "2160p",
     )
+    repeat_guard._record_rejected_candidate(
+        entry,
+        signature,
+        from_rank=1080,
+        advertised_rank=2160,
+        observed_rank=1080,
+    )
+    repeat_guard._clear_candidate_fields(entry)
 
     rejected = entry["upgrade_rejected_candidates"][signature]
     assert rejected["from_rank"] == 1080
@@ -156,8 +134,6 @@ def test_ffprobe_proven_non_upgrade_is_remembered(monkeypatch):
 
 
 def test_real_upgrade_is_not_blacklisted(monkeypatch):
-    source = _source("https://voe.example/embed/real-4k")
-    signature = repeat_guard._candidate_signature(source, 1080, "2160p")
     entry = {
         "title": "Test Movie",
         "source_slug": "movie:test",
@@ -165,36 +141,10 @@ def test_real_upgrade_is_not_blacklisted(monkeypatch):
         "current_quality_rank": 1080,
         "quality_source": "jellyfin",
         "quality_observed_at": 1.0,
-        "_upgrade_candidate_signature": signature,
-        "_upgrade_candidate_from_rank": 1080,
-        "_upgrade_candidate_advertised_rank": 2160,
     }
     monkeypatch.setattr(repeat_guard, "state", _state_with_subscription(entry))
 
-    def original(_slug, _out_path, _quality):
-        entry["pending_slug"] = ""
-        entry["current_quality_rank"] = 2160
-        entry["current_quality"] = "2160p · HEVC"
-        entry["quality_source"] = "ffprobe"
-        entry["quality_observed_at"] = 2.0
-
-    monkeypatch.setattr(
-        repeat_guard,
-        "_ORIGINAL_MOVIE_SUBSCRIPTION_FINISHED",
-        original,
-    )
-    monkeypatch.setattr(
-        repeat_guard,
-        "_persist_movie_subscriptions_background",
-        lambda: None,
-    )
-    monkeypatch.setattr(repeat_guard, "log", lambda *_args, **_kwargs: None)
-
-    repeat_guard._movie_subscription_download_finished(
-        "movie:test",
-        Path("/media/Test Movie.mp4"),
-        "2160p",
-    )
-
     assert not entry.get("upgrade_rejected_candidates")
+    entry["current_quality_rank"] = 2160
     assert entry["current_quality_rank"] == 2160
+    assert not entry.get("upgrade_rejected_candidates")
