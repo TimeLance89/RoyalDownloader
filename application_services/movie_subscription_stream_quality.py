@@ -50,10 +50,13 @@ _PROBE_FAILURE_TTL = 10 * 60
 _JELLYFIN_PROFILE_TTL = 10 * 60
 _MAX_PROBE_CACHE_ENTRIES = 96
 _PRE_RESOLVED_TTL = 5 * 60
+_SOURCE_REFRESH_TTL = 2 * 60 * 60
+_SOURCE_REFRESH_FIELD = "quality_source_refreshed_at"
 
 _ORIGINAL_EXTRACT_FROM_MOVIE = backend_value("_extract_from_movie")
 _ORIGINAL_ENQUEUE_HOSTER_ATTEMPT = backend_value("_enqueue_hoster_attempt")
 _HOSTER_RESULT = backend_value("_HosterResult")
+_ORIGINAL_MOVIE_SUBSCRIPTION_SOURCES = library_router._movie_subscription_sources
 
 _jellyfin_profile_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _jellyfin_profile_lock = threading.RLock()
@@ -293,6 +296,28 @@ def _probe_hoster(source, hoster, index: int, cache: dict, unsupported_domains: 
     return clone
 
 
+def _movie_subscription_sources(entry: dict):
+    """Refresh the provider bundle periodically even while its runtime key is pinned."""
+    tmdb_id = str(entry.get("tmdb_id") or "").strip()
+    if not tmdb_id:
+        return _ORIGINAL_MOVIE_SUBSCRIPTION_SOURCES(entry)
+    now = time.time()
+    try:
+        refreshed_at = float(entry.get(_SOURCE_REFRESH_FIELD) or 0.0)
+    except (TypeError, ValueError):
+        refreshed_at = 0.0
+    refresh_due = now - refreshed_at >= _SOURCE_REFRESH_TTL
+    if refresh_due:
+        virtual_slug = f"tmdb:{tmdb_id}"
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.pop(virtual_slug, None)
+    sources = _ORIGINAL_MOVIE_SUBSCRIPTION_SOURCES(entry)
+    if sources and refresh_due:
+        with state.movie_subscriptions_lock:
+            entry[_SOURCE_REFRESH_FIELD] = now
+    return sources
+
+
 def _prepare_movie_subscription_upgrade(entry: dict, sources: list):
     """Probe every provider/hoster and return only measured real upgrades."""
     baseline = _current_profile(entry)
@@ -410,8 +435,9 @@ def _enqueue_hoster_attempt(*args, **kwargs):
     return _ORIGINAL_ENQUEUE_HOSTER_ATTEMPT(*args, **kwargs)
 
 
-# The library router resolves this helper locally.  Patch that seam as well as
-# the backend so manual and scheduled subscription checks share one inventory.
+# The library router resolves these helpers locally. Patch both seams so manual
+# and scheduled subscription checks share the same refreshed measured inventory.
+library_router._movie_subscription_sources = _movie_subscription_sources
 library_router._prepare_movie_subscription_upgrade = _prepare_movie_subscription_upgrade
 
 _SERVICE_EXPORTS = (
