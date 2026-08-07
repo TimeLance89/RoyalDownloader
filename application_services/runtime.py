@@ -96,3 +96,11 @@ def refresh_services() -> None:
     for namespace in _service_namespaces:
         for name, value in available.items():
             namespace.setdefault(name, value)
+
+    # Queue performance policy depends on the complete service graph (queue
+    # persistence, lifecycle callbacks, and physical scheduler), so install it
+    # only after every runtime dependency has been published.  The installer is
+    # idempotent and uses the same dynamic backend seam as the service modules.
+    from queue_performance import install_queue_performance
+
+    install_queue_performance(_registered_backend())
