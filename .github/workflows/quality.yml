@@ -42,7 +42,7 @@ jobs:
       - name: Compile Python sources
         run: |
           python -m py_compile *.py
-          python -m compileall -q providers
+          python -m compileall -q application_services providers
 
       - name: Check web JavaScript
         run: find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
@@ -65,7 +65,7 @@ jobs:
       - name: Run tests with critical-module coverage
         run: |
           coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,queue_jobs,queue_performance,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q
-          coverage report --skip-covered
+          coverage report --skip-covered --fail-under=85
           coverage xml -o coverage.xml
 
       - name: Build container image
