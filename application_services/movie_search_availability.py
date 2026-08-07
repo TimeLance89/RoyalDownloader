@@ -33,11 +33,14 @@ def _copy_cached_results(
     return [dict(item) for item in cached]
 
 
+def _normalize_search_term(value: str) -> str:
+    return " ".join(str(value or "").split()).strip().casefold()
+
+
 def _movie_search_cache_key(query: str) -> tuple[str, tuple[str, ...], str]:
     client = get_tmdb_client()
-    normalized_query = " ".join(str(query or "").split()).casefold()
     return (
-        normalized_query,
+        _normalize_search_term(query),
         tuple(provider_priority("movies")),
         str(getattr(client, "language", "") or ""),
     )
@@ -64,6 +67,24 @@ def _tmdb_movie_aliases(movie: dict[str, Any]) -> set[str]:
     }
 
 
+def _top_result_fallback_term(
+    query: str,
+    tmdb_results: list[dict[str, Any]],
+) -> str:
+    """Return at most one alternate title for the user's most relevant result."""
+    if not tmdb_results:
+        return ""
+    normalized_query = _normalize_search_term(query)
+    first = tmdb_results[0]
+    # Prefer the original title: localized searches are the common case where
+    # an English-language provider indexes a different title than the UI query.
+    for value in (first.get("original_title"), first.get("title")):
+        term = " ".join(str(value or "").split()).strip()
+        if term and _normalize_search_term(term) != normalized_query:
+            return term
+    return ""
+
+
 def _candidate_provider(candidate: Any) -> str:
     return str(
         getattr(candidate, "provider", "")
@@ -77,10 +98,9 @@ def _match_provider_candidates(
 ) -> dict[int, list[Any]]:
     """Assign provider search hits to exactly one TMDB identity.
 
-    Provider search is deliberately performed once for the user's query. The
-    returned hits are then intersected with TMDB by localized title, original
-    title and release year. Ambiguous provider hits without a usable year are
-    ignored rather than risking a false-positive movie card.
+    Provider hits are intersected with TMDB by localized title, original title
+    and release year. Ambiguous provider hits without a usable year are ignored
+    rather than risking a false-positive movie card.
     """
     identities = [
         (_tmdb_movie_aliases(movie), str(movie.get("year") or "").strip())
@@ -155,13 +175,50 @@ def _verify_tmdb_movie_candidates(
     return index, None
 
 
+def _provider_candidates_for_search(
+    query: str,
+    tmdb_results: list[dict[str, Any]],
+) -> tuple[list[Any], dict[int, list[Any]]]:
+    """Search providers once, with one bounded top-result title fallback."""
+    try:
+        provider_candidates = list(search_movie_candidates(query))
+    except Exception as exc:
+        # search_movie_candidates already isolates individual providers; this
+        # protects the API from an unexpected aggregate failure.
+        log(f"Film-Anbieterprüfung übersprungen: {exc}", "warn")
+        provider_candidates = []
+
+    candidates_by_index = _match_provider_candidates(
+        tmdb_results,
+        provider_candidates,
+    )
+    if 0 in candidates_by_index:
+        return provider_candidates, candidates_by_index
+
+    fallback_term = _top_result_fallback_term(query, tmdb_results)
+    if not fallback_term:
+        return provider_candidates, candidates_by_index
+
+    try:
+        provider_candidates.extend(search_movie_candidates(fallback_term))
+    except Exception as exc:
+        log(f"Alternative Film-Anbieterprüfung übersprungen: {exc}", "warn")
+        return provider_candidates, candidates_by_index
+
+    return provider_candidates, _match_provider_candidates(
+        tmdb_results,
+        provider_candidates,
+    )
+
+
 def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
     """Return only TMDB films confirmed by an active provider with hosters.
 
     The expensive per-TMDB resolver used by detail/download flows is purposely
-    not called here. Instead all active providers are searched once in parallel
-    for the user's query. Only provider hits that match a TMDB title/original
-    title and year are detail-loaded, and checking stops for a movie as soon as
+    not called here. All active providers are searched once in parallel for the
+    user's query. If the top TMDB result is still unmatched, one alternate title
+    is searched to cover localized/original-title differences. Only matching
+    provider hits are detail-loaded, and checking stops for a movie as soon as
     one usable source with hosters is confirmed.
     """
     query = " ".join(str(query or "").split()).strip()
@@ -179,8 +236,8 @@ def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
         pass
 
     # Prevent duplicate provider waves when several browser tabs submit the
-    # same search concurrently. Different queries are rare for one installation
-    # and the critical section is now bounded to one provider search wave.
+    # same search concurrently. The critical section now contains at most two
+    # bounded provider search waves instead of one full resolver per TMDB hit.
     with _MOVIE_SEARCH_AVAILABILITY_LOCK:
         try:
             return _copy_cached_results(_MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key])
@@ -196,17 +253,9 @@ def _tmdb_search_results(query: str) -> list[dict[str, Any]]:
             _MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key] = ()
             return []
 
-        try:
-            provider_candidates = list(search_movie_candidates(query))
-        except Exception as exc:
-            # search_movie_candidates already isolates individual providers;
-            # this protects the API from an unexpected aggregate failure.
-            log(f"Film-Anbieterprüfung übersprungen: {exc}", "warn")
-            provider_candidates = []
-
-        candidates_by_index = _match_provider_candidates(
+        _provider_candidates, candidates_by_index = _provider_candidates_for_search(
+            query,
             tmdb_results,
-            provider_candidates,
         )
         if not candidates_by_index:
             _MOVIE_SEARCH_AVAILABILITY_CACHE[cache_key] = ()
