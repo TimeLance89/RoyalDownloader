@@ -190,10 +190,19 @@ const api = {
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
+  _upgradeTmdbImageUrl(url) {
+    const parsed = new URL(url, location.origin);
+    if (parsed.protocol !== "https:" || parsed.hostname !== "image.tmdb.org") return parsed;
+    parsed.pathname = parsed.pathname
+      .replace(/^\/t\/p\/w500\//, "/t/p/w780/")
+      .replace(/^\/t\/p\/w1280\//, "/t/p/original/");
+    return parsed;
+  },
+
   coverUrl(url) {
     if (!url) return "";
     try {
-      const parsed = new URL(url, location.origin);
+      const parsed = this._upgradeTmdbImageUrl(url);
       if (parsed.origin === location.origin) return parsed.href;
       if (parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org") return parsed.href;
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
@@ -205,7 +214,7 @@ const api = {
   coverProxyUrl(url) {
     if (!url) return "";
     try {
-      const parsed = new URL(url, location.origin);
+      const parsed = this._upgradeTmdbImageUrl(url);
       if (parsed.origin === location.origin) return parsed.href;
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
       return "/api/cover?" + new URLSearchParams({ url: parsed.href });

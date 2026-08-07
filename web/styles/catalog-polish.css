@@ -44,7 +44,10 @@
   background-position: center 38%;
   background-repeat: no-repeat;
   background-size: 100% auto;
-  filter: saturate(1.03) contrast(1.025) brightness(.9);
+  /* Keep the source pixels untouched. Darkening/legibility belongs to the
+     overlay gradients above; GPU filters can soften scaled artwork. */
+  filter: none;
+  image-rendering: auto;
   transform: none;
 }
 
@@ -92,6 +95,16 @@
 #tab-serien #series-results .result-card .result-card-visual {
   width: 100%;
   aspect-ratio: 2 / 3;
+}
+
+/* Do not apply visual filters to poster pixels. High-DPI displays receive
+   larger TMDB assets in api.js; the browser only performs normal resampling. */
+#tab-filme #fp-results .result-card-poster,
+#tab-serien #series-results .result-card-poster,
+.home-card img,
+.anime-card-poster img {
+  filter: none;
+  image-rendering: auto;
 }
 
 #tab-filme #fp-results .result-card-fallback,
@@ -209,7 +222,12 @@
   .topbar .tabs [data-tab="anime"] { order: 4; }
   .topbar .tabs [data-tab="bibliothek"] { order: 5; }
   .topbar .tabs .mood-nav-open { order: 6; }
-  .topbar .tabs .mobile-settings-tab { order: 7; }
+
+  /* Setup belongs to settings, not to the primary content navigation. Keep
+     the element for the existing JS/mobile contract, but remove it on desktop. */
+  .topbar .tabs .mobile-settings-tab {
+    display: none !important;
+  }
 
   .topbar .tabs .tab-icon {
     display: none;
