@@ -3,7 +3,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import server  # noqa: F401
-from api_library_router import _prepare_movie_subscription_upgrade
 from application_services import movie_subscription_repeat_guard as repeat_guard
 from providers.models import FilmpalastMovie, HosterInfo
 
@@ -37,6 +36,14 @@ def _fake_prepare(entry, sources):
     return sources[0], list(sources[1:]), 2160, "2160p"
 
 
+def _legacy_prepare():
+    return repeat_guard._prepare_movie_subscription_upgrade.__wrapped__
+
+
+def _legacy_finished():
+    return repeat_guard._movie_subscription_download_finished.__wrapped__
+
+
 def test_same_false_upgrade_candidate_is_not_selected_again(monkeypatch):
     source = _source("https://voe.example/embed/same-release")
     entry = {
@@ -59,10 +66,7 @@ def test_same_false_upgrade_candidate_is_not_selected_again(monkeypatch):
         _fake_prepare,
     )
 
-    primary, fallbacks, rank, label = _prepare_movie_subscription_upgrade(
-        entry,
-        [source],
-    )
+    primary, fallbacks, rank, label = _legacy_prepare()(entry, [source])
 
     assert primary is None
     assert fallbacks == []
@@ -93,10 +97,7 @@ def test_changed_hoster_candidate_becomes_eligible_again(monkeypatch):
         _fake_prepare,
     )
 
-    primary, _fallbacks, rank, label = _prepare_movie_subscription_upgrade(
-        entry,
-        [new_source],
-    )
+    primary, _fallbacks, rank, label = _legacy_prepare()(entry, [new_source])
 
     assert primary is new_source
     assert rank == 2160
@@ -141,7 +142,7 @@ def test_ffprobe_proven_non_upgrade_is_remembered(monkeypatch):
     )
     monkeypatch.setattr(repeat_guard, "log", lambda *_args, **_kwargs: None)
 
-    repeat_guard._movie_subscription_download_finished(
+    _legacy_finished()(
         "movie:test",
         Path("/media/Test Movie.mp4"),
         "2160p",
@@ -191,7 +192,7 @@ def test_real_upgrade_is_not_blacklisted(monkeypatch):
     )
     monkeypatch.setattr(repeat_guard, "log", lambda *_args, **_kwargs: None)
 
-    repeat_guard._movie_subscription_download_finished(
+    _legacy_finished()(
         "movie:test",
         Path("/media/Test Movie.mp4"),
         "2160p",
