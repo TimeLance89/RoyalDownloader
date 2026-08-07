@@ -3,7 +3,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import server  # noqa: F401
-from api_library_router import _prepare_movie_subscription_upgrade
 from application_services import movie_subscription_repeat_guard as repeat_guard
 from providers.models import FilmpalastMovie, HosterInfo
 
@@ -59,7 +58,7 @@ def test_same_false_upgrade_candidate_is_not_selected_again(monkeypatch):
         _fake_prepare,
     )
 
-    primary, fallbacks, rank, label = _prepare_movie_subscription_upgrade(
+    primary, fallbacks, rank, label = repeat_guard._prepare_movie_subscription_upgrade(
         entry,
         [source],
     )
@@ -93,7 +92,7 @@ def test_changed_hoster_candidate_becomes_eligible_again(monkeypatch):
         _fake_prepare,
     )
 
-    primary, _fallbacks, rank, label = _prepare_movie_subscription_upgrade(
+    primary, _fallbacks, rank, label = repeat_guard._prepare_movie_subscription_upgrade(
         entry,
         [new_source],
     )
