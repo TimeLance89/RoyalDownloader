@@ -26,6 +26,8 @@ _POST_SERVICE_MODULES = (
     "application_services.movie_fallback_policy",
     "application_services.movie_subscription_quality",
     "application_services.movie_subscription_repeat_guard",
+    "application_services.movie_subscription_stream_quality",
+    "application_services.movie_subscription_commit_guard",
 )
 
 
