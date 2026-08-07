@@ -25,6 +25,7 @@ _POST_SERVICE_MODULES = (
     "application_services.media_identity_series_alias",
     "application_services.movie_fallback_policy",
     "application_services.movie_subscription_quality",
+    "application_services.movie_subscription_repeat_guard",
 )
 
 
