@@ -8,7 +8,7 @@ HOVER = (ROOT / "web" / "styles" / "home-card-hover.css").read_text(encoding="ut
 
 def test_hover_polish_is_loaded_last():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == '@import url("/styles/home-card-hover.css?v=royal-20260808-1");'
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260808-1');"
 
 
 def test_hover_keeps_card_geometry_calm_and_artwork_visible():
