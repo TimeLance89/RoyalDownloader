@@ -69,17 +69,26 @@
     );
   }
 
-  /* Keep title/meta anchored in the exact resting position. The detail layer
-     expands upward from above it instead of moving the title around. */
+  /* Keep title anchored in the exact resting position. Its small resting meta
+     line fades out while the richer hover metadata appears directly above. */
   #tab-home .home-card-overlay {
     z-index: 7;
     transition: opacity .16s ease, transform .2s ease;
+  }
+
+  #tab-home .home-card-overlay > span {
+    transition: opacity .14s ease;
   }
 
   #tab-home .home-card:hover .home-card-overlay,
   #tab-home .home-card:focus-visible .home-card-overlay {
     opacity: 1;
     transform: none;
+  }
+
+  #tab-home .home-card:hover .home-card-overlay > span,
+  #tab-home .home-card:focus-visible .home-card-overlay > span {
+    opacity: 0;
   }
 
   /* Home Experience v2 repurposes the legacy preview container. Fake action
@@ -130,7 +139,12 @@
   }
 
   #tab-home .home-card-hover-meta {
-    display: none;
+    display: block;
+    overflow: hidden;
+    color: rgba(255, 255, 255, .82);
+    font: 650 7.5px/1.25 "DM Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   #tab-home .home-card-preview-genres {
@@ -183,6 +197,7 @@
     gap: 6px;
   }
 
+  #tab-home .is-spotlight-track .home-card-hover-meta,
   #tab-home .is-spotlight-track .home-card-preview-genres {
     font-size: 11px;
   }
