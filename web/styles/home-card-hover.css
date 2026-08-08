@@ -1,18 +1,14 @@
-/* ── Home cards: calm cinematic hover without a second UI layer ────── */
+/* ── Home cards: cinematic hover with useful detail, not a second page ── */
 /*
- * The card itself opens details. The previous hover preview rendered three
- * decorative circles that looked like independent controls even though they
- * had no independent actions, moved the title, and covered most artwork with
- * an opaque panel. Keep the card geometry and information hierarchy stable:
- * artwork stays visible, title/meta stay where they are, and Taste Profile's
- * dismiss action remains the only secondary control.
+ * The resting card stays visually stable. Hover adds information inside the
+ * existing artwork: richer metadata, genres, short synopsis, Taste Profile
+ * reasoning and a details hint. The card itself remains the details action;
+ * Taste Profile's "Not for me" is the only independent secondary control.
  */
 
 @media (hover: hover) and (pointer: fine) {
   #tab-home .home-card {
-    transition:
-      transform .22s cubic-bezier(.2, .8, .2, 1),
-      z-index 0s .22s;
+    transition: transform .22s cubic-bezier(.2, .8, .2, 1), z-index 0s .22s;
   }
 
   #tab-home .home-card:hover,
@@ -29,107 +25,204 @@
 
   #tab-home .home-card:hover .home-card-art,
   #tab-home .home-card:focus-visible .home-card-art {
-    border-color: rgba(255, 255, 255, .24);
-    box-shadow:
-      0 18px 38px -14px rgba(0, 0, 0, .94),
-      0 0 0 1px rgba(255, 255, 255, .035);
+    border-color: rgba(255, 255, 255, .28);
+    box-shadow: 0 20px 44px -14px rgba(0, 0, 0, .95), 0 0 0 1px rgba(255, 255, 255, .045);
     transform: none;
   }
 
   #tab-home .home-card-art img {
-    transition:
-      transform .32s cubic-bezier(.2, .8, .2, 1),
-      filter .24s ease;
+    transition: transform .32s cubic-bezier(.2, .8, .2, 1), filter .24s ease;
   }
 
   #tab-home .home-card:hover .home-card-art img,
   #tab-home .home-card:focus-visible .home-card-art img {
-    filter: saturate(1.035) contrast(1.015) brightness(.96);
+    filter: saturate(1.045) contrast(1.02) brightness(.9);
     transform: scale(1.018);
   }
 
-  /* Keep only a restrained lower-third gradient; never turn the artwork into
-     a dark control panel. */
+  /* More contrast only in the lower half; artwork remains clearly readable. */
   #tab-home .home-card-art::after {
-    background: linear-gradient(
-      180deg,
-      transparent 50%,
-      rgba(5, 6, 8, .14) 62%,
-      rgba(5, 6, 8, .84) 100%
-    );
+    background: linear-gradient(180deg, transparent 50%, rgba(4, 5, 7, .12) 61%, rgba(4, 5, 7, .86) 100%);
     transition: background .22s ease;
   }
 
   #tab-home .home-card:hover .home-card-art::after,
   #tab-home .home-card:focus-visible .home-card-art::after {
-    background: linear-gradient(
-      180deg,
-      transparent 46%,
-      rgba(5, 6, 8, .18) 60%,
-      rgba(5, 6, 8, .9) 100%
-    );
+    background: linear-gradient(180deg, transparent 27%, rgba(4, 5, 7, .08) 40%, rgba(4, 5, 7, .64) 68%, rgba(4, 5, 7, .96) 100%);
   }
 
-  /* The old preview duplicated title/meta and contained decorative pseudo
-     buttons. The stable overlay already communicates everything needed before
-     opening details, so the second layer is intentionally suppressed. */
-  #tab-home .home-card-preview {
-    display: none !important;
+  /* Keep title anchored in the exact resting position. Its small resting meta
+     line fades while the richer hover metadata appears directly above. */
+  #tab-home .home-card-overlay {
+    z-index: 7;
+    transition: opacity .16s ease, transform .2s ease;
   }
+
+  #tab-home .home-card-overlay > span { transition: opacity .14s ease; }
 
   #tab-home .home-card:hover .home-card-overlay,
   #tab-home .home-card:focus-visible .home-card-overlay {
     opacity: 1;
-    transform: translateY(-1px);
-    transition: opacity .16s ease, transform .2s ease;
+    transform: none;
   }
 
-  #tab-home .home-card-overlay {
-    transition: opacity .16s ease, transform .2s ease;
+  #tab-home .home-card:hover .home-card-overlay > span,
+  #tab-home .home-card:focus-visible .home-card-overlay > span {
+    opacity: 0;
   }
+
+  /* Home Experience v2 repurposes the legacy preview container. Fake action
+     circles and duplicate title/meta are removed by JS. */
+  #tab-home .home-card:not(.is-ranked) .home-card-preview {
+    display: grid !important;
+    position: absolute;
+    z-index: 6;
+    inset: auto 12px 43px 12px !important;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    align-content: end;
+    gap: 4px;
+    padding: 0;
+    overflow: visible;
+    color: #fff;
+    background: transparent !important;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: none;
+    transition: opacity .17s ease, transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s .18s;
+  }
+
+  #tab-home .home-card:not(.is-ranked):hover .home-card-preview,
+  #tab-home .home-card:not(.is-ranked):focus-visible .home-card-preview {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: .035s, .035s, 0s;
+  }
+
+  /* Top-10 portrait cards have a dedicated ranked presentation. Never revive
+     the legacy large preview panel there. */
+  #tab-home .home-card.is-ranked .home-card-preview { display: none !important; }
+
+  #tab-home .home-card-preview-actions,
+  #tab-home .home-card-preview > strong,
+  #tab-home .home-card-preview-meta {
+    display: none !important;
+  }
+
+  #tab-home .home-card-hover-meta,
+  #tab-home .home-card-preview-genres,
+  #tab-home .home-card-preview-match,
+  #tab-home .home-card-preview-open {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #tab-home .home-card-hover-meta {
+    color: rgba(255, 255, 255, .82);
+    font: 650 7.5px/1.25 "DM Sans", sans-serif;
+  }
+
+  #tab-home .home-card-preview-genres {
+    color: rgba(255, 255, 255, .9);
+    font: 700 8px/1.25 "DM Sans", sans-serif;
+    letter-spacing: .01em;
+  }
+
+  #tab-home .home-card-preview-description {
+    display: -webkit-box;
+    margin-top: 1px;
+    overflow: hidden;
+    color: rgba(255, 255, 255, .72);
+    font: 500 8px/1.32 "DM Sans", sans-serif;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, .9);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  #tab-home .home-card-preview-description[hidden],
+  #tab-home .home-card-preview-match[hidden] { display: none !important; }
+
+  #tab-home .home-card-preview-match {
+    color: #e1c47c;
+    font: 700 7.5px/1.25 "DM Sans", sans-serif;
+  }
+
+  #tab-home .home-card-preview-open {
+    margin-top: 1px;
+    color: rgba(255, 255, 255, .62);
+    font: 700 7px/1 "JetBrains Mono", monospace;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  /* Spotlight cards have enough room for slightly richer copy. */
+  #tab-home .is-spotlight-track .home-card-preview {
+    inset: auto 18px 54px 18px !important;
+    gap: 6px;
+  }
+
+  #tab-home .is-spotlight-track .home-card-hover-meta,
+  #tab-home .is-spotlight-track .home-card-preview-genres { font-size: 11px; }
+
+  #tab-home .is-spotlight-track .home-card-preview-description {
+    max-width: 58ch;
+    font-size: 10.5px;
+    line-height: 1.38;
+    -webkit-line-clamp: 2;
+  }
+
+  #tab-home .is-spotlight-track .home-card-preview-match { font-size: 9.5px; }
+  #tab-home .is-spotlight-track .home-card-preview-open { font-size: 8px; }
 
   #tab-home .home-card:hover .home-card-type,
   #tab-home .home-card:focus-visible .home-card-type,
   #tab-home .home-card:hover .catalog-jellyfin-badge,
-  #tab-home .home-card:focus-visible .catalog-jellyfin-badge {
-    opacity: .9;
-  }
+  #tab-home .home-card:focus-visible .catalog-jellyfin-badge { opacity: .94; }
 
-  /* Taste feedback is secondary. It appears below the media-type badge instead
-     of replacing it visually, and only reaches full emphasis when targeted. */
+  /* Taste feedback stays secondary and never competes with FILM/SERIE. */
   #tab-home .home-card .taste-v2-dismiss {
     top: 42px;
     right: 10px;
     width: 24px;
     height: 24px;
-    color: rgba(255, 255, 255, .86);
-    background: rgba(8, 10, 14, .58);
-    border-color: rgba(255, 255, 255, .22);
+    color: rgba(255, 255, 255, .88);
+    background: rgba(8, 10, 14, .62);
+    border-color: rgba(255, 255, 255, .24);
     font-size: 14px;
     opacity: 0;
     transform: translateY(-2px) scale(.96);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
   }
 
   #tab-home .home-card:hover .taste-v2-dismiss,
   #tab-home .home-card:focus-visible .taste-v2-dismiss,
   #tab-home .home-card .taste-v2-dismiss:focus {
-    opacity: .7;
+    opacity: .78;
     transform: none;
   }
 
   #tab-home .home-card .taste-v2-dismiss:hover,
   #tab-home .home-card .taste-v2-dismiss:focus {
     color: #fff;
-    background: rgba(111, 9, 20, .9);
-    border-color: rgba(255, 71, 88, .88);
+    background: rgba(111, 9, 20, .92);
+    border-color: rgba(255, 71, 88, .9);
     opacity: 1;
     transform: scale(1.06);
   }
 }
 
-/* Touch devices have no hover state. Keep the explicit Taste action reachable,
-   but smaller and clear of the media-type badge. */
+/* Touch has no hover. Keep Taste feedback reachable without covering artwork. */
 @media (hover: none), (pointer: coarse) {
   #tab-home .home-card .taste-v2-dismiss {
     top: 39px;
@@ -140,6 +233,8 @@
     opacity: .78;
     transform: none;
   }
+
+  #tab-home .home-card-preview { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -147,6 +242,7 @@
   #tab-home .home-card-art,
   #tab-home .home-card-art img,
   #tab-home .home-card-overlay,
+  #tab-home .home-card-preview,
   #tab-home .taste-v2-dismiss {
     transition: none !important;
   }
