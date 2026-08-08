@@ -22,6 +22,22 @@ def _finite_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+class TasteJellyfinAPI(legacy.JellyfinAPI):
+    """Request the extra stable identity needed to honor Royal dismissals."""
+
+    def list_media_items(self, user_id: str) -> list[dict[str, Any]]:
+        fields = f"{legacy.ITEM_FIELDS},ProviderIds"
+        return self.query_items({
+            "userId": user_id,
+            "recursive": "true",
+            "includeItemTypes": legacy.MEDIA_TYPES,
+            "fields": fields,
+            "enableUserData": "true",
+            "collapseBoxSetItems": "false",
+            "enableImages": "false",
+        })
+
+
 def _logical_item_key(item: Mapping[str, Any]) -> str:
     item_type = str(item.get("Type") or "").casefold()
     kind = "movie" if item_type == "movie" else "series" if item_type == "series" else ""
@@ -69,11 +85,12 @@ def rank_with_taste_profile(
     top_n: int,
 ) -> list[legacy.Recommendation]:
     blocked = set(profile.get("blocked_items") or [])
-    scored = [
-        _profile_recommendation(item, profile)
-        for item in unseen
-        if not (_logical_item_key(item) and _logical_item_key(item) in blocked)
-    ]
+    scored: list[legacy.Recommendation] = []
+    for item in unseen:
+        logical_key = _logical_item_key(item)
+        if logical_key and logical_key in blocked:
+            continue
+        scored.append(_profile_recommendation(item, profile))
 
     def sort_key(recommendation: legacy.Recommendation):
         item = recommendation.item
@@ -96,7 +113,7 @@ def run_unified_recommender_once(
     profile_store: TasteProfileStore,
     api: legacy.JellyfinAPI | None = None,
 ) -> list[legacy.Recommendation]:
-    client = api or legacy.JellyfinAPI(
+    client = api or TasteJellyfinAPI(
         config.jellyfin_url,
         config.api_key,
         config.request_timeout,
