@@ -11,14 +11,16 @@ def test_royal_cinema_logo_asset_and_styles_are_wired():
     logo_path = ROOT / "web" / "assets" / "royal-cinema-logo.png"
     logo = logo_path.read_bytes()
 
-    assert "/styles/brand-logo.css?v=royal-20260808-1" in manifest
-    assert "/assets/royal-cinema-logo.png?v=royal-20260808-2" in styles
+    assert "/styles/brand-logo.css?v=royal-20260808-2" in manifest
+    assert "/assets/royal-cinema-logo.png?v=royal-20260808-3" in styles
     assert ".topbar .brand::before" in styles
+    assert "background-size: auto 100%" in styles
+    assert "flex: 0 0 230px" in styles
     assert logo.startswith(b"\x89PNG\r\n\x1a\n")
 
     width, height = struct.unpack(">II", logo[16:24])
-    assert width == 540
-    assert height == 201
+    assert width == 400
+    assert height == 148
     assert width > height * 2
 
 
