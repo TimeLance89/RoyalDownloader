@@ -176,6 +176,22 @@
     return "Position seit gestern unverändert";
   }
 
+  function openDailyTopEntry(entry) {
+    const item = entry?.item || {};
+    if (!item.daily_top) return false;
+    if (entry.kind === "movie" && item.slug && typeof selectFpRow === "function") {
+      if (typeof closeGlobalSearch === "function") closeGlobalSearch();
+      selectFpRow(item.slug, item);
+      return true;
+    }
+    if (entry.kind === "series" && item.base_slug && typeof loadSeries === "function") {
+      if (typeof closeGlobalSearch === "function") closeGlobalSearch();
+      loadSeries(item);
+      return true;
+    }
+    return false;
+  }
+
   function enhanceRankedCard(card, entry, requestedRank) {
     const dailyTop = entry?.item?.daily_top;
     if (!card || !requestedRank || !dailyTop) return card;
@@ -254,8 +270,17 @@
   window.homeTopEntries = dailyTopEntries;
   if (typeof baseCreateHomeCard === "function") {
     window.createHomeCard = function dailyTopV2HomeCard(entry, rank = 0, ...args) {
-      const card = baseCreateHomeCard(entry, rank, ...args);
-      return enhanceRankedCard(card, entry, rank);
+      const card = enhanceRankedCard(baseCreateHomeCard(entry, rank, ...args), entry, rank);
+      if (card && entry?.item?.daily_top) {
+        card.addEventListener("click", (event) => {
+          const nestedAction = event.target.closest("a, button, [role='button'], [data-card-action]");
+          if (nestedAction && nestedAction !== card) return;
+          if (!openDailyTopEntry(entry)) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }, true);
+      }
+      return card;
     };
   }
 
