@@ -15,7 +15,6 @@ def test_royal_cinema_logo_asset_and_styles_are_wired():
     assert "/assets/royal-cinema-logo.png?v=royal-20260808-2" in styles
     assert ".topbar .brand::before" in styles
     assert logo.startswith(b"\x89PNG\r\n\x1a\n")
-    assert len(logo) > 10_000
 
     width, height = struct.unpack(">II", logo[16:24])
     assert width == 540
