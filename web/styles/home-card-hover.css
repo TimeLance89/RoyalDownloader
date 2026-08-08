@@ -1,0 +1,153 @@
+/* ── Home cards: calm cinematic hover without a second UI layer ────── */
+/*
+ * The card itself opens details. The previous hover preview rendered three
+ * decorative circles that looked like independent controls even though they
+ * had no independent actions, moved the title, and covered most artwork with
+ * an opaque panel. Keep the card geometry and information hierarchy stable:
+ * artwork stays visible, title/meta stay where they are, and Taste Profile's
+ * dismiss action remains the only secondary control.
+ */
+
+@media (hover: hover) and (pointer: fine) {
+  #tab-home .home-card {
+    transition:
+      transform .22s cubic-bezier(.2, .8, .2, 1),
+      z-index 0s .22s;
+  }
+
+  #tab-home .home-card:hover,
+  #tab-home .home-card:focus-visible {
+    z-index: 20;
+    transform: translateY(-4px) scale(1.035);
+    transition-delay: 0s;
+  }
+
+  #tab-home .is-spotlight-track .home-card:hover,
+  #tab-home .is-spotlight-track .home-card:focus-visible {
+    transform: translateY(-3px) scale(1.018);
+  }
+
+  #tab-home .home-card:hover .home-card-art,
+  #tab-home .home-card:focus-visible .home-card-art {
+    border-color: rgba(255, 255, 255, .24);
+    box-shadow:
+      0 18px 38px -14px rgba(0, 0, 0, .94),
+      0 0 0 1px rgba(255, 255, 255, .035);
+    transform: none;
+  }
+
+  #tab-home .home-card-art img {
+    transition:
+      transform .32s cubic-bezier(.2, .8, .2, 1),
+      filter .24s ease;
+  }
+
+  #tab-home .home-card:hover .home-card-art img,
+  #tab-home .home-card:focus-visible .home-card-art img {
+    filter: saturate(1.035) contrast(1.015) brightness(.96);
+    transform: scale(1.018);
+  }
+
+  /* Keep only a restrained lower-third gradient; never turn the artwork into
+     a dark control panel. */
+  #tab-home .home-card-art::after {
+    background: linear-gradient(
+      180deg,
+      transparent 50%,
+      rgba(5, 6, 8, .14) 62%,
+      rgba(5, 6, 8, .84) 100%
+    );
+    transition: background .22s ease;
+  }
+
+  #tab-home .home-card:hover .home-card-art::after,
+  #tab-home .home-card:focus-visible .home-card-art::after {
+    background: linear-gradient(
+      180deg,
+      transparent 46%,
+      rgba(5, 6, 8, .18) 60%,
+      rgba(5, 6, 8, .9) 100%
+    );
+  }
+
+  /* The old preview duplicated title/meta and contained decorative pseudo
+     buttons. The stable overlay already communicates everything needed before
+     opening details, so the second layer is intentionally suppressed. */
+  #tab-home .home-card-preview {
+    display: none !important;
+  }
+
+  #tab-home .home-card:hover .home-card-overlay,
+  #tab-home .home-card:focus-visible .home-card-overlay {
+    opacity: 1;
+    transform: translateY(-1px);
+    transition: opacity .16s ease, transform .2s ease;
+  }
+
+  #tab-home .home-card-overlay {
+    transition: opacity .16s ease, transform .2s ease;
+  }
+
+  #tab-home .home-card:hover .home-card-type,
+  #tab-home .home-card:focus-visible .home-card-type,
+  #tab-home .home-card:hover .catalog-jellyfin-badge,
+  #tab-home .home-card:focus-visible .catalog-jellyfin-badge {
+    opacity: .9;
+  }
+
+  /* Taste feedback is secondary. It appears below the media-type badge instead
+     of replacing it visually, and only reaches full emphasis when targeted. */
+  #tab-home .home-card .taste-v2-dismiss {
+    top: 42px;
+    right: 10px;
+    width: 24px;
+    height: 24px;
+    color: rgba(255, 255, 255, .86);
+    background: rgba(8, 10, 14, .58);
+    border-color: rgba(255, 255, 255, .22);
+    font-size: 14px;
+    opacity: 0;
+    transform: translateY(-2px) scale(.96);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+  }
+
+  #tab-home .home-card:hover .taste-v2-dismiss,
+  #tab-home .home-card:focus-visible .taste-v2-dismiss,
+  #tab-home .home-card .taste-v2-dismiss:focus {
+    opacity: .7;
+    transform: none;
+  }
+
+  #tab-home .home-card .taste-v2-dismiss:hover,
+  #tab-home .home-card .taste-v2-dismiss:focus {
+    color: #fff;
+    background: rgba(111, 9, 20, .9);
+    border-color: rgba(255, 71, 88, .88);
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+/* Touch devices have no hover state. Keep the explicit Taste action reachable,
+   but smaller and clear of the media-type badge. */
+@media (hover: none), (pointer: coarse) {
+  #tab-home .home-card .taste-v2-dismiss {
+    top: 39px;
+    right: 8px;
+    width: 25px;
+    height: 25px;
+    font-size: 14px;
+    opacity: .78;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #tab-home .home-card,
+  #tab-home .home-card-art,
+  #tab-home .home-card-art img,
+  #tab-home .home-card-overlay,
+  #tab-home .taste-v2-dismiss {
+    transition: none !important;
+  }
+}
