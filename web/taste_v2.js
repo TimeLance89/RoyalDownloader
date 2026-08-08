@@ -359,6 +359,14 @@
     document.head.appendChild(style);
   }
 
+  function recordVisiblePersonalForReshuffle() {
+    strictPersonalEntries().slice(0, 7).forEach((entry) => {
+      const key = tasteV2LogicalKey(entry);
+      if (key) sessionExposure.add(key);
+    });
+    scoreCache.clear();
+  }
+
   function install() {
     if (window.__royalTasteProfileV2Installed) return true;
     if (
@@ -399,11 +407,18 @@
     if (typeof window.shuffleHomeDiscovery === "function") {
       const originalShuffle = window.shuffleHomeDiscovery;
       window.shuffleHomeDiscovery = function tasteV2Shuffle(...args) {
-        const visible = strictPersonalEntries().slice(0, 7);
-        visible.forEach((entry) => sessionExposure.add(tasteV2LogicalKey(entry)));
-        scoreCache.clear();
+        recordVisiblePersonalForReshuffle();
         return originalShuffle(...args);
       };
+    }
+
+    // app.js may already have captured the legacy shuffle function in an event
+    // listener before this delayed policy layer loads.  Capture phase guarantees
+    // that an explicit click still suppresses the cards the user just rejected.
+    const shuffleButton = document.getElementById("home-discovery-shuffle");
+    if (shuffleButton && shuffleButton.dataset.tasteV2Capture !== "true") {
+      shuffleButton.dataset.tasteV2Capture = "true";
+      shuffleButton.addEventListener("click", recordVisiblePersonalForReshuffle, { capture: true });
     }
 
     // Refresh the already rendered first paint after replacing Discovery v2.
