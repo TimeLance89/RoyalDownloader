@@ -272,3 +272,24 @@ document.addEventListener("visibilitychange", () => {
     scheduleRoyalServerHeartbeat(5000);
   }
 });
+
+// Taste Profile v2 depends on the legacy screen functions being registered.
+// Schedule its classic script for the next task after DOMContentLoaded so the
+// existing Discovery v2 installer has completed before Taste v2 replaces the
+// personal ranking seam.
+function loadRoyalTasteProfileV2() {
+  if (document.querySelector('script[data-taste-profile-v2]')) return;
+  const script = document.createElement("script");
+  script.src = "/taste_v2.js?v=royal-20260808-1";
+  script.async = false;
+  script.dataset.tasteProfileV2 = "true";
+  document.body.appendChild(script);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    window.setTimeout(loadRoyalTasteProfileV2, 0);
+  }, { once: true });
+} else {
+  window.setTimeout(loadRoyalTasteProfileV2, 0);
+}

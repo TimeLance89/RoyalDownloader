@@ -158,7 +158,7 @@ def test_metadata_normalization_is_bounded_and_accepts_tmdb_objects():
     }, "film")
     assert normalized == {
         "genres": ["Action"],
-        "languages": ["Deutsch"],
+        "languages": ["de"],
         "decades": ["2020er"],
         "media_types": ["movie"],
     }
