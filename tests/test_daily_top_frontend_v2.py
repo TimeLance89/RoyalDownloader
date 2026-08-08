@@ -34,10 +34,14 @@ def test_daily_top_snapshot_is_stable_and_tracks_day_to_day_movement():
     assert "Same-day ranks are immutable" in DAILY
 
 
-def test_daily_top_respects_blocked_logical_media_without_renumbering_global_rank():
+def test_daily_top_respects_blocked_media_and_keeps_visible_ranks_contiguous():
     assert "blocked_items" in DAILY
     assert "discoveryV2LogicalKey" in DAILY
-    assert "globalRank = Number(dailyTop.global_rank || requestedRank)" in DAILY
+    assert "visibleRank = Number(requestedRank || dailyTop.global_rank || 0)" in DAILY
+    assert "rank.textContent = String(visibleRank)" in DAILY
+    assert "`Platz ${visibleRank}:`" in DAILY
+    assert "card.dataset.dailyTopGlobalRank = String(globalRank)" in DAILY
+    assert "card.dataset.dailyTopDisplayRank = String(visibleRank)" in DAILY
 
 
 def test_daily_top_heading_describes_cross_source_popularity():
