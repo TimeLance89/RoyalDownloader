@@ -44,5 +44,14 @@ def test_daily_top_respects_blocked_media_and_keeps_visible_ranks_contiguous():
     assert "card.dataset.dailyTopDisplayRank = String(visibleRank)" in DAILY
 
 
+def test_daily_top_cards_open_from_their_own_provider_payload():
+    assert "function openDailyTopEntry(entry)" in DAILY
+    assert "selectFpRow(item.slug, item)" in DAILY
+    assert "loadSeries(item)" in DAILY
+    assert "event.stopImmediatePropagation()" in DAILY
+    assert "entry?.item?.daily_top" in DAILY
+    assert "[role='button']" in DAILY
+
+
 def test_daily_top_heading_describes_cross_source_popularity():
     assert 'eyebrow.textContent = "Heute über deine Quellen hinweg angesagt"' in DAILY
