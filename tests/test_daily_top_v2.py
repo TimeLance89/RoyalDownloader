@@ -90,12 +90,12 @@ def test_soft_diversity_caps_dominant_kind_only_when_three_relevant_others_exist
     assert [item["global_rank"] for item in ranked] == list(range(1, len(ranked) + 1))
 
 
-def test_soft_diversity_does_not_force_three_other_kind_when_only_two_are_relevant():
+def test_soft_diversity_does_not_force_other_kind_when_only_two_are_relevant():
     movies = [candidate(title=f"Movie {index}", score=100 - index) for index in range(10)]
     series = [
         candidate(kind="series", title=f"Series {index}", score=90 - index)
         for index in range(2)
     ]
     ranked = daily_top._apply_diversity(movies + series, 12)
-    assert sum(item["kind"] == "movie" for item in ranked[:10]) == 8
-    assert sum(item["kind"] == "series" for item in ranked[:10]) == 2
+    assert sum(item["kind"] == "movie" for item in ranked[:10]) == 10
+    assert sum(item["kind"] == "series" for item in ranked[:10]) == 0
