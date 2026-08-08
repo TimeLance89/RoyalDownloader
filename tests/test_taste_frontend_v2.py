@@ -21,8 +21,9 @@ def test_personal_lane_is_strict_five_plus_two_without_forced_surprise():
 
 def test_manual_shuffle_penalizes_current_session_exposure():
     assert "const sessionExposure = new Set()" in TASTE
-    assert "sessionExposure.add(tasteV2LogicalKey(entry))" in TASTE
+    assert "sessionExposure.add(key)" in TASTE
     assert "const sessionPenalty = sessionExposure.has(key) ? 18 : 0" in TASTE
+    assert 'shuffleButton.addEventListener("click", recordVisiblePersonalForReshuffle, { capture: true })' in TASTE
 
 
 def test_home_cards_offer_direct_not_for_me_feedback_and_reason():
