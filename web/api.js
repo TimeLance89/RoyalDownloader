@@ -276,14 +276,33 @@ document.addEventListener("visibilitychange", () => {
 // Taste Profile v2 depends on the legacy screen functions being registered.
 // Schedule its classic script for the next task after DOMContentLoaded so the
 // existing Discovery v2 installer has completed before Taste v2 replaces the
-// personal ranking seam. Home Experience v2 is chained after Taste v2 because
-// it consumes the final taste-aware card and ranking seams.
+// personal ranking seam. Home Experience v2 is chained after Taste v2, and the
+// independent Daily Top 10 v2 layer is chained last so ranked cards keep all
+// previous card decorators while replacing only the Top-10 ranking seam.
+function loadRoyalDailyTopV2() {
+  if (document.querySelector('script[data-daily-top-v2]')) return;
+  const script = document.createElement("script");
+  script.src = "/daily_top_v2.js?v=royal-20260808-1";
+  script.async = false;
+  script.dataset.dailyTopV2 = "true";
+  document.body.appendChild(script);
+}
+
 function loadRoyalHomeExperienceV2() {
-  if (document.querySelector('script[data-home-experience-v2]')) return;
+  const existing = document.querySelector('script[data-home-experience-v2]');
+  if (existing) {
+    if (window.__royalHomeExperienceV2Installed) {
+      window.setTimeout(loadRoyalDailyTopV2, 0);
+    } else {
+      existing.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });
+    }
+    return;
+  }
   const script = document.createElement("script");
   script.src = "/home_experience_v2.js?v=royal-20260808-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
+  script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });
   document.body.appendChild(script);
 }
 
