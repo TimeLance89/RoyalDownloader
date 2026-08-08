@@ -179,13 +179,15 @@
   function enhanceRankedCard(card, entry, requestedRank) {
     const dailyTop = entry?.item?.daily_top;
     if (!card || !requestedRank || !dailyTop) return card;
-    const globalRank = Number(dailyTop.global_rank || requestedRank);
+    const visibleRank = Number(requestedRank || dailyTop.global_rank || 0);
+    const globalRank = Number(dailyTop.global_rank || visibleRank);
     const rank = card.querySelector(".home-card-rank");
-    if (rank) rank.textContent = String(globalRank);
+    if (rank) rank.textContent = String(visibleRank);
     const currentLabel = card.getAttribute("aria-label") || "";
-    card.setAttribute("aria-label", currentLabel.replace(/^Platz \d+:/, `Platz ${globalRank}:`));
+    card.setAttribute("aria-label", currentLabel.replace(/^Platz \d+:/, `Platz ${visibleRank}:`));
     card.dataset.dailyTopScore = Number(dailyTop.score || 0).toFixed(2);
     card.dataset.dailyTopGlobalRank = String(globalRank);
+    card.dataset.dailyTopDisplayRank = String(visibleRank);
 
     const overlay = card.querySelector(".home-card-overlay");
     const meta = overlay?.querySelector("span");
