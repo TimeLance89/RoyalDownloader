@@ -182,3 +182,38 @@ def test_jellyfin_ranking_uses_unified_royal_profile(tmp_path):
     }
     ranked = rank_with_taste_profile([anime, horror], profile, 2)
     assert [item.item["Id"] for item in ranked] == ["horror", "anime"]
+
+
+def test_logically_dismissed_tmdb_item_is_excluded_from_jellyfin_collection(tmp_path):
+    store = TasteProfileStore(tmp_path / "taste.json", clock=lambda: 100_000)
+    store.record_event(
+        "download",
+        media_type="series",
+        item_key="series:liked",
+        metadata={"genres": ["Drama"]},
+    )
+    store.set_feedback(
+        "series:tmdb:37854",
+        "dismiss",
+        media_type="series",
+        metadata={"genres": ["Adventure"]},
+    )
+    profile = store.public_profile()
+    blocked = {
+        "Id": "blocked-jf",
+        "Name": "Blocked",
+        "Type": "Series",
+        "ProviderIds": {"Tmdb": "37854"},
+        "Genres": ["Adventure"],
+        "UserData": {},
+    }
+    allowed = {
+        "Id": "allowed-jf",
+        "Name": "Allowed",
+        "Type": "Series",
+        "ProviderIds": {"Tmdb": "999"},
+        "Genres": ["Drama"],
+        "UserData": {},
+    }
+    ranked = rank_with_taste_profile([blocked, allowed], profile, 10)
+    assert [item.item["Id"] for item in ranked] == ["allowed-jf"]
