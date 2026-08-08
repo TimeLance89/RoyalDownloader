@@ -276,13 +276,32 @@ document.addEventListener("visibilitychange", () => {
 // Taste Profile v2 depends on the legacy screen functions being registered.
 // Schedule its classic script for the next task after DOMContentLoaded so the
 // existing Discovery v2 installer has completed before Taste v2 replaces the
-// personal ranking seam.
+// personal ranking seam. Home Experience v2 is chained after Taste v2 because
+// it consumes the final taste-aware card and ranking seams.
+function loadRoyalHomeExperienceV2() {
+  if (document.querySelector('script[data-home-experience-v2]')) return;
+  const script = document.createElement("script");
+  script.src = "/home_experience_v2.js?v=royal-20260808-1";
+  script.async = false;
+  script.dataset.homeExperienceV2 = "true";
+  document.body.appendChild(script);
+}
+
 function loadRoyalTasteProfileV2() {
-  if (document.querySelector('script[data-taste-profile-v2]')) return;
+  const existing = document.querySelector('script[data-taste-profile-v2]');
+  if (existing) {
+    if (window.__royalTasteProfileV2Installed) {
+      window.setTimeout(loadRoyalHomeExperienceV2, 0);
+    } else {
+      existing.addEventListener("load", () => window.setTimeout(loadRoyalHomeExperienceV2, 0), { once: true });
+    }
+    return;
+  }
   const script = document.createElement("script");
   script.src = "/taste_v2.js?v=royal-20260808-1";
   script.async = false;
   script.dataset.tasteProfileV2 = "true";
+  script.addEventListener("load", () => window.setTimeout(loadRoyalHomeExperienceV2, 0), { once: true });
   document.body.appendChild(script);
 }
 
