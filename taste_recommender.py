@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
@@ -18,7 +19,24 @@ def _finite_float(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number
+    return number if math.isfinite(number) else None
+
+
+def _logical_item_key(item: Mapping[str, Any]) -> str:
+    item_type = str(item.get("Type") or "").casefold()
+    kind = "movie" if item_type == "movie" else "series" if item_type == "series" else ""
+    provider_ids = item.get("ProviderIds") or {}
+    if not isinstance(provider_ids, Mapping):
+        provider_ids = {}
+    tmdb_id = (
+        provider_ids.get("Tmdb")
+        or provider_ids.get("TMDB")
+        or provider_ids.get("tmdb")
+        or item.get("tmdb_id")
+    )
+    if kind and tmdb_id:
+        return f"{kind}:tmdb:{str(tmdb_id).strip()}"
+    return ""
 
 
 def _profile_recommendation(
@@ -50,7 +68,12 @@ def rank_with_taste_profile(
     profile: Mapping[str, Any],
     top_n: int,
 ) -> list[legacy.Recommendation]:
-    scored = [_profile_recommendation(item, profile) for item in unseen]
+    blocked = set(profile.get("blocked_items") or [])
+    scored = [
+        _profile_recommendation(item, profile)
+        for item in unseen
+        if not (_logical_item_key(item) and _logical_item_key(item) in blocked)
+    ]
 
     def sort_key(recommendation: legacy.Recommendation):
         item = recommendation.item
