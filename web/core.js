@@ -700,6 +700,6 @@ function refreshQueueUiAfterChange(resp) {
     const percent = resp.total_jobs ? (resp.done_jobs / resp.total_jobs) * 100 : 0;
     setDownloadState("active", "Automatischer Download", `${resp.done_jobs}/${resp.total_jobs} fertig`, percent);
   }
-  renderFpResults();
+  refreshFpQueuePresentation();
   renderSeriesTiles();
 }

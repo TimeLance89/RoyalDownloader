@@ -12,6 +12,14 @@ def test_tmdb_artwork_is_upgraded_for_high_density_displays():
     assert "const parsed = this._upgradeTmdbImageUrl(url);" in api
 
 
+def test_catalog_posters_use_bandwidth_appropriate_thumbnails():
+    api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+    movies = (ROOT / "web" / "screens" / "movies.js").read_text(encoding="utf-8")
+    assert "coverThumbnailCandidates(url)" in api
+    assert '"/t/p/w500/"' in api
+    assert "api.coverThumbnailCandidates(media?.cover_url)" in movies
+
+
 def test_catalog_artwork_is_not_softened_by_css_filters():
     css = (ROOT / "web" / "styles" / "catalog-polish.css").read_text(encoding="utf-8")
     hero_block = css.split("#tab-filme .movie-feature-art,", 1)[1].split("/* Poster-only", 1)[0]
