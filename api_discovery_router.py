@@ -477,6 +477,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
                     metadata = {
                         **metadata,
                         "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
+                        "catalog_identity_version": 2,
                     }
                     result[slug] = metadata
         return result

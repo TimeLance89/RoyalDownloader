@@ -143,11 +143,13 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
+  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v3"/);
+  assert.match(app, /known\.catalog_identity_version !== 2/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260809-2/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
