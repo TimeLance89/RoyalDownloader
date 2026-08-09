@@ -46,6 +46,7 @@ SeriesCatalogColdLoadLimit = RuntimeError
 _SeriesCatalogEntry = _unbound_dependency
 _existing_valid_episode_path = _unbound_dependency
 _norm_title = _unbound_dependency
+_resolved_movie_year = _unbound_dependency
 _series_catalog_sources = _unbound_dependency
 _series_entry_to_dict = _unbound_dependency
 _series_jellyfin_status = _unbound_dependency
@@ -76,6 +77,7 @@ strip_source_suffix = _unbound_dependency
 _DYNAMIC_CALLS = (
     "_existing_valid_episode_path",
     "_norm_title",
+    "_resolved_movie_year",
     "_series_catalog_sources",
     "_series_entry_to_dict",
     "_series_jellyfin_status",
@@ -412,7 +414,8 @@ async def api_tmdb_movies(body: MovieMetadataBody):
         return {"movies": {}}
 
     def _work():
-        now_playing_ids = get_tmdb_client().now_playing_ids()
+        tmdb_client = get_tmdb_client()
+        now_playing_ids = tmdb_client.now_playing_ids()
         unique = {}
         for item in body.items[:100]:
             title = clean_movie_title(item.title)
@@ -420,23 +423,62 @@ async def api_tmdb_movies(body: MovieMetadataBody):
             group = unique.setdefault(key, {"title": title, "year": item.year, "slugs": []})
             group["slugs"].append(item.slug)
 
+        def _group_metadata(group: dict) -> dict[str, dict]:
+            if group["year"]:
+                metadata = tmdb_client.movie_summary(group["title"], group["year"])
+                return {slug: metadata for slug in group["slugs"] if metadata}
+
+            wanted = _norm_title(group["title"])
+            exact = [
+                candidate for candidate in tmdb_client.search_movies(group["title"], max_results=20)
+                if wanted in {
+                    _norm_title(candidate.get("title", "")),
+                    _norm_title(candidate.get("original_title", "")),
+                }
+            ]
+            by_id = {str(candidate.get("tmdb_id") or ""): candidate for candidate in exact}
+            by_id.pop("", None)
+            if len(by_id) == 1:
+                metadata = next(iter(by_id.values()))
+                return {slug: metadata for slug in group["slugs"]}
+            if len(by_id) < 2:
+                metadata = tmdb_client.movie_summary(group["title"], "")
+                return {slug: metadata for slug in group["slugs"] if metadata}
+
+            # Gleicher Titel, verschiedene Filme: Die Katalogseite des
+            # Anbieters ist jetzt die einzige zulässige Quelle für das Jahr.
+            resolved = {}
+            for slug in group["slugs"]:
+                try:
+                    movie = state.fp_movies.get(slug) or load_movie_for_slug(slug)
+                except Exception as exc:
+                    log(f"TMDB-Jahresauflösung fehlgeschlagen ({slug}): {exc}", "warn")
+                    continue
+                year = _resolved_movie_year(
+                    getattr(movie, "title", ""), getattr(movie, "year", ""),
+                ) if movie else ""
+                matches = [candidate for candidate in by_id.values() if str(candidate.get("year") or "") == year]
+                if year and len(matches) == 1:
+                    state.fp_movies[slug] = movie
+                    resolved[slug] = matches[0]
+            return resolved
+
         result = {}
         groups = list(unique.values())
         with ThreadPoolExecutor(max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups))) as pool:
-            futures = [(group, pool.submit(get_tmdb_client().movie_summary, group["title"], group["year"])) for group in groups]
+            futures = [(group, pool.submit(_group_metadata, group)) for group in groups]
             for group, future in futures:
                 try:
-                    metadata = future.result()
+                    resolved = future.result()
                 except Exception as exc:
                     log(f"TMDB-Vorladen fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    metadata = None
-                if metadata:
+                    resolved = {}
+                for slug, metadata in resolved.items():
                     metadata = {
                         **metadata,
                         "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
                     }
-                    for slug in group["slugs"]:
-                        result[slug] = metadata
+                    result[slug] = metadata
         return result
 
     return {"movies": await run_in_threadpool(_work)}
