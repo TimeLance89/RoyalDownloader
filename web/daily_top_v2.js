@@ -5,7 +5,8 @@
   if (window.__royalDailyTopV2Installed) return;
   window.__royalDailyTopV2Installed = true;
 
-  const DAILY_TOP_STORAGE_KEY = "royal-home-daily-top-v2";
+  const DAILY_TOP_STORAGE_KEY = "royal-home-daily-top-v3";
+  const DAILY_TOP_STORAGE_VERSION = 3;
   const DAILY_TOP_LIMIT = 10;
   const legacyHomeTopEntries = window.homeTopEntries;
   const baseCreateHomeCard = window.createHomeCard;
@@ -13,6 +14,25 @@
   let response = null;
   let loading = false;
   let loadedPeriod = "";
+
+  function cleanTitle(value) {
+    let title = String(value || "").trim();
+    let previous = "";
+    while (title && title !== previous) {
+      previous = title;
+      title = title
+        .replace(/\s*\[[^\]]{1,40}\]\s*$/i, "")
+        .replace(/\s*\*(?:subbed|dubbed|ger(?:man)?(?:\s+dub)?|eng(?:lish)?)\*\s*$/i, "")
+        .trim();
+    }
+    return title;
+  }
+
+  function isPresentable(candidate) {
+    const item = candidate?.item || {};
+    return cleanTitle(item.title).length >= 2
+      && Boolean(String(item.cover_url || item.backdrop_url || "").trim());
+  }
 
   function dayKey(date = new Date()) {
     if (typeof localDateKey === "function") return localDateKey(date);
@@ -64,10 +84,12 @@
   }
 
   function candidateSnapshot(candidate) {
+    const item = { ...(candidate.item || {}) };
+    item.title = cleanTitle(item.title);
     return {
       identity: candidate.identity,
       kind: candidate.kind,
-      item: candidate.item,
+      item,
       global_rank: Number(candidate.global_rank || 0),
       score: Number(candidate.score || 0),
       components: candidate.components || {},
@@ -80,12 +102,12 @@
   function reconcileSnapshot(payload) {
     const period = String(payload?.period || dayKey());
     const incoming = (payload?.candidates || [])
-      .filter((candidate) => candidate?.identity && candidate?.item && !isBlocked(candidate));
+      .filter((candidate) => candidate?.identity && candidate?.item && isPresentable(candidate) && !isBlocked(candidate));
     const incomingByIdentity = new Map(incoming.map((candidate) => [candidate.identity, candidate]));
     const stored = loadSnapshot();
 
-    if (stored?.version === 2 && stored.period === period && Array.isArray(stored.current)) {
-      const current = stored.current.filter((candidate) => candidate?.identity && !isBlocked(candidate));
+    if (stored?.version === DAILY_TOP_STORAGE_VERSION && stored.period === period && Array.isArray(stored.current)) {
+      const current = stored.current.filter((candidate) => candidate?.identity && isPresentable(candidate) && !isBlocked(candidate));
       const used = new Set(current.map((candidate) => candidate.identity));
       for (const candidate of incoming) {
         if (current.length >= DAILY_TOP_LIMIT) break;
@@ -107,13 +129,13 @@
       return next;
     }
 
-    const previous = stored?.version === 2
+    const previous = stored?.version === DAILY_TOP_STORAGE_VERSION
       && stored.period === previousDayKey(period)
       && Array.isArray(stored.current)
       ? stored.current
       : [];
     const current = incoming.slice(0, DAILY_TOP_LIMIT).map(candidateSnapshot);
-    const next = { version: 2, period, previous, current };
+    const next = { version: DAILY_TOP_STORAGE_VERSION, period, previous, current };
     saveSnapshot(next);
     return next;
   }
@@ -161,7 +183,7 @@
       return entriesFromSnapshot(reconcileSnapshot(response));
     }
     const stored = loadSnapshot();
-    if (stored?.version === 2 && stored.period === period) {
+    if (stored?.version === DAILY_TOP_STORAGE_VERSION && stored.period === period) {
       const entries = entriesFromSnapshot(stored);
       if (entries.length) return entries;
     }

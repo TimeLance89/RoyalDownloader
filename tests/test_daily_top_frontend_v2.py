@@ -14,7 +14,7 @@ def test_daily_top_service_is_part_of_runtime_graph():
 
 
 def test_daily_top_frontend_loads_after_home_experience_v2():
-    assert 'script.src = "/daily_top_v2.js?v=royal-20260808-1"' in API
+    assert 'script.src = "/daily_top_v2.js?v=royal-20260809-2"' in API
     assert "loadRoyalDailyTopV2" in API
     assert "window.setTimeout(loadRoyalDailyTopV2, 0)" in API
 
@@ -28,7 +28,9 @@ def test_daily_top_is_real_rank_not_daily_hash_or_taste_shuffle():
 
 
 def test_daily_top_snapshot_is_stable_and_tracks_day_to_day_movement():
-    assert 'const DAILY_TOP_STORAGE_KEY = "royal-home-daily-top-v2"' in DAILY
+    assert 'const DAILY_TOP_STORAGE_KEY = "royal-home-daily-top-v3"' in DAILY
+    assert "function isPresentable(candidate)" in DAILY
+    assert "function cleanTitle(value)" in DAILY
     assert 'label: "NEW"' in DAILY
     assert "`↑${delta}`" in DAILY
     assert "`↓${Math.abs(delta)}`" in DAILY

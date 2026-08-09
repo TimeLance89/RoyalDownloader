@@ -282,7 +282,7 @@ document.addEventListener("visibilitychange", () => {
 function loadRoyalDailyTopV2() {
   if (document.querySelector('script[data-daily-top-v2]')) return;
   const script = document.createElement("script");
-  script.src = "/daily_top_v2.js?v=royal-20260808-1";
+  script.src = "/daily_top_v2.js?v=royal-20260809-2";
   script.async = false;
   script.dataset.dailyTopV2 = "true";
   document.body.appendChild(script);
