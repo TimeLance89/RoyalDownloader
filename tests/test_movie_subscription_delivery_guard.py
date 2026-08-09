@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import server  # noqa: F401
 import api_library_router
+import application_services.source_resolution as source_resolution
 from application_services import movie_subscription_delivery_guard as guard
+from application_services import movie_subscription_commit_guard as commit_guard
 from media_quality import normalize_media_profile
 
 
@@ -42,6 +44,9 @@ def _source(profile: dict):
 def test_guard_owns_router_and_terminal_callback_seams():
     assert api_library_router._prepare_movie_subscription_upgrade is guard._prepare_movie_subscription_upgrade
     assert server._movie_subscription_download_finished is guard._movie_subscription_download_finished.__wrapped__
+    assert source_resolution._movie_subscription_download_finished is guard._movie_subscription_download_finished.__wrapped__
+    assert source_resolution._movie_subscription_download_failed is guard._movie_subscription_download_failed.__wrapped__
+    assert source_resolution.on_job_done is commit_guard.on_job_done.__wrapped__
 
 
 def test_same_successfully_delivered_candidate_is_not_enqueued_again(monkeypatch):
@@ -150,3 +155,24 @@ def test_success_records_candidate_before_transient_state_is_cleared(monkeypatch
     assert entry[guard._LAST_FINGERPRINT] == "candidate-a"
     assert entry[guard._LAST_PROFILE]["height"] == 1080
     assert guard._ACTIVE_FINGERPRINT not in entry
+
+
+def test_failed_unchanged_inventory_is_not_downloaded_again(monkeypatch):
+    profile = _profile(2160)
+    source = _source(profile)
+    entry = {"key": "tmdb:1", "source_slug": "movie:1", "upgrade_available_profile": profile}
+    state = SimpleNamespace(movie_subscriptions=[entry], movie_subscriptions_lock=threading.RLock())
+    monkeypatch.setattr(guard, "state", state)
+    monkeypatch.setattr(guard, "_ORIGINAL_PREPARE_UPGRADE", lambda *_args: (source, [], 2160, "2160p"))
+    monkeypatch.setattr(guard, "_ORIGINAL_DOWNLOAD_FAILED", lambda *_args: None)
+    monkeypatch.setattr(guard, "_persist_movie_subscriptions_background", lambda: True)
+    monkeypatch.setattr(guard, "_confirmed_local_downgrade", lambda _entry: False)
+
+    first = guard._prepare_movie_subscription_upgrade(entry, [source])
+    entry["pending_slug"] = "movie:1"
+    guard._movie_subscription_download_failed("movie:1", "Kein tatsächliches Qualitäts-Upgrade: nicht besser als Bestand")
+    second = guard._prepare_movie_subscription_upgrade(entry, [source])
+
+    assert first[0] is source
+    assert entry[guard._FAILED_INVENTORY]
+    assert second == (None, [], 0, "")
