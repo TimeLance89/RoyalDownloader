@@ -148,29 +148,46 @@ function fpResultYear(result) {
 
 async function refreshFpJellyfinStatus() {
   const requestId = ++fpJellyfinRequestSeq;
-  const items = state.fp.results.map((r) => ({
+  const targets = [...state.fp.results];
+  const selectedHomeMovie = homeMovieBySlug(state.fp.selectedSlug);
+  if (selectedHomeMovie && !targets.some((item) => item.slug === selectedHomeMovie.slug))
+    targets.push(selectedHomeMovie);
+  const items = targets.map((r) => ({
     slug: r.slug,
-    title: r.title,
+    title: state.fp.metadataCache[r.slug]?.title || r.title,
     year: fpResultYear(r),
-    tmdb_id: state.fp.metadataCache[r.slug]?.tmdb_id || null,
+    tmdb_id: state.fp.metadataCache[r.slug]?.tmdb_id || r.tmdb_id || null,
   }));
   if (!items.length) return;
+  const statusRequest = beginCatalogJellyfinRequest(items.map((item) => `movie:${item.slug}`));
   try {
     const response = await api.jellyfinMatches(items);
     if (requestId !== fpJellyfinRequestSeq) return;
     if (!response.configured || !response.available) {
       const status = response.configured ? "unavailable" : "unconfigured";
-      state.fp.results.forEach((result) => { result.jellyfin_status = response.statuses?.[result.slug] || status; });
+      targets.forEach((result) => {
+        if (isCurrentCatalogJellyfinRequest(`movie:${result.slug}`, statusRequest))
+          applyMovieJellyfinStatus(result.slug, response.statuses?.[result.slug] || status);
+      });
       updateFpJellyfinBadges();
       setFpDetailJellyfinStatus(response.configured ? "unavailable" : "unconfigured");
       return;
     }
-    for (const result of state.fp.results) {
+    for (const result of targets) {
+      if (!isCurrentCatalogJellyfinRequest(`movie:${result.slug}`, statusRequest)) continue;
       if (Object.hasOwn(response.matches || {}, result.slug)) {
-        result.in_jellyfin = !!response.matches[result.slug];
+        applyMovieJellyfinStatus(
+          result.slug,
+          response.statuses?.[result.slug]
+            || (response.matches[result.slug] ? "owned" : "missing"),
+          !!response.matches[result.slug],
+        );
+        continue;
       }
-      result.jellyfin_status = response.statuses?.[result.slug]
-        || (response.configured ? (result.in_jellyfin ? "owned" : "missing") : "unconfigured");
+      applyMovieJellyfinStatus(
+        result.slug,
+        response.statuses?.[result.slug] || (response.configured ? "unavailable" : "unconfigured"),
+      );
     }
     updateFpJellyfinBadges();
   } catch (e) {
@@ -351,9 +368,11 @@ function updateFpJellyfinBadges() {
     const posterBadge = row.querySelector(".result-card-library-badge");
     if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
   }
-  const selected = resultsBySlug.get(state.fp.selectedSlug);
-  if (selected && typeof selected.in_jellyfin === "boolean") {
-    setFpDetailJellyfinStatus(selected.in_jellyfin);
+  const selected = resultsBySlug.get(state.fp.selectedSlug) || homeMovieBySlug(state.fp.selectedSlug);
+  if (selected) {
+    const selectedStatus = mediaJellyfinStatus(selected);
+    setFpDetailJellyfinStatus(selectedStatus === "owned" ? true
+      : selectedStatus === "missing" ? false : selectedStatus);
     const movie = state.fp.moviesCache[selected.slug]
       || metadataPreviewMovie(state.fp.metadataCache[selected.slug] || basicMovieMetadata(selected));
     configureFpDetailAction(selected.slug, movie, !state.fp.moviesCache[selected.slug]);

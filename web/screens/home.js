@@ -175,7 +175,7 @@ function refreshMovieFeatureCandidates() {
   renderHomeHero();
 }
 
-function homeMovieBySlug(slug) {
+function homeMovieInstances(slug) {
   return [
     ...state.home.newMovies,
     ...state.home.topMovies,
@@ -183,7 +183,38 @@ function homeMovieBySlug(slug) {
     ...state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
     ...state.globalSearch.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
   ]
-    .find((item) => item.slug === slug) || null;
+    .filter((item) => item.slug === slug);
+}
+
+function homeMovieBySlug(slug) {
+  return homeMovieInstances(slug)[0] || null;
+}
+
+let catalogJellyfinRequestSequence = 0;
+const catalogJellyfinRequestByKey = new Map();
+
+function beginCatalogJellyfinRequest(keys) {
+  const sequence = ++catalogJellyfinRequestSequence;
+  keys.forEach((key) => catalogJellyfinRequestByKey.set(key, sequence));
+  return sequence;
+}
+
+function isCurrentCatalogJellyfinRequest(key, sequence) {
+  return catalogJellyfinRequestByKey.get(key) === sequence;
+}
+
+function applyMovieJellyfinStatus(slug, status, owned = null) {
+  const resolvedOwned = typeof owned === "boolean" ? owned
+    : status === "owned" ? true : status === "missing" ? false : null;
+  const candidates = [
+    ...state.fp.results.filter((item) => item.slug === slug), ...homeMovieInstances(slug),
+    state.fp.metadataCache[slug], state.fp.moviesCache[slug],
+  ].filter(Boolean);
+  for (const movie of new Set(candidates)) {
+    movie.jellyfin_status = status;
+    if (typeof resolvedOwned === "boolean") movie.in_jellyfin = resolvedOwned;
+  }
+  state.home.jellyfinStatusByKey.set(`movie:${slug}`, status);
 }
 
 function homeSeriesBySlug(baseSlug) {
@@ -248,6 +279,7 @@ async function refreshCatalogJellyfinStatus(entries, render) {
     tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
     media_type: kind === "movie" ? "movie" : "series",
   }));
+  const requestSequence = beginCatalogJellyfinRequest(requests.map((item) => item.slug));
   const statusByKey = new Map();
   const batches = [];
   for (let index = 0; index < requests.length; index += 100) {
@@ -273,11 +305,13 @@ async function refreshCatalogJellyfinStatus(entries, render) {
   });
   for (const entry of unique) {
     const key = homeEntryKey(entry);
+    if (!isCurrentCatalogJellyfinRequest(key, requestSequence)) continue;
     const status = statusByKey.get(key) || "unavailable";
-    state.home.jellyfinStatusByKey.set(key, status);
-    entry.item.jellyfin_status = status;
-    if (status === "owned" || status === "missing") {
-      entry.item.in_jellyfin = status === "owned";
+    if (entry.kind === "movie") applyMovieJellyfinStatus(entry.item.slug, status);
+    else {
+      state.home.jellyfinStatusByKey.set(key, status);
+      entry.item.jellyfin_status = status;
+      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
     }
   }
   if (render) render();
