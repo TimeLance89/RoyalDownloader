@@ -267,12 +267,14 @@ async function refreshCatalogJellyfinStatus(entries, render) {
       const status = response.statuses?.[request.slug]
         || (Object.hasOwn(response.matches || {}, request.slug)
           ? (response.matches[request.slug] ? "owned" : "missing")
-          : (response.configured ? "checking" : "unconfigured"));
+          : (response.configured ? "unavailable" : "unconfigured"));
       statusByKey.set(request.slug, status);
     });
   });
   for (const entry of unique) {
-    const status = statusByKey.get(homeEntryKey(entry)) || "checking";
+    const key = homeEntryKey(entry);
+    const status = statusByKey.get(key) || "unavailable";
+    state.home.jellyfinStatusByKey.set(key, status);
     entry.item.jellyfin_status = status;
     if (status === "owned" || status === "missing") {
       entry.item.in_jellyfin = status === "owned";
@@ -915,6 +917,13 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
   const media = { ...item, ...metadata };
+  const cachedJellyfinStatus = state.home.jellyfinStatusByKey.get(homeEntryKey(entry));
+  if (cachedJellyfinStatus) {
+    media.jellyfin_status = cachedJellyfinStatus;
+    if (cachedJellyfinStatus === "owned" || cachedJellyfinStatus === "missing") {
+      media.in_jellyfin = cachedJellyfinStatus === "owned";
+    }
+  }
   const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
   const card = document.createElement("button");
   card.type = "button";

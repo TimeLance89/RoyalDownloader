@@ -32,6 +32,7 @@ function watchlistStatusText(entry) {
   if (entry.cleanup_last_error) return `Löschen pausiert · ${entry.cleanup_last_error}`;
   if (entry.status === "queued") return `${entry.queued_count || entry.new_count} in der Queue`;
   if (entry.status === "waiting_window") return `${entry.new_count} warten auf Zeitfenster`;
+  if (entry.status === "waiting_release") return `${entry.waiting_release_count || 1} warten auf Release`;
   if (entry.new_count) return `${entry.new_count} fehlen`;
   return "vollständig";
 }

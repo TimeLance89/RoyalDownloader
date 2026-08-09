@@ -299,7 +299,7 @@ function loadRoyalHomeExperienceV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/home_experience_v2.js?v=royal-20260808-1";
+  script.src = "/home_experience_v2.js?v=royal-20260809-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });

@@ -1,46 +1,44 @@
-/* ── Home cards: cinematic hover with useful detail, not a second page ── */
-/*
- * The resting card stays visually stable. Hover adds information inside the
- * existing artwork: richer metadata, genres, short synopsis, Taste Profile
- * reasoning and a details hint. The card itself remains the details action;
- * Taste Profile's "Not for me" is the only independent secondary control.
- */
+/* ── Home cards: cinematic focus without turning a card into a detail page ── */
+/* The resting state is untouched. Hover adds one compact context rail, a clear
+   details affordance and a restrained Royal-red focus edge. */
 
 @media (hover: hover) and (pointer: fine) {
   #tab-home .home-card {
-    transition: transform .22s cubic-bezier(.2, .8, .2, 1), z-index 0s .22s;
+    transition: transform .24s cubic-bezier(.2, .8, .2, 1), z-index 0s .24s;
   }
 
   #tab-home .home-card:hover,
   #tab-home .home-card:focus-visible {
     z-index: 20;
-    transform: translateY(-4px) scale(1.035);
+    transform: translateY(-5px) scale(1.028);
     transition-delay: 0s;
   }
 
   #tab-home .is-spotlight-track .home-card:hover,
   #tab-home .is-spotlight-track .home-card:focus-visible {
-    transform: translateY(-3px) scale(1.018);
+    transform: translateY(-3px) scale(1.014);
   }
 
   #tab-home .home-card:hover .home-card-art,
   #tab-home .home-card:focus-visible .home-card-art {
-    border-color: rgba(255, 255, 255, .28);
-    box-shadow: 0 20px 44px -14px rgba(0, 0, 0, .95), 0 0 0 1px rgba(255, 255, 255, .045);
+    border-color: rgba(255, 255, 255, .3);
+    box-shadow:
+      inset 0 -3px 0 #e50914,
+      0 22px 48px -16px rgba(0, 0, 0, .96),
+      0 0 0 1px rgba(255, 255, 255, .04);
     transform: none;
   }
 
   #tab-home .home-card-art img {
-    transition: transform .32s cubic-bezier(.2, .8, .2, 1), filter .24s ease;
+    transition: transform .38s cubic-bezier(.2, .8, .2, 1), filter .24s ease;
   }
 
   #tab-home .home-card:hover .home-card-art img,
   #tab-home .home-card:focus-visible .home-card-art img {
-    filter: saturate(1.045) contrast(1.02) brightness(.9);
-    transform: scale(1.018);
+    filter: saturate(1.04) contrast(1.03) brightness(.84);
+    transform: scale(1.025);
   }
 
-  /* More contrast only in the lower half; artwork remains clearly readable. */
   #tab-home .home-card-art::after {
     background: linear-gradient(180deg, transparent 50%, rgba(4, 5, 7, .12) 61%, rgba(4, 5, 7, .86) 100%);
     transition: background .22s ease;
@@ -48,17 +46,14 @@
 
   #tab-home .home-card:hover .home-card-art::after,
   #tab-home .home-card:focus-visible .home-card-art::after {
-    background: linear-gradient(180deg, transparent 27%, rgba(4, 5, 7, .08) 40%, rgba(4, 5, 7, .64) 68%, rgba(4, 5, 7, .96) 100%);
+    background: linear-gradient(180deg, transparent 34%, rgba(4, 5, 7, .16) 52%, rgba(4, 5, 7, .91) 100%);
   }
 
-  /* Keep title anchored in the exact resting position. Its small resting meta
-     line fades while the richer hover metadata appears directly above. */
+  /* Title and year/rating stay exactly where they are in the resting card. */
   #tab-home .home-card-overlay {
     z-index: 7;
-    transition: opacity .16s ease, transform .2s ease;
+    transition: opacity .16s ease;
   }
-
-  #tab-home .home-card-overlay > span { transition: opacity .14s ease; }
 
   #tab-home .home-card:hover .home-card-overlay,
   #tab-home .home-card:focus-visible .home-card-overlay {
@@ -66,24 +61,17 @@
     transform: none;
   }
 
-  #tab-home .home-card:hover .home-card-overlay > span,
-  #tab-home .home-card:focus-visible .home-card-overlay > span {
-    opacity: 0;
-  }
-
-  /* Home Experience v2 repurposes the legacy preview container. Fake action
-     circles and duplicate title/meta are removed by JS. */
   #tab-home .home-card:not(.is-ranked) .home-card-preview {
     display: grid !important;
     position: absolute;
     z-index: 6;
-    inset: auto 12px 43px 12px !important;
+    inset: auto 12px 48px 12px !important;
     width: auto;
     height: auto;
-    min-height: 0;
-    max-height: none;
-    align-content: end;
-    gap: 4px;
+    min-height: 30px;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    align-items: end;
+    gap: 10px;
     padding: 0;
     overflow: visible;
     color: #fff;
@@ -93,11 +81,11 @@
     box-shadow: none;
     opacity: 0;
     visibility: hidden;
-    transform: translateY(8px);
+    transform: translateY(7px);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     pointer-events: none;
-    transition: opacity .17s ease, transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s .18s;
+    transition: opacity .16s ease, transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s .17s;
   }
 
   #tab-home .home-card:not(.is-ranked):hover .home-card-preview,
@@ -105,23 +93,23 @@
     opacity: 1;
     visibility: visible;
     transform: none;
-    transition-delay: .035s, .035s, 0s;
+    transition-delay: .04s, .04s, 0s;
   }
 
-  /* Top-10 portrait cards have a dedicated ranked presentation. Never revive
-     the legacy large preview panel there. */
   #tab-home .home-card.is-ranked .home-card-preview { display: none !important; }
 
   #tab-home .home-card-preview-actions,
   #tab-home .home-card-preview > strong,
-  #tab-home .home-card-preview-meta {
-    display: none !important;
+  #tab-home .home-card-preview-meta { display: none !important; }
+
+  #tab-home .home-card-hover-context {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
   }
 
   #tab-home .home-card-hover-meta,
-  #tab-home .home-card-preview-genres,
-  #tab-home .home-card-preview-match,
-  #tab-home .home-card-preview-open {
+  #tab-home .home-card-preview-genres {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -129,68 +117,51 @@
   }
 
   #tab-home .home-card-hover-meta {
-    color: rgba(255, 255, 255, .82);
-    font: 650 7.5px/1.25 "DM Sans", sans-serif;
-  }
-
-  #tab-home .home-card-preview-genres {
-    color: rgba(255, 255, 255, .9);
-    font: 700 8px/1.25 "DM Sans", sans-serif;
-    letter-spacing: .01em;
-  }
-
-  #tab-home .home-card-preview-description {
-    display: -webkit-box;
-    margin-top: 1px;
-    overflow: hidden;
-    color: rgba(255, 255, 255, .72);
-    font: 500 8px/1.32 "DM Sans", sans-serif;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, .9);
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-
-  #tab-home .home-card-preview-description[hidden],
-  #tab-home .home-card-preview-match[hidden] { display: none !important; }
-
-  #tab-home .home-card-preview-match {
-    color: #e1c47c;
-    font: 700 7.5px/1.25 "DM Sans", sans-serif;
-  }
-
-  #tab-home .home-card-preview-open {
-    margin-top: 1px;
-    color: rgba(255, 255, 255, .62);
-    font: 700 7px/1 "JetBrains Mono", monospace;
-    letter-spacing: .08em;
+    color: rgba(255, 255, 255, .68);
+    font: 700 9px/1.2 "JetBrains Mono", monospace;
+    letter-spacing: .04em;
     text-transform: uppercase;
   }
 
-  /* Spotlight cards have enough room for slightly richer copy. */
+  #tab-home .home-card-preview-genres {
+    color: rgba(255, 255, 255, .94);
+    font: 700 11px/1.25 "DM Sans", sans-serif;
+    letter-spacing: .005em;
+  }
+
+  #tab-home .home-card-preview-open {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    align-self: end;
+    color: #fff;
+    background: rgba(229, 9, 20, .88);
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 50%;
+    box-shadow: 0 7px 18px rgba(0, 0, 0, .34);
+    font: 700 17px/1 "DM Sans", sans-serif;
+  }
+
   #tab-home .is-spotlight-track .home-card-preview {
-    inset: auto 18px 54px 18px !important;
-    gap: 6px;
+    inset: auto 18px 62px 18px !important;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 14px;
   }
 
-  #tab-home .is-spotlight-track .home-card-hover-meta,
-  #tab-home .is-spotlight-track .home-card-preview-genres { font-size: 11px; }
-
-  #tab-home .is-spotlight-track .home-card-preview-description {
-    max-width: 58ch;
-    font-size: 10.5px;
-    line-height: 1.38;
-    -webkit-line-clamp: 2;
+  #tab-home .is-spotlight-track .home-card-hover-meta { font-size: 10px; }
+  #tab-home .is-spotlight-track .home-card-preview-genres { font-size: 13px; }
+  #tab-home .is-spotlight-track .home-card-preview-open {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
   }
-
-  #tab-home .is-spotlight-track .home-card-preview-match { font-size: 9.5px; }
-  #tab-home .is-spotlight-track .home-card-preview-open { font-size: 8px; }
 
   #tab-home .home-card:hover .home-card-type,
   #tab-home .home-card:focus-visible .home-card-type,
   #tab-home .home-card:hover .catalog-jellyfin-badge,
-  #tab-home .home-card:focus-visible .catalog-jellyfin-badge { opacity: .94; }
+  #tab-home .home-card:focus-visible .catalog-jellyfin-badge { opacity: .96; }
 
-  /* Taste feedback stays secondary and never competes with FILM/SERIE. */
   #tab-home .home-card .taste-v2-dismiss {
     top: 42px;
     right: 10px;
@@ -222,7 +193,6 @@
   }
 }
 
-/* Touch has no hover. Keep Taste feedback reachable without covering artwork. */
 @media (hover: none), (pointer: coarse) {
   #tab-home .home-card .taste-v2-dismiss {
     top: 39px;
