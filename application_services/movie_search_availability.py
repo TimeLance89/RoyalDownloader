@@ -174,9 +174,15 @@ def _verify_tmdb_movie_candidates(
             continue
         if not loaded or not getattr(loaded, "hosters", None):
             continue
-        if not _movie_matches_tmdb_choice(
+        loaded_year = _resolved_movie_year(
             str(getattr(loaded, "title", "") or ""),
             str(getattr(loaded, "year", "") or getattr(candidate, "year", "") or ""),
+        )
+        if wanted_year and not loaded_year:
+            continue
+        if not _movie_matches_tmdb_choice(
+            str(getattr(loaded, "title", "") or ""),
+            loaded_year,
             aliases,
             wanted_year,
         ):

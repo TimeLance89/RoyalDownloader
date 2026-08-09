@@ -272,13 +272,16 @@ function setCatalogJellyfinBadge(badge, status) {
 async function refreshCatalogJellyfinStatus(entries, render) {
   const unique = uniqueHomeEntries(entries);
   if (!unique.length) return;
-  const requests = unique.map(({ kind, item }) => ({
-    slug: homeEntryKey({ kind, item }),
-    title: item.title,
-    year: item.year || "",
-    tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
-    media_type: kind === "movie" ? "movie" : "series",
-  }));
+  const requests = unique.map(({ kind, item }) => {
+    const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
+    return {
+      slug: homeEntryKey({ kind, item }),
+      title: metadata.title || item.title,
+      year: metadata.year || item.year || "",
+      tmdb_id: metadata.tmdb_id || item.tmdb_id || null,
+      media_type: kind === "movie" ? "movie" : "series",
+    };
+  });
   const requestSequence = beginCatalogJellyfinRequest(requests.map((item) => item.slug));
   const statusByKey = new Map();
   const batches = [];

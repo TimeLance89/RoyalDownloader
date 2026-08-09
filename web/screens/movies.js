@@ -152,43 +152,10 @@ async function refreshFpJellyfinStatus() {
   const selectedHomeMovie = homeMovieBySlug(state.fp.selectedSlug);
   if (selectedHomeMovie && !targets.some((item) => item.slug === selectedHomeMovie.slug))
     targets.push(selectedHomeMovie);
-  const items = targets.map((r) => ({
-    slug: r.slug,
-    title: state.fp.metadataCache[r.slug]?.title || r.title,
-    year: fpResultYear(r),
-    tmdb_id: state.fp.metadataCache[r.slug]?.tmdb_id || r.tmdb_id || null,
-  }));
-  if (!items.length) return;
-  const statusRequest = beginCatalogJellyfinRequest(items.map((item) => `movie:${item.slug}`));
+  if (!targets.length) return;
   try {
-    const response = await api.jellyfinMatches(items);
+    await refreshCatalogJellyfinStatus(targets.map(homeMovieEntry), null);
     if (requestId !== fpJellyfinRequestSeq) return;
-    if (!response.configured || !response.available) {
-      const status = response.configured ? "unavailable" : "unconfigured";
-      targets.forEach((result) => {
-        if (isCurrentCatalogJellyfinRequest(`movie:${result.slug}`, statusRequest))
-          applyMovieJellyfinStatus(result.slug, response.statuses?.[result.slug] || status);
-      });
-      updateFpJellyfinBadges();
-      setFpDetailJellyfinStatus(response.configured ? "unavailable" : "unconfigured");
-      return;
-    }
-    for (const result of targets) {
-      if (!isCurrentCatalogJellyfinRequest(`movie:${result.slug}`, statusRequest)) continue;
-      if (Object.hasOwn(response.matches || {}, result.slug)) {
-        applyMovieJellyfinStatus(
-          result.slug,
-          response.statuses?.[result.slug]
-            || (response.matches[result.slug] ? "owned" : "missing"),
-          !!response.matches[result.slug],
-        );
-        continue;
-      }
-      applyMovieJellyfinStatus(
-        result.slug,
-        response.statuses?.[result.slug] || (response.configured ? "unavailable" : "unconfigured"),
-      );
-    }
     updateFpJellyfinBadges();
   } catch (e) {
     if (requestId !== fpJellyfinRequestSeq) return;
