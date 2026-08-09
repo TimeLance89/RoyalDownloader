@@ -135,6 +135,16 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
 });
 
+test("movie detail refreshes stale Jellyfin state for Home selections", () => {
+  assert.match(html, /screens\/movies\.js\?v=royal-20260809-1/);
+  assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
+  assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
+  assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
+  assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
+  assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
+  assert.match(app, /isCurrentCatalogJellyfinRequest\(`movie:\$\{result\.slug\}`, statusRequest\)/);
+});
+
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260809-1/);
   assert.match(html, /screens\/home\.js\?v=royal-20260809-1/);
