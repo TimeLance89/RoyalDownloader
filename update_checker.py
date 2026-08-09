@@ -242,6 +242,18 @@ class UpdateChecker:
             if self._source_matches_commit(stored_payload):
                 self._inferred_verified = True
                 return self._inferred_commit
+        # A fresh archive/NAS installation can originate from Stable and then
+        # immediately be switched to Overnight (or vice versa). In that case
+        # the installed tree is the other channel head, not a recent commit of
+        # the newly selected branch.
+        for branch in dict.fromkeys(UPDATE_CHANNEL_BRANCHES.values()):
+            if branch == self.branch:
+                continue
+            candidate = self._get_json(f"commits/{quote(branch, safe='')}")
+            candidate_sha = _valid_commit(candidate.get("sha", ""))
+            if candidate_sha and self._source_matches_commit(candidate):
+                self._remember_inferred_commit(candidate_sha)
+                return candidate_sha
         recent = self._get_list(
             f"commits?sha={quote(self.branch, safe='')}&per_page={RECENT_COMMIT_SCAN_LIMIT}",
         )

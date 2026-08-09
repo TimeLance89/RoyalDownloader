@@ -387,6 +387,42 @@ function homeEntryMedia(entry) {
   return { ...entry.item, ...metadata };
 }
 
+function canonicalHomeText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("de-DE")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function homeContentKey(entry) {
+  const media = homeEntryMedia(entry);
+  const kind = entry?.kind === "movie" ? "movie" : "series";
+  const tmdbId = String(media.tmdb_id || media.tmdbId || "").trim();
+  if (tmdbId) return `${kind}:tmdb:${tmdbId}`;
+  const title = canonicalHomeText(media.title || media.name);
+  const year = String(
+    media.year
+    || media.release_year
+    || media.release_date
+    || media.first_air_date
+    || "",
+  ).match(/\b(19|20)\d{2}\b/)?.[0] || "";
+  return title ? `${kind}:title:${title}:${year}` : homeEntryKey(entry);
+}
+
+function uniqueHomeContentEntries(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (!entry?.item) return false;
+    const key = homeContentKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function localDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -630,6 +666,7 @@ function homeAllEntries() {
 }
 
 function dailyStableEntries(entries, limit = 10) {
+  entries = uniqueHomeContentEntries(entries);
   const period = localDateKey();
   const available = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
   let stored = null;
@@ -639,10 +676,12 @@ function dailyStableEntries(entries, limit = 10) {
     stored = null;
   }
   const previousKeys = stored?.period === period && Array.isArray(stored.keys) ? stored.keys : [];
-  const ordered = previousKeys.map((key) => available.get(key)).filter(Boolean);
-  const known = new Set(ordered.map(homeEntryKey));
+  const ordered = uniqueHomeContentEntries(
+    previousKeys.map((key) => available.get(key)).filter(Boolean),
+  );
+  const known = new Set(ordered.map(homeContentKey));
   const fill = entries
-    .filter((entry) => !known.has(homeEntryKey(entry)))
+    .filter((entry) => !known.has(homeContentKey(entry)))
     .sort((a, b) =>
       stableDiscoveryHash(`${period}|top|${homeEntryKey(a)}`)
       - stableDiscoveryHash(`${period}|top|${homeEntryKey(b)}`));

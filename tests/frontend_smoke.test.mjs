@@ -149,7 +149,7 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260809-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260809-3/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -162,6 +162,9 @@ test("Top 10 rotates daily instead of weekly", () => {
   assert.match(home, /HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1"/);
   assert.match(home, /function dailyStableEntries/);
   assert.match(home, /const period = localDateKey\(\)/);
+  assert.match(home, /function homeContentKey\(entry\)/);
+  assert.match(home, /entries = uniqueHomeContentEntries\(entries\)/);
+  assert.match(home, /const known = new Set\(ordered\.map\(homeContentKey\)\)/);
   assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
 });
 

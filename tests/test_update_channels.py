@@ -132,6 +132,47 @@ def test_missing_overnight_quality_result_fails_closed(monkeypatch, tmp_path):
     assert checker._quality_gate_state("b" * 40) == "missing"
 
 
+def test_fresh_stable_archive_is_detected_after_switch_to_overnight(
+    monkeypatch, tmp_path,
+):
+    stable_sha = "a" * 40
+    overnight_sha = "b" * 40
+    checker = UpdateChecker(branch="overnight", app_dir=tmp_path)
+    monkeypatch.setattr(update_checker, "detect_local_commit", lambda _path: "")
+
+    def fake_get_json(path):
+        if path == "commits/overnight":
+            return {
+                "sha": overnight_sha,
+                "commit": {"message": "overnight", "tree": {"sha": "d" * 40}},
+            }
+        if path == f"commits/{overnight_sha}/check-runs?per_page=100":
+            return {"check_runs": [{
+                "name": "verify", "status": "completed", "conclusion": "success",
+            }]}
+        if path == "commits/main":
+            return {
+                "sha": stable_sha,
+                "commit": {"message": "stable", "tree": {"sha": "c" * 40}},
+            }
+        if path == f"compare/{stable_sha}...{overnight_sha}":
+            return {"status": "ahead", "ahead_by": 1, "behind_by": 0}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(checker, "_get_json", fake_get_json)
+    monkeypatch.setattr(
+        checker,
+        "_source_matches_commit",
+        lambda payload: payload.get("sha") == stable_sha,
+    )
+
+    result = checker.check(force=True)
+
+    assert result["current_sha"] == stable_sha
+    assert result["comparison"] == "ahead"
+    assert result["update_available"] is True
+
+
 def test_stable_does_not_require_overnight_quality_gate(monkeypatch, tmp_path):
     checker = UpdateChecker(branch="main", app_dir=tmp_path)
     monkeypatch.setattr(
