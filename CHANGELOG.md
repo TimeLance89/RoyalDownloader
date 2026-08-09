@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 2026-08-08 – Royal Cinema branding
+
+- Replace the previous text-only header mark with the transparent Royal Cinema
+  wordmark asset and preserve the existing accessible brand text in the DOM.
+- Add a dedicated, responsive brand stylesheet with desktop, tablet, mobile,
+  and narrow-phone sizing so the full wordmark remains visible without
+  clipping or wrapping.
+- Integrate the logo stylesheet into the central frontend manifest and add
+  explicit cache-busting revisions for both stylesheet and image assets.
+- Preserve the existing hover styling contract and disable the decorative logo
+  shadow when reduced motion is requested.
+- Add frontend regression coverage for asset format and dimensions, stylesheet
+  wiring, responsive sizing, cache-busting URLs, and accessible brand labels.
+
 ## v1.0.0-rc.3 – 2026-08-05
 
 - Introduce persistent logical download jobs with stable `job_id` values,
