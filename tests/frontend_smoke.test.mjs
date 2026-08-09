@@ -148,7 +148,7 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260809-1/);
+  assert.match(html, /api\.js\?v=royal-20260809-2/);
   assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
