@@ -149,7 +149,7 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260809-3/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -162,10 +162,31 @@ test("Top 10 rotates daily instead of weekly", () => {
   assert.match(home, /HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1"/);
   assert.match(home, /function dailyStableEntries/);
   assert.match(home, /const period = localDateKey\(\)/);
-  assert.match(home, /function homeContentKey\(entry\)/);
+  assert.match(home, /function homeContentKeys\(entry\)/);
   assert.match(home, /entries = uniqueHomeContentEntries\(entries\)/);
-  assert.match(home, /const known = new Set\(ordered\.map\(homeContentKey\)\)/);
+  assert.match(home, /const known = new Set\(ordered\.flatMap\(homeContentKeys\)\)/);
   assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
+});
+
+test("Top 10 merges provider-tagged duplicates before all metadata is hydrated", () => {
+  const context = vm.createContext({
+    state: {
+      fp: {
+        metadataCache: {
+          "spider-man": { title: "Spider-Man: Brand New Day", year: 2026, tmdb_id: 1265609 },
+        },
+      },
+    },
+  });
+  const start = home.indexOf("function homeEntryKey(entry)");
+  const end = home.indexOf("function localDateKey", start);
+  vm.runInContext(home.slice(start, end), context);
+  context.entries = [
+    { kind: "movie", item: { slug: "spider-man", title: "Spider-Man: Brand New Day", year: 2026 } },
+    { kind: "movie", item: { slug: "spider-man-sflix", title: "Spider-Man: Brand New Day [SFlix]", year: 2026 } },
+  ];
+  const result = vm.runInContext("uniqueHomeContentEntries(entries)", context);
+  assert.equal(result.length, 1);
 });
 
 test("only Top 10 cards may fall back to portrait posters", () => {

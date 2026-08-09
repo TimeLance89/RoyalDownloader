@@ -1,6 +1,7 @@
+import os
 from pathlib import Path
 
-from environment_file import read_env, write_project_env
+from environment_file import load_project_env, read_env, write_project_env
 
 
 def test_setup_creates_env_from_example_and_applies_desktop_mode(tmp_path: Path):
@@ -39,3 +40,13 @@ def test_existing_env_keeps_unknown_values_when_switching_to_nas(tmp_path: Path)
     assert values["ROYAL_DEPLOYMENT_MODE"] == "nas"
     assert values["HOST"] == "0.0.0.0"
     assert values["OPEN_BROWSER"] == "0"
+
+
+def test_project_env_replaces_empty_container_placeholder(monkeypatch, tmp_path: Path):
+    target = tmp_path / ".env"
+    target.write_text("UPDATE_GITHUB_TOKEN=configured-token\n", encoding="utf-8")
+    monkeypatch.setenv("UPDATE_GITHUB_TOKEN", "")
+
+    load_project_env(target)
+
+    assert os.environ["UPDATE_GITHUB_TOKEN"] == "configured-token"

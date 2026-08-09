@@ -389,6 +389,7 @@ function homeEntryMedia(entry) {
 
 function canonicalHomeText(value) {
   return String(value || "")
+    .replace(/\s*\[[^\]]{1,40}\]\s*$/g, "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("de-DE")
@@ -396,11 +397,10 @@ function canonicalHomeText(value) {
     .trim();
 }
 
-function homeContentKey(entry) {
+function homeContentKeys(entry) {
   const media = homeEntryMedia(entry);
   const kind = entry?.kind === "movie" ? "movie" : "series";
   const tmdbId = String(media.tmdb_id || media.tmdbId || "").trim();
-  if (tmdbId) return `${kind}:tmdb:${tmdbId}`;
   const title = canonicalHomeText(media.title || media.name);
   const year = String(
     media.year
@@ -409,16 +409,23 @@ function homeContentKey(entry) {
     || media.first_air_date
     || "",
   ).match(/\b(19|20)\d{2}\b/)?.[0] || "";
-  return title ? `${kind}:title:${title}:${year}` : homeEntryKey(entry);
+  const keys = [];
+  if (tmdbId) keys.push(`${kind}:tmdb:${tmdbId}`);
+  if (title) keys.push(`${kind}:title:${title}:${year}`);
+  return keys.length ? keys : [homeEntryKey(entry)];
+}
+
+function homeContentKey(entry) {
+  return homeContentKeys(entry)[0];
 }
 
 function uniqueHomeContentEntries(entries) {
   const seen = new Set();
   return entries.filter((entry) => {
     if (!entry?.item) return false;
-    const key = homeContentKey(entry);
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const keys = homeContentKeys(entry);
+    if (keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
     return true;
   });
 }
@@ -679,9 +686,9 @@ function dailyStableEntries(entries, limit = 10) {
   const ordered = uniqueHomeContentEntries(
     previousKeys.map((key) => available.get(key)).filter(Boolean),
   );
-  const known = new Set(ordered.map(homeContentKey));
+  const known = new Set(ordered.flatMap(homeContentKeys));
   const fill = entries
-    .filter((entry) => !known.has(homeContentKey(entry)))
+    .filter((entry) => !homeContentKeys(entry).some((key) => known.has(key)))
     .sort((a, b) =>
       stableDiscoveryHash(`${period}|top|${homeEntryKey(a)}`)
       - stableDiscoveryHash(`${period}|top|${homeEntryKey(b)}`));

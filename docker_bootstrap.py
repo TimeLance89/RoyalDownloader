@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,6 @@ from runtime_release import (
     releases_dir,
     rollback_release,
 )
-
 try:
     from runtime_release import prune_releases
 except ImportError:
@@ -33,6 +33,55 @@ SKIP_NAMES = {
     ".pytest_cache", ".ruff_cache", ".bundle_identity",
 }
 BUNDLE_IDENTITY_FILE = ".bundle_identity"
+COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+
+
+def _valid_commit(value: str) -> str:
+    value = str(value or "").strip()
+    return value if COMMIT_RE.fullmatch(value) else ""
+
+
+def _source_commit(source: Path) -> str:
+    """Read a source revision without importing application dependencies."""
+    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
+        if commit := _valid_commit(os.environ.get(key, "")):
+            return commit
+    git_dir = source / ".git"
+    if git_dir.is_file():
+        try:
+            raw = git_dir.read_text(encoding="utf-8").strip()
+            if raw.startswith("gitdir:"):
+                git_dir = (source / raw.split(":", 1)[1].strip()).resolve()
+        except OSError:
+            git_dir = source / ".git"
+    if git_dir.is_dir():
+        try:
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            head = ""
+        if commit := _valid_commit(head):
+            return commit
+        if head.startswith("ref:"):
+            ref = head.split(":", 1)[1].strip()
+            try:
+                if commit := _valid_commit((git_dir / ref).read_text(encoding="utf-8")):
+                    return commit
+            except OSError:
+                pass
+            try:
+                for line in (git_dir / "packed-refs").read_text(encoding="utf-8").splitlines():
+                    commit, _, packed_ref = line.partition(" ")
+                    if packed_ref == ref and (valid := _valid_commit(commit)):
+                        return valid
+            except OSError:
+                pass
+    for filename in (".app_commit_sha", "BUILD_COMMIT"):
+        try:
+            if commit := _valid_commit((source / filename).read_text(encoding="utf-8")):
+                return commit
+        except OSError:
+            pass
+    return ""
 
 
 def _copy_source(source_root: Path, destination: Path) -> None:
@@ -53,6 +102,9 @@ def _python_for(release: Path) -> Path:
 
 def _prepare_release(source: Path, release: Path) -> None:
     _copy_source(source, release)
+    source_commit = _source_commit(source)
+    if source_commit:
+        (release / ".app_commit_sha").write_text(source_commit + "\n", encoding="utf-8")
     try:
         venv.EnvBuilder(with_pip=True, system_site_packages=True).create(release / ".venv")
         _smoke_release(release)
@@ -125,8 +177,8 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
         identity = marker.read_text(encoding="utf-8").strip()[:12]
     except OSError:
         identity = ""
-    if not identity:
-        identity = _source_identity(source)
+    source_identity = _source_identity(source)
+    identity = f"{identity}-{source_identity}" if identity else source_identity
     prefix = "legacy" if source == runtime_root else "bundled"
     current = read_release_link(runtime_root, "current")
     if current is not None:
