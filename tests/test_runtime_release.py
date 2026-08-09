@@ -152,6 +152,50 @@ def test_unmarked_bundle_identity_changes_with_source(tmp_path):
     assert docker_bootstrap._source_identity(source) == second
 
 
+def test_bootstrap_detects_checkout_without_importing_application_modules(tmp_path):
+    source = tmp_path / "bundle"
+    git_dir = source / ".git"
+    git_dir.mkdir(parents=True)
+    commit = "b" * 40
+    (git_dir / "HEAD").write_text(commit + "\n", encoding="utf-8")
+
+    assert docker_bootstrap._source_commit(source) == commit
+    assert "from update_checker" not in Path(docker_bootstrap.__file__).read_text(encoding="utf-8")
+
+
+def test_marked_bundle_still_activates_manually_changed_source(monkeypatch, tmp_path):
+    bundle = tmp_path / "bundle"
+    runtime = tmp_path / "runtime"
+    current = runtime / "releases" / "old"
+    bundle.mkdir()
+    current.mkdir(parents=True)
+    marker = "3ad81137" * 5
+    (bundle / ".app_commit_sha").write_text(marker + "\n", encoding="utf-8")
+    (bundle / "server.py").write_text("# old\n", encoding="utf-8")
+    old_identity = f"{marker[:12]}-{docker_bootstrap._source_identity(bundle)}"
+    docker_bootstrap._remember_bundle_identity(runtime, old_identity)
+    (bundle / "server.py").write_text("# manually updated\n", encoding="utf-8")
+    activated = []
+
+    monkeypatch.setattr(docker_bootstrap, "read_release_link", lambda *_args: current)
+    monkeypatch.setattr(docker_bootstrap, "_smoke_release", lambda *_args: None)
+    monkeypatch.setattr(
+        docker_bootstrap,
+        "_prepare_release",
+        lambda source, release: docker_bootstrap._copy_source(source, release),
+    )
+    monkeypatch.setattr(
+        docker_bootstrap, "activate_release",
+        lambda _root, release: activated.append(release),
+    )
+
+    release = docker_bootstrap._initial_release(bundle, runtime)
+
+    assert release != current
+    assert activated == [release]
+    assert (release / "server.py").read_text(encoding="utf-8") == "# manually updated\n"
+
+
 def test_changed_manual_bundle_replaces_persistent_current(monkeypatch, tmp_path):
     bundle = tmp_path / "bundle"
     runtime = tmp_path / "runtime"

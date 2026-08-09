@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 import requests
 
+from environment_file import read_env
 from update_channels import (
     DEFAULT_UPDATE_BRANCH,
     UPDATE_CHANNEL_BRANCHES,
@@ -72,6 +73,13 @@ def _detect_git_commit(root: Path) -> str:
 def detect_local_commit(app_dir: Optional[Path] = None) -> str:
     """Liest die Build-Revision aus Marker, Umgebung oder Git-Checkout."""
     root = Path(app_dir or Path(__file__).resolve().parent)
+    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
+        commit = _valid_commit(os.environ.get(key, ""))
+        if commit:
+            return commit
+    git_commit = _detect_git_commit(root)
+    if git_commit:
+        return git_commit
     for filename in (".app_commit_sha", "BUILD_COMMIT"):
         try:
             commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
@@ -79,11 +87,7 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
             commit = ""
         if commit:
             return commit
-    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
-        commit = _valid_commit(os.environ.get(key, ""))
-        if commit:
-            return commit
-    return _detect_git_commit(root)
+    return ""
 
 
 def write_build_commit_marker(app_dir: Optional[Path] = None) -> str:
@@ -128,16 +132,9 @@ class UpdateChecker:
         self.branch = branch.strip() or DEFAULT_BRANCH
         self.app_dir = Path(app_dir or Path(__file__).resolve().parent)
         self.cache_seconds = max(0, int(cache_seconds))
-        self.github_token = str(
-            github_token
-            if github_token is not None
-            else (
-                os.environ.get("UPDATE_GITHUB_TOKEN")
-                or os.environ.get("GITHUB_TOKEN")
-                or os.environ.get("GH_TOKEN")
-                or ""
-            )
-        ).strip()
+        self._github_token_override = (
+            str(github_token).strip() if github_token is not None else None
+        )
         self._cache: Optional[dict] = None
         self._cache_time = 0.0
         self._lock = threading.Lock()
@@ -271,14 +268,32 @@ class UpdateChecker:
     def repository_url(self) -> str:
         return f"https://github.com/{self.repository}"
 
+    def _github_token(self) -> str:
+        """Resolve the token per request so .env changes need no app restart."""
+        if self._github_token_override is not None:
+            return self._github_token_override
+        source_root = Path(
+            os.environ.get("APP_SOURCE_DIR", "").strip() or self.app_dir
+        )
+        file_token = str(
+            read_env(source_root / ".env").get("UPDATE_GITHUB_TOKEN") or ""
+        ).strip()
+        return file_token or str(
+            os.environ.get("UPDATE_GITHUB_TOKEN")
+            or os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_TOKEN")
+            or ""
+        ).strip()
+
     def _request_json(self, path: str):
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "Royal-Downloader-Updater",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        if self.github_token:
-            headers["Authorization"] = f"Bearer {self.github_token}"
+        github_token = self._github_token()
+        if github_token:
+            headers["Authorization"] = f"Bearer {github_token}"
         response = requests.get(
             f"https://api.github.com/repos/{self.repository}/{path}",
             headers=headers,
