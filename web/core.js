@@ -689,6 +689,32 @@ function handleMediaModalKeydown(event) {
   return true;
 }
 
+function refreshFpQueuePresentation() {
+  for (const row of document.querySelectorAll("#fp-results .result-card")) {
+    const slug = row.dataset.slug;
+    const result = state.fp.results.find((item) => item.slug === slug);
+    if (!result) continue;
+    const queued = state.queuedSlugs.has(slug);
+    row.classList.toggle("queued", queued);
+    const toggle = row.querySelector(".result-queue-toggle");
+    if (toggle) {
+      toggle.classList.toggle("is-queued", queued);
+      toggle.textContent = queued ? "✓" : "+";
+      toggle.disabled = fpQueueMutations.has(slug);
+      toggle.setAttribute("aria-label", queued
+        ? `${result.title} aus der Queue entfernen`
+        : `${result.title} zur Queue hinzufügen`);
+    }
+    const availability = fpResultAvailability(result);
+    const status = row.querySelector(".result-card-state");
+    if (status) {
+      status.className = `result-card-state status-${availability.tag}`;
+      status.textContent = availability.label;
+    }
+  }
+  document.getElementById("fp-status").textContent = fpStatusMessage();
+}
+
 function refreshQueueUiAfterChange(resp) {
   renderQueue(resp.queue);
   api.queueHistory()
@@ -700,6 +726,6 @@ function refreshQueueUiAfterChange(resp) {
     const percent = resp.total_jobs ? (resp.done_jobs / resp.total_jobs) * 100 : 0;
     setDownloadState("active", "Automatischer Download", `${resp.done_jobs}/${resp.total_jobs} fertig`, percent);
   }
-  renderFpResults();
+  refreshFpQueuePresentation();
   renderSeriesTiles();
 }
