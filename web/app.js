@@ -510,7 +510,7 @@ async function initApp() {
   });
   document.getElementById("updater-check").addEventListener("click", () => checkForUpdates(true));
   document.getElementById("updater-install").addEventListener("click", installUpdate);
-  document.getElementById("updater-channel").addEventListener("change", (event) => {
+  document.getElementById("updater-channel").addEventListener("change", async (event) => {
     const select = event.currentTarget;
     const previous = select.dataset.savedChannel || "stable";
     if (
@@ -521,10 +521,33 @@ async function initApp() {
       )
     ) {
       select.value = previous;
+      return;
     }
     document.getElementById("updater-channel-hint").textContent = select.value === "overnight"
       ? "Overnight · früher Zugriff aus overnight; kann instabil sein."
       : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
+    const status = document.getElementById("updater-mode-status");
+    const selected = select.value;
+    select.disabled = true;
+    status.textContent = `${selected === "overnight" ? "Overnight" : "Stable"} wird gespeichert …`;
+    try {
+      const saved = await api.updaterConfigSet({
+        update_mode: document.getElementById("updater-mode").value,
+        update_channel: selected,
+        auto_update_interval_hours: Math.max(
+          1,
+          Math.min(168, parseInt(document.getElementById("updater-interval").value, 10) || 6),
+        ),
+      });
+      applyUpdaterConfig(saved);
+      await checkForUpdates(true);
+    } catch (error) {
+      select.value = previous;
+      select.dataset.savedChannel = previous;
+      status.textContent = `Kanalwechsel fehlgeschlagen · ${error.message}`;
+    } finally {
+      select.disabled = false;
+    }
   });
   document.getElementById("updater-mode").addEventListener("change", (event) => {
     document.getElementById("updater-interval").disabled = event.target.value !== "automatic";
