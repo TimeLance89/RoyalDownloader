@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from application_services.runtime import backend_value, import_backend_namespace, publish_service
+import application_services.source_resolution as source_resolution
 from downloader import DownloadJob
 from hoster_intel import HosterIntel
 from media_quality import (
@@ -209,6 +210,7 @@ def _movie_subscription_download_failed(movie_slug: str, message: str) -> None:
 
 _patch_download_job()
 _patch_hoster_intel()
+source_resolution.on_job_done = on_job_done
 
 _SERVICE_EXPORTS = (
     "on_job_done",

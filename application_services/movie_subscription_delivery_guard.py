@@ -7,6 +7,7 @@ import json
 import time
 
 import api_library_router as library_router
+import application_services.source_resolution as source_resolution
 import application_services.movie_subscription_quality_hardening as hardening
 import application_services.movie_subscription_stream_quality as stream_quality
 from application_services.runtime import (
@@ -33,6 +34,9 @@ _ACTIVE_FINGERPRINT = "_upgrade_delivery_fingerprint"
 _LAST_FINGERPRINT = "upgrade_last_delivered_fingerprint"
 _LAST_PROFILE = "upgrade_last_delivered_profile"
 _LAST_AT = "upgrade_last_delivered_at"
+_ACTIVE_INVENTORY = "_upgrade_active_inventory_fingerprint"
+_FAILED_INVENTORY = "upgrade_last_failed_inventory_fingerprint"
+_FAILED_INVENTORY_AT = "upgrade_last_failed_inventory_at"
 _SUCCESS_SETTLE_SECONDS = 24 * 60 * 60
 
 
@@ -59,6 +63,15 @@ def _candidate_fingerprint(entry: dict, primary) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _inventory_fingerprint(entry: dict, candidates: list) -> str:
+    fingerprints = sorted(filter(None, (
+        _candidate_fingerprint(entry, candidate) for candidate in candidates
+    )))
+    if not fingerprints:
+        return ""
+    return hashlib.sha256("|".join(fingerprints).encode("ascii")).hexdigest()
+
+
 def _confirmed_local_downgrade(entry: dict) -> bool:
     previous = normalize_media_profile(entry.get(_LAST_PROFILE))
     if not media_profile_complete(previous):
@@ -77,10 +90,13 @@ def _prepare_movie_subscription_upgrade(entry: dict, sources: list):
     if primary is None:
         with state.movie_subscriptions_lock:
             entry.pop(_ACTIVE_FINGERPRINT, None)
+            entry.pop(_ACTIVE_INVENTORY, None)
         return result
 
     fingerprint = _candidate_fingerprint(entry, primary)
+    inventory = _inventory_fingerprint(entry, [primary, *(result[1] or [])])
     delivered = str(entry.get(_LAST_FINGERPRINT) or "")
+    failed_inventory = str(entry.get(_FAILED_INVENTORY) or "")
     try:
         last_upgraded = float(entry.get("last_upgraded") or 0.0)
     except (TypeError, ValueError):
@@ -92,6 +108,7 @@ def _prepare_movie_subscription_upgrade(entry: dict, sources: list):
     )
     repeated = bool(
         settling_legacy_success
+        or (inventory and inventory == failed_inventory and not _confirmed_local_downgrade(entry))
         or (
             fingerprint
             and fingerprint == delivered
@@ -101,12 +118,17 @@ def _prepare_movie_subscription_upgrade(entry: dict, sources: list):
     with state.movie_subscriptions_lock:
         if repeated:
             entry.pop(_ACTIVE_FINGERPRINT, None)
+            entry.pop(_ACTIVE_INVENTORY, None)
             entry.pop("upgrade_available_profile", None)
             return None, [], 0, ""
         if fingerprint:
             entry[_ACTIVE_FINGERPRINT] = fingerprint
         else:
             entry.pop(_ACTIVE_FINGERPRINT, None)
+        if inventory:
+            entry[_ACTIVE_INVENTORY] = inventory
+        else:
+            entry.pop(_ACTIVE_INVENTORY, None)
     return result
 
 
@@ -158,15 +180,33 @@ def _movie_subscription_download_finished(movie_slug, out_path, quality) -> None
 
 def _movie_subscription_download_failed(movie_slug: str, message: str) -> None:
     entry = _subscription_for_slug(str(movie_slug or ""))
+    inventory = ""
+    if entry is not None:
+        with state.movie_subscriptions_lock:
+            inventory = str(entry.get(_ACTIVE_INVENTORY) or "")
     try:
         _ORIGINAL_DOWNLOAD_FAILED(movie_slug, message)
     finally:
         if entry is not None:
             with state.movie_subscriptions_lock:
                 entry.pop(_ACTIVE_FINGERPRINT, None)
+                entry.pop(_ACTIVE_INVENTORY, None)
+                normalized_message = str(message or "").casefold()
+                if inventory and (
+                    "qualitäts-upgrade" in normalized_message
+                    or "qualitätsprüfung" in normalized_message
+                    or "nicht besser als" in normalized_message
+                ):
+                    entry[_FAILED_INVENTORY] = inventory
+                    entry[_FAILED_INVENTORY_AT] = time.time()
+                    _persist_movie_subscriptions_background()
 
 
 library_router._prepare_movie_subscription_upgrade = _prepare_movie_subscription_upgrade
+# source_resolution captured these callbacks before post-service hardening was
+# loaded. Patch the actual worker seams, not only the composition-root exports.
+source_resolution._movie_subscription_download_finished = _movie_subscription_download_finished
+source_resolution._movie_subscription_download_failed = _movie_subscription_download_failed
 
 _SERVICE_EXPORTS = (
     "_movie_subscription_download_finished",

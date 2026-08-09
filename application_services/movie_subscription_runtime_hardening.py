@@ -41,6 +41,9 @@ _INTERNAL_SUBSCRIPTION_FIELDS = {
     "upgrade_last_delivered_fingerprint",
     "upgrade_last_delivered_profile",
     "upgrade_last_delivered_at",
+    "_upgrade_active_inventory_fingerprint",
+    "upgrade_last_failed_inventory_fingerprint",
+    "upgrade_last_failed_inventory_at",
 }
 
 
