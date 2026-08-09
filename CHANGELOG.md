@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## 2026-08-09 – Discovery, library, downloads, and updater hardening
+
+- Make the Top 10 a strictly daily, cross-source ranking; merge provider-tagged
+  duplicates through TMDB and title/year aliases, discard stale snapshots, and
+  exclude raw, artwork-less, or otherwise incomplete candidates.
+- Correct Jellyfin availability for lazy-loaded catalog pages and ambiguous
+  same-title releases by using stable TMDB, title, and year identities; hide
+  download actions for content already present in Jellyfin.
+- Prevent movie quality subscriptions from repeatedly downloading an equal or
+  inferior file by validating the delivered media, persisting attempted source
+  signatures, and committing replacements only after a real upgrade.
+- Treat unreleased series episodes as scheduled instead of failed, avoid retry
+  storms for unavailable providers, recognize already complete libraries, and
+  exclude Season 0 specials from subscription and missing-episode workflows.
+- Redesign catalog-card hover details without changing the compact resting
+  layout and keep Jellyfin status checks bounded and responsive.
+- Harden Stable/Overnight switching, GitHub-token loading, cross-channel build
+  detection, manually copied NAS runtime activation, bootstrap isolation, and
+  immediate persistence of the selected update channel.
+- Keep `FireTVApp` outside repository commits and expand regression coverage
+  across discovery, Jellyfin, subscriptions, runtime activation, and updates.
+
+## 2026-08-08 – Royal Cinema branding
+
+- Replace the previous text-only header mark with the transparent Royal Cinema
+  wordmark asset and preserve the existing accessible brand text in the DOM.
+- Add a dedicated, responsive brand stylesheet with desktop, tablet, mobile,
+  and narrow-phone sizing so the full wordmark remains visible without
+  clipping or wrapping.
+- Integrate the logo stylesheet into the central frontend manifest and add
+  explicit cache-busting revisions for both stylesheet and image assets.
+- Preserve the existing hover styling contract and disable the decorative logo
+  shadow when reduced motion is requested.
+- Add frontend regression coverage for asset format and dimensions, stylesheet
+  wiring, responsive sizing, cache-busting URLs, and accessible brand labels.
+
 ## v1.0.0-rc.3 – 2026-08-05
 
 - Introduce persistent logical download jobs with stable `job_id` values,
