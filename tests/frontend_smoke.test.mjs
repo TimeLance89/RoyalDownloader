@@ -142,7 +142,7 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
   assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
-  assert.match(app, /isCurrentCatalogJellyfinRequest\(`movie:\$\{result\.slug\}`, statusRequest\)/);
+  assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {

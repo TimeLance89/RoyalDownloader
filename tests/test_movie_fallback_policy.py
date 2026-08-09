@@ -236,3 +236,24 @@ def test_live_fallback_rejects_wrong_year_even_when_title_matches(monkeypatch):
         "filmfrei24:same",
         {primary.url},
     ) == []
+
+
+def test_live_fallback_rejects_unresolved_year_for_same_named_movies(monkeypatch):
+    primary = _movie("Same Title", "https://filmfrei24.test/same", "filmfrei24", year="2026")
+    unresolved = _movie("Same Title", "https://huhu.test/same", "huhu", year="")
+
+    class TMDB:
+        configured = True
+
+        @staticmethod
+        def movie_summary(_title, _year):
+            return {"tmdb_id": "101", "title": "Same Title", "original_title": "Same Title", "year": "2026"}
+
+    monkeypatch.setattr(policy, "get_tmdb_client", lambda: TMDB())
+    monkeypatch.setattr(policy, "provider_priority", lambda _kind: ["filmfrei24", "huhu"])
+    monkeypatch.setattr(policy, "search_movie_candidates", lambda _query: [_result("Same Title", "huhu:same", "huhu", year="")])
+    monkeypatch.setattr(policy, "load_movie_for_slug", lambda _slug: unresolved)
+    monkeypatch.setattr(policy, "_queue_job_for_slug", lambda _slug: {"content_language": "de"})
+    monkeypatch.setattr(policy, "provider_for_value", lambda value: "filmfrei24" if "filmfrei24" in value else "")
+
+    assert server.find_movie_source_fallbacks(primary, "filmfrei24:same", {primary.url}) == []

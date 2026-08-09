@@ -198,7 +198,7 @@ def find_movie_source_fallbacks(
                 or not _fallback_title_matches(candidate.title, match_keys)
             ):
                 continue
-            candidate_year = str(candidate.year or "").strip()
+            candidate_year = _resolved_movie_year(candidate.title, candidate.year)
             if wanted_year and candidate_year and candidate_year != wanted_year:
                 continue
             seen_candidate_slugs.add(candidate.slug)
@@ -233,8 +233,8 @@ def find_movie_source_fallbacks(
             continue
         if not _fallback_title_matches(loaded.title, match_keys):
             continue
-        loaded_year = str(loaded.year or candidate.year or "").strip()
-        if wanted_year and loaded_year and loaded_year != wanted_year:
+        loaded_year = _resolved_movie_year(loaded.title, loaded.year or candidate.year)
+        if wanted_year and (not loaded_year or loaded_year != wanted_year):
             continue
         if desired_language:
             source_language = normalize_content_language(
