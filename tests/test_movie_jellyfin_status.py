@@ -101,3 +101,50 @@ def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
         "anime:frieren": "owned",
         "series:missing": "missing",
     }
+
+
+def test_yearless_catalog_movies_use_provider_detail_to_separate_same_titles(monkeypatch):
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def now_playing_ids():
+            return set()
+
+        @staticmethod
+        def search_movies(_title, max_results=20):
+            assert max_results == 20
+            return [
+                {"tmdb_id": 354287, "title": "War Machine", "original_title": "War Machine", "year": "2017"},
+                {"tmdb_id": 1265609, "title": "War Machine", "original_title": "War Machine", "year": "2026"},
+            ]
+
+        @staticmethod
+        def movie_summary(*_args):
+            raise AssertionError("Mehrdeutige jahrlose Titel dürfen nicht geraten werden")
+
+    movies = {
+        "war-machine": SimpleNamespace(title="War Machine", year="2017"),
+        "war-machine-2026": SimpleNamespace(title="War Machine *2026*", year=""),
+    }
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "load_movie_for_slug", lambda slug: movies[slug])
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(api_discovery_router, "_norm_title", lambda title: "".join(str(title).casefold().split()))
+    monkeypatch.setattr(
+        api_discovery_router,
+        "_resolved_movie_year",
+        lambda title, year="": str(year or "") or ("2026" if "2026" in str(title) else ""),
+    )
+    monkeypatch.setattr(api_discovery_router, "TMDB_MOVIE_BATCH_MAX_WORKERS", 2)
+    monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(fp_movies={}))
+    body = api_discovery_router.MovieMetadataBody(items=[
+        {"slug": "war-machine", "title": "War Machine", "year": ""},
+        {"slug": "war-machine-2026", "title": "War Machine", "year": ""},
+    ])
+
+    result = asyncio.run(api_discovery_router.api_tmdb_movies(body))["movies"]
+
+    assert result["war-machine"]["tmdb_id"] == 354287
+    assert result["war-machine-2026"]["tmdb_id"] == 1265609
+    assert result["war-machine"]["catalog_identity_version"] == 2

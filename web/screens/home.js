@@ -175,7 +175,7 @@ function refreshMovieFeatureCandidates() {
   renderHomeHero();
 }
 
-function homeMovieBySlug(slug) {
+function homeMovieInstances(slug) {
   return [
     ...state.home.newMovies,
     ...state.home.topMovies,
@@ -183,7 +183,38 @@ function homeMovieBySlug(slug) {
     ...state.home.search.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
     ...state.globalSearch.results.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
   ]
-    .find((item) => item.slug === slug) || null;
+    .filter((item) => item.slug === slug);
+}
+
+function homeMovieBySlug(slug) {
+  return homeMovieInstances(slug)[0] || null;
+}
+
+let catalogJellyfinRequestSequence = 0;
+const catalogJellyfinRequestByKey = new Map();
+
+function beginCatalogJellyfinRequest(keys) {
+  const sequence = ++catalogJellyfinRequestSequence;
+  keys.forEach((key) => catalogJellyfinRequestByKey.set(key, sequence));
+  return sequence;
+}
+
+function isCurrentCatalogJellyfinRequest(key, sequence) {
+  return catalogJellyfinRequestByKey.get(key) === sequence;
+}
+
+function applyMovieJellyfinStatus(slug, status, owned = null) {
+  const resolvedOwned = typeof owned === "boolean" ? owned
+    : status === "owned" ? true : status === "missing" ? false : null;
+  const candidates = [
+    ...state.fp.results.filter((item) => item.slug === slug), ...homeMovieInstances(slug),
+    state.fp.metadataCache[slug], state.fp.moviesCache[slug],
+  ].filter(Boolean);
+  for (const movie of new Set(candidates)) {
+    movie.jellyfin_status = status;
+    if (typeof resolvedOwned === "boolean") movie.in_jellyfin = resolvedOwned;
+  }
+  state.home.jellyfinStatusByKey.set(`movie:${slug}`, status);
 }
 
 function homeSeriesBySlug(baseSlug) {
@@ -241,13 +272,17 @@ function setCatalogJellyfinBadge(badge, status) {
 async function refreshCatalogJellyfinStatus(entries, render) {
   const unique = uniqueHomeEntries(entries);
   if (!unique.length) return;
-  const requests = unique.map(({ kind, item }) => ({
-    slug: homeEntryKey({ kind, item }),
-    title: item.title,
-    year: item.year || "",
-    tmdb_id: item.tmdb_id || (kind === "movie" ? state.fp.metadataCache[item.slug]?.tmdb_id : null) || null,
-    media_type: kind === "movie" ? "movie" : "series",
-  }));
+  const requests = unique.map(({ kind, item }) => {
+    const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
+    return {
+      slug: homeEntryKey({ kind, item }),
+      title: metadata.title || item.title,
+      year: metadata.year || item.year || "",
+      tmdb_id: metadata.tmdb_id || item.tmdb_id || null,
+      media_type: kind === "movie" ? "movie" : "series",
+    };
+  });
+  const requestSequence = beginCatalogJellyfinRequest(requests.map((item) => item.slug));
   const statusByKey = new Map();
   const batches = [];
   for (let index = 0; index < requests.length; index += 100) {
@@ -267,15 +302,19 @@ async function refreshCatalogJellyfinStatus(entries, render) {
       const status = response.statuses?.[request.slug]
         || (Object.hasOwn(response.matches || {}, request.slug)
           ? (response.matches[request.slug] ? "owned" : "missing")
-          : (response.configured ? "checking" : "unconfigured"));
+          : (response.configured ? "unavailable" : "unconfigured"));
       statusByKey.set(request.slug, status);
     });
   });
   for (const entry of unique) {
-    const status = statusByKey.get(homeEntryKey(entry)) || "checking";
-    entry.item.jellyfin_status = status;
-    if (status === "owned" || status === "missing") {
-      entry.item.in_jellyfin = status === "owned";
+    const key = homeEntryKey(entry);
+    if (!isCurrentCatalogJellyfinRequest(key, requestSequence)) continue;
+    const status = statusByKey.get(key) || "unavailable";
+    if (entry.kind === "movie") applyMovieJellyfinStatus(entry.item.slug, status);
+    else {
+      state.home.jellyfinStatusByKey.set(key, status);
+      entry.item.jellyfin_status = status;
+      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
     }
   }
   if (render) render();
@@ -346,6 +385,49 @@ function homeEntryMedia(entry) {
     ? (state.fp.metadataCache[entry.item.slug] || {})
     : {};
   return { ...entry.item, ...metadata };
+}
+
+function canonicalHomeText(value) {
+  return String(value || "")
+    .replace(/\s*\[[^\]]{1,40}\]\s*$/g, "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("de-DE")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function homeContentKeys(entry) {
+  const media = homeEntryMedia(entry);
+  const kind = entry?.kind === "movie" ? "movie" : "series";
+  const tmdbId = String(media.tmdb_id || media.tmdbId || "").trim();
+  const title = canonicalHomeText(media.title || media.name);
+  const year = String(
+    media.year
+    || media.release_year
+    || media.release_date
+    || media.first_air_date
+    || "",
+  ).match(/\b(19|20)\d{2}\b/)?.[0] || "";
+  const keys = [];
+  if (tmdbId) keys.push(`${kind}:tmdb:${tmdbId}`);
+  if (title) keys.push(`${kind}:title:${title}:${year}`);
+  return keys.length ? keys : [homeEntryKey(entry)];
+}
+
+function homeContentKey(entry) {
+  return homeContentKeys(entry)[0];
+}
+
+function uniqueHomeContentEntries(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (!entry?.item) return false;
+    const keys = homeContentKeys(entry);
+    if (keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
+    return true;
+  });
 }
 
 function localDateKey(date = new Date()) {
@@ -591,6 +673,7 @@ function homeAllEntries() {
 }
 
 function dailyStableEntries(entries, limit = 10) {
+  entries = uniqueHomeContentEntries(entries);
   const period = localDateKey();
   const available = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
   let stored = null;
@@ -600,10 +683,12 @@ function dailyStableEntries(entries, limit = 10) {
     stored = null;
   }
   const previousKeys = stored?.period === period && Array.isArray(stored.keys) ? stored.keys : [];
-  const ordered = previousKeys.map((key) => available.get(key)).filter(Boolean);
-  const known = new Set(ordered.map(homeEntryKey));
+  const ordered = uniqueHomeContentEntries(
+    previousKeys.map((key) => available.get(key)).filter(Boolean),
+  );
+  const known = new Set(ordered.flatMap(homeContentKeys));
   const fill = entries
-    .filter((entry) => !known.has(homeEntryKey(entry)))
+    .filter((entry) => !homeContentKeys(entry).some((key) => known.has(key)))
     .sort((a, b) =>
       stableDiscoveryHash(`${period}|top|${homeEntryKey(a)}`)
       - stableDiscoveryHash(`${period}|top|${homeEntryKey(b)}`));
@@ -915,6 +1000,13 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
   const media = { ...item, ...metadata };
+  const cachedJellyfinStatus = state.home.jellyfinStatusByKey.get(homeEntryKey(entry));
+  if (cachedJellyfinStatus) {
+    media.jellyfin_status = cachedJellyfinStatus;
+    if (cachedJellyfinStatus === "owned" || cachedJellyfinStatus === "missing") {
+      media.in_jellyfin = cachedJellyfinStatus === "owned";
+    }
+  }
   const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
   const card = document.createElement("button");
   card.type = "button";
@@ -1092,7 +1184,7 @@ function renderHome() {
 }
 
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
-const HOME_CACHE_KEY = "royal-home-cache-v2";
+const HOME_CACHE_KEY = "royal-home-cache-v3";
 const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function restoreHomeCache() {
@@ -1587,7 +1679,8 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
         .filter((item) => {
           if (!item?.slug) return false;
           const known = { ...item, ...(state.fp.metadataCache[item.slug] || {}) };
-          return !known.cover_url || !known.backdrop_url
+          return known.catalog_identity_version !== 2
+            || !known.cover_url || !known.backdrop_url
             || !Array.isArray(known.genres) || !known.genres.length;
         })
         .map((item) => [item.slug, item]),

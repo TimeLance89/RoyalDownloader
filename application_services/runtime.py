@@ -31,6 +31,7 @@ _POST_SERVICE_MODULES = (
     "application_services.movie_subscription_probe_targeting",
     "application_services.movie_subscription_commit_guard",
     "application_services.movie_subscription_quality_hardening",
+    "application_services.movie_subscription_delivery_guard",
     "application_services.movie_subscription_runtime_hardening",
     "application_services.download_storage_guard",
     "application_services.taste_recommender_runtime",

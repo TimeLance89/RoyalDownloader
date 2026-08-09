@@ -29,6 +29,38 @@ def is_within_download_window() -> bool:
     return now_h >= start or now_h < end   # Fenster über Mitternacht
 
 
+def _watchlist_entry_for_episode(slug: str) -> dict | None:
+    with state.watchlist_lock:
+        return next(
+            (
+                entry
+                for entry in state.watchlist
+                if slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
+            ),
+            None,
+        )
+
+
+def _playable_episode_source(slug: str, primary):
+    """Return a playable source or None while the episode has no release."""
+    if primary is not None and getattr(primary, "hosters", None):
+        return primary
+    parsed = parse_episode_slug(slug)
+    entry = _watchlist_entry_for_episode(slug)
+    if not parsed or entry is None:
+        return None
+    _base_slug, season, episode = parsed
+    fallbacks = find_episode_fallbacks(
+        str(entry.get("title") or ""),
+        season,
+        episode,
+        aliases=tuple(entry.get("aliases") or ()),
+        source_slug=slug,
+        limit=1,
+    )
+    return fallbacks[0] if fallbacks else None
+
+
 def _auto_download_new_episodes():
     """Lädt alle als neu erkannten Episoden abonnierter Serien automatisch
     herunter (nutzt dieselbe Pipeline wie der manuelle Download inkl.
@@ -87,13 +119,32 @@ def _auto_download_new_episodes():
             except Exception as exc:
                 log(f"Auto-Download: «{slug}» nicht ladbar: {exc}", "warn")
                 movie = None
-            if not movie or not movie.hosters:
-                movie = _episode_placeholder(slug)
+            movie = _playable_episode_source(slug, movie)
+            if movie is None:
+                with state.queue_claim_lock:
+                    state.picked.discard(slug)
+                claimed.remove(slug)
+                with state.watchlist_lock:
+                    entry = _watchlist_entry_for_episode(slug)
+                    if entry is not None:
+                        waiting = set(entry.get("waiting_release_slugs") or [])
+                        waiting.add(slug)
+                        entry["waiting_release_slugs"] = sorted(waiting)
+                        failures = entry.get("failed_downloads")
+                        if isinstance(failures, dict):
+                            failures.pop(slug, None)
                 log(
-                    f"Auto-Download: «{slug}» wird trotz blockierter "
-                    "Episodenseite fuer Fallback/Retry eingeplant.",
-                    "warn",
+                    f"Auto-Download: «{slug}» ist gelistet, aber noch ohne "
+                    "nutzbaren Release – wird weiter beobachtet."
                 )
+                continue
+
+            with state.watchlist_lock:
+                entry = _watchlist_entry_for_episode(slug)
+                if entry is not None:
+                    waiting = set(entry.get("waiting_release_slugs") or [])
+                    waiting.discard(slug)
+                    entry["waiting_release_slugs"] = sorted(waiting)
 
             already_available, reason = _content_already_available(movie, slug)
             if already_available:
@@ -238,6 +289,7 @@ def watchlist_auto_check_loop():
 
 _SERVICE_EXPORTS = (
     "is_within_download_window",
+    "_playable_episode_source",
     "_auto_download_new_episodes",
     "WATCHLIST_JELLYFIN_RETRY_SECONDS",
     "WATCHLIST_QUICK_RETRY_ERRORS",

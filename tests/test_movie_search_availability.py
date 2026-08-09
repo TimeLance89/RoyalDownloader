@@ -254,6 +254,13 @@ def test_ambiguous_yearless_provider_hit_is_not_used_for_two_tmdb_movies(monkeyp
     assert load_calls == []
 
 
+def test_provider_year_marker_in_title_separates_same_named_movies():
+    aliases = server._movie_title_match_keys("War Machine")
+
+    assert server._movie_matches_tmdb_choice("War Machine *2026*", "", aliases, "2026")
+    assert not server._movie_matches_tmdb_choice("War Machine *2026*", "", aliases, "2017")
+
+
 def test_verified_search_results_are_cached_and_returned_as_copies(monkeypatch):
     movies = [_movie(20, "Cached", "2024")]
     candidates = [_candidate("fp:cached", "Cached", "2024")]

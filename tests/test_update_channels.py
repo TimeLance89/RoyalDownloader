@@ -7,13 +7,13 @@ from fastapi import HTTPException
 import config
 import server
 import update_checker
-from update_checker import UpdateChecker
 from update_channels import (
     DEFAULT_UPDATE_CHANNEL,
     UPDATE_CHANNEL_BRANCHES,
     normalize_update_channel,
     update_branch_for_channel,
 )
+from update_checker import UpdateChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +60,28 @@ def test_switching_checker_branch_invalidates_cached_branch_result(tmp_path):
     assert checker.branch == "overnight"
     assert checker._cache is None
     assert checker._cache_time == 0.0
+
+
+def test_checkout_head_overrides_stale_build_marker(tmp_path):
+    current_sha = "b" * 40
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text(current_sha + "\n", encoding="utf-8")
+    (tmp_path / ".app_commit_sha").write_text("a" * 40 + "\n", encoding="utf-8")
+
+    assert update_checker.detect_local_commit(tmp_path) == current_sha
+
+
+def test_updater_reads_changed_project_token_without_restart(monkeypatch, tmp_path):
+    token_file = tmp_path / ".env"
+    token_file.write_text("UPDATE_GITHUB_TOKEN=first-token\n", encoding="utf-8")
+    monkeypatch.setenv("APP_SOURCE_DIR", str(tmp_path))
+    checker = UpdateChecker(app_dir=tmp_path)
+
+    assert checker._github_token() == "first-token"
+
+    token_file.write_text("UPDATE_GITHUB_TOKEN=second-token\n", encoding="utf-8")
+
+    assert checker._github_token() == "second-token"
 
 
 @pytest.mark.parametrize(
@@ -130,6 +152,47 @@ def test_missing_overnight_quality_result_fails_closed(monkeypatch, tmp_path):
     )
 
     assert checker._quality_gate_state("b" * 40) == "missing"
+
+
+def test_fresh_stable_archive_is_detected_after_switch_to_overnight(
+    monkeypatch, tmp_path,
+):
+    stable_sha = "a" * 40
+    overnight_sha = "b" * 40
+    checker = UpdateChecker(branch="overnight", app_dir=tmp_path)
+    monkeypatch.setattr(update_checker, "detect_local_commit", lambda _path: "")
+
+    def fake_get_json(path):
+        if path == "commits/overnight":
+            return {
+                "sha": overnight_sha,
+                "commit": {"message": "overnight", "tree": {"sha": "d" * 40}},
+            }
+        if path == f"commits/{overnight_sha}/check-runs?per_page=100":
+            return {"check_runs": [{
+                "name": "verify", "status": "completed", "conclusion": "success",
+            }]}
+        if path == "commits/main":
+            return {
+                "sha": stable_sha,
+                "commit": {"message": "stable", "tree": {"sha": "c" * 40}},
+            }
+        if path == f"compare/{stable_sha}...{overnight_sha}":
+            return {"status": "ahead", "ahead_by": 1, "behind_by": 0}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(checker, "_get_json", fake_get_json)
+    monkeypatch.setattr(
+        checker,
+        "_source_matches_commit",
+        lambda payload: payload.get("sha") == stable_sha,
+    )
+
+    result = checker.check(force=True)
+
+    assert result["current_sha"] == stable_sha
+    assert result["comparison"] == "ahead"
+    assert result["update_available"] is True
 
 
 def test_stable_does_not_require_overnight_quality_gate(monkeypatch, tmp_path):

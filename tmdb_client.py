@@ -507,6 +507,7 @@ class TMDBClient:
                     "cover_url": self._poster_url(item.get("poster_path") or ""),
                     "backdrop_url": self._backdrop_url(item.get("backdrop_path") or ""),
                     "description": item.get("overview") or "",
+                    "genres": self._genre_names("movie", item.get("genre_ids") or []),
                     "original_title": item.get("original_title") or "",
                     "release_date": item.get("release_date") or "",
                     "rating": round(float(item.get("vote_average") or 0), 1),

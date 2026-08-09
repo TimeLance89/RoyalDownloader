@@ -305,12 +305,22 @@ def _tmdb_search_results(query: str) -> List[dict]:
     ]
 
 
+_MOVIE_YEAR_SUFFIX_RE = re.compile(
+    r"\s*[\(\[\{*]?\s*((?:19|20)\d{2})\s*[\)\]\}*]?\s*$"
+)
+
+
+def _movie_year_from_title(title: str) -> str:
+    match = _MOVIE_YEAR_SUFFIX_RE.search(clean_movie_title(title))
+    return match.group(1) if match else ""
+
+
+def _resolved_movie_year(title: str, year: str = "") -> str:
+    return str(year or "").strip() or _movie_year_from_title(title)
+
+
 def _movie_title_match_keys(title: str) -> set[str]:
-    raw = re.sub(
-        r"\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$",
-        "",
-        clean_movie_title(title),
-    ).strip()
+    raw = _MOVIE_YEAR_SUFFIX_RE.sub("", clean_movie_title(title)).strip()
     def _match_norm(value: str) -> str:
         ascii_value = (
             unicodedata.normalize("NFKD", value or "")
@@ -347,7 +357,7 @@ def _movie_matches_tmdb_choice(
 ) -> bool:
     if not (_movie_title_match_keys(title) & aliases):
         return False
-    candidate_year = str(year or "").strip()
+    candidate_year = _resolved_movie_year(title, year)
     return not (wanted_year and candidate_year and candidate_year != wanted_year)
 
 
@@ -408,9 +418,12 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
             return None
         if not loaded or not loaded.hosters:
             return None
-        if not _movie_matches_tmdb_choice(
-            loaded.title, loaded.year or candidate.year, aliases, wanted_year,
-        ):
+        loaded_year = _resolved_movie_year(
+            loaded.title, loaded.year or candidate.year,
+        )
+        if wanted_year and not loaded_year:
+            return None
+        if not _movie_matches_tmdb_choice(loaded.title, loaded_year, aliases, wanted_year):
             return None
         state.fp_movies[candidate.slug] = loaded
         return loaded
@@ -864,6 +877,8 @@ _SERVICE_EXPORTS = (
     "search_movie_candidates",
     "_tmdb_search_results",
     "_movie_title_match_keys",
+    "_movie_year_from_title",
+    "_resolved_movie_year",
     "_movie_matches_tmdb_choice",
     "resolve_tmdb_movie_sources",
     "MovieCatalogColdLoadLimit",

@@ -59,6 +59,7 @@ dist/
 
 # Android / Gradle local state
 /AndroidApp/
+/FireTVApp/
 .gradle/
 .kotlin/
 local.properties

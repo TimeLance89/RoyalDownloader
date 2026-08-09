@@ -8,7 +8,7 @@ API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
 
 def test_home_experience_loads_after_taste_profile_v2():
     assert 'script.src = "/taste_v2.js?v=royal-20260808-1"' in API
-    assert 'script.src = "/home_experience_v2.js?v=royal-20260808-1"' in API
+    assert 'script.src = "/home_experience_v2.js?v=royal-20260809-1"' in API
     assert "window.setTimeout(loadRoyalHomeExperienceV2, 0)" in API
 
 

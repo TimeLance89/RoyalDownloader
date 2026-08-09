@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 import unicodedata
@@ -27,9 +28,23 @@ DAILY_TOP_MAX_SAME_KIND = 7
 _cache_lock = threading.RLock()
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
+_TITLE_QUALIFIER_RE = re.compile(
+    r"\s*(?:\[[^\]]{1,40}\]|\*(?:subbed|dubbed|ger(?:man)?(?:\s+dub)?|eng(?:lish)?)\*)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _display_title(value: str) -> str:
+    title = str(value or "").strip()
+    previous = None
+    while title and title != previous:
+        previous = title
+        title = _TITLE_QUALIFIER_RE.sub("", title).strip()
+    return title
+
 
 def _normalise_title(value: str) -> str:
-    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = unicodedata.normalize("NFKD", _display_title(value))
     ascii_text = text.encode("ascii", "ignore").decode("ascii").casefold()
     return "".join(char for char in ascii_text if char.isalnum())
 
@@ -171,7 +186,7 @@ def _row_payload(item: Any, provider: str, kind: str) -> dict[str, Any]:
     raw = asdict(item) if is_dataclass(item) else dict(item) if isinstance(item, dict) else {}
     if kind == "movie":
         return {
-            "title": str(raw.get("title") or getattr(item, "title", "") or "").strip(),
+            "title": _display_title(raw.get("title") or getattr(item, "title", "")),
             "year": _clean_year(raw.get("year") or getattr(item, "year", "")),
             "slug": str(raw.get("slug") or getattr(item, "slug", "") or ""),
             "url": str(raw.get("url") or getattr(item, "url", "") or ""),
@@ -182,7 +197,7 @@ def _row_payload(item: Any, provider: str, kind: str) -> dict[str, Any]:
             ),
         }
     return {
-        "title": str(raw.get("title") or getattr(item, "title", "") or "").strip(),
+        "title": _display_title(raw.get("title") or getattr(item, "title", "")),
         "year": _clean_year(raw.get("year") or getattr(item, "year", "")),
         "base_slug": str(raw.get("base_slug") or getattr(item, "base_slug", "") or ""),
         "sample_slug": str(raw.get("sample_slug") or getattr(item, "sample_slug", "") or ""),
@@ -457,6 +472,23 @@ def _merge_candidates_by_identity(candidates: list[dict[str, Any]]) -> list[dict
     return list(merged.values())
 
 
+def _presentable_candidate(candidate: dict[str, Any]) -> bool:
+    item = candidate.get("item") or {}
+    title = _display_title(candidate.get("title") or item.get("title") or "")
+    artwork = str(
+        candidate.get("cover_url")
+        or candidate.get("backdrop_url")
+        or item.get("cover_url")
+        or item.get("backdrop_url")
+        or ""
+    ).strip()
+    if len(title) < 2 or not artwork:
+        return False
+    candidate["title"] = title
+    item["title"] = title
+    return True
+
+
 def _apply_diversity(
     candidates: list[dict[str, Any]],
     limit: int = DAILY_TOP_RESULT_LIMIT,
@@ -585,6 +617,7 @@ def _build_daily_top(period: str) -> dict[str, Any]:
 
     _enrich_candidates(candidates, tmdb_client)
     candidates = _merge_candidates_by_identity(candidates)
+    candidates = [candidate for candidate in candidates if _presentable_candidate(candidate)]
     try:
         scoring_day = datetime.strptime(period, "%Y-%m-%d").date()
     except ValueError:

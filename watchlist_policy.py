@@ -45,7 +45,7 @@ def normalize_episode_history(values) -> set[tuple[int, int]]:
             pair = (int(season), int(episode))
         except (TypeError, ValueError):
             continue
-        if pair[0] >= 0 and pair[1] > 0:
+        if pair[0] > 0 and pair[1] > 0:
             result.add(pair)
     return result
 
@@ -75,7 +75,7 @@ def select_cleanup_items(
         except (TypeError, ValueError):
             continue
         item_id = str(item.get("id") or "").strip()
-        if not item_id or season < 0 or episode <= 0:
+        if not item_id or season <= 0 or episode <= 0:
             continue
         candidates.append({**item, "id": item_id, "season": season, "episode": episode})
 

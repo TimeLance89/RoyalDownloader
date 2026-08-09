@@ -95,7 +95,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-10/);
+  assert.match(html, /app\.js\?v=royal-20260809-11/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -135,9 +135,21 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
 });
 
+test("movie detail refreshes stale Jellyfin state for Home selections", () => {
+  assert.match(html, /screens\/movies\.js\?v=royal-20260809-1/);
+  assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
+  assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
+  assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
+  assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
+  assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
+  assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
+  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v3"/);
+  assert.match(app, /known\.catalog_identity_version !== 2/);
+});
+
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260805-3/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-10/);
+  assert.match(html, /api\.js\?v=royal-20260809-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -150,7 +162,39 @@ test("Top 10 rotates daily instead of weekly", () => {
   assert.match(home, /HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1"/);
   assert.match(home, /function dailyStableEntries/);
   assert.match(home, /const period = localDateKey\(\)/);
+  assert.match(home, /function homeContentKeys\(entry\)/);
+  assert.match(home, /entries = uniqueHomeContentEntries\(entries\)/);
+  assert.match(home, /const known = new Set\(ordered\.flatMap\(homeContentKeys\)\)/);
   assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
+});
+
+test("changing the updater channel persists immediately", () => {
+  assert.match(app, /getElementById\("updater-channel"\)\.addEventListener\("change", async/);
+  assert.match(app, /const saved = await api\.updaterConfigSet\(\{/);
+  assert.match(app, /update_channel: selected/);
+  assert.match(app, /applyUpdaterConfig\(saved\)/);
+  assert.match(app, /await checkForUpdates\(true\)/);
+});
+
+test("Top 10 merges provider-tagged duplicates before all metadata is hydrated", () => {
+  const context = vm.createContext({
+    state: {
+      fp: {
+        metadataCache: {
+          "spider-man": { title: "Spider-Man: Brand New Day", year: 2026, tmdb_id: 1265609 },
+        },
+      },
+    },
+  });
+  const start = home.indexOf("function homeEntryKey(entry)");
+  const end = home.indexOf("function localDateKey", start);
+  vm.runInContext(home.slice(start, end), context);
+  context.entries = [
+    { kind: "movie", item: { slug: "spider-man", title: "Spider-Man: Brand New Day", year: 2026 } },
+    { kind: "movie", item: { slug: "spider-man-sflix", title: "Spider-Man: Brand New Day [SFlix]", year: 2026 } },
+  ];
+  const result = vm.runInContext("uniqueHomeContentEntries(entries)", context);
+  assert.equal(result.length, 1);
 });
 
 test("only Top 10 cards may fall back to portrait posters", () => {

@@ -44,7 +44,11 @@ def load_project_env(path: Path = ENV_PATH) -> dict[str, str]:
     """Load project defaults without overriding an explicit process environment."""
     values = read_env(path)
     for key, value in values.items():
-        os.environ.setdefault(key, value)
+        # Compose commonly injects optional variables as an empty string. An
+        # actual value in the project .env must not be suppressed by that
+        # placeholder.
+        if not os.environ.get(key, ""):
+            os.environ[key] = value
     return values
 
 

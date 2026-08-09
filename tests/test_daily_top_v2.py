@@ -99,3 +99,15 @@ def test_soft_diversity_does_not_force_other_kind_when_only_two_are_relevant():
     ranked = daily_top._apply_diversity(movies + series, 12)
     assert sum(item["kind"] == "movie" for item in ranked[:10]) == 10
     assert sum(item["kind"] == "series" for item in ranked[:10]) == 0
+
+
+def test_top_candidate_removes_provider_qualifier_and_requires_artwork():
+    raw = candidate(title="Soulm8te *Subbed*", year="2026")
+    raw["item"]["cover_url"] = "https://image.example/soulm8te.jpg"
+
+    assert daily_top._presentable_candidate(raw) is True
+    assert raw["title"] == "Soulm8te"
+    assert raw["item"]["title"] == "Soulm8te"
+
+    raw["item"]["cover_url"] = ""
+    assert daily_top._presentable_candidate(raw) is False

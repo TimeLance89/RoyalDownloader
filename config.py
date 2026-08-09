@@ -41,6 +41,12 @@ from providers.catalog import (
     provider_keys,
     provider_language_keys,
 )
+from providers.models import parse_episode_slug
+
+
+def _is_season_zero_slug(slug: str) -> bool:
+    parsed = parse_episode_slug(str(slug or ""))
+    return bool(parsed and parsed[1] <= 0)
 
 
 def _env_positive_int(name: str, default: int) -> int:
@@ -1056,11 +1062,31 @@ def load_watchlist() -> List[dict]:
             entry["download_mode"] = normalize_watch_mode(entry.get("download_mode"))
             entry["cleanup_mode"] = normalize_cleanup_mode(entry.get("cleanup_mode"))
             entry["cleanup_history"] = serialize_episode_history(
-                normalize_episode_history(entry.get("cleanup_history"))
+                {
+                    pair for pair in normalize_episode_history(entry.get("cleanup_history"))
+                    if pair[0] > 0
+                }
             )
             entry["known_slugs"] = [
-                str(slug) for slug in entry.get("known_slugs", []) if isinstance(slug, str)
+                str(slug) for slug in entry.get("known_slugs", [])
+                if isinstance(slug, str) and not _is_season_zero_slug(slug)
             ]
+            entry["waiting_release_slugs"] = [
+                str(slug) for slug in entry.get("waiting_release_slugs", [])
+                if isinstance(slug, str) and not _is_season_zero_slug(slug)
+            ]
+            failures = entry.get("failed_downloads")
+            entry["failed_downloads"] = {
+                str(slug): failure
+                for slug, failure in (failures.items() if isinstance(failures, dict) else [])
+                if not _is_season_zero_slug(slug)
+            }
+            counts = entry.get("season_episode_counts")
+            entry["season_episode_counts"] = {
+                str(season): count
+                for season, count in (counts.items() if isinstance(counts, dict) else [])
+                if str(season).lstrip("-").isdigit() and int(season) > 0
+            }
             valid.append(entry)
         return valid
     except Exception as exc:
@@ -1147,7 +1173,13 @@ def load_queue_state() -> tuple[dict, bool]:
         return normalize_document(None)
     with _config_lock:
         try:
-            return load_queue_document(path)
+            document, migrated = load_queue_document(path)
+            jobs = [job for job in document["jobs"] if not _is_season_zero_slug(job.get("slug", ""))]
+            history = [job for job in document["history"] if not _is_season_zero_slug(job.get("slug", ""))]
+            filtered = len(jobs) != len(document["jobs"]) or len(history) != len(document["history"])
+            document["jobs"] = jobs
+            document["history"] = history
+            return document, migrated or filtered
         except Exception as exc:
             logger.warning("Download-Queue nicht lesbar (%s): %s", path, exc)
             return normalize_document(None)

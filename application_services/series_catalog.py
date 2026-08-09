@@ -1051,6 +1051,11 @@ def series_to_dict(
     season_episode_counts = (tmdb or {}).get("season_episode_counts") or (
         watchlist_entry.get("season_episode_counts", {}) if watchlist_entry else {}
     )
+    season_episode_counts = {
+        str(season): count
+        for season, count in season_episode_counts.items()
+        if str(season).lstrip("-").isdigit() and int(season) > 0
+    }
     season_counts_checked_at = (tmdb or {}).get("season_counts_checked_at") or (
         watchlist_entry.get("season_counts_checked_at", 0) if watchlist_entry else 0
     )

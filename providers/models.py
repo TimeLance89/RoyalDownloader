@@ -143,7 +143,7 @@ class FilmpalastSeries:
 
     @property
     def season_numbers(self) -> List[int]:
-        return sorted(self.seasons.keys())
+        return sorted(season for season in self.seasons if int(season) > 0)
 
     @property
     def all_episodes(self) -> List[SeriesEpisode]:
