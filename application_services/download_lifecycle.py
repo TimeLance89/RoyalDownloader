@@ -101,6 +101,7 @@ def on_job_done(
     job_id: str = "",
     attempt_id: str = "",
 ):
+    demo_mode = appconfig.demo_mode_enabled()
     # Der Counter-Eintrag ist das einmalige Abschlusstoken. Entfernen/Abbruch
     # kann es vor einem verspäteten Callback konsumieren; dieser wird dann
     # vollständig ignoriert und kann done/total nicht mehr verfälschen.
@@ -129,10 +130,13 @@ def on_job_done(
             total_jobs = state.total_jobs
             successful_jobs = len(state.done_slugs)
             failed_jobs = max(0, done_jobs - successful_jobs)
-    if hoster_url:
+    if hoster_url and not demo_mode:
         state.hoster_intel.record_download(hoster_url, ok)
     if ok:
-        log(f"Fertig: {label} -> {out_path}")
+        log(
+            f"Demo abgeschlossen: {label} · keine Datei gespeichert"
+            if demo_mode else f"Fertig: {label} -> {out_path}"
+        )
     else:
         log(f"Fehler {label}: {msg}", "err")
     terminal_job = None
@@ -144,54 +148,61 @@ def on_job_done(
             slug,
             "completed" if ok else ("cancelled" if msg == "Abgebrochen" else "failed"),
             error="" if ok else msg,
-            final_path=str(out_path) if ok else "",
+            final_path=str(out_path) if ok and not demo_mode else "",
             persist=False,
             expected_job_id=job_id,
             expected_attempt_id=attempt_id,
         )
         _persist_queue_state()
         watchlist_changed = False
-        with state.watchlist_lock:
-            for entry in state.watchlist:
-                base_slug = entry.get("base_slug", "")
-                pending = state.watchlist_new_slugs.get(base_slug, set())
-                failures = entry.get("failed_downloads")
-                if not isinstance(failures, dict):
-                    failures = {}
-                    entry["failed_downloads"] = failures
-                if slug not in pending and slug not in failures:
-                    continue
-                if ok:
-                    pending.discard(slug)
-                    failures.pop(slug, None)
-                    if not pending:
-                        state.watchlist_new_slugs.pop(base_slug, None)
-                elif msg != "Abgebrochen":
-                    failures[slug] = _failure_record(failures.get(slug), msg)
-                else:
-                    failures.pop(slug, None)
-                watchlist_changed = True
-            if watchlist_changed:
-                _persist_watchlist_background()
+        if not demo_mode:
+            with state.watchlist_lock:
+                for entry in state.watchlist:
+                    base_slug = entry.get("base_slug", "")
+                    pending = state.watchlist_new_slugs.get(base_slug, set())
+                    failures = entry.get("failed_downloads")
+                    if not isinstance(failures, dict):
+                        failures = {}
+                        entry["failed_downloads"] = failures
+                    if slug not in pending and slug not in failures:
+                        continue
+                    if ok:
+                        pending.discard(slug)
+                        failures.pop(slug, None)
+                        if not pending:
+                            state.watchlist_new_slugs.pop(base_slug, None)
+                    elif msg != "Abgebrochen":
+                        failures[slug] = _failure_record(failures.get(slug), msg)
+                    else:
+                        failures.pop(slug, None)
+                    watchlist_changed = True
+                if watchlist_changed:
+                    _persist_watchlist_background()
         if watchlist_changed:
             broadcast({"type": "watchlist_update", **watchlist_payload()})
-        if not ok and not parse_episode_slug(slug):
+        if not demo_mode and not ok and not parse_episode_slug(slug):
             _movie_subscription_download_failed(slug, msg)
-        with state.telegram_jobs_lock:
-            telegram_job = state.telegram_jobs.pop(slug, None)
-        if telegram_job:
-            if telegram_job.get("kind") == "series":
-                _telegram_series_job_result(telegram_job, slug, ok, msg, out_path)
-            else:
-                threading.Thread(
-                    target=_telegram_finish_job,
-                    args=(telegram_job, ok, msg, out_path),
-                    daemon=True,
-                ).start()
-        with state.seerr_jobs_lock:
-            seerr_jobs = state.seerr_jobs.pop(slug, [])
-        for seerr_job in seerr_jobs:
-            _seerr_job_result(seerr_job, slug, ok, msg, out_path)
+        if demo_mode:
+            with state.telegram_jobs_lock:
+                state.telegram_jobs.pop(slug, None)
+            with state.seerr_jobs_lock:
+                state.seerr_jobs.pop(slug, None)
+        else:
+            with state.telegram_jobs_lock:
+                telegram_job = state.telegram_jobs.pop(slug, None)
+            if telegram_job:
+                if telegram_job.get("kind") == "series":
+                    _telegram_series_job_result(telegram_job, slug, ok, msg, out_path)
+                else:
+                    threading.Thread(
+                        target=_telegram_finish_job,
+                        args=(telegram_job, ok, msg, out_path),
+                        daemon=True,
+                    ).start()
+            with state.seerr_jobs_lock:
+                seerr_jobs = state.seerr_jobs.pop(slug, [])
+            for seerr_job in seerr_jobs:
+                _seerr_job_result(seerr_job, slug, ok, msg, out_path)
     broadcast({
         "type": "job_done", "ok": ok, "label": label, "slug": slug, "msg": msg,
         "job_id": (terminal_job or {}).get("job_id", ""),
@@ -315,6 +326,8 @@ def _refresh_jellyfin_after_download_once():
 
 def refresh_jellyfin_after_download():
     """Fasst parallele Scan-Anforderungen zusammen, ohne eine zu verlieren."""
+    if appconfig.demo_mode_enabled():
+        return
     with state.jellyfin_refresh_request_lock:
         state.jellyfin_refresh_pending = True
         if state.jellyfin_refresh_running:
@@ -408,7 +421,7 @@ def _on_queue_done_locked():
     successful_jobs = len(state.done_slugs)
     failed_jobs = max(0, state.done_jobs - successful_jobs)
     log(f"Downloadlauf beendet: {successful_jobs} erfolgreich, {failed_jobs} fehlgeschlagen.")
-    if successful_jobs:
+    if successful_jobs and not appconfig.demo_mode_enabled():
         threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
     broadcast({
         "type": "queue_done",

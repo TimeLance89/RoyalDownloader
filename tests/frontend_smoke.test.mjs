@@ -59,16 +59,21 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /configGet\(\)/);
 });
 
-test("setup and settings expose desktop and NAS deployment modes", () => {
+test("setup and settings expose desktop, NAS, and safe demo deployment modes", () => {
   for (const id of [
     "setup-mode-desktop",
     "setup-mode-nas",
+    "setup-mode-demo",
     "deployment-mode-desktop",
     "deployment-mode-nas",
+    "deployment-mode-demo",
     "deployment-mode-status",
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
   assert.match(html, /Normaler Computer/);
   assert.match(html, /NAS \/ Heimserver/);
+  assert.match(html, /Alles sichtbar\. Nichts gespeichert\./);
+  assert.match(app, /selectedDeploymentMode\("setup-deployment-mode"\) === "demo"/);
+  assert.match(app, /Demo-Modus · Abläufe werden simuliert · keine Mediendateien/);
   assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
   assert.match(api, /deployment_mode: deploymentMode/);
 });
@@ -80,8 +85,8 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260805-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260805-6/);
+  assert.match(html, /i18n\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260809-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -341,7 +346,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260805-2/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260809-1/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
