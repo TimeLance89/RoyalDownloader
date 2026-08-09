@@ -95,7 +95,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260805-10/);
+  assert.match(html, /app\.js\?v=royal-20260809-11/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -166,6 +166,14 @@ test("Top 10 rotates daily instead of weekly", () => {
   assert.match(home, /entries = uniqueHomeContentEntries\(entries\)/);
   assert.match(home, /const known = new Set\(ordered\.flatMap\(homeContentKeys\)\)/);
   assert.doesNotMatch(home, /weekly|WeekKey|WEEKLY/i);
+});
+
+test("changing the updater channel persists immediately", () => {
+  assert.match(app, /getElementById\("updater-channel"\)\.addEventListener\("change", async/);
+  assert.match(app, /const saved = await api\.updaterConfigSet\(\{/);
+  assert.match(app, /update_channel: selected/);
+  assert.match(app, /applyUpdaterConfig\(saved\)/);
+  assert.match(app, /await checkForUpdates\(true\)/);
 });
 
 test("Top 10 merges provider-tagged duplicates before all metadata is hydrated", () => {
