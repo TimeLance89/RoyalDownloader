@@ -147,3 +147,4 @@ def test_yearless_catalog_movies_use_provider_detail_to_separate_same_titles(mon
 
     assert result["war-machine"]["tmdb_id"] == 354287
     assert result["war-machine-2026"]["tmdb_id"] == 1265609
+    assert result["war-machine"]["catalog_identity_version"] == 2

@@ -1138,7 +1138,7 @@ function renderHome() {
 }
 
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
-const HOME_CACHE_KEY = "royal-home-cache-v2";
+const HOME_CACHE_KEY = "royal-home-cache-v3";
 const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function restoreHomeCache() {
@@ -1633,7 +1633,8 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
         .filter((item) => {
           if (!item?.slug) return false;
           const known = { ...item, ...(state.fp.metadataCache[item.slug] || {}) };
-          return !known.cover_url || !known.backdrop_url
+          return known.catalog_identity_version !== 2
+            || !known.cover_url || !known.backdrop_url
             || !Array.isArray(known.genres) || !known.genres.length;
         })
         .map((item) => [item.slug, item]),
