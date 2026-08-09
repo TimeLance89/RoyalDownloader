@@ -676,9 +676,11 @@ def watchlist_payload() -> dict:
     with state.queue_claim_lock, state.watchlist_lock:
         for w in state.watchlist:
             pending = set(state.watchlist_new_slugs.get(w["base_slug"], set()))
+            waiting_release = set(w.get("waiting_release_slugs") or []) & pending
+            actionable_pending = pending - waiting_release
             queued_count = len(pending & state.picked)
             failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
-            failed_count = len(set(failures) & pending)
+            failed_count = len(set(failures) & actionable_pending)
             mode = normalize_watch_mode(w.get("download_mode"))
             cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
             error = str(w.get("last_error") or "")
@@ -688,10 +690,12 @@ def watchlist_payload() -> dict:
                 status = "failed"
             elif queued_count:
                 status = "queued"
-            elif pending and state.automation.get("auto_download") and not is_within_download_window():
+            elif actionable_pending and state.automation.get("auto_download") and not is_within_download_window():
                 status = "waiting_window"
-            elif pending:
+            elif actionable_pending:
                 status = "missing"
+            elif waiting_release:
+                status = "waiting_release"
             else:
                 status = "current"
             items.append({
@@ -720,7 +724,8 @@ def watchlist_payload() -> dict:
                         and not error
                     )
                 ),
-                "new_count": len(pending),
+                "new_count": len(actionable_pending),
+                "waiting_release_count": len(waiting_release),
                 "queued_count": queued_count,
                 "failed_count": failed_count,
                 "status": status,

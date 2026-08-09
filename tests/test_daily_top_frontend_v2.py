@@ -5,6 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DAILY = (ROOT / "web" / "daily_top_v2.js").read_text(encoding="utf-8")
 API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
 RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf-8")
+HOME = (ROOT / "web" / "screens" / "home.js").read_text(encoding="utf-8")
+STORE = (ROOT / "web" / "store.js").read_text(encoding="utf-8")
 
 
 def test_daily_top_service_is_part_of_runtime_graph():
@@ -55,3 +57,11 @@ def test_daily_top_cards_open_from_their_own_provider_payload():
 
 def test_daily_top_heading_describes_cross_source_popularity():
     assert 'eyebrow.textContent = "Heute über deine Quellen hinweg angesagt"' in DAILY
+
+
+def test_daily_top_jellyfin_status_survives_snapshot_rerenders():
+    assert "jellyfinStatusByKey: new Map()" in STORE
+    assert "state.home.jellyfinStatusByKey.set(key, status)" in HOME
+    assert "state.home.jellyfinStatusByKey.get(homeEntryKey(entry))" in HOME
+    assert 'response.configured ? "unavailable" : "unconfigured"' in HOME
+    assert 'statusByKey.get(key) || "unavailable"' in HOME

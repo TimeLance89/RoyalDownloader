@@ -592,6 +592,8 @@ def _scheduled_episode_reason(slug: str) -> str:
     parsed = parse_episode_slug(slug)
     if not parsed:
         return ""
+    if parsed[1] <= 0:
+        return "Staffel 0 wird nicht unterstützt"
     series = state.series_cache.get(parsed[0])
     if series is None:
         return ""

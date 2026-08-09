@@ -136,8 +136,8 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260805-3/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260805-10/);
+  assert.match(html, /api\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260809-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);

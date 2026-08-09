@@ -406,45 +406,29 @@
     preview.querySelector(".home-card-preview-meta")?.remove();
 
     const legacyGenres = preview.querySelector(".home-card-preview-genres");
-    let tasteReason = "";
     if (legacyGenres) {
-      const marker = " · Passt: ";
-      const current = String(legacyGenres.textContent || "");
-      const markerIndex = current.indexOf(marker);
-      if (markerIndex >= 0) {
-        tasteReason = current.slice(markerIndex + marker.length).trim();
-        legacyGenres.textContent = current.slice(0, markerIndex).trim();
-      } else {
-        legacyGenres.textContent = (media.genres || []).slice(0, 3).join(" · ") || "";
-      }
+      legacyGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
+        || (entry.kind === "movie" ? "Film entdecken" : "Serie entdecken");
     }
 
     const detailMeta = document.createElement("span");
     detailMeta.className = "home-card-hover-meta";
     detailMeta.textContent = [
-      media.year || (media.first_air_date ? String(media.first_air_date).slice(0, 4) : ""),
-      media.rating ? `★ ${media.rating}` : "",
       formatRuntime(media.runtime),
       entry.kind === "movie" ? "Film" : entry.kind === "series" ? "Serie" : "Anime",
     ].filter(Boolean).join(" · ");
 
-    const description = document.createElement("span");
-    description.className = "home-card-preview-description";
-    description.textContent = String(media.description || media.overview || "").trim();
-    if (!description.textContent) description.hidden = true;
-
-    const match = document.createElement("span");
-    match.className = "home-card-preview-match";
-    match.textContent = tasteReason ? `Passt zu dir: ${tasteReason}` : "";
-    if (!match.textContent) match.hidden = true;
+    const context = document.createElement("span");
+    context.className = "home-card-hover-context";
+    context.append(detailMeta);
+    if (legacyGenres) context.append(legacyGenres);
 
     const openHint = document.createElement("span");
     openHint.className = "home-card-preview-open";
-    openHint.textContent = "Details öffnen  →";
+    openHint.textContent = "→";
+    openHint.title = "Details öffnen";
 
-    if (legacyGenres) legacyGenres.before(detailMeta);
-    else preview.appendChild(detailMeta);
-    preview.append(description, match, openHint);
+    preview.replaceChildren(context, openHint);
     return card;
   }
 

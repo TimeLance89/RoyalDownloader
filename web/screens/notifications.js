@@ -353,6 +353,7 @@ function renderWatchlist() {
       failed: "Fehler",
       queued: "In Queue",
       waiting_window: "Zeitfenster",
+      waiting_release: "Noch nicht erschienen",
       missing: "Offen",
       current: "Aktuell",
     })[entry.status] || "Aktuell";
@@ -403,13 +404,17 @@ function renderWatchlist() {
     const episodeStatus = document.createElement("div");
     episodeStatus.className = "library-episode-status";
     const episodeValue = document.createElement("strong");
-    episodeValue.textContent = needsAttention
-      ? (entry.status === "blocked" || entry.cleanup_last_error ? "!" : String(entry.failed_count || entry.new_count || "!"))
-      : "✓";
+    episodeValue.textContent = entry.status === "waiting_release"
+      ? "○"
+      : (needsAttention
+        ? (entry.status === "blocked" || entry.cleanup_last_error ? "!" : String(entry.failed_count || entry.new_count || "!"))
+        : "✓");
     const episodeLabel = document.createElement("span");
-    episodeLabel.textContent = needsAttention
-      ? (entry.new_count === 1 ? "Episode offen" : (entry.new_count ? "Episoden offen" : "Prüfung nötig"))
-      : "Vollständig";
+    episodeLabel.textContent = entry.status === "waiting_release"
+      ? "Release ausstehend"
+      : (needsAttention
+        ? (entry.new_count === 1 ? "Episode offen" : (entry.new_count ? "Episoden offen" : "Prüfung nötig"))
+        : "Vollständig");
     episodeStatus.append(episodeValue, episodeLabel);
 
     const footer = document.createElement("div");

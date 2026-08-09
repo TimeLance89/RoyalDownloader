@@ -37,6 +37,10 @@ _INTERNAL_SUBSCRIPTION_FIELDS = {
     "_upgrade_candidate_signature",
     "_upgrade_candidate_from_rank",
     "_upgrade_candidate_advertised_rank",
+    "_upgrade_delivery_fingerprint",
+    "upgrade_last_delivered_fingerprint",
+    "upgrade_last_delivered_profile",
+    "upgrade_last_delivered_at",
 }
 
 

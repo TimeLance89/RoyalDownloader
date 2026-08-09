@@ -749,9 +749,11 @@ async def api_watchlist_add(body: WatchlistAddBody):
                             (incoming_tmdb or {}).get("original_title", ""),
                         ))))
                         if (incoming_tmdb or {}).get("season_episode_counts"):
-                            duplicate["season_episode_counts"] = incoming_tmdb[
-                                "season_episode_counts"
-                            ]
+                            duplicate["season_episode_counts"] = {
+                                str(season): count
+                                for season, count in incoming_tmdb["season_episode_counts"].items()
+                                if str(season).lstrip("-").isdigit() and int(season) > 0
+                            }
                             duplicate["season_counts_checked_at"] = float(
                                 incoming_tmdb.get("season_counts_checked_at") or 0
                             )
@@ -770,12 +772,17 @@ async def api_watchlist_add(body: WatchlistAddBody):
                         409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
                     )
                 entry = body.model_dump()
+                entry["known_slugs"] = [
+                    slug for slug in (body.known_slugs or [])
+                    if not ((parsed := parse_episode_slug(slug)) and parsed[1] <= 0)
+                ]
                 entry["aliases"] = list(dict.fromkeys(
                     alias.strip() for alias in (body.aliases or []) if alias and alias.strip()
                 ))
                 entry["season_episode_counts"] = {
                     str(season): max(0, int(count))
                     for season, count in (body.season_episode_counts or {}).items()
+                    if str(season).lstrip("-").isdigit() and int(season) > 0
                 }
                 entry["season_counts_checked_at"] = max(0.0, float(body.season_counts_checked_at or 0))
                 entry["cover_url"] = (incoming_tmdb or {}).get("cover_url", "")
@@ -962,24 +969,14 @@ def _calculate_watchlist_entry_state(
     jf_series: list[dict] | None = None,
 ) -> dict:
     """Berechnet den Zustand ohne globale Watchlist-Daten zu verändern."""
-    serienstream_entry = str(entry.get("base_slug") or "").startswith("serienstream:")
     previous_keys = {
         parsed[1:]
         for slug in entry.get("known_slugs", [])
         if (parsed := parse_episode_slug(slug)) is not None
-        and not (serienstream_entry and parsed[1] <= 0)
+        and parsed[1] > 0
     }
     current_keys = {(episode.season, episode.episode) for episode in series.all_episodes}
     vanished_keys = previous_keys - current_keys
-    if vanished_keys:
-        # Verschwundene Episoden sind nur dann unbedenklich, wenn TMDB
-        # bestätigt, dass sie ohnehin noch nicht ausgestrahlt wurden (z.B. weil
-        # ein Anbieter sie zuvor fälschlich als bereits verfügbar gelistet
-        # hatte). Ohne diese Bestätigung bleibt der Schutz vor einer
-        # unvollständigen Anbieterantwort bestehen.
-        explained = _unreleased_episode_keys(entry.get("tmdb_id", ""), vanished_keys)
-        if vanished_keys - explained:
-            raise RuntimeError("Anbieterantwort unvollständig – bisher bekannte Episoden fehlen")
 
     downloaded = compute_downloaded_episodes(series)
     aliases = tuple(dict.fromkeys([
@@ -1004,6 +1001,13 @@ def _calculate_watchlist_entry_state(
     )
     cleanup_history = normalize_episode_history(entry.get("cleanup_history"))
     jf_existing.update(cleanup_history)
+    if vanished_keys:
+        # Eine lückenhafte Anbieterantwort ist unkritisch, wenn die betreffenden
+        # Episoden bereits in Jellyfin liegen oder noch nicht veröffentlicht sind.
+        explained = _unreleased_episode_keys(entry.get("tmdb_id", ""), vanished_keys)
+        uncovered = vanished_keys - explained - jf_existing
+        if uncovered:
+            raise RuntimeError("Anbieterantwort unvollständig – bisher bekannte Episoden fehlen")
     jf_watched = (
         jf_client.watched_episodes_for_series(
             series.title, jf_user_episodes, aliases=aliases, series_ids=series_ids,
@@ -1080,6 +1084,12 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     entry["failed_downloads"] = {
         slug: failure for slug, failure in failed.items() if slug in missing_slugs
     }
+    waiting_release = {
+        str(slug)
+        for slug in (entry.get("waiting_release_slugs") or [])
+        if str(slug) in missing_slugs
+    }
+    entry["waiting_release_slugs"] = sorted(waiting_release)
     entry["last_checked"] = time.time()
     entry["last_error"] = ""
     return previous_slugs - missing_slugs
@@ -1308,7 +1318,11 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
                     tmdb.get("title", ""),
                     tmdb.get("original_title", ""),
                 ))))
-                entry_snapshot["season_episode_counts"] = tmdb.get("season_episode_counts") or {}
+                entry_snapshot["season_episode_counts"] = {
+                    str(season): count
+                    for season, count in (tmdb.get("season_episode_counts") or {}).items()
+                    if str(season).lstrip("-").isdigit() and int(season) > 0
+                }
                 entry_snapshot["season_counts_checked_at"] = float(
                     tmdb.get("season_counts_checked_at") or 0
                 )
