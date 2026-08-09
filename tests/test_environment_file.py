@@ -42,6 +42,21 @@ def test_existing_env_keeps_unknown_values_when_switching_to_nas(tmp_path: Path)
     assert values["OPEN_BROWSER"] == "0"
 
 
+def test_demo_mode_uses_local_binding_and_marks_media_writes_disabled(tmp_path: Path):
+    example = tmp_path / ".env.example"
+    target = tmp_path / ".env"
+    example.write_text("ROYAL_DEPLOYMENT_MODE=nas\n", encoding="utf-8")
+
+    write_project_env("demo", "", "", path=target, example_path=example)
+
+    values = read_env(target)
+    assert values["ROYAL_DEPLOYMENT_MODE"] == "demo"
+    assert values["ROYAL_DEMO_MODE"] == "1"
+    assert values["HOST"] == "127.0.0.1"
+    assert values["DOWNLOAD_DIR"] == ""
+    assert values["SERIES_DIR"] == ""
+
+
 def test_project_env_replaces_empty_container_placeholder(monkeypatch, tmp_path: Path):
     target = tmp_path / ".env"
     target.write_text("UPDATE_GITHUB_TOKEN=configured-token\n", encoding="utf-8")

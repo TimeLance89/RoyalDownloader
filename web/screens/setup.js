@@ -173,6 +173,7 @@ function validateSetupStep(step) {
     const series = document.getElementById("setup-series-path");
     movie.removeAttribute("aria-invalid");
     series.removeAttribute("aria-invalid");
+    if (selectedDeploymentMode("setup-deployment-mode") === "demo") return true;
     if (!movie.value.trim() || !series.value.trim()) {
       if (!movie.value.trim()) movie.setAttribute("aria-invalid", "true");
       if (!series.value.trim()) series.setAttribute("aria-invalid", "true");
@@ -240,7 +241,10 @@ async function finishSetup() {
   const back = document.getElementById("setup-back");
   finish.disabled = true;
   back.disabled = true;
-  setSetupStatus("Ordner und Einstellungen werden angelegt …");
+  const demoMode = selectedDeploymentMode("setup-deployment-mode") === "demo";
+  setSetupStatus(demoMode
+    ? "Demo-Umgebung wird vorbereitet …"
+    : "Ordner und Einstellungen werden angelegt …");
   try {
     await api.setupComplete({
       deployment_mode: selectedDeploymentMode("setup-deployment-mode"),
@@ -293,7 +297,9 @@ async function initSetupWizard() {
     if (!data.required) return false;
     setupRequired = true;
     const defaults = data.defaults || {};
-    const deploymentMode = defaults.deployment_mode === "nas" ? "nas" : "desktop";
+    const deploymentMode = ["desktop", "nas", "demo"].includes(defaults.deployment_mode)
+      ? defaults.deployment_mode
+      : "desktop";
     const setupMode = document.querySelector(
       `input[name="setup-deployment-mode"][value="${deploymentMode}"]`,
     );

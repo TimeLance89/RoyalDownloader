@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a first-run Demo mode that requires no media paths and visibly simulates
+  queue, progress, verification, and completion without downloading streams,
+  creating staging directories, writing media files, or triggering delivery
+  side effects such as Jellyfin scans; automatic downloading remains disabled
+  so a demonstration cannot grow its history unattended.
+
 ## 2026-08-09 – Discovery, library, downloads, and updater hardening
 
 - Make the Top 10 a strictly daily, cross-source ranking; merge provider-tagged

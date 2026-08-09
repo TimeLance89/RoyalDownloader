@@ -614,6 +614,7 @@ def _enqueue_hoster_attempt(
     hoster_used = result.hoster_used
     label = f"{movie.title}  ({hoster_used})"
     logical_job = _ensure_queue_job(movie_slug, movie)
+    demo_mode = appconfig.demo_mode_enabled()
     logical_attempt_id = attempt_id or str(logical_job.get("attempt_id") or "")
     if attempt_id and logical_job.get("attempt_id") != attempt_id:
         return False
@@ -642,7 +643,7 @@ def _enqueue_hoster_attempt(
             or current.get("attempt_id") != logical_attempt_id
         ):
             return
-        if result.hoster_url_used:
+        if result.hoster_url_used and not demo_mode:
             state.hoster_intel.record_download(
                 result.hoster_url_used,
                 ok,
@@ -664,6 +665,7 @@ def _enqueue_hoster_attempt(
                 and terminal.get("attempt_id") == logical_attempt_id
                 and terminal.get("status") == "completed"
                 and not parse_episode_slug(movie_slug)
+                and not demo_mode
             ):
                 _movie_subscription_download_finished(movie_slug, out_path, result.quality)
             return
@@ -915,6 +917,7 @@ def _enqueue_hoster_attempt(
         attempt_id=logical_attempt_id,
         allow_slow=last_resort,
         queue_priority=0 if not parse_episode_slug(movie_slug) else 100,
+        demo_mode=demo_mode,
     )
     with state.queue_lifecycle_lock:
         with state.queue_claim_lock:
