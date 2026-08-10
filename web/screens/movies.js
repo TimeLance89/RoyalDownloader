@@ -566,7 +566,7 @@ function renderFpResults(appendFrom = 0) {
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
-function applyFpResults(data, { append = false } = {}) {
+function applyFpResults(data, { append = false, metadataPrepared = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   for (const result of incoming) {
     if (result?.tmdb_id) {
@@ -588,7 +588,9 @@ function applyFpResults(data, { append = false } = {}) {
   if (!append) state.fp.selectedSlug = null;
   if (!append) state.fp.metadataRequestSeq += 1;
   const metadataItems = fpMetadataPreloadItems(incoming);
-  const pendingSlugs = new Set(metadataItems.map((item) => item.slug));
+  const pendingSlugs = new Set(
+    metadataPrepared ? [] : metadataItems.map((item) => item.slug),
+  );
   state.fp.pendingPreload = append && state.fp.pendingPreload
     ? state.fp.pendingPreload
     : new Set();
@@ -598,7 +600,7 @@ function applyFpResults(data, { append = false } = {}) {
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
   recheckFpInfinite();
-  if (metadataItems.length) {
+  if (metadataItems.length && !metadataPrepared) {
     void preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems);
   } else if (!state.fp.pendingPreload.size) {
     state.fp.pendingPreload = null;
@@ -809,7 +811,9 @@ async function loadNextFpPage() {
   try {
     const data = await api.movies(params);
     if (requestId !== state.fp.requestSeq) return;
-    applyFpResults(data, { append: true });
+    await prepareFpCatalogPage(data);
+    if (requestId !== state.fp.requestSeq) return;
+    applyFpResults(data, { append: true, metadataPrepared: true });
   } catch (error) {
     if (requestId !== state.fp.requestSeq) return;
     state.fp.loadError = error.message;
