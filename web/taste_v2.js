@@ -303,10 +303,9 @@
     if (!card || card.querySelector(".taste-v2-dismiss")) return;
     const art = card.querySelector(".home-card-art");
     if (!art) return;
-    const control = document.createElement("span");
+    const control = document.createElement("button");
+    control.type = "button";
     control.className = "taste-v2-dismiss";
-    control.setAttribute("role", "button");
-    control.setAttribute("tabindex", "0");
     control.setAttribute("aria-label", "Nicht für mich");
     control.title = "Nicht für mich · Titel ausblenden und ähnliche Inhalte seltener zeigen";
     control.textContent = "⊘";
@@ -338,9 +337,6 @@
     };
     control.addEventListener("pointerdown", (event) => event.stopPropagation());
     control.addEventListener("click", activate);
-    control.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") activate(event);
-    });
     art.appendChild(control);
   }
 
@@ -351,7 +347,7 @@
     style.textContent = `
       .home-card-art{position:relative}
       .taste-v2-dismiss{position:absolute;z-index:8;right:10px;top:10px;width:31px;height:31px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.28);border-radius:999px;background:rgba(8,10,14,.76);color:#fff;font-size:18px;line-height:1;opacity:0;transform:translateY(-3px);transition:.18s ease;backdrop-filter:blur(8px);cursor:pointer}
-      .home-card:hover .taste-v2-dismiss,.home-card:focus-visible .taste-v2-dismiss,.taste-v2-dismiss:focus{opacity:1;transform:none;outline:none}
+      .home-card:hover .taste-v2-dismiss,.home-card:focus-within .taste-v2-dismiss,.taste-v2-dismiss:focus{opacity:1;transform:none;outline:none}
       .taste-v2-dismiss:hover,.taste-v2-dismiss:focus{border-color:#ff2438;background:rgba(130,8,20,.88)}
       .taste-v2-dismiss[data-busy="true"]{opacity:.45;pointer-events:none}
       @media(max-width:760px){.taste-v2-dismiss{opacity:.92;transform:none;right:8px;top:8px;width:29px;height:29px}}

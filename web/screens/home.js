@@ -1008,14 +1008,16 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     }
   }
   const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
-  const card = document.createElement("button");
-  card.type = "button";
+  const card = document.createElement("article");
   card.className = `home-card home-card-${kind}${rank ? " is-ranked" : ""}`;
   if (variant) card.classList.add(`is-${variant}`);
   card.dataset.kind = kind;
   card.dataset.key = key;
   const kindLabel = kind === "movie" ? "Film" : kind === "anime" ? "Anime" : "Serie";
-  card.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
+  const primaryAction = document.createElement("button");
+  primaryAction.type = "button";
+  primaryAction.className = "home-card-primary-action";
+  primaryAction.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
 
   if (rank) {
     const number = document.createElement("span");
@@ -1106,16 +1108,16 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   preview.append(previewActions, previewTitle, previewMeta, previewGenres);
 
   art.append(type, jellyfin, overlay, preview);
-  card.appendChild(art);
+  card.append(art, primaryAction);
   card.addEventListener("pointerenter", () => updateHomeCardHoverEdge(card));
   card.addEventListener("pointerleave", () => {
     card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
   });
-  card.addEventListener("focus", () => updateHomeCardHoverEdge(card));
-  card.addEventListener("blur", () => {
+  primaryAction.addEventListener("focus", () => updateHomeCardHoverEdge(card));
+  primaryAction.addEventListener("blur", () => {
     card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
   });
-  card.addEventListener("click", () => openHomeEntry(kind, key));
+  primaryAction.addEventListener("click", () => openHomeEntry(kind, key));
   return card;
 }
 
@@ -1392,7 +1394,6 @@ function renderGlobalSearchResults() {
   shell.classList.toggle("has-value", Boolean(input.value));
   clear.hidden = !input.value;
   toggle.setAttribute("aria-expanded", String(state.globalSearch.active || document.activeElement === input));
-  input.setAttribute("aria-expanded", String(state.globalSearch.active));
   if (!state.globalSearch.active) return;
 
   grid.replaceChildren();

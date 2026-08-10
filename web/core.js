@@ -553,6 +553,7 @@ function setQueueDockExpanded(expanded) {
   const toggle = document.getElementById("queue-dock-toggle");
   dock.classList.toggle("queue-expanded", expanded);
   drawer.setAttribute("aria-hidden", String(!expanded));
+  drawer.inert = !expanded;
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.querySelector(".queue-toggle-label").textContent = expanded ? "Queue schließen" : "Queue öffnen";
 }
@@ -566,6 +567,7 @@ function openMobileQueue() {
   document.body.classList.add("queue-open");
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "false");
   document.getElementById("queue-drawer").setAttribute("aria-hidden", "false");
+  document.getElementById("queue-drawer").inert = false;
   document.getElementById("mobile-queue-close").focus();
 }
 
@@ -574,6 +576,7 @@ function closeMobileQueue() {
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "true");
   if (window.matchMedia("(max-width: 820px)").matches) {
     document.getElementById("queue-drawer").setAttribute("aria-hidden", "true");
+    document.getElementById("queue-drawer").inert = true;
   }
 }
 
