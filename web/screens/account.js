@@ -447,52 +447,66 @@ async function checkForUpdates(force = false) {
 function initSettingsNavigation() {
   const root = document.getElementById("tab-einstellungen");
   const panel = root?.querySelector(".settings-panel");
+  const directory = root?.querySelector(".settings-directory");
   const links = [...(root?.querySelectorAll("[data-settings-target]") || [])];
   const sections = [...(root?.querySelectorAll("[data-settings-section]") || [])];
   if (!root || !panel || !links.length || !sections.length) return;
 
-  const activate = (id) => {
+  const activate = (requestedId, { scroll = true } = {}) => {
+    const id = sections.some((section) => section.id === requestedId)
+      ? requestedId
+      : "settings-overview";
+    panel.classList.toggle("is-overview", id === "settings-overview");
+
+    sections.forEach((section) => {
+      const active = section.id === id;
+      section.classList.toggle("is-active", active);
+      section.hidden = !active;
+      section.setAttribute("aria-hidden", active ? "false" : "true");
+    });
+
     links.forEach((link) => {
       const active = link.dataset.settingsTarget === id;
       link.classList.toggle("is-active", active);
-      if (active) link.setAttribute("aria-current", "true");
+      if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-  };
 
-  let scrollFrame = 0;
-  const updateFromScroll = () => {
-    scrollFrame = 0;
-    if (window.innerWidth <= 820) return;
-    const rootTop = root.getBoundingClientRect().top;
-    let current = sections[0];
-    for (const section of sections) {
-      if (section.getBoundingClientRect().top - rootTop <= 130) current = section;
-      else break;
-    }
-    activate(current.id);
-  };
-  root.addEventListener("scroll", () => {
-    if (!scrollFrame) scrollFrame = requestAnimationFrame(updateFromScroll);
-  }, { passive: true });
-
-  links.forEach((link) => {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      const section = document.getElementById(link.dataset.settingsTarget);
-      if (!section) return;
-      const top = root.scrollTop
-        + section.getBoundingClientRect().top
-        - root.getBoundingClientRect().top
-        - 14;
-      root.scrollTo({
-        top,
+    const activeLink = links.find((link) => link.dataset.settingsTarget === id);
+    if (directory && activeLink && window.innerWidth <= 820) {
+      const targetLeft = activeLink.offsetLeft
+        - Math.max(0, (directory.clientWidth - activeLink.offsetWidth) / 2);
+      directory.scrollTo({
+        left: targetLeft,
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
           ? "auto"
           : "smooth",
       });
-      activate(section.id);
+    }
+
+    if (scroll) {
+      const workbench = root.querySelector(".settings-workbench");
+      const top = workbench
+        ? root.scrollTop + workbench.getBoundingClientRect().top - root.getBoundingClientRect().top - 8
+        : 0;
+      root.scrollTo({
+        top: Math.max(0, top),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }
+  };
+
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      activate(link.dataset.settingsTarget);
     });
+  });
+
+  root.querySelectorAll("[data-settings-open]").forEach((button) => {
+    button.addEventListener("click", () => activate(button.dataset.settingsOpen));
   });
 
   const markDirty = () => {
@@ -504,7 +518,9 @@ function initSettingsNavigation() {
   panel.addEventListener("click", (event) => {
     if (event.target.closest(".provider-order-button, .content-language-card")) markDirty();
   });
-  window.addEventListener("resize", updateFromScroll, { passive: true });
+
+  const hashTarget = window.location.hash.slice(1);
+  activate(hashTarget || "settings-overview", { scroll: false });
 }
 
 async function saveAllSettings() {

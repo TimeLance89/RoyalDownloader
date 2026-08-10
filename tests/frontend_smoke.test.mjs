@@ -51,9 +51,13 @@ test("detail, queue, and settings screens remain wired", () => {
   requiresIds("fp-detail-modal", "fp-detail-title", "fp-detail-add");
   requiresIds("queue-drawer", "queue-list", "queue-count");
   requiresIds("settings-btn");
+  assert.match(html, /id=["']settings-overview["']/);
   assert.match(html, /id=["']settings-general["']/);
   assert.match(html, /id=["']settings-system["']/);
   assert.match(app, /data-settings-target/);
+  assert.match(html, /data-settings-open=["']settings-media["']/);
+  assert.match(app, /section\.hidden = !active/);
+  assert.match(app, /panel\.classList\.toggle\("is-overview"/);
   assert.match(api, /queueGet\(\)/);
   assert.match(api, /queueAdd\(slugs/);
   assert.match(api, /configGet\(\)/);
