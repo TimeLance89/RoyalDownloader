@@ -19,6 +19,7 @@ const appModulePaths = [
   "core.js",
   "screens/home.js",
   "screens/mood.js",
+  "trailer-runtime.js",
   "catalog-runtime.js",
   "screens/movies.js",
   "screens/series.js",
@@ -105,7 +106,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260809-11/);
+  assert.match(html, /app\.js\?v=royal-20260810-12/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -146,7 +147,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260810-4/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260810-5/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -338,7 +339,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260810-1/);
+  assert.match(html, /core\.js\?v=royal-20260810-2/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -468,6 +469,21 @@ test("scheduled episodes stay disabled and hero trailers return to artwork", () 
   assert.match(app, /playerState === 0/);
   assert.doesNotMatch(app, /controls=0&loop=1/);
   assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
+});
+
+test("trailer player opens immediately with resilient playback states", () => {
+  requiresIds(
+    "fp-trailer-state", "fp-trailer-retry", "fp-trailer-external",
+    "fp-trailer-autoplay", "fp-trailer-focus-end",
+  );
+  assert.match(app, /function openFpTrailerModal\(movie, trigger, heroKind = "film"\)/);
+  assert.doesNotMatch(app, /async function openFpTrailerModal/);
+  assert.match(app, /openTrailerPlayer\(movie, key, startAt, trigger\)/);
+  assert.match(app, /heroTrailerAutoplayEnabled\(\)/);
+  assert.match(app, /setTrailerPlayerState\("error"/);
+  assert.match(app, /function trailerModalFocusableElements\(\)/);
+  assert.match(html, /trailer-runtime\.js\?v=royal-20260810-1/);
+  assert.match(stylesheet, /legacy-details\.css\?v=royal-20260810-2/);
 });
 
 test("taste feedback is a compact accessible two-way control", () => {

@@ -1122,6 +1122,7 @@ window.addEventListener("message", (event) => {
   if (typeof payload === "string") {
     try { payload = JSON.parse(payload); } catch { return; }
   }
+  if (handleTrailerPlayerMessage(event, payload)) return;
   const playerState = payload?.event === "onStateChange"
     ? Number(payload.info)
     : Number(payload?.info?.playerState);
@@ -1226,6 +1227,7 @@ function scheduleFpDetailHeroTrailer(movie) {
   const key = fpTrailerYoutubeKey(movie);
   if (
     !key
+    || !heroTrailerAutoplayEnabled()
     || completedFilmHeroTrailers.has(key)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   ) return;
@@ -1264,36 +1266,24 @@ function closeFpTrailerModal(restoreFocus = true) {
   modal.hidden = true;
   document.body.classList.remove("trailer-modal-open");
   document.getElementById("fp-trailer-frame")?.removeAttribute("src");
+  resetTrailerPlayerState();
   if (restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
     returnFocus.focus();
   }
 }
 
-async function openFpTrailerModal(movie, trigger, heroKind = "film") {
+function openFpTrailerModal(movie, trigger, heroKind = "film") {
   const trailer = movie?.trailer;
   const key = String(trailer?.key || "").trim();
   if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
   const isSeriesHero = heroKind === "series" && seriesDetailHeroTrailerKey === key;
   const isFilmHero = heroKind === "film" && fpDetailHeroTrailerKey === key;
   const startAt = isSeriesHero
-    ? await readHeroTrailerCurrentTime("series-detail-hero-frame", seriesDetailHeroTrailerCurrentTime)
-    : isFilmHero
-      ? await readHeroTrailerCurrentTime("fp-detail-hero-frame", fpDetailHeroTrailerCurrentTime)
-      : 0;
+    ? seriesDetailHeroTrailerCurrentTime
+    : isFilmHero ? fpDetailHeroTrailerCurrentTime : 0;
   stopFpDetailHeroTrailer();
   stopSeriesDetailHeroTrailer();
-  const modal = document.getElementById("fp-trailer-modal");
-  modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
-  document.getElementById("fp-trailer-title").textContent = `${movie.title || "Film"} · Trailer`;
-  document.getElementById("fp-trailer-caption").textContent = trailer.name || "Offizieller Trailer";
-  document.getElementById("fp-trailer-frame").src =
-    `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0`
-    + `${startAt >= 1 ? `&start=${Math.floor(startAt)}` : ""}`
-    + `&origin=${encodeURIComponent(window.location.origin)}`;
-  modal.hidden = false;
-  modal.classList.add("is-open");
-  document.body.classList.add("trailer-modal-open");
-  requestAnimationFrame(() => document.getElementById("fp-trailer-close")?.focus());
+  openTrailerPlayer(movie, key, startAt, trigger);
 }
 
 function configureFpTrailer(movie) {

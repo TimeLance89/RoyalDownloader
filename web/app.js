@@ -10,6 +10,7 @@ async function initApp() {
   connectWs();
   initSettingsNavigation();
   initCatalogInfiniteScroll();
+  initializeTrailerExperience();
 
   document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 
