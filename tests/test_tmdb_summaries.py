@@ -6,6 +6,19 @@ class FakeTMDBClient(TMDBClient):
         super().__init__(api_key="test")
 
     def _request(self, path, params=None):
+        if path == "/movie/99":
+            return {
+                "id": 99,
+                "title": "Testfilm",
+                "original_title": "Test Movie",
+                "release_date": "2025-03-04",
+                "poster_path": "/movie-poster.jpg",
+                "backdrop_path": "/movie-wallpaper.jpg",
+                "overview": "Filmbeschreibung",
+                "genres": [{"id": 18, "name": "Drama"}],
+                "vote_average": 7.4,
+                "vote_count": 80,
+            }
         if path == "/search/tv":
             return {"results": [{
                 "id": 42,
@@ -33,3 +46,12 @@ def test_series_summary_contains_landscape_artwork_and_genres():
 
     assert summary["backdrop_url"].endswith("/wallpaper.jpg")
     assert summary["genres"] == ["Drama", "Mystery"]
+
+
+def test_movie_summary_by_id_uses_exact_tmdb_artwork():
+    summary = FakeTMDBClient().movie_summary_by_id(99, "Fallback")
+
+    assert summary["tmdb_id"] == 99
+    assert summary["cover_url"].endswith("/movie-poster.jpg")
+    assert summary["backdrop_url"].endswith("/movie-wallpaper.jpg")
+    assert summary["genres"] == ["Drama"]

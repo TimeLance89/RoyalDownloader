@@ -569,7 +569,11 @@ function renderFpResults(appendFrom = 0) {
 function applyFpResults(data, { append = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   for (const result of incoming) {
-    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = { ...result };
+    if (result?.tmdb_id) {
+      state.fp.metadataCache[result.slug] = mergeFpMetadata(
+        state.fp.metadataCache[result.slug], result,
+      );
+    }
   }
   const appendFrom = append ? state.fp.results.length : 0;
   state.fp.results = append
@@ -583,9 +587,7 @@ function applyFpResults(data, { append = false } = {}) {
   state.fp.loadError = "";
   if (!append) state.fp.selectedSlug = null;
   if (!append) state.fp.metadataRequestSeq += 1;
-  const metadataItems = incoming
-      .filter((result) => !state.fp.metadataCache[result.slug])
-      .map((result) => ({ slug: result.slug, title: result.title, year: result.year || "" }));
+  const metadataItems = fpMetadataPreloadItems(incoming);
   const pendingSlugs = new Set(metadataItems.map((item) => item.slug));
   state.fp.pendingPreload = append && state.fp.pendingPreload
     ? state.fp.pendingPreload
@@ -640,64 +642,6 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
       setFpDetailAvailability("Metadaten konnten nicht geladen werden", "error");
     }
     return metadata || null;
-  }
-}
-
-async function preloadTmdbMetadata(requestId, items) {
-  if (!items.length) {
-    state.fp.pendingPreload = null;
-    return;
-  }
-  const visibleSlugs = new Set(items.map((item) => item.slug));
-  const batches = [];
-  for (let index = 0; index < items.length; index += FP_METADATA_BATCH_SIZE) {
-    batches.push(items.slice(index, index + FP_METADATA_BATCH_SIZE));
-  }
-  let nextBatch = 0;
-
-  const loadNextBatch = async () => {
-    while (nextBatch < batches.length) {
-      const batch = batches[nextBatch++];
-      let response;
-      try {
-        response = await api.tmdbMovies(batch);
-      } catch (e) {
-        if (requestId !== state.fp.metadataRequestSeq) return;
-        for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
-        continue;
-      }
-      if (requestId !== state.fp.metadataRequestSeq) return;
-      for (const [slug, metadata] of Object.entries(response.movies || {})) {
-        if (!visibleSlugs.has(slug)) continue;
-        if (!state.fp.metadataCache[slug]?.details_loaded) {
-          state.fp.metadataCache[slug] = metadata;
-        }
-        state.fp.pendingPreload?.delete(slug);
-        updateFpResultCard(slug);
-      }
-      for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
-      refreshMovieFeatureCandidates();
-      const selected = state.fp.selectedSlug;
-      if (selected && batch.some((item) => item.slug === selected)
-          && !state.fp.moviesCache[selected] && state.fp.metadataCache[selected]) {
-        showFpDetail(selected, metadataPreviewMovie(state.fp.metadataCache[selected]), true);
-      }
-    }
-  };
-
-  try {
-    const workerCount = Math.min(FP_METADATA_BATCH_CONCURRENCY, batches.length);
-    await Promise.all(Array.from({ length: workerCount }, () => loadNextBatch()));
-    if (requestId !== state.fp.metadataRequestSeq) return;
-    refreshFpJellyfinStatus();
-  } catch (e) { /* Anbieter-Metadaten bleiben als Fallback sichtbar. */ }
-  finally {
-    if (requestId !== state.fp.metadataRequestSeq) return;
-    for (const slug of visibleSlugs) updateFpResultCard(slug);
-    if (state.fp.pendingPreload && state.fp.pendingPreload.size === 0) {
-      state.fp.pendingPreload = null;
-    }
-    refreshMovieFeatureCandidates();
   }
 }
 

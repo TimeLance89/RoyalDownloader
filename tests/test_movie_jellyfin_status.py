@@ -148,3 +148,43 @@ def test_yearless_catalog_movies_use_provider_detail_to_separate_same_titles(mon
     assert result["war-machine"]["tmdb_id"] == 354287
     assert result["war-machine-2026"]["tmdb_id"] == 1265609
     assert result["war-machine"]["catalog_identity_version"] == 2
+
+
+def test_tmdb_batch_prefers_known_id_for_reliable_posters(monkeypatch):
+    calls = []
+
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def now_playing_ids():
+            return set()
+
+        @staticmethod
+        def movie_summary_by_id(tmdb_id, title):
+            calls.append((tmdb_id, title))
+            return {
+                "tmdb_id": tmdb_id,
+                "title": title,
+                "cover_url": "https://image.tmdb.org/t/p/w500/poster.jpg",
+                "backdrop_url": "https://image.tmdb.org/t/p/w1280/backdrop.jpg",
+            }
+
+        @staticmethod
+        def movie_summary(*_args):
+            raise AssertionError("Eine bekannte TMDB-ID darf nicht über den Titel geraten werden")
+
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(api_discovery_router, "TMDB_MOVIE_BATCH_MAX_WORKERS", 2)
+    body = api_discovery_router.MovieMetadataBody(items=[{
+        "slug": "known-movie",
+        "title": "Known Movie",
+        "year": "2026",
+        "tmdb_id": 12345,
+    }])
+
+    result = asyncio.run(api_discovery_router.api_tmdb_movies(body))["movies"]
+
+    assert calls == [(12345, "Known Movie")]
+    assert result["known-movie"]["cover_url"].endswith("/poster.jpg")

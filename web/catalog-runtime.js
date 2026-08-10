@@ -38,6 +38,99 @@ function discardObservedResultPosters(container) {
   });
 }
 
+function mergeFpMetadata(existing = {}, incoming = {}) {
+  const merged = existing.details_loaded && !incoming.details_loaded
+    ? { ...incoming, ...existing }
+    : { ...existing, ...incoming };
+  merged.cover_url = incoming.cover_url || existing.cover_url || "";
+  merged.backdrop_url = incoming.backdrop_url || existing.backdrop_url || "";
+  return merged;
+}
+
+function fpMetadataPreloadItems(results) {
+  return results
+    .filter((result) => {
+      const metadata = state.fp.metadataCache[result.slug];
+      return !metadata?.cover_url
+        || !metadata?.backdrop_url
+        || metadata?.metadata_source !== "TMDB";
+    })
+    .map((result) => ({
+      slug: result.slug,
+      title: result.title,
+      year: result.year || "",
+      tmdb_id: result.tmdb_id || state.fp.metadataCache[result.slug]?.tmdb_id || null,
+    }));
+}
+
+async function preloadTmdbMetadata(requestId, items) {
+  if (!items.length) {
+    state.fp.pendingPreload = null;
+    return;
+  }
+  const visibleSlugs = new Set(items.map((item) => item.slug));
+  const batches = [];
+  for (let index = 0; index < items.length; index += FP_METADATA_BATCH_SIZE) {
+    batches.push(items.slice(index, index + FP_METADATA_BATCH_SIZE));
+  }
+  let nextBatch = 0;
+
+  const loadNextBatch = async () => {
+    while (nextBatch < batches.length) {
+      const batch = batches[nextBatch++];
+      const unresolved = new Map(batch.map((item) => [item.slug, item]));
+      for (let attempt = 0; attempt < 2 && unresolved.size; attempt += 1) {
+        let response;
+        try {
+          response = await api.tmdbMovies([...unresolved.values()]);
+        } catch (e) {
+          if (requestId !== state.fp.metadataRequestSeq) return;
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            continue;
+          }
+          break;
+        }
+        if (requestId !== state.fp.metadataRequestSeq) return;
+        for (const [slug, metadata] of Object.entries(response.movies || {})) {
+          if (!visibleSlugs.has(slug)) continue;
+          state.fp.metadataCache[slug] = mergeFpMetadata(
+            state.fp.metadataCache[slug], metadata,
+          );
+          unresolved.delete(slug);
+          state.fp.pendingPreload?.delete(slug);
+          updateFpResultCard(slug);
+        }
+        if (unresolved.size && attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+      }
+      for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
+      refreshMovieFeatureCandidates();
+      const selected = state.fp.selectedSlug;
+      if (selected && batch.some((item) => item.slug === selected)
+          && !state.fp.moviesCache[selected] && state.fp.metadataCache[selected]) {
+        showFpDetail(selected, metadataPreviewMovie(state.fp.metadataCache[selected]), true);
+      }
+    }
+  };
+
+  try {
+    const workerCount = Math.min(FP_METADATA_BATCH_CONCURRENCY, batches.length);
+    await Promise.all(Array.from({ length: workerCount }, () => loadNextBatch()));
+    if (requestId !== state.fp.metadataRequestSeq) return;
+    refreshFpJellyfinStatus();
+  } catch (e) { /* Anbieter-Metadaten bleiben als Fallback sichtbar. */ }
+  finally {
+    if (requestId !== state.fp.metadataRequestSeq) return;
+    for (const slug of visibleSlugs) updateFpResultCard(slug);
+    if (state.fp.pendingPreload && state.fp.pendingPreload.size === 0) {
+      state.fp.pendingPreload = null;
+    }
+    refreshMovieFeatureCandidates();
+  }
+}
+
 function syncFpCatalogFromHome({ fresh = false } = {}) {
   if (state.fp.searchActive || (state.fp.category && state.fp.category !== "new")) return false;
   const incoming = Array.isArray(state.home.newMovies) ? state.home.newMovies : [];
@@ -54,9 +147,15 @@ function syncFpCatalogFromHome({ fresh = false } = {}) {
   state.fp.previewFromHome = !fresh;
   if (fresh) state.fp.lastCatalogRefreshAt = Date.now();
   for (const result of incoming) {
-    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = {
-      ...(state.fp.metadataCache[result.slug] || {}), ...result,
-    };
+    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = mergeFpMetadata(
+      state.fp.metadataCache[result.slug], result,
+    );
+  }
+  const metadataItems = fpMetadataPreloadItems(incoming);
+  if (metadataItems.length) {
+    state.fp.pendingPreload = state.fp.pendingPreload || new Set();
+    for (const item of metadataItems) state.fp.pendingPreload.add(item.slug);
+    void preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems);
   }
   if (state.tab === "filme") {
     renderFpResults();
