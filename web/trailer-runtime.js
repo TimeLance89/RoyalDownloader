@@ -3,8 +3,10 @@ let activeTrailerPlayback = null;
 let activeTrailerLoadTimer = null;
 
 function heroTrailerAutoplayEnabled() {
-  try { return localStorage.getItem(TRAILER_HERO_AUTOPLAY_KEY) === "true"; }
-  catch { return false; }
+  try {
+    const saved = localStorage.getItem(TRAILER_HERO_AUTOPLAY_KEY);
+    return saved === null ? true : saved === "true";
+  } catch { return true; }
 }
 
 function setHeroTrailerAutoplay(enabled) {
