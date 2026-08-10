@@ -66,6 +66,12 @@ def test_runtime_revision_comes_from_active_release_not_stale_image_environment(
     assert "APP_COMMIT_SHA=${APP_COMMIT_SHA}" not in runtime_section
 
 
+def test_docker_context_excludes_local_media_and_workspace_artifacts():
+    dockerignore = _content(".dockerignore")
+    for excluded in ("Filme/", "Serien/", ".downloading/", ".agents/", "[#]recycle/"):
+        assert excluded in dockerignore
+
+
 def test_ytdlp_wheel_requires_an_approved_hash(tmp_path, monkeypatch):
     updater = YtDlpRuntimeUpdater()
     payload = b"verified wheel"
