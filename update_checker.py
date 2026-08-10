@@ -77,9 +77,10 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
         commit = _valid_commit(os.environ.get(key, ""))
         if commit:
             return commit
-    git_commit = _detect_git_commit(root)
-    if git_commit:
-        return git_commit
+    # Ein In-App-Update ersetzt die Anwendungsdateien, nicht aber das lokale
+    # .git-Verzeichnis. Der vom Updater geschriebene Marker muss deshalb vor
+    # dem Checkout stehen, sonst wird nach einem erfolgreichen Update weiter
+    # die alte Git-Revision angezeigt und dasselbe Update erneut angeboten.
     for filename in (".app_commit_sha", "BUILD_COMMIT"):
         try:
             commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
@@ -87,7 +88,7 @@ def detect_local_commit(app_dir: Optional[Path] = None) -> str:
             commit = ""
         if commit:
             return commit
-    return ""
+    return _detect_git_commit(root)
 
 
 def write_build_commit_marker(app_dir: Optional[Path] = None) -> str:
