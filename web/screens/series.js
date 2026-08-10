@@ -221,7 +221,7 @@ function updateSeriesResultSelection() {
   });
 }
 
-function applySeriesResults(data, { append = false } = {}) {
+function applySeriesResults(data, { append = false, artworkPrepared = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   const appendFrom = append ? state.series.results.length : 0;
   state.series.results = append
@@ -238,12 +238,16 @@ function applySeriesResults(data, { append = false } = {}) {
   renderSeriesResults(appendFrom);
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();
-  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(async (hydratedBaseSlugs) => {
-    for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
-    renderSeriesCatalogHero();
-    await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-    if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
-  });
+  if (artworkPrepared) {
+    void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
+  } else {
+    void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(async (hydratedBaseSlugs) => {
+      for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
+      renderSeriesCatalogHero();
+      await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
+      if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
+    });
+  }
   updateSeriesInfiniteState();
   recheckSeriesInfinite();
   const sourceCount = state.series.sources.length;
@@ -366,7 +370,11 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
   try {
     const data = await api.series(seriesParams(mode, page));
     if (requestId !== state.series.browseRequestSeq) return false;
-    applySeriesResults(data, { append });
+    if (append) {
+      await prepareSeriesCatalogPage(data);
+      if (requestId !== state.series.browseRequestSeq) return false;
+    }
+    applySeriesResults(data, { append, artworkPrepared: append });
     if (!append) state.series.previewFromHome = false;
     if (!append && page === 1) state.series.lastCatalogRefreshAt = Date.now();
     return true;

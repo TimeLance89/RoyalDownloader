@@ -172,6 +172,46 @@ async function preloadFpPosterImages(results, maxWaitMs = 3500) {
   ]).finally(() => clearTimeout(timer));
 }
 
+async function preloadSeriesPosterImages(results, maxWaitMs = 3500) {
+  let next = 0;
+  const warmOne = (result) => {
+    const candidates = api.coverThumbnailCandidates(result?.cover_url);
+    if (!candidates.length) return Promise.resolve();
+    return new Promise((resolve) => {
+      const image = new Image();
+      let index = 0;
+      const finish = () => resolve();
+      const load = () => {
+        if (!candidates[index]) return finish();
+        image.src = candidates[index];
+      };
+      image.onload = async () => {
+        try { await image.decode(); } catch (e) { /* bereits im Browser-Cache */ }
+        finish();
+      };
+      image.onerror = () => {
+        index += 1;
+        load();
+      };
+      load();
+    });
+  };
+  const worker = async () => {
+    while (next < results.length) {
+      const result = results[next++];
+      await warmOne(result);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(6, results.length) }, () => worker(),
+  );
+  let timer;
+  await Promise.race([
+    Promise.allSettled(workers),
+    new Promise((resolve) => { timer = setTimeout(resolve, maxWaitMs); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function prepareFpCatalogPage(data) {
   const results = Array.isArray(data?.results) ? data.results : [];
   for (const result of results) {
@@ -186,6 +226,13 @@ async function prepareFpCatalogPage(data) {
     await preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems, { attempts: 1 });
   }
   await preloadFpPosterImages(results);
+  return data;
+}
+
+async function prepareSeriesCatalogPage(data) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  await hydrateHomeSeriesArtwork(results, { render: false });
+  await preloadSeriesPosterImages(results);
   return data;
 }
 
