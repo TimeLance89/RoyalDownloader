@@ -111,8 +111,14 @@ YTDLP_AUTO_UPDATE = os.environ.get(
 
 
 def _updater_config_payload() -> dict:
+    # Die Datei ist die autoritative Quelle. Besonders direkt nach einem
+    # Kanalwechsel darf ein älterer In-Memory-Snapshot die Oberfläche nicht
+    # wieder von Overnight auf Stable zurücksetzen.
+    persisted = appconfig.load_updater()
     with state.updater_config_lock:
-        config = dict(state.updater_cfg)
+        if state.updater_cfg != persisted:
+            state.updater_cfg = dict(persisted)
+        config = dict(persisted)
     channel = appconfig.normalize_update_channel(config.get("update_channel"))
     config["update_channel"] = channel
     config["update_branch"] = appconfig.update_branch_for_channel(channel)

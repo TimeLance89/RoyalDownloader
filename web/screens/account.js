@@ -299,6 +299,9 @@ function applyUpdaterStatus(data) {
 }
 
 let updaterInstallPollTimer = null;
+let updaterRestartStartedAt = 0;
+let updaterRestartTarget = "";
+const UPDATER_RESTART_TIMEOUT_MS = 180000;
 
 function applyUpdaterInstallStatus(installer) {
   const card = document.getElementById("updater-card");
@@ -331,7 +334,9 @@ function applyUpdaterInstallStatus(installer) {
     : "Einstellungen, Abos und Downloads bleiben erhalten.";
   installButton.textContent = "Update läuft …";
   installButton.classList.remove("hidden");
-  if (installer.state === "restarting") waitForUpdatedServer();
+  if (installer.state === "restarting") {
+    waitForUpdatedServer(installer.target_sha || installButton.dataset.sha || "");
+  }
 }
 
 function scheduleUpdaterInstallPoll() {
@@ -348,15 +353,57 @@ function scheduleUpdaterInstallPoll() {
   }, 900);
 }
 
-async function waitForUpdatedServer() {
+async function waitForUpdatedServer(targetSha) {
+  const normalizedTarget = String(targetSha || "").trim().toLowerCase();
+  if (!normalizedTarget) {
+    applyUpdaterInstallStatus({
+      state: "error",
+      error: "Update-Ziel fehlt; der Neustart kann nicht verifiziert werden.",
+      supported: true,
+    });
+    return;
+  }
+  if (updaterRestartTarget !== normalizedTarget) {
+    updaterRestartTarget = normalizedTarget;
+    updaterRestartStartedAt = Date.now();
+  }
   if (updaterInstallPollTimer) clearTimeout(updaterInstallPollTimer);
   updaterInstallPollTimer = setTimeout(async () => {
     try {
-      const response = await fetch("/api/health", { cache: "no-store" });
+      const response = await fetch(
+        `/api/updater/status?force=true&_=${Date.now()}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      location.reload();
+      const payload = await response.json();
+      const installed = String(payload.current_sha || "").trim().toLowerCase();
+      if (installed === normalizedTarget) {
+        updaterRestartStartedAt = 0;
+        updaterRestartTarget = "";
+        location.reload();
+        return;
+      }
+      if (Date.now() - updaterRestartStartedAt >= UPDATER_RESTART_TIMEOUT_MS) {
+        applyUpdaterInstallStatus({
+          state: "error",
+          error: `Neustart fehlgeschlagen: installiert ${shortRevision(installed)}, erwartet ${shortRevision(normalizedTarget)}.`,
+          target_sha: normalizedTarget,
+          supported: true,
+        });
+        return;
+      }
+      waitForUpdatedServer(normalizedTarget);
     } catch (error) {
-      waitForUpdatedServer();
+      if (Date.now() - updaterRestartStartedAt >= UPDATER_RESTART_TIMEOUT_MS) {
+        applyUpdaterInstallStatus({
+          state: "error",
+          error: `Server nach Update nicht erreichbar: ${error.message}`,
+          target_sha: normalizedTarget,
+          supported: true,
+        });
+        return;
+      }
+      waitForUpdatedServer(normalizedTarget);
     }
   }, 3000);
 }
@@ -400,52 +447,66 @@ async function checkForUpdates(force = false) {
 function initSettingsNavigation() {
   const root = document.getElementById("tab-einstellungen");
   const panel = root?.querySelector(".settings-panel");
+  const directory = root?.querySelector(".settings-directory");
   const links = [...(root?.querySelectorAll("[data-settings-target]") || [])];
   const sections = [...(root?.querySelectorAll("[data-settings-section]") || [])];
   if (!root || !panel || !links.length || !sections.length) return;
 
-  const activate = (id) => {
+  const activate = (requestedId, { scroll = true } = {}) => {
+    const id = sections.some((section) => section.id === requestedId)
+      ? requestedId
+      : "settings-overview";
+    panel.classList.toggle("is-overview", id === "settings-overview");
+
+    sections.forEach((section) => {
+      const active = section.id === id;
+      section.classList.toggle("is-active", active);
+      section.hidden = !active;
+      section.setAttribute("aria-hidden", active ? "false" : "true");
+    });
+
     links.forEach((link) => {
       const active = link.dataset.settingsTarget === id;
       link.classList.toggle("is-active", active);
-      if (active) link.setAttribute("aria-current", "true");
+      if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-  };
 
-  let scrollFrame = 0;
-  const updateFromScroll = () => {
-    scrollFrame = 0;
-    if (window.innerWidth <= 820) return;
-    const rootTop = root.getBoundingClientRect().top;
-    let current = sections[0];
-    for (const section of sections) {
-      if (section.getBoundingClientRect().top - rootTop <= 130) current = section;
-      else break;
-    }
-    activate(current.id);
-  };
-  root.addEventListener("scroll", () => {
-    if (!scrollFrame) scrollFrame = requestAnimationFrame(updateFromScroll);
-  }, { passive: true });
-
-  links.forEach((link) => {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      const section = document.getElementById(link.dataset.settingsTarget);
-      if (!section) return;
-      const top = root.scrollTop
-        + section.getBoundingClientRect().top
-        - root.getBoundingClientRect().top
-        - 14;
-      root.scrollTo({
-        top,
+    const activeLink = links.find((link) => link.dataset.settingsTarget === id);
+    if (directory && activeLink && window.innerWidth <= 820) {
+      const targetLeft = activeLink.offsetLeft
+        - Math.max(0, (directory.clientWidth - activeLink.offsetWidth) / 2);
+      directory.scrollTo({
+        left: targetLeft,
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
           ? "auto"
           : "smooth",
       });
-      activate(section.id);
+    }
+
+    if (scroll) {
+      const workbench = root.querySelector(".settings-workbench");
+      const top = workbench
+        ? root.scrollTop + workbench.getBoundingClientRect().top - root.getBoundingClientRect().top - 8
+        : 0;
+      root.scrollTo({
+        top: Math.max(0, top),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }
+  };
+
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      activate(link.dataset.settingsTarget);
     });
+  });
+
+  root.querySelectorAll("[data-settings-open]").forEach((button) => {
+    button.addEventListener("click", () => activate(button.dataset.settingsOpen));
   });
 
   const markDirty = () => {
@@ -457,7 +518,9 @@ function initSettingsNavigation() {
   panel.addEventListener("click", (event) => {
     if (event.target.closest(".provider-order-button, .content-language-card")) markDirty();
   });
-  window.addEventListener("resize", updateFromScroll, { passive: true });
+
+  const hashTarget = window.location.hash.slice(1);
+  activate(hashTarget || "settings-overview", { scroll: false });
 }
 
 async function saveAllSettings() {

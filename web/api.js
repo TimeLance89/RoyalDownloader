@@ -224,6 +224,19 @@ const api = {
   coverCandidates(url) {
     return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
   },
+
+  coverThumbnailCandidates(url) {
+    if (!url) return [];
+    try {
+      const parsed = new URL(url, location.origin);
+      if (parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org") {
+        parsed.pathname = parsed.pathname.replace(/^\/t\/p\/(?:w\d+|original)\//, "/t/p/w500/");
+        const direct = parsed.href;
+        return [...new Set([direct, "/api/cover?" + new URLSearchParams({ url: direct })])];
+      }
+    } catch (e) { return []; }
+    return this.coverCandidates(url);
+  },
 };
 
 // In-app updates replace the backend build while an already-open browser tab

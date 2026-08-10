@@ -1,5 +1,6 @@
 // ── Filmkatalog und Filmdetails ──────────────────────────────────────────
 let fpJellyfinRequestSeq = 0;
+const fpQueueMutations = new Set();
 
 const MOVIE_GENRE_PRESENTATIONS = {
   action: ["↯", "Puls & Tempo", "ember"],
@@ -362,7 +363,7 @@ function createResultCardVisual(media, title, kind, jellyfinStatus = "checking")
   fallback.textContent = mediaCardInitials(title);
   visual.appendChild(fallback);
 
-  const coverCandidates = api.coverCandidates(media?.cover_url);
+  const coverCandidates = api.coverThumbnailCandidates(media?.cover_url);
   if (coverCandidates.length) {
     const image = document.createElement("img");
     image.className = "result-card-poster";
@@ -583,18 +584,25 @@ function applyFpResults(data, { append = false } = {}) {
   state.fp.loadingMore = false;
   state.fp.loadError = "";
   if (!append) state.fp.selectedSlug = null;
-  const pendingSlugs = new Set(
-    state.fp.results
+  if (!append) state.fp.metadataRequestSeq += 1;
+  const metadataItems = incoming
       .filter((result) => !state.fp.metadataCache[result.slug])
-      .map((result) => result.slug),
-  );
-  state.fp.pendingPreload = pendingSlugs.size ? pendingSlugs : null;
+      .map((result) => ({ slug: result.slug, title: result.title, year: result.year || "" }));
+  const pendingSlugs = new Set(metadataItems.map((item) => item.slug));
+  state.fp.pendingPreload = append && state.fp.pendingPreload
+    ? state.fp.pendingPreload
+    : new Set();
+  for (const slug of pendingSlugs) state.fp.pendingPreload.add(slug);
   renderFpResults(appendFrom);
   void refreshFpJellyfinStatus();
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
   recheckFpInfinite();
-  if (pendingSlugs.size) void preloadTmdbMetadata(state.fp.requestSeq);
+  if (metadataItems.length) {
+    void preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems);
+  } else if (!state.fp.pendingPreload.size) {
+    state.fp.pendingPreload = null;
+  }
 }
 
 async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
@@ -642,10 +650,7 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
   }
 }
 
-async function preloadTmdbMetadata(requestId) {
-  const items = state.fp.results
-    .filter((r) => !state.fp.metadataCache[r.slug])
-    .map((r) => ({ slug: r.slug, title: r.title, year: r.year || "" }));
+async function preloadTmdbMetadata(requestId, items) {
   if (!items.length) {
     state.fp.pendingPreload = null;
     return;
@@ -664,9 +669,11 @@ async function preloadTmdbMetadata(requestId) {
       try {
         response = await api.tmdbMovies(batch);
       } catch (e) {
+        if (requestId !== state.fp.metadataRequestSeq) return;
+        for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
         continue;
       }
-      if (requestId !== state.fp.requestSeq) return;
+      if (requestId !== state.fp.metadataRequestSeq) return;
       for (const [slug, metadata] of Object.entries(response.movies || {})) {
         if (!visibleSlugs.has(slug)) continue;
         if (!state.fp.metadataCache[slug]?.details_loaded) {
@@ -675,6 +682,7 @@ async function preloadTmdbMetadata(requestId) {
         state.fp.pendingPreload?.delete(slug);
         updateFpResultCard(slug);
       }
+      for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
       refreshMovieFeatureCandidates();
       const selected = state.fp.selectedSlug;
       if (selected && batch.some((item) => item.slug === selected)
@@ -687,13 +695,15 @@ async function preloadTmdbMetadata(requestId) {
   try {
     const workerCount = Math.min(FP_METADATA_BATCH_CONCURRENCY, batches.length);
     await Promise.all(Array.from({ length: workerCount }, () => loadNextBatch()));
-    if (requestId !== state.fp.requestSeq) return;
+    if (requestId !== state.fp.metadataRequestSeq) return;
     refreshFpJellyfinStatus();
   } catch (e) { /* Anbieter-Metadaten bleiben als Fallback sichtbar. */ }
   finally {
-    if (requestId !== state.fp.requestSeq) return;
-    state.fp.pendingPreload = null;
+    if (requestId !== state.fp.metadataRequestSeq) return;
     for (const slug of visibleSlugs) updateFpResultCard(slug);
+    if (state.fp.pendingPreload && state.fp.pendingPreload.size === 0) {
+      state.fp.pendingPreload = null;
+    }
     refreshMovieFeatureCandidates();
   }
 }
@@ -872,26 +882,42 @@ async function loadNextFpPage() {
 }
 
 async function toggleFpPick(slug) {
-  if (state.queuedSlugs.has(slug)) {
-    const resp = await api.queueRemove(slug);
+  if (fpQueueMutations.has(slug)) return;
+  fpQueueMutations.add(slug);
+  refreshFpQueuePresentation();
+  try {
+    if (state.queuedSlugs.has(slug)) {
+      const resp = await api.queueRemove(slug);
+      refreshQueueUiAfterChange(resp);
+      return;
+    }
+    const resp = await api.queueAdd([slug]);
     refreshQueueUiAfterChange(resp);
-    return;
+    if (Number(resp.added || 0) > 0) {
+      const item = state.fp.moviesCache[slug]
+        || state.fp.metadataCache[slug]
+        || state.fp.results.find((movie) => movie.slug === slug)
+        || homeMovieBySlug(slug);
+      trackDiscoveryPreference("movie", { ...item, slug }, 5, "download");
+    }
+    if (!state.fp.moviesCache[slug]) {
+      void api.movie(slug).then((movie) => {
+        state.fp.moviesCache[slug] = movie;
+        updateFpResultCard(slug);
+        if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
+      }).catch(() => { /* server logs */ });
+    }
+  } finally {
+    fpQueueMutations.delete(slug);
+    refreshFpQueuePresentation();
+    const movie = state.fp.moviesCache[slug]
+      || metadataPreviewMovie(state.fp.metadataCache[slug] || basicMovieMetadata(
+        state.fp.results.find((item) => item.slug === slug) || homeMovieBySlug(slug) || {},
+      ));
+    if (state.fp.selectedSlug === slug) {
+      configureFpDetailAction(slug, movie, !state.fp.moviesCache[slug]);
+    }
   }
-  const resp = await api.queueAdd([slug]);
-  if (Number(resp.added || 0) > 0) {
-    const item = state.fp.moviesCache[slug]
-      || state.fp.metadataCache[slug]
-      || state.fp.results.find((movie) => movie.slug === slug)
-      || homeMovieBySlug(slug);
-    trackDiscoveryPreference("movie", { ...item, slug }, 5, "download");
-  }
-  if (!state.fp.moviesCache[slug]) {
-    try {
-      state.fp.moviesCache[slug] = await api.movie(slug);
-      updateFpResultCard(slug);
-    } catch (e) { /* server logs */ }
-  }
-  refreshQueueUiAfterChange(resp);
 }
 
 async function selectFpRow(slug, initialItem = null) {
@@ -1335,11 +1361,15 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const queued = state.queuedSlugs.has(slug);
   const owned = fpDetailJellyfinValue(slug, movie) === true;
   const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
+  const mutationPending = fpQueueMutations.has(slug);
   addBtn.hidden = owned && !queued;
-  addBtn.disabled = (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
-  addBtn.textContent = queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen";
+  addBtn.disabled = mutationPending || (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
+  addBtn.textContent = mutationPending
+    ? (queued ? "Entferne …" : "Füge hinzu …")
+    : (queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen");
 
   addBtn.onclick = async () => {
+    if (fpQueueMutations.has(slug)) return;
     const shouldRemove = state.queuedSlugs.has(slug);
     if (!shouldRemove && fpDetailJellyfinValue(slug, movie) === true) return;
     addBtn.disabled = true;
@@ -1352,6 +1382,7 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
         else if (state.fp.selectedSlug === slug) showFpDetail(slug, movie, true);
         return;
       }
+      fpQueueMutations.add(slug);
       const selection = state.fp.downloadSelections.get(slug);
       const resp = shouldRemove
         ? await api.queueRemove(slug)
@@ -1363,6 +1394,8 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
       if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
     } catch (error) {
       console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
+    } finally {
+      fpQueueMutations.delete(slug);
       configureFpDetailAction(slug, movie, metadataOnly);
     }
   };

@@ -1,25 +1,25 @@
 {
   "voe.sx": {
-    "last_probe": 1786259777.497946,
-    "ok": 2,
+    "last_probe": 1786348570.6797557,
+    "ok": 8,
     "unsupported": false,
     "probe_fail_streak": 0
   },
   "@name:voe": {
-    "last_probe": 1786259777.497946,
-    "ok": 2,
+    "last_probe": 1786348570.6797557,
+    "ok": 8,
     "unsupported": false,
     "probe_fail_streak": 0
   },
   "moflix-stream.click": {
-    "last_probe": 1786259781.323919,
-    "ok": 1,
+    "last_probe": 1786348447.5867245,
+    "ok": 4,
     "unsupported": false,
     "probe_fail_streak": 0
   },
   "@name:moflix": {
-    "last_probe": 1786259781.323919,
-    "ok": 1,
+    "last_probe": 1786348447.5867245,
+    "ok": 4,
     "unsupported": false,
     "probe_fail_streak": 0
   },
@@ -128,16 +128,20 @@
     "circuit_reason": "ERROR: Unsupported URL: https://veev.pro/e/aq5j7f4sh7nk"
   },
   "vidara.to": {
-    "last_probe": 1786259802.7006178,
-    "ok": 1,
+    "last_probe": 1786348450.0849466,
+    "ok": 6,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 0,
+    "fail": 2,
+    "last_probe_failure": 1786348376.4860919
   },
   "@name:vidara": {
-    "last_probe": 1786259802.7006178,
-    "ok": 1,
+    "last_probe": 1786348523.8496337,
+    "ok": 10,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 0,
+    "fail": 5,
+    "last_probe_failure": 1786348380.0732691
   },
   "filmfrei24.com": {
     "last_probe": 1786259804.921541,
@@ -147,6 +151,124 @@
   },
   "@name:filmfrei24": {
     "last_probe": 1786259804.921541,
+    "ok": 1,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "vidaraa.cc": {
+    "last_probe": 1786348419.267538,
+    "ok": 5,
+    "unsupported": false,
+    "probe_fail_streak": 0,
+    "fail": 2,
+    "last_probe_failure": 1786348378.1120741
+  },
+  "vidsonic.net": {
+    "last_probe": 1786348426.5576568,
+    "ok": 4,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "@name:vidsonic": {
+    "last_probe": 1786348422.8829749,
+    "ok": 3,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "flyfile.app": {
+    "last_probe": 1786347443.3858123,
+    "fail": 1,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786347443.3858123,
+    "circuit_until": 1786348643.3858123,
+    "circuit_reason": "ERROR: Unsupported URL: https://flyfile.app/v/YRm2wmVNmUckz0M"
+  },
+  "@name:flyfile": {
+    "last_probe": 1786347443.3858123,
+    "fail": 1,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786347443.3858123,
+    "circuit_until": 1786348643.3858123,
+    "circuit_reason": "ERROR: Unsupported URL: https://flyfile.app/v/YRm2wmVNmUckz0M"
+  },
+  "gupload.xyz": {
+    "last_probe": 1786347445.384628,
+    "fail": 1,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786347445.384628,
+    "circuit_until": 1786348645.384628,
+    "circuit_reason": "ERROR: Unsupported URL: https://gupload.xyz/data/e/b0d725b03678"
+  },
+  "@name:mirror1": {
+    "last_probe": 1786347445.384628,
+    "fail": 1,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786347445.384628,
+    "circuit_until": 1786348645.384628,
+    "circuit_reason": "ERROR: Unsupported URL: https://gupload.xyz/data/e/b0d725b03678"
+  },
+  "@name:mirror4": {
+    "last_probe": 1786348329.8860257,
+    "ok": 2,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "vids.st": {
+    "last_probe": 1786348357.4460392,
+    "fail": 2,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786348357.4460392,
+    "circuit_until": 1786349557.4460392,
+    "circuit_reason": "ERROR: [generic] 110209: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:"
+  },
+  "@name:mirror7": {
+    "last_probe": 1786348357.4460392,
+    "fail": 2,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1786348357.4460392,
+    "circuit_until": 1786349557.4460392,
+    "circuit_reason": "ERROR: [generic] 110209: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:"
+  },
+  "firestream.to": {
+    "last_probe": 1786348490.296183,
+    "ok": 3,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "@name:mirror9": {
+    "last_probe": 1786348374.626912,
+    "ok": 2,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "vidara.so": {
+    "last_probe": 1786348386.8022685,
+    "fail": 1,
+    "probe_fail_streak": 0,
+    "last_probe_failure": 1786348380.0732691,
+    "ok": 1,
+    "unsupported": false
+  },
+  "@name:serverr2": {
+    "last_probe": 1786348426.5576568,
+    "ok": 1,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "@name:mirror3": {
+    "last_probe": 1786348450.0849466,
+    "ok": 1,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "@name:mirror8": {
+    "last_probe": 1786348490.296183,
+    "ok": 1,
+    "unsupported": false,
+    "probe_fail_streak": 0
+  },
+  "odysseusa.cc": {
+    "last_probe": 1786348523.8496337,
     "ok": 1,
     "unsupported": false,
     "probe_fail_streak": 0

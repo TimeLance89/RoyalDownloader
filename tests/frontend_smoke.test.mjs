@@ -51,24 +51,33 @@ test("detail, queue, and settings screens remain wired", () => {
   requiresIds("fp-detail-modal", "fp-detail-title", "fp-detail-add");
   requiresIds("queue-drawer", "queue-list", "queue-count");
   requiresIds("settings-btn");
+  assert.match(html, /id=["']settings-overview["']/);
   assert.match(html, /id=["']settings-general["']/);
   assert.match(html, /id=["']settings-system["']/);
   assert.match(app, /data-settings-target/);
+  assert.match(html, /data-settings-open=["']settings-media["']/);
+  assert.match(app, /section\.hidden = !active/);
+  assert.match(app, /panel\.classList\.toggle\("is-overview"/);
   assert.match(api, /queueGet\(\)/);
   assert.match(api, /queueAdd\(slugs/);
   assert.match(api, /configGet\(\)/);
 });
 
-test("setup and settings expose desktop and NAS deployment modes", () => {
+test("setup and settings expose desktop, NAS, and safe demo deployment modes", () => {
   for (const id of [
     "setup-mode-desktop",
     "setup-mode-nas",
+    "setup-mode-demo",
     "deployment-mode-desktop",
     "deployment-mode-nas",
+    "deployment-mode-demo",
     "deployment-mode-status",
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
   assert.match(html, /Normaler Computer/);
   assert.match(html, /NAS \/ Heimserver/);
+  assert.match(html, /Alles sichtbar\. Nichts gespeichert\./);
+  assert.match(app, /selectedDeploymentMode\("setup-deployment-mode"\) === "demo"/);
+  assert.match(app, /Demo-Modus · Abläufe werden simuliert · keine Mediendateien/);
   assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
   assert.match(api, /deployment_mode: deploymentMode/);
 });
@@ -80,8 +89,8 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260805-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260805-6/);
+  assert.match(html, /i18n\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260809-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -136,7 +145,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260809-2/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -147,8 +156,34 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /known\.catalog_identity_version !== 2/);
 });
 
+test("deep movie pagination hydrates only the newly appended page", () => {
+  assert.match(app, /const metadataItems = incoming\s*\.filter/);
+  assert.match(app, /preloadTmdbMetadata\(state\.fp\.metadataRequestSeq, metadataItems\)/);
+  assert.match(app, /requestId !== state\.fp\.metadataRequestSeq/);
+  assert.doesNotMatch(app, /const items = state\.fp\.results\s*\.filter\(\(r\) => !state\.fp\.metadataCache/);
+});
+
+test("movie shelf posters use bounded thumbnail payloads", () => {
+  assert.match(api, /coverThumbnailCandidates\(url\)/);
+  assert.match(api, /"\/t\/p\/w500\/"/);
+  assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
+  assert.match(html, /api\.js\?v=royal-20260809-3/);
+});
+
+test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
+  const queueRefreshStart = app.indexOf("function refreshQueueUiAfterChange(resp)");
+  const queueRefreshEnd = app.indexOf("function ", queueRefreshStart + 10);
+  const queueRefresh = app.slice(queueRefreshStart, queueRefreshEnd);
+  assert.match(queueRefresh, /refreshFpQueuePresentation\(\)/);
+  assert.doesNotMatch(queueRefresh, /renderFpResults\(\)/);
+  assert.match(app, /const fpQueueMutations = new Set\(\)/);
+  assert.match(app, /if \(fpQueueMutations\.has\(slug\)\) return/);
+  assert.match(app, /fpQueueMutations\.add\(slug\)/);
+  assert.match(app, /fpQueueMutations\.delete\(slug\)/);
+});
+
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260809-2/);
+  assert.match(html, /api\.js\?v=royal-20260809-3/);
   assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
@@ -174,6 +209,14 @@ test("changing the updater channel persists immediately", () => {
   assert.match(app, /update_channel: selected/);
   assert.match(app, /applyUpdaterConfig\(saved\)/);
   assert.match(app, /await checkForUpdates\(true\)/);
+});
+
+test("an updater restart reloads only after the exact target revision is active", () => {
+  assert.match(app, /waitForUpdatedServer\(installer\.target_sha/);
+  assert.match(app, /\/api\/updater\/status\?force=true/);
+  assert.match(app, /installed === normalizedTarget/);
+  assert.match(app, /Neustart fehlgeschlagen/);
+  assert.doesNotMatch(app, /fetch\("\/api\/health"/);
 });
 
 test("Top 10 merges provider-tagged duplicates before all metadata is hydrated", () => {
@@ -263,7 +306,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260805-4/);
+  assert.match(html, /core\.js\?v=royal-20260809-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -341,7 +384,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260805-2/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260809-1/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -383,7 +426,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260805-9/);
+  assert.match(html, /style\.css\?v=royal-20260810-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

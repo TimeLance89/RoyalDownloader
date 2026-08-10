@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-9">
+<link rel="stylesheet" href="/style.css?v=royal-20260810-1">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -42,7 +42,7 @@
       </button>
       <input id="global-search-input" type="search" autocomplete="off"
           placeholder="Titel eingeben · Enter" aria-label="Filme, Serien und Anime durchsuchen"
-          aria-controls="global-search-page" aria-expanded="false">
+          aria-controls="global-search-page">
       <button id="global-search-clear" class="global-search-clear" type="button"
           aria-label="Suche schließen" hidden>×</button>
     </div>
@@ -240,7 +240,7 @@
               <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Empfehlungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-movies-track" class="home-track" aria-label="Persönliche Empfehlungen"></div>
+          <div id="home-movies-track" class="home-track" role="group" aria-label="Persönliche Empfehlungen"></div>
         </section>
 
         <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
@@ -254,7 +254,7 @@
               <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 des Tages"></div>
+          <div id="home-top-track" class="home-track home-top-track" role="group" aria-label="Top 10 des Tages"></div>
         </section>
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
@@ -265,7 +265,7 @@
               <button type="button" data-home-scroll="home-series-track" data-direction="1" aria-label="Angesagte Serien nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-series-track" class="home-track" aria-label="Angesagte Serien"></div>
+          <div id="home-series-track" class="home-track" role="group" aria-label="Angesagte Serien"></div>
         </section>
 
         <section class="home-rail home-rail-genre home-discovery-rail" aria-labelledby="home-genre-title">
@@ -279,7 +279,7 @@
               <button type="button" data-home-scroll="home-genre-track" data-direction="1" aria-label="Genre-Empfehlungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-genre-track" class="home-track" aria-label="Empfehlungen nach Genre"></div>
+          <div id="home-genre-track" class="home-track" role="group" aria-label="Empfehlungen nach Genre"></div>
         </section>
 
         <section class="home-rail home-rail-explore home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
@@ -293,7 +293,7 @@
               <button type="button" data-home-scroll="home-explore-track" data-direction="1" aria-label="Neue Entdeckungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-explore-track" class="home-track" aria-label="Unerwartete Entdeckungen"></div>
+          <div id="home-explore-track" class="home-track" role="group" aria-label="Unerwartete Entdeckungen"></div>
         </section>
 
         <section class="home-rail home-rail-gems home-discovery-rail is-gems" aria-labelledby="home-gems-title">
@@ -307,7 +307,7 @@
               <button type="button" data-home-scroll="home-gems-track" data-direction="1" aria-label="Verborgene Schätze nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-gems-track" class="home-track" aria-label="Verborgene Schätze"></div>
+          <div id="home-gems-track" class="home-track" role="group" aria-label="Verborgene Schätze"></div>
         </section>
 
         <section class="home-rail home-rail-new" aria-labelledby="home-new-title">
@@ -321,7 +321,7 @@
               <button type="button" data-home-scroll="home-new-track" data-direction="1" aria-label="Neue Titel nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-new-track" class="home-track" aria-label="Neue Filme und Serien"></div>
+          <div id="home-new-track" class="home-track" role="group" aria-label="Neue Filme und Serien"></div>
         </section>
       </div>
     </section>
@@ -864,57 +864,113 @@
     <section class="tab-content" id="tab-einstellungen">
       <header class="settings-hero">
         <div class="settings-hero-copy">
-          <span class="settings-eyebrow">SYSTEM · KONFIGURATION</span>
-          <h1>Kontrollcenter</h1>
-          <p>Quellen, Medienanbindungen und den Dauerbetrieb an einem Ort steuern.</p>
+          <span class="settings-eyebrow">ROYAL / SYSTEMREGIE</span>
+          <h1>Einstellungen</h1>
+          <p>Die Schaltzentrale für Quellen, Bibliotheken und den zuverlässigen Dauerbetrieb.</p>
         </div>
-        <div class="settings-hero-state" aria-label="Konfigurationsbereiche">
-          <span><i aria-hidden="true"></i> Katalog</span>
-          <span><i aria-hidden="true"></i> Dienste</span>
-          <span><i aria-hidden="true"></i> Betrieb</span>
+        <div class="settings-hero-console">
+          <div class="settings-console-status">
+            <span>SYSTEMZUSTAND</span>
+            <strong><i aria-hidden="true"></i> Bereit zur Konfiguration</strong>
+          </div>
+          <div class="settings-signal-route" aria-label="Signalweg von den Quellen bis zur Bibliothek">
+            <span><b>01</b>Quellen</span><i aria-hidden="true"></i>
+            <span><b>02</b>Downloader</span><i aria-hidden="true"></i>
+            <span><b>03</b>Bibliothek</span>
+          </div>
         </div>
       </header>
 
       <div class="settings-workbench">
         <aside class="settings-directory" aria-label="Einstellungsbereiche">
           <div class="settings-directory-head">
-            <span>STEUERUNG</span>
-            <strong>Bereiche</strong>
+            <span>SYSTEMKARTE</span>
+            <strong>Konfiguration</strong>
           </div>
           <nav class="settings-directory-nav">
-            <a class="is-active" href="#settings-general" data-settings-target="settings-general" aria-current="true">
-              <span aria-hidden="true">⌂</span><strong>Basis</strong><small>Sprache &amp; Speicher</small>
+            <a class="is-active" href="#settings-overview" data-settings-target="settings-overview" aria-current="page">
+              <span aria-hidden="true">◆</span><strong>Übersicht</strong><small>Alle Systembereiche</small>
+            </a>
+            <a href="#settings-general" data-settings-target="settings-general">
+              <span aria-hidden="true">⌂</span><strong>Betrieb</strong><small>Modus, Sprache &amp; Speicher</small>
             </a>
             <a href="#settings-sources" data-settings-target="settings-sources">
               <span aria-hidden="true">⇄</span><strong>Quellen</strong><small>Katalog &amp; Routing</small>
             </a>
             <a href="#settings-media" data-settings-target="settings-media">
-              <span aria-hidden="true">◫</span><strong>Mediensysteme</strong><small>Jellyfin, Seerr, TMDB</small>
+              <span aria-hidden="true">◫</span><strong>Dienste</strong><small>Jellyfin, Seerr, TMDB</small>
             </a>
             <a href="#settings-automation" data-settings-target="settings-automation">
-              <span aria-hidden="true">↻</span><strong>Automatik</strong><small>24/7 &amp; Telegram</small>
+              <span aria-hidden="true">↻</span><strong>Automatik</strong><small>Prüfpläne &amp; Zeitfenster</small>
             </a>
             <a href="#settings-account" data-settings-target="settings-account">
               <span aria-hidden="true">⚿</span><strong>Zugang</strong><small>Anmeldung &amp; Sitzungen</small>
             </a>
             <a href="#settings-system" data-settings-target="settings-system">
-              <span aria-hidden="true">⌁</span><strong>System</strong><small>Updates &amp; Wartung</small>
+              <span aria-hidden="true">⌁</span><strong>Wartung</strong><small>Updates &amp; Versionen</small>
             </a>
           </nav>
           <div class="settings-directory-foot">
             <span class="settings-live-mark" aria-hidden="true"><i></i></span>
-            <div><strong>Dauerbetrieb</strong><small>Konfiguration wird zentral gespeichert.</small></div>
+            <div><strong>Persistenter Betrieb</strong><small>Änderungen bleiben über Neustarts erhalten.</small></div>
           </div>
         </aside>
 
         <div class="panel settings-panel">
+          <section id="settings-overview" class="settings-section settings-overview is-active" data-settings-section aria-labelledby="settings-overview-title">
+            <header class="settings-section-heading settings-overview-heading">
+              <span class="settings-section-mark" aria-hidden="true">◆</span>
+              <div>
+                <span>SYSTEMÜBERSICHT</span>
+                <h2 id="settings-overview-title">Was möchtest du steuern?</h2>
+                <p>Öffne einen Bereich. Änderungen bleiben erhalten, bis du sie unten gemeinsam speicherst.</p>
+              </div>
+            </header>
+            <div class="settings-launch-grid" aria-label="Einstellungsbereiche">
+              <button class="settings-launch-card is-core" type="button" data-settings-open="settings-general">
+                <span class="settings-launch-symbol" aria-hidden="true">⌂</span>
+                <span class="settings-launch-copy"><small>GRUNDSYSTEM</small><strong>Betrieb und Speicher</strong><em>Servermodus, Oberfläche und Medienpfade</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-route" type="button" data-settings-open="settings-sources">
+                <span class="settings-launch-symbol" aria-hidden="true">⇄</span>
+                <span class="settings-launch-copy"><small>ROUTING</small><strong>Quellen und Prioritäten</strong><em>Sprachen, Anbieter und Fallback-Reihenfolge</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-service" type="button" data-settings-open="settings-media">
+                <span class="settings-launch-symbol" aria-hidden="true">◫</span>
+                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Jellyfin, Seerr, TMDB und Telegram</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-auto" type="button" data-settings-open="settings-automation">
+                <span class="settings-launch-symbol" aria-hidden="true">↻</span>
+                <span class="settings-launch-copy"><small>DAUERBETRIEB</small><strong>Automatik</strong><em>Prüfintervalle und Download-Zeitfenster</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-access" type="button" data-settings-open="settings-account">
+                <span class="settings-launch-symbol" aria-hidden="true">⚿</span>
+                <span class="settings-launch-copy"><small>SICHERHEIT</small><strong>Zugang und Geräte</strong><em>Konto, Passwort und aktive Sitzungen</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-maintenance" type="button" data-settings-open="settings-system">
+                <span class="settings-launch-symbol" aria-hidden="true">⌁</span>
+                <span class="settings-launch-copy"><small>RELEASE CONTROL</small><strong>Updates und Wartung</strong><em>Kanal, Version und Installationsmodus</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+            </div>
+            <div class="settings-overview-footer">
+              <span><i aria-hidden="true"></i> Persistente Konfiguration</span>
+              <p>Konten, Abos und Einstellungen liegen im Datenverzeichnis und bleiben bei Updates erhalten.</p>
+            </div>
+          </section>
+
           <section id="settings-general" class="settings-section" data-settings-section aria-labelledby="settings-general-title">
             <header class="settings-section-heading">
               <span class="settings-section-mark" aria-hidden="true">⌂</span>
               <div>
                 <span>BASIS</span>
-                <h2 id="settings-general-title">Oberfläche und Speicher</h2>
-                <p>Grundlegende Darstellung und Zielordner des Downloaders.</p>
+                <h2 id="settings-general-title">Betrieb und Speicher</h2>
+                <p>Lege fest, wo Royal läuft, wie es aussieht und wohin Medien geschrieben werden.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-general-grid">
@@ -933,6 +989,12 @@
               <span class="runtime-mode-visual is-nas" aria-hidden="true"><i></i><i></i><i></i></span>
               <span><strong>NAS / Server</strong><small>Dauerbetrieb · Netzwerkzugriff · start.sh</small></span>
               <em>24 / 7</em>
+            </label>
+            <label class="runtime-mode-card is-demo-card">
+              <input id="deployment-mode-demo" type="radio" name="deployment-mode" value="demo">
+              <span class="runtime-mode-visual is-demo" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Demo</strong><small>Geführte Simulation · keine Mediendateien</small></span>
+              <em>Vorschau</em>
             </label>
           </div>
           <p id="deployment-mode-status" class="dim small-status" role="status" aria-live="polite"></p>
@@ -956,7 +1018,7 @@
           <div id="ui-language-status" class="dim small-status" role="status" aria-live="polite">Deutsch · Ausgangssprache</div>
         </div>
 
-        <div class="settings-group settings-card">
+        <div id="settings-storage-card" class="settings-group settings-card">
           <h3>Speicherorte</h3>
           <p class="dim settings-hint">Getrennte Zielordner für Filme und Serien.</p>
           <label class="dim auto-lbl">Filme</label>
@@ -1051,9 +1113,9 @@
             <header class="settings-section-heading">
               <span class="settings-section-mark is-media" aria-hidden="true">◫</span>
               <div>
-                <span>MEDIENSYSTEME</span>
-                <h2 id="settings-media-title">Bibliothek und Metadaten</h2>
-                <p>Externe Dienste für Abgleich, Wünsche und Medieninformationen.</p>
+                <span>VERBINDUNGEN</span>
+                <h2 id="settings-media-title">Externe Dienste</h2>
+                <p>Bibliothek, Medienwünsche, Metadaten und Benachrichtigungen an einem Ort.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-service-grid">
@@ -1152,6 +1214,25 @@
             <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
           </a>
         </div>
+
+        <div class="settings-group settings-card telegram-settings">
+          <h3>Telegram</h3>
+          <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
+          <label class="auto-toggle-row">
+            <input id="telegram-enabled" type="checkbox">
+            <span>Telegram-Bot aktivieren</span>
+          </label>
+          <label class="dim auto-lbl" for="telegram-token">Bot-Token von @BotFather</label>
+          <div class="path-input-row">
+            <input id="telegram-token" type="password" autocomplete="off" placeholder="123456789:AA…">
+          </div>
+          <label class="dim auto-lbl" for="telegram-chat-id">Erlaubte Chat-ID</label>
+          <div class="path-input-row">
+            <input id="telegram-chat-id" type="text" placeholder="Token speichern, dann dem Bot /start senden">
+          </div>
+          <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
+          <div id="telegram-status" class="dim small-status">—</div>
+        </div>
             </div>
           </section>
 
@@ -1160,8 +1241,8 @@
               <span class="settings-section-mark is-automation" aria-hidden="true">↻</span>
               <div>
                 <span>DAUERBETRIEB</span>
-                <h2 id="settings-automation-title">Automatik und Fernzugriff</h2>
-                <p>Zeitpläne und Benachrichtigungen für den unbeaufsichtigten Betrieb.</p>
+                <h2 id="settings-automation-title">Automatischer Betrieb</h2>
+                <p>Prüfintervalle und Zeitfenster für unbeaufsichtigte Downloads.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-automation-grid">
@@ -1187,24 +1268,6 @@
           <div id="auto-status" class="dim small-status">—</div>
         </div>
 
-        <div class="settings-group settings-card telegram-settings">
-          <h3>Telegram</h3>
-          <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
-          <label class="auto-toggle-row">
-            <input id="telegram-enabled" type="checkbox">
-            <span>Telegram-Bot aktivieren</span>
-          </label>
-          <label class="dim auto-lbl" for="telegram-token">Bot-Token von @BotFather</label>
-          <div class="path-input-row">
-            <input id="telegram-token" type="password" autocomplete="off" placeholder="123456789:AA…">
-          </div>
-          <label class="dim auto-lbl" for="telegram-chat-id">Erlaubte Chat-ID</label>
-          <div class="path-input-row">
-            <input id="telegram-chat-id" type="text" placeholder="Token speichern, dann dem Bot /start senden">
-          </div>
-          <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
-          <div id="telegram-status" class="dim small-status">—</div>
-        </div>
             </div>
           </section>
 
@@ -1335,7 +1398,7 @@
     <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
     <aside id="queue-dock" class="sidebar" aria-label="Downloadplan">
       <div class="panel queue-panel">
-        <div id="queue-drawer" class="queue-drawer" aria-hidden="true">
+        <div id="queue-drawer" class="queue-drawer" aria-hidden="true" inert>
           <section class="queue-drawer-main" aria-labelledby="queue-drawer-title">
             <div class="panel-head">
               <div class="queue-drawer-heading">
@@ -1525,6 +1588,12 @@
               <span><strong>NAS / Heimserver</strong><small>Dauerbetrieb im Netzwerk. Nutzt start.sh oder Docker Compose.</small></span>
               <em>24 / 7</em>
             </label>
+            <label class="runtime-mode-card is-demo-card">
+              <input id="setup-mode-demo" type="radio" name="setup-deployment-mode" value="demo">
+              <span class="runtime-mode-visual is-demo" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Demo-Modus</strong><small>Erlebe Queue, Fortschritt und Abschluss – ohne Download oder Dateiablage.</small></span>
+              <em>Sicher testen</em>
+            </label>
           </div>
           <div class="setup-divider"></div>
           <label class="setup-field setup-language-field" for="setup-ui-language">
@@ -1606,6 +1675,7 @@
         </div>
 
         <div class="setup-panel hidden" data-setup-step="3">
+          <div id="setup-storage-fields">
           <label class="setup-field" for="setup-save-path">
             <span>Filmordner <em>Erforderlich</em></span>
             <div class="setup-path-row">
@@ -1620,6 +1690,14 @@
               <button id="setup-browse-series" class="btn btn-ghost" type="button" aria-label="Serienordner auswählen">Ordner</button>
             </div>
           </label>
+          </div>
+          <div id="setup-demo-storage" class="setup-demo-storage hidden" role="status" aria-live="polite">
+            <span class="setup-demo-kicker">VIRTUELLER DURCHLAUF</span>
+            <strong>Alles sichtbar. Nichts gespeichert.</strong>
+            <p>Royal simuliert Queue, Fortschritt, Prüfung und Abschluss. Es wird kein Stream geladen und keine Mediendatei angelegt.</p>
+            <div class="setup-demo-track" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
+            <div class="setup-demo-labels"><span>Quelle</span><span>Fortschritt</span><span>Abschluss</span></div>
+          </div>
           <div class="setup-callout">
             <span class="setup-callout-icon">2</span>
             <div><strong>Zwei parallele Downloads</strong><p>Neue Inhalte starten automatisch und warten bei voller Auslastung in der Queue.</p></div>
@@ -1889,21 +1967,21 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260809-2"></script>
-<script src="/i18n.js?v=royal-20260805-1"></script>
-<script src="/store.js?v=royal-20260809-1"></script>
+<script src="/api.js?v=royal-20260809-3"></script>
+<script src="/i18n.js?v=royal-20260809-1"></script>
+<script src="/store.js?v=royal-20260809-2"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260805-4"></script>
+<script src="/core.js?v=royal-20260809-1"></script>
   <script src="/screens/home.js?v=royal-20260809-4"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
-<script src="/screens/movies.js?v=royal-20260809-1"></script>
+<script src="/screens/movies.js?v=royal-20260809-2"></script>
 <script src="/screens/series.js?v=royal-20260805-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260809-1"></script>
 <script src="/screens/notifications.js?v=royal-20260809-1"></script>
-<script src="/screens/settings.js?v=royal-20260805-2"></script>
+<script src="/screens/settings.js?v=royal-20260809-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
-<script src="/screens/setup.js?v=royal-20260805-6"></script>
+<script src="/screens/setup.js?v=royal-20260809-1"></script>
 <script src="/app.js?v=royal-20260809-11"></script>
 </body>
 </html>

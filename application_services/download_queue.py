@@ -236,6 +236,99 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
     return False, ""
 
 
+def _enqueue_demo_download(
+    movie: FilmpalastMovie,
+    movie_slug: str,
+    out_root: Path,
+    cancelled: Optional[Callable[[], bool]] = None,
+) -> bool:
+    """Erzeugt ausschließlich UI-Lifecycle; Provider und Dateisystem bleiben unberührt."""
+    if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
+        return False
+    episode_info = parse_episode_slug(movie_slug)
+    if episode_info:
+        series_title = strip_episode_suffix(movie.title) or movie.title
+        out_path = series_episode_out_path(
+            series_title, episode_info[1], episode_info[2],
+        )
+    else:
+        out_path = out_root / build_movie_filename(
+            clean_movie_title(movie.title), movie.year,
+        )
+    logical_job = _ensure_queue_job(movie_slug, movie)
+    attempt_id = str(logical_job.get("attempt_id") or "")
+    label = f"{movie.title}  (Demo)"
+    provider = _movie_provider(movie, movie_slug)
+    _update_queue_job(
+        movie_slug,
+        expected_job_id=logical_job["job_id"],
+        expected_attempt_id=attempt_id,
+        status="queued",
+        title=movie.title,
+        provider=provider,
+        hoster="Demo",
+        quality="Simulation",
+        content_language=_movie_content_language(movie, fallback=movie_slug),
+    )
+
+    def started():
+        current = _queue_job_for_slug(movie_slug) or logical_job
+        _update_queue_job(
+            movie_slug,
+            expected_job_id=logical_job["job_id"],
+            expected_attempt_id=attempt_id,
+            status="downloading",
+            started_at=current.get("started_at") or time.time(),
+            attempts=int(current.get("attempts") or 0) + 1,
+            provider=provider,
+            hoster="Demo",
+            quality="Simulation",
+        )
+
+    job = DownloadJob(
+        stream_url="https://demo.invalid/virtual-stream",
+        stream_type="mp4",
+        out_path=out_path,
+        queue_slug=movie_slug,
+        provider=provider,
+        content_language=_movie_content_language(movie, fallback=movie_slug),
+        on_progress=lambda pct, msg: on_job_progress(
+            pct,
+            msg,
+            label,
+            slug=movie_slug,
+            job_id=logical_job["job_id"],
+            attempt_id=attempt_id,
+        ),
+        on_done=lambda ok, msg: on_job_done(
+            ok,
+            msg,
+            label,
+            out_path,
+            slug=movie_slug,
+            job_id=logical_job["job_id"],
+            attempt_id=attempt_id,
+        ),
+        on_start=started,
+        job_id=logical_job["job_id"],
+        attempt_id=attempt_id,
+        queue_priority=0 if not episode_info else 100,
+        demo_mode=True,
+    )
+    with state.queue_lifecycle_lock, state.queue_claim_lock:
+        current = _queue_job_for_slug(movie_slug)
+        if (
+            (cancelled and cancelled())
+            or movie_slug not in state.picked
+            or not current
+            or current.get("job_id") != logical_job["job_id"]
+            or current.get("attempt_id") != attempt_id
+        ):
+            return False
+        state.dl_queue.add(job)
+    return True
+
+
 def run_download_queue(
     jobs: List[tuple],
     out_root: Path,
@@ -251,6 +344,17 @@ def run_download_queue(
 
     SerienStream-Episoden werden erst hier unmittelbar vor der Verarbeitung
     geladen. Provider-Sperren lassen ihren logischen Queue-Claim offen."""
+    if appconfig.demo_mode_enabled():
+        queued_slugs = {
+            movie_slug
+            for movie, movie_slug in jobs
+            if _enqueue_demo_download(movie, movie_slug, out_root, cancelled)
+        }
+        if start_queue:
+            log("─── Starte Demo-Queue (keine Dateien) ───")
+            state.dl_queue.start()
+        return queued_slugs
+
     out_root.mkdir(parents=True, exist_ok=True)
     unsupported_domains: set = set()
     gated_jobs: List[tuple] = []   # (movie, slug) die am Captcha-Gate hingen
@@ -553,6 +657,7 @@ _SERVICE_EXPORTS = (
     "_episode_jellyfin_identity",
     "_is_jellyfin_safety_block",
     "_content_already_available",
+    "_enqueue_demo_download",
     "run_download_queue",
 )
 publish_service(globals(), _SERVICE_EXPORTS)

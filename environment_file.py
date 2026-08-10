@@ -9,7 +9,8 @@ from pathlib import Path
 
 MODE_DESKTOP = "desktop"
 MODE_NAS = "nas"
-DEPLOYMENT_MODES = {MODE_DESKTOP, MODE_NAS}
+MODE_DEMO = "demo"
+DEPLOYMENT_MODES = {MODE_DESKTOP, MODE_NAS, MODE_DEMO}
 PROJECT_DIR = Path(
     os.environ.get("APP_SOURCE_DIR", "").strip() or Path(__file__).resolve().parent
 ).resolve()
@@ -19,7 +20,8 @@ _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
 def normalize_deployment_mode(value: str | None) -> str:
-    return MODE_NAS if str(value or "").strip().casefold() == MODE_NAS else MODE_DESKTOP
+    normalized = str(value or "").strip().casefold()
+    return normalized if normalized in DEPLOYMENT_MODES else MODE_DESKTOP
 
 
 def _decode_value(raw: str) -> str:
@@ -72,9 +74,11 @@ def _replace_values(template: str, updates: dict[str, str]) -> str:
 
 def deployment_env_values(mode: str, movie_path: str, series_path: str) -> dict[str, str]:
     normalized = normalize_deployment_mode(mode)
-    desktop = normalized == MODE_DESKTOP
+    desktop = normalized in {MODE_DESKTOP, MODE_DEMO}
+    demo = normalized == MODE_DEMO
     return {
         "ROYAL_DEPLOYMENT_MODE": normalized,
+        "ROYAL_DEMO_MODE": "1" if demo else "0",
         "HOST": "127.0.0.1" if desktop else "0.0.0.0",
         "OPEN_BROWSER": "1" if desktop else "0",
         "ROYAL_BIND_ADDRESS": "127.0.0.1" if desktop else "0.0.0.0",
