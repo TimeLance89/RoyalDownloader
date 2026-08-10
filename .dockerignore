@@ -2,6 +2,16 @@ data/
 downloads/
 debug/
 runtime/
+.agents/
+.claude/
+.codex-remote-attachments/
+.downloading/
+Filme/
+Serien/
+[#]recycle/
+*.zip
+*.7z
+*.rar
 .nas-update/
 .env
 .env.*
