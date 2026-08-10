@@ -565,6 +565,7 @@ function scheduleSeriesDetailHeroTrailer(series) {
   const key = fpTrailerYoutubeKey(series);
   if (
     !key
+    || !heroTrailerAutoplayEnabled()
     || completedSeriesHeroTrailers.has(key)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   ) {
