@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260805-9">
+<link rel="stylesheet" href="/style.css?v=royal-20260810-1">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -864,22 +864,28 @@
     <section class="tab-content" id="tab-einstellungen">
       <header class="settings-hero">
         <div class="settings-hero-copy">
-          <span class="settings-eyebrow">SYSTEM · KONFIGURATION</span>
-          <h1>Kontrollcenter</h1>
-          <p>Quellen, Medienanbindungen und den Dauerbetrieb an einem Ort steuern.</p>
+          <span class="settings-eyebrow">ROYAL / SYSTEMREGIE</span>
+          <h1>Einstellungen</h1>
+          <p>Die Schaltzentrale für Quellen, Bibliotheken und den zuverlässigen Dauerbetrieb.</p>
         </div>
-        <div class="settings-hero-state" aria-label="Konfigurationsbereiche">
-          <span><i aria-hidden="true"></i> Katalog</span>
-          <span><i aria-hidden="true"></i> Dienste</span>
-          <span><i aria-hidden="true"></i> Betrieb</span>
+        <div class="settings-hero-console">
+          <div class="settings-console-status">
+            <span>SYSTEMZUSTAND</span>
+            <strong><i aria-hidden="true"></i> Bereit zur Konfiguration</strong>
+          </div>
+          <div class="settings-signal-route" aria-label="Signalweg von den Quellen bis zur Bibliothek">
+            <span><b>01</b>Quellen</span><i aria-hidden="true"></i>
+            <span><b>02</b>Downloader</span><i aria-hidden="true"></i>
+            <span><b>03</b>Bibliothek</span>
+          </div>
         </div>
       </header>
 
       <div class="settings-workbench">
         <aside class="settings-directory" aria-label="Einstellungsbereiche">
           <div class="settings-directory-head">
-            <span>STEUERUNG</span>
-            <strong>Bereiche</strong>
+            <span>SYSTEMKARTE</span>
+            <strong>Konfiguration</strong>
           </div>
           <nav class="settings-directory-nav">
             <a class="is-active" href="#settings-general" data-settings-target="settings-general" aria-current="true">
@@ -903,7 +909,7 @@
           </nav>
           <div class="settings-directory-foot">
             <span class="settings-live-mark" aria-hidden="true"><i></i></span>
-            <div><strong>Dauerbetrieb</strong><small>Konfiguration wird zentral gespeichert.</small></div>
+            <div><strong>Persistenter Betrieb</strong><small>Änderungen bleiben über Neustarts erhalten.</small></div>
           </div>
         </aside>
 
