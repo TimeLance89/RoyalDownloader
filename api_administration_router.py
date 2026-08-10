@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,13 @@ import auth as appauth
 import config as appconfig
 from api_setup_router import SetupCompleteBody
 from app_version import APP_VERSION
-from environment_file import DEPLOYMENT_MODES, ENV_PATH, MODE_DEMO, write_project_env
+from environment_file import (
+    DEPLOYMENT_MODES,
+    ENV_PATH,
+    MODE_DEMO,
+    MODE_NAS,
+    write_project_env,
+)
 from jellyfin_client import JellyfinClient
 from media_paths import prepare_media_directory, recover_misplaced_media
 from providers.catalog import (
@@ -34,6 +41,26 @@ from ui_translator import (
 from watchlist_policy import CLEANUP_MODE_LABELS, normalize_cleanup_mode
 
 router = APIRouter(tags=["administration"])
+
+
+def _write_deployment_environment(
+    mode: str, movie_path: str, series_path: str,
+) -> dict[str, object]:
+    """Persist desktop setup values without writing into a Docker image.
+
+    A NAS container receives its Compose environment when it is created.  Its
+    bundled source directory is intentionally read-only, so trying to rewrite
+    ``.env`` from the web UI both cannot affect Compose and used to make an
+    otherwise successful settings save look like a failure.
+    """
+    if mode == MODE_NAS and os.environ.get("SERIENDL_DATA_DIR", "").strip():
+        return {
+            "path": "Docker-Compose-.env auf dem NAS-Host",
+            "created": False,
+            "mode": MODE_NAS,
+            "managed_by_compose": True,
+        }
+    return write_project_env(mode, movie_path, series_path)
 
 
 def _unbound_dependency(*_args, **_kwargs):
@@ -461,7 +488,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
 
     try:
         env_result = await run_in_threadpool(
-            write_project_env, deployment_mode, movie_path, series_path,
+            _write_deployment_environment, deployment_mode, movie_path, series_path,
         )
     except OSError as exc:
         raise HTTPException(500, f".env konnte nicht erstellt werden: {exc}") from exc
@@ -712,7 +739,7 @@ async def api_config_set(body: ConfigBody):
         raise HTTPException(500, "Speicherorte konnten nicht gespeichert werden.")
     try:
         env_result = await run_in_threadpool(
-            write_project_env, deployment_mode, movie_path, series,
+            _write_deployment_environment, deployment_mode, movie_path, series,
         )
     except OSError as exc:
         raise HTTPException(500, f".env konnte nicht aktualisiert werden: {exc}") from exc

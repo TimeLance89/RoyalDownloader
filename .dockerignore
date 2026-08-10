@@ -13,6 +13,7 @@ Serien/
 *.7z
 *.rar
 .nas-update/
+.nas-update-staging.*
 .env
 .env.*
 !.env.example

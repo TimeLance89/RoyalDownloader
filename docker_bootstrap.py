@@ -30,7 +30,7 @@ except ImportError:
 SKIP_NAMES = {
     ".git", ".downloading", "#recycle", "__pycache__", "data", "downloads",
     "debug", "runtime", "releases", "current", "previous", ".venv",
-    ".pytest_cache", ".ruff_cache", ".bundle_identity",
+    ".pytest_cache", ".ruff_cache", ".bundle_identity", ".nas-update",
 }
 BUNDLE_IDENTITY_FILE = ".bundle_identity"
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -87,7 +87,10 @@ def _source_commit(source: Path) -> str:
 def _copy_source(source_root: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=False)
     for source in source_root.iterdir():
-        if source.name in SKIP_NAMES or source.name.startswith(".update-write-"):
+        if (
+            source.name in SKIP_NAMES
+            or source.name.startswith((".update-write-", ".nas-update-staging."))
+        ):
             continue
         target = destination / source.name
         if source.is_dir() and not source.is_symlink():
