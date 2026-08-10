@@ -378,7 +378,7 @@ function retrySeriesInfiniteLoad() {
 // intern scrollenden Tabs oder bis zum Sentinel im Dokument fehlt, wird die
 // naechste Seite geladen. Grosszuegig genug gewaehlt, dass die Folge-Eintraege
 // laengst da sind, bevor man das Ende sieht.
-const CATALOG_PRELOAD_PX = 1400;
+const CATALOG_PRELOAD_PX = 3000;
 
 function initCatalogInfiniteScroll() {
   document.getElementById("fp-infinite-retry").addEventListener("click", retryFpInfiniteLoad);
@@ -427,6 +427,8 @@ function startInitialData() {
   if (initialDataStarted) return;
   initialDataStarted = true;
   restoreHomeCache();
+  syncFpCatalogFromHome();
+  syncSeriesCatalogFromHome();
   syncTasteProfile();
   refreshGenres().catch((e) => {
     document.getElementById("genre-count").textContent = "Genres nicht verfügbar";
@@ -435,11 +437,16 @@ function startInitialData() {
   syncQueueSnapshot("Initiale Queue-Synchronisierung");
   refreshWatchlist();
   syncMovieSubscriptions();
-  loadHomeData().catch((e) => {
-    document.getElementById("fp-status").textContent = `Fehler: ${e.message}`;
-    state.home.loading = false;
-    renderHome();
-  });
+  loadHomeData()
+    .then(() => {
+      syncFpCatalogFromHome({ fresh: true });
+      syncSeriesCatalogFromHome({ fresh: true });
+    })
+    .catch((e) => {
+      document.getElementById("fp-status").textContent = `Fehler: ${e.message}`;
+      state.home.loading = false;
+      renderHome();
+    });
 }
 
 async function refreshGenres() {

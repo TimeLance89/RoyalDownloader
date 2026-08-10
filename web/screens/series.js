@@ -143,7 +143,10 @@ function renderSeriesCatalogHero() {
 
 function renderSeriesResults(appendFrom = 0) {
   const container = document.getElementById("series-results");
-  if (appendFrom <= 0) container.innerHTML = "";
+  if (appendFrom <= 0) {
+    discardObservedResultPosters(container);
+    container.innerHTML = "";
+  }
 
   for (const result of state.series.results.slice(appendFrom)) {
     const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
@@ -364,6 +367,8 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
     const data = await api.series(seriesParams(mode, page));
     if (requestId !== state.series.browseRequestSeq) return false;
     applySeriesResults(data, { append });
+    if (!append) state.series.previewFromHome = false;
+    if (!append && page === 1) state.series.lastCatalogRefreshAt = Date.now();
     return true;
   } catch (error) {
     if (requestId !== state.series.browseRequestSeq) return false;
@@ -387,7 +392,13 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
 }
 
 function ensureSeriesResults() {
-  if (state.series.results.length || state.series.loadingBrowse) return;
+  syncSeriesCatalogFromHome();
+  if (state.series.results.length) {
+    if (!document.getElementById("series-results").childElementCount) renderSeriesResults();
+    refreshSeriesCatalogInBackground();
+    return;
+  }
+  if (state.series.loadingBrowse) return;
   seriesBrowse("discover", 1);
 }
 
