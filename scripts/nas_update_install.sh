@@ -125,7 +125,7 @@ for _attempt in $(seq 1 60); do
         docker compose exec -T \
             -e EXPECTED_COMMIT="$commit" \
             seriendownloader python -c \
-            'import os; from pathlib import Path; active=Path(os.environ["APP_ACTIVE_RELEASE"]); actual=(active/".app_commit_sha").read_text().strip(); assert actual == os.environ["EXPECTED_COMMIT"], (actual, os.environ["EXPECTED_COMMIT"])'
+            'import os; from pathlib import Path; active=Path("/proc/1/cwd").resolve(); actual=(active/".app_commit_sha").read_text().strip(); assert actual == os.environ["EXPECTED_COMMIT"], (actual, os.environ["EXPECTED_COMMIT"])'
     ) >/dev/null 2>&1; then
         healthy=1
         break

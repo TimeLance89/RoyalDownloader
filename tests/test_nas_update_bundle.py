@@ -53,3 +53,10 @@ def test_nas_installer_has_valid_bash_syntax():
         ["bash", "-n", str(ROOT / "scripts" / "nas_update_install.sh")],
         check=True,
     )
+
+
+def test_nas_installer_verifies_the_release_used_by_the_running_server_process():
+    installer = (ROOT / "scripts" / "nas_update_install.sh").read_text(encoding="utf-8")
+
+    assert 'Path("/proc/1/cwd").resolve()' in installer
+    assert 'os.environ["APP_ACTIVE_RELEASE"]' not in installer
