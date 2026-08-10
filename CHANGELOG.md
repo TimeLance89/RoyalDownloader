@@ -2,11 +2,30 @@
 
 ## Unreleased
 
+## 2026-08-10 – NAS updates, persistence, and settings workspace
+
 - Add a first-run Demo mode that requires no media paths and visibly simulates
   queue, progress, verification, and completion without downloading streams,
   creating staging directories, writing media files, or triggering delivery
   side effects such as Jellyfin scans; automatic downloading remains disabled
   so a demonstration cannot grow its history unattended.
+- Replace the previous NAS update path with a portable update bundle, verified
+  runtime activation, safe legacy-container cutover, persistent rollback data,
+  and exact revision checks against the process that is actually serving the
+  application.
+- Preserve existing `.env`, account, subscription, queue, session, and settings
+  data across copied deployments and container recreation; validate writable
+  Docker mounts without rejecting intentionally mapped external movie or series
+  volumes.
+- Keep Stable and Overnight selections persistent, report the installed and
+  available revisions accurately, and prevent an update from being reported as
+  complete until the requested revision is active.
+- Rebuild Settings as a responsive system workspace with a dedicated overview,
+  separate operating, source, service, automation, access, and maintenance
+  views, clearer media-service grouping, and guarded persistent save actions.
+- Reduce NAS image build context by excluding media, runtime, cache, backup, and
+  generated data while expanding regression coverage for updates, persistence,
+  Docker startup, frontend contracts, accessibility, and deployment safety.
 
 ## 2026-08-09 – Discovery, library, downloads, and updater hardening
 
