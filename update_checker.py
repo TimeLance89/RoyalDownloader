@@ -73,19 +73,19 @@ def _detect_git_commit(root: Path) -> str:
 def detect_local_commit(app_dir: Optional[Path] = None) -> str:
     """Liest die Build-Revision aus Marker, Umgebung oder Git-Checkout."""
     root = Path(app_dir or Path(__file__).resolve().parent)
-    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
-        commit = _valid_commit(os.environ.get(key, ""))
-        if commit:
-            return commit
-    # Ein In-App-Update ersetzt die Anwendungsdateien, nicht aber das lokale
-    # .git-Verzeichnis. Der vom Updater geschriebene Marker muss deshalb vor
-    # dem Checkout stehen, sonst wird nach einem erfolgreichen Update weiter
-    # die alte Git-Revision angezeigt und dasselbe Update erneut angeboten.
+    # Der Marker gehört zum tatsächlich laufenden Release. Build-Umgebungen
+    # können APP_COMMIT_SHA noch vom ursprünglichen Container-Image enthalten,
+    # obwohl der versionierte Runtime-Updater längst ein neues Release
+    # aktiviert hat. Deshalb ist der Release-Marker die autoritative Quelle.
     for filename in (".app_commit_sha", "BUILD_COMMIT"):
         try:
             commit = _valid_commit((root / filename).read_text(encoding="utf-8"))
         except OSError:
             commit = ""
+        if commit:
+            return commit
+    for key in ("APP_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
+        commit = _valid_commit(os.environ.get(key, ""))
         if commit:
             return commit
     return _detect_git_commit(root)

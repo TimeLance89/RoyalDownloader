@@ -2,6 +2,7 @@ data/
 downloads/
 debug/
 runtime/
+.nas-update/
 .env
 .env.*
 !.env.example

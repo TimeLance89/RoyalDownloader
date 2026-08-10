@@ -286,6 +286,9 @@ before configuration is saved.
 ## Stable and Overnight updates
 
 Choose the update channel under **Settings → Updates and maintenance**.
+If an older updater cannot activate itself, build a copyable recovery package
+with `python scripts/build_nas_update.py --ref origin/overnight`; the exact NAS
+installation procedure is documented in `docs/UPDATE_CHANNELS.md`.
 
 | Channel | Intended use |
 |---|---|

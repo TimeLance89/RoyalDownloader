@@ -299,6 +299,9 @@ function applyUpdaterStatus(data) {
 }
 
 let updaterInstallPollTimer = null;
+let updaterRestartStartedAt = 0;
+let updaterRestartTarget = "";
+const UPDATER_RESTART_TIMEOUT_MS = 180000;
 
 function applyUpdaterInstallStatus(installer) {
   const card = document.getElementById("updater-card");
@@ -331,7 +334,9 @@ function applyUpdaterInstallStatus(installer) {
     : "Einstellungen, Abos und Downloads bleiben erhalten.";
   installButton.textContent = "Update läuft …";
   installButton.classList.remove("hidden");
-  if (installer.state === "restarting") waitForUpdatedServer();
+  if (installer.state === "restarting") {
+    waitForUpdatedServer(installer.target_sha || installButton.dataset.sha || "");
+  }
 }
 
 function scheduleUpdaterInstallPoll() {
@@ -348,15 +353,57 @@ function scheduleUpdaterInstallPoll() {
   }, 900);
 }
 
-async function waitForUpdatedServer() {
+async function waitForUpdatedServer(targetSha) {
+  const normalizedTarget = String(targetSha || "").trim().toLowerCase();
+  if (!normalizedTarget) {
+    applyUpdaterInstallStatus({
+      state: "error",
+      error: "Update-Ziel fehlt; der Neustart kann nicht verifiziert werden.",
+      supported: true,
+    });
+    return;
+  }
+  if (updaterRestartTarget !== normalizedTarget) {
+    updaterRestartTarget = normalizedTarget;
+    updaterRestartStartedAt = Date.now();
+  }
   if (updaterInstallPollTimer) clearTimeout(updaterInstallPollTimer);
   updaterInstallPollTimer = setTimeout(async () => {
     try {
-      const response = await fetch("/api/health", { cache: "no-store" });
+      const response = await fetch(
+        `/api/updater/status?force=true&_=${Date.now()}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      location.reload();
+      const payload = await response.json();
+      const installed = String(payload.current_sha || "").trim().toLowerCase();
+      if (installed === normalizedTarget) {
+        updaterRestartStartedAt = 0;
+        updaterRestartTarget = "";
+        location.reload();
+        return;
+      }
+      if (Date.now() - updaterRestartStartedAt >= UPDATER_RESTART_TIMEOUT_MS) {
+        applyUpdaterInstallStatus({
+          state: "error",
+          error: `Neustart fehlgeschlagen: installiert ${shortRevision(installed)}, erwartet ${shortRevision(normalizedTarget)}.`,
+          target_sha: normalizedTarget,
+          supported: true,
+        });
+        return;
+      }
+      waitForUpdatedServer(normalizedTarget);
     } catch (error) {
-      waitForUpdatedServer();
+      if (Date.now() - updaterRestartStartedAt >= UPDATER_RESTART_TIMEOUT_MS) {
+        applyUpdaterInstallStatus({
+          state: "error",
+          error: `Server nach Update nicht erreichbar: ${error.message}`,
+          target_sha: normalizedTarget,
+          supported: true,
+        });
+        return;
+      }
+      waitForUpdatedServer(normalizedTarget);
     }
   }, 3000);
 }

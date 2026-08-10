@@ -58,7 +58,6 @@ ENV SERIENDL_DATA_DIR=/app/data \
     OPEN_BROWSER=0 \
     CHROME_PATH=/usr/bin/chromium \
     HOME=/home/royal \
-    APP_COMMIT_SHA=${APP_COMMIT_SHA} \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 

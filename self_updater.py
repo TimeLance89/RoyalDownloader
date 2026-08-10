@@ -427,6 +427,11 @@ class SelfUpdater:
                 self.app_dir / _MANIFEST_NAME,
                 json.dumps(sorted(new_files), ensure_ascii=False, indent=2) + "\n",
             )
+            installed_sha = (self.app_dir / ".app_commit_sha").read_text(
+                encoding="utf-8",
+            ).strip()
+            if installed_sha != target_sha:
+                raise RuntimeError("Installierte Revision stimmt nicht mit dem Update-Ziel überein")
         except Exception:
             for relative in created:
                 try:
@@ -508,7 +513,14 @@ class SelfUpdater:
             if installed_sha != target_sha:
                 raise RuntimeError("Release-Ziel existiert mit einer anderen Revision")
             self._smoke_release(final_release, self._release_python(final_release))
-            activate_release(runtime_root, final_release)
+            old_release = read_release_link(runtime_root, "current")
+            try:
+                activate_release(runtime_root, final_release)
+                self._verify_active_release(runtime_root, final_release, target_sha)
+            except Exception:
+                if old_release is not None:
+                    activate_release(runtime_root, old_release)
+                raise
             self._prune_runtime_releases(runtime_root)
             return
 
@@ -533,6 +545,7 @@ class SelfUpdater:
             old_release = read_release_link(runtime_root, "current")
             try:
                 activate_release(runtime_root, final_release)
+                self._verify_active_release(runtime_root, final_release, target_sha)
                 activated = True
                 self._prune_runtime_releases(runtime_root)
             except Exception:
@@ -548,6 +561,16 @@ class SelfUpdater:
                 current = read_release_link(runtime_root, "current")
                 if current != final_release:
                     shutil.rmtree(final_release, ignore_errors=True)
+
+    @staticmethod
+    def _verify_active_release(runtime_root: Path, release: Path, target_sha: str) -> None:
+        active = read_release_link(runtime_root, "current")
+        try:
+            installed_sha = (release / ".app_commit_sha").read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise RuntimeError("Aktiviertes Release besitzt keinen Revisionsnachweis") from exc
+        if active != release.resolve() or installed_sha != target_sha:
+            raise RuntimeError("Aktiviertes Release stimmt nicht mit dem Update-Ziel überein")
 
     @staticmethod
     def _prune_runtime_releases(runtime_root: Path) -> None:
