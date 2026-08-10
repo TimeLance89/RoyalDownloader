@@ -575,6 +575,20 @@ function currentTasteTarget(kind) {
   return item?.base_slug ? { key: `series:${item.base_slug}`, item } : null;
 }
 
+const pendingTasteFeedbackKeys = new Set();
+function applyLocalTasteFeedback(itemKey, action) {
+  const profile = loadDiscoveryProfile();
+  profile.item_feedback = { ...profile.item_feedback };
+  const blockedItems = new Set(profile.blocked_items || []);
+  if (action === "clear") {
+    delete profile.item_feedback[itemKey]; blockedItems.delete(itemKey);
+  } else {
+    profile.item_feedback[itemKey] = action;
+    if (["dislike", "dismiss"].includes(action)) blockedItems.add(itemKey); else blockedItems.delete(itemKey);
+  }
+  profile.blocked_items = [...blockedItems]; profile.updatedAt = Date.now();
+  saveDiscoveryProfile(profile); updateTasteFeedbackButtons();
+}
 function updateTasteFeedbackButtons() {
   const profile = loadDiscoveryProfile();
   for (const [kind, prefix] of [["movie", "fp"], ["series", "series"]]) {
@@ -583,8 +597,10 @@ function updateTasteFeedbackButtons() {
     const like = document.getElementById(`${prefix}-taste-like`);
     const dislike = document.getElementById(`${prefix}-taste-dislike`);
     if (!like || !dislike) continue;
-    like.disabled = !target;
-    dislike.disabled = !target;
+    const pending = Boolean(target && pendingTasteFeedbackKeys.has(target.key));
+    like.disabled = !target; dislike.disabled = !target;
+    like.closest(".taste-feedback")?.classList.toggle("is-saving", pending);
+    like.closest(".taste-feedback")?.setAttribute("aria-busy", String(pending));
     const liked = action === "like" || action === "favorite";
     const disliked = action === "dislike" || action === "dismiss";
     like.setAttribute("aria-pressed", String(liked));
@@ -597,15 +613,17 @@ function updateTasteFeedbackButtons() {
     dislike.querySelector(".taste-icon").textContent = disliked ? "⊗" : "⊘";
   }
 }
-
 async function setTasteFeedback(kind, requestedAction) {
   const target = currentTasteTarget(kind);
-  if (!target) return;
-  const currentAction = loadDiscoveryProfile().item_feedback?.[target.key] || "";
+  if (!target || pendingTasteFeedbackKeys.has(target.key)) return;
+  const previousProfile = loadDiscoveryProfile();
+  const currentAction = previousProfile.item_feedback?.[target.key] || "";
+  const wasBlocked = previousProfile.blocked_items.includes(target.key);
   const sameChoice = requestedAction === "like"
     ? ["like", "favorite"].includes(currentAction)
     : ["dislike", "dismiss"].includes(currentAction);
   const action = sameChoice ? "clear" : requestedAction;
+  pendingTasteFeedbackKeys.add(target.key); applyLocalTasteFeedback(target.key, action);
   try {
     const response = await api.tasteFeedback({
       item_key: target.key,
@@ -618,7 +636,17 @@ async function setTasteFeedback(kind, requestedAction) {
     applyServerTasteProfile(response.profile);
     renderHome();
   } catch (error) {
+    const rollbackProfile = loadDiscoveryProfile();
+    rollbackProfile.item_feedback = { ...rollbackProfile.item_feedback };
+    if (currentAction) rollbackProfile.item_feedback[target.key] = currentAction; else delete rollbackProfile.item_feedback[target.key];
+    const blockedItems = new Set(rollbackProfile.blocked_items || []);
+    if (wasBlocked) blockedItems.add(target.key); else blockedItems.delete(target.key);
+    rollbackProfile.blocked_items = [...blockedItems];
+    saveDiscoveryProfile(rollbackProfile);
     console.warn("Bewertung konnte nicht gespeichert werden:", error);
+  } finally {
+    pendingTasteFeedbackKeys.delete(target.key);
+    updateTasteFeedbackButtons();
   }
 }
 
@@ -1724,7 +1752,10 @@ async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
       }
     });
     if (variants.some((item) => (
-      !item.backdrop_url || !Array.isArray(item.genres) || !item.genres.length
+      !item.cover_url
+      || !item.backdrop_url
+      || !Array.isArray(item.genres)
+      || !item.genres.length
     ))) {
       const representative = variants[0];
       targets.push({

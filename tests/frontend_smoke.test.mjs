@@ -188,7 +188,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260810-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260810-6/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -207,6 +207,9 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /await prepareFpCatalogPage\(data\)/);
   assert.match(app, /await preloadFpPosterImages\(results\)/);
   assert.match(app, /metadataPrepared: true/);
+  assert.match(app, /await prepareSeriesCatalogPage\(data\)/);
+  assert.match(app, /await preloadSeriesPosterImages\(results\)/);
+  assert.match(app, /artworkPrepared: append/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
@@ -308,7 +311,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-7/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
   assert.match(app, /function movieGenrePresentation\(genre\)/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
@@ -455,7 +458,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260810-1/);
+  assert.match(html, /style\.css\?v=royal-20260810-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -473,4 +476,8 @@ test("taste feedback is a compact accessible two-way control", () => {
   assert.match(html, /class="btn btn-ghost taste-dislike"/);
   assert.match(app, /like\.querySelector\("\.taste-icon"\)\.textContent = liked \? "♥" : "♡"/);
   assert.match(app, /dislike\.querySelector\("\.taste-icon"\)\.textContent = disliked \? "⊗" : "⊘"/);
+  assert.match(app, /pendingTasteFeedbackKeys\.add\(target\.key\)/);
+  assert.match(app, /applyLocalTasteFeedback\(target\.key, action\)/);
+  assert.match(app, /pendingTasteFeedbackKeys\.delete\(target\.key\)/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
 });

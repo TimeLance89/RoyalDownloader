@@ -749,6 +749,26 @@
   color: #fff;
 }
 
+.taste-feedback.is-saving .btn {
+  pointer-events: none;
+  cursor: progress;
+}
+
+.taste-feedback.is-saving .btn[aria-pressed="true"] .taste-icon {
+  animation: taste-feedback-confirm .58s ease-in-out infinite alternate;
+}
+
+@keyframes taste-feedback-confirm {
+  from { transform: scale(.92); opacity: .72; }
+  to { transform: scale(1.08); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taste-feedback.is-saving .btn[aria-pressed="true"] .taste-icon {
+    animation: none;
+  }
+}
+
 .taste-feedback .btn:disabled {
   opacity: .42;
   cursor: default;
