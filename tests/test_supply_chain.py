@@ -68,7 +68,10 @@ def test_runtime_revision_comes_from_active_release_not_stale_image_environment(
 
 def test_docker_context_excludes_local_media_and_workspace_artifacts():
     dockerignore = _content(".dockerignore")
-    for excluded in ("Filme/", "Serien/", ".downloading/", ".agents/", "[#]recycle/"):
+    for excluded in (
+        "Filme/", "Serien/", ".downloading/", ".agents/", "[#]recycle/",
+        ".nas-update-staging.*",
+    ):
         assert excluded in dockerignore
 
 

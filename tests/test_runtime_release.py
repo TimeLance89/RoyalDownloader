@@ -258,7 +258,7 @@ def test_legacy_runtime_copy_skips_transient_content(tmp_path):
     destination = tmp_path / "release"
     source.mkdir()
     (source / "server.py").write_text("# server\n", encoding="utf-8")
-    for name in (".downloading", "#recycle", "__pycache__"):
+    for name in (".downloading", "#recycle", "__pycache__", ".nas-update"):
         folder = source / name
         folder.mkdir()
         (folder / "generated-file").write_text("not source", encoding="utf-8")
@@ -266,4 +266,22 @@ def test_legacy_runtime_copy_skips_transient_content(tmp_path):
     docker_bootstrap._copy_source(source, destination)
 
     assert (destination / "server.py").is_file()
-    assert all(not (destination / name).exists() for name in (".downloading", "#recycle", "__pycache__"))
+    assert all(
+        not (destination / name).exists()
+        for name in (".downloading", "#recycle", "__pycache__", ".nas-update")
+    )
+
+
+def test_runtime_copy_skips_interrupted_nas_update_staging(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "release"
+    source.mkdir()
+    (source / "server.py").write_text("# server\n", encoding="utf-8")
+    staging = source / ".nas-update-staging.interrupted"
+    staging.mkdir()
+    (staging / "partial-file").write_text("incomplete", encoding="utf-8")
+
+    docker_bootstrap._copy_source(source, destination)
+
+    assert (destination / "server.py").is_file()
+    assert not (destination / staging.name).exists()
