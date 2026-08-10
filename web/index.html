@@ -888,23 +888,26 @@
             <strong>Konfiguration</strong>
           </div>
           <nav class="settings-directory-nav">
-            <a class="is-active" href="#settings-general" data-settings-target="settings-general" aria-current="true">
-              <span aria-hidden="true">⌂</span><strong>Basis</strong><small>Sprache &amp; Speicher</small>
+            <a class="is-active" href="#settings-overview" data-settings-target="settings-overview" aria-current="page">
+              <span aria-hidden="true">◆</span><strong>Übersicht</strong><small>Alle Systembereiche</small>
+            </a>
+            <a href="#settings-general" data-settings-target="settings-general">
+              <span aria-hidden="true">⌂</span><strong>Betrieb</strong><small>Modus, Sprache &amp; Speicher</small>
             </a>
             <a href="#settings-sources" data-settings-target="settings-sources">
               <span aria-hidden="true">⇄</span><strong>Quellen</strong><small>Katalog &amp; Routing</small>
             </a>
             <a href="#settings-media" data-settings-target="settings-media">
-              <span aria-hidden="true">◫</span><strong>Mediensysteme</strong><small>Jellyfin, Seerr, TMDB</small>
+              <span aria-hidden="true">◫</span><strong>Dienste</strong><small>Jellyfin, Seerr, TMDB</small>
             </a>
             <a href="#settings-automation" data-settings-target="settings-automation">
-              <span aria-hidden="true">↻</span><strong>Automatik</strong><small>24/7 &amp; Telegram</small>
+              <span aria-hidden="true">↻</span><strong>Automatik</strong><small>Prüfpläne &amp; Zeitfenster</small>
             </a>
             <a href="#settings-account" data-settings-target="settings-account">
               <span aria-hidden="true">⚿</span><strong>Zugang</strong><small>Anmeldung &amp; Sitzungen</small>
             </a>
             <a href="#settings-system" data-settings-target="settings-system">
-              <span aria-hidden="true">⌁</span><strong>System</strong><small>Updates &amp; Wartung</small>
+              <span aria-hidden="true">⌁</span><strong>Wartung</strong><small>Updates &amp; Versionen</small>
             </a>
           </nav>
           <div class="settings-directory-foot">
@@ -914,13 +917,60 @@
         </aside>
 
         <div class="panel settings-panel">
+          <section id="settings-overview" class="settings-section settings-overview is-active" data-settings-section aria-labelledby="settings-overview-title">
+            <header class="settings-section-heading settings-overview-heading">
+              <span class="settings-section-mark" aria-hidden="true">◆</span>
+              <div>
+                <span>SYSTEMÜBERSICHT</span>
+                <h2 id="settings-overview-title">Was möchtest du steuern?</h2>
+                <p>Öffne einen Bereich. Änderungen bleiben erhalten, bis du sie unten gemeinsam speicherst.</p>
+              </div>
+            </header>
+            <div class="settings-launch-grid" aria-label="Einstellungsbereiche">
+              <button class="settings-launch-card is-core" type="button" data-settings-open="settings-general">
+                <span class="settings-launch-symbol" aria-hidden="true">⌂</span>
+                <span class="settings-launch-copy"><small>GRUNDSYSTEM</small><strong>Betrieb und Speicher</strong><em>Servermodus, Oberfläche und Medienpfade</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-route" type="button" data-settings-open="settings-sources">
+                <span class="settings-launch-symbol" aria-hidden="true">⇄</span>
+                <span class="settings-launch-copy"><small>ROUTING</small><strong>Quellen und Prioritäten</strong><em>Sprachen, Anbieter und Fallback-Reihenfolge</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-service" type="button" data-settings-open="settings-media">
+                <span class="settings-launch-symbol" aria-hidden="true">◫</span>
+                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Jellyfin, Seerr, TMDB und Telegram</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-auto" type="button" data-settings-open="settings-automation">
+                <span class="settings-launch-symbol" aria-hidden="true">↻</span>
+                <span class="settings-launch-copy"><small>DAUERBETRIEB</small><strong>Automatik</strong><em>Prüfintervalle und Download-Zeitfenster</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-access" type="button" data-settings-open="settings-account">
+                <span class="settings-launch-symbol" aria-hidden="true">⚿</span>
+                <span class="settings-launch-copy"><small>SICHERHEIT</small><strong>Zugang und Geräte</strong><em>Konto, Passwort und aktive Sitzungen</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button class="settings-launch-card is-maintenance" type="button" data-settings-open="settings-system">
+                <span class="settings-launch-symbol" aria-hidden="true">⌁</span>
+                <span class="settings-launch-copy"><small>RELEASE CONTROL</small><strong>Updates und Wartung</strong><em>Kanal, Version und Installationsmodus</em></span>
+                <i aria-hidden="true">→</i>
+              </button>
+            </div>
+            <div class="settings-overview-footer">
+              <span><i aria-hidden="true"></i> Persistente Konfiguration</span>
+              <p>Konten, Abos und Einstellungen liegen im Datenverzeichnis und bleiben bei Updates erhalten.</p>
+            </div>
+          </section>
+
           <section id="settings-general" class="settings-section" data-settings-section aria-labelledby="settings-general-title">
             <header class="settings-section-heading">
               <span class="settings-section-mark" aria-hidden="true">⌂</span>
               <div>
                 <span>BASIS</span>
-                <h2 id="settings-general-title">Oberfläche und Speicher</h2>
-                <p>Grundlegende Darstellung und Zielordner des Downloaders.</p>
+                <h2 id="settings-general-title">Betrieb und Speicher</h2>
+                <p>Lege fest, wo Royal läuft, wie es aussieht und wohin Medien geschrieben werden.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-general-grid">
@@ -1063,9 +1113,9 @@
             <header class="settings-section-heading">
               <span class="settings-section-mark is-media" aria-hidden="true">◫</span>
               <div>
-                <span>MEDIENSYSTEME</span>
-                <h2 id="settings-media-title">Bibliothek und Metadaten</h2>
-                <p>Externe Dienste für Abgleich, Wünsche und Medieninformationen.</p>
+                <span>VERBINDUNGEN</span>
+                <h2 id="settings-media-title">Externe Dienste</h2>
+                <p>Bibliothek, Medienwünsche, Metadaten und Benachrichtigungen an einem Ort.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-service-grid">
@@ -1164,6 +1214,25 @@
             <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
           </a>
         </div>
+
+        <div class="settings-group settings-card telegram-settings">
+          <h3>Telegram</h3>
+          <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
+          <label class="auto-toggle-row">
+            <input id="telegram-enabled" type="checkbox">
+            <span>Telegram-Bot aktivieren</span>
+          </label>
+          <label class="dim auto-lbl" for="telegram-token">Bot-Token von @BotFather</label>
+          <div class="path-input-row">
+            <input id="telegram-token" type="password" autocomplete="off" placeholder="123456789:AA…">
+          </div>
+          <label class="dim auto-lbl" for="telegram-chat-id">Erlaubte Chat-ID</label>
+          <div class="path-input-row">
+            <input id="telegram-chat-id" type="text" placeholder="Token speichern, dann dem Bot /start senden">
+          </div>
+          <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
+          <div id="telegram-status" class="dim small-status">—</div>
+        </div>
             </div>
           </section>
 
@@ -1172,8 +1241,8 @@
               <span class="settings-section-mark is-automation" aria-hidden="true">↻</span>
               <div>
                 <span>DAUERBETRIEB</span>
-                <h2 id="settings-automation-title">Automatik und Fernzugriff</h2>
-                <p>Zeitpläne und Benachrichtigungen für den unbeaufsichtigten Betrieb.</p>
+                <h2 id="settings-automation-title">Automatischer Betrieb</h2>
+                <p>Prüfintervalle und Zeitfenster für unbeaufsichtigte Downloads.</p>
               </div>
             </header>
             <div class="settings-card-grid settings-automation-grid">
@@ -1199,24 +1268,6 @@
           <div id="auto-status" class="dim small-status">—</div>
         </div>
 
-        <div class="settings-group settings-card telegram-settings">
-          <h3>Telegram</h3>
-          <p class="dim settings-hint">Filmtitel senden, Jellyfin prüfen und den fertigen Download melden.</p>
-          <label class="auto-toggle-row">
-            <input id="telegram-enabled" type="checkbox">
-            <span>Telegram-Bot aktivieren</span>
-          </label>
-          <label class="dim auto-lbl" for="telegram-token">Bot-Token von @BotFather</label>
-          <div class="path-input-row">
-            <input id="telegram-token" type="password" autocomplete="off" placeholder="123456789:AA…">
-          </div>
-          <label class="dim auto-lbl" for="telegram-chat-id">Erlaubte Chat-ID</label>
-          <div class="path-input-row">
-            <input id="telegram-chat-id" type="text" placeholder="Token speichern, dann dem Bot /start senden">
-          </div>
-          <p class="telegram-setup dim">Einrichtung: Bot bei @BotFather anlegen → Token eintragen → aktivieren und speichern → dem Bot <code>/start</code> senden. Ohne Chat-ID antwortet er nur mit deiner ID und startet keine Downloads.</p>
-          <div id="telegram-status" class="dim small-status">—</div>
-        </div>
             </div>
           </section>
 

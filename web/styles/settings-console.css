@@ -177,7 +177,7 @@ body.settings-active .bg-decor {
   position: sticky;
   top: 12px;
   display: flex;
-  min-height: 570px;
+  min-height: 620px;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
@@ -290,6 +290,7 @@ body.settings-active .bg-decor {
 
 #tab-einstellungen .settings-panel {
   gap: 48px;
+  min-height: 620px;
   padding: 30px clamp(18px, 2.4vw, 38px) 22px;
   border: 1px solid var(--settings-line);
   border-radius: 3px 24px 3px 3px;
@@ -303,9 +304,136 @@ body.settings-active .bg-decor {
 }
 
 #tab-einstellungen .settings-section + .settings-section {
-  padding-top: 42px;
-  border-top: 1px solid var(--settings-line);
+  padding-top: 0;
+  border-top: 0;
 }
+
+#tab-einstellungen .settings-section[hidden] { display: none !important; }
+
+#tab-einstellungen .settings-section.is-active {
+  animation: settings-view-enter 240ms ease-out both;
+}
+
+@keyframes settings-view-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#tab-einstellungen .settings-overview {
+  gap: 24px;
+}
+
+#tab-einstellungen .settings-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#tab-einstellungen .settings-launch-card {
+  --launch-accent: var(--settings-gold);
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 15px;
+  min-height: 118px;
+  padding: 18px;
+  color: var(--settings-ink);
+  text-align: left;
+  border: 1px solid var(--settings-line);
+  border-radius: 2px 16px 2px 2px;
+  background:
+    linear-gradient(115deg, color-mix(in srgb, var(--launch-accent) 8%, transparent), transparent 48%),
+    var(--settings-panel);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+#tab-einstellungen .settings-launch-card:hover,
+#tab-einstellungen .settings-launch-card:focus-visible {
+  border-color: color-mix(in srgb, var(--launch-accent) 58%, transparent);
+  background:
+    linear-gradient(115deg, color-mix(in srgb, var(--launch-accent) 13%, transparent), transparent 55%),
+    var(--settings-panel-raised);
+  transform: none;
+}
+
+#tab-einstellungen .settings-launch-card:focus-visible {
+  outline: 1px solid var(--launch-accent);
+  outline-offset: 2px;
+}
+
+#tab-einstellungen .settings-launch-symbol {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  color: var(--launch-accent);
+  border: 1px solid color-mix(in srgb, var(--launch-accent) 46%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--launch-accent) 7%, transparent);
+  font: 700 15px/1 "JetBrains Mono", Consolas, monospace;
+}
+
+#tab-einstellungen .settings-launch-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#tab-einstellungen .settings-launch-copy small {
+  color: var(--launch-accent);
+  font: 600 8px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+#tab-einstellungen .settings-launch-copy strong {
+  font: 700 17px/1.1 "Archivo", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+#tab-einstellungen .settings-launch-copy em {
+  color: var(--settings-muted);
+  font: normal 11px/1.45 "DM Sans", sans-serif;
+}
+
+#tab-einstellungen .settings-launch-arrow {
+  color: var(--launch-accent);
+  font: 500 18px/1 "JetBrains Mono", Consolas, monospace;
+  transition: transform 160ms ease;
+}
+
+#tab-einstellungen .settings-launch-card:hover .settings-launch-arrow { transform: translateX(3px); }
+#tab-einstellungen .settings-launch-card.is-core { --launch-accent: var(--settings-gold); }
+#tab-einstellungen .settings-launch-card.is-route { --launch-accent: var(--settings-red); }
+#tab-einstellungen .settings-launch-card.is-service { --launch-accent: #d582b0; }
+#tab-einstellungen .settings-launch-card.is-auto { --launch-accent: var(--settings-green); }
+#tab-einstellungen .settings-launch-card.is-access { --launch-accent: #e4c76d; }
+#tab-einstellungen .settings-launch-card.is-maintenance { --launch-accent: #79a9c7; }
+
+#tab-einstellungen .settings-overview-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 15px;
+  color: var(--settings-muted);
+  border: 1px dashed var(--settings-line-strong);
+  background: rgba(131, 212, 154, 0.025);
+  font: 9px/1.4 "JetBrains Mono", Consolas, monospace;
+}
+
+#tab-einstellungen .settings-overview-footer > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--settings-green);
+  box-shadow: 0 0 10px rgba(131, 212, 154, 0.55);
+}
+
+#tab-einstellungen .settings-panel.is-overview .settings-actions { display: none; }
+#tab-einstellungen .settings-automation-grid .settings-card { grid-column: 1 / -1; }
 
 #tab-einstellungen .settings-section-heading {
   align-items: center;
@@ -495,7 +623,8 @@ body.settings-active .bg-decor {
 
   #tab-einstellungen .settings-general-grid,
   #tab-einstellungen .settings-service-grid,
-  #tab-einstellungen .settings-automation-grid {
+  #tab-einstellungen .settings-automation-grid,
+  #tab-einstellungen .settings-launch-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -566,13 +695,18 @@ body.settings-active .bg-decor {
 
   #tab-einstellungen .settings-panel {
     gap: 36px;
+    min-height: 0;
     padding: 22px 13px 13px;
     border-radius: 3px 18px 3px 3px;
   }
 
-  #tab-einstellungen .settings-section + .settings-section { padding-top: 32px; }
   #tab-einstellungen .settings-card { padding: 17px 14px; }
   #tab-einstellungen .settings-section-heading { align-items: flex-start; }
+
+  #tab-einstellungen .settings-launch-card {
+    min-height: 104px;
+    padding: 15px;
+  }
 
   #tab-einstellungen .settings-actions {
     bottom: calc(67px + env(safe-area-inset-bottom));
@@ -610,4 +744,6 @@ body.settings-active .bg-decor {
 @media (prefers-reduced-motion: reduce) {
   #tab-einstellungen,
   #tab-einstellungen * { scroll-behavior: auto !important; }
+
+  #tab-einstellungen .settings-section.is-active { animation: none; }
 }
