@@ -62,14 +62,28 @@ def test_switching_checker_branch_invalidates_cached_branch_result(tmp_path):
     assert checker._cache_time == 0.0
 
 
-def test_in_app_update_marker_overrides_stale_checkout_head(tmp_path):
+def test_in_app_update_marker_overrides_stale_checkout_and_container_environment(
+    monkeypatch,
+    tmp_path,
+):
     checkout_sha = "a" * 40
     current_sha = "b" * 40
+    monkeypatch.setenv("APP_COMMIT_SHA", "c" * 40)
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text(checkout_sha + "\n", encoding="utf-8")
     (tmp_path / ".app_commit_sha").write_text(current_sha + "\n", encoding="utf-8")
 
     assert update_checker.detect_local_commit(tmp_path) == current_sha
+
+
+def test_container_commit_environment_remains_fallback_without_release_marker(
+    monkeypatch,
+    tmp_path,
+):
+    image_sha = "c" * 40
+    monkeypatch.setenv("APP_COMMIT_SHA", image_sha)
+
+    assert update_checker.detect_local_commit(tmp_path) == image_sha
 
 
 def test_updater_reads_changed_project_token_without_restart(monkeypatch, tmp_path):

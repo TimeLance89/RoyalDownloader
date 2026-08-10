@@ -54,6 +54,33 @@ curl --fail http://127.0.0.1:8765/api/v1/updater/config
 Then restart the container once and confirm that the channel, queue, and media
 mounts remain unchanged.
 
+## Sofortupdate per NAS-Paket
+
+Wenn der laufende In-App-Updater selbst defekt oder zu alt ist, wird der
+aktuelle Quellstand einmalig als geprüftes Transferpaket gebaut:
+
+```bash
+python scripts/build_nas_update.py --ref origin/overnight
+```
+
+Die erzeugte Datei `dist/RoyalDownloader-NAS-Update-<commit>.tar.gz` wird auf
+das NAS kopiert und dort außerhalb des Projektordners entpackt. Anschließend:
+
+```bash
+mkdir -p /tmp/royal-update
+tar -xzf RoyalDownloader-NAS-Update-<commit>.tar.gz -C /tmp/royal-update
+bash /tmp/royal-update/install.sh /volume1/docker/RoyalDownloader
+```
+
+Der Zielpfad muss auf die vorhandene Installation mit `docker-compose.yml`,
+`data/` und `runtime/` zeigen. Der Installer prüft den SHA-256 des Payloads,
+sichert den bisherigen Quellstand, ersetzt ausschließlich Anwendungsdateien,
+baut den Container neu und akzeptiert das Update erst, wenn exakt der
+paketierte Commit als aktives Runtime-Release läuft. `.env`, `data/`,
+`runtime/`, Downloads und Medien werden weder aufgenommen noch überschrieben.
+Bei einem fehlgeschlagenen Start wird der vorherige Quellstand automatisch
+wiederhergestellt.
+
 ## Development and promotion workflow
 
 1. Develop feature/fix branches against `overnight`.

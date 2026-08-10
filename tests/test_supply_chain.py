@@ -60,6 +60,12 @@ def test_update_and_native_start_install_from_lock():
     assert "exec python docker_bootstrap.py" in _content("start.sh")
 
 
+def test_runtime_revision_comes_from_active_release_not_stale_image_environment():
+    dockerfile = _content("Dockerfile")
+    runtime_section = dockerfile.split("FROM runtime-base AS runtime", 1)[1]
+    assert "APP_COMMIT_SHA=${APP_COMMIT_SHA}" not in runtime_section
+
+
 def test_ytdlp_wheel_requires_an_approved_hash(tmp_path, monkeypatch):
     updater = YtDlpRuntimeUpdater()
     payload = b"verified wheel"

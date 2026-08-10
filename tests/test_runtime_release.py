@@ -137,6 +137,16 @@ def test_verified_staged_release_is_activated_once(monkeypatch, tmp_path):
     assert runtime_release.read_release_link(tmp_path, "previous") == old
 
 
+def test_active_release_verification_rejects_wrong_target_marker(monkeypatch, tmp_path):
+    release = _release(tmp_path, "new", "v2")
+    (release / ".app_commit_sha").write_text("a" * 40 + "\n", encoding="utf-8")
+    monkeypatch.setattr(runtime_release, "read_release_link", lambda *_args: release)
+    monkeypatch.setattr("self_updater.read_release_link", lambda *_args: release)
+
+    with pytest.raises(RuntimeError, match="Update-Ziel"):
+        SelfUpdater._verify_active_release(tmp_path, release, "b" * 40)
+
+
 def test_unmarked_bundle_identity_changes_with_source(tmp_path):
     source = tmp_path / "bundle"
     source.mkdir()
