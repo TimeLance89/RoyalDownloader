@@ -221,6 +221,25 @@ def test_channel_selection_is_persisted_and_survives_reload(isolated_config):
     assert config.load_updater()["update_channel"] == "overnight"
 
 
+def test_persisted_channel_overrides_stale_runtime_snapshot(
+    monkeypatch, isolated_config,
+):
+    assert config.save_updater("automatic", 6, "overnight") is True
+    monkeypatch.setattr(server.state, "updater_cfg", {
+        "update_mode": "automatic",
+        "auto_update": True,
+        "auto_update_interval_hours": 6,
+        "update_channel": "stable",
+        "update_branch": "main",
+    })
+
+    payload = server._updater_config_payload()
+
+    assert payload["update_channel"] == "overnight"
+    assert payload["update_branch"] == "overnight"
+    assert server.state.updater_cfg["update_channel"] == "overnight"
+
+
 class _Checker:
     def __init__(self, comparison="ahead"):
         self.branch = "main"
