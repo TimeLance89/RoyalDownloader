@@ -2,12 +2,25 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, wait
+
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
 
 globals().update(import_backend_namespace())
+
+
+MOVIE_CATALOG_PAGE_BUDGET_SECONDS = 12.0
+_MOVIE_PROVIDER_LOAD_POOL = ThreadPoolExecutor(
+    max_workers=16,
+    thread_name_prefix="movie-catalog",
+)
+_MOVIE_PROVIDER_INFLIGHT = {}
+_MOVIE_PROVIDER_INFLIGHT_LOCK = threading.Lock()
 
 
 def strip_source_suffix(title: str) -> str:
@@ -571,6 +584,8 @@ def _load_movie_provider_pages(
     genre: str,
     requests_to_load: List[tuple[str, int]],
     cold_wave_budget: Optional[List[int]] = None,
+    deadline: Optional[float] = None,
+    timed_out: Optional[List[bool]] = None,
 ) -> Dict[tuple[str, int], List[FilmpalastSearchResult]]:
     """Lädt mehrere Quellseiten parallel und cached sie unabhängig voneinander."""
     loaded: Dict[tuple[str, int], List[FilmpalastSearchResult]] = {}
@@ -594,29 +609,66 @@ def _load_movie_provider_pages(
             )
         cold_wave_budget[0] -= 1
 
-    with ThreadPoolExecutor(max_workers=min(len(missing), len(PROVIDER_LABELS))) as pool:
-        futures = [
-            (
-                provider,
-                source_page,
-                cache_key,
-                pool.submit(_fetch_movie_provider_page, provider, mode, genre, source_page),
+    deadline = deadline or (time.monotonic() + MOVIE_CATALOG_PAGE_BUDGET_SECONDS)
+
+    def complete_provider_load(future, provider, source_page, cache_key):
+        try:
+            results = list(future.result())
+        except Exception as exc:
+            label = PROVIDER_LABELS.get(provider, provider)
+            log(f"{label} Liste (Quellseite {source_page}) übersprungen: {exc}", "warn")
+            results = []
+            _cache_movie_provider_page(
+                cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
             )
-            for provider, source_page, cache_key in missing
-        ]
-        for provider, source_page, cache_key, future in futures:
-            try:
-                results = list(future.result())
-            except Exception as exc:
-                label = PROVIDER_LABELS.get(provider, provider)
-                log(f"{label} Liste (Quellseite {source_page}) übersprungen: {exc}", "warn")
-                results = []
-                _cache_movie_provider_page(
-                    cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
+        else:
+            _cache_movie_provider_page(cache_key, results)
+        finally:
+            with _MOVIE_PROVIDER_INFLIGHT_LOCK:
+                if _MOVIE_PROVIDER_INFLIGHT.get(cache_key) is future:
+                    _MOVIE_PROVIDER_INFLIGHT.pop(cache_key, None)
+
+    futures = []
+    for provider, source_page, cache_key in missing:
+        created = False
+        with _MOVIE_PROVIDER_INFLIGHT_LOCK:
+            future = _MOVIE_PROVIDER_INFLIGHT.get(cache_key)
+            if future is None:
+                future = _MOVIE_PROVIDER_LOAD_POOL.submit(
+                    _fetch_movie_provider_page, provider, mode, genre, source_page,
                 )
-            else:
-                _cache_movie_provider_page(cache_key, results)
-            loaded[(provider, source_page)] = results
+                _MOVIE_PROVIDER_INFLIGHT[cache_key] = future
+                created = True
+        if created:
+            future.add_done_callback(
+                lambda done, p=provider, s=source_page, key=cache_key:
+                complete_provider_load(done, p, s, key)
+            )
+        futures.append((provider, source_page, cache_key, future))
+
+    remaining = max(0.0, deadline - time.monotonic())
+    done, pending = wait({future for *_meta, future in futures}, timeout=remaining)
+    if pending:
+        if timed_out is not None:
+            timed_out[0] = True
+        labels = sorted({
+            PROVIDER_LABELS.get(provider, provider)
+            for provider, _source_page, _cache_key, future in futures
+            if future in pending
+        })
+        log(
+            "Filmkatalog-Zeitbudget erreicht; lädt im Hintergrund weiter: "
+            + ", ".join(labels),
+            "warn",
+        )
+
+    for provider, source_page, _cache_key, future in futures:
+        if future not in done:
+            continue
+        try:
+            loaded[(provider, source_page)] = list(future.result())
+        except Exception:
+            loaded[(provider, source_page)] = []
     return loaded
 
 
@@ -742,8 +794,11 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         return unique
 
     cold_wave_budget = [MOVIE_MAX_COLD_WAVES_PER_REQUEST]
+    deadline = time.monotonic() + MOVIE_CATALOG_PAGE_BUDGET_SECONDS
+    timed_out = [False]
     first_pages = _load_movie_provider_pages(
         mode, genre, [(provider, 1) for provider in active], cold_wave_budget,
+        deadline, timed_out,
     )
     first_wave = {
         provider: unique_page(provider, first_pages.get((provider, 1), []))
@@ -757,20 +812,27 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     )
 
     paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
-    exhausted = {provider for provider in paginated if not first_wave[provider]}
+    exhausted = {
+        provider for provider in paginated
+        if (provider, 1) in first_pages and not first_wave[provider]
+    }
     duplicate_only_pages = {provider: 0 for provider in paginated}
     target_end = page * MOVIE_BROWSE_PAGE_SIZE
     next_source_page = 2
-    has_more_unverified = False
+    has_more_unverified = timed_out[0]
 
-    while len(catalog_entries) <= target_end and next_source_page <= MOVIE_MAX_SOURCE_PAGE:
+    while (
+        not timed_out[0]
+        and len(catalog_entries) <= target_end
+        and next_source_page <= MOVIE_MAX_SOURCE_PAGE
+    ):
         pending = [provider for provider in paginated if provider not in exhausted]
         if not pending:
             break
         try:
             next_pages = _load_movie_provider_pages(
                 mode, genre, [(provider, next_source_page) for provider in pending],
-                cold_wave_budget,
+                cold_wave_budget, deadline, timed_out,
             )
         except MovieCatalogColdLoadLimit:
             if len(catalog_entries) < target_end:
@@ -781,6 +843,10 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
             break
         wave: Dict[str, List[FilmpalastSearchResult]] = {}
         for provider in pending:
+            if (provider, next_source_page) not in next_pages:
+                wave[provider] = []
+                has_more_unverified = True
+                continue
             results = next_pages.get((provider, next_source_page), [])
             wave[provider] = unique_page(provider, results)
             if not results:
@@ -795,6 +861,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
             wave, priority, claimed_identities,
         ))
         next_source_page += 1
+        has_more_unverified = has_more_unverified or timed_out[0]
 
     start = (page - 1) * MOVIE_BROWSE_PAGE_SIZE
     page_entries = catalog_entries[start:target_end]

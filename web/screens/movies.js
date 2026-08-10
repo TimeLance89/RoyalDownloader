@@ -368,17 +368,12 @@ function createResultCardVisual(media, title, kind, jellyfinStatus = "checking")
     const image = document.createElement("img");
     image.className = "result-card-poster";
     image.alt = "";
-    // Infinite catalogs keep poster traffic proportional to the visible area.
+    // Load well ahead of the viewport so fast scrolling never catches the
+    // native lazy-loader with an empty poster slot.
     image.loading = "lazy";
-    image.fetchPriority = "low";
+    image.fetchPriority = "auto";
     image.decoding = "async";
-    let coverIndex = 0;
-    image.src = coverCandidates[coverIndex];
-    image.addEventListener("error", () => {
-      coverIndex += 1;
-      if (coverIndex < coverCandidates.length) image.src = coverCandidates[coverIndex];
-      else image.remove();
-    });
+    scheduleResultPoster(image, coverCandidates);
     visual.appendChild(image);
   }
 
@@ -507,7 +502,10 @@ function updateFpResultSelection() {
 
 function renderFpResults(appendFrom = 0) {
   const container = document.getElementById("fp-results");
-  if (appendFrom <= 0) container.innerHTML = "";
+  if (appendFrom <= 0) {
+    discardObservedResultPosters(container);
+    container.innerHTML = "";
+  }
 
   for (const result of state.fp.results.slice(appendFrom)) {
     const selected = result.slug === state.fp.selectedSlug;
@@ -611,40 +609,35 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
     showFpDetail(item.slug, metadataPreviewMovie(metadata), true);
   }
   try {
-    if (!metadata) {
-      const response = await api.tmdbMovies([{ slug: item.slug, title: item.title, year: item.year || "" }]);
-      if (requestId !== state.fp.requestSeq) return null;
-      metadata = response.movies?.[item.slug] || null;
-      if (metadata) {
-        state.fp.metadataCache[item.slug] = metadata;
-        updateFpResultCard(item.slug);
-        refreshMovieFeatureCandidates();
-      }
-      if (state.fp.selectedSlug === item.slug) {
-        showFpDetail(item.slug, metadataPreviewMovie(metadata || basicMovieMetadata(item)), true);
-      }
-    }
-    if (metadata && !metadata.details_loaded) {
+    if (!metadata?.details_loaded) {
       const detailResponse = await api.tmdbMovie({
         slug: item.slug,
         title: item.title,
         year: item.year || "",
-        tmdb_id: item.tmdb_id || null,
+        tmdb_id: metadata?.tmdb_id || item.tmdb_id || null,
       });
-      if (requestId !== state.fp.requestSeq) return metadata;
+      if (requestId !== state.fp.requestSeq) return metadata || null;
       if (detailResponse.movie) {
         metadata = detailResponse.movie;
         state.fp.metadataCache[item.slug] = metadata;
         updateFpResultCard(item.slug);
         refreshMovieFeatureCandidates();
         if (state.fp.selectedSlug === item.slug) showFpDetail(item.slug, metadataPreviewMovie(metadata), true);
+      } else if (state.fp.selectedSlug === item.slug) {
+        showFpDetail(item.slug, metadataPreviewMovie(basicMovieMetadata({ ...item, ...metadata })), true);
+        setFpDetailAvailability("Metadaten nicht verfügbar", "error");
       }
     }
     if (metadata?.tmdb_id) refreshFpJellyfinStatus();
     return metadata || null;
   } catch (e) {
     if (requestId === state.fp.requestSeq && state.fp.selectedSlug === item.slug) {
-      showFpDetail(item.slug, metadataPreviewMovie(metadata || basicMovieMetadata(item)), true);
+      showFpDetail(
+        item.slug,
+        metadataPreviewMovie(basicMovieMetadata({ ...item, ...metadata })),
+        true,
+      );
+      setFpDetailAvailability("Metadaten konnten nicht geladen werden", "error");
     }
     return metadata || null;
   }
@@ -802,6 +795,8 @@ async function fpShowList(category) {
     const data = await api.movies({ mode: category, page: 1 });
     if (requestId !== state.fp.requestSeq) return;
     applyFpResults(data);
+    state.fp.previewFromHome = false;
+    state.fp.lastCatalogRefreshAt = Date.now();
   } catch (error) {
     if (requestId !== state.fp.requestSeq) return;
     state.fp.loadingMore = false;
@@ -812,7 +807,13 @@ async function fpShowList(category) {
 }
 
 function ensureFpResults() {
-  if (state.fp.results.length || state.fp.loadingMore) return;
+  syncFpCatalogFromHome();
+  if (state.fp.results.length) {
+    if (!document.getElementById("fp-results").childElementCount) renderFpResults();
+    refreshFpCatalogInBackground();
+    return;
+  }
+  if (state.fp.loadingMore) return;
   fpShowList("new");
 }
 
@@ -957,7 +958,16 @@ async function selectFpRow(slug, initialItem = null) {
 }
 
 function basicMovieMetadata(item) {
-  return { title: item.title, year: item.year || "", cover_url: "", description: "", genres: [], runtime: "" };
+  return {
+    ...item,
+    title: item.title,
+    year: item.year || "",
+    cover_url: item.cover_url || "",
+    backdrop_url: item.backdrop_url || "",
+    description: item.description || "",
+    genres: Array.isArray(item.genres) ? item.genres : [],
+    runtime: item.runtime || "",
+  };
 }
 
 function metadataPreviewMovie(metadata) {

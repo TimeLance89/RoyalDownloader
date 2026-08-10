@@ -397,11 +397,9 @@ def _on_queue_done_locked():
     if state.dl_queue.active_count() or state.dl_queue.pending_count():
         return
     _reconcile_idle_queue_state_locked()
-    # Während eines Provider-Cooldowns noch nicht „fertig" melden: Die offenen
-    # Claims werden nach einer einzelnen erfolgreichen Probe fortgesetzt.
-    if state.provider_waiting_jobs:
-        log("Downloadlauf pausiert – Episoden warten auf den SerienStream-Provider.")
-        return
+    # Browserprozesse dürfen während eines minutenlangen Provider-Cooldowns
+    # nicht weiter CPU und RAM belegen. Ein späterer Retry erzeugt den Pool bei
+    # Bedarf neu.
     if state.voe_pool is not None:
         log("Schließe Browser-Pool …")
         try:
@@ -418,6 +416,11 @@ def _on_queue_done_locked():
             log(f"Embed-Close Fehler: {exc}", "warn")
         finally:
             state.embed_pool = None
+    # Während eines Provider-Cooldowns noch nicht „fertig" melden: Die offenen
+    # Claims werden nach einer einzelnen erfolgreichen Probe fortgesetzt.
+    if state.provider_waiting_jobs:
+        log("Downloadlauf pausiert – Episoden warten auf den SerienStream-Provider.")
+        return
     successful_jobs = len(state.done_slugs)
     failed_jobs = max(0, state.done_jobs - successful_jobs)
     log(f"Downloadlauf beendet: {successful_jobs} erfolgreich, {failed_jobs} fehlgeschlagen.")

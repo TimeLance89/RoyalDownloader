@@ -26,7 +26,9 @@ const WATCH_CLEANUP_LABELS = {
   watched_seasons: "Staffel-Löschung",
   watched_episodes: "Episoden-Löschung",
 };
-const FP_METADATA_BATCH_SIZE = 4;
+// Neue Katalogseiten reichern Poster in wenigen großen Paketen an. Dadurch
+// warten nachgeladene Karten nicht nacheinander auf viele kleine Requests.
+const FP_METADATA_BATCH_SIZE = 12;
 const FP_METADATA_BATCH_CONCURRENCY = 3;
 // Auto-Nachladen beobachtet sowohl intern scrollende Desktop-Tabs als auch den
 // Dokument-Viewport der mobilen Ansicht (siehe initCatalogInfiniteScroll).
