@@ -413,9 +413,10 @@ body.settings-active .bg-decor {
 #tab-einstellungen .settings-launch-card.is-maintenance { --launch-accent: #79a9c7; }
 
 #tab-einstellungen .settings-overview-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   padding: 13px 15px;
   color: var(--settings-muted);
   border: 1px dashed var(--settings-line-strong);
@@ -424,12 +425,32 @@ body.settings-active .bg-decor {
 }
 
 #tab-einstellungen .settings-overview-footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  height: auto;
+  color: var(--settings-green);
+  white-space: nowrap;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#tab-einstellungen .settings-overview-footer > span > i {
+  display: block;
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--settings-green);
   box-shadow: 0 0 10px rgba(131, 212, 154, 0.55);
+}
+
+#tab-einstellungen .settings-overview-footer > p {
+  margin: 0;
+  color: var(--settings-muted);
+  font: inherit;
 }
 
 #tab-einstellungen .settings-panel.is-overview .settings-actions { display: none; }
@@ -716,6 +737,11 @@ body.settings-active .bg-decor {
 }
 
 @media (max-width: 480px) {
+  #tab-einstellungen .settings-overview-footer {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
   #tab-einstellungen .settings-console-status {
     align-items: flex-start;
     flex-direction: column;
