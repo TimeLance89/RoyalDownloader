@@ -63,7 +63,7 @@ function fpMetadataPreloadItems(results) {
     }));
 }
 
-async function preloadTmdbMetadata(requestId, items) {
+async function preloadTmdbMetadata(requestId, items, { attempts = 2 } = {}) {
   if (!items.length) {
     state.fp.pendingPreload = null;
     return;
@@ -79,13 +79,14 @@ async function preloadTmdbMetadata(requestId, items) {
     while (nextBatch < batches.length) {
       const batch = batches[nextBatch++];
       const unresolved = new Map(batch.map((item) => [item.slug, item]));
-      for (let attempt = 0; attempt < 2 && unresolved.size; attempt += 1) {
+      const maxAttempts = Math.max(1, Math.min(2, Number(attempts) || 1));
+      for (let attempt = 0; attempt < maxAttempts && unresolved.size; attempt += 1) {
         let response;
         try {
           response = await api.tmdbMovies([...unresolved.values()]);
         } catch (e) {
           if (requestId !== state.fp.metadataRequestSeq) return;
-          if (attempt === 0) {
+          if (attempt + 1 < maxAttempts) {
             await new Promise((resolve) => setTimeout(resolve, 700));
             continue;
           }
@@ -101,7 +102,7 @@ async function preloadTmdbMetadata(requestId, items) {
           state.fp.pendingPreload?.delete(slug);
           updateFpResultCard(slug);
         }
-        if (unresolved.size && attempt === 0) {
+        if (unresolved.size && attempt + 1 < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, 700));
         }
       }
@@ -129,6 +130,63 @@ async function preloadTmdbMetadata(requestId, items) {
     }
     refreshMovieFeatureCandidates();
   }
+}
+
+async function preloadFpPosterImages(results, maxWaitMs = 3500) {
+  let next = 0;
+  const warmOne = (result) => {
+    const candidates = api.coverThumbnailCandidates(fpResultMedia(result)?.cover_url);
+    if (!candidates.length) return Promise.resolve();
+    return new Promise((resolve) => {
+      const image = new Image();
+      let index = 0;
+      const finish = () => resolve();
+      const load = () => {
+        if (!candidates[index]) return finish();
+        image.src = candidates[index];
+      };
+      image.onload = async () => {
+        try { await image.decode(); } catch (e) { /* bereits im Browser-Cache */ }
+        finish();
+      };
+      image.onerror = () => {
+        index += 1;
+        load();
+      };
+      load();
+    });
+  };
+  const worker = async () => {
+    while (next < results.length) {
+      const result = results[next++];
+      await warmOne(result);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(6, results.length) }, () => worker(),
+  );
+  let timer;
+  await Promise.race([
+    Promise.allSettled(workers),
+    new Promise((resolve) => { timer = setTimeout(resolve, maxWaitMs); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function prepareFpCatalogPage(data) {
+  const results = Array.isArray(data?.results) ? data.results : [];
+  for (const result of results) {
+    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = mergeFpMetadata(
+      state.fp.metadataCache[result.slug], result,
+    );
+  }
+  const metadataItems = fpMetadataPreloadItems(results);
+  if (metadataItems.length) {
+    state.fp.pendingPreload = state.fp.pendingPreload || new Set();
+    for (const item of metadataItems) state.fp.pendingPreload.add(item.slug);
+    await preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems, { attempts: 1 });
+  }
+  await preloadFpPosterImages(results);
+  return data;
 }
 
 function syncFpCatalogFromHome({ fresh = false } = {}) {

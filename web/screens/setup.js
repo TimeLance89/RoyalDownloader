@@ -378,7 +378,7 @@ function retrySeriesInfiniteLoad() {
 // intern scrollenden Tabs oder bis zum Sentinel im Dokument fehlt, wird die
 // naechste Seite geladen. Grosszuegig genug gewaehlt, dass die Folge-Eintraege
 // laengst da sind, bevor man das Ende sieht.
-const CATALOG_PRELOAD_PX = 3000;
+const CATALOG_PRELOAD_PX = 5000;
 
 function initCatalogInfiniteScroll() {
   document.getElementById("fp-infinite-retry").addEventListener("click", retryFpInfiniteLoad);

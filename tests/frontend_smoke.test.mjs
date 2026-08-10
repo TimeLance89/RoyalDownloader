@@ -91,7 +91,7 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
   assert.match(html, /i18n\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260810-2/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260810-3/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -146,7 +146,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260810-3/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260810-4/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -161,7 +161,7 @@ test("deep movie pagination hydrates only the newly appended page", () => {
   assert.match(app, /const metadataItems = fpMetadataPreloadItems\(incoming\)/);
   assert.match(app, /!metadata\?\.cover_url/);
   assert.match(app, /tmdb_id: result\.tmdb_id \|\| state\.fp\.metadataCache/);
-  assert.match(app, /for \(let attempt = 0; attempt < 2 && unresolved\.size/);
+  assert.match(app, /attempt < maxAttempts && unresolved\.size/);
   assert.match(app, /preloadTmdbMetadata\(state\.fp\.metadataRequestSeq, metadataItems\)/);
   assert.match(app, /requestId !== state\.fp\.metadataRequestSeq/);
   assert.doesNotMatch(app, /const items = state\.fp\.results\s*\.filter\(\(r\) => !state\.fp\.metadataCache/);
@@ -201,9 +201,12 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /refreshFpCatalogInBackground\(\)/);
   assert.match(app, /refreshSeriesCatalogInBackground\(\)/);
   assert.match(app, /rootMargin: "4200px 1200px"/);
-  assert.match(app, /const CATALOG_PRELOAD_PX = 3000/);
+  assert.match(app, /const CATALOG_PRELOAD_PX = 5000/);
   assert.match(app, /const FP_METADATA_BATCH_SIZE = 12/);
   assert.match(app, /scheduleResultPoster\(image, coverCandidates\)/);
+  assert.match(app, /await prepareFpCatalogPage\(data\)/);
+  assert.match(app, /await preloadFpPosterImages\(results\)/);
+  assert.match(app, /metadataPrepared: true/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
