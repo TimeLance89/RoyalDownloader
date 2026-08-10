@@ -42,7 +42,7 @@
       </button>
       <input id="global-search-input" type="search" autocomplete="off"
           placeholder="Titel eingeben · Enter" aria-label="Filme, Serien und Anime durchsuchen"
-          aria-controls="global-search-page" aria-expanded="false">
+          aria-controls="global-search-page">
       <button id="global-search-clear" class="global-search-clear" type="button"
           aria-label="Suche schließen" hidden>×</button>
     </div>
@@ -240,7 +240,7 @@
               <button type="button" data-home-scroll="home-movies-track" data-direction="1" aria-label="Empfehlungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-movies-track" class="home-track" aria-label="Persönliche Empfehlungen"></div>
+          <div id="home-movies-track" class="home-track" role="group" aria-label="Persönliche Empfehlungen"></div>
         </section>
 
         <section class="home-rail home-rail-top is-ranked" aria-labelledby="home-top-title">
@@ -254,7 +254,7 @@
               <button type="button" data-home-scroll="home-top-track" data-direction="1" aria-label="Top 10 nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-top-track" class="home-track home-top-track" aria-label="Top 10 des Tages"></div>
+          <div id="home-top-track" class="home-track home-top-track" role="group" aria-label="Top 10 des Tages"></div>
         </section>
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
@@ -265,7 +265,7 @@
               <button type="button" data-home-scroll="home-series-track" data-direction="1" aria-label="Angesagte Serien nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-series-track" class="home-track" aria-label="Angesagte Serien"></div>
+          <div id="home-series-track" class="home-track" role="group" aria-label="Angesagte Serien"></div>
         </section>
 
         <section class="home-rail home-rail-genre home-discovery-rail" aria-labelledby="home-genre-title">
@@ -279,7 +279,7 @@
               <button type="button" data-home-scroll="home-genre-track" data-direction="1" aria-label="Genre-Empfehlungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-genre-track" class="home-track" aria-label="Empfehlungen nach Genre"></div>
+          <div id="home-genre-track" class="home-track" role="group" aria-label="Empfehlungen nach Genre"></div>
         </section>
 
         <section class="home-rail home-rail-explore home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
@@ -293,7 +293,7 @@
               <button type="button" data-home-scroll="home-explore-track" data-direction="1" aria-label="Neue Entdeckungen nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-explore-track" class="home-track" aria-label="Unerwartete Entdeckungen"></div>
+          <div id="home-explore-track" class="home-track" role="group" aria-label="Unerwartete Entdeckungen"></div>
         </section>
 
         <section class="home-rail home-rail-gems home-discovery-rail is-gems" aria-labelledby="home-gems-title">
@@ -307,7 +307,7 @@
               <button type="button" data-home-scroll="home-gems-track" data-direction="1" aria-label="Verborgene Schätze nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-gems-track" class="home-track" aria-label="Verborgene Schätze"></div>
+          <div id="home-gems-track" class="home-track" role="group" aria-label="Verborgene Schätze"></div>
         </section>
 
         <section class="home-rail home-rail-new" aria-labelledby="home-new-title">
@@ -321,7 +321,7 @@
               <button type="button" data-home-scroll="home-new-track" data-direction="1" aria-label="Neue Titel nach rechts scrollen">›</button>
             </div>
           </header>
-          <div id="home-new-track" class="home-track" aria-label="Neue Filme und Serien"></div>
+          <div id="home-new-track" class="home-track" role="group" aria-label="Neue Filme und Serien"></div>
         </section>
       </div>
     </section>
@@ -1341,7 +1341,7 @@
     <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
     <aside id="queue-dock" class="sidebar" aria-label="Downloadplan">
       <div class="panel queue-panel">
-        <div id="queue-drawer" class="queue-drawer" aria-hidden="true">
+        <div id="queue-drawer" class="queue-drawer" aria-hidden="true" inert>
           <section class="queue-drawer-main" aria-labelledby="queue-drawer-title">
             <div class="panel-head">
               <div class="queue-drawer-heading">

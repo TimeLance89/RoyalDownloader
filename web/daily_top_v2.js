@@ -221,8 +221,9 @@
     const globalRank = Number(dailyTop.global_rank || visibleRank);
     const rank = card.querySelector(".home-card-rank");
     if (rank) rank.textContent = String(visibleRank);
-    const currentLabel = card.getAttribute("aria-label") || "";
-    card.setAttribute("aria-label", currentLabel.replace(/^Platz \d+:/, `Platz ${visibleRank}:`));
+    const primaryAction = card.querySelector(".home-card-primary-action");
+    const currentLabel = primaryAction?.getAttribute("aria-label") || "";
+    primaryAction?.setAttribute("aria-label", currentLabel.replace(/^Platz \d+:/, `Platz ${visibleRank}:`));
     card.dataset.dailyTopScore = Number(dailyTop.score || 0).toFixed(2);
     card.dataset.dailyTopGlobalRank = String(globalRank);
     card.dataset.dailyTopDisplayRank = String(visibleRank);
@@ -296,7 +297,7 @@
       if (card && entry?.item?.daily_top) {
         card.addEventListener("click", (event) => {
           const nestedAction = event.target.closest("a, button, [role='button'], [data-card-action]");
-          if (nestedAction && nestedAction !== card) return;
+          if (nestedAction && !nestedAction.classList.contains("home-card-primary-action")) return;
           if (!openDailyTopEntry(entry)) return;
           event.preventDefault();
           event.stopImmediatePropagation();

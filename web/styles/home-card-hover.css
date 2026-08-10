@@ -2,6 +2,28 @@
 /* The resting state is untouched. Hover adds one compact context rail, a clear
    details affordance and a restrained Royal-red focus edge. */
 
+.home-card-primary-action {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-card:focus-within {
+  z-index: 20;
+}
+
+.home-card:focus-within .home-card-art {
+  box-shadow: 0 0 0 3px #fff, 0 26px 46px -18px #000;
+}
+
 @media (hover: hover) and (pointer: fine) {
   #tab-home .home-card {
     transition: transform .24s cubic-bezier(.2, .8, .2, 1), z-index 0s .24s;
@@ -177,7 +199,7 @@
   }
 
   #tab-home .home-card:hover .taste-v2-dismiss,
-  #tab-home .home-card:focus-visible .taste-v2-dismiss,
+  #tab-home .home-card:focus-within .taste-v2-dismiss,
   #tab-home .home-card .taste-v2-dismiss:focus {
     opacity: .78;
     transform: none;
