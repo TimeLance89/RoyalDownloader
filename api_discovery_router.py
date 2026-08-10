@@ -419,11 +419,25 @@ async def api_tmdb_movies(body: MovieMetadataBody):
         unique = {}
         for item in body.items[:100]:
             title = clean_movie_title(item.title)
-            key = (_norm_title(title), str(item.year or ""))
-            group = unique.setdefault(key, {"title": title, "year": item.year, "slugs": []})
+            key = (
+                ("tmdb", str(item.tmdb_id))
+                if item.tmdb_id
+                else ("title", _norm_title(title), str(item.year or ""))
+            )
+            group = unique.setdefault(key, {
+                "title": title,
+                "year": item.year,
+                "tmdb_id": item.tmdb_id,
+                "slugs": [],
+            })
             group["slugs"].append(item.slug)
 
         def _group_metadata(group: dict) -> dict[str, dict]:
+            if group["tmdb_id"]:
+                metadata = tmdb_client.movie_summary_by_id(
+                    group["tmdb_id"], group["title"],
+                ) or tmdb_client.movie_summary(group["title"], group["year"])
+                return {slug: metadata for slug in group["slugs"] if metadata}
             if group["year"]:
                 metadata = tmdb_client.movie_summary(group["title"], group["year"])
                 return {slug: metadata for slug in group["slugs"] if metadata}

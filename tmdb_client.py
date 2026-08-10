@@ -80,6 +80,7 @@ class TMDBClient:
         self.language = language
         self.timeout = timeout
         self._movie_summary_cache: dict = {}
+        self._movie_summary_id_cache: dict = {}
         self._series_summary_cache: dict = {}
         self._movie_search_cache: dict = {}
         self._movie_cache: dict = {}
@@ -413,6 +414,43 @@ class TMDBClient:
         if result is not None:
             with self._lock:
                 self._movie_summary_cache[cache_key] = result
+        return result
+
+    def movie_summary_by_id(self, tmdb_id, title: str = "") -> Optional[dict]:
+        """Schnelle, eindeutige Listenmetadaten über eine bekannte TMDB-ID."""
+        key = str(tmdb_id or "").strip()
+        if not key.isdigit():
+            return None
+        with self._lock:
+            cached = self._movie_summary_id_cache.get(key)
+            if cached is not None:
+                return dict(cached)
+
+        item = self._request(f"/movie/{key}", {"language": self.language})
+        result = None
+        if item:
+            result = {
+                "tmdb_id": int(key),
+                "title": item.get("title") or title,
+                "year": _year_from_date(item.get("release_date") or ""),
+                "runtime": "",
+                "cover_url": self._poster_url(item.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(item.get("backdrop_path") or ""),
+                "description": item.get("overview") or "",
+                "genres": [
+                    str(genre.get("name") or "").strip()
+                    for genre in item.get("genres") or []
+                    if isinstance(genre, dict) and genre.get("name")
+                ],
+                "original_title": item.get("original_title") or "",
+                "release_date": item.get("release_date") or "",
+                "rating": round(float(item.get("vote_average") or 0), 1),
+                "vote_count": int(item.get("vote_count") or 0),
+                "details_loaded": False,
+                "metadata_source": "TMDB",
+            }
+            with self._lock:
+                self._movie_summary_id_cache[key] = dict(result)
         return result
 
     def now_playing_ids(self, force: bool = False) -> set[int]:

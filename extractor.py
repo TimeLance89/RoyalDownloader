@@ -645,11 +645,35 @@ class VOEBrowserPool:
             self._log(f"  VOE-Setup teilweise fehlgeschlagen: {exc}")
 
     async def _async_browser_stop(self):
+        process = getattr(self._browser, "_process", None)
         try:
             if self._browser is not None:
                 self._browser.stop()
         except Exception:
             pass
+        # nodriver beendet beim Browser.stop() nicht zuverlässig alle eigenen
+        # Listener-/Keepalive-Tasks. Werden sie danach mit dem Event-Loop
+        # geschlossen, bleiben Chromium-Kinder als Zombies zurück und Python
+        # meldet "Task was destroyed but it is pending". Erst abbrechen und
+        # einsammeln, dann den Chromium-Prozess reapen.
+        current = asyncio.current_task()
+        pending = [
+            task for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if process is not None and process.returncode is None:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
 
     def _do_extract(
         self, target_url: str, wait_seconds: int, referer: str = "",

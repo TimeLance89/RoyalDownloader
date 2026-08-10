@@ -32,6 +32,39 @@ class _HosterResult:
         self.resolved_from_cache = False
 
 
+def _shared_browser_pool(reason: str):
+    """Liefert genau einen Chromium-Pool für alle Hoster-Fallbacks.
+
+    Zwei getrennte Pools (VOE und generische Embeds) konnten auf dem NAS
+    gleichzeitig starten. Jeder Pool ist ein vollständiger Chromium-Prozess
+    samt Renderern und machte die Oberfläche während der Extraktion träge.
+    Ein VOE-fähiger Pool kann auch generische Embed-URLs abarbeiten.
+    """
+    primary = getattr(state, "voe_pool", None)
+    secondary = getattr(state, "embed_pool", None)
+    pool = primary or secondary
+    if pool is not None:
+        if primary is None:
+            state.voe_pool = pool
+        if secondary is not None and secondary is not pool:
+            try:
+                secondary.close()
+            except Exception as exc:
+                log(f"Zusätzlicher Browser-Pool konnte nicht geschlossen werden: {exc}", "warn")
+        state.embed_pool = None
+        return pool
+
+    log(f"Starte gemeinsamen Browser-Pool für {reason} …")
+    try:
+        pool = VOEBrowserPool(log_cb=log)
+    except Exception as exc:
+        log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
+        return None
+    state.voe_pool = pool
+    state.embed_pool = None
+    return pool
+
+
 def _extract_from_movie(
     movie: FilmpalastMovie,
     unsupported_domains: set,
@@ -59,6 +92,11 @@ def _extract_from_movie(
     # später dasselbe Nichts – kostet aber erneut die volle Wartezeit.
     if barren_hoster_urls is None:
         barren_hoster_urls = set()
+    # Verschiedene Moflix-Mirrors führen häufig zum selben Player. Für einen
+    # Downloadversuch ist höchstens ein Browser-Fallback pro Hosterfamilie
+    # sinnvoll; weitere Versuche kosten auf dem NAS nur CPU und bringen in der
+    # Regel denselben leeren Player zurück.
+    browser_fallbacks_started: set[str] = set()
 
     ranked_hosters = state.hoster_intel.rank(movie.hosters)
     preferred_quality_value = getattr(movie, "_preferred_quality", None)
@@ -192,21 +230,16 @@ def _extract_from_movie(
             continue
 
         if name == "voe":
-            if state.voe_pool is None:
-                log("Starte Browser-Pool für VOE-Fallback …")
-                try:
-                    state.voe_pool = VOEBrowserPool(log_cb=log)
-                except Exception as exc:
-                    log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                    state.voe_pool = None
-                    continue
+            pool = _shared_browser_pool("VOE-Fallback")
+            if pool is None:
+                continue
             check = pre_check_voe(play_url, session=session)
             if check == VOE_NOT_FOUND:
                 log("  VOE 404 – nächster Hoster", "warn")
                 continue
             try:
                 res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=state.voe_pool,
+                    play_url, session=session, log_cb=log, pool=pool,
                 )
             except Exception as exc:
                 log(f"  VOE-Extraktion fehlgeschlagen: {exc}", "warn")
@@ -235,18 +268,21 @@ def _extract_from_movie(
                     referer=embed_referer,
                 )
                 if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool für Embed-Fallback …")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                            continue
+                    if name in browser_fallbacks_started:
+                        barren_hoster_urls.add(play_url)
+                        log(
+                            f"  Überspringe {hoster.name}: Browser-Fallback für diesen Hoster bereits erfolglos",
+                            "warn",
+                        )
+                        continue
+                    browser_fallbacks_started.add(name)
+                    pool = _shared_browser_pool("Embed-Fallback")
+                    if pool is None:
+                        continue
                     res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=state.embed_pool,
+                        play_url, session=session, log_cb=log, pool=pool,
                         referer=embed_referer,
-                        browser_wait_seconds=12,
+                        browser_wait_seconds=6,
                     )
             except Exception as exc:
                 log(f"  Embed-Extraktion fehlgeschlagen: {exc}", "warn")
@@ -262,18 +298,13 @@ def _extract_from_movie(
                     referer=referer,
                 )
                 if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool für KinoGer-Mirror …")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                            continue
+                    pool = _shared_browser_pool("KinoGer-Mirror")
+                    if pool is None:
+                        continue
                     res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=state.embed_pool,
+                        play_url, session=session, log_cb=log, pool=pool,
                         referer=referer,
-                        browser_wait_seconds=12,
+                        browser_wait_seconds=8,
                     )
             except Exception as exc:
                 log(f"  KinoGer-Mirror fehlgeschlagen: {exc}", "warn")
@@ -333,18 +364,12 @@ def _extract_from_movie(
                     referer=referer,
                 )
                 if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool für MegaKino-Hoster …")
-                        try:
-                            state.embed_pool = VOEBrowserPool(log_cb=log, setup_voe=False)
-                        except Exception as exc:
-                            log(f"Browser-Pool konnte nicht starten: {exc}", "warn")
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
+                    pool = _shared_browser_pool("MegaKino-Hoster")
+                    if pool is not None:
                         res.stream_info = extract_stream_url(
-                            play_url, session=session, log_cb=log, pool=state.embed_pool,
+                            play_url, session=session, log_cb=log, pool=pool,
                             referer=referer,
-                            browser_wait_seconds=10,
+                            browser_wait_seconds=8,
                         )
             except Exception as exc:
                 log(f"  MegaKino-Hoster fehlgeschlagen: {exc}", "warn")
@@ -368,27 +393,15 @@ def _extract_from_movie(
                     referer=referer,
                 )
                 if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool für SFlix-Hoster …")
-                        try:
-                            state.embed_pool = VOEBrowserPool(
-                                log_cb=log,
-                                setup_voe=False,
-                            )
-                        except Exception as exc:
-                            log(
-                                f"Browser-Pool konnte nicht starten: {exc}",
-                                "warn",
-                            )
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
+                    pool = _shared_browser_pool("SFlix-Hoster")
+                    if pool is not None:
                         res.stream_info = extract_stream_url(
                             play_url,
                             session=session,
                             log_cb=log,
-                            pool=state.embed_pool,
+                            pool=pool,
                             referer=referer,
-                            browser_wait_seconds=12,
+                            browser_wait_seconds=8,
                         )
             except Exception as exc:
                 log(f"  SFlix-Hoster fehlgeschlagen: {exc}", "warn")
@@ -411,27 +424,15 @@ def _extract_from_movie(
                     referer=referer,
                 )
                 if res.stream_info is None:
-                    if state.embed_pool is None:
-                        log("Starte Browser-Pool für Ridomovies-Hoster …")
-                        try:
-                            state.embed_pool = VOEBrowserPool(
-                                log_cb=log,
-                                setup_voe=False,
-                            )
-                        except Exception as exc:
-                            log(
-                                f"Browser-Pool konnte nicht starten: {exc}",
-                                "warn",
-                            )
-                            state.embed_pool = None
-                    if state.embed_pool is not None:
+                    pool = _shared_browser_pool("Ridomovies-Hoster")
+                    if pool is not None:
                         res.stream_info = extract_stream_url(
                             play_url,
                             session=session,
                             log_cb=log,
-                            pool=state.embed_pool,
+                            pool=pool,
                             referer=referer,
-                            browser_wait_seconds=12,
+                            browser_wait_seconds=8,
                         )
             except Exception as exc:
                 log(f"  Ridomovies-Hoster fehlgeschlagen: {exc}", "warn")
@@ -458,27 +459,15 @@ def _extract_from_movie(
                         referer=referer,
                     )
                     if res.stream_info is None:
-                        if state.embed_pool is None:
-                            log("Starte Browser-Pool für MKissa-Hoster …")
-                            try:
-                                state.embed_pool = VOEBrowserPool(
-                                    log_cb=log,
-                                    setup_voe=False,
-                                )
-                            except Exception as exc:
-                                log(
-                                    f"Browser-Pool konnte nicht starten: {exc}",
-                                    "warn",
-                                )
-                                state.embed_pool = None
-                        if state.embed_pool is not None:
+                        pool = _shared_browser_pool("MKissa-Hoster")
+                        if pool is not None:
                             res.stream_info = extract_stream_url(
                                 play_url,
                                 session=session,
                                 log_cb=log,
-                                pool=state.embed_pool,
+                                pool=pool,
                                 referer=referer,
-                                browser_wait_seconds=12,
+                                browser_wait_seconds=8,
                             )
                 except Exception as exc:
                     log(f"  MKissa-Hoster fehlgeschlagen: {exc}", "warn")

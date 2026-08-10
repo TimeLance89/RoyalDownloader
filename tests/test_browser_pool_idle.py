@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import server  # noqa: F401 - registers the application service backend
-from application_services import download_lifecycle
+from application_services import download_lifecycle, source_resolution
 
 
 class _Pool:
@@ -31,3 +31,21 @@ def test_idle_provider_cooldown_closes_browser_pools(monkeypatch):
     assert embed_pool.closed is True
     assert fake_state.voe_pool is None
     assert fake_state.embed_pool is None
+
+
+def test_all_hoster_fallbacks_share_one_browser_pool(monkeypatch):
+    primary_pool = _Pool()
+    duplicate_pool = _Pool()
+    fake_state = SimpleNamespace(
+        voe_pool=primary_pool,
+        embed_pool=duplicate_pool,
+    )
+    monkeypatch.setattr(source_resolution, "state", fake_state)
+    monkeypatch.setattr(source_resolution, "log", lambda *_args: None)
+
+    pool = source_resolution._shared_browser_pool("test")
+
+    assert pool is primary_pool
+    assert fake_state.voe_pool is primary_pool
+    assert fake_state.embed_pool is None
+    assert duplicate_pool.closed is True
