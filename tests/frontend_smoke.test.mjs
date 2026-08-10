@@ -482,7 +482,8 @@ test("trailer player opens immediately with resilient playback states", () => {
   assert.match(app, /heroTrailerAutoplayEnabled\(\)/);
   assert.match(app, /setTrailerPlayerState\("error"/);
   assert.match(app, /function trailerModalFocusableElements\(\)/);
-  assert.match(html, /trailer-runtime\.js\?v=royal-20260810-1/);
+  assert.match(app, /return saved === null \? true : saved === "true"/);
+  assert.match(html, /trailer-runtime\.js\?v=royal-20260810-2/);
   assert.match(stylesheet, /legacy-details\.css\?v=royal-20260810-2/);
 });
 
