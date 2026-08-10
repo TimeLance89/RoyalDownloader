@@ -6,14 +6,19 @@ set -Eeuo pipefail
 
 bundle_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 target_arg="${1:-}"
+legacy_container="${2:-}"
 if [ -z "$target_arg" ]; then
-    echo "Verwendung: bash install.sh /pfad/zu/RoyalDownloader" >&2
+    echo "Verwendung: bash install.sh /pfad/zu/RoyalDownloader [alter-container]" >&2
     exit 2
 fi
 target="$(cd -- "$target_arg" && pwd -P)"
 case "$target" in
     /|/home|/volume1|/volume2) echo "Zu breites Installationsziel: $target" >&2; exit 2 ;;
 esac
+if [ -n "$legacy_container" ] && [[ ! "$legacy_container" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+    echo "Ungültiger alter Containername" >&2
+    exit 2
+fi
 
 for required in docker-compose.yml data runtime; do
     if [ ! -e "$target/$required" ]; then
@@ -44,6 +49,7 @@ backup_root="$target/.nas-update/backups"
 backup="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
 mkdir -p "$backup"
 rollback_needed=0
+legacy_stopped=0
 
 cleanup() {
     rm -rf -- "$staging"
@@ -63,10 +69,18 @@ rollback() {
             done < "$staging/.nas_managed_files"
         fi
         tar -xzf "$backup/source-before-update.tar.gz" -C "$target"
-        (
-            cd "$target"
-            docker compose up -d --build --force-recreate seriendownloader
-        ) || true
+        if [ "$legacy_stopped" = "1" ]; then
+            (
+                cd "$target"
+                docker compose stop seriendownloader
+            ) || true
+            docker start "$legacy_container" || true
+        else
+            (
+                cd "$target"
+                docker compose up -d --build --force-recreate seriendownloader
+            ) || true
+        fi
     fi
     cleanup
     exit "$code"
@@ -115,7 +129,16 @@ fi
 (
     cd "$target"
     docker compose config --quiet
-    APP_COMMIT_SHA="$commit" docker compose up -d --build --force-recreate seriendownloader
+    APP_COMMIT_SHA="$commit" docker compose build seriendownloader
+)
+if [ -n "$legacy_container" ]; then
+    docker inspect "$legacy_container" >/dev/null
+    docker stop "$legacy_container"
+    legacy_stopped=1
+fi
+(
+    cd "$target"
+    APP_COMMIT_SHA="$commit" docker compose up -d --no-build --force-recreate seriendownloader
 )
 
 healthy=0
@@ -140,3 +163,6 @@ fi
 rollback_needed=0
 trap - ERR
 echo "NAS-Update aktiv: ${commit:0:12}"
+if [ "$legacy_stopped" = "1" ]; then
+    echo "Alter Container bleibt gestoppt als Rückfalloption: $legacy_container"
+fi

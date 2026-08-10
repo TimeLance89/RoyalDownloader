@@ -60,3 +60,13 @@ def test_nas_installer_verifies_the_release_used_by_the_running_server_process()
 
     assert 'Path("/proc/1/cwd").resolve()' in installer
     assert 'os.environ["APP_ACTIVE_RELEASE"]' not in installer
+
+
+def test_nas_installer_can_replace_a_legacy_container_after_the_new_image_build():
+    installer = (ROOT / "scripts" / "nas_update_install.sh").read_text(encoding="utf-8")
+
+    assert "[alter-container]" in installer
+    assert "docker compose build seriendownloader" in installer
+    assert 'docker stop "$legacy_container"' in installer
+    assert "docker compose up -d --no-build --force-recreate seriendownloader" in installer
+    assert 'docker start "$legacy_container" || true' in installer

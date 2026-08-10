@@ -81,6 +81,15 @@ paketierte Commit als aktives Runtime-Release läuft. `.env`, `data/`,
 Bei einem fehlgeschlagenen Start wird der vorherige Quellstand automatisch
 wiederhergestellt.
 
+Falls eine ältere Installation noch unter einem anderen Docker-Containernamen
+läuft, wird dieser als zweites Argument übergeben. Der neue Container wird
+zuerst gebaut; erst dann wird der alte gestoppt. Bei Fehlern startet der
+Installer ihn wieder:
+
+```bash
+bash /tmp/royal-update/install.sh /volume1/Deluxe Downloader_Deluxe
+```
+
 ## Development and promotion workflow
 
 1. Develop feature/fix branches against `overnight`.
