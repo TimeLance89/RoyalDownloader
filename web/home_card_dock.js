@@ -235,6 +235,7 @@ async function playHomeCardDockPreview(card, entry, request) {
     frame.title = `${homeEntryMedia(entry).title}: Trailer-Vorschau`;
     frame.tabIndex = -1;
     frame.allow = "autoplay; encrypted-media; picture-in-picture";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
     frame.setAttribute("aria-hidden", "true");
     frame.onload = () => {
       if (request !== homeCardDockPreviewRequest || homeCardDockOwner !== card) return;
