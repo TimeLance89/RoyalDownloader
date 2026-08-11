@@ -84,6 +84,11 @@ function homeCardDockPointerInsideActiveZone() {
 function handleHomeCardDockPointerMove(event) {
   recordHomeCardDockPointer(event);
   const target = event.target instanceof Element ? event.target : null;
+  const railArrow = target?.closest("#tab-home .home-rail-controls button");
+  if (railArrow) {
+    hideHomeCardDock();
+    return;
+  }
   const card = target?.closest("#tab-home .home-card:not(.is-ranked)");
   const entry = card ? homeCardDockEntries.get(card) : null;
   if (card && entry) {
