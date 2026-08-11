@@ -11,8 +11,8 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-4');"
-    assert '<script src="/home_card_dock.js?v=royal-20260811-8"></script>' in (
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
+    assert '<script src="/home_card_dock.js?v=royal-20260811-9"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
 
@@ -138,3 +138,23 @@ def test_entering_a_carousel_arrow_closes_card_hover_but_keeps_arrow_hover():
     arrow_branch = DOCK.split("const railArrow", 1)[1].split("const card", 1)[0]
     assert "hideHomeCardDock();" in arrow_branch
     assert ".home-rail-controls button:hover" not in HOVER
+
+
+def test_hover_autoplays_an_available_trailer_after_one_second():
+    assert "const HOME_CARD_DOCK_PREVIEW_MS = 1000" in DOCK
+    assert "void playHomeCardDockPreview(card, entry, request)" in DOCK
+    assert "await api.tmdbMovie" in DOCK
+    assert "request !== homeCardDockPreviewRequest" in DOCK
+    assert "homeCardDockOwner !== card" in DOCK
+    assert "youtube-nocookie.com/embed/" in DOCK
+    assert "?autoplay=1&mute=1&controls=0" in DOCK
+    assert ".home-card-dock-preview" in HOVER
+    assert "pointer-events: none" in HOVER
+
+
+def test_hover_trailer_reuses_and_persists_the_global_sound_choice():
+    movies = (ROOT / "web" / "screens" / "movies.js").read_text(encoding="utf-8")
+    assert '["home-card-dock-preview", "home-card-dock-mute"]' in movies
+    assert "setFpDetailHeroTrailerMuted(!muted, { persist: true })" in DOCK
+    assert "setFpDetailHeroTrailerMuted(" in DOCK
+    assert "cancelHomeCardDockPreview();" in DOCK

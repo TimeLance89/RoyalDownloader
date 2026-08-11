@@ -1155,6 +1155,7 @@ function setFpDetailHeroTrailerMuted(muted, { persist = false } = {}) {
   for (const [frameId, buttonId] of [
     ["fp-detail-hero-frame", "fp-detail-hero-mute"],
     ["series-detail-hero-frame", "series-detail-hero-mute"],
+    ["home-card-dock-preview", "home-card-dock-mute"],
   ]) {
     const frame = document.getElementById(frameId);
     const button = document.getElementById(buttonId);

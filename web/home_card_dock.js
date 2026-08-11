@@ -5,6 +5,7 @@ const HOME_CARD_DOCK_FADE_MS = 170;
 const HOME_CARD_DOCK_HANDOFF_MS = 110;
 const HOME_CARD_DOCK_LEAVE_MS = 180;
 const HOME_CARD_DOCK_MIN_VISIBLE_MS = 360;
+const HOME_CARD_DOCK_PREVIEW_MS = 1000;
 let homeCardDock = null;
 let homeCardDockOwner = null;
 let homeCardDockCandidate = null;
@@ -15,6 +16,8 @@ let homeCardDockSuppressFocus = false;
 let homeCardDockShownAt = 0;
 let homeCardDockPointerX = -1;
 let homeCardDockPointerY = -1;
+let homeCardDockPreviewTimer = null;
+let homeCardDockPreviewRequest = 0;
 const homeCardDockEntries = new WeakMap();
 
 function homeCardDockRuntime(value) {
@@ -178,6 +181,92 @@ function setHomeCardDockMessage(message) {
   if (status) status.textContent = message;
 }
 
+function cancelHomeCardDockPreview() {
+  if (homeCardDockPreviewTimer) clearTimeout(homeCardDockPreviewTimer);
+  homeCardDockPreviewTimer = null;
+  homeCardDockPreviewRequest += 1;
+  homeCardDock?.classList.remove("is-previewing");
+  homeCardDock?.querySelector(".home-card-dock-preview")?.remove();
+  const muteButton = homeCardDock?.querySelector(".home-card-dock-mute");
+  if (muteButton) muteButton.hidden = true;
+}
+
+async function resolveHomeCardDockTrailer(entry) {
+  const media = homeEntryMedia(entry);
+  let trailerMedia = {
+    ...media,
+    ...(entry.kind === "movie" ? (state.fp.moviesCache[entry.item.slug] || {}) : {}),
+  };
+  let key = typeof fpTrailerYoutubeKey === "function" ? fpTrailerYoutubeKey(trailerMedia) : "";
+  if (!key && entry.kind === "movie") {
+    const response = await api.tmdbMovie({
+      slug: entry.item.slug,
+      title: media.title || entry.item.title,
+      year: media.year || entry.item.year || "",
+      tmdb_id: media.tmdb_id || entry.item.tmdb_id || null,
+    });
+    if (response.movie) {
+      trailerMedia = { ...media, ...response.movie };
+      state.fp.metadataCache[entry.item.slug] = {
+        ...(state.fp.metadataCache[entry.item.slug] || {}),
+        ...response.movie,
+      };
+      key = typeof fpTrailerYoutubeKey === "function" ? fpTrailerYoutubeKey(trailerMedia) : "";
+    }
+  }
+  return { key, trailerMedia };
+}
+
+async function playHomeCardDockPreview(card, entry, request) {
+  try {
+    const { key } = await resolveHomeCardDockTrailer(entry);
+    if (
+      !key
+      || request !== homeCardDockPreviewRequest
+      || homeCardDockOwner !== card
+      || homeCardDock?.hidden
+      || !homeCardDockPointerInsideActiveZone()
+    ) return;
+    const visual = homeCardDock.querySelector(".home-card-dock-visual");
+    if (!visual) return;
+    const frame = document.createElement("iframe");
+    frame.id = "home-card-dock-preview";
+    frame.className = "home-card-dock-preview";
+    frame.title = `${homeEntryMedia(entry).title}: Trailer-Vorschau`;
+    frame.tabIndex = -1;
+    frame.allow = "autoplay; encrypted-media; picture-in-picture";
+    frame.setAttribute("aria-hidden", "true");
+    frame.onload = () => {
+      if (request !== homeCardDockPreviewRequest || homeCardDockOwner !== card) return;
+      const muteButton = homeCardDock.querySelector(".home-card-dock-mute");
+      if (muteButton) muteButton.hidden = false;
+      if (typeof setFpDetailHeroTrailerMuted === "function") {
+        setFpDetailHeroTrailerMuted(
+          typeof fpDetailHeroTrailerMuted === "boolean" ? fpDetailHeroTrailerMuted : true,
+        );
+      }
+      homeCardDock.classList.add("is-previewing");
+    };
+    frame.src =
+      `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
+      + `?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&modestbranding=1`
+      + `&disablekb=1&fs=0&iv_load_policy=3&enablejsapi=1`
+      + `&origin=${encodeURIComponent(window.location.origin)}`;
+    visual.appendChild(frame);
+  } catch {
+    // Eine fehlende Vorschau darf den normalen Card-Hover nicht beeinträchtigen.
+  }
+}
+
+function scheduleHomeCardDockPreview(card, entry) {
+  cancelHomeCardDockPreview();
+  const request = homeCardDockPreviewRequest;
+  homeCardDockPreviewTimer = window.setTimeout(() => {
+    homeCardDockPreviewTimer = null;
+    void playHomeCardDockPreview(card, entry, request);
+  }, HOME_CARD_DOCK_PREVIEW_MS);
+}
+
 async function openHomeCardTrailer(entry, trigger) {
   const media = homeEntryMedia(entry);
   let trailerMedia = {
@@ -250,7 +339,21 @@ function renderHomeCardDock(card, entry) {
   kind.textContent = kindLabel.toLocaleUpperCase("de-DE");
   const jellyfin = document.createElement("span");
   setCatalogJellyfinBadge(jellyfin, jellyfinStatus);
-  visualTop.append(kind, jellyfin);
+  const mute = document.createElement("button");
+  mute.id = "home-card-dock-mute";
+  mute.className = "home-card-dock-mute";
+  mute.type = "button";
+  mute.hidden = true;
+  const muteIcon = document.createElement("span");
+  muteIcon.setAttribute("aria-hidden", "true");
+  muteIcon.textContent = "🔇";
+  mute.appendChild(muteIcon);
+  mute.addEventListener("click", () => {
+    if (typeof setFpDetailHeroTrailerMuted !== "function") return;
+    const muted = typeof fpDetailHeroTrailerMuted === "boolean" ? fpDetailHeroTrailerMuted : true;
+    setFpDetailHeroTrailerMuted(!muted, { persist: true });
+  });
+  visualTop.append(kind, mute, jellyfin);
   visual.appendChild(visualTop);
 
   const panel = document.createElement("div");
@@ -400,10 +503,12 @@ function activateHomeCardDock(card, entry, focusDock = false) {
     requestAnimationFrame(() => {
       if (transition !== homeCardDockTransition || dock.hidden || homeCardDockOwner !== card) return;
       dock.classList.add("is-visible");
+      scheduleHomeCardDockPreview(card, entry);
       if (focusDock) dock.querySelector(".home-card-dock-action")?.focus();
     });
   };
   if (!dock.hidden && homeCardDockOwner && homeCardDockOwner !== card) {
+    cancelHomeCardDockPreview();
     dock.classList.remove("is-visible");
     dock.classList.add("is-leaving");
     window.setTimeout(reveal, HOME_CARD_DOCK_FADE_MS);
@@ -455,6 +560,7 @@ function scheduleHomeCardDockHide(event) {
 
 function hideHomeCardDock({ immediate = false } = {}) {
   cancelHomeCardDockTimers();
+  cancelHomeCardDockPreview();
   homeCardDockCandidate = null;
   if (!homeCardDock || homeCardDock.hidden) return;
   const transition = ++homeCardDockTransition;
