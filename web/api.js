@@ -249,13 +249,6 @@ const api = {
     return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
   },
 
-  isDirectTmdbImage(url) {
-    try {
-      const parsed = new URL(url, location.origin);
-      return parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org";
-    } catch (e) { return false; }
-  },
-
   coverThumbnailCandidates(url) {
     if (!url) return [];
     try {

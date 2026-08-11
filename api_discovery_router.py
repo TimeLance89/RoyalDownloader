@@ -499,7 +499,7 @@ async def api_tmdb_movies(body: MovieMetadataBody):
             job_key = (
                 "background" if body.background else "interactive",
                 str(group.get("tmdb_id") or ""),
-                _norm_title(group["title"]),
+                "" if group.get("tmdb_id") else _norm_title(group["title"]),
                 str(group.get("year") or ""),
                 tuple(group["slugs"]),
             )
