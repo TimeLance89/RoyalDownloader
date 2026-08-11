@@ -5,6 +5,7 @@ import asyncio
 import server  # noqa: F401 - registers the application service backend
 import api_discovery_router
 from application_services import movie_catalog
+from providers.models import FilmpalastSearchResult
 
 
 def test_slow_movie_provider_continues_after_request_deadline(monkeypatch):
@@ -97,3 +98,30 @@ def test_movie_catalog_response_does_not_wait_for_jellyfin(monkeypatch):
 
     assert result["results"][0]["slug"] == "movie:test"
     assert "in_jellyfin" not in result["results"][0]
+
+
+def test_partial_movie_page_is_marked_for_same_page_retry(monkeypatch):
+    results = [
+        FilmpalastSearchResult(
+            title=f"Film {index}",
+            slug=f"film-{index}",
+            url=f"https://example.test/{index}",
+            year="2026",
+            provider="filmpalast",
+        )
+        for index in range(14)
+    ]
+
+    monkeypatch.setattr(movie_catalog, "provider_priority", lambda _kind: ["filmpalast"])
+
+    def partial_load(_mode, _genre, requests, _cold_budget, _deadline, timed_out):
+        timed_out[0] = True
+        return {requests[0]: results}
+
+    monkeypatch.setattr(movie_catalog, "_load_movie_provider_pages", partial_load)
+
+    page = movie_catalog.movie_catalog_page("new", 1)
+
+    assert len(page["results"]) == 14
+    assert page["has_more"] is True
+    assert page["page_complete"] is False

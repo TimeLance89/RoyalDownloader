@@ -1721,7 +1721,7 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
       slug: item.slug,
       title: item.title,
       year: item.year || "",
-    })));
+    })), true);
     for (const [slug, metadata] of Object.entries(response.movies || {})) {
       if (metadata) {
         state.fp.metadataCache[slug] = { ...(state.fp.metadataCache[slug] || {}), ...metadata };

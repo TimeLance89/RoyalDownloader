@@ -1,6 +1,7 @@
 import json
 import asyncio
 import threading
+import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
@@ -188,3 +189,63 @@ def test_tmdb_batch_prefers_known_id_for_reliable_posters(monkeypatch):
 
     assert calls == [(12345, "Known Movie")]
     assert result["known-movie"]["cover_url"].endswith("/poster.jpg")
+
+
+def test_tmdb_batch_returns_fast_posters_without_waiting_for_slow_ambiguity(monkeypatch):
+    release = threading.Event()
+
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def cached_now_playing_ids():
+            return set()
+
+        @staticmethod
+        def now_playing_ids():
+            raise AssertionError("Kinostatus darf Poster nicht blockieren")
+
+        @staticmethod
+        def movie_summary(title, _year):
+            return {
+                "tmdb_id": 1,
+                "title": title,
+                "cover_url": "https://image.tmdb.org/t/p/w500/fast.jpg",
+            }
+
+        @staticmethod
+        def search_movies(_title, max_results=20):
+            assert max_results == 20
+            return [
+                {"tmdb_id": 2, "title": "Slow", "original_title": "Slow", "year": "2025"},
+                {"tmdb_id": 3, "title": "Slow", "original_title": "Slow", "year": "2026"},
+            ]
+
+    def slow_provider_detail(_slug):
+        assert release.wait(timeout=1)
+        return SimpleNamespace(title="Slow", year="2026")
+
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "load_movie_for_slug", slow_provider_detail)
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(api_discovery_router, "_norm_title", lambda title: str(title).casefold())
+    monkeypatch.setattr(api_discovery_router, "TMDB_METADATA_BATCH_BUDGET_SECONDS", 0.05)
+    monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(fp_movies={}))
+    body = api_discovery_router.MovieMetadataBody(items=[
+        {"slug": "slow", "title": "Slow", "year": ""},
+        {"slug": "fast", "title": "Fast", "year": "2026"},
+    ])
+
+    started = time.monotonic()
+    try:
+        result = asyncio.run(api_discovery_router.api_tmdb_movies(body))["movies"]
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        deadline = time.monotonic() + 1
+        while api_discovery_router._TMDB_METADATA_INFLIGHT and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    assert elapsed < 0.3
+    assert result["fast"]["cover_url"].endswith("/fast.jpg")
+    assert "slow" not in result
