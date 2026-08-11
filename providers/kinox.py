@@ -101,6 +101,7 @@ class KinoxScraper:
                 continue
             results.append(FilmpalastSearchResult(
                 title=f"{title}  [Kinox]", slug=f"{SOURCE_PREFIX}{slug}", url=link,
+                cover_url=self._rss_cover_url(item),
             ))
         return results
 
@@ -129,6 +130,7 @@ class KinoxScraper:
                 title = title_span.get_text(strip=True) if title_span else a.get_text(strip=True)
                 results.append(FilmpalastSearchResult(
                     title=f"{title}  [Kinox]", slug=f"{SOURCE_PREFIX}{slug}", url=href,
+                    cover_url=self._listing_cover(a.find_parent("li") or a),
                 ))
         return results
 
@@ -228,6 +230,34 @@ class KinoxScraper:
             return BASE_URL + href
         return href
 
+    def _listing_cover(self, node) -> str:
+        image = node.select_one("img[src], img[data-src], img[data-original]")
+        if image:
+            raw = image.get("src") or image.get("data-src") or image.get("data-original") or ""
+            if raw:
+                return self._abs_url(str(raw).strip())
+        styled = node.select_one("[style*='background-image']")
+        match = re.search(r"background-image\s*:\s*url\(['\"]?([^'\")]+)", styled.get("style", "") if styled else "", re.I)
+        return self._abs_url(match.group(1).strip()) if match else ""
+
+    def _rss_cover_url(self, item: ET.Element) -> str:
+        for element in item.iter():
+            raw = str(element.attrib.get("url") or element.attrib.get("href") or "").strip()
+            media_type = str(element.attrib.get("type") or "").casefold()
+            medium = str(element.attrib.get("medium") or "").casefold()
+            if raw and (
+                media_type.startswith("image/")
+                or medium == "image"
+                or re.search(r"\.(?:avif|gif|jpe?g|png|webp)(?:\?|$)", raw, re.I)
+            ):
+                return self._abs_url(raw)
+            text = str(element.text or "").strip()
+            if "<img" in text.casefold():
+                cover = self._listing_cover(BeautifulSoup(text, "lxml"))
+                if cover:
+                    return cover
+        return ""
+
     @staticmethod
     def _slug_from_url(url: str) -> str:
         m = re.search(r"/(\d+-[^/?#]+\.html)", url or "")
@@ -254,6 +284,7 @@ class KinoxScraper:
             title, year = self._split_title_year(a.get_text(strip=True))
             results.append(FilmpalastSearchResult(
                 title=f"{title}  [Kinox]", slug=f"{SOURCE_PREFIX}{slug}", url=href, year=year,
+                cover_url=self._listing_cover(entry),
             ))
         return results
 

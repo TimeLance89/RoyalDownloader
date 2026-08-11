@@ -354,12 +354,11 @@ function mediaCardInitials(title) {
     .toUpperCase();
 }
 
-function syncResultCardPoster(visual, media, kind) {
+function syncResultCardPoster(visual, media) {
   const current = visual.querySelector(".result-card-poster:not(.is-pending-poster)");
-  const waitsForTmdb = kind === "movie"
-    && state.fp.pendingPreload?.has(media?.slug)
-    && !api.isDirectTmdbImage(media?.cover_url);
-  const coverCandidates = waitsForTmdb ? [] : api.coverThumbnailCandidates(media?.cover_url);
+  // Das Anbieterposter startet sofort. Sobald TMDB ein besseres Poster liefert,
+  // wird es parallel geladen und erst nach erfolgreichem Decode ausgetauscht.
+  const coverCandidates = api.coverThumbnailCandidates(media?.cover_url);
   if (!coverCandidates.length) return;
 
   const posterKey = coverCandidates.join("\n");
@@ -382,7 +381,8 @@ function syncResultCardPoster(visual, media, kind) {
     // weder Flackern noch einen zweiten sichtbaren Bild-Ladevorgang.
     image.classList.add("is-pending-poster");
     image.style.opacity = "0";
-    image.addEventListener("load", () => {
+    image.addEventListener("load", async () => {
+      try { await image.decode(); } catch (e) { /* Das Bild ist bereits nutzbar. */ }
       if (!image.isConnected) return;
       current.remove();
       image.classList.remove("is-pending-poster");
@@ -402,7 +402,7 @@ function createResultCardVisual(media, title, kind, jellyfinStatus = "checking")
   fallback.textContent = mediaCardInitials(title);
   visual.appendChild(fallback);
 
-  syncResultCardPoster(visual, media, kind);
+  syncResultCardPoster(visual, media);
 
   const kindMark = document.createElement("span");
   kindMark.className = "result-card-kind";
@@ -467,7 +467,7 @@ function updateFpResultCard(slug) {
   const visual = row.querySelector(".result-card-visual");
   const media = fpResultMedia(result);
   if (visual) {
-    syncResultCardPoster(visual, media, "movie");
+    syncResultCardPoster(visual, media);
     const posterBadge = visual.querySelector(".result-card-library-badge");
     if (posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
   }

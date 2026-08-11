@@ -359,6 +359,7 @@ class MoflixScraper:
             url=f"{BASE_URL}/titles/{title_id}/{self._slugify(name)}",
             year=self._year(title.get("release_date") or title.get("year")),
             is_movie=not bool(title.get("is_series")),
+            cover_url=self._artwork_url(title.get("poster")),
         )
 
     def _title_id(self, value: str) -> Optional[int]:

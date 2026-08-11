@@ -306,6 +306,7 @@ class FilmFrei24Scraper:
             url=f"{BASE_URL}/player/?s={quote(site_slug, safe='')}",
             year=self._year(film.get("year")),
             is_movie=True,
+            cover_url=_artwork_url(film.get("thumbnail")),
         )
 
     @staticmethod

@@ -186,7 +186,9 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
   assert.match(app, /fpQueueMutations\.add\(slug\)/);
   assert.match(app, /fpQueueMutations\.delete\(slug\)/);
   assert.doesNotMatch(app, /oldVisual\?\.replaceWith\(createResultCardVisual/);
-  assert.match(app, /syncResultCardPoster\(visual, media, "movie"\)/);
+  assert.match(app, /syncResultCardPoster\(visual, media\)/);
+  assert.doesNotMatch(app, /waitsForTmdb/);
+  assert.match(app, /await image\.decode\(\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {

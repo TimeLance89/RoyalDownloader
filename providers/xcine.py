@@ -288,6 +288,7 @@ class XcineScraper:
             url=self._watch_url(object_id, title),
             year=self._year(row),
             is_movie=True,
+            cover_url=self._cover_url(row),
         )
 
     def _series_result(self, row: dict) -> FilmpalastSeriesResult:
