@@ -4,44 +4,57 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STYLE_MANIFEST = (ROOT / "web" / "style.css").read_text(encoding="utf-8")
 HOVER = (ROOT / "web" / "styles" / "home-card-hover.css").read_text(encoding="utf-8")
-EXPERIENCE = (ROOT / "web" / "home_experience_v2.js").read_text(encoding="utf-8")
+HOME = (ROOT / "web" / "screens" / "home.js").read_text(encoding="utf-8")
+DOCK = (ROOT / "web" / "home_card_dock.js").read_text(encoding="utf-8")
+TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 
-def test_hover_polish_is_loaded_last_with_fresh_cache_key():
+def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260809-1');"
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-1');"
 
 
-def test_hover_keeps_card_geometry_calm_and_artwork_visible():
-    assert "translateY(-5px) scale(1.028)" in HOVER
-    assert "scale(1.025)" in HOVER
-    assert "brightness(.84)" in HOVER
-    assert "inset 0 -3px 0 #e50914" in HOVER
+def test_cinema_dock_escapes_rail_clipping_and_stays_inside_the_viewport():
+    assert ".home-card-dock {" in HOVER
+    assert "position: fixed" in HOVER
+    assert "document.body.appendChild(homeCardDock)" in DOCK
+    assert "window.innerWidth - width - gutter" in DOCK
+    assert "window.innerHeight - estimatedHeight - gutter" in DOCK
+    assert "homeCardDock.style.left" in DOCK
+    assert "homeCardDock.style.top" in DOCK
 
 
-def test_hover_reveals_compact_context_without_fake_actions_or_synopsis():
-    assert "display: grid !important" in HOVER
-    assert ".home-card-hover-context" in HOVER
-    assert ".home-card-hover-meta" in HOVER
-    assert ".home-card-preview-open" in HOVER
-    assert ".home-card-preview-description" not in HOVER
-    assert ".home-card-preview-match" not in HOVER
-    assert 'preview.querySelector(".home-card-preview-actions")?.remove()' in EXPERIENCE
-    assert 'openHint.textContent = "→"' in EXPERIENCE
-    assert 'openHint.title = "Details öffnen"' in EXPERIENCE
-    assert "Passt zu dir:" not in EXPERIENCE
+def test_hover_has_intent_fade_in_fade_out_and_soft_card_handoff():
+    assert "const HOME_CARD_DOCK_INTENT_MS = 260" in DOCK
+    assert "const HOME_CARD_DOCK_FADE_MS = 170" in DOCK
+    assert 'dock.classList.add("is-leaving")' in DOCK
+    assert "window.setTimeout(reveal, HOME_CARD_DOCK_FADE_MS)" in DOCK
+    assert ".home-card-dock.is-visible" in HOVER
+    assert ".home-card-dock.is-leaving" in HOVER
+    assert "opacity .17s ease" in HOVER
 
 
-def test_hover_keeps_resting_title_and_meta_stable():
-    assert "Title and year/rating stay exactly where they are" in HOVER
-    assert "home-card-overlay > span" not in HOVER
-    assert "#tab-home .home-card .taste-v2-dismiss" in HOVER
-    assert "top: 42px" in HOVER
-    assert "width: 24px" in HOVER
+def test_hover_exposes_real_royal_actions_instead_of_fake_marks():
+    assert 'homeCardDockButton("is-primary"' in DOCK
+    assert "openHomeEntry(entry.kind" in DOCK
+    assert "await toggleFpPick(entry.item.slug)" in DOCK
+    assert "await api.tmdbMovie" in DOCK
+    assert "openFpTrailerModal(trailerMedia" in DOCK
+    assert "dismissSource.click()" in DOCK
+    assert "home-card-preview-actions" not in HOME + DOCK
+    assert 'card.dataset.tasteReason = positives.join(" · ")' in TASTE
+
+
+def test_hover_actions_are_keyboard_accessible_and_announce_async_feedback():
+    assert 'homeCardDock.setAttribute("role", "group")' in DOCK
+    assert 'if (event.key !== "ArrowDown") return' in HOME
+    assert 'if (event.key !== "Escape") return' in DOCK
+    assert 'status.setAttribute("aria-live", "polite")' in DOCK
+    assert ".home-card-dock-action:focus-visible" in HOVER
 
 
 def test_touch_and_reduced_motion_remain_supported():
     assert "@media (hover: none), (pointer: coarse)" in HOVER
     assert "@media (prefers-reduced-motion: reduce)" in HOVER
     assert "transition: none !important" in HOVER
-    assert "#tab-home .home-card-preview" in HOVER
+    assert ".home-card-dock { display: none !important; }" in HOVER
