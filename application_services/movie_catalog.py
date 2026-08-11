@@ -14,7 +14,9 @@ from application_services.runtime import (
 globals().update(import_backend_namespace())
 
 
-MOVIE_CATALOG_PAGE_BUDGET_SECONDS = 12.0
+# Eine Katalogantwort ist interaktiv. Langsame Anbieter duerfen ihre Futures
+# weiter im Hintergrund fuellen, aber nicht den sichtbaren Film-Tab blockieren.
+MOVIE_CATALOG_PAGE_BUDGET_SECONDS = 4.0
 _MOVIE_PROVIDER_LOAD_POOL = ThreadPoolExecutor(
     max_workers=16,
     thread_name_prefix="movie-catalog",
@@ -946,6 +948,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     has_more = page < MOVIE_MAX_GLOBAL_PAGE and (
         len(catalog_entries) > target_end or has_more_unverified
     )
+    page_complete = len(page_entries) >= MOVIE_BROWSE_PAGE_SIZE or not has_more
     if has_more and not timed_out[0]:
         _schedule_movie_provider_prefetch(
             mode,
@@ -959,6 +962,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     return {
         "results": [result for _provider, result in page_entries],
         "page": page,
+        "page_complete": page_complete,
         "has_more": has_more,
         "sources": sources,
     }

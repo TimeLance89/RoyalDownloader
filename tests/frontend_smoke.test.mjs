@@ -185,6 +185,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
   assert.match(app, /if \(fpQueueMutations\.has\(slug\)\) return/);
   assert.match(app, /fpQueueMutations\.add\(slug\)/);
   assert.match(app, /fpQueueMutations\.delete\(slug\)/);
+  assert.doesNotMatch(app, /oldVisual\?\.replaceWith\(createResultCardVisual/);
+  assert.match(app, /syncResultCardPoster\(visual, media, "movie"\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
@@ -202,12 +204,14 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /refreshFpCatalogInBackground\(\)/);
   assert.match(app, /refreshSeriesCatalogInBackground\(\)/);
   assert.match(app, /rootMargin: "4200px 1200px"/);
-  assert.match(app, /const CATALOG_PRELOAD_PX = 5000/);
+  assert.match(app, /const CATALOG_PRELOAD_PX = 1200/);
   assert.match(app, /const FP_METADATA_BATCH_SIZE = 12/);
+  assert.match(app, /api\.tmdbMovies\(targets\.map[\s\S]*?\}\)\), true\)/);
   assert.match(app, /scheduleResultPoster\(image, coverCandidates\)/);
   assert.doesNotMatch(app, /await prepareFpCatalogPage\(data\)/);
   assert.match(app, /applyFpResults\(data, \{ append: true \}\)/);
-  assert.match(app, /void preloadFpPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.doesNotMatch(app, /void preloadFpPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(app, /append && data\.page_complete === false/);
   assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
   assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
   assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);

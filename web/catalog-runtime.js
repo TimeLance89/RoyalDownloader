@@ -132,46 +132,6 @@ async function preloadTmdbMetadata(requestId, items, { attempts = 2 } = {}) {
   }
 }
 
-async function preloadFpPosterImages(results, maxWaitMs = 3500) {
-  let next = 0;
-  const warmOne = (result) => {
-    const candidates = api.coverThumbnailCandidates(fpResultMedia(result)?.cover_url);
-    if (!candidates.length) return Promise.resolve();
-    return new Promise((resolve) => {
-      const image = new Image();
-      let index = 0;
-      const finish = () => resolve();
-      const load = () => {
-        if (!candidates[index]) return finish();
-        image.src = candidates[index];
-      };
-      image.onload = async () => {
-        try { await image.decode(); } catch (e) { /* bereits im Browser-Cache */ }
-        finish();
-      };
-      image.onerror = () => {
-        index += 1;
-        load();
-      };
-      load();
-    });
-  };
-  const worker = async () => {
-    while (next < results.length) {
-      const result = results[next++];
-      await warmOne(result);
-    }
-  };
-  const workers = Array.from(
-    { length: Math.min(6, results.length) }, () => worker(),
-  );
-  let timer;
-  await Promise.race([
-    Promise.allSettled(workers),
-    new Promise((resolve) => { timer = setTimeout(resolve, maxWaitMs); }),
-  ]).finally(() => clearTimeout(timer));
-}
-
 async function preloadSeriesPosterImages(results, maxWaitMs = 3500) {
   let next = 0;
   const warmOne = (result) => {

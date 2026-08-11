@@ -378,7 +378,10 @@ function retrySeriesInfiniteLoad() {
 // intern scrollenden Tabs oder bis zum Sentinel im Dokument fehlt, wird die
 // naechste Seite geladen. Grosszuegig genug gewaehlt, dass die Folge-Eintraege
 // laengst da sind, bevor man das Ende sieht.
-const CATALOG_PRELOAD_PX = 5000;
+// Ein kompletter 5000-px-Vorlauf loeste auf breiten Monitoren mehrere Seiten
+// direkt hintereinander aus. Eine knappe Bildschirmhoehe startet genau eine
+// Folgeseite rechtzeitig, ohne den Anbieter- und Poster-Pfad zu ueberrollen.
+const CATALOG_PRELOAD_PX = 1200;
 
 function initCatalogInfiniteScroll() {
   document.getElementById("fp-infinite-retry").addEventListener("click", retryFpInfiniteLoad);

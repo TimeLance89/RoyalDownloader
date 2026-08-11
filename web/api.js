@@ -70,7 +70,9 @@ const api = {
   },
   movie(slug) { return this.get(`/api/movie/${encodeURIComponent(slug)}`); },
   moviesPreload(slugs) { return this.post("/api/movies/preload", { slugs }); },
-  tmdbMovies(items) { return this.post("/api/tmdb/movies", { items }); },
+  tmdbMovies(items, background = false) {
+    return this.post("/api/tmdb/movies", { items, background });
+  },
   tmdbMovie(item) { return this.post("/api/tmdb/movie", item); },
   tmdbSeries(items) { return this.post("/api/tmdb/series", { items }); },
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
@@ -245,6 +247,13 @@ const api = {
 
   coverCandidates(url) {
     return [...new Set([this.coverUrl(url), this.coverProxyUrl(url)].filter(Boolean))];
+  },
+
+  isDirectTmdbImage(url) {
+    try {
+      const parsed = new URL(url, location.origin);
+      return parsed.protocol === "https:" && parsed.hostname === "image.tmdb.org";
+    } catch (e) { return false; }
   },
 
   coverThumbnailCandidates(url) {

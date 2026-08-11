@@ -486,6 +486,15 @@ class TMDBClient:
             self._now_playing_cache = (now, ids)
         return set(ids)
 
+    def cached_now_playing_ids(self) -> set[int]:
+        """Liefert Kinostatus nur aus dem Cache und blockiert keine Poster."""
+        now = time.time()
+        with self._lock:
+            cached_at, cached_ids = self._now_playing_cache
+            if now - cached_at < NOW_PLAYING_CACHE_TTL:
+                return set(cached_ids)
+        return set()
+
     def search_movies(self, query: str, max_results: int = 100) -> list[dict]:
         """Liefert die TMDB-Trefferauswahl vor jeder Anbietersuche.
 

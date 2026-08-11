@@ -354,6 +354,45 @@ function mediaCardInitials(title) {
     .toUpperCase();
 }
 
+function syncResultCardPoster(visual, media, kind) {
+  const current = visual.querySelector(".result-card-poster:not(.is-pending-poster)");
+  const waitsForTmdb = kind === "movie"
+    && state.fp.pendingPreload?.has(media?.slug)
+    && !api.isDirectTmdbImage(media?.cover_url);
+  const coverCandidates = waitsForTmdb ? [] : api.coverThumbnailCandidates(media?.cover_url);
+  if (!coverCandidates.length) return;
+
+  const posterKey = coverCandidates.join("\n");
+  if (current?.dataset.posterKey === posterKey) return;
+  const pending = visual.querySelector(".result-card-poster.is-pending-poster");
+  if (pending?.dataset.posterKey === posterKey) return;
+  pending?.remove();
+
+  const image = document.createElement("img");
+  image.className = "result-card-poster";
+  image.dataset.posterKey = posterKey;
+  image.alt = "";
+  image.loading = "lazy";
+  image.fetchPriority = "auto";
+  image.decoding = "async";
+
+  if (current) {
+    // Das vorhandene Poster bleibt sichtbar, bis der bessere TMDB-Treffer
+    // wirklich geladen ist. Metadaten- und Jellyfin-Updates erzeugen dadurch
+    // weder Flackern noch einen zweiten sichtbaren Bild-Ladevorgang.
+    image.classList.add("is-pending-poster");
+    image.style.opacity = "0";
+    image.addEventListener("load", () => {
+      if (!image.isConnected) return;
+      current.remove();
+      image.classList.remove("is-pending-poster");
+      image.style.removeProperty("opacity");
+    }, { once: true });
+  }
+  scheduleResultPoster(image, coverCandidates);
+  visual.appendChild(image);
+}
+
 function createResultCardVisual(media, title, kind, jellyfinStatus = "checking") {
   const visual = document.createElement("span");
   visual.className = "result-card-visual";
@@ -363,19 +402,7 @@ function createResultCardVisual(media, title, kind, jellyfinStatus = "checking")
   fallback.textContent = mediaCardInitials(title);
   visual.appendChild(fallback);
 
-  const coverCandidates = api.coverThumbnailCandidates(media?.cover_url);
-  if (coverCandidates.length) {
-    const image = document.createElement("img");
-    image.className = "result-card-poster";
-    image.alt = "";
-    // Load well ahead of the viewport so fast scrolling never catches the
-    // native lazy-loader with an empty poster slot.
-    image.loading = "lazy";
-    image.fetchPriority = "auto";
-    image.decoding = "async";
-    scheduleResultPoster(image, coverCandidates);
-    visual.appendChild(image);
-  }
+  syncResultCardPoster(visual, media, kind);
 
   const kindMark = document.createElement("span");
   kindMark.className = "result-card-kind";
@@ -404,7 +431,12 @@ function activateResultCard(row, callback) {
 }
 
 function fpResultMedia(result) {
-  return state.fp.moviesCache[result.slug] || state.fp.metadataCache[result.slug] || result;
+  return {
+    ...result,
+    ...(state.fp.metadataCache[result.slug] || {}),
+    ...(state.fp.moviesCache[result.slug] || {}),
+    slug: result.slug,
+  };
 }
 
 function fpResultAvailability(result) {
@@ -432,10 +464,13 @@ function updateFpResultCard(slug) {
   const result = state.fp.results.find((item) => item.slug === slug);
   const row = findFpResultCard(slug);
   if (!result || !row) return;
-  const oldVisual = row.querySelector(".result-card-visual");
-  oldVisual?.replaceWith(createResultCardVisual(
-    fpResultMedia(result), result.title, "movie", mediaJellyfinStatus(result),
-  ));
+  const visual = row.querySelector(".result-card-visual");
+  const media = fpResultMedia(result);
+  if (visual) {
+    syncResultCardPoster(visual, media, "movie");
+    const posterBadge = visual.querySelector(".result-card-library-badge");
+    if (posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
+  }
   const availability = fpResultAvailability(result);
   const stateLabel = row.querySelector(".result-card-state");
   if (stateLabel) {
@@ -446,11 +481,11 @@ function updateFpResultCard(slug) {
   if (subtitle) {
     const resolved = state.fp.moviesCache[result.slug];
     subtitle.textContent = (resolved?.source_providers || []).map((source) => source.label).join(" · ")
-      || (fpResultMedia(result).genres || []).slice(0, 2).join(" · ")
+      || (media.genres || []).slice(0, 2).join(" · ")
       || "Film";
   }
   const rating = row.querySelector(".result-card-rating");
-  if (rating) rating.textContent = fpResultMedia(result).rating ? `★ ${fpResultMedia(result).rating}` : "★ —";
+  if (rating) rating.textContent = media.rating ? `★ ${media.rating}` : "★ —";
   const yearEl = row.querySelector(".result-card-year");
   if (yearEl) yearEl.textContent = fpResultYear(result) || "Jahr offen";
 }
@@ -579,7 +614,14 @@ function applyFpResults(data, { append = false, metadataPrepared = false } = {})
   state.fp.results = append
     ? mergeCatalogItems(state.fp.results, incoming, (item) => item.slug)
     : incoming;
-  state.fp.page = data.page || 1;
+  const responsePage = Number(data.page || 1);
+  // Eine wegen langsamer Quellen nur teilweise gelieferte Folgeseite wird
+  // beim naechsten Scrollen erneut angefordert. Bereits sichtbare Treffer
+  // bleiben dank mergeCatalogItems stabil und fehlende Filme gehen nicht
+  // durch ein vorschnelles Weiterschalten auf die naechste Seite verloren.
+  state.fp.page = append && data.page_complete === false
+    ? Math.max(1, responsePage - 1)
+    : responsePage;
   state.fp.category = data.category ?? state.fp.category;
   state.fp.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
   state.fp.sources = mergeCatalogSources(state.fp.sources, data.sources, append);
@@ -599,7 +641,6 @@ function applyFpResults(data, { append = false, metadataPrepared = false } = {})
   void refreshFpJellyfinStatus();
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
-  recheckFpInfinite();
   if (metadataItems.length && !metadataPrepared) {
     void preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems);
   } else if (!state.fp.pendingPreload.size) {
@@ -815,7 +856,6 @@ async function loadNextFpPage() {
     // parallel pro Karte; die langsamste Bildantwort sperrt nicht mehr die
     // komplette 32er-Seite.
     applyFpResults(data, { append: true });
-    void preloadFpPosterImages(data.results || [], 2000);
   } catch (error) {
     if (requestId !== state.fp.requestSeq) return;
     state.fp.loadError = error.message;
@@ -824,10 +864,6 @@ async function loadNextFpPage() {
     if (requestId === state.fp.requestSeq) {
       state.fp.loadingMore = false;
       updateFpInfiniteState();
-      // Fuellt einen noch zu kurzen Container automatisch weiter, ohne dass der
-      // Nutzer scrollen muss. Bricht von selbst ab, sobald genug Inhalt da ist
-      // oder der Katalog endet (Guards in loadNextFpPage).
-      recheckFpInfinite();
     }
   }
 }
