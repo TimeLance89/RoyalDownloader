@@ -15,6 +15,9 @@ let homeCardDockTransition = 0;
 let homeCardDockSuppressFocus = false;
 let homeCardDockShownAt = 0;
 let homeCardDockScrollBlockedUntil = 0;
+let homeCardDockPointerX = -1;
+let homeCardDockPointerY = -1;
+const homeCardDockEntries = new WeakMap();
 
 function homeCardDockRuntime(value) {
   const text = String(value || "").trim();
@@ -47,6 +50,65 @@ function cancelHomeCardDockTimers() {
   if (homeCardDockHideTimer) clearTimeout(homeCardDockHideTimer);
   homeCardDockShowTimer = null;
   homeCardDockHideTimer = null;
+}
+
+function cancelHomeCardDockHideTimer() {
+  if (homeCardDockHideTimer) clearTimeout(homeCardDockHideTimer);
+  homeCardDockHideTimer = null;
+}
+
+function recordHomeCardDockPointer(event) {
+  if (!Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return;
+  homeCardDockPointerX = event.clientX;
+  homeCardDockPointerY = event.clientY;
+}
+
+function homeCardDockPointInside(element, padding = 0) {
+  if (!element || element.hidden || !element.isConnected) return false;
+  const rect = element.getBoundingClientRect();
+  return homeCardDockPointerX >= rect.left - padding
+    && homeCardDockPointerX <= rect.right + padding
+    && homeCardDockPointerY >= rect.top - padding
+    && homeCardDockPointerY <= rect.bottom + padding;
+}
+
+function homeCardDockPointerInsideActiveZone() {
+  return homeCardDockPointInside(homeCardDockOwner, 8)
+    || homeCardDockPointInside(homeCardDock, 8);
+}
+
+function handleHomeCardDockPointerMove(event) {
+  recordHomeCardDockPointer(event);
+  const target = event.target instanceof Element ? event.target : null;
+  const card = target?.closest("#tab-home .home-card:not(.is-ranked)");
+  const entry = card ? homeCardDockEntries.get(card) : null;
+  if (card && entry) {
+    cancelHomeCardDockHideTimer();
+    if (homeCardDockOwner === card) return;
+    if (homeCardDockCandidate !== card || !homeCardDockShowTimer) {
+      scheduleHomeCardDock(card, entry);
+    }
+    return;
+  }
+  if (homeCardDockPointerInsideActiveZone()) {
+    cancelHomeCardDockHideTimer();
+    return;
+  }
+  if (homeCardDock && !homeCardDock.hidden && !homeCardDockHideTimer) {
+    scheduleHomeCardDockHide(event);
+  }
+}
+
+function registerHomeCardDock(card, entry) {
+  homeCardDockEntries.set(card, entry);
+  card.addEventListener("pointerenter", (event) => {
+    recordHomeCardDockPointer(event);
+    scheduleHomeCardDock(card, entry);
+  });
+  card.addEventListener("pointerleave", (event) => {
+    recordHomeCardDockPointer(event);
+    scheduleHomeCardDockHide(event);
+  });
 }
 
 function homeCardDockPointerEntered() {
@@ -284,6 +346,7 @@ function ensureHomeCardDock() {
   homeCardDock.addEventListener("focusin", homeCardDockPointerEntered);
   homeCardDock.addEventListener("focusout", scheduleHomeCardDockHide);
   homeCardDock.addEventListener("wheel", relayHomeCardDockWheel, { passive: false });
+  document.addEventListener("pointermove", handleHomeCardDockPointerMove, { passive: true, capture: true });
   homeCardDock.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -333,7 +396,6 @@ function activateHomeCardDock(card, entry, focusDock = false) {
 
 function scheduleHomeCardDock(card, entry, { immediate = false, focusDock = false } = {}) {
   if (card.classList.contains("is-ranked")) return;
-  if (!immediate && Date.now() < homeCardDockScrollBlockedUntil) return;
   cancelHomeCardDockTimers();
   homeCardDockCandidate = card;
   if (!homeCardDock?.hidden && homeCardDockOwner === card) return;
@@ -341,7 +403,7 @@ function scheduleHomeCardDock(card, entry, { immediate = false, focusDock = fals
     homeCardDockShowTimer = null;
     if (homeCardDockCandidate !== card) return;
     if (!card.isConnected || !card.closest("#tab-home")) return;
-    if (!immediate && !card.matches(":hover") && !card.contains(document.activeElement)) return;
+    if (!immediate && !homeCardDockPointInside(card, 8) && !card.contains(document.activeElement)) return;
     activateHomeCardDock(card, entry, focusDock);
   };
   if (immediate) show();
@@ -349,7 +411,8 @@ function scheduleHomeCardDock(card, entry, { immediate = false, focusDock = fals
     const delay = homeCardDock && !homeCardDock.hidden
       ? HOME_CARD_DOCK_HANDOFF_MS
       : HOME_CARD_DOCK_INTENT_MS;
-    homeCardDockShowTimer = window.setTimeout(show, delay);
+    const cooldown = Math.max(0, homeCardDockScrollBlockedUntil - Date.now());
+    homeCardDockShowTimer = window.setTimeout(show, Math.max(delay, cooldown));
   }
 }
 
@@ -365,9 +428,8 @@ function scheduleHomeCardDockHide(event) {
   homeCardDockHideTimer = window.setTimeout(() => {
     homeCardDockHideTimer = null;
     if (
-      homeCardDock?.matches(":hover")
+      homeCardDockPointerInsideActiveZone()
       || homeCardDock?.contains(document.activeElement)
-      || homeCardDockOwner?.matches(":hover")
       || homeCardDockOwner?.contains(document.activeElement)
     ) return;
     hideHomeCardDock();

@@ -12,7 +12,7 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
     assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-2');"
-    assert '<script src="/home_card_dock.js?v=royal-20260811-2"></script>' in (
+    assert '<script src="/home_card_dock.js?v=royal-20260811-3"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
 
@@ -65,7 +65,8 @@ def test_touch_and_reduced_motion_remain_supported():
 
 def test_ranked_top_ten_cards_have_no_pointer_hover_behavior():
     assert "if (!rank) {" in HOME
-    assert "card.addEventListener(\"pointerenter\"" in HOME
+    assert "registerHomeCardDock(card, entry)" in HOME
+    assert "card.addEventListener(\"pointerenter\"" in DOCK
     assert "#tab-home .home-card.is-ranked:hover" in HOVER
     assert "#tab-home .home-card.is-ranked:hover .home-card-art img" in HOVER
     assert "filter: none" in HOVER
@@ -85,3 +86,19 @@ def test_hover_lifecycle_has_a_minimum_visible_window_and_safe_handoff():
     assert "homeCardDockCandidate !== card" in DOCK
     assert "event?.relatedTarget" in DOCK
     assert "homeCardDockOwner !== card" in DOCK
+
+
+def test_pointer_geometry_keeps_micro_movements_from_collapsing_the_dock():
+    assert "registerHomeCardDock(card, entry)" in HOME
+    assert "const homeCardDockEntries = new WeakMap()" in DOCK
+    assert 'document.addEventListener("pointermove", handleHomeCardDockPointerMove' in DOCK
+    assert "homeCardDockPointerInsideActiveZone()" in DOCK
+    assert "homeCardDockPointInside(card, 8)" in DOCK
+    assert 'homeCardDock?.matches(":hover")' not in DOCK
+    assert 'homeCardDockOwner?.matches(":hover")' not in DOCK
+
+
+def test_hover_recovers_after_scroll_cooldown_instead_of_dropping_the_attempt():
+    assert "homeCardDockScrollBlockedUntil - Date.now()" in DOCK
+    assert "window.setTimeout(show, Math.max(delay, cooldown))" in DOCK
+    assert "Date.now() < homeCardDockScrollBlockedUntil) return" not in DOCK
