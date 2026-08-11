@@ -125,9 +125,13 @@ function renderSeriesCatalogHero() {
   feature.classList.toggle("has-no-art", !artwork);
   feature.classList.toggle("is-poster-art", posterArtwork);
   feature.setAttribute("aria-label", `Serie im Fokus: ${candidate.title}`);
-  document.getElementById("series-feature-art").style.backgroundImage = artwork
+  const featureArt = document.getElementById("series-feature-art");
+  const nextBackground = artwork
     ? `url("${api.coverUrl(artwork).replace(/"/g, "%22")}")`
     : "";
+  if (featureArt.style.backgroundImage !== nextBackground) {
+    featureArt.style.backgroundImage = nextBackground;
+  }
   document.getElementById("series-feature-title").textContent = candidate.title;
   const sources = Array.isArray(candidate.sources) ? candidate.sources : [];
   document.getElementById("series-feature-meta").textContent = [
@@ -199,13 +203,31 @@ function findSeriesResultCard(baseSlug) {
     .find((row) => row.dataset.baseSlug === baseSlug) || null;
 }
 
-function updateSeriesResultArtwork(baseSlug) {
+function updateSeriesResultCard(baseSlug) {
   const result = state.series.results.find((item) => item.base_slug === baseSlug);
   const row = findSeriesResultCard(baseSlug);
   if (!result || !row) return;
-  row.querySelector(".result-card-visual")?.replaceWith(
-    createResultCardVisual(result, result.title, "series", mediaJellyfinStatus(result)),
-  );
+  const visual = row.querySelector(".result-card-visual");
+  if (visual) {
+    syncResultCardPoster(visual, result);
+    const posterBadge = visual.querySelector(".result-card-library-badge");
+    if (posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
+  }
+  const title = row.querySelector(".result-card-title");
+  if (title) title.textContent = result.title;
+  const sources = Array.isArray(result.sources) ? result.sources : [];
+  const sourceLabels = sources.map((source) => source.label).filter(Boolean);
+  const subtitle = row.querySelector(".result-card-subtitle");
+  if (subtitle) {
+    subtitle.textContent = sourceLabels.length > 1
+      ? `${sourceLabels.length} Quellen`
+      : (sourceLabels[0] || result.provider_label || "Quelle offen");
+    subtitle.title = sourceLabels.join(" · ");
+  }
+  const year = row.querySelector(".result-card-meta span:first-child");
+  if (year) year.textContent = result.year || "Jahr offen";
+  const jellyfin = row.querySelector(".jellyfin-badge");
+  if (jellyfin) setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
 }
 
 function updateSeriesResultSelection() {
@@ -223,6 +245,13 @@ function updateSeriesResultSelection() {
 
 function applySeriesResults(data, { append = false, artworkPrepared = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
+  const renderedCards = document.querySelectorAll("#series-results .series-row");
+  const preserveRenderedCards = !append
+    && incoming.length === state.series.results.length
+    && renderedCards.length === incoming.length
+    && incoming.every((result, index) => (
+      result.base_slug === state.series.results[index]?.base_slug
+    ));
   const appendFrom = append ? state.series.results.length : 0;
   state.series.results = append
     ? mergeCatalogItems(
@@ -235,17 +264,24 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   state.series.lastPageFull = Boolean(data.has_more ?? data.last_page_full);
   state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
   state.series.loadError = "";
-  renderSeriesResults(appendFrom);
+  if (preserveRenderedCards) {
+    for (const result of incoming) updateSeriesResultCard(result.base_slug);
+    updateSeriesResultSelection();
+  } else {
+    renderSeriesResults(appendFrom);
+  }
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();
   if (artworkPrepared) {
     void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
   } else {
     void hydrateHomeSeriesArtwork(incoming, { render: false }).then(async (hydratedBaseSlugs) => {
-      for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
+      for (const baseSlug of hydratedBaseSlugs) updateSeriesResultCard(baseSlug);
       renderSeriesCatalogHero();
       await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-      if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
+      if (browseGeneration === state.series.browseRequestSeq) {
+        for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
+      }
     });
   }
   updateSeriesInfiniteState();

@@ -227,6 +227,10 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
   assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
   assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(app, /function updateSeriesResultCard\(baseSlug\)/);
+  assert.match(app, /syncResultCardPoster\(visual, result\)/);
+  assert.doesNotMatch(app, /updateSeriesResultArtwork/);
+  assert.match(app, /for \(const result of state\.series\.results\) updateSeriesResultCard\(result\.base_slug\)/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
@@ -488,7 +492,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-6/);
+  assert.match(html, /style\.css\?v=royal-20260811-7/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
