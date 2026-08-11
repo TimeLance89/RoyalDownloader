@@ -198,7 +198,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260811-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260811-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260811-2/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -470,7 +470,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-1/);
+  assert.match(html, /style\.css\?v=royal-20260811-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

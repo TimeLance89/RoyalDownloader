@@ -11,7 +11,10 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-1');"
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-2');"
+    assert '<script src="/home_card_dock.js?v=royal-20260811-2"></script>' in (
+        ROOT / "web" / "index.html"
+    ).read_text(encoding="utf-8")
 
 
 def test_cinema_dock_escapes_rail_clipping_and_stays_inside_the_viewport():
@@ -58,3 +61,27 @@ def test_touch_and_reduced_motion_remain_supported():
     assert "@media (prefers-reduced-motion: reduce)" in HOVER
     assert "transition: none !important" in HOVER
     assert ".home-card-dock { display: none !important; }" in HOVER
+
+
+def test_ranked_top_ten_cards_have_no_pointer_hover_behavior():
+    assert "if (!rank) {" in HOME
+    assert "card.addEventListener(\"pointerenter\"" in HOME
+    assert "#tab-home .home-card.is-ranked:hover" in HOVER
+    assert "#tab-home .home-card.is-ranked:hover .home-card-art img" in HOVER
+    assert "filter: none" in HOVER
+
+
+def test_wheel_over_the_dock_is_forwarded_to_the_real_scroll_container():
+    assert 'homeCardDock.addEventListener("wheel", relayHomeCardDockWheel, { passive: false })' in DOCK
+    assert 'owner?.closest(".tab-content")' in DOCK
+    assert "homeScroller.scrollTop += event.deltaY * lineFactor" in DOCK
+    assert "track.scrollLeft += (event.deltaX || event.deltaY) * lineFactor" in DOCK
+    assert "HOME_CARD_DOCK_SCROLL_COOLDOWN_MS = 420" in DOCK
+
+
+def test_hover_lifecycle_has_a_minimum_visible_window_and_safe_handoff():
+    assert "HOME_CARD_DOCK_HANDOFF_MS = 110" in DOCK
+    assert "HOME_CARD_DOCK_MIN_VISIBLE_MS = 360" in DOCK
+    assert "homeCardDockCandidate !== card" in DOCK
+    assert "event?.relatedTarget" in DOCK
+    assert "homeCardDockOwner !== card" in DOCK

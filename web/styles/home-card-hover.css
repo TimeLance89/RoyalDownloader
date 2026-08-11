@@ -317,6 +317,29 @@
     opacity: 0;
   }
 
+  /* Top 10 is already a distinct ranked presentation. It deliberately keeps
+     its resting appearance instead of opening or visually reacting on hover. */
+  #tab-home .home-card.is-ranked:hover {
+    z-index: 1;
+    filter: none;
+    transform: none;
+  }
+
+  #tab-home .home-card.is-ranked:hover .home-card-art {
+    border-color: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  #tab-home .home-card.is-ranked:hover .home-card-art img {
+    filter: none;
+    transform: none;
+  }
+
+  #tab-home .home-card.is-ranked:hover .home-card-overlay {
+    opacity: 1;
+  }
+
   /* The desktop feedback source stays available to keyboard users; the Dock
      exposes the same real action without leaving a stray icon over artwork. */
   #tab-home .home-card .taste-v2-dismiss:not(:focus) {
