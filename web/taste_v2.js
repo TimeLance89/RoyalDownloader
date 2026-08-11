@@ -290,11 +290,8 @@
       .filter((reason) => reason.contribution > 0)
       .slice(0, 3)
       .map((reason) => reason.value);
-    const preview = card.querySelector(".home-card-preview-genres");
-    if (preview && positives.length) {
-      const original = preview.textContent;
-      preview.textContent = `${original} · Passt: ${positives.join(", ")}`;
-    }
+    if (positives.length) card.dataset.tasteReason = positives.join(" · ");
+    else delete card.dataset.tasteReason;
     card.dataset.tasteScore = result.score.toFixed(2);
     card.dataset.tasteCoverage = result.coverage.toFixed(2);
   }

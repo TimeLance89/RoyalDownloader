@@ -17,6 +17,7 @@ const accountStyles = readFileSync(
 );
 const appModulePaths = [
   "core.js",
+  "home_card_dock.js",
   "screens/home.js",
   "screens/mood.js",
   "trailer-runtime.js",
@@ -176,7 +177,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260810-2/);
+  assert.match(html, /api\.js\?v=royal-20260811-1/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -196,8 +197,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260810-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260810-6/);
+  assert.match(html, /api\.js\?v=royal-20260811-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260811-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -469,7 +470,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260810-2/);
+  assert.match(html, /style\.css\?v=royal-20260811-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
