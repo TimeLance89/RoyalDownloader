@@ -1,5 +1,6 @@
 // ── Filmkatalog und Filmdetails ──────────────────────────────────────────
-let fpJellyfinRequestSeq = 0;
+const fpJellyfinPending = new Map();
+let fpJellyfinWorker = null;
 const fpQueueMutations = new Set();
 
 const MOVIE_GENRE_PRESENTATIONS = {
@@ -147,21 +148,37 @@ function fpResultYear(result) {
   return state.fp.metadataCache[result.slug]?.year || result.year || "";
 }
 
-async function refreshFpJellyfinStatus() {
-  const requestId = ++fpJellyfinRequestSeq;
-  const targets = [...state.fp.results];
-  const selectedHomeMovie = homeMovieBySlug(state.fp.selectedSlug);
-  if (selectedHomeMovie && !targets.some((item) => item.slug === selectedHomeMovie.slug))
-    targets.push(selectedHomeMovie);
-  if (!targets.length) return;
-  try {
-    await refreshCatalogJellyfinStatus(targets.map(homeMovieEntry), null);
-    if (requestId !== fpJellyfinRequestSeq) return;
-    updateFpJellyfinBadges();
-  } catch (e) {
-    if (requestId !== fpJellyfinRequestSeq) return;
-    setFpDetailJellyfinStatus("unavailable");
+async function drainFpJellyfinQueue() {
+  while (fpJellyfinPending.size) {
+    const targets = [...fpJellyfinPending.values()].slice(0, 100);
+    targets.forEach((item) => fpJellyfinPending.delete(item.slug));
+    try {
+      await refreshCatalogJellyfinStatus(targets.map(homeMovieEntry), null);
+      updateFpJellyfinBadges();
+    } catch (e) {
+      if (targets.some((item) => item.slug === state.fp.selectedSlug)) {
+        setFpDetailJellyfinStatus("unavailable");
+      }
+    }
   }
+}
+
+function refreshFpJellyfinStatus(items = null) {
+  const targets = Array.isArray(items) ? [...items] : [...state.fp.results];
+  if (!items) {
+    const selectedHomeMovie = homeMovieBySlug(state.fp.selectedSlug);
+    if (selectedHomeMovie && !targets.some((item) => item.slug === selectedHomeMovie.slug)) {
+      targets.push(selectedHomeMovie);
+    }
+  }
+  for (const item of targets) {
+    if (item?.slug) fpJellyfinPending.set(item.slug, item);
+  }
+  if (!fpJellyfinPending.size || fpJellyfinWorker) return fpJellyfinWorker;
+  fpJellyfinWorker = drainFpJellyfinQueue().finally(() => {
+    fpJellyfinWorker = null;
+  });
+  return fpJellyfinWorker;
 }
 
 function updateSeriesStatus(series) {
@@ -638,7 +655,7 @@ function applyFpResults(data, { append = false, metadataPrepared = false } = {})
     : new Set();
   for (const slug of pendingSlugs) state.fp.pendingPreload.add(slug);
   renderFpResults(appendFrom);
-  void refreshFpJellyfinStatus();
+  void refreshFpJellyfinStatus(incoming);
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
   if (metadataItems.length && !metadataPrepared) {
@@ -673,7 +690,7 @@ async function loadFpMetadata(item, requestId = state.fp.requestSeq) {
         setFpDetailAvailability("Metadaten nicht verfügbar", "error");
       }
     }
-    if (metadata?.tmdb_id) refreshFpJellyfinStatus();
+    if (metadata?.tmdb_id) void refreshFpJellyfinStatus([item]);
     return metadata || null;
   } catch (e) {
     if (requestId === state.fp.requestSeq && state.fp.selectedSlug === item.slug) {

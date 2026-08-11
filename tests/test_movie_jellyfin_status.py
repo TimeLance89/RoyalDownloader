@@ -1,12 +1,12 @@
-import json
 import asyncio
+import json
 import threading
 import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
-import jellyfin_client
 import api_discovery_router
+import jellyfin_client
 from jellyfin_client import JellyfinClient
 
 
@@ -67,12 +67,37 @@ def test_movie_identity_index_matches_by_tmdb_id(monkeypatch):
     assert client.match("Dune", "2021", items=identities, tmdb_id="438631")
 
 
+def test_movie_identity_batch_builds_the_library_index_once(monkeypatch):
+    normalize_calls = 0
+    original_normalize = jellyfin_client._normalize
+
+    def counted_normalize(title):
+        nonlocal normalize_calls
+        normalize_calls += 1
+        return original_normalize(title)
+
+    monkeypatch.setattr(jellyfin_client, "_normalize", counted_normalize)
+    identities = [{
+        "name": f"Movie {index}", "original_title": "", "sort_name": "",
+        "year": 2026, "tmdb_id": str(index),
+    } for index in range(500)]
+    queries = [{"title": f"Movie {index}", "year": "2026"} for index in range(50)]
+
+    matches = JellyfinClient().match_many(queries, items=identities)
+
+    assert all(matches)
+    assert normalize_calls == 550
+
+
 def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
     class FakeClient:
         configured = True
 
-        def match(self, title, *_args, **_kwargs):
-            return title == "Dune"
+        def match_many(self, queries, **_kwargs):
+            return [query["title"] == "Dune" for query in queries]
+
+        def match(self, *_args, **_kwargs):
+            raise AssertionError("Der Katalog muss den gemeinsamen Stapelindex verwenden")
 
         def series_ids_for(self, title, **_kwargs):
             return {"series-1"} if title in {"Lucky", "Frieren"} else set()
