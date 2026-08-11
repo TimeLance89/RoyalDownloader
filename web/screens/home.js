@@ -1088,17 +1088,19 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
 
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
-  card.addEventListener("pointerenter", () => scheduleHomeCardDock(card, entry));
-  card.addEventListener("pointerleave", scheduleHomeCardDockHide);
-  primaryAction.addEventListener("focus", () => {
-    if (!homeCardDockSuppressFocus) scheduleHomeCardDock(card, entry, { immediate: true });
-  });
-  primaryAction.addEventListener("blur", scheduleHomeCardDockHide);
-  primaryAction.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowDown") return;
-    event.preventDefault();
-    scheduleHomeCardDock(card, entry, { immediate: true, focusDock: true });
-  });
+  if (!rank) {
+    card.addEventListener("pointerenter", () => scheduleHomeCardDock(card, entry));
+    card.addEventListener("pointerleave", scheduleHomeCardDockHide);
+    primaryAction.addEventListener("focus", () => {
+      if (!homeCardDockSuppressFocus) scheduleHomeCardDock(card, entry, { immediate: true });
+    });
+    primaryAction.addEventListener("blur", scheduleHomeCardDockHide);
+    primaryAction.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown") return;
+      event.preventDefault();
+      scheduleHomeCardDock(card, entry, { immediate: true, focusDock: true });
+    });
+  }
   primaryAction.addEventListener("click", () => openHomeEntry(kind, key));
   return card;
 }
