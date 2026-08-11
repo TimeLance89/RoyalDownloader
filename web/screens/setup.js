@@ -455,41 +455,21 @@ function startInitialData() {
 async function refreshGenres() {
   const data = await api.genres();
   const genres = Array.isArray(data.genres) ? data.genres : [];
-  const filter = document.getElementById("genre-filter");
-  filter.querySelectorAll('.genre-chip:not([data-genre="Alle Genres"])').forEach((button) => {
-    button.remove();
-  });
+  state.fp.availableGenres = genres.slice();
+  const filter = document.getElementById("movie-filter-genre");
+  filter.querySelectorAll('option:not([value="Alle Genres"])').forEach((option) => option.remove());
   for (const genre of genres) {
-    const [mark, mood, tone] = movieGenrePresentation(genre);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "genre-chip";
-    button.dataset.genre = genre;
-    button.dataset.tone = tone;
-    button.setAttribute("aria-pressed", "false");
-    const symbol = document.createElement("span");
-    symbol.className = "genre-chip-mark";
-    symbol.setAttribute("aria-hidden", "true");
-    symbol.textContent = mark;
-    const copy = document.createElement("span");
-    copy.className = "genre-chip-copy";
-    const title = document.createElement("strong");
-    title.textContent = genre;
-    const subtitle = document.createElement("small");
-    subtitle.textContent = mood;
-    copy.append(title, subtitle);
-    button.append(symbol, copy);
-    filter.appendChild(button);
+    const option = document.createElement("option");
+    option.value = genre;
+    option.textContent = genre;
+    filter.appendChild(option);
   }
   if (state.fp.activeGenre !== "Alle Genres" && !genres.includes(state.fp.activeGenre)) {
     state.fp.activeGenre = "Alle Genres";
   }
-  document.getElementById("genre-count").textContent = `${genres.length} Filmwelten`;
+  document.getElementById("genre-count").textContent = `${genres.length} Genres verfügbar`;
   const genresAvailable = genres.length > 0;
   document.getElementById("genre-random").disabled = !genresAvailable;
-  const genreToggle = document.getElementById("genre-toggle");
-  genreToggle.disabled = !genresAvailable;
-  genreToggle.dataset.collapsedLabel = `${genres.length} Genres`;
-  setGenreBrowserExpanded(false);
   setActiveGenreFilter(state.fp.activeGenre);
+  applyFpSmartFilters();
 }
