@@ -84,11 +84,13 @@ get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
 load_movie_for_slug = _unbound_dependency
 log = _unbound_dependency
+merge_series_snapshots = _unbound_dependency
 movie_catalog_page = _unbound_dependency
 movie_detail_to_dict = _unbound_dependency
 provider_for_value = _unbound_dependency
 provider_priority = _unbound_dependency
 series_catalog_page = _unbound_dependency
+series_payload_missing_seasons = _unbound_dependency
 series_search_catalog = _unbound_dependency
 series_to_dict = _unbound_dependency
 strip_source_suffix = _unbound_dependency
@@ -115,11 +117,13 @@ _DYNAMIC_CALLS = (
     "get_tmdb_client",
     "load_movie_for_slug",
     "log",
+    "merge_series_snapshots",
     "movie_catalog_page",
     "movie_detail_to_dict",
     "provider_for_value",
     "provider_priority",
     "series_catalog_page",
+    "series_payload_missing_seasons",
     "series_search_catalog",
     "series_to_dict",
     "strip_source_suffix",
@@ -709,12 +713,33 @@ async def api_series_load(body: SeriesLoadBody):
             series = get_series_for_value(body.sample_slug)
         if series is None:
             return None, None
-        state.series_cache[series.base_slug] = series
-        return series, series_to_dict(
+        payload = series_to_dict(
             series,
             refresh_jellyfin=body.refresh_jellyfin,
             defer_checks=body.defer_checks,
         )
+        missing_seasons = set() if body.defer_checks else series_payload_missing_seasons(payload)
+        if missing_seasons:
+            log(
+                f"Serienstruktur für «{series.title}» unvollständig "
+                f"(fehlende Staffeln: {sorted(missing_seasons)}) – Provider wird erneut gelesen.",
+                "warn",
+            )
+            fresh = get_series_for_value(body.sample_slug or series.url)
+            series = merge_series_snapshots(series, fresh)
+            if series is not None:
+                payload = series_to_dict(
+                    series,
+                    refresh_jellyfin=body.refresh_jellyfin,
+                    defer_checks=False,
+                )
+                missing_seasons = series_payload_missing_seasons(payload)
+        if missing_seasons:
+            # Einen unvollständigen Snapshot niemals sechs Stunden festhalten.
+            state.series_cache.pop(series.base_slug, None)
+        else:
+            state.series_cache[series.base_slug] = series
+        return series, payload
 
     series, payload = await run_in_threadpool(_work)
     if series is None:

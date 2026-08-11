@@ -224,7 +224,7 @@ async function refreshSeriesJellyfinStatus(force = false) {
     live.jellyfin_checked_at = Number(status.checked_at || 0);
     state.series.cache[baseSlug] = live;
     pruneSeriesEpisodeSelection();
-    renderSeriesTiles();
+    refreshSeriesTileStates();
     updateSeriesStatus(live);
   }).catch((error) => {
     console.warn("Schneller Jellyfin-Abgleich fehlgeschlagen:", error);
@@ -238,17 +238,15 @@ async function refreshSeriesJellyfinStatus(force = false) {
     const isSameView = state.series.viewGeneration === viewGeneration;
     if (!isLatestForSeries || !isSameView || state.series.current?.base_slug !== baseSlug) return false;
     syncSeriesQueueFlags(refreshed);
-    const enriched = {
-      ...current,
-      ...refreshed,
-      backdrop_url: refreshed.backdrop_url || current.backdrop_url || "",
-    };
+    const previousStructure = seriesStructureFingerprint(state.series.current);
+    const enriched = mergeSeriesDetailPayload(state.series.current || current, refreshed);
     state.series.current = enriched;
     state.series.cache[baseSlug] = enriched;
     pruneSeriesEpisodeSelection();
     updateSeriesOverview(enriched);
     updateWatchBtn();
-    renderSeriesTiles();
+    if (seriesStructureFingerprint(enriched) !== previousStructure) renderSeriesTiles();
+    else refreshSeriesTileStates();
     updateSeriesStatus(enriched);
     return true;
   } catch (error) {
@@ -263,7 +261,7 @@ async function refreshSeriesJellyfinStatus(force = false) {
     ) {
       state.series.current.availability_error = true;
       state.series.cache[baseSlug] = state.series.current;
-      renderSeriesTiles();
+      refreshSeriesTileStates();
       updateSeriesStatus(state.series.current);
     }
     return false;

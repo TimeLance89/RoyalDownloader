@@ -1,7 +1,9 @@
 from bs4 import BeautifulSoup
+import pytest
 
 from providers.models import SeriesEpisode
 from providers.serienstream import SerienstreamScraper
+from session_manager import ProviderBlockedError
 
 
 def _episode(slug: str, season: int, episode: int) -> SeriesEpisode:
@@ -60,3 +62,15 @@ def test_filme_tab_cannot_be_resolved_as_episode():
     assert scraper.get_movie(
         "https://serienstream.to/serie/house-of-the-dragon/staffel-0/episode-1"
     ) is None
+
+
+def test_blocked_season_is_not_silently_treated_as_missing(monkeypatch):
+    scraper = SerienstreamScraper(session=object())
+
+    def blocked(*_args, **_kwargs):
+        raise ProviderBlockedError("captcha", 403)
+
+    monkeypatch.setattr(scraper, "_get_soup", blocked)
+
+    with pytest.raises(ProviderBlockedError):
+        scraper._load_season("house-of-the-dragon", 2)
