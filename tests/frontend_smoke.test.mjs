@@ -23,6 +23,7 @@ const appModulePaths = [
   "trailer-runtime.js",
   "catalog-runtime.js",
   "screens/movies.js",
+  "screens/movie_filters.js",
   "screens/series.js",
   "screens/anime.js",
   "screens/library.js",
@@ -93,7 +94,7 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
   assert.match(html, /i18n\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260810-3/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260811-4/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -107,7 +108,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260810-12/);
+  assert.match(html, /app\.js\?v=royal-20260811-13/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -148,7 +149,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260811-2/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260811-4/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -194,11 +195,15 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
   assert.match(app, /syncResultCardPoster\(visual, media\)/);
   assert.doesNotMatch(app, /waitsForTmdb/);
   assert.match(app, /await image\.decode\(\)/);
+  assert.match(app, /image\.classList\.add\("is-pending-poster"\)/);
+  assert.match(app, /image\.addEventListener\("transitionend", removePreviousPoster/);
+  assert.match(app, /const preserveRenderedCards = !append/);
+  assert.match(app, /if \(preserveRenderedCards\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260811-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260811-3/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260811-4/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -225,6 +230,20 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
+});
+
+test("movie catalog combines practical filters without rebuilding stable cards", () => {
+  for (const id of [
+    "movie-filter-genre", "movie-filter-period", "movie-filter-rating",
+    "movie-filter-availability", "movie-filter-language", "movie-filter-sort",
+    "movie-filter-reset", "movie-filter-chips",
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`));
+  assert.match(app, /function fpSmartFilterMatches\(result\)/);
+  assert.match(app, /function applyFpSmartFilters\(\)/);
+  assert.match(app, /mediaContentLanguages\(media\)\.has\(filters\.language\)/);
+  assert.match(app, /row\.hidden = !shown/);
+  assert.match(app, /row\.style\.order/);
+  assert.match(app, /function resetFpSmartFilters\(\)/);
 });
 
 test("movie details keep catalog artwork while full metadata loads directly", () => {
@@ -324,7 +343,6 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
   assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
-  assert.match(app, /function movieGenrePresentation\(genre\)/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
 
@@ -470,7 +488,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-5/);
+  assert.match(html, /style\.css\?v=royal-20260811-6/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

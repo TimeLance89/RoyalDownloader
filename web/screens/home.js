@@ -1247,8 +1247,8 @@ function rememberSearch(query, kind) {
   } catch {
     // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
   }
-  const matchingGenre = [...document.querySelectorAll("#genre-filter [data-genre]")]
-    .map((element) => element.dataset.genre || "")
+  const matchingGenre = (state.fp.availableGenres || [])
+    .map((genre) => String(genre || ""))
     .find((genre) => genre && genre !== "Alle Genres"
       && genre.localeCompare(normalized, "de", { sensitivity: "base" }) === 0);
   api.tasteEvent({

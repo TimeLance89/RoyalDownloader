@@ -3,53 +3,18 @@ const fpJellyfinPending = new Map();
 let fpJellyfinWorker = null;
 const fpQueueMutations = new Set();
 
-const MOVIE_GENRE_PRESENTATIONS = {
-  action: ["↯", "Puls & Tempo", "ember"],
-  abenteuer: ["⌁", "Weite & Wagnis", "tungsten"],
-  adventure: ["⌁", "Weite & Wagnis", "tungsten"],
-  animation: ["✦", "Gezeichnete Welten", "violet"],
-  anime: ["✦", "Gezeichnete Welten", "violet"],
-  comedy: ["◡", "Leicht & schräg", "tungsten"],
-  komodie: ["◡", "Leicht & schräg", "tungsten"],
-  drama: ["◐", "Nähe & Konflikt", "violet"],
-  fantasy: ["◇", "Mythen & Magie", "violet"],
-  horror: ["⌾", "Dunkel & verstörend", "ember"],
-  krimi: ["⌕", "Spuren & Abgründe", "cyan"],
-  crime: ["⌕", "Spuren & Abgründe", "cyan"],
-  musik: ["♪", "Klang & Bühne", "mint"],
-  mystery: ["?", "Rätsel & Schatten", "cyan"],
-  romance: ["♡", "Nähe & Sehnsucht", "rose"],
-  romanze: ["♡", "Nähe & Sehnsucht", "rose"],
-  sciencefiction: ["◉", "Zukunft & Kosmos", "cyan"],
-  scifi: ["◉", "Zukunft & Kosmos", "cyan"],
-  thriller: ["△", "Druck & Wendungen", "ember"],
-  western: ["☼", "Staub & Legenden", "tungsten"],
-  dokumentation: ["□", "Wahre Geschichten", "mint"],
-  documentary: ["□", "Wahre Geschichten", "mint"],
-  familie: ["⌂", "Gemeinsam schauen", "mint"],
-  family: ["⌂", "Gemeinsam schauen", "mint"],
-};
-
-function movieGenrePresentation(genre) {
-  const key = String(genre || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/gi, "")
-    .toLowerCase();
-  return MOVIE_GENRE_PRESENTATIONS[key] || ["◆", "Eine andere Perspektive", "neutral"];
-}
-
 function fpStatusMessage() {
-  const visibleSlugs = new Set(state.fp.results.map((r) => r.slug));
+  const filteredResults = fpSmartFilteredResults();
+  const visibleSlugs = new Set(filteredResults.map((r) => r.slug));
   const visiblePicks = [...state.queuedSlugs].filter((s) => visibleSlugs.has(s)).length;
   const otherPicks = state.queuedSlugs.size - visiblePicks;
   let msg;
   if (state.fp.searchActive) {
-    msg = `${state.fp.results.length} Filme auf TMDB`;
+    msg = `${filteredResults.length} Filme auf TMDB`;
   } else if (state.fp.activeGenre === "Alle Genres") {
-    msg = `${state.fp.results.length} Treffer`;
+    msg = `${filteredResults.length} von ${state.fp.results.length} Treffern`;
   } else {
-    msg = `Genre: ${state.fp.activeGenre}  ·  ${state.fp.results.length} Treffer`;
+    msg = `${state.fp.activeGenre} · ${filteredResults.length} von ${state.fp.results.length} Treffern`;
   }
   if (state.queuedSlugs.size) {
     const extra = otherPicks ? `  ·  ${otherPicks} von anderen Seiten` : "";
@@ -63,21 +28,8 @@ function setActiveGenreFilter(genre) {
   state.fp.activeGenre = activeGenre;
   const activeLabel = document.getElementById("genre-active");
   if (activeLabel) activeLabel.textContent = activeGenre === "Alle Genres" ? "Alle Filme" : activeGenre;
-  document.querySelectorAll("#genre-filter [data-genre]").forEach((button) => {
-    const selected = button.dataset.genre === activeGenre;
-    button.classList.toggle("is-active", selected);
-    button.setAttribute("aria-pressed", String(selected));
-  });
-}
-
-function setGenreBrowserExpanded(expanded) {
-  const filter = document.getElementById("genre-filter");
-  const toggle = document.getElementById("genre-toggle");
-  filter.classList.toggle("is-expanded", expanded);
-  toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.querySelector(".genre-toggle-label").textContent = expanded
-    ? "Weniger Genres"
-    : (toggle.dataset.collapsedLabel || "Alle Genres");
+  const select = document.getElementById("movie-filter-genre");
+  if (select) select.value = activeGenre;
 }
 
 function mergeCatalogItems(current, incoming, keyFor) {
@@ -362,6 +314,7 @@ function updateFpJellyfinBadges() {
       || metadataPreviewMovie(state.fp.metadataCache[selected.slug] || basicMovieMetadata(selected));
     configureFpDetailAction(selected.slug, movie, !state.fp.moviesCache[selected.slug]);
   }
+  if (fpSmartFilters().availability !== "all") applyFpSmartFilters();
 }
 
 function mediaCardInitials(title) {
@@ -391,21 +344,27 @@ function syncResultCardPoster(visual, media) {
   image.loading = "lazy";
   image.fetchPriority = "auto";
   image.decoding = "async";
-
-  if (current) {
-    // Das vorhandene Poster bleibt sichtbar, bis der bessere TMDB-Treffer
-    // wirklich geladen ist. Metadaten- und Jellyfin-Updates erzeugen dadurch
-    // weder Flackern noch einen zweiten sichtbaren Bild-Ladevorgang.
-    image.classList.add("is-pending-poster");
-    image.style.opacity = "0";
-    image.addEventListener("load", async () => {
-      try { await image.decode(); } catch (e) { /* Das Bild ist bereits nutzbar. */ }
+  // Auch das allererste Poster bleibt bis zum vollständigen Decode unsichtbar.
+  // Der ruhige Platzhalter darunter verhindert progressive Bildaufbauten und
+  // helle Zwischenframes beim schnellen Scrollen.
+  image.classList.add("is-pending-poster");
+  image.addEventListener("load", async () => {
+    try { await image.decode(); } catch (e) { /* Das Bild ist bereits nutzbar. */ }
+    if (!image.isConnected) return;
+    requestAnimationFrame(() => {
       if (!image.isConnected) return;
-      current.remove();
       image.classList.remove("is-pending-poster");
-      image.style.removeProperty("opacity");
-    }, { once: true });
-  }
+      if (!current?.isConnected) return;
+      let cleaned = false;
+      const removePreviousPoster = () => {
+        if (cleaned) return;
+        cleaned = true;
+        current.remove();
+      };
+      image.addEventListener("transitionend", removePreviousPoster, { once: true });
+      window.setTimeout(removePreviousPoster, 360);
+    });
+  }, { once: true });
   scheduleResultPoster(image, coverCandidates);
   visual.appendChild(image);
 }
@@ -483,6 +442,9 @@ function updateFpResultCard(slug) {
   if (!result || !row) return;
   const visual = row.querySelector(".result-card-visual");
   const media = fpResultMedia(result);
+  row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
+  const title = row.querySelector(".result-card-title");
+  if (title) title.textContent = result.title;
   if (visual) {
     syncResultCardPoster(visual, media);
     const posterBadge = visual.querySelector(".result-card-library-badge");
@@ -542,6 +504,7 @@ function syncFpQueueIndicators() {
     document.getElementById("fp-status").textContent = fpStatusMessage();
   }
   syncFpDetailQueueAction();
+  if (fpSmartFilters().availability === "queued") applyFpSmartFilters();
 }
 
 function updateFpResultSelection() {
@@ -615,11 +578,16 @@ function renderFpResults(appendFrom = 0) {
     container.appendChild(row);
   }
 
-  document.getElementById("fp-status").textContent = fpStatusMessage();
+  applyFpSmartFilters();
 }
 
 function applyFpResults(data, { append = false, metadataPrepared = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
+  const renderedCards = document.querySelectorAll("#fp-results .result-card");
+  const preserveRenderedCards = !append
+    && incoming.length === state.fp.results.length
+    && renderedCards.length === incoming.length
+    && incoming.every((result, index) => result.slug === state.fp.results[index]?.slug);
   for (const result of incoming) {
     if (result?.tmdb_id) {
       state.fp.metadataCache[result.slug] = mergeFpMetadata(
@@ -654,7 +622,12 @@ function applyFpResults(data, { append = false, metadataPrepared = false } = {})
     ? state.fp.pendingPreload
     : new Set();
   for (const slug of pendingSlugs) state.fp.pendingPreload.add(slug);
-  renderFpResults(appendFrom);
+  if (preserveRenderedCards) {
+    for (const result of incoming) updateFpResultCard(result.slug);
+    document.getElementById("fp-status").textContent = fpStatusMessage();
+  } else {
+    renderFpResults(appendFrom);
+  }
   void refreshFpJellyfinStatus(incoming);
   refreshMovieFeatureCandidates();
   updateFpInfiniteState();
@@ -823,7 +796,6 @@ function ensureFpResults() {
 
 async function fpGenreChange(genre) {
   clearFpSearchContext();
-  setGenreBrowserExpanded(false);
   if (genre === "Alle Genres") {
     await fpShowList("new");
     return;

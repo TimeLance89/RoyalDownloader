@@ -711,6 +711,17 @@ class DownloadJob:
         )
         return target.with_name(filename)
 
+    @staticmethod
+    def _make_published_media_readable(path: Path) -> None:
+        """Stellt sicher, dass ein separater Jellyfin-Benutzer lesen darf."""
+        try:
+            path.chmod(path.stat().st_mode | 0o044)
+        except OSError:
+            # Manche NAS-Dateisysteme verwalten Zugriffe ausschließlich über
+            # ACLs und verweigern chmod. Die erfolgreiche Veröffentlichung
+            # darf dadurch nicht rückgängig gemacht werden.
+            pass
+
     def _commit_file(self, source: Path, target: Path) -> Path:
         """Veröffentlicht atomar, ohne eine vorhandene Mediendatei zu ersetzen."""
         if self.demo_mode:
@@ -723,12 +734,14 @@ class DownloadJob:
                 # mit EEXIST fehl, statt wie os.replace() fremde Daten zu löschen.
                 os.link(source, candidate)
                 source.unlink()
-                return candidate
             except FileExistsError:
                 continue
             except OSError as exc:
                 if exc.errno != errno.EXDEV:
                     raise
+            else:
+                self._make_published_media_readable(candidate)
+                return candidate
 
             temp_target = target.parent / f".{candidate.name}.{self.attempt_id}.tmp"
             try:
@@ -751,6 +764,7 @@ class DownloadJob:
                     continue
                 temp_target.unlink()
                 source.unlink()
+                self._make_published_media_readable(candidate)
                 return candidate
             except Exception:
                 try:
