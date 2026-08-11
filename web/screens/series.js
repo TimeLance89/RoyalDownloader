@@ -421,6 +421,43 @@ async function loadNextSeriesPage() {
   await seriesBrowse(mode, state.series.page + 1, { append: true });
 }
 
+function seriesStructureFingerprint(series) {
+  return (series?.seasons || []).map((season) =>
+    `${season.season}:${(season.episodes || []).map((episode) => episode.slug).join(",")}`,
+  ).join("|");
+}
+
+function mergeSeriesDetailPayload(previous, fresh) {
+  if (!previous) return fresh;
+  if (!fresh) return previous;
+  const seasons = new Map();
+  for (const snapshot of [previous, fresh]) {
+    for (const season of snapshot.seasons || []) {
+      const seasonNumber = Number(season.season || 0);
+      if (seasonNumber <= 0) continue;
+      const episodes = seasons.get(seasonNumber) || new Map();
+      for (const episode of season.episodes || []) {
+        const key = episode.slug || `${seasonNumber}:${episode.episode}`;
+        episodes.set(key, { ...(episodes.get(key) || {}), ...episode });
+      }
+      seasons.set(seasonNumber, episodes);
+    }
+  }
+  const mergedSeasons = [...seasons.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([season, episodes]) => ({
+      season,
+      episodes: [...episodes.values()].sort((left, right) => left.episode - right.episode),
+    }));
+  return {
+    ...previous,
+    ...fresh,
+    seasons: mergedSeasons,
+    episode_count: mergedSeasons.reduce((total, season) => total + season.episodes.length, 0),
+    backdrop_url: fresh.backdrop_url || previous.backdrop_url || "",
+  };
+}
+
 async function loadSeries(result) {
   const cacheKey = result.base_slug || result.sample_slug;
   if (state.series.pendingBaseSlug === cacheKey) return;
@@ -433,11 +470,7 @@ async function loadSeries(result) {
 
   const cached = state.series.cache[cacheKey];
   if (cached) {
-    const enriched = {
-      ...result,
-      ...cached,
-      backdrop_url: cached.backdrop_url || result.backdrop_url || "",
-    };
+    const enriched = mergeSeriesDetailPayload(result, cached);
     showSeriesDetail(enriched, result.sample_slug);
     updateSeriesStatus(enriched);
     refreshSeriesJellyfinStatus();
@@ -448,11 +481,7 @@ async function loadSeries(result) {
   try {
     const loaded = await api.seriesLoad(result.sample_slug, result.base_slug || "", false, true);
     if (requestId !== state.series.requestSeq) return;
-    const series = {
-      ...result,
-      ...loaded,
-      backdrop_url: loaded.backdrop_url || result.backdrop_url || "",
-    };
+    const series = mergeSeriesDetailPayload(result, loaded);
     showSeriesDetail(series, result.sample_slug);
     updateSeriesStatus(series);
     refreshSeriesJellyfinStatus();
@@ -477,8 +506,12 @@ function showSeriesLoading(result) {
   const cover = document.getElementById("series-cover");
   cover.loading = "eager";
   cover.fetchPriority = "high";
-  if (result.cover_url) cover.src = api.coverUrl(result.cover_url);
-  else cover.removeAttribute("src");
+  const previewCover = result.cover_url ? api.coverUrl(result.cover_url) : "";
+  if (previewCover) {
+    if (cover.getAttribute("src") !== previewCover) cover.src = previewCover;
+  } else {
+    cover.removeAttribute("src");
+  }
   const sourceLabels = (Array.isArray(result.sources) ? result.sources : [])
     .map((source) => source.label)
     .filter(Boolean);
@@ -533,7 +566,10 @@ function setSeriesDetailArtwork(series) {
     return;
   }
   const backdropUrl = api.coverUrl(artwork).replace(/"/g, "%22");
-  panel.style.setProperty("--series-backdrop-image", `url("${backdropUrl}")`);
+  const nextImage = `url("${backdropUrl}")`;
+  if (panel.style.getPropertyValue("--series-backdrop-image") !== nextImage) {
+    panel.style.setProperty("--series-backdrop-image", nextImage);
+  }
 }
 
 let seriesDetailHeroTrailerTimer = null;
@@ -620,8 +656,12 @@ function updateSeriesOverview(series) {
   const cover = document.getElementById("series-cover");
   cover.loading = "eager";
   cover.fetchPriority = "high";
-  if (series.cover_url) cover.src = api.coverUrl(series.cover_url);
-  else cover.removeAttribute("src");
+  const nextCover = series.cover_url ? api.coverUrl(series.cover_url) : "";
+  if (nextCover) {
+    if (cover.getAttribute("src") !== nextCover) cover.src = nextCover;
+  } else {
+    cover.removeAttribute("src");
+  }
   const seriesMeta = [];
   if (series.year) seriesMeta.push(series.year);
   if (series.runtime) seriesMeta.push(series.runtime);
@@ -674,30 +714,86 @@ function episodeReleaseText(ep) {
   return ep?.release_label || "DEMNÄCHST";
 }
 
+function seriesAvailabilityNotice(series) {
+  if (series.availability_pending) {
+    return series.availability_error
+      ? "Auswahl pausiert: Die Verfügbarkeit konnte noch nicht geprüft werden."
+      : "Staffeln sind da · Bestand und Metadaten werden im Hintergrund geprüft …";
+  }
+  if (series.jellyfin_available === false) {
+    return "Auswahl pausiert: Jellyfin konnte nicht eindeutig abgeglichen werden.";
+  }
+  return "";
+}
+
+function syncSeriesAvailabilityNotice(container, series) {
+  let notice = container.querySelector(":scope > .series-loading");
+  const text = seriesAvailabilityNotice(series);
+  if (!text) {
+    notice?.remove();
+    return;
+  }
+  if (!notice) {
+    notice = document.createElement("div");
+    notice.className = "series-loading";
+    container.prepend(notice);
+  }
+  if (notice.textContent !== text) notice.textContent = text;
+}
+
+function applySeriesEpisodeTileState(tile, episode, series) {
+  tile.className = "ep-tile " + tileClass(episode) + (episode.in_jellyfin ? " in-jellyfin" : "");
+  tile.disabled = !isEpisodeSelectable(episode);
+  const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
+  if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
+  else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
+  else if (episode.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
+  else if (episode.downloaded) tile.title = "Bereits heruntergeladen";
+  else if (isEpisodeQueued(episode)) tile.title = "Bereits in der Warteschlange";
+  else if (episode.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;
+  else tile.removeAttribute("title");
+}
+
+function refreshSeriesTileStates() {
+  const series = state.series.current;
+  const container = document.getElementById("series-tiles");
+  if (!series || !container) return;
+  syncSeriesAvailabilityNotice(container, series);
+  const episodesBySlug = new Map(seriesEpisodes(series).map((episode) => [episode.slug, episode]));
+  for (const tile of container.querySelectorAll(".ep-tile[data-episode-slug]")) {
+    const episode = episodesBySlug.get(tile.dataset.episodeSlug);
+    if (episode) applySeriesEpisodeTileState(tile, episode, series);
+  }
+  for (const season of series.seasons || []) {
+    const row = [...container.querySelectorAll(".season-row")]
+      .find((candidate) => Number(candidate.dataset.season) === Number(season.season));
+    if (!row) continue;
+    const pickedCount = season.episodes.filter((episode) => state.series.epPicked.has(episode.slug)).length;
+    const button = row.querySelector(".season-btn");
+    const count = button?.querySelector("small");
+    if (button) button.disabled = !season.episodes.some(isEpisodeSelectable);
+    if (count) count.textContent = `${pickedCount}/${season.episodes.length} gewählt`;
+  }
+  const selectableCount = seriesEpisodes(series).filter(isEpisodeSelectable).length;
+  document.getElementById("series-pick-count").textContent = `${state.series.epPicked.size} ausgewählt`;
+  document.getElementById("series-select-all").disabled = selectableCount === 0;
+  document.getElementById("series-select-none").disabled = state.series.epPicked.size === 0;
+  document.getElementById("series-add-btn").disabled = state.series.epPicked.size === 0;
+}
+
 function renderSeriesTiles() {
   const container = document.getElementById("series-tiles");
   container.innerHTML = "";
   const series = state.series.current;
   if (!series) { document.getElementById("series-pick-count").textContent = "0 ausgewählt"; return; }
   pruneSeriesEpisodeSelection();
-  if (series.availability_pending) {
-    const warning = document.createElement("div");
-    warning.className = "series-loading";
-    warning.textContent = series.availability_error
-      ? "Auswahl pausiert: Die Verfügbarkeit konnte noch nicht geprüft werden."
-      : "Staffeln sind da · Bestand und Metadaten werden im Hintergrund geprüft …";
-    container.appendChild(warning);
-  } else if (series.jellyfin_available === false) {
-    const warning = document.createElement("div");
-    warning.className = "series-loading";
-    warning.textContent = "Auswahl pausiert: Jellyfin konnte nicht eindeutig abgeglichen werden.";
-    container.appendChild(warning);
-  }
+  syncSeriesAvailabilityNotice(container, series);
   const selectableCount = seriesEpisodes(series).filter(isEpisodeSelectable).length;
   for (const seasonObj of series.seasons) {
     const pickedCount = seasonObj.episodes.filter((e) => state.series.epPicked.has(e.slug)).length;
     const row = document.createElement("div");
     row.className = "season-row";
+    row.dataset.season = seasonObj.season;
     const seasonBtn = document.createElement("button");
     seasonBtn.className = "season-btn";
     seasonBtn.setAttribute("aria-label", `Staffel ${seasonObj.season}: ${pickedCount} von ${seasonObj.episodes.length} ausgewählt`);
@@ -715,7 +811,8 @@ function renderSeriesTiles() {
     tiles.className = "ep-tiles";
     for (const ep of seasonObj.episodes) {
       const tile = document.createElement("button");
-      tile.className = "ep-tile " + tileClass(ep) + (ep.in_jellyfin ? " in-jellyfin" : "");
+      tile.dataset.episodeSlug = ep.slug;
+      applySeriesEpisodeTileState(tile, ep, series);
       const releaseText = ep.unreleased ? episodeReleaseText(ep) : "";
       tile.setAttribute(
         "aria-label",
@@ -732,13 +829,6 @@ function renderSeriesTiles() {
         release.textContent = releaseText;
         tile.appendChild(release);
       }
-      tile.disabled = !isEpisodeSelectable(ep);
-      if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
-      else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
-      else if (ep.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
-      else if (ep.downloaded) tile.title = "Bereits heruntergeladen";
-      else if (isEpisodeQueued(ep)) tile.title = "Bereits in der Warteschlange";
-      else if (ep.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;
       tile.addEventListener("click", () => toggleEpisodeTile(ep.slug));
       tiles.appendChild(tile);
     }
@@ -781,7 +871,7 @@ function markSeriesSlugDownloaded(slug) {
   if (!series) return;
   for (const s of series.seasons) {
     for (const ep of s.episodes) {
-      if (ep.slug === slug) { ep.downloaded = true; renderSeriesTiles(); return; }
+      if (ep.slug === slug) { ep.downloaded = true; refreshSeriesTileStates(); return; }
     }
   }
 }

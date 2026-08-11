@@ -730,6 +730,50 @@ def get_series_for_value(value: str) -> Optional[FilmpalastSeries]:
     return _find_series_by_title(value, fallbacks)
 
 
+def merge_series_snapshots(
+    previous: Optional[FilmpalastSeries],
+    fresh: Optional[FilmpalastSeries],
+) -> Optional[FilmpalastSeries]:
+    """Vereinigt Provider-Antworten, ohne bereits geladene Staffeln zu verlieren."""
+    if previous is None:
+        return fresh
+    if fresh is None:
+        return previous
+    seasons: Dict[int, List[SeriesEpisode]] = {}
+    for snapshot in (previous, fresh):
+        for season, episodes in snapshot.seasons.items():
+            by_number = {item.episode: item for item in seasons.get(season, [])}
+            by_number.update({item.episode: item for item in episodes})
+            seasons[season] = [by_number[number] for number in sorted(by_number)]
+    return FilmpalastSeries(
+        title=fresh.title or previous.title,
+        base_slug=fresh.base_slug or previous.base_slug,
+        url=fresh.url or previous.url,
+        cover_url=fresh.cover_url or previous.cover_url,
+        description=fresh.description or previous.description,
+        genres=fresh.genres or previous.genres,
+        seasons=seasons,
+    )
+
+
+def series_payload_missing_seasons(payload: dict) -> set[int]:
+    """Erkennt laut TMDB existierende, im Provider-Snapshot fehlende Staffeln."""
+    expected: set[int] = set()
+    for season, count in (payload.get("season_episode_counts") or {}).items():
+        try:
+            number, episode_count = int(season), int(count or 0)
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and episode_count > 0:
+            expected.add(number)
+    present = {
+        int(item.get("season") or 0)
+        for item in payload.get("seasons") or []
+        if int(item.get("season") or 0) > 0
+    }
+    return expected - present
+
+
 def movie_to_dict(
     movie: FilmpalastMovie,
     tmdb_override: Optional[dict] = None,
@@ -1162,5 +1206,7 @@ _SERVICE_EXPORTS = (
     "_valid_media_cached",
     "compute_downloaded_episodes",
     "series_to_dict",
+    "merge_series_snapshots",
+    "series_payload_missing_seasons",
 )
 publish_service(globals(), _SERVICE_EXPORTS)
