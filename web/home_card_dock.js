@@ -5,7 +5,6 @@ const HOME_CARD_DOCK_FADE_MS = 170;
 const HOME_CARD_DOCK_HANDOFF_MS = 110;
 const HOME_CARD_DOCK_LEAVE_MS = 180;
 const HOME_CARD_DOCK_MIN_VISIBLE_MS = 360;
-const HOME_CARD_DOCK_SCROLL_COOLDOWN_MS = 420;
 let homeCardDock = null;
 let homeCardDockOwner = null;
 let homeCardDockCandidate = null;
@@ -14,7 +13,6 @@ let homeCardDockHideTimer = null;
 let homeCardDockTransition = 0;
 let homeCardDockSuppressFocus = false;
 let homeCardDockShownAt = 0;
-let homeCardDockScrollBlockedUntil = 0;
 let homeCardDockPointerX = -1;
 let homeCardDockPointerY = -1;
 const homeCardDockEntries = new WeakMap();
@@ -73,8 +71,14 @@ function homeCardDockPointInside(element, padding = 0) {
 }
 
 function homeCardDockPointerInsideActiveZone() {
-  return homeCardDockPointInside(homeCardDockOwner, 8)
-    || homeCardDockPointInside(homeCardDock, 8);
+  if (!homeCardDockOwner || !homeCardDock || homeCardDock.hidden) return false;
+  const cardRect = homeCardDockOwner.getBoundingClientRect();
+  const dockRect = homeCardDock.getBoundingClientRect();
+  const padding = 10;
+  return homeCardDockPointerX >= Math.min(cardRect.left, dockRect.left) - padding
+    && homeCardDockPointerX <= Math.max(cardRect.right, dockRect.right) + padding
+    && homeCardDockPointerY >= Math.min(cardRect.top, dockRect.top) - padding
+    && homeCardDockPointerY <= Math.max(cardRect.bottom, dockRect.bottom) + padding;
 }
 
 function handleHomeCardDockPointerMove(event) {
@@ -94,8 +98,8 @@ function handleHomeCardDockPointerMove(event) {
     cancelHomeCardDockHideTimer();
     return;
   }
-  if (homeCardDock && !homeCardDock.hidden && !homeCardDockHideTimer) {
-    scheduleHomeCardDockHide(event);
+  if (homeCardDock && !homeCardDock.hidden) {
+    hideHomeCardDock();
   }
 }
 
@@ -104,10 +108,6 @@ function registerHomeCardDock(card, entry) {
   card.addEventListener("pointerenter", (event) => {
     recordHomeCardDockPointer(event);
     scheduleHomeCardDock(card, entry);
-  });
-  card.addEventListener("pointerleave", (event) => {
-    recordHomeCardDockPointer(event);
-    scheduleHomeCardDockHide(event);
   });
 }
 
@@ -126,19 +126,12 @@ function relayHomeCardDockWheel(event) {
   const track = owner.closest(".home-track");
   const horizontal = Boolean(track) && (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY));
   event.preventDefault();
-  homeCardDockScrollBlockedUntil = Date.now() + HOME_CARD_DOCK_SCROLL_COOLDOWN_MS;
   hideHomeCardDock({ immediate: true });
   if (horizontal) {
     track.scrollLeft += (event.deltaX || event.deltaY) * lineFactor;
   } else {
     homeScroller.scrollTop += event.deltaY * lineFactor;
   }
-}
-
-function handleHomeCardDockScroll() {
-  homeCardDockScrollBlockedUntil = Date.now() + HOME_CARD_DOCK_SCROLL_COOLDOWN_MS;
-  homeCardDockCandidate = null;
-  hideHomeCardDock({ immediate: true });
 }
 
 function positionHomeCardDock(card) {
@@ -153,6 +146,23 @@ function positionHomeCardDock(card) {
   let top = rect.top - Math.min(14, (width - rect.width) * .16);
   if (top + estimatedHeight > window.innerHeight - gutter) {
     top = Math.max(gutter, window.innerHeight - estimatedHeight - gutter);
+  }
+  const track = card.closest(".home-track");
+  if (track?.id) {
+    const reserve = 12;
+    document.querySelectorAll(`[data-home-scroll="${track.id}"]:not([hidden])`).forEach((button) => {
+      const buttonRect = button.getBoundingClientRect();
+      const verticalCollision = top < buttonRect.bottom + reserve
+        && top + estimatedHeight > buttonRect.top - reserve;
+      if (!verticalCollision) return;
+      const direction = Number(button.dataset.direction) || 1;
+      if (direction < 0 && left < buttonRect.right + reserve) {
+        left = buttonRect.right + reserve;
+      } else if (direction > 0 && left + width > buttonRect.left - reserve) {
+        left = buttonRect.left - width - reserve;
+      }
+    });
+    left = Math.max(gutter, Math.min(left, window.innerWidth - width - gutter));
   }
   homeCardDock.style.left = `${Math.round(left)}px`;
   homeCardDock.style.top = `${Math.round(top)}px`;
@@ -342,7 +352,6 @@ function ensureHomeCardDock() {
   homeCardDock.hidden = true;
   homeCardDock.setAttribute("role", "group");
   homeCardDock.addEventListener("pointerenter", homeCardDockPointerEntered);
-  homeCardDock.addEventListener("pointerleave", scheduleHomeCardDockHide);
   homeCardDock.addEventListener("focusin", homeCardDockPointerEntered);
   homeCardDock.addEventListener("focusout", scheduleHomeCardDockHide);
   homeCardDock.addEventListener("wheel", relayHomeCardDockWheel, { passive: false });
@@ -357,7 +366,6 @@ function ensureHomeCardDock() {
     requestAnimationFrame(() => { homeCardDockSuppressFocus = false; });
   });
   window.addEventListener("resize", () => positionHomeCardDock(homeCardDockOwner), { passive: true });
-  window.addEventListener("scroll", handleHomeCardDockScroll, { passive: true, capture: true });
   document.body.appendChild(homeCardDock);
   return homeCardDock;
 }
@@ -411,8 +419,7 @@ function scheduleHomeCardDock(card, entry, { immediate = false, focusDock = fals
     const delay = homeCardDock && !homeCardDock.hidden
       ? HOME_CARD_DOCK_HANDOFF_MS
       : HOME_CARD_DOCK_INTENT_MS;
-    const cooldown = Math.max(0, homeCardDockScrollBlockedUntil - Date.now());
-    homeCardDockShowTimer = window.setTimeout(show, Math.max(delay, cooldown));
+    homeCardDockShowTimer = window.setTimeout(show, delay);
   }
 }
 

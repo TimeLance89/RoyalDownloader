@@ -62,6 +62,11 @@
   transition-duration: .15s;
 }
 
+/* Rail navigation remains above the floating Dock as a final collision guard. */
+#tab-home .home-rail-controls button {
+  z-index: 260;
+}
+
 .home-card-dock-visual {
   position: relative;
   display: grid;
