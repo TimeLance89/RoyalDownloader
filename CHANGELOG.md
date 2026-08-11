@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 2026-08-11 – Instant catalogs, immediate artwork, and Jellyfin throughput
+
+- Make movie and series catalogs appear almost immediately by enforcing bounded
+  provider deadlines, returning partial pages safely, caching series discovery,
+  and continuing slow source work without blocking browsing or infinite scroll.
+- Show provider artwork as soon as a title arrives across all twelve movie
+  adapters, then replace it unobtrusively with decoded TMDB artwork when richer
+  metadata becomes available; keep existing cards stable during the swap.
+- Replace repeated full-catalog Jellyfin checks with a deduplicated incremental
+  queue that checks only new or metadata-refined titles in bounded batches.
+- Build the Jellyfin movie identity index once per batch instead of rescanning
+  and renormalizing the complete library for every title, allowing ownership
+  badges to keep pace with the faster catalog.
+- Harden deep pagination, title/year/TMDB identity resolution, slow-provider
+  recovery, browser-pool cleanup, and provider-specific poster extraction while
+  preserving already visible results when a source misses its response budget.
+- Split catalog and trailer runtime work into focused frontend modules, refresh
+  cache revisions, and expand regression coverage for deadlines, provider
+  artwork, Jellyfin matching, metadata hydration, and idle browser cleanup.
+
 ## 2026-08-10 – NAS updates, persistence, and settings workspace
 
 - Add a first-run Demo mode that requires no media paths and visibly simulates
