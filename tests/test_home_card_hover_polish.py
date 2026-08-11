@@ -11,8 +11,8 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-2');"
-    assert '<script src="/home_card_dock.js?v=royal-20260811-3"></script>' in (
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-3');"
+    assert '<script src="/home_card_dock.js?v=royal-20260811-6"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
 
@@ -77,7 +77,6 @@ def test_wheel_over_the_dock_is_forwarded_to_the_real_scroll_container():
     assert 'owner?.closest(".tab-content")' in DOCK
     assert "homeScroller.scrollTop += event.deltaY * lineFactor" in DOCK
     assert "track.scrollLeft += (event.deltaX || event.deltaY) * lineFactor" in DOCK
-    assert "HOME_CARD_DOCK_SCROLL_COOLDOWN_MS = 420" in DOCK
 
 
 def test_hover_lifecycle_has_a_minimum_visible_window_and_safe_handoff():
@@ -98,7 +97,30 @@ def test_pointer_geometry_keeps_micro_movements_from_collapsing_the_dock():
     assert 'homeCardDockOwner?.matches(":hover")' not in DOCK
 
 
-def test_hover_recovers_after_scroll_cooldown_instead_of_dropping_the_attempt():
-    assert "homeCardDockScrollBlockedUntil - Date.now()" in DOCK
-    assert "window.setTimeout(show, Math.max(delay, cooldown))" in DOCK
-    assert "Date.now() < homeCardDockScrollBlockedUntil) return" not in DOCK
+def test_internal_scroll_events_cannot_cancel_the_latched_hover():
+    assert 'window.addEventListener("scroll"' not in DOCK
+    assert "homeCardDockScrollBlockedUntil" not in DOCK
+    assert "homeCardDockShowTimer = window.setTimeout(show, delay)" in DOCK
+
+
+def test_open_dock_is_hard_latched_until_pointer_leaves_card_and_dock_zone():
+    assert "Math.min(cardRect.left, dockRect.left) - padding" in DOCK
+    assert "Math.max(cardRect.right, dockRect.right) + padding" in DOCK
+    assert 'card.addEventListener("pointerleave"' not in DOCK
+    assert 'homeCardDock.addEventListener("pointerleave"' not in DOCK
+    assert "if (homeCardDockPointerInsideActiveZone())" in DOCK
+    assert "hideHomeCardDock();" in DOCK
+
+
+def test_dock_avoids_visible_rail_navigation_buttons_at_both_edges():
+    assert 'document.querySelectorAll(`[data-home-scroll="${track.id}"]:not([hidden])`)' in DOCK
+    assert "buttonRect.right + reserve" in DOCK
+    assert "buttonRect.left - width - reserve" in DOCK
+    assert "#tab-home .home-rail-controls button" in HOVER
+    assert "z-index: 260" in HOVER
+
+
+def test_smooth_rail_scroll_cannot_discard_a_pending_card_hover():
+    assert "function handleHomeCardDockScroll" not in DOCK
+    assert "function restoreHomeCardDockAfterRailScroll" not in DOCK
+    assert "cancelHomeCardDockTimers();" in DOCK
