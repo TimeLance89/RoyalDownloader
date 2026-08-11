@@ -1,3 +1,4 @@
+import stat
 from types import SimpleNamespace
 
 import server  # noqa: F401 - registers the application service backend
@@ -10,6 +11,18 @@ class _Pool:
 
     def close(self):
         self.closed = True
+
+
+def test_existing_completed_media_is_made_readable_for_jellyfin(tmp_path):
+    media = tmp_path / "The.Return.2006.mp4"
+    media.write_bytes(b"movie")
+    media.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    download_lifecycle._ensure_jellyfin_media_readable(media)
+
+    mode = media.stat().st_mode
+    assert mode & stat.S_IRGRP
+    assert mode & stat.S_IROTH
 
 
 def test_idle_provider_cooldown_closes_browser_pools(monkeypatch):
