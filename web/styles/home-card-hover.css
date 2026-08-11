@@ -99,11 +99,54 @@
   object-fit: cover;
   filter: saturate(1.04) contrast(1.025);
   transform: scale(1.015);
+  transition: opacity .22s ease;
 }
 
 .home-card-dock-fallback {
   color: #686c76;
   font: 800 38px/1 "Archivo", sans-serif;
+  transition: opacity .22s ease;
+}
+
+.home-card-dock-preview {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #050505;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .24s ease;
+}
+
+.home-card-dock.is-previewing .home-card-dock-preview { opacity: 1; }
+
+.home-card-dock.is-previewing .home-card-dock-visual > img,
+.home-card-dock.is-previewing .home-card-dock-fallback { opacity: 0; }
+
+.home-card-dock-mute {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  place-items: center;
+  color: #fff;
+  background: rgba(11, 12, 15, .78);
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 50%;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.home-card-dock-mute[hidden] { display: none; }
+
+.home-card-dock-mute:hover,
+.home-card-dock-mute:focus-visible {
+  background: var(--dock-red);
+  border-color: #f04a5b;
+  outline: none;
 }
 
 .home-card-dock-visual-top {
@@ -382,6 +425,7 @@
   #tab-home .home-card-art,
   #tab-home .home-card-art img,
   .home-card-dock,
+  .home-card-dock-preview,
   .home-card-dock-action {
     transition: none !important;
   }
