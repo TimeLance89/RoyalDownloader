@@ -47,6 +47,7 @@
     opacity .17s ease,
     transform .22s cubic-bezier(.2, .82, .2, 1);
   will-change: opacity, transform;
+  cursor: pointer;
 }
 
 .home-card-dock.is-visible {
