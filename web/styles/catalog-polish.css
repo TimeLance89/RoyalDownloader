@@ -109,12 +109,14 @@
 
 /* Poster werden erst nach dem Decode eingeblendet. Bei einem TMDB-Upgrade
    bleibt das vorhandene Bild darunter liegen, bis die Überblendung fertig ist. */
-#tab-filme #fp-results .result-card-poster {
+#tab-filme #fp-results .result-card-poster,
+#tab-serien #series-results .result-card-poster {
   opacity: 1;
   transition: opacity .24s ease;
 }
 
-#tab-filme #fp-results .result-card-poster.is-pending-poster {
+#tab-filme #fp-results .result-card-poster.is-pending-poster,
+#tab-serien #series-results .result-card-poster.is-pending-poster {
   opacity: 0;
 }
 
@@ -139,7 +141,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #tab-filme #fp-results .result-card-poster { transition: none; }
+  #tab-filme #fp-results .result-card-poster,
+  #tab-serien #series-results .result-card-poster { transition: none; }
 }
 
 /* Filmregie: one quiet filtering surface instead of a wall of genre tiles. */
