@@ -12,7 +12,7 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
     assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
-    assert '<script src="/home_card_dock.js?v=royal-20260811-9"></script>' in (
+    assert '<script src="/home_card_dock.js?v=royal-20260811-10"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
 
@@ -148,6 +148,7 @@ def test_hover_autoplays_an_available_trailer_after_one_second():
     assert "homeCardDockOwner !== card" in DOCK
     assert "youtube-nocookie.com/embed/" in DOCK
     assert "?autoplay=1&mute=1&controls=0" in DOCK
+    assert 'frame.referrerPolicy = "strict-origin-when-cross-origin"' in DOCK
     assert ".home-card-dock-preview" in HOVER
     assert "pointer-events: none" in HOVER
 
