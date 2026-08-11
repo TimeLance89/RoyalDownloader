@@ -241,7 +241,7 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   if (artworkPrepared) {
     void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
   } else {
-    void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(async (hydratedBaseSlugs) => {
+    void hydrateHomeSeriesArtwork(incoming, { render: false }).then(async (hydratedBaseSlugs) => {
       for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
       renderSeriesCatalogHero();
       await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
@@ -370,11 +370,10 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
   try {
     const data = await api.series(seriesParams(mode, page));
     if (requestId !== state.series.browseRequestSeq) return false;
-    if (append) {
-      await prepareSeriesCatalogPage(data);
-      if (requestId !== state.series.browseRequestSeq) return false;
-    }
-    applySeriesResults(data, { append, artworkPrepared: append });
+    // Serienkarten sofort stabil anhaengen; Poster, TMDB und Jellyfin werden
+    // parallel pro Karte ergaenzt statt die ganze Folgeseite zu sperren.
+    applySeriesResults(data, { append });
+    if (append) void preloadSeriesPosterImages(data.results || [], 2000);
     if (!append) state.series.previewFromHome = false;
     if (!append && page === 1) state.series.lastCatalogRefreshAt = Date.now();
     return true;

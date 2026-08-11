@@ -811,9 +811,11 @@ async function loadNextFpPage() {
   try {
     const data = await api.movies(params);
     if (requestId !== state.fp.requestSeq) return;
-    await prepareFpCatalogPage(data);
-    if (requestId !== state.fp.requestSeq) return;
-    applyFpResults(data, { append: true, metadataPrepared: true });
+    // Inhalte zuerst stabil anhaengen. Poster und TMDB-Daten laden danach
+    // parallel pro Karte; die langsamste Bildantwort sperrt nicht mehr die
+    // komplette 32er-Seite.
+    applyFpResults(data, { append: true });
+    void preloadFpPosterImages(data.results || [], 2000);
   } catch (error) {
     if (requestId !== state.fp.requestSeq) return;
     state.fp.loadError = error.message;

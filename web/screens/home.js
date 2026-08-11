@@ -1647,41 +1647,42 @@ function closeHomeSearch() {
   syncSearchClearButtons();
   renderHomeSearchResults();
 }
-
 async function loadHomeData() {
   state.home.loading = true;
   if (!homeAllEntries().length) renderHome();
-  const newMoviesRequest = api.movies({ mode: "new", page: 1 });
-  const trendingSeriesRequest = api.series({ mode: "trending", page: 1 });
-  const topMoviesRequest = api.movies({ mode: "top", page: 1 });
-  const newSeriesRequest = api.series({ mode: "new", page: 1 });
-  const discoveryMoviesRequest = Promise.allSettled([
-    api.movies({ mode: "new", page: 2 }),
-    api.movies({ mode: "top", page: 2 }),
-  ]).then((results) => {
-    return results
-      .filter((result) => result.status === "fulfilled")
-      .flatMap((result) => result.value.results || []);
-  });
-  const discoverySeriesRequest = api.series({ mode: "discover", page: 1 });
-  const results = await Promise.allSettled([
-    newMoviesRequest,
-    trendingSeriesRequest,
-    topMoviesRequest,
-    newSeriesRequest,
-    discoveryMoviesRequest,
-    discoverySeriesRequest,
+  // Sichtbare Startkataloge einzeln uebernehmen, damit ein langsamer
+  // Serienanbieter den Film-Tab nicht bis zum Ende der Startabfrage leer haelt.
+  await Promise.allSettled([
+    api.movies({ mode: "new", page: 1 }).then((data) => {
+      state.home.newMovies = data.results || [];
+      if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
+      renderHome();
+      syncFpCatalogFromHome({ fresh: true });
+    }),
+    api.series({ mode: "trending", page: 1 }).then((data) => {
+      state.home.trendingSeries = data.results || [];
+      if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+      renderHome();
+      syncSeriesCatalogFromHome({ fresh: true });
+    }),
   ]);
-  if (results[0].status === "fulfilled") state.home.newMovies = results[0].value.results || [];
-  if (results[1].status === "fulfilled") state.home.trendingSeries = results[1].value.results || [];
-  if (results[2].status === "fulfilled") state.home.topMovies = results[2].value.results || [];
-  if (results[3].status === "fulfilled") state.home.newSeries = results[3].value.results || [];
-  if (results[4].status === "fulfilled" && results[4].value.length) {
-    state.home.discoveryMovies = results[4].value;
-  }
-  if (results[5].status === "fulfilled") state.home.discoverySeries = results[5].value.results || [];
+  // Sekundaere Reihen konkurrieren beim Kaltstart nicht um Provider-Sessions.
+  const secondary = await Promise.allSettled([
+    api.movies({ mode: "top", page: 1 }), api.series({ mode: "new", page: 1 }),
+    api.series({ mode: "discover", page: 1 }),
+  ]);
+  if (secondary[0].status === "fulfilled") state.home.topMovies = secondary[0].value.results || [];
+  if (secondary[1].status === "fulfilled") state.home.newSeries = secondary[1].value.results || [];
+  if (secondary[2].status === "fulfilled") state.home.discoverySeries = secondary[2].value.results || [];
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+  renderHome();
+  const discoveryMovies = await Promise.allSettled([
+    api.movies({ mode: "new", page: 2 }), api.movies({ mode: "top", page: 2 }),
+  ]);
+  const discovered = discoveryMovies.filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value.results || []);
+  if (discovered.length) state.home.discoveryMovies = discovered;
   renderHome();
   await Promise.allSettled([
     hydrateHomeMovieArtwork([
@@ -1697,8 +1698,7 @@ async function loadHomeData() {
   ]);
   await refreshCatalogJellyfinStatus(homeAllEntries(), null);
   state.home.loading = false;
-  saveHomeCache();
-  renderHome();
+  saveHomeCache(); renderHome();
 }
 
 async function hydrateHomeMovieArtwork(items, { render = true } = {}) {

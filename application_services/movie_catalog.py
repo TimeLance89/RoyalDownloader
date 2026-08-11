@@ -21,6 +21,12 @@ _MOVIE_PROVIDER_LOAD_POOL = ThreadPoolExecutor(
 )
 _MOVIE_PROVIDER_INFLIGHT = {}
 _MOVIE_PROVIDER_INFLIGHT_LOCK = threading.Lock()
+_MOVIE_CATALOG_PREFETCH_POOL = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="movie-prefetch",
+)
+_MOVIE_CATALOG_PREFETCH_INFLIGHT = set()
+_MOVIE_CATALOG_PREFETCH_LOCK = threading.Lock()
 
 
 def strip_source_suffix(title: str) -> str:
@@ -494,15 +500,26 @@ class MovieCatalogColdLoadLimit(RuntimeError):
     """Verhindert teure Sprünge über viele noch ungecachte Quellseiten."""
 
 
-def _cached_movie_provider_page(cache_key: tuple) -> Optional[List[FilmpalastSearchResult]]:
+def _movie_provider_page_cache_state(
+    cache_key: tuple,
+) -> tuple[Optional[List[FilmpalastSearchResult]], str]:
+    """Liefert eine frische oder noch brauchbare veraltete Providerseite."""
     with state.movie_list_cache_lock:
         cached = state.movie_list_cache.get(cache_key)
         ttl = cached[2] if cached and len(cached) > 2 else MOVIE_LIST_CACHE_TTL
-        if cached and time.time() - cached[0] < ttl:
-            return list(cached[1])
+        age = time.time() - cached[0] if cached else 0.0
+        if cached and age < ttl:
+            return list(cached[1]), "fresh"
+        if cached and age < MOVIE_LIST_STALE_TTL:
+            return list(cached[1]), "stale"
         if cached:
             state.movie_list_cache.pop(cache_key, None)
-    return None
+    return None, "missing"
+
+
+def _cached_movie_provider_page(cache_key: tuple) -> Optional[List[FilmpalastSearchResult]]:
+    results, freshness = _movie_provider_page_cache_state(cache_key)
+    return results if freshness == "fresh" else None
 
 
 def _cache_movie_provider_page(
@@ -514,9 +531,7 @@ def _cache_movie_provider_page(
     with state.movie_list_cache_lock:
         expired = [
             key for key, cached in state.movie_list_cache.items()
-            if now - cached[0] >= (
-                cached[2] if len(cached) > 2 else MOVIE_LIST_CACHE_TTL
-            )
+            if now - cached[0] >= MOVIE_LIST_STALE_TTL
         ]
         for key in expired:
             state.movie_list_cache.pop(key, None)
@@ -590,19 +605,22 @@ def _load_movie_provider_pages(
     """Lädt mehrere Quellseiten parallel und cached sie unabhängig voneinander."""
     loaded: Dict[tuple[str, int], List[FilmpalastSearchResult]] = {}
     missing: List[tuple[str, int, tuple]] = []
+    stale: List[tuple[str, int, tuple, List[FilmpalastSearchResult]]] = []
     genre_key = clean_genre(genre).casefold()
 
     for provider, source_page in dict.fromkeys(requests_to_load):
         cache_key = ("provider", mode, genre_key, provider, int(source_page))
-        cached = _cached_movie_provider_page(cache_key)
-        if cached is None:
+        cached, freshness = _movie_provider_page_cache_state(cache_key)
+        if freshness == "missing":
             missing.append((provider, source_page, cache_key))
         else:
-            loaded[(provider, source_page)] = cached
+            loaded[(provider, source_page)] = list(cached or [])
+            if freshness == "stale":
+                stale.append((provider, source_page, cache_key, list(cached or [])))
 
-    if not missing:
+    if not missing and not stale:
         return loaded
-    if cold_wave_budget is not None:
+    if missing and cold_wave_budget is not None:
         if cold_wave_budget[0] <= 0:
             raise MovieCatalogColdLoadLimit(
                 "Dieser Katalogabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
@@ -611,13 +629,15 @@ def _load_movie_provider_pages(
 
     deadline = deadline or (time.monotonic() + MOVIE_CATALOG_PAGE_BUDGET_SECONDS)
 
-    def complete_provider_load(future, provider, source_page, cache_key):
+    def complete_provider_load(
+        future, provider, source_page, cache_key, stale_fallback=None,
+    ):
         try:
             results = list(future.result())
         except Exception as exc:
             label = PROVIDER_LABELS.get(provider, provider)
             log(f"{label} Liste (Quellseite {source_page}) übersprungen: {exc}", "warn")
-            results = []
+            results = list(stale_fallback or [])
             _cache_movie_provider_page(
                 cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
             )
@@ -629,7 +649,14 @@ def _load_movie_provider_pages(
                     _MOVIE_PROVIDER_INFLIGHT.pop(cache_key, None)
 
     futures = []
-    for provider, source_page, cache_key in missing:
+    work = [
+        (provider, source_page, cache_key, None, True)
+        for provider, source_page, cache_key in missing
+    ] + [
+        (provider, source_page, cache_key, fallback, False)
+        for provider, source_page, cache_key, fallback in stale
+    ]
+    for provider, source_page, cache_key, stale_fallback, should_wait in work:
         created = False
         with _MOVIE_PROVIDER_INFLIGHT_LOCK:
             future = _MOVIE_PROVIDER_INFLIGHT.get(cache_key)
@@ -641,10 +668,17 @@ def _load_movie_provider_pages(
                 created = True
         if created:
             future.add_done_callback(
-                lambda done, p=provider, s=source_page, key=cache_key:
-                complete_provider_load(done, p, s, key)
+                lambda done, p=provider, s=source_page, key=cache_key,
+                fallback=stale_fallback:
+                complete_provider_load(done, p, s, key, fallback)
             )
-        futures.append((provider, source_page, cache_key, future))
+        if should_wait:
+            futures.append((provider, source_page, cache_key, future))
+
+    # Stale-while-revalidate: Der bekannte Katalog ist bereits vollstaendig
+    # sichtbar. Nur echte Cache-Misses gehoeren in das Request-Zeitbudget.
+    if not futures:
+        return loaded
 
     remaining = max(0.0, deadline - time.monotonic())
     done, pending = wait({future for *_meta, future in futures}, timeout=remaining)
@@ -670,6 +704,38 @@ def _load_movie_provider_pages(
         except Exception:
             loaded[(provider, source_page)] = []
     return loaded
+
+
+def _schedule_movie_provider_prefetch(
+    mode: str,
+    genre: str,
+    requests_to_load: List[tuple[str, int]],
+) -> None:
+    """Waermt die naechste Anbieterwelle, ohne den Browser warten zu lassen."""
+    requests = tuple(dict.fromkeys(requests_to_load))
+    if not requests:
+        return
+    key = (mode, clean_genre(genre).casefold(), requests)
+    with _MOVIE_CATALOG_PREFETCH_LOCK:
+        if key in _MOVIE_CATALOG_PREFETCH_INFLIGHT:
+            return
+        _MOVIE_CATALOG_PREFETCH_INFLIGHT.add(key)
+
+    def _work():
+        try:
+            _load_movie_provider_pages(
+                mode,
+                genre,
+                list(requests),
+                deadline=time.monotonic() + MOVIE_CATALOG_PAGE_BUDGET_SECONDS,
+            )
+        except Exception as exc:
+            log(f"Filmkatalog-Prefetch übersprungen: {exc}", "warn")
+        finally:
+            with _MOVIE_CATALOG_PREFETCH_LOCK:
+                _MOVIE_CATALOG_PREFETCH_INFLIGHT.discard(key)
+
+    _MOVIE_CATALOG_PREFETCH_POOL.submit(_work)
 
 
 def _movie_provider_genres(provider: str) -> set:
@@ -877,12 +943,23 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         for provider in priority
         if source_counts[provider]
     ]
+    has_more = page < MOVIE_MAX_GLOBAL_PAGE and (
+        len(catalog_entries) > target_end or has_more_unverified
+    )
+    if has_more and not timed_out[0]:
+        _schedule_movie_provider_prefetch(
+            mode,
+            genre,
+            [
+                (provider, next_source_page)
+                for provider in paginated
+                if provider not in exhausted
+            ],
+        )
     return {
         "results": [result for _provider, result in page_entries],
         "page": page,
-        "has_more": page < MOVIE_MAX_GLOBAL_PAGE and (
-            len(catalog_entries) > target_end or has_more_unverified
-        ),
+        "has_more": has_more,
         "sources": sources,
     }
 
@@ -920,8 +997,6 @@ def warm_home_movie_cache():
         log(f"Startansicht vorbereitet: {len(movies)} neue Filme.")
     except Exception as exc:
         log(f"Startansicht konnte nicht vorab geladen werden: {exc}", "warn")
-    finally:
-        warm_home_series_cache()
 
 
 _SERVICE_EXPORTS = (
@@ -949,10 +1024,12 @@ _SERVICE_EXPORTS = (
     "_movie_matches_tmdb_choice",
     "resolve_tmdb_movie_sources",
     "MovieCatalogColdLoadLimit",
+    "_movie_provider_page_cache_state",
     "_cached_movie_provider_page",
     "_cache_movie_provider_page",
     "_fetch_movie_provider_page",
     "_load_movie_provider_pages",
+    "_schedule_movie_provider_prefetch",
     "_movie_provider_genres",
     "_movie_genre_for_provider",
     "_provider_supports_movie_genre",

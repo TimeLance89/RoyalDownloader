@@ -212,30 +212,6 @@ async function preloadSeriesPosterImages(results, maxWaitMs = 3500) {
   ]).finally(() => clearTimeout(timer));
 }
 
-async function prepareFpCatalogPage(data) {
-  const results = Array.isArray(data?.results) ? data.results : [];
-  for (const result of results) {
-    if (result?.tmdb_id) state.fp.metadataCache[result.slug] = mergeFpMetadata(
-      state.fp.metadataCache[result.slug], result,
-    );
-  }
-  const metadataItems = fpMetadataPreloadItems(results);
-  if (metadataItems.length) {
-    state.fp.pendingPreload = state.fp.pendingPreload || new Set();
-    for (const item of metadataItems) state.fp.pendingPreload.add(item.slug);
-    await preloadTmdbMetadata(state.fp.metadataRequestSeq, metadataItems, { attempts: 1 });
-  }
-  await preloadFpPosterImages(results);
-  return data;
-}
-
-async function prepareSeriesCatalogPage(data) {
-  const results = Array.isArray(data?.results) ? data.results : [];
-  await hydrateHomeSeriesArtwork(results, { render: false });
-  await preloadSeriesPosterImages(results);
-  return data;
-}
-
 function syncFpCatalogFromHome({ fresh = false } = {}) {
   if (state.fp.searchActive || (state.fp.category && state.fp.category !== "new")) return false;
   const incoming = Array.isArray(state.home.newMovies) ? state.home.newMovies : [];

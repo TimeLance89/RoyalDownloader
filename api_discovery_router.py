@@ -245,18 +245,10 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     for result in result_dicts:
         if result.get("provider"):
             result["title"] = clean_movie_title(result.get("title", ""))
-    # Der Katalog benötigt ausschließlich Filmidentitäten. Der vollständige
-    # Qualitätsindex (MediaSources/Path) ist erheblich größer und bleibt den
-    # Abo-/Upgrade-Jobs vorbehalten.
-    jf_items = await run_in_threadpool(get_jellyfin_movie_identities)
-    with state.jellyfin_cache_lock:
-        jf_available = state.jellyfin_movie_identities_available
-    if jf_items is not None and jf_available:
-        jf_client = get_jellyfin_client()
-        for rd in result_dicts:
-            rd["in_jellyfin"] = jf_client.match(
-                clean_movie_title(rd["title"]), rd.get("year", ""), items=jf_items,
-            )
+    # Jellyfin ist eine nachgelagerte Badge-Anreicherung. Der separate
+    # /jellyfin/matches-Aufruf der Weboberflaeche aktualisiert sie asynchron;
+    # eine grosse oder schlafende NAS-Bibliothek blockiert dadurch nicht mehr
+    # die Filmkarten und Poster.
     return {
         "results": result_dicts,
         "category": data["category"],

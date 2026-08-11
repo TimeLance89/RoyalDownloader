@@ -205,12 +205,12 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /const CATALOG_PRELOAD_PX = 5000/);
   assert.match(app, /const FP_METADATA_BATCH_SIZE = 12/);
   assert.match(app, /scheduleResultPoster\(image, coverCandidates\)/);
-  assert.match(app, /await prepareFpCatalogPage\(data\)/);
-  assert.match(app, /await preloadFpPosterImages\(results\)/);
-  assert.match(app, /metadataPrepared: true/);
-  assert.match(app, /await prepareSeriesCatalogPage\(data\)/);
-  assert.match(app, /await preloadSeriesPosterImages\(results\)/);
-  assert.match(app, /artworkPrepared: append/);
+  assert.doesNotMatch(app, /await prepareFpCatalogPage\(data\)/);
+  assert.match(app, /applyFpResults\(data, \{ append: true \}\)/);
+  assert.match(app, /void preloadFpPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
+  assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
+  assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
