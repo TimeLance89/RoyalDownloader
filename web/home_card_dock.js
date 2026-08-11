@@ -355,6 +355,11 @@ function ensureHomeCardDock() {
   homeCardDock.addEventListener("focusin", homeCardDockPointerEntered);
   homeCardDock.addEventListener("focusout", scheduleHomeCardDockHide);
   homeCardDock.addEventListener("wheel", relayHomeCardDockWheel, { passive: false });
+  homeCardDock.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("button, a, input, select, textarea")) return;
+    homeCardDock.querySelector(".home-card-dock-action.is-primary")?.click();
+  });
   document.addEventListener("pointermove", handleHomeCardDockPointerMove, { passive: true, capture: true });
   homeCardDock.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;

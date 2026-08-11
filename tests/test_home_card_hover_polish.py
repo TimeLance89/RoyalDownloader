@@ -11,8 +11,8 @@ TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-3');"
-    assert '<script src="/home_card_dock.js?v=royal-20260811-6"></script>' in (
+    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-4');"
+    assert '<script src="/home_card_dock.js?v=royal-20260811-7"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
 
@@ -124,3 +124,10 @@ def test_smooth_rail_scroll_cannot_discard_a_pending_card_hover():
     assert "function handleHomeCardDockScroll" not in DOCK
     assert "function restoreHomeCardDockAfterRailScroll" not in DOCK
     assert "cancelHomeCardDockTimers();" in DOCK
+
+
+def test_clicking_non_action_dock_content_opens_details():
+    assert 'homeCardDock.addEventListener("click", (event) =>' in DOCK
+    assert 'target?.closest("button, a, input, select, textarea")' in DOCK
+    assert 'homeCardDock.querySelector(".home-card-dock-action.is-primary")?.click()' in DOCK
+    assert "cursor: pointer" in HOVER

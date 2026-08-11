@@ -470,7 +470,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-3/);
+  assert.match(html, /style\.css\?v=royal-20260811-4/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
