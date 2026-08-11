@@ -147,12 +147,13 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260810-5/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260811-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
   assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
+  assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
   assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v3"/);
   assert.match(app, /known\.catalog_identity_version !== 2/);
@@ -164,6 +165,9 @@ test("deep movie pagination hydrates only the newly appended page", () => {
   assert.match(app, /tmdb_id: result\.tmdb_id \|\| state\.fp\.metadataCache/);
   assert.match(app, /attempt < maxAttempts && unresolved\.size/);
   assert.match(app, /preloadTmdbMetadata\(state\.fp\.metadataRequestSeq, metadataItems\)/);
+  assert.match(app, /refreshFpJellyfinStatus\(incoming\)/);
+  assert.match(app, /refreshedSlugs\.has\(item\.slug\)/);
+  assert.doesNotMatch(app, /let fpJellyfinRequestSeq/);
   assert.match(app, /requestId !== state\.fp\.metadataRequestSeq/);
   assert.doesNotMatch(app, /const items = state\.fp\.results\s*\.filter\(\(r\) => !state\.fp\.metadataCache/);
 });

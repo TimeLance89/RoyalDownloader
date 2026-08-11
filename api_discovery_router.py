@@ -386,6 +386,18 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
             series_available = not needs_series or bool(
                 series_items is not None and state.jellyfin_series_available
             )
+        movie_matches = {}
+        movie_requests = [item for item in requested if item.media_type == "movie"]
+        match_many = getattr(client, "match_many", None)
+        if movie_available and movie_requests and callable(match_many):
+            batch_matches = match_many([{
+                "title": clean_movie_title(item.title),
+                "year": item.year,
+                "tmdb_id": item.tmdb_id,
+            } for item in movie_requests], items=movie_items)
+            movie_matches = dict(zip(
+                (item.slug for item in movie_requests), batch_matches, strict=True,
+            ))
         statuses = {}
         matches = {}
         for item in requested:
@@ -393,7 +405,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
                 if not movie_available:
                     statuses[item.slug] = "unavailable"
                     continue
-                owned = client.match(
+                owned = movie_matches.get(item.slug) if callable(match_many) else client.match(
                     clean_movie_title(item.title), item.year,
                     items=movie_items, tmdb_id=item.tmdb_id,
                 )

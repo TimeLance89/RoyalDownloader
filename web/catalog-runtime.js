@@ -107,6 +107,10 @@ async function preloadTmdbMetadata(requestId, items, { attempts = 2 } = {}) {
         }
       }
       for (const item of batch) state.fp.pendingPreload?.delete(item.slug);
+      const refreshedSlugs = new Set(batch.map((item) => item.slug));
+      void refreshFpJellyfinStatus(
+        state.fp.results.filter((item) => refreshedSlugs.has(item.slug)),
+      );
       refreshMovieFeatureCandidates();
       const selected = state.fp.selectedSlug;
       if (selected && batch.some((item) => item.slug === selected)
@@ -120,7 +124,6 @@ async function preloadTmdbMetadata(requestId, items, { attempts = 2 } = {}) {
     const workerCount = Math.min(FP_METADATA_BATCH_CONCURRENCY, batches.length);
     await Promise.all(Array.from({ length: workerCount }, () => loadNextBatch()));
     if (requestId !== state.fp.metadataRequestSeq) return;
-    refreshFpJellyfinStatus();
   } catch (e) { /* Anbieter-Metadaten bleiben als Fallback sichtbar. */ }
   finally {
     if (requestId !== state.fp.metadataRequestSeq) return;
