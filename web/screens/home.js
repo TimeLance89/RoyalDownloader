@@ -1089,8 +1089,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
   if (!rank) {
-    card.addEventListener("pointerenter", () => scheduleHomeCardDock(card, entry));
-    card.addEventListener("pointerleave", scheduleHomeCardDockHide);
+    registerHomeCardDock(card, entry);
     primaryAction.addEventListener("focus", () => {
       if (!homeCardDockSuppressFocus) scheduleHomeCardDock(card, entry, { immediate: true });
     });
