@@ -352,6 +352,11 @@ MOVIE_PAGINATED_PROVIDERS = frozenset({
     "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
 })
 MOVIE_LIST_CACHE_TTL = 300
+# Abgelaufene Providerlisten bleiben als sofortige Anzeige nutzbar, waehrend
+# dieselbe Quellseite im Hintergrund aktualisiert wird. Das verhindert, dass
+# alle fuenf Minuten wieder der langsamste Anbieter den gesamten Katalog
+# blockiert.
+MOVIE_LIST_STALE_TTL = 6 * 60 * 60
 MOVIE_LIST_FAILURE_CACHE_TTL = 30
 MOVIE_LIST_CACHE_MAX_ENTRIES = 1000
 MOVIE_MAX_GLOBAL_PAGE = 50
@@ -383,11 +388,13 @@ SERIES_PAGINATED_PROVIDERS = frozenset({
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
+SERIES_LIST_STALE_TTL = 6 * 60 * 60
 SERIES_LIST_FAILURE_CACHE_TTL = 30
 SERIES_LIST_CACHE_MAX_ENTRIES = 500
 SERIES_MAX_GLOBAL_PAGE = 50
 SERIES_MAX_SOURCE_PAGE = 50
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
+SERIES_CATALOG_PAGE_BUDGET_SECONDS = 12.0
 
 
 from application_services.runtime import register_backend, refresh_services
@@ -439,6 +446,7 @@ def start_background_services():
             return
         _background_services_started = True
     threading.Thread(target=warm_home_movie_cache, daemon=True).start()
+    threading.Thread(target=warm_home_series_cache, daemon=True).start()
     threading.Thread(target=warm_jellyfin_identity_cache, daemon=True).start()
     threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
     threading.Thread(target=restore_persisted_queue, daemon=True).start()

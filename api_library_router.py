@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -160,6 +162,11 @@ COVER_MAX_BYTES = 10 * 1024 * 1024
 COVER_CACHE_MAX_BYTES = 64 * 1024 * 1024
 COVER_CACHE_MAX_ENTRIES = 256
 COVER_MAX_REDIRECTS = 3
+COVER_FETCH_TIMEOUT_SECONDS = 8
+_COVER_FETCH_POOL = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="cover-fetch",
+)
 COVER_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 COVER_IMAGE_TYPES = frozenset({
     "image/jpeg",
@@ -224,7 +231,7 @@ def _fetch_cover_data(url: str) -> tuple | None:
                 resp = curl_session.get(
                     current_url,
                     headers=headers,
-                    timeout=20,
+                    timeout=COVER_FETCH_TIMEOUT_SECONDS,
                     stream=True,
                     allow_redirects=False,
                 )
@@ -303,7 +310,10 @@ def _fetch_cover_data(url: str) -> tuple | None:
 @router.get("/api/v1/cover")
 @router.get("/api/cover")
 async def api_cover(url: str):
-    data = await run_in_threadpool(_fetch_cover_data, url)
+    # Fremdhoster-Poster duerfen den gemeinsamen Starlette/AnyIO-Threadpool
+    # nicht belegen. Sonst warten Katalog- und TMDB-Routen hinter bis zu 40
+    # langsamen Bildern, obwohl deren Daten bereits verfuegbar sind.
+    data = await asyncio.wrap_future(_COVER_FETCH_POOL.submit(_fetch_cover_data, url))
     if not data:
         raise HTTPException(502, "Cover konnte nicht geladen werden.")
     content, content_type = data

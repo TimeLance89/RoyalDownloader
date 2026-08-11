@@ -255,6 +255,7 @@ class MegaKinoScraper:
             url=f"{BASE_URL}/watch/{slug}/{source_id}",
             year=self._year(row.get("year")),
             is_movie=True,
+            cover_url=self._cover_url(row),
         )
 
     def _series_results(self, rows: Iterable[dict]) -> List[FilmpalastSeriesResult]:

@@ -287,6 +287,7 @@ class KinogerScraper:
             url=card.url,
             year=card.year,
             is_movie=True,
+            cover_url=card.cover_url,
         )
 
     @staticmethod

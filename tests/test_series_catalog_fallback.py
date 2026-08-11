@@ -10,7 +10,7 @@ def test_trending_series_fall_back_when_serienstream_is_unavailable(monkeypatch)
     )
     calls = []
 
-    def load_pages(mode, _letter, requests, _budget):
+    def load_pages(mode, _letter, requests, _budget, *_timing):
         calls.append((mode, tuple(requests)))
         if mode == "trending":
             return {("serienstream", 1): []}

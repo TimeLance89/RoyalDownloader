@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260810-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260810-2">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -1946,9 +1946,25 @@
       <button id="fp-trailer-close" class="trailer-dialog-close" type="button" aria-label="Trailer schließen">×</button>
     </div>
     <div class="trailer-frame-shell">
-      <iframe id="fp-trailer-frame" title="Trailer" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      <iframe id="fp-trailer-frame" title="Trailer-Player" tabindex="0" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      <div id="fp-trailer-state" class="trailer-player-state" role="status" aria-live="polite">
+        <span class="trailer-loader" aria-hidden="true"></span>
+        <strong id="fp-trailer-state-title">Trailer wird geladen</strong>
+        <p id="fp-trailer-state-copy">Vorführung wird vorbereitet …</p>
+        <div class="trailer-state-actions">
+          <button id="fp-trailer-retry" type="button">Erneut versuchen</button>
+          <a id="fp-trailer-external" href="#" target="_blank" rel="noopener noreferrer">Auf YouTube öffnen ↗</a>
+        </div>
+      </div>
     </div>
-    <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
+    <footer class="trailer-footer">
+      <p id="fp-trailer-caption" class="trailer-caption" data-i18n-ignore></p>
+      <label class="trailer-autoplay-toggle" for="fp-trailer-autoplay">
+        <input id="fp-trailer-autoplay" type="checkbox">
+        <span>Vorschau in Details automatisch starten</span>
+      </label>
+    </footer>
+    <button id="fp-trailer-focus-end" class="trailer-focus-end" type="button" aria-label="Zum Anfang des Trailer-Dialogs"></button>
   </div>
 </div>
 
@@ -1967,21 +1983,23 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260809-3"></script>
+<script src="/api.js?v=royal-20260810-2"></script>
 <script src="/i18n.js?v=royal-20260809-1"></script>
-<script src="/store.js?v=royal-20260809-2"></script>
+<script src="/store.js?v=royal-20260810-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
-<script src="/core.js?v=royal-20260809-1"></script>
-  <script src="/screens/home.js?v=royal-20260809-4"></script>
+<script src="/core.js?v=royal-20260810-2"></script>
+<script src="/screens/home.js?v=royal-20260810-6"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
-<script src="/screens/movies.js?v=royal-20260809-2"></script>
-<script src="/screens/series.js?v=royal-20260805-4"></script>
+<script src="/trailer-runtime.js?v=royal-20260810-2"></script>
+<script src="/catalog-runtime.js?v=royal-20260811-1"></script>
+<script src="/screens/movies.js?v=royal-20260811-1"></script>
+<script src="/screens/series.js?v=royal-20260810-3"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260809-1"></script>
 <script src="/screens/notifications.js?v=royal-20260809-1"></script>
 <script src="/screens/settings.js?v=royal-20260809-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
-<script src="/screens/setup.js?v=royal-20260809-1"></script>
-<script src="/app.js?v=royal-20260809-11"></script>
+<script src="/screens/setup.js?v=royal-20260810-3"></script>
+<script src="/app.js?v=royal-20260810-12"></script>
 </body>
 </html>

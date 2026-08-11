@@ -143,7 +143,10 @@ function renderSeriesCatalogHero() {
 
 function renderSeriesResults(appendFrom = 0) {
   const container = document.getElementById("series-results");
-  if (appendFrom <= 0) container.innerHTML = "";
+  if (appendFrom <= 0) {
+    discardObservedResultPosters(container);
+    container.innerHTML = "";
+  }
 
   for (const result of state.series.results.slice(appendFrom)) {
     const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
@@ -218,7 +221,7 @@ function updateSeriesResultSelection() {
   });
 }
 
-function applySeriesResults(data, { append = false } = {}) {
+function applySeriesResults(data, { append = false, artworkPrepared = false } = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   const appendFrom = append ? state.series.results.length : 0;
   state.series.results = append
@@ -235,12 +238,16 @@ function applySeriesResults(data, { append = false } = {}) {
   renderSeriesResults(appendFrom);
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();
-  void hydrateHomeSeriesArtwork(state.series.results, { render: false }).then(async (hydratedBaseSlugs) => {
-    for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
-    renderSeriesCatalogHero();
-    await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-    if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
-  });
+  if (artworkPrepared) {
+    void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
+  } else {
+    void hydrateHomeSeriesArtwork(incoming, { render: false }).then(async (hydratedBaseSlugs) => {
+      for (const baseSlug of hydratedBaseSlugs) updateSeriesResultArtwork(baseSlug);
+      renderSeriesCatalogHero();
+      await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
+      if (browseGeneration === state.series.browseRequestSeq) renderSeriesResults();
+    });
+  }
   updateSeriesInfiniteState();
   recheckSeriesInfinite();
   const sourceCount = state.series.sources.length;
@@ -363,7 +370,12 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
   try {
     const data = await api.series(seriesParams(mode, page));
     if (requestId !== state.series.browseRequestSeq) return false;
+    // Serienkarten sofort stabil anhaengen; Poster, TMDB und Jellyfin werden
+    // parallel pro Karte ergaenzt statt die ganze Folgeseite zu sperren.
     applySeriesResults(data, { append });
+    if (append) void preloadSeriesPosterImages(data.results || [], 2000);
+    if (!append) state.series.previewFromHome = false;
+    if (!append && page === 1) state.series.lastCatalogRefreshAt = Date.now();
     return true;
   } catch (error) {
     if (requestId !== state.series.browseRequestSeq) return false;
@@ -387,7 +399,13 @@ async function seriesBrowse(mode, page, { append = false } = {}) {
 }
 
 function ensureSeriesResults() {
-  if (state.series.results.length || state.series.loadingBrowse) return;
+  syncSeriesCatalogFromHome();
+  if (state.series.results.length) {
+    if (!document.getElementById("series-results").childElementCount) renderSeriesResults();
+    refreshSeriesCatalogInBackground();
+    return;
+  }
+  if (state.series.loadingBrowse) return;
   seriesBrowse("discover", 1);
 }
 
@@ -546,6 +564,7 @@ function scheduleSeriesDetailHeroTrailer(series) {
   const key = fpTrailerYoutubeKey(series);
   if (
     !key
+    || !heroTrailerAutoplayEnabled()
     || completedSeriesHeroTrailers.has(key)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   ) {

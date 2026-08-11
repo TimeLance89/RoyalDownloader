@@ -13,9 +13,9 @@ import json
 import logging
 import re
 import unicodedata
-from urllib.error import HTTPError
 import urllib.request
 from typing import List, Optional
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 
 logger = logging.getLogger(__name__)
@@ -278,6 +278,62 @@ class JellyfinClient:
             return True
         # Gleichnamige Remakes dürfen bei abweichendem Jahr nicht vermischt werden.
         return False
+
+    def match_many(
+        self, queries: list[dict], items: list[dict] | None = None,
+    ) -> list[bool]:
+        """Gleicht einen Katalogstapel gegen einen einmal aufgebauten Index ab."""
+        candidates = items if items is not None else self.list_movie_identities()
+        if candidates is None:
+            return [False] * len(queries)
+
+        tmdb_ids: set[str] = set()
+        exact_titles: dict[str, set[int]] = {}
+        installment_titles: dict[str, list[tuple[int, set[str]]]] = {}
+        for index, item in enumerate(candidates):
+            tmdb_id = str(item.get("tmdb_id") or "").strip()
+            if tmdb_id:
+                tmdb_ids.add(tmdb_id)
+            seen_aliases: set[str] = set()
+            for alias in (item.get("name"), item.get("original_title"), item.get("sort_name")):
+                if not alias:
+                    continue
+                normalized = _normalize(alias)
+                if normalized:
+                    exact_titles.setdefault(normalized, set()).add(index)
+                part, base = _installment_parts(alias)
+                installment_key = f"{part}:{','.join(sorted(base))}"
+                if part and installment_key not in seen_aliases:
+                    installment_titles.setdefault(part, []).append((index, base))
+                    seen_aliases.add(installment_key)
+
+        matches: list[bool] = []
+        for query in queries:
+            title = str(query.get("title") or "")
+            wanted_tmdb = str(query.get("tmdb_id") or "").strip()
+            if wanted_tmdb and wanted_tmdb in tmdb_ids:
+                matches.append(True)
+                continue
+            normalized = _normalize(title)
+            candidate_indexes = set(exact_titles.get(normalized, set())) if normalized else set()
+            wanted_part, wanted_base = _installment_parts(title)
+            if wanted_part and len(wanted_base) >= 2:
+                candidate_indexes.update(
+                    index for index, base in installment_titles.get(wanted_part, [])
+                    if wanted_base <= base
+                )
+            if not candidate_indexes:
+                matches.append(False)
+                continue
+            title_matches = [candidates[index] for index in candidate_indexes]
+            if wanted_tmdb and any(item.get("tmdb_id") for item in title_matches):
+                matches.append(False)
+                continue
+            year = str(query.get("year") or "")
+            matches.append(not year or any(
+                item.get("year") and str(item["year"]) == year for item in title_matches
+            ))
+        return matches
 
     def refresh_library(self) -> bool:
         """Startet einen Jellyfin-Bibliotheksscan."""

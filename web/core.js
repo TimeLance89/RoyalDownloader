@@ -26,7 +26,9 @@ const WATCH_CLEANUP_LABELS = {
   watched_seasons: "Staffel-Löschung",
   watched_episodes: "Episoden-Löschung",
 };
-const FP_METADATA_BATCH_SIZE = 4;
+// Neue Katalogseiten reichern Poster in wenigen großen Paketen an. Dadurch
+// warten nachgeladene Karten nicht nacheinander auf viele kleine Requests.
+const FP_METADATA_BATCH_SIZE = 12;
 const FP_METADATA_BATCH_CONCURRENCY = 3;
 // Auto-Nachladen beobachtet sowohl intern scrollende Desktop-Tabs als auch den
 // Dokument-Viewport der mobilen Ansicht (siehe initCatalogInfiniteScroll).
@@ -659,8 +661,16 @@ function handleMediaModalKeydown(event) {
       return true;
     }
     if (event.key === "Tab") {
-      event.preventDefault();
-      document.getElementById("fp-trailer-close")?.focus();
+      const focusable = trailerModalFocusableElements();
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
     return true;
   }

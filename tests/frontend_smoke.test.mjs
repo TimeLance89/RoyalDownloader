@@ -19,6 +19,8 @@ const appModulePaths = [
   "core.js",
   "screens/home.js",
   "screens/mood.js",
+  "trailer-runtime.js",
+  "catalog-runtime.js",
   "screens/movies.js",
   "screens/series.js",
   "screens/anime.js",
@@ -90,7 +92,7 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
   assert.match(html, /i18n\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260809-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260810-3/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -104,7 +106,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260809-11/);
+  assert.match(html, /app\.js\?v=royal-20260810-12/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -145,20 +147,27 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260809-2/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260811-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
   assert.match(app, /\|\| homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
+  assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
   assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v3"/);
   assert.match(app, /known\.catalog_identity_version !== 2/);
 });
 
 test("deep movie pagination hydrates only the newly appended page", () => {
-  assert.match(app, /const metadataItems = incoming\s*\.filter/);
+  assert.match(app, /const metadataItems = fpMetadataPreloadItems\(incoming\)/);
+  assert.match(app, /!metadata\?\.cover_url/);
+  assert.match(app, /tmdb_id: result\.tmdb_id \|\| state\.fp\.metadataCache/);
+  assert.match(app, /attempt < maxAttempts && unresolved\.size/);
   assert.match(app, /preloadTmdbMetadata\(state\.fp\.metadataRequestSeq, metadataItems\)/);
+  assert.match(app, /refreshFpJellyfinStatus\(incoming\)/);
+  assert.match(app, /refreshedSlugs\.has\(item\.slug\)/);
+  assert.doesNotMatch(app, /let fpJellyfinRequestSeq/);
   assert.match(app, /requestId !== state\.fp\.metadataRequestSeq/);
   assert.doesNotMatch(app, /const items = state\.fp\.results\s*\.filter\(\(r\) => !state\.fp\.metadataCache/);
 });
@@ -167,7 +176,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260809-3/);
+  assert.match(html, /api\.js\?v=royal-20260810-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -180,15 +189,49 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
   assert.match(app, /if \(fpQueueMutations\.has\(slug\)\) return/);
   assert.match(app, /fpQueueMutations\.add\(slug\)/);
   assert.match(app, /fpQueueMutations\.delete\(slug\)/);
+  assert.doesNotMatch(app, /oldVisual\?\.replaceWith\(createResultCardVisual/);
+  assert.match(app, /syncResultCardPoster\(visual, media\)/);
+  assert.doesNotMatch(app, /waitsForTmdb/);
+  assert.match(app, /await image\.decode\(\)/);
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260809-3/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260809-4/);
+  assert.match(html, /api\.js\?v=royal-20260810-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260810-6/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /Serien aus deinen aktiven Quellen/);
+});
+
+test("movie and series catalogs show cached content immediately and refresh in the background", () => {
+  assert.match(app, /syncFpCatalogFromHome\(\)/);
+  assert.match(app, /syncSeriesCatalogFromHome\(\)/);
+  assert.match(app, /refreshFpCatalogInBackground\(\)/);
+  assert.match(app, /refreshSeriesCatalogInBackground\(\)/);
+  assert.match(app, /rootMargin: "4200px 1200px"/);
+  assert.match(app, /const CATALOG_PRELOAD_PX = 1200/);
+  assert.match(app, /const FP_METADATA_BATCH_SIZE = 12/);
+  assert.match(app, /api\.tmdbMovies\(targets\.map[\s\S]*?\}\)\), true\)/);
+  assert.match(app, /scheduleResultPoster\(image, coverCandidates\)/);
+  assert.doesNotMatch(app, /await prepareFpCatalogPage\(data\)/);
+  assert.match(app, /applyFpResults\(data, \{ append: true \}\)/);
+  assert.doesNotMatch(app, /void preloadFpPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(app, /append && data\.page_complete === false/);
+  assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
+  assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
+  assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(api, /_inflightGets: new Map\(\)/);
+  assert.match(api, /15_000/);
+  assert.match(api, /Filmkatalog antwortet zu langsam/);
+});
+
+test("movie details keep catalog artwork while full metadata loads directly", () => {
+  assert.match(app, /cover_url: item\.cover_url \|\| ""/);
+  assert.match(app, /backdrop_url: item\.backdrop_url \|\| ""/);
+  assert.match(app, /if \(!metadata\?\.details_loaded\)/);
+  assert.match(app, /const detailResponse = await api\.tmdbMovie/);
+  assert.match(app, /setFpDetailAvailability\("Metadaten nicht verfügbar", "error"\)/);
 });
 
 test("Top 10 rotates daily instead of weekly", () => {
@@ -279,7 +322,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260805-7/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
   assert.match(app, /function movieGenrePresentation\(genre\)/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
@@ -306,7 +349,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260809-1/);
+  assert.match(html, /core\.js\?v=royal-20260810-2/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -426,7 +469,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260810-1/);
+  assert.match(html, /style\.css\?v=royal-20260810-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -438,10 +481,30 @@ test("scheduled episodes stay disabled and hero trailers return to artwork", () 
   assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
 });
 
+test("trailer player opens immediately with resilient playback states", () => {
+  requiresIds(
+    "fp-trailer-state", "fp-trailer-retry", "fp-trailer-external",
+    "fp-trailer-autoplay", "fp-trailer-focus-end",
+  );
+  assert.match(app, /function openFpTrailerModal\(movie, trigger, heroKind = "film"\)/);
+  assert.doesNotMatch(app, /async function openFpTrailerModal/);
+  assert.match(app, /openTrailerPlayer\(movie, key, startAt, trigger\)/);
+  assert.match(app, /heroTrailerAutoplayEnabled\(\)/);
+  assert.match(app, /setTrailerPlayerState\("error"/);
+  assert.match(app, /function trailerModalFocusableElements\(\)/);
+  assert.match(app, /return saved === null \? true : saved === "true"/);
+  assert.match(html, /trailer-runtime\.js\?v=royal-20260810-2/);
+  assert.match(stylesheet, /legacy-details\.css\?v=royal-20260810-2/);
+});
+
 test("taste feedback is a compact accessible two-way control", () => {
   assert.match(html, /class="taste-feedback" role="group" aria-label="Serie bewerten"/);
   assert.match(html, /class="btn btn-ghost taste-like"/);
   assert.match(html, /class="btn btn-ghost taste-dislike"/);
   assert.match(app, /like\.querySelector\("\.taste-icon"\)\.textContent = liked \? "♥" : "♡"/);
   assert.match(app, /dislike\.querySelector\("\.taste-icon"\)\.textContent = disliked \? "⊗" : "⊘"/);
+  assert.match(app, /pendingTasteFeedbackKeys\.add\(target\.key\)/);
+  assert.match(app, /applyLocalTasteFeedback\(target\.key, action\)/);
+  assert.match(app, /pendingTasteFeedbackKeys\.delete\(target\.key\)/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
 });

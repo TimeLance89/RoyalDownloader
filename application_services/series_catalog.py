@@ -2,10 +2,14 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from application_services import series_catalog_cache
 
 globals().update(import_backend_namespace())
 
@@ -266,41 +270,9 @@ def _series_provider_is_paginated(provider: str, mode: str) -> bool:
     return provider in SERIES_PAGINATED_PROVIDERS
 
 
-def _cached_series_provider_page(
-    cache_key: tuple,
-) -> Optional[List[FilmpalastSeriesResult]]:
-    with state.series_list_cache_lock:
-        cached = state.series_list_cache.get(cache_key)
-        ttl = cached[2] if cached and len(cached) > 2 else SERIES_LIST_CACHE_TTL
-        if cached and time.time() - cached[0] < ttl:
-            return list(cached[1])
-        if cached:
-            state.series_list_cache.pop(cache_key, None)
-    return None
-
-
-def _cache_series_provider_page(
-    cache_key: tuple,
-    results: List[FilmpalastSeriesResult],
-    ttl: int = SERIES_LIST_CACHE_TTL,
-) -> None:
-    now = time.time()
-    with state.series_list_cache_lock:
-        expired = [
-            key for key, cached in state.series_list_cache.items()
-            if now - cached[0] >= (
-                cached[2] if len(cached) > 2 else SERIES_LIST_CACHE_TTL
-            )
-        ]
-        for key in expired:
-            state.series_list_cache.pop(key, None)
-        while len(state.series_list_cache) >= SERIES_LIST_CACHE_MAX_ENTRIES:
-            oldest = min(
-                state.series_list_cache,
-                key=lambda key: state.series_list_cache[key][0],
-            )
-            state.series_list_cache.pop(oldest, None)
-        state.series_list_cache[cache_key] = (now, list(results), ttl)
+_series_provider_page_cache_state = series_catalog_cache.cache_state
+_cached_series_provider_page = series_catalog_cache.cached_page
+_cache_series_provider_page = series_catalog_cache.cache_page
 
 
 def _fetch_series_provider_page(
@@ -366,67 +338,29 @@ def _load_series_provider_pages(
     letter: str,
     requests_to_load: List[tuple[str, int]],
     cold_wave_budget: Optional[List[int]] = None,
+    deadline: Optional[float] = None,
+    timed_out: Optional[List[bool]] = None,
 ) -> Dict[tuple[str, int], List[FilmpalastSeriesResult]]:
-    loaded: Dict[tuple[str, int], List[FilmpalastSeriesResult]] = {}
-    missing: List[tuple[str, int, tuple]] = []
-    letter_key = str(letter or "").strip().upper()
-    for provider, source_page in dict.fromkeys(requests_to_load):
-        cache_mode = (
-            "updates"
-            if provider != "serienstream" and mode in {"discover", "new"}
-            else mode
-        )
-        cache_key = ("series-provider", cache_mode, letter_key, provider, int(source_page))
-        cached = _cached_series_provider_page(cache_key)
-        if cached is None:
-            missing.append((provider, source_page, cache_key))
-        else:
-            loaded[(provider, source_page)] = cached
+    return series_catalog_cache.load_pages(
+        mode,
+        letter,
+        requests_to_load,
+        _fetch_series_provider_page,
+        cold_wave_budget,
+        deadline,
+        timed_out,
+        SeriesCatalogColdLoadLimit,
+    )
 
-    if not missing:
-        return loaded
-    if cold_wave_budget is not None:
-        if cold_wave_budget[0] <= 0:
-            raise SeriesCatalogColdLoadLimit(
-                "Dieser Serienabschnitt wird noch vorbereitet. Bitte kurz warten und erneut versuchen."
-            )
-        cold_wave_budget[0] -= 1
 
-    with ThreadPoolExecutor(max_workers=min(len(missing), len(PROVIDER_LABELS))) as pool:
-        futures = [
-            (
-                provider,
-                source_page,
-                cache_key,
-                pool.submit(
-                    _fetch_series_provider_page,
-                    provider,
-                    mode,
-                    letter,
-                    source_page,
-                ),
-            )
-            for provider, source_page, cache_key in missing
-        ]
-        for provider, source_page, cache_key, future in futures:
-            try:
-                results = list(future.result())
-            except Exception as exc:
-                log(
-                    f"{PROVIDER_LABELS.get(provider, provider)} Serienliste "
-                    f"(Quellseite {source_page}) übersprungen: {exc}",
-                    "warn",
-                )
-                results = []
-                _cache_series_provider_page(
-                    cache_key,
-                    results,
-                    ttl=SERIES_LIST_FAILURE_CACHE_TTL,
-                )
-            else:
-                _cache_series_provider_page(cache_key, results)
-            loaded[(provider, source_page)] = results
-    return loaded
+def _schedule_series_provider_prefetch(
+    mode: str,
+    letter: str,
+    requests_to_load: List[tuple[str, int]],
+) -> None:
+    series_catalog_cache.schedule_prefetch(
+        mode, letter, requests_to_load, _fetch_series_provider_page,
+    )
 
 
 def _series_catalog_sources(entries: List[_SeriesCatalogEntry], priority: List[str]) -> List[dict]:
@@ -496,11 +430,19 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
 
     catalog_mode = mode
     cold_wave_budget = [SERIES_MAX_COLD_WAVES_PER_REQUEST]
+    deadline = time.monotonic() + SERIES_CATALOG_PAGE_BUDGET_SECONDS
+    timed_out = [False]
+    first_timed_out = [False] if mode == "trending" else timed_out
+    # Das exklusive Trending-Signal darf den Start nicht fuer das komplette
+    # Budget blockieren; danach bleibt noch Zeit fuer den Katalog-Fallback.
+    first_deadline = min(deadline, time.monotonic() + 4.0) if mode == "trending" else deadline
     first_pages = _load_series_provider_pages(
         catalog_mode,
         letter,
         [(provider, 1) for provider in active],
         cold_wave_budget,
+        first_deadline,
+        first_timed_out,
     )
     first_wave = {
         provider: unique_page(provider, first_pages.get((provider, 1), []))
@@ -526,6 +468,8 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             letter,
             [(provider, 1) for provider in active],
             cold_wave_budget,
+            deadline,
+            timed_out,
         )
         first_wave = {
             provider: unique_page(provider, fallback_pages.get((provider, 1), []))
@@ -547,9 +491,13 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
     duplicate_only_pages = {provider: 0 for provider in paginated}
     target_end = page * SERIES_BROWSE_PAGE_SIZE
     next_source_page = 2
-    has_more_unverified = False
+    has_more_unverified = timed_out[0]
 
-    while len(catalog_entries) <= target_end and next_source_page <= SERIES_MAX_SOURCE_PAGE:
+    while (
+        not timed_out[0]
+        and len(catalog_entries) <= target_end
+        and next_source_page <= SERIES_MAX_SOURCE_PAGE
+    ):
         pending = [provider for provider in paginated if provider not in exhausted]
         if not pending:
             break
@@ -559,6 +507,8 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
                 letter,
                 [(provider, next_source_page) for provider in pending],
                 cold_wave_budget,
+                deadline,
+                timed_out,
             )
         except SeriesCatalogColdLoadLimit:
             if len(catalog_entries) < target_end:
@@ -567,6 +517,10 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             break
         wave: Dict[str, List[FilmpalastSeriesResult]] = {}
         for provider in pending:
+            if (provider, next_source_page) not in next_pages:
+                wave[provider] = []
+                has_more_unverified = True
+                continue
             results = next_pages.get((provider, next_source_page), [])
             wave[provider] = unique_page(provider, results)
             if not results:
@@ -583,23 +537,34 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             claimed_identities,
         ))
         next_source_page += 1
+        has_more_unverified = has_more_unverified or timed_out[0]
 
     start = (page - 1) * SERIES_BROWSE_PAGE_SIZE
     page_entries = catalog_entries[start:target_end]
+    has_more = page < SERIES_MAX_GLOBAL_PAGE and (
+        len(catalog_entries) > target_end or has_more_unverified
+    )
+    if has_more and not timed_out[0]:
+        _schedule_series_provider_prefetch(
+            catalog_mode,
+            letter,
+            [
+                (provider, next_source_page)
+                for provider in paginated
+                if provider not in exhausted
+            ],
+        )
     return {
         "entries": page_entries,
         "page": page,
-        "has_more": page < SERIES_MAX_GLOBAL_PAGE and (
-            len(catalog_entries) > target_end or has_more_unverified
-        ),
+        "has_more": has_more,
         "sources": _series_catalog_sources(page_entries, priority),
     }
 
 
 def series_catalog_page(mode: str, page: int = 1, letter: str = "") -> dict:
-    """Single-Flight-Wrapper für Warmup und gleichzeitig öffnende Browser."""
-    with state.series_catalog_lock:
-        return _series_catalog_page_locked(mode, page, letter)
+    """Erzeugt eine Seite; Provider-Single-Flight erfolgt pro Quellseite."""
+    return _series_catalog_page_locked(mode, page, letter)
 
 
 def series_search_catalog(query: str) -> dict:
@@ -1167,10 +1132,12 @@ _SERVICE_EXPORTS = (
     "_mix_series_provider_results",
     "_interleave_series_lists",
     "_series_provider_is_paginated",
+    "_series_provider_page_cache_state",
     "_cached_series_provider_page",
     "_cache_series_provider_page",
     "_fetch_series_provider_page",
     "_load_series_provider_pages",
+    "_schedule_series_provider_prefetch",
     "_series_catalog_sources",
     "_series_entry_to_dict",
     "_series_catalog_page_locked",

@@ -18,8 +18,6 @@ extractor.extract_doodstream_url().
 import logging
 import re
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote
-
 from curl_cffi import requests as cr
 
 from providers.models import (
@@ -152,6 +150,10 @@ class EinschaltenScraper:
             url=f"{BASE_URL}/movies/{movie_id}",
             year=self._year(title.get("releaseDate")),
             is_movie=True,
+            cover_url=(
+                f"{TMDB_IMAGE_BASE}{title.get('posterPath')}"
+                if title.get("posterPath") else ""
+            ),
         )
 
     def _movie_id(self, value: str) -> Optional[int]:

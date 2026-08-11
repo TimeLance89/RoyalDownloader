@@ -2,6 +2,7 @@ const api = {
   // Wird von app.js gesetzt: reagiert auf eine abgelaufene oder entzogene
   // Sitzung, indem die Anmeldemaske wieder eingeblendet wird.
   onUnauthorized: null,
+  _inflightGets: new Map(),
 
   async _req(method, url, body) {
     const opts = { method, headers: {}, credentials: "same-origin" };
@@ -30,7 +31,22 @@ const api = {
     }
     return data;
   },
-  get(url) { return this._req("GET", url); },
+  get(url) {
+    const running = this._inflightGets.get(url);
+    if (running) return running;
+    const request = this._req("GET", url).finally(() => {
+      if (this._inflightGets.get(url) === request) this._inflightGets.delete(url);
+    });
+    this._inflightGets.set(url, request);
+    return request;
+  },
+  _within(promise, timeoutMs, message) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  },
   post(url, body) { return this._req("POST", url, body === undefined ? {} : body); },
 
   authStatus() { return this.get("/api/auth/status"); },
@@ -45,10 +61,18 @@ const api = {
   authSessionsRevoke() { return this.post("/api/auth/sessions/revoke"); },
 
   genres() { return this.get("/api/genres"); },
-  movies(params) { return this.get("/api/movies?" + new URLSearchParams(params)); },
+  movies(params) {
+    return this._within(
+      this.get("/api/movies?" + new URLSearchParams(params)),
+      15_000,
+      "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter.",
+    );
+  },
   movie(slug) { return this.get(`/api/movie/${encodeURIComponent(slug)}`); },
   moviesPreload(slugs) { return this.post("/api/movies/preload", { slugs }); },
-  tmdbMovies(items) { return this.post("/api/tmdb/movies", { items }); },
+  tmdbMovies(items, background = false) {
+    return this.post("/api/tmdb/movies", { items, background });
+  },
   tmdbMovie(item) { return this.post("/api/tmdb/movie", item); },
   tmdbSeries(items) { return this.post("/api/tmdb/series", { items }); },
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },

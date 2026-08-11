@@ -1,11 +1,12 @@
-import json
 import asyncio
+import json
 import threading
+import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
-import jellyfin_client
 import api_discovery_router
+import jellyfin_client
 from jellyfin_client import JellyfinClient
 
 
@@ -66,12 +67,37 @@ def test_movie_identity_index_matches_by_tmdb_id(monkeypatch):
     assert client.match("Dune", "2021", items=identities, tmdb_id="438631")
 
 
+def test_movie_identity_batch_builds_the_library_index_once(monkeypatch):
+    normalize_calls = 0
+    original_normalize = jellyfin_client._normalize
+
+    def counted_normalize(title):
+        nonlocal normalize_calls
+        normalize_calls += 1
+        return original_normalize(title)
+
+    monkeypatch.setattr(jellyfin_client, "_normalize", counted_normalize)
+    identities = [{
+        "name": f"Movie {index}", "original_title": "", "sort_name": "",
+        "year": 2026, "tmdb_id": str(index),
+    } for index in range(500)]
+    queries = [{"title": f"Movie {index}", "year": "2026"} for index in range(50)]
+
+    matches = JellyfinClient().match_many(queries, items=identities)
+
+    assert all(matches)
+    assert normalize_calls == 550
+
+
 def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
     class FakeClient:
         configured = True
 
-        def match(self, title, *_args, **_kwargs):
-            return title == "Dune"
+        def match_many(self, queries, **_kwargs):
+            return [query["title"] == "Dune" for query in queries]
+
+        def match(self, *_args, **_kwargs):
+            raise AssertionError("Der Katalog muss den gemeinsamen Stapelindex verwenden")
 
         def series_ids_for(self, title, **_kwargs):
             return {"series-1"} if title in {"Lucky", "Frieren"} else set()
@@ -148,3 +174,103 @@ def test_yearless_catalog_movies_use_provider_detail_to_separate_same_titles(mon
     assert result["war-machine"]["tmdb_id"] == 354287
     assert result["war-machine-2026"]["tmdb_id"] == 1265609
     assert result["war-machine"]["catalog_identity_version"] == 2
+
+
+def test_tmdb_batch_prefers_known_id_for_reliable_posters(monkeypatch):
+    calls = []
+
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def now_playing_ids():
+            return set()
+
+        @staticmethod
+        def movie_summary_by_id(tmdb_id, title):
+            calls.append((tmdb_id, title))
+            return {
+                "tmdb_id": tmdb_id,
+                "title": title,
+                "cover_url": "https://image.tmdb.org/t/p/w500/poster.jpg",
+                "backdrop_url": "https://image.tmdb.org/t/p/w1280/backdrop.jpg",
+            }
+
+        @staticmethod
+        def movie_summary(*_args):
+            raise AssertionError("Eine bekannte TMDB-ID darf nicht über den Titel geraten werden")
+
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(api_discovery_router, "TMDB_MOVIE_BATCH_MAX_WORKERS", 2)
+    body = api_discovery_router.MovieMetadataBody(items=[{
+        "slug": "known-movie",
+        "title": "Known Movie",
+        "year": "2026",
+        "tmdb_id": 12345,
+    }])
+
+    result = asyncio.run(api_discovery_router.api_tmdb_movies(body))["movies"]
+
+    assert calls == [(12345, "Known Movie")]
+    assert result["known-movie"]["cover_url"].endswith("/poster.jpg")
+
+
+def test_tmdb_batch_returns_fast_posters_without_waiting_for_slow_ambiguity(monkeypatch):
+    release = threading.Event()
+
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def cached_now_playing_ids():
+            return set()
+
+        @staticmethod
+        def now_playing_ids():
+            raise AssertionError("Kinostatus darf Poster nicht blockieren")
+
+        @staticmethod
+        def movie_summary(title, _year):
+            return {
+                "tmdb_id": 1,
+                "title": title,
+                "cover_url": "https://image.tmdb.org/t/p/w500/fast.jpg",
+            }
+
+        @staticmethod
+        def search_movies(_title, max_results=20):
+            assert max_results == 20
+            return [
+                {"tmdb_id": 2, "title": "Slow", "original_title": "Slow", "year": "2025"},
+                {"tmdb_id": 3, "title": "Slow", "original_title": "Slow", "year": "2026"},
+            ]
+
+    def slow_provider_detail(_slug):
+        assert release.wait(timeout=1)
+        return SimpleNamespace(title="Slow", year="2026")
+
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "load_movie_for_slug", slow_provider_detail)
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(api_discovery_router, "_norm_title", lambda title: str(title).casefold())
+    monkeypatch.setattr(api_discovery_router, "TMDB_METADATA_BATCH_BUDGET_SECONDS", 0.05)
+    monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(fp_movies={}))
+    body = api_discovery_router.MovieMetadataBody(items=[
+        {"slug": "slow", "title": "Slow", "year": ""},
+        {"slug": "fast", "title": "Fast", "year": "2026"},
+    ])
+
+    started = time.monotonic()
+    try:
+        result = asyncio.run(api_discovery_router.api_tmdb_movies(body))["movies"]
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        deadline = time.monotonic() + 1
+        while api_discovery_router._TMDB_METADATA_INFLIGHT and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    assert elapsed < 0.3
+    assert result["fast"]["cover_url"].endswith("/fast.jpg")
+    assert "slow" not in result

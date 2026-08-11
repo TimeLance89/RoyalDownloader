@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict
 from typing import Any
 
@@ -29,6 +30,24 @@ from providers.sflix import SflixScraper
 from providers.xcine import XcineScraper
 
 router = APIRouter(tags=["discovery"])
+
+TMDB_METADATA_BATCH_BUDGET_SECONDS = 3.0
+_TMDB_METADATA_POOL = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="tmdb-metadata",
+)
+_TMDB_METADATA_BACKGROUND_POOL = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="tmdb-metadata-background",
+)
+_TMDB_METADATA_INFLIGHT: dict[tuple, Any] = {}
+_TMDB_METADATA_INFLIGHT_LOCK = threading.Lock()
+
+
+def _discard_tmdb_metadata_future(key: tuple, future) -> None:
+    with _TMDB_METADATA_INFLIGHT_LOCK:
+        if _TMDB_METADATA_INFLIGHT.get(key) is future:
+            _TMDB_METADATA_INFLIGHT.pop(key, None)
 
 # Replaced by ``create_discovery_router`` before the app starts serving. The
 # explicit sentinel also gives accidental standalone use a useful failure.
@@ -245,22 +264,15 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
     for result in result_dicts:
         if result.get("provider"):
             result["title"] = clean_movie_title(result.get("title", ""))
-    # Der Katalog benötigt ausschließlich Filmidentitäten. Der vollständige
-    # Qualitätsindex (MediaSources/Path) ist erheblich größer und bleibt den
-    # Abo-/Upgrade-Jobs vorbehalten.
-    jf_items = await run_in_threadpool(get_jellyfin_movie_identities)
-    with state.jellyfin_cache_lock:
-        jf_available = state.jellyfin_movie_identities_available
-    if jf_items is not None and jf_available:
-        jf_client = get_jellyfin_client()
-        for rd in result_dicts:
-            rd["in_jellyfin"] = jf_client.match(
-                clean_movie_title(rd["title"]), rd.get("year", ""), items=jf_items,
-            )
+    # Jellyfin ist eine nachgelagerte Badge-Anreicherung. Der separate
+    # /jellyfin/matches-Aufruf der Weboberflaeche aktualisiert sie asynchron;
+    # eine grosse oder schlafende NAS-Bibliothek blockiert dadurch nicht mehr
+    # die Filmkarten und Poster.
     return {
         "results": result_dicts,
         "category": data["category"],
         "page": data["page"],
+        "page_complete": data.get("page_complete", True),
         "has_more": data["has_more"],
         # Rückwärtskompatibel für ältere Web-Builds. Semantisch ist dies jetzt
         # korrekt: Eine weitere globale Seite ist tatsächlich vorhanden.
@@ -322,6 +334,7 @@ class MovieMetadataItem(BaseModel):
 
 class MovieMetadataBody(BaseModel):
     items: list[MovieMetadataItem]
+    background: bool = False
 
 
 class SeriesMetadataItem(BaseModel):
@@ -373,6 +386,18 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
             series_available = not needs_series or bool(
                 series_items is not None and state.jellyfin_series_available
             )
+        movie_matches = {}
+        movie_requests = [item for item in requested if item.media_type == "movie"]
+        match_many = getattr(client, "match_many", None)
+        if movie_available and movie_requests and callable(match_many):
+            batch_matches = match_many([{
+                "title": clean_movie_title(item.title),
+                "year": item.year,
+                "tmdb_id": item.tmdb_id,
+            } for item in movie_requests], items=movie_items)
+            movie_matches = dict(zip(
+                (item.slug for item in movie_requests), batch_matches, strict=True,
+            ))
         statuses = {}
         matches = {}
         for item in requested:
@@ -380,7 +405,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
                 if not movie_available:
                     statuses[item.slug] = "unavailable"
                     continue
-                owned = client.match(
+                owned = movie_matches.get(item.slug) if callable(match_many) else client.match(
                     clean_movie_title(item.title), item.year,
                     items=movie_items, tmdb_id=item.tmdb_id,
                 )
@@ -415,15 +440,30 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 
     def _work():
         tmdb_client = get_tmdb_client()
-        now_playing_ids = tmdb_client.now_playing_ids()
+        cached_now_playing = getattr(tmdb_client, "cached_now_playing_ids", None)
+        now_playing_ids = cached_now_playing() if callable(cached_now_playing) else set()
         unique = {}
         for item in body.items[:100]:
             title = clean_movie_title(item.title)
-            key = (_norm_title(title), str(item.year or ""))
-            group = unique.setdefault(key, {"title": title, "year": item.year, "slugs": []})
+            key = (
+                ("tmdb", str(item.tmdb_id))
+                if item.tmdb_id
+                else ("title", _norm_title(title), str(item.year or ""))
+            )
+            group = unique.setdefault(key, {
+                "title": title,
+                "year": item.year,
+                "tmdb_id": item.tmdb_id,
+                "slugs": [],
+            })
             group["slugs"].append(item.slug)
 
         def _group_metadata(group: dict) -> dict[str, dict]:
+            if group["tmdb_id"]:
+                metadata = tmdb_client.movie_summary_by_id(
+                    group["tmdb_id"], group["title"],
+                ) or tmdb_client.movie_summary(group["title"], group["year"])
+                return {slug: metadata for slug in group["slugs"] if metadata}
             if group["year"]:
                 metadata = tmdb_client.movie_summary(group["title"], group["year"])
                 return {slug: metadata for slug in group["slugs"] if metadata}
@@ -465,21 +505,48 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 
         result = {}
         groups = list(unique.values())
-        with ThreadPoolExecutor(max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups))) as pool:
-            futures = [(group, pool.submit(_group_metadata, group)) for group in groups]
-            for group, future in futures:
-                try:
-                    resolved = future.result()
-                except Exception as exc:
-                    log(f"TMDB-Vorladen fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    resolved = {}
-                for slug, metadata in resolved.items():
-                    metadata = {
-                        **metadata,
-                        "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
-                        "catalog_identity_version": 2,
-                    }
-                    result[slug] = metadata
+        pool = _TMDB_METADATA_BACKGROUND_POOL if body.background else _TMDB_METADATA_POOL
+        futures = []
+        for group in groups:
+            job_key = (
+                "background" if body.background else "interactive",
+                str(group.get("tmdb_id") or ""),
+                "" if group.get("tmdb_id") else _norm_title(group["title"]),
+                str(group.get("year") or ""),
+                tuple(group["slugs"]),
+            )
+            created = False
+            with _TMDB_METADATA_INFLIGHT_LOCK:
+                future = _TMDB_METADATA_INFLIGHT.get(job_key)
+                if future is None:
+                    future = pool.submit(_group_metadata, group)
+                    _TMDB_METADATA_INFLIGHT[job_key] = future
+                    created = True
+            if created:
+                future.add_done_callback(
+                    lambda done, key=job_key: _discard_tmdb_metadata_future(key, done)
+                )
+            futures.append((group, future))
+
+        done, _pending = wait(
+            {future for _group, future in futures},
+            timeout=TMDB_METADATA_BATCH_BUDGET_SECONDS,
+        )
+        for group, future in futures:
+            if future not in done:
+                continue
+            try:
+                resolved = future.result()
+            except Exception as exc:
+                log(f"TMDB-Vorladen fehlgeschlagen ({group['title']}): {exc}", "warn")
+                resolved = {}
+            for slug, metadata in resolved.items():
+                metadata = {
+                    **metadata,
+                    "in_cinema": metadata.get("tmdb_id") in now_playing_ids,
+                    "catalog_identity_version": 2,
+                }
+                result[slug] = metadata
         return result
 
     return {"movies": await run_in_threadpool(_work)}

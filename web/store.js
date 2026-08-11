@@ -18,6 +18,7 @@ function createInitialState() {
       activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
       metadataCache: {}, requestSeq: 0, metadataRequestSeq: 0, sources: [], loadingMore: false,
       loadError: "", searchActive: false, searchReturn: null,
+      previewFromHome: false, lastCatalogRefreshAt: 0,
       featureCandidates: [], featureIndex: 0, featureTimer: null,
       featurePaused: false, downloadSelections: new Map(),
     },
@@ -27,6 +28,7 @@ function createInitialState() {
       current: null, currentSampleSlug: "", epPicked: new Set(), cache: {},
       pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
       jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(), searchReturn: null,
+      previewFromHome: false, lastCatalogRefreshAt: 0,
     },
     anime: {
       results: [], mode: null, query: "", page: 1, hasMore: false,
