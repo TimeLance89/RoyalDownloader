@@ -372,7 +372,7 @@ if (document.readyState === "loading") {
 function loadRoyalStorageManager() {
   if (document.querySelector('script[data-royal-storage-manager]')) return;
   const script = document.createElement("script");
-  script.src = "/storage-manager.js?v=royal-20260817-1";
+  script.src = "/storage-manager.js?v=royal-20260817-2";
   script.async = false;
   script.setAttribute("data-royal-storage-manager", "true");
   document.body.appendChild(script);
