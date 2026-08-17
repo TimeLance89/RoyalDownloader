@@ -369,12 +369,30 @@ if (document.readyState === "loading") {
   window.setTimeout(loadRoyalTasteProfileV2, 0);
 }
 
+function loadRoyalStorageMoveJobs() {
+  if (document.querySelector('script[data-royal-storage-move-jobs]')) return;
+  const script = document.createElement("script");
+  script.src = "/storage-move-jobs.js?v=royal-20260817-1";
+  script.async = false;
+  script.setAttribute("data-royal-storage-move-jobs", "true");
+  document.body.appendChild(script);
+}
+
 function loadRoyalStorageManager() {
-  if (document.querySelector('script[data-royal-storage-manager]')) return;
+  const existing = document.querySelector('script[data-royal-storage-manager]');
+  if (existing) {
+    if (window.__royalStorageManagerInstalled) {
+      window.setTimeout(loadRoyalStorageMoveJobs, 0);
+    } else {
+      existing.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
+    }
+    return;
+  }
   const script = document.createElement("script");
   script.src = "/storage-manager.js?v=royal-20260817-2";
   script.async = false;
   script.setAttribute("data-royal-storage-manager", "true");
+  script.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
   document.body.appendChild(script);
 }
 
