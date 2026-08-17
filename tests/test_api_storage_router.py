@@ -17,7 +17,11 @@ def test_storage_routes_are_owned_by_administration_domain():
     assert ("POST", "/api/storage/locations/remove") in pairs
     assert ("POST", "/api/storage/scan") in pairs
     assert ("POST", "/api/storage/cleanup") in pairs
+    assert ("POST", "/api/storage/move/plan") in pairs
+    assert ("POST", "/api/storage/move") in pairs
     assert ("GET", "/api/v1/storage/status") in pairs
+    assert ("POST", "/api/v1/storage/move/plan") in pairs
+    assert ("POST", "/api/v1/storage/move") in pairs
 
 
 def test_storage_status_route_uses_configured_paths(monkeypatch, tmp_path):
@@ -72,3 +76,58 @@ def test_cleanup_route_requires_explicit_confirmation(monkeypatch, tmp_path):
         assert exc.status_code == 400
     else:
         raise AssertionError("cleanup without confirmation must fail")
+
+
+def test_move_plan_returns_safe_targets(monkeypatch):
+    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
+    monkeypatch.setattr(storage_api, "_media_paths", lambda: {"movies": "/movies", "series": "/series"})
+    monkeypatch.setattr(storage_api, "load_storage_locations", lambda: [])
+    monkeypatch.setattr(storage_api, "plan_move_candidate", lambda *args, **kwargs: {
+        "source_name": "Movie.mkv",
+        "source_kind": "movie",
+        "targets": [{"root": "location:external", "eligible": True}],
+        "eligible_target_count": 1,
+    })
+    body = storage_api.StorageMovePlanBody(
+        root="movies", relative_path="Movie.mkv", token="x" * 64,
+        expected_size=100, expires_at=9999999999,
+    )
+    payload = asyncio.run(storage_api.api_storage_move_plan(body))
+    assert payload["source_kind"] == "movie"
+    assert payload["eligible_target_count"] == 1
+
+
+def test_move_route_requires_explicit_confirmation(monkeypatch):
+    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
+    body = storage_api.StorageMoveBody(
+        root="movies", relative_path="Movie.mkv", token="x" * 64,
+        expected_size=100, expires_at=9999999999,
+        destination_root="location:external", confirm=False,
+    )
+    try:
+        asyncio.run(storage_api.api_storage_move(body))
+    except storage_api.HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("move without confirmation must fail")
+
+
+def test_move_route_passes_destination_to_guarded_move(monkeypatch):
+    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
+    monkeypatch.setattr(storage_api, "_media_paths", lambda: {"movies": "/movies", "series": "/series"})
+    monkeypatch.setattr(storage_api, "load_storage_locations", lambda: [])
+    captured = {}
+
+    def fake_move(*args, **kwargs):
+        captured.update(kwargs)
+        return {"moved": True, "destination_root": kwargs["destination_root"]}
+
+    monkeypatch.setattr(storage_api, "move_candidate", fake_move)
+    body = storage_api.StorageMoveBody(
+        root="movies", relative_path="Movie.mkv", token="x" * 64,
+        expected_size=100, expires_at=9999999999,
+        destination_root="location:external", confirm=True,
+    )
+    payload = asyncio.run(storage_api.api_storage_move(body))
+    assert payload["moved"] is True
+    assert captured["destination_root"] == "location:external"
