@@ -18,7 +18,8 @@ from storage_locations import (
     save_storage_location,
     scan_configured_storage,
 )
-from storage_move import create_move_job, list_move_jobs, plan_move_candidate
+from storage_move import plan_move_candidate
+from storage_move_jobs import create_move_job, list_move_jobs
 
 router = APIRouter(tags=["administration", "storage"])
 
