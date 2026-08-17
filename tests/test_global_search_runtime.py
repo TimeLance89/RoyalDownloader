@@ -29,6 +29,15 @@ def test_global_search_merges_all_catalog_results_without_sixty_card_cap():
     assert ".slice(0, 60)" not in source
 
 
+def test_global_search_deduplicates_each_catalog_by_content_identity():
+    source = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
+    assert "function uniqueCatalogContentEntries(entries)" in source
+    assert 'typeof uniqueHomeContentEntries === "function"' in source
+    assert "return uniqueHomeContentEntries(entries);" in source
+    assert ".map((catalog) => uniqueCatalogContentEntries(groups.get(catalog.key) || []))" in source
+    assert source.count("state.globalSearch.results = mergeCatalogGroups(groups);") >= 3
+
+
 def test_global_search_exposes_pending_and_failed_catalogs():
     source = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
     for marker in (
@@ -48,3 +57,22 @@ def test_global_search_still_uses_all_three_catalog_endpoints():
     assert 'api.movies({ mode: "search", query })' in source
     assert 'api.series({ mode: "search", query })' in source
     assert 'api.anime({ mode: "search", query, page: 1 })' in source
+
+
+def test_opening_global_search_result_keeps_search_behind_detail_modal():
+    source = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
+    start = source.index("window.openHomeEntry = function openHomeEntryKeepingGlobalSearch")
+    end = source.index("const baseRunGlobalSearch", start)
+    block = source[start:end]
+
+    assert "closeGlobalSearch" not in block
+    assert "selectFpRow(movie.slug, movie)" in block
+    assert "openAnimeDetail(anime)" in block
+    assert "loadSeries(series)" in block
+
+
+def test_visible_media_detail_prevents_outside_click_from_destroying_search():
+    source = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
+    assert "function mediaDetailModalOpen()" in source
+    assert 'document.querySelectorAll(".media-modal")' in source
+    assert "if (state.globalSearch.active && mediaDetailModalOpen()) return;" in source
