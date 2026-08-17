@@ -1,15 +1,20 @@
-"""Guarded move planning and execution for media across configured volumes."""
+"""Guarded move planning, execution, and background jobs for media volumes."""
 
 from __future__ import annotations
 
 import hmac
+import json
 import os
+import queue
 import shutil
+import threading
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from runtime_paths import data_dir
 from storage_manager import (
     PROTECTED_NAMES,
     _ScanBudget,
@@ -22,6 +27,15 @@ LOCATION_MODE_MEDIA = "media"
 _CUSTOM_PREFIX = "location:"
 _MOVE_VERIFY_MAX_FILES = 500_000
 _MIN_FREE_RESERVE = 64 * 1024 * 1024
+_MOVE_JOB_SCHEMA_VERSION = 1
+_MOVE_JOB_HISTORY_LIMIT = 50
+_MOVE_JOB_PATH = data_dir() / "storage_move_jobs.json"
+_MOVE_JOB_LOCK = threading.RLock()
+_MOVE_JOB_QUEUE: queue.Queue[tuple[str, dict] | None] = queue.Queue()
+_MOVE_WORKER_LOCK = threading.Lock()
+_MOVE_WORKER_STARTED = False
+_MOVE_ACTIVE_JOBS: dict[str, dict] = {}
+_MOVE_JOB_HISTORY: list[dict] = []
 
 
 @dataclass(frozen=True)
@@ -374,3 +388,249 @@ def move_candidate(
         "destination_path": str(destination),
         "completed_at": time.time(),
     }
+
+
+def _public_move_job(job: dict) -> dict:
+    return {
+        key: deepcopy(value)
+        for key, value in job.items()
+        if not key.startswith("_")
+    }
+
+
+def _move_source_key(path: str) -> str:
+    return os.path.normcase(os.path.normpath(str(path or "").strip()))
+
+
+def _atomic_save_move_jobs_locked() -> None:
+    payload = {
+        "schema_version": _MOVE_JOB_SCHEMA_VERSION,
+        "jobs": [_public_move_job(job) for job in _MOVE_ACTIVE_JOBS.values()],
+        "history": [_public_move_job(job) for job in _MOVE_JOB_HISTORY[:_MOVE_JOB_HISTORY_LIMIT]],
+    }
+    path = _MOVE_JOB_PATH
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+            try:
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        # A move must never fail solely because its presentation/history cannot
+        # be persisted. The guarded file operation remains the source of truth.
+        pass
+
+
+def _recover_move_jobs() -> None:
+    try:
+        raw = json.loads(_MOVE_JOB_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return
+    if not isinstance(raw, dict):
+        return
+    now = time.time()
+    history = [item for item in raw.get("history", []) if isinstance(item, dict)]
+    interrupted = []
+    for item in raw.get("jobs", []):
+        if not isinstance(item, dict):
+            continue
+        recovered = dict(item)
+        recovered["status"] = "failed"
+        recovered["completed_at"] = now
+        recovered["error"] = (
+            "Royal wurde während dieses Verschiebe-Jobs neu gestartet. "
+            "Der Vorgang wird aus Sicherheitsgründen nicht automatisch fortgesetzt."
+        )
+        interrupted.append(recovered)
+    with _MOVE_JOB_LOCK:
+        _MOVE_ACTIVE_JOBS.clear()
+        _MOVE_JOB_HISTORY[:] = (interrupted + history)[:_MOVE_JOB_HISTORY_LIMIT]
+        if interrupted:
+            _atomic_save_move_jobs_locked()
+
+
+def list_move_jobs() -> dict:
+    with _MOVE_JOB_LOCK:
+        jobs = sorted(
+            (_public_move_job(job) for job in _MOVE_ACTIVE_JOBS.values()),
+            key=lambda item: float(item.get("created_at") or 0),
+        )
+        history = [_public_move_job(job) for job in _MOVE_JOB_HISTORY[:_MOVE_JOB_HISTORY_LIMIT]]
+    return {
+        "jobs": jobs,
+        "history": history,
+        "active_count": len(jobs),
+    }
+
+
+def _finish_move_job(job_id: str, *, result: dict | None = None, error: str = "") -> None:
+    with _MOVE_JOB_LOCK:
+        job = _MOVE_ACTIVE_JOBS.pop(job_id, None)
+        if not job:
+            return
+        job["completed_at"] = time.time()
+        if error:
+            job["status"] = "failed"
+            job["error"] = str(error)[:2000]
+            job["progress"] = 0.0
+        else:
+            job["status"] = "completed"
+            job["progress"] = 100.0
+            job["moved_bytes"] = int((result or {}).get("moved_bytes") or job.get("size_bytes") or 0)
+            job["destination_path"] = str((result or {}).get("destination_path") or job.get("destination_path") or "")
+        _MOVE_JOB_HISTORY.insert(0, job)
+        del _MOVE_JOB_HISTORY[_MOVE_JOB_HISTORY_LIMIT:]
+        _atomic_save_move_jobs_locked()
+
+
+def _run_move_job(job_id: str, move_kwargs: dict) -> None:
+    with _MOVE_JOB_LOCK:
+        job = _MOVE_ACTIVE_JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["started_at"] = time.time()
+        _atomic_save_move_jobs_locked()
+    try:
+        result = move_candidate(**move_kwargs)
+    except Exception as exc:
+        _finish_move_job(job_id, error=str(exc) or exc.__class__.__name__)
+        return
+    _finish_move_job(job_id, result=result)
+
+
+def _move_worker() -> None:
+    while True:
+        task = _MOVE_JOB_QUEUE.get()
+        try:
+            if task is None:
+                return
+            job_id, move_kwargs = task
+            _run_move_job(job_id, move_kwargs)
+        finally:
+            _MOVE_JOB_QUEUE.task_done()
+
+
+def _ensure_move_worker() -> None:
+    global _MOVE_WORKER_STARTED
+    with _MOVE_WORKER_LOCK:
+        if _MOVE_WORKER_STARTED:
+            return
+        thread = threading.Thread(
+            target=_move_worker,
+            name="royal-storage-move-worker",
+            daemon=True,
+        )
+        thread.start()
+        _MOVE_WORKER_STARTED = True
+
+
+def _enqueue_move_job(job_id: str, move_kwargs: dict) -> None:
+    _ensure_move_worker()
+    _MOVE_JOB_QUEUE.put((job_id, move_kwargs))
+
+
+def create_move_job(
+    media_paths: dict[str, str],
+    locations: list[dict],
+    *,
+    root_key: str,
+    relative_path: str,
+    token: str,
+    expected_size: int,
+    expires_at: int,
+    destination_root: str,
+) -> dict:
+    """Validate and enqueue a move without blocking the HTTP request.
+
+    The signed scan token remains only in the in-memory worker payload. Persistent
+    job history deliberately contains presentation metadata only and is never
+    sufficient to replay a destructive file operation after a restart.
+    """
+    plan = plan_move_candidate(
+        media_paths,
+        locations,
+        root_key=root_key,
+        relative_path=relative_path,
+        token=token,
+        expected_size=expected_size,
+        expires_at=expires_at,
+    )
+    target = next(
+        (
+            item for item in plan.get("targets", [])
+            if item.get("root") == destination_root and item.get("eligible")
+        ),
+        None,
+    )
+    if target is None:
+        raise ValueError("Dieses Ziel ist für das Verschieben nicht verfügbar.")
+
+    now = time.time()
+    source_key = _move_source_key(plan.get("source_path", ""))
+    if not source_key:
+        raise ValueError("Der zu verschiebende Inhalt konnte nicht eindeutig bestimmt werden.")
+    with _MOVE_JOB_LOCK:
+        if any(job.get("_source_key") == source_key for job in _MOVE_ACTIVE_JOBS.values()):
+            raise ValueError("Für diesen Inhalt läuft bereits ein Verschiebe-Job.")
+        job_id = uuid.uuid4().hex
+        job = {
+            "job_id": job_id,
+            "operation": "move",
+            "status": "queued",
+            "source_root": str(plan.get("source_root") or root_key),
+            "source_label": str(plan.get("source_label") or root_key),
+            "source_path": str(plan.get("source_path") or ""),
+            "source_name": str(plan.get("source_name") or relative_path),
+            "source_kind": str(plan.get("source_kind") or "movie"),
+            "candidate_path": str(relative_path),
+            "size_bytes": int(plan.get("size_bytes") or expected_size or 0),
+            "destination_root": str(destination_root),
+            "destination_label": str(target.get("label") or destination_root),
+            "destination_path": str(target.get("destination") or ""),
+            "created_at": now,
+            "started_at": 0.0,
+            "completed_at": 0.0,
+            "progress": 0.0,
+            "moved_bytes": 0,
+            "error": "",
+            "_source_key": source_key,
+        }
+        _MOVE_ACTIVE_JOBS[job_id] = job
+        _atomic_save_move_jobs_locked()
+
+    move_kwargs = {
+        "media_paths": dict(media_paths),
+        "locations": deepcopy(locations),
+        "root_key": root_key,
+        "relative_path": relative_path,
+        "token": token,
+        "expected_size": expected_size,
+        "expires_at": expires_at,
+        "destination_root": destination_root,
+    }
+    try:
+        _enqueue_move_job(job_id, move_kwargs)
+    except Exception as exc:
+        _finish_move_job(job_id, error=f"Verschiebe-Job konnte nicht gestartet werden: {exc}")
+        raise OSError("Verschiebe-Job konnte nicht gestartet werden.") from exc
+    return _public_move_job(job)
+
+
+_recover_move_jobs()
