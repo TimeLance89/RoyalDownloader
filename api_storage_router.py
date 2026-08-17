@@ -18,7 +18,7 @@ from storage_locations import (
     save_storage_location,
     scan_configured_storage,
 )
-from storage_move import move_candidate, plan_move_candidate
+from storage_move import create_move_job, list_move_jobs, plan_move_candidate
 
 router = APIRouter(tags=["administration", "storage"])
 
@@ -85,6 +85,12 @@ async def api_storage_locations():
         "locations": locations,
         "modes": ["monitor", "media"],
     }
+
+
+@router.get("/api/v1/storage/move/jobs")
+@router.get("/api/storage/move/jobs")
+async def api_storage_move_jobs():
+    return await run_in_threadpool(list_move_jobs)
 
 
 @router.post("/api/v1/storage/locations/save")
@@ -159,8 +165,8 @@ async def api_storage_move(body: StorageMoveBody):
     if not body.confirm:
         raise HTTPException(400, "Das Verschieben muss ausdrücklich bestätigt werden.")
     try:
-        return await run_in_threadpool(
-            move_candidate,
+        job = await run_in_threadpool(
+            create_move_job,
             _media_paths(),
             load_storage_locations(),
             root_key=body.root,
@@ -174,6 +180,7 @@ async def api_storage_move(body: StorageMoveBody):
         raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
+    return {"accepted": True, "job": job}
 
 
 @router.post("/api/v1/storage/cleanup")
