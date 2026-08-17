@@ -12,6 +12,9 @@ def test_storage_routes_are_owned_by_administration_domain():
         for method in (getattr(route, "methods", None) or ())
     }
     assert ("GET", "/api/storage/status") in pairs
+    assert ("GET", "/api/storage/locations") in pairs
+    assert ("POST", "/api/storage/locations/save") in pairs
+    assert ("POST", "/api/storage/locations/remove") in pairs
     assert ("POST", "/api/storage/scan") in pairs
     assert ("POST", "/api/storage/cleanup") in pairs
     assert ("GET", "/api/v1/storage/status") in pairs
@@ -24,9 +27,34 @@ def test_storage_status_route_uses_configured_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(storage_api.appconfig, "load", lambda: str(movies))
     monkeypatch.setattr(storage_api.appconfig, "load_series_path", lambda: str(series))
     monkeypatch.setattr(storage_api.appconfig, "load_deployment_mode", lambda: "nas")
+    monkeypatch.setattr(storage_api, "load_storage_locations", lambda: [])
     payload = asyncio.run(storage_api.api_storage_status())
     assert payload["deployment_mode"] == "nas"
     assert {root["key"] for root in payload["roots"]} == {"movies", "series"}
+
+
+def test_storage_location_save_uses_safe_registry(monkeypatch):
+    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
+    calls = []
+    monkeypatch.setattr(
+        storage_api,
+        "save_storage_location",
+        lambda **kwargs: calls.append(kwargs) or {
+            "id": "external",
+            "label": kwargs["label"],
+            "path": kwargs["path"],
+            "mode": kwargs["mode"],
+        },
+    )
+    body = storage_api.StorageLocationBody(
+        label="Externe Festplatte",
+        path="/external-media",
+        mode="monitor",
+    )
+    payload = asyncio.run(storage_api.api_storage_location_save(body))
+    assert payload["saved"] is True
+    assert payload["location"]["path"] == "/external-media"
+    assert calls[0]["mode"] == "monitor"
 
 
 def test_cleanup_route_requires_explicit_confirmation(monkeypatch, tmp_path):
