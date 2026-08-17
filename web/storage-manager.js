@@ -5,6 +5,8 @@
   const POLL_MS = 5000;
   let liveTimer = null;
   let scanRunning = false;
+  let editingLocationId = "";
+  let currentLocations = [];
 
   const html = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -48,7 +50,7 @@
     if (document.querySelector('link[data-royal-storage-style]')) return;
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "/styles/storage-manager.css?v=royal-20260817-1";
+    link.href = "/styles/storage-manager.css?v=royal-20260817-2";
     link.dataset.royalStorageStyle = "true";
     document.head.appendChild(link);
   }
@@ -67,7 +69,7 @@
     generalLaunch?.insertAdjacentHTML("afterend", `
       <button class="settings-launch-card is-storage" type="button" data-settings-open="settings-storage">
         <span class="settings-launch-symbol" aria-hidden="true">▰</span>
-        <span class="settings-launch-copy"><small>SPEICHER</small><strong>Live-Belegung &amp; Bereinigung</strong><em>Kapazität, große Inhalte und sichere Freigabe</em></span>
+        <span class="settings-launch-copy"><small>SPEICHER</small><strong>Live-Belegung &amp; Bereinigung</strong><em>Mehrere Volumes, Kapazität und sichere Freigabe</em></span>
         <i aria-hidden="true">→</i>
       </button>`);
 
@@ -77,7 +79,7 @@
         <header class="settings-section-heading">
           <span class="settings-section-mark is-storage" aria-hidden="true">▰</span>
           <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher überwachen &amp; bereinigen</h2>
-          <p>Live-Kapazität der hinterlegten Medienpfade und ein sicherer Smart Scan für große Inhalte.</p></div>
+          <p>Alle eingebundenen Datenträger live sehen, zusätzliche Speicherorte verwalten und große Medien sicher finden.</p></div>
         </header>
         <div class="storage-live-toolbar">
           <div class="storage-live-indicator"><i></i><span>LIVE</span><strong id="storage-live-state">wird geladen …</strong></div>
@@ -88,17 +90,33 @@
         </div>
         <div id="storage-summary" class="storage-summary-card" aria-live="polite">
           <div class="storage-summary-ring" style="--storage-used:0%"><span><strong>0 %</strong><small>belegt</small></span></div>
-          <div class="storage-summary-copy"><span>GESAMTÜBERSICHT</span><h3>Speicher wird abgefragt …</h3><p>Film- und Serienpfad werden direkt auf ihrem Dateisystem gemessen.</p></div>
+          <div class="storage-summary-copy"><span>GESAMTÜBERSICHT</span><h3>Speicher wird abgefragt …</h3><p>Physische Dateisysteme werden erkannt und niemals doppelt gezählt.</p></div>
           <div class="storage-summary-numbers"><span><small>Belegt</small><strong>—</strong></span><span><small>Frei</small><strong>—</strong></span><span><small>Kapazität</small><strong>—</strong></span></div>
         </div>
+
+        <section class="storage-locations-card" aria-labelledby="storage-locations-title">
+          <header class="storage-locations-head">
+            <div><span>SPEICHERORTE</span><h3 id="storage-locations-title">Zusätzliche Datenträger</h3><p>Externe HDDs oder weitere NAS-Mounts hinzufügen. „Nur überwachen“ misst ausschließlich Kapazität; „Medien“ erlaubt zusätzlich Smart Scan und die bestehende sichere Bereinigung.</p></div>
+            <strong id="storage-location-count">0 zusätzlich</strong>
+          </header>
+          <form id="storage-location-form" class="storage-location-form">
+            <label><span>Name</span><input id="storage-location-label" maxlength="80" autocomplete="off" placeholder="z. B. Externe Festplatte" required></label>
+            <label class="is-path"><span>Pfad im Royal-Container</span><input id="storage-location-path" maxlength="2048" autocomplete="off" placeholder="z. B. /external-media" required></label>
+            <label><span>Typ</span><select id="storage-location-mode"><option value="monitor">Nur überwachen</option><option value="media">Medien</option></select></label>
+            <div class="storage-location-form-actions"><button id="storage-location-save" class="btn btn-primary btn-sm" type="submit">Speicher hinzufügen</button><button id="storage-location-cancel" class="btn btn-ghost btn-sm" type="button" hidden>Abbrechen</button></div>
+          </form>
+          <div id="storage-location-list" class="storage-location-list"><div class="storage-empty-state"><strong>Noch kein zusätzlicher Speicherort</strong><span>Der Film- und Serien-Speicher wird trotzdem automatisch live gemessen.</span></div></div>
+          <p class="storage-mount-hint"><span>i</span><span>Bei Docker/NAS muss die Festplatte als Bind-Mount im Royal-Container sichtbar sein. Royal mountet keine Host-Laufwerke selbst und zeigt einen nicht erreichbaren Pfad klar als offline an.</span></p>
+        </section>
+
         <div id="storage-volume-grid" class="storage-volume-grid" aria-live="polite"></div>
         <section class="storage-insights-card" aria-labelledby="storage-insights-title">
           <header class="storage-insights-head"><div><span>SMART SCAN</span><h3 id="storage-insights-title">Große Inhalte &amp; Speicherfresser</h3>
-          <p>Royal misst Serienordner als Einheit und erkennt zusätzlich ungewöhnlich große Einzeldateien.</p></div><strong id="storage-scan-summary">Noch nicht analysiert</strong></header>
+          <p>Royal misst Serienordner als Einheit und erkennt zusätzlich ungewöhnlich große Einzeldateien. Zusätzliche Speicherorte werden nur einbezogen, wenn ihr Typ „Medien“ ist.</p></div><strong id="storage-scan-summary">Noch nicht analysiert</strong></header>
           <div id="storage-large-content-list" class="storage-content-list"><div class="storage-empty-state"><strong>Analyse auf Abruf</strong><span>Der rekursive Scan läuft bewusst nur bei Bedarf und belastet das NAS nicht dauerhaft.</span></div></div>
         </section>
         <div id="storage-cleanup-status" class="storage-cleanup-status" role="status" aria-live="polite"></div>
-        <p class="storage-danger-note"><span>!</span><span>Bereinigungen sind dauerhaft. Royal akzeptiert nur kurzlebige, erneut geprüfte Treffer innerhalb der konfigurierten Medienordner.</span></p>
+        <p class="storage-danger-note"><span>!</span><span>Bereinigungen sind dauerhaft. Royal akzeptiert nur kurzlebige, erneut geprüfte Treffer innerhalb explizit als Medien freigegebener Ordner.</span></p>
       </section>`);
 
     document.querySelector('[data-settings-target="settings-storage"]')?.addEventListener("click", (event) => {
@@ -107,10 +125,61 @@
     document.querySelector('[data-settings-open="settings-storage"]')?.addEventListener("click", activateStorage);
     document.getElementById("storage-refresh")?.addEventListener("click", () => refreshStatus(false));
     document.getElementById("storage-scan")?.addEventListener("click", scanStorage);
+    document.getElementById("storage-location-form")?.addEventListener("submit", saveLocation);
+    document.getElementById("storage-location-cancel")?.addEventListener("click", resetLocationForm);
+    document.getElementById("storage-location-list")?.addEventListener("click", handleLocationAction);
     document.getElementById("storage-large-content-list")?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-storage-cleanup]");
       if (button) void cleanup(button);
     });
+  }
+
+  function locationStatus(location, roots) {
+    return roots.find((root) => root.location_id === location.id) || null;
+  }
+
+  function renderLocations(locations, roots) {
+    currentLocations = Array.isArray(locations) ? locations : [];
+    const list = document.getElementById("storage-location-list");
+    const count = document.getElementById("storage-location-count");
+    if (!list || !count) return;
+    count.textContent = `${currentLocations.length} zusätzlich`;
+    if (!currentLocations.length) {
+      list.innerHTML = '<div class="storage-empty-state"><strong>Noch kein zusätzlicher Speicherort</strong><span>Der Film- und Serien-Speicher wird trotzdem automatisch live gemessen.</span></div>';
+      return;
+    }
+    list.innerHTML = currentLocations.map((location) => {
+      const status = locationStatus(location, roots);
+      const available = Boolean(status?.available);
+      const state = available ? `${formatPercent(status.used_percent)} belegt · ${formatBytes(status.free_bytes)} frei` : "nicht erreichbar";
+      return `
+        <article class="storage-location-row${available ? "" : " is-offline"}" data-location-id="${html(location.id)}">
+          <div class="storage-location-icon" aria-hidden="true">▰</div>
+          <div class="storage-location-copy"><span>${location.mode === "media" ? "MEDIEN" : "NUR ÜBERWACHEN"}</span><strong>${html(location.label)}</strong><code title="${html(location.path)}">${html(location.path)}</code><small>${html(state)}</small></div>
+          <div class="storage-location-actions"><button type="button" class="btn btn-ghost btn-sm" data-location-edit="${html(location.id)}">Bearbeiten</button><button type="button" class="storage-location-remove" data-location-remove="${html(location.id)}">Entfernen</button></div>
+        </article>`;
+    }).join("");
+  }
+
+  function volumeCard(volume) {
+    const members = Array.isArray(volume.members) ? volume.members : [];
+    const tags = members.map((member) => `<span>${html(member.label)}${member.mode === "monitor" ? " · Monitor" : ""}</span>`).join("");
+    const paths = (volume.paths || []).map((path) => html(path)).join(" · ");
+    const modeText = volume.mode === "media" ? "Smart Scan für Medienpfade aktiv" : "Nur Live-Monitoring · keine Bereinigung";
+    return `
+      <article class="storage-volume-card">
+        <header><div><small>PHYSISCHES VOLUME</small><span>${html(volume.label || "Speicher")}</span></div><strong>${formatPercent(volume.used_percent)}</strong></header>
+        <code title="${paths}">${paths || "Eingebundenes Dateisystem"}</code>
+        <div class="storage-volume-members">${tags}</div>
+        <div class="storage-meter" style="--storage-used:${Number(volume.used_percent) || 0}%"><i></i></div>
+        <div class="storage-volume-numbers"><span><small>Belegt</small><b>${formatBytes(volume.used_bytes)}</b></span><span><small>Frei</small><b>${formatBytes(volume.free_bytes)}</b></span><span><small>Gesamt</small><b>${formatBytes(volume.total_bytes)}</b></span></div>
+        <p>${volume.measurement === "nas_mount" ? "NAS-Mount live" : "Lokales Dateisystem live"} · ${modeText}</p>
+      </article>`;
+  }
+
+  function unavailableRootCard(root) {
+    return `
+      <article class="storage-volume-card is-error"><header><div><small>${root.source === "custom" ? "SPEICHERORT" : "MEDIENPFAD"}</small><span>${html(root.label || root.key)}</span></div><strong>offline</strong></header><code>${html(root.path || "Nicht konfiguriert")}</code><p>${html(root.error || "Pfad konnte nicht gelesen werden. Prüfe den NAS-/Docker-Mount.")}</p></article>`;
   }
 
   function renderStatus(payload) {
@@ -118,6 +187,8 @@
     const summary = document.getElementById("storage-summary");
     const grid = document.getElementById("storage-volume-grid");
     if (!live || !summary || !grid) return;
+    const roots = payload.roots || [];
+    renderLocations(payload.locations || [], roots);
     if (payload.enabled === false || payload.deployment_mode === "demo") {
       live.textContent = "Demo-Modus · kein realer Speicher";
       summary.classList.add("is-unavailable");
@@ -131,24 +202,21 @@
     summary.classList.remove("is-unavailable");
     summary.querySelector(".storage-summary-ring").style.setProperty("--storage-used", `${percent}%`);
     summary.querySelector(".storage-summary-ring strong").textContent = formatPercent(percent);
-    summary.querySelector(".storage-summary-copy h3").textContent = `${formatBytes(total.free_bytes)} frei`;
+    summary.querySelector(".storage-summary-copy h3").textContent = `${formatBytes(total.free_bytes)} frei über ${Number(total.volume_count) || 0} Volume${Number(total.volume_count) === 1 ? "" : "s"}`;
     summary.querySelector(".storage-summary-copy p").textContent = payload.deployment_mode === "nas"
-      ? "Direkt vom eingebundenen NAS-Dateisystem gemessen · nicht aus dem Container geschätzt."
-      : "Direkt auf den konfigurierten lokalen Medienpfaden gemessen.";
+      ? "Direkt von den eingebundenen NAS-Dateisystemen gemessen · identische Volumes werden nur einmal gezählt."
+      : "Direkt auf den konfigurierten Dateisystemen gemessen · identische Volumes werden nur einmal gezählt.";
     const values = summary.querySelectorAll(".storage-summary-numbers strong");
     if (values[0]) values[0].textContent = formatBytes(total.used_bytes);
     if (values[1]) values[1].textContent = formatBytes(total.free_bytes);
     if (values[2]) values[2].textContent = formatBytes(total.total_bytes);
-    live.textContent = `${payload.volumes?.length || 0} Volume${payload.volumes?.length === 1 ? "" : "s"} · ${new Date((payload.observed_at || Date.now() / 1000) * 1000).toLocaleTimeString("de-DE")}`;
+    live.textContent = `${payload.volumes?.length || 0} physische${payload.volumes?.length === 1 ? "s" : ""} Volume${payload.volumes?.length === 1 ? "" : "s"} · ${new Date((payload.observed_at || Date.now() / 1000) * 1000).toLocaleTimeString("de-DE")}`;
 
-    const roots = payload.roots || [];
-    grid.innerHTML = roots.map((root) => root.available ? `
-      <article class="storage-volume-card"><header><span>${html(root.label)}</span><strong>${formatPercent(root.used_percent)}</strong></header>
-      <code title="${html(root.resolved_path || root.path)}">${html(root.path || root.resolved_path)}</code>
-      <div class="storage-meter" style="--storage-used:${Number(root.used_percent) || 0}%"><i></i></div>
-      <div class="storage-volume-numbers"><span><small>Belegt</small><b>${formatBytes(root.used_bytes)}</b></span><span><small>Frei</small><b>${formatBytes(root.free_bytes)}</b></span><span><small>Gesamt</small><b>${formatBytes(root.total_bytes)}</b></span></div>
-      <p>${root.measurement === "nas_mount" ? "NAS-Mount live" : "Lokales Dateisystem live"}</p></article>` : `
-      <article class="storage-volume-card is-error"><header><span>${html(root.label || root.key)}</span><strong>nicht erreichbar</strong></header><code>${html(root.path || "Nicht konfiguriert")}</code><p>${html(root.error || "Pfad konnte nicht gelesen werden.")}</p></article>`).join("");
+    const unavailable = roots.filter((root) => root.configured !== false && !root.available);
+    grid.innerHTML = [
+      ...(payload.volumes || []).map(volumeCard),
+      ...unavailable.map(unavailableRootCard),
+    ].join("");
   }
 
   async function refreshStatus(silent = true) {
@@ -156,6 +224,78 @@
     if (!silent && live) live.textContent = "wird aktualisiert …";
     try { renderStatus(await api.get("/api/storage/status")); }
     catch (error) { if (live) live.textContent = `Live-Abfrage fehlgeschlagen · ${error.message}`; }
+  }
+
+  function resetLocationForm() {
+    editingLocationId = "";
+    const form = document.getElementById("storage-location-form");
+    form?.reset();
+    const save = document.getElementById("storage-location-save");
+    const cancel = document.getElementById("storage-location-cancel");
+    if (save) save.textContent = "Speicher hinzufügen";
+    if (cancel) cancel.hidden = true;
+  }
+
+  function editLocation(locationId) {
+    const location = currentLocations.find((item) => item.id === locationId);
+    if (!location) return;
+    editingLocationId = location.id;
+    document.getElementById("storage-location-label").value = location.label;
+    document.getElementById("storage-location-path").value = location.path;
+    document.getElementById("storage-location-mode").value = location.mode;
+    const save = document.getElementById("storage-location-save");
+    const cancel = document.getElementById("storage-location-cancel");
+    if (save) save.textContent = "Änderungen speichern";
+    if (cancel) cancel.hidden = false;
+    document.getElementById("storage-location-label")?.focus();
+  }
+
+  async function saveLocation(event) {
+    event.preventDefault();
+    const label = document.getElementById("storage-location-label")?.value.trim() || "";
+    const path = document.getElementById("storage-location-path")?.value.trim() || "";
+    const mode = document.getElementById("storage-location-mode")?.value || "monitor";
+    const save = document.getElementById("storage-location-save");
+    const status = document.getElementById("storage-cleanup-status");
+    if (!label || !path) return;
+    if (save) { save.disabled = true; save.textContent = "Speichere …"; }
+    try {
+      await api.post("/api/storage/locations/save", {
+        location_id: editingLocationId,
+        label,
+        path,
+        mode,
+      });
+      if (status) status.textContent = `${label} gespeichert. Die Live-Werte werden neu eingelesen.`;
+      resetLocationForm();
+      await refreshStatus(false);
+    } catch (error) {
+      if (status) status.textContent = `Speicherort konnte nicht gespeichert werden · ${error.message}`;
+    } finally {
+      if (save) { save.disabled = false; save.textContent = editingLocationId ? "Änderungen speichern" : "Speicher hinzufügen"; }
+    }
+  }
+
+  async function removeLocation(locationId) {
+    const location = currentLocations.find((item) => item.id === locationId);
+    if (!location) return;
+    if (!window.confirm(`Speicherort „${location.label}“ aus Royal entfernen?\n\nEs werden keine Dateien gelöscht. Nur die Überwachung dieses Pfads wird entfernt.`)) return;
+    const status = document.getElementById("storage-cleanup-status");
+    try {
+      await api.post("/api/storage/locations/remove", { location_id: location.id });
+      if (editingLocationId === location.id) resetLocationForm();
+      if (status) status.textContent = `${location.label} aus der Speicherüberwachung entfernt. Dateien wurden nicht verändert.`;
+      await refreshStatus(false);
+    } catch (error) {
+      if (status) status.textContent = `Speicherort konnte nicht entfernt werden · ${error.message}`;
+    }
+  }
+
+  function handleLocationAction(event) {
+    const edit = event.target.closest("[data-location-edit]");
+    if (edit) { editLocation(edit.dataset.locationEdit); return; }
+    const remove = event.target.closest("[data-location-remove]");
+    if (remove) void removeLocation(remove.dataset.locationRemove);
   }
 
   function renderScan(payload) {
@@ -181,7 +321,7 @@
     const summary = document.getElementById("storage-scan-summary");
     scanRunning = true;
     if (button) { button.disabled = true; button.textContent = "Analysiere …"; }
-    if (summary) summary.textContent = "Medienordner werden analysiert …";
+    if (summary) summary.textContent = "Freigegebene Medienordner werden analysiert …";
     try { renderScan(await api.post("/api/storage/scan", { max_candidates: 40 })); }
     catch (error) { if (summary) summary.textContent = `Analyse fehlgeschlagen · ${error.message}`; }
     finally { scanRunning = false; if (button) { button.disabled = false; button.textContent = "Große Inhalte analysieren"; } }
