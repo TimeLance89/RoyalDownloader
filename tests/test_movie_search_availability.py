@@ -18,6 +18,9 @@ class FakeTMDBClient:
         self.calls.append((query, max_results))
         return [dict(movie) for movie in self.movies]
 
+    def movie_summary(self, _title, _year=""):
+        return None
+
 
 def _movie(tmdb_id, title, year, original_title=""):
     return {
