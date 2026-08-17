@@ -26,9 +26,21 @@
   state.globalSearch.failures = [];
   state.globalSearch.pendingCatalogs = [];
 
+  function uniqueCatalogContentEntries(entries) {
+    // Provider-Slugs/Base-Slugs sind technische Quellen-IDs und keine
+    // Inhaltsidentität. Innerhalb eines Katalogs deshalb TMDB bzw.
+    // normalisierten Titel + Jahr verwenden. Die Gruppen bleiben absichtlich
+    // getrennt, damit z. B. ein Anime nicht versehentlich mit einer gleich
+    // benannten normalen Serie zusammenfällt.
+    if (typeof uniqueHomeContentEntries === "function") {
+      return uniqueHomeContentEntries(entries);
+    }
+    return uniqueHomeEntries(entries);
+  }
+
   function mergeCatalogGroups(groups) {
     const ordered = CATALOGS
-      .map((catalog) => groups.get(catalog.key) || [])
+      .map((catalog) => uniqueCatalogContentEntries(groups.get(catalog.key) || []))
       .filter((group) => group.length);
     const mixed = [];
     const max = Math.max(0, ...ordered.map((group) => group.length));
@@ -38,6 +50,13 @@
       });
     }
     return uniqueHomeEntries(mixed);
+  }
+
+  function mediaDetailModalOpen() {
+    return [...document.querySelectorAll(".media-modal")].some((modal) =>
+      !modal.hidden
+      && !modal.classList.contains("hidden")
+      && modal.getAttribute("aria-hidden") !== "true");
   }
 
   const baseRenderGlobalSearchResults = window.renderGlobalSearchResults;
@@ -112,9 +131,33 @@
       ),
     ]);
     if (requestId !== state.globalSearch.requestSeq) return;
+
+    // Durch die Artwork-/TMDB-Anreicherung kann eine zuvor noch nicht
+    // erkennbare Provider-Dublette jetzt eine eindeutige Inhalts-ID besitzen.
+    // Deshalb nach der Metadatenphase noch einmal über dieselben Rohgruppen
+    // deduplizieren, bevor Jellyfin abgefragt und final gerendert wird.
+    state.globalSearch.results = mergeCatalogGroups(groups);
     await refreshCatalogJellyfinStatus(state.globalSearch.results, null);
     if (requestId !== state.globalSearch.requestSeq) return;
     renderGlobalSearchResults();
+  };
+
+  // Suchkarten öffnen ihre normale Detailansicht als Modal über der Suche.
+  // Die Suchseite wird dabei NICHT geschlossen; Query, Filter, Treffer und
+  // Scrollposition bleiben dadurch unverändert hinter dem Modal erhalten.
+  window.openHomeEntry = function openHomeEntryKeepingGlobalSearch(kind, key) {
+    if (kind === "movie") {
+      const movie = homeMovieBySlug(key);
+      if (movie) selectFpRow(movie.slug, movie);
+      return;
+    }
+    if (kind === "anime") {
+      const anime = homeAnimeById(key);
+      if (anime) openAnimeDetail(anime);
+      return;
+    }
+    const series = homeSeriesBySlug(key);
+    if (series) loadSeries(series);
   };
 
   const baseRunGlobalSearch = window.runGlobalSearch;
@@ -133,6 +176,10 @@
 
   const baseCloseGlobalSearch = window.closeGlobalSearch;
   window.closeGlobalSearch = function closeGlobalSearchWithFreshCatalogState(options) {
+    // Der globale Outside-Click-Handler betrachtet Modals als "außerhalb" der
+    // Suchseite. Solange ein aus der Suche geöffnetes Mediendetail sichtbar
+    // ist, darf dieser Handler die darunterliegende Suche nicht zerstören.
+    if (state.globalSearch.active && mediaDetailModalOpen()) return;
     state.globalSearch.failures = [];
     state.globalSearch.pendingCatalogs = [];
     return baseCloseGlobalSearch(options);
