@@ -9,7 +9,7 @@ def test_storage_runtime_is_loaded_by_frontend_manifest():
     assert "data-royal-storage-manager" in api_js
 
 
-def test_storage_runtime_exposes_multi_volume_management_and_guarded_cleanup_ui():
+def test_storage_runtime_exposes_multi_volume_management_cleanup_and_move_ui():
     source = (ROOT / "web" / "storage-manager.js").read_text(encoding="utf-8")
     for marker in (
         'id="settings-storage"',
@@ -17,24 +17,32 @@ def test_storage_runtime_exposes_multi_volume_management_and_guarded_cleanup_ui(
         'id="storage-location-mode"',
         'value="monitor"',
         'value="media"',
+        'id="storage-move-modal"',
+        'data-storage-move',
         "/api/storage/status",
         "/api/storage/locations/save",
         "/api/storage/locations/remove",
         "/api/storage/scan",
+        "/api/storage/move/plan",
+        "/api/storage/move",
         "/api/storage/cleanup",
-        "physische",
+        "GESAMTER SERIENORDNER",
+        "FILMDATEI",
         "dauerhaft löschen?",
+        "destination_root:",
         "expires_at:",
         "confirm: true",
     ):
         assert marker in source
 
 
-def test_storage_runtime_warns_that_nas_paths_require_container_mounts():
+def test_storage_runtime_explains_true_move_semantics_and_mount_requirements():
     source = (ROOT / "web" / "storage-manager.js").read_text(encoding="utf-8")
     assert "Bind-Mount" in source
     assert "Royal mountet keine Host-Laufwerke selbst" in source
-    assert "Nur Live-Monitoring · keine Bereinigung" in source
+    assert "Quelle bleibt bis zum erfolgreichen Transfer geschützt" in source
+    assert "Vorhandene Zieldaten werden niemals überschrieben" in source
+    assert "Nur Live-Monitoring · keine Medienaktionen" in source
 
 
 def test_storage_styles_cover_volume_registry_desktop_and_mobile_layouts():
