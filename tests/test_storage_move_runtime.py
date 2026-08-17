@@ -1,4 +1,5 @@
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -174,9 +175,13 @@ def test_legacy_interrupted_series_partial_is_adopted_and_completed(monkeypatch,
     (source / "E02.mkv").write_bytes(second)
     plan = _series_plan(source, target)
 
+    # The old implementation used shutil.move/copytree. Files that had already
+    # completed were written through copy2 and therefore carry the source
+    # timestamps. The file that was being copied when the process died can be
+    # incomplete and is intentionally recopied from zero during legacy adoption.
     old_work = target / ".royal-move-old-random.partial"
     old_work.mkdir()
-    (old_work / "E01.mkv").write_bytes(first)
+    shutil.copy2(source / "E01.mkv", old_work / "E01.mkv")
     (old_work / "E02.mkv").write_bytes(second[:500])
     now = time.time()
     old_job = {
@@ -214,7 +219,7 @@ def test_legacy_interrupted_series_partial_is_adopted_and_completed(monkeypatch,
     assert snapshot["active_count"] == 1
     assert snapshot["jobs"][0]["job_id"] == "legacy-series-job"
     assert snapshot["jobs"][0]["recovered_after_restart"] is True
-    assert snapshot["jobs"][0]["moved_bytes"] == len(first) + 500
+    assert snapshot["jobs"][0]["moved_bytes"] == len(first)
     assert enqueued == ["legacy-series-job"]
 
     runtime._run("legacy-series-job")
