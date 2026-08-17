@@ -1,13 +1,23 @@
-"""Storage telemetry and guarded cleanup endpoints."""
+"""Storage telemetry, multi-volume registry, scanning, and guarded cleanup endpoints."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config as appconfig
-from storage_manager import cleanup_candidate, scan_large_content, storage_status
+from storage_locations import (
+    LOCATION_MODE_MONITOR,
+    cleanup_configured_candidate,
+    combined_storage_status,
+    load_storage_locations,
+    remove_storage_location,
+    save_storage_location,
+    scan_configured_storage,
+)
 
 router = APIRouter(tags=["administration", "storage"])
 
@@ -23,7 +33,7 @@ class StorageScanBody(BaseModel):
 
 
 class StorageCleanupBody(BaseModel):
-    root: str
+    root: str = Field(min_length=1, max_length=96)
     relative_path: str = Field(min_length=1, max_length=2048)
     token: str = Field(min_length=32, max_length=256)
     expected_size: int = Field(ge=0)
@@ -31,14 +41,65 @@ class StorageCleanupBody(BaseModel):
     confirm: bool = False
 
 
+class StorageLocationBody(BaseModel):
+    location_id: str = Field(default="", max_length=64)
+    label: str = Field(min_length=1, max_length=80)
+    path: str = Field(min_length=1, max_length=2048)
+    mode: Literal["monitor", "media"] = LOCATION_MODE_MONITOR
+
+
+class StorageLocationRemoveBody(BaseModel):
+    location_id: str = Field(min_length=1, max_length=64)
+
+
 @router.get("/api/v1/storage/status")
 @router.get("/api/storage/status")
 async def api_storage_status():
     return await run_in_threadpool(
-        storage_status,
+        combined_storage_status,
         _media_paths(),
         appconfig.load_deployment_mode(),
+        load_storage_locations(),
     )
+
+
+@router.get("/api/v1/storage/locations")
+@router.get("/api/storage/locations")
+async def api_storage_locations():
+    locations = await run_in_threadpool(load_storage_locations)
+    return {
+        "locations": locations,
+        "modes": ["monitor", "media"],
+    }
+
+
+@router.post("/api/v1/storage/locations/save")
+@router.post("/api/storage/locations/save")
+async def api_storage_location_save(body: StorageLocationBody):
+    if appconfig.demo_mode_enabled():
+        raise HTTPException(409, "Im Demo-Modus können keine realen Speicherorte verwaltet werden.")
+    try:
+        location = await run_in_threadpool(
+            save_storage_location,
+            label=body.label,
+            path=body.path,
+            mode=body.mode,
+            location_id=body.location_id,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"saved": True, "location": location}
+
+
+@router.post("/api/v1/storage/locations/remove")
+@router.post("/api/storage/locations/remove")
+async def api_storage_location_remove(body: StorageLocationRemoveBody):
+    if appconfig.demo_mode_enabled():
+        raise HTTPException(409, "Im Demo-Modus können keine realen Speicherorte verwaltet werden.")
+    removed = await run_in_threadpool(remove_storage_location, body.location_id)
+    if not removed:
+        raise HTTPException(404, "Der Speicherort wurde nicht gefunden.")
+    return {"removed": True, "location_id": body.location_id}
 
 
 @router.post("/api/v1/storage/scan")
@@ -47,8 +108,9 @@ async def api_storage_scan(body: StorageScanBody):
     if appconfig.demo_mode_enabled():
         raise HTTPException(409, "Im Demo-Modus gibt es keinen realen Medienspeicher.")
     return await run_in_threadpool(
-        scan_large_content,
+        scan_configured_storage,
         _media_paths(),
+        load_storage_locations(),
         max_candidates=body.max_candidates,
     )
 
@@ -62,8 +124,9 @@ async def api_storage_cleanup(body: StorageCleanupBody):
         raise HTTPException(400, "Die dauerhafte Bereinigung muss ausdrücklich bestätigt werden.")
     try:
         return await run_in_threadpool(
-            cleanup_candidate,
+            cleanup_configured_candidate,
             _media_paths(),
+            load_storage_locations(),
             root_key=body.root,
             relative_path=body.relative_path,
             token=body.token,
