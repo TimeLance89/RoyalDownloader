@@ -62,8 +62,13 @@ const api = {
 
   genres() { return this.get("/api/genres"); },
   movies(params) {
+    const request = this.get("/api/movies?" + new URLSearchParams(params));
+    // Die provider-first Filmsuche fragt bewusst alle aktiven Quellen ab. Sie
+    // darf nicht nach 15 Sekunden im Browser verworfen werden, während der
+    // Server noch korrekt weiterarbeitet. Browse-Kataloge behalten ihr Budget.
+    if (params?.mode === "search") return request;
     return this._within(
-      this.get("/api/movies?" + new URLSearchParams(params)),
+      request,
       15_000,
       "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter.",
     );
@@ -367,6 +372,23 @@ if (document.readyState === "loading") {
   }, { once: true });
 } else {
   window.setTimeout(loadRoyalTasteProfileV2, 0);
+}
+
+function loadRoyalGlobalSearchRuntime() {
+  if (document.querySelector('script[data-royal-global-search-runtime]')) return;
+  const script = document.createElement("script");
+  script.src = "/global-search-runtime.js?v=royal-20260817-1";
+  script.async = false;
+  script.setAttribute("data-royal-global-search-runtime", "true");
+  document.body.appendChild(script);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    window.setTimeout(loadRoyalGlobalSearchRuntime, 0);
+  }, { once: true });
+} else {
+  window.setTimeout(loadRoyalGlobalSearchRuntime, 0);
 }
 
 function loadRoyalStorageMoveJobs() {
