@@ -1,4 +1,4 @@
-"""Regression tests for provider-first movie search."""
+"""Regression tests for complete provider-first movie search."""
 
 from types import SimpleNamespace
 
@@ -17,6 +17,9 @@ class FakeTMDBClient:
     def search_movies(self, query, max_results):
         self.calls.append((query, max_results))
         return [dict(movie) for movie in self.movies]
+
+    def movie_summary(self, _title, _year=""):
+        return None
 
 
 def _movie(tmdb_id, title, year, original_title=""):
@@ -58,6 +61,7 @@ def _loaded(title, year="", provider="moflix", hosters=True):
 
 def _configure(monkeypatch, movies, candidates, loader=None, providers=None, configured=True):
     availability._MOVIE_SEARCH_AVAILABILITY_CACHE.clear()
+    availability._MOVIE_SEARCH_GROUP_CACHE.clear()
     client = FakeTMDBClient(movies, configured=configured)
     active = list(providers or ["moflix", "filmpalast", "xcine"])
     search_calls = []
@@ -78,17 +82,15 @@ def _configure(monkeypatch, movies, candidates, loader=None, providers=None, con
             for item in candidates
         }
 
-        def loader(slug):
+        def fake_loader(slug):
             load_calls.append(slug)
             return by_slug.get(slug)
     else:
-        original_loader = loader
-
-        def loader(slug):
+        def fake_loader(slug):
             load_calls.append(slug)
-            return original_loader(slug)
+            return loader(slug)
 
-    monkeypatch.setattr(server, "load_movie_for_slug", loader)
+    monkeypatch.setattr(availability, "_ORIGINAL_LOAD_MOVIE_FOR_SLUG", fake_loader)
     monkeypatch.setattr(
         server,
         "provider_for_value",
@@ -118,23 +120,21 @@ def test_provider_results_define_complete_star_wars_search(monkeypatch):
         _candidate("moflix:14", "Star Wars: Episode I - Die dunkle Bedrohung", "1999"),
         _candidate("moflix:15", "Rogue One: A Star Wars Story", "2016"),
     ]
-    client, search_calls, _load_calls, _active = _configure(
-        monkeypatch, movies, candidates
-    )
+    client, search_calls, load_calls, _active = _configure(monkeypatch, movies, candidates)
 
     results = server._tmdb_search_results("Star Wars")
 
     assert len(results) == 5
     assert {item["slug"] for item in results} == {item.slug for item in candidates}
     assert "Die Rückkehr der Jedi-Ritter" in {item["title"] for item in results}
+    assert all(item["availability"] == "unverified" for item in results)
     assert search_calls == ["Star Wars"]
+    assert load_calls == []
     assert client.calls == [("Star Wars", 100)]
 
 
 def test_provider_only_results_survive_empty_tmdb_search(monkeypatch):
-    candidates = [
-        _candidate("moflix:fan-edit", "Star Wars Fan Edit", "2024"),
-    ]
+    candidates = [_candidate("moflix:fan-edit", "Star Wars Fan Edit", "2024")]
     _configure(monkeypatch, [], candidates)
 
     results = server._tmdb_search_results("Star Wars")
@@ -145,15 +145,16 @@ def test_provider_only_results_survive_empty_tmdb_search(monkeypatch):
     assert results[0]["metadata_source"] == "provider"
 
 
-def test_provider_search_still_works_when_tmdb_client_is_unconfigured(monkeypatch):
+def test_provider_search_service_still_works_when_tmdb_client_is_unconfigured(monkeypatch):
     candidates = [_candidate("moflix:alpha", "Alpha", "2024")]
-    client, _search_calls, _load_calls, _active = _configure(
+    client, _search_calls, load_calls, _active = _configure(
         monkeypatch, [], candidates, configured=False
     )
 
     results = server._tmdb_search_results("Alpha")
 
     assert [item["slug"] for item in results] == ["moflix:alpha"]
+    assert load_calls == []
     assert client.calls == []
 
 
@@ -174,7 +175,7 @@ def test_same_movie_across_providers_becomes_one_card_with_sources(monkeypatch):
     assert [source["key"] for source in result["sources"]] == [
         "moflix", "filmpalast", "xcine",
     ]
-    assert sum(bool(source["verified"]) for source in result["sources"]) == 1
+    assert not any(source["verified"] for source in result["sources"])
 
 
 def test_same_title_different_years_stays_separate(monkeypatch):
@@ -247,9 +248,7 @@ def test_localized_provider_titles_coalesce_when_tmdb_proves_identity(monkeypatc
             "filmpalast",
         ),
     ]
-    movies = [
-        _movie(278, "Die Verurteilten", "1994", "The Shawshank Redemption"),
-    ]
+    movies = [_movie(278, "Die Verurteilten", "1994", "The Shawshank Redemption")]
     _configure(monkeypatch, movies, candidates)
 
     results = server._tmdb_search_results("Verurteilten")
@@ -259,7 +258,28 @@ def test_localized_provider_titles_coalesce_when_tmdb_proves_identity(monkeypatc
     assert results[0]["source_count"] == 2
 
 
-def test_bad_primary_source_falls_through_before_card_is_returned(monkeypatch):
+def test_search_keeps_group_even_when_no_source_has_usable_hosters(monkeypatch):
+    candidates = [
+        _candidate("moflix:alpha", "Alpha", "2024", "moflix"),
+        _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast"),
+    ]
+    _client, _search_calls, load_calls, _active = _configure(
+        monkeypatch,
+        [],
+        candidates,
+        loader=lambda slug: _loaded(
+            "Alpha", "2024", slug.split(":", 1)[0], hosters=False
+        ),
+    )
+
+    results = server._tmdb_search_results("Alpha")
+
+    assert len(results) == 1
+    assert results[0]["slug"] == "moflix:alpha"
+    assert load_calls == []
+
+
+def test_lazy_resolution_falls_through_to_next_provider(monkeypatch):
     candidates = [
         _candidate("moflix:alpha", "Alpha", "2024", "moflix"),
         _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast"),
@@ -275,25 +295,60 @@ def test_bad_primary_source_falls_through_before_card_is_returned(monkeypatch):
     )
 
     results = server._tmdb_search_results("Alpha")
+    assert [item["slug"] for item in results] == ["moflix:alpha"]
+    assert load_calls == []
 
-    assert [item["slug"] for item in results] == ["filmpalast:alpha"]
+    loaded = server.load_movie_for_slug("moflix:alpha")
+
+    assert loaded is not None
+    assert loaded.provider == "filmpalast"
     assert load_calls == ["moflix:alpha", "filmpalast:alpha"]
-    assert next(source for source in results[0]["sources"] if source["verified"])["key"] == "filmpalast"
+    assert server.state.fp_movies["moflix:alpha"] is loaded
+    assert server.state.fp_movies["filmpalast:alpha"] is loaded
 
 
-def test_group_is_hidden_only_when_no_provider_has_usable_hosters(monkeypatch):
+def test_lazy_resolution_returns_none_only_after_all_group_sources_fail(monkeypatch):
     candidates = [
         _candidate("moflix:alpha", "Alpha", "2024", "moflix"),
         _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast"),
     ]
-    _configure(
+    _client, _search_calls, load_calls, _active = _configure(
         monkeypatch,
         [],
         candidates,
-        loader=lambda slug: _loaded("Alpha", "2024", slug.split(":", 1)[0], hosters=False),
+        loader=lambda slug: _loaded(
+            "Alpha", "2024", slug.split(":", 1)[0], hosters=False
+        ),
     )
 
-    assert server._tmdb_search_results("Alpha") == []
+    assert len(server._tmdb_search_results("Alpha")) == 1
+    assert server.load_movie_for_slug("moflix:alpha") is None
+    assert load_calls == ["moflix:alpha", "filmpalast:alpha"]
+
+
+def test_explicit_alternate_source_is_tried_before_other_group_sources(monkeypatch):
+    candidates = [
+        _candidate("moflix:alpha", "Alpha", "2024", "moflix"),
+        _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast"),
+    ]
+    _client, _search_calls, load_calls, _active = _configure(monkeypatch, [], candidates)
+
+    server._tmdb_search_results("Alpha")
+    loaded = server.load_movie_for_slug("filmpalast:alpha")
+
+    assert loaded is not None
+    assert loaded.provider == "filmpalast"
+    assert load_calls == ["filmpalast:alpha"]
+
+
+def test_non_search_slug_remains_transparent_pass_through(monkeypatch):
+    candidates = [_candidate("moflix:alpha", "Alpha", "2024")]
+    _client, _search_calls, load_calls, _active = _configure(monkeypatch, [], candidates)
+
+    loaded = server.load_movie_for_slug("moflix:direct")
+
+    assert loaded is None
+    assert load_calls == ["moflix:direct"]
 
 
 def test_tmdb_result_limit_never_caps_provider_result_count(monkeypatch):
@@ -308,7 +363,7 @@ def test_tmdb_result_limit_never_caps_provider_result_count(monkeypatch):
     assert len(results) == 45
 
 
-def test_cached_results_are_deep_copies(monkeypatch):
+def test_cached_results_are_deep_copies_and_do_not_trigger_detail_loading(monkeypatch):
     candidates = [
         _candidate("moflix:alpha", "Alpha", "2024", "moflix"),
         _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast"),
@@ -323,7 +378,7 @@ def test_cached_results_are_deep_copies(monkeypatch):
     assert second[0]["title"] == "Alpha"
     assert second[0]["sources"][0]["label"] != "mutated"
     assert search_calls == ["Alpha"]
-    assert len(load_calls) == 1
+    assert load_calls == []
     assert client.calls == [("Alpha", 100)]
 
 
