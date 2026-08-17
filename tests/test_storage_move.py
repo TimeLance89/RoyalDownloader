@@ -83,8 +83,10 @@ def test_series_episode_candidate_moves_complete_series_folder(tmp_path, monkeyp
     series = tmp_path / "series"
     target = tmp_path / "external"
     movies.mkdir(); series.mkdir(); target.mkdir()
-    _write(series / "Show" / "Season 01" / "E01.mkv", 120, b"a")
-    _write(series / "Show" / "Season 02" / "E02.mkv", 80, b"b")
+    _write(series / "Show" / "Season 01" / "E01.mkv", 1000, b"a")
+    _write(series / "Show" / "Season 01" / "E02.mkv", 10, b"b")
+    _write(series / "Show" / "Season 02" / "E03.mkv", 10, b"c")
+    _write(series / "Show" / "Season 02" / "E04.mkv", 10, b"d")
     candidate = _series_file_candidate(series)
     _different_volumes(monkeypatch, series, target)
 
@@ -96,7 +98,7 @@ def test_series_episode_candidate_moves_complete_series_folder(tmp_path, monkeyp
     )
     assert plan["source_kind"] == "series"
     assert plan["source_name"] == "Show"
-    assert plan["size_bytes"] == 200
+    assert plan["size_bytes"] == 1030
 
     result = mover.move_candidate(
         {"movies": str(movies), "series": str(series)}, locations,
@@ -106,8 +108,10 @@ def test_series_episode_candidate_moves_complete_series_folder(tmp_path, monkeyp
     )
     assert result["source_kind"] == "series"
     assert not (series / "Show").exists()
-    assert (target / "Show" / "Season 01" / "E01.mkv").read_bytes() == b"a" * 120
-    assert (target / "Show" / "Season 02" / "E02.mkv").read_bytes() == b"b" * 80
+    assert (target / "Show" / "Season 01" / "E01.mkv").read_bytes() == b"a" * 1000
+    assert (target / "Show" / "Season 01" / "E02.mkv").read_bytes() == b"b" * 10
+    assert (target / "Show" / "Season 02" / "E03.mkv").read_bytes() == b"c" * 10
+    assert (target / "Show" / "Season 02" / "E04.mkv").read_bytes() == b"d" * 10
 
 
 def test_move_rejects_same_physical_volume(tmp_path, monkeypatch):
