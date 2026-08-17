@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,7 @@ from update_channels import (
 DEFAULT_REPOSITORY = "TimeLance89/RoyalDownloader"
 DEFAULT_BRANCH = DEFAULT_UPDATE_BRANCH
 RECENT_COMMIT_SCAN_LIMIT = 5
+COMPARE_FALLBACK_MAX_COMMITS = 64
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
 
@@ -326,6 +328,97 @@ class UpdateChecker:
             raise RuntimeError("GitHub hat eine ungültige Commitliste geliefert")
         return [item for item in payload if isinstance(item, dict)]
 
+    @staticmethod
+    def _parent_shas(commit_payload: dict) -> list[str]:
+        parents = commit_payload.get("parents") or []
+        return [
+            sha
+            for item in parents
+            if isinstance(item, dict)
+            and (sha := _valid_commit(item.get("sha", "")))
+        ]
+
+    @staticmethod
+    def _http_status(exc: requests.HTTPError) -> Optional[int]:
+        response = getattr(exc, "response", None)
+        return getattr(response, "status_code", None)
+
+    def _ancestor_distance(
+        self,
+        start_sha: str,
+        target_sha: str,
+        *,
+        start_payload: Optional[dict] = None,
+    ) -> Optional[int]:
+        """Return the shortest parent distance, bounded to protect GitHub/API load."""
+        start_sha = _valid_commit(start_sha)
+        target_sha = _valid_commit(target_sha)
+        if not start_sha or not target_sha:
+            return None
+        if start_sha == target_sha:
+            return 0
+
+        pending = deque([(start_sha, start_payload, 0)])
+        visited: set[str] = set()
+        while pending and len(visited) < COMPARE_FALLBACK_MAX_COMMITS:
+            sha, payload, distance = pending.popleft()
+            if sha in visited:
+                continue
+            visited.add(sha)
+            if payload is None:
+                payload = self._get_json(f"commits/{quote(sha, safe='')}")
+            for parent_sha in self._parent_shas(payload):
+                if parent_sha == target_sha:
+                    return distance + 1
+                if parent_sha not in visited:
+                    pending.append((parent_sha, None, distance + 1))
+        return None
+
+    def _compare_fallback(
+        self,
+        current_sha: str,
+        latest_sha: str,
+        latest_payload: dict,
+    ) -> dict:
+        """Infer ancestry when GitHub's compare endpoint temporarily returns 404."""
+        ahead_by = self._ancestor_distance(
+            latest_sha,
+            current_sha,
+            start_payload=latest_payload,
+        )
+        if ahead_by is not None:
+            return {"status": "ahead", "ahead_by": ahead_by, "behind_by": 0}
+
+        current_payload = self._get_json(
+            f"commits/{quote(current_sha, safe='')}",
+        )
+        behind_by = self._ancestor_distance(
+            current_sha,
+            latest_sha,
+            start_payload=current_payload,
+        )
+        if behind_by is not None:
+            return {"status": "behind", "ahead_by": 0, "behind_by": behind_by}
+
+        # Do not guess "diverged" here. A temporary compare/indexing failure
+        # must never turn into an unsafe automatic channel switch or downgrade.
+        return {"status": "unknown", "ahead_by": 0, "behind_by": 0}
+
+    def _compare_commits(
+        self,
+        current_sha: str,
+        latest_sha: str,
+        latest_payload: dict,
+    ) -> dict:
+        try:
+            return self._get_json(
+                f"compare/{quote(current_sha, safe='')}...{quote(latest_sha, safe='')}",
+            )
+        except requests.HTTPError as exc:
+            if self._http_status(exc) != 404:
+                raise
+            return self._compare_fallback(current_sha, latest_sha, latest_payload)
+
     def _quality_gate_state(self, commit: str) -> str:
         if self.branch != UPDATE_CHANNEL_BRANCHES[UPDATE_CHANNEL_OVERNIGHT]:
             return "not_required"
@@ -391,9 +484,7 @@ class UpdateChecker:
                 base.update({"comparison": "identical", "update_available": False})
                 return base
 
-            comparison = self._get_json(
-                f"compare/{quote(current, safe='')}...{quote(latest_sha, safe='')}",
-            )
+            comparison = self._compare_commits(current, latest_sha, latest)
             status = str(comparison.get("status") or "unknown")
             ahead_by = max(0, int(comparison.get("ahead_by") or 0))
             behind_by = max(0, int(comparison.get("behind_by") or 0))
