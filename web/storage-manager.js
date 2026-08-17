@@ -7,6 +7,7 @@
   let scanRunning = false;
   let editingLocationId = "";
   let currentLocations = [];
+  let activeMove = null;
 
   const html = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -47,12 +48,34 @@
   }
 
   function ensureStyle() {
-    if (document.querySelector('link[data-royal-storage-style]')) return;
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "/styles/storage-manager.css?v=royal-20260817-2";
-    link.dataset.royalStorageStyle = "true";
-    document.head.appendChild(link);
+    if (!document.querySelector('link[data-royal-storage-style]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/styles/storage-manager.css?v=royal-20260817-2";
+      link.dataset.royalStorageStyle = "true";
+      document.head.appendChild(link);
+    }
+    if (document.querySelector("style[data-royal-storage-move-style]")) return;
+    const style = document.createElement("style");
+    style.dataset.royalStorageMoveStyle = "true";
+    style.textContent = `
+      .storage-candidate-actions{display:flex;gap:7px;align-items:center;justify-content:flex-end}
+      .storage-move-button{border:1px solid color-mix(in srgb,var(--storage-accent) 35%,transparent);background:color-mix(in srgb,var(--storage-accent) 8%,transparent);color:var(--storage-accent);border-radius:10px;padding:8px 11px;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer}
+      .storage-move-button:hover{background:color-mix(in srgb,var(--storage-accent) 15%,transparent)}
+      .storage-move-button:disabled{opacity:.5;cursor:wait}
+      .storage-move-modal{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:rgba(5,7,10,.72);backdrop-filter:blur(8px)}
+      .storage-move-modal[hidden]{display:none}
+      .storage-move-dialog{width:min(620px,100%);max-height:min(760px,90vh);overflow:auto;border:1px solid color-mix(in srgb,currentColor 15%,transparent);background:var(--panel,#17191f);border-radius:20px;box-shadow:0 28px 80px rgba(0,0,0,.45);padding:22px}
+      .storage-move-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.storage-move-head span{font-size:.66rem;letter-spacing:.14em;font-weight:800;color:var(--storage-accent)}.storage-move-head h3{margin:5px 0 0;font-size:1.28rem}.storage-move-close{border:0;background:transparent;color:inherit;font-size:1.4rem;cursor:pointer}
+      .storage-move-summary{display:grid;grid-template-columns:1fr auto;gap:14px;margin:18px 0;padding:14px;border-radius:14px;background:color-mix(in srgb,currentColor 4%,transparent)}.storage-move-summary div{display:grid;gap:3px}.storage-move-summary small{color:var(--muted,#9ca4af)}.storage-move-summary strong:last-child{align-self:center}
+      .storage-move-field{display:grid;gap:7px}.storage-move-field>span{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#9ca4af)}.storage-move-field select{width:100%;padding:11px 12px;border-radius:11px;border:1px solid color-mix(in srgb,currentColor 15%,transparent);background:color-mix(in srgb,var(--panel,#17191f) 96%,white 4%);color:inherit}
+      .storage-move-target-note{margin:8px 0 0;color:var(--muted,#9ca4af);font-size:.76rem;line-height:1.45}.storage-move-blocked{display:grid;gap:5px;margin:12px 0 0}.storage-move-blocked span{font-size:.73rem;color:var(--muted,#9ca4af)}
+      .storage-move-info{margin:16px 0 0;padding:12px 13px;border-radius:12px;background:color-mix(in srgb,var(--storage-accent) 7%,transparent);font-size:.77rem;line-height:1.5;color:var(--muted,#aeb5bf)}.storage-move-info strong{color:inherit}
+      .storage-move-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.storage-move-actions button:disabled{opacity:.5;cursor:wait}
+      @media(max-width:900px){.storage-candidate-actions{grid-column:2/-1}.storage-cleanup-button{grid-column:auto}.storage-move-summary{grid-template-columns:1fr}.storage-move-actions{display:grid;grid-template-columns:1fr 1fr}}
+      @media(max-width:620px){.storage-candidate-actions{grid-column:2;justify-content:stretch}.storage-candidate-actions button{flex:1}.storage-move-modal{padding:10px}.storage-move-dialog{padding:17px}.storage-move-actions{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
   }
 
   function injectUi() {
@@ -96,7 +119,7 @@
 
         <section class="storage-locations-card" aria-labelledby="storage-locations-title">
           <header class="storage-locations-head">
-            <div><span>SPEICHERORTE</span><h3 id="storage-locations-title">Zusätzliche Datenträger</h3><p>Externe HDDs oder weitere NAS-Mounts hinzufügen. „Nur überwachen“ misst ausschließlich Kapazität; „Medien“ erlaubt zusätzlich Smart Scan und die bestehende sichere Bereinigung.</p></div>
+            <div><span>SPEICHERORTE</span><h3 id="storage-locations-title">Zusätzliche Datenträger</h3><p>Externe HDDs oder weitere NAS-Mounts hinzufügen. „Nur überwachen“ misst ausschließlich Kapazität; „Medien“ erlaubt zusätzlich Smart Scan, Verschieben und die sichere Bereinigung.</p></div>
             <strong id="storage-location-count">0 zusätzlich</strong>
           </header>
           <form id="storage-location-form" class="storage-location-form">
@@ -112,11 +135,23 @@
         <div id="storage-volume-grid" class="storage-volume-grid" aria-live="polite"></div>
         <section class="storage-insights-card" aria-labelledby="storage-insights-title">
           <header class="storage-insights-head"><div><span>SMART SCAN</span><h3 id="storage-insights-title">Große Inhalte &amp; Speicherfresser</h3>
-          <p>Royal misst Serienordner als Einheit und erkennt zusätzlich ungewöhnlich große Einzeldateien. Zusätzliche Speicherorte werden nur einbezogen, wenn ihr Typ „Medien“ ist.</p></div><strong id="storage-scan-summary">Noch nicht analysiert</strong></header>
+          <p>Treffer können gelöscht oder auf ein anderes physisches Medien-Volume verschoben werden. Bei Serien verschiebt Royal immer den vollständigen Serienordner.</p></div><strong id="storage-scan-summary">Noch nicht analysiert</strong></header>
           <div id="storage-large-content-list" class="storage-content-list"><div class="storage-empty-state"><strong>Analyse auf Abruf</strong><span>Der rekursive Scan läuft bewusst nur bei Bedarf und belastet das NAS nicht dauerhaft.</span></div></div>
         </section>
         <div id="storage-cleanup-status" class="storage-cleanup-status" role="status" aria-live="polite"></div>
-        <p class="storage-danger-note"><span>!</span><span>Bereinigungen sind dauerhaft. Royal akzeptiert nur kurzlebige, erneut geprüfte Treffer innerhalb explizit als Medien freigegebener Ordner.</span></p>
+        <p class="storage-danger-note"><span>!</span><span>Löschen ist dauerhaft. Beim Verschieben wird das Ziel vollständig hergestellt und die Quelle erst danach entfernt; vorhandene Zieldaten werden niemals überschrieben.</span></p>
+
+        <div id="storage-move-modal" class="storage-move-modal" role="dialog" aria-modal="true" aria-labelledby="storage-move-title" hidden>
+          <section class="storage-move-dialog">
+            <header class="storage-move-head"><div><span>VERSCHIEBEN</span><h3 id="storage-move-title">Medien verschieben</h3></div><button id="storage-move-close" class="storage-move-close" type="button" aria-label="Schließen">×</button></header>
+            <div class="storage-move-summary"><div><small id="storage-move-kind">Inhalt</small><strong id="storage-move-name">—</strong></div><strong id="storage-move-size">—</strong></div>
+            <label class="storage-move-field"><span>Ziel-Speichermedium</span><select id="storage-move-target"></select></label>
+            <p id="storage-move-target-note" class="storage-move-target-note"></p>
+            <div id="storage-move-blocked" class="storage-move-blocked"></div>
+            <p class="storage-move-info"><strong>Wichtig:</strong> Zwischen zwei physischen Laufwerken müssen die Daten technisch übertragen werden. Royal führt dies als Verschieben aus: Quelle bleibt bis zum erfolgreichen Transfer geschützt und wird anschließend entfernt. Eine zweite Nutzkopie bleibt nicht bestehen.</p>
+            <div class="storage-move-actions"><button id="storage-move-cancel" class="btn btn-ghost btn-sm" type="button">Abbrechen</button><button id="storage-move-confirm" class="btn btn-primary btn-sm" type="button">Jetzt verschieben</button></div>
+          </section>
+        </div>
       </section>`);
 
     document.querySelector('[data-settings-target="settings-storage"]')?.addEventListener("click", (event) => {
@@ -129,8 +164,17 @@
     document.getElementById("storage-location-cancel")?.addEventListener("click", resetLocationForm);
     document.getElementById("storage-location-list")?.addEventListener("click", handleLocationAction);
     document.getElementById("storage-large-content-list")?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-storage-cleanup]");
-      if (button) void cleanup(button);
+      const move = event.target.closest("[data-storage-move]");
+      if (move) { void openMove(move); return; }
+      const cleanupButton = event.target.closest("[data-storage-cleanup]");
+      if (cleanupButton) void cleanup(cleanupButton);
+    });
+    document.getElementById("storage-move-close")?.addEventListener("click", closeMove);
+    document.getElementById("storage-move-cancel")?.addEventListener("click", closeMove);
+    document.getElementById("storage-move-confirm")?.addEventListener("click", executeMove);
+    document.getElementById("storage-move-target")?.addEventListener("change", renderMoveTargetNote);
+    document.getElementById("storage-move-modal")?.addEventListener("click", (event) => {
+      if (event.target.id === "storage-move-modal") closeMove();
     });
   }
 
@@ -165,7 +209,7 @@
     const members = Array.isArray(volume.members) ? volume.members : [];
     const tags = members.map((member) => `<span>${html(member.label)}${member.mode === "monitor" ? " · Monitor" : ""}</span>`).join("");
     const paths = (volume.paths || []).map((path) => html(path)).join(" · ");
-    const modeText = volume.mode === "media" ? "Smart Scan für Medienpfade aktiv" : "Nur Live-Monitoring · keine Bereinigung";
+    const modeText = volume.mode === "media" ? "Smart Scan und Medienaktionen aktiv" : "Nur Live-Monitoring · keine Medienaktionen";
     return `
       <article class="storage-volume-card">
         <header><div><small>PHYSISCHES VOLUME</small><span>${html(volume.label || "Speicher")}</span></div><strong>${formatPercent(volume.used_percent)}</strong></header>
@@ -298,6 +342,16 @@
     if (remove) void removeLocation(remove.dataset.locationRemove);
   }
 
+  function candidateData(button) {
+    return {
+      root: button.dataset.root,
+      relative_path: button.dataset.relativePath,
+      token: button.dataset.token,
+      expected_size: Number(button.dataset.size) || 0,
+      expires_at: Number(button.dataset.expiresAt) || 0,
+    };
+  }
+
   function renderScan(payload) {
     const list = document.getElementById("storage-large-content-list");
     const summary = document.getElementById("storage-scan-summary");
@@ -305,14 +359,17 @@
     const candidates = payload.candidates || [];
     summary.textContent = `${Number(payload.scanned_files) || 0} Dateien geprüft · ${candidates.length} Treffer${payload.truncated ? " · Scanlimit erreicht" : ""}`;
     if (!candidates.length) {
-      list.innerHTML = '<div class="storage-empty-state"><strong>Keine auffälligen großen Inhalte gefunden</strong><span>Aktuell sticht kein sicherer Bereinigungstreffer hervor.</span></div>';
+      list.innerHTML = '<div class="storage-empty-state"><strong>Keine auffälligen großen Inhalte gefunden</strong><span>Aktuell sticht kein sicherer Bereinigungs- oder Verschiebe-Treffer hervor.</span></div>';
       return;
     }
-    list.innerHTML = candidates.map((candidate, index) => `
+    list.innerHTML = candidates.map((candidate, index) => {
+      const attrs = `data-root="${html(candidate.root)}" data-relative-path="${html(candidate.relative_path)}" data-token="${html(candidate.token)}" data-size="${Number(candidate.size_bytes) || 0}" data-expires-at="${Number(candidate.expires_at) || 0}" data-name="${html(candidate.name || candidate.relative_path)}"`;
+      return `
       <article class="storage-content-candidate"><div class="storage-candidate-rank">${String(index + 1).padStart(2, "0")}</div>
       <div class="storage-candidate-copy"><span>${html(candidate.root_label)} · ${candidate.kind === "directory" ? "Ordner" : "Datei"}</span><strong title="${html(candidate.relative_path)}">${html(candidate.name || candidate.relative_path)}</strong><small>${html(candidate.reason)} · ${Number(candidate.file_count) || 0} Dateien</small></div>
       <div class="storage-candidate-size"><strong>${formatBytes(candidate.size_bytes)}</strong><small>${Number(candidate.media_file_count) || 0} Medien</small></div>
-      <button class="storage-cleanup-button" type="button" data-storage-cleanup data-root="${html(candidate.root)}" data-relative-path="${html(candidate.relative_path)}" data-token="${html(candidate.token)}" data-size="${Number(candidate.size_bytes) || 0}" data-expires-at="${Number(candidate.expires_at) || 0}" data-name="${html(candidate.name || candidate.relative_path)}">Bereinigen</button></article>`).join("");
+      <div class="storage-candidate-actions"><button class="storage-move-button" type="button" data-storage-move ${attrs}>Verschieben</button><button class="storage-cleanup-button" type="button" data-storage-cleanup ${attrs}>Löschen</button></div></article>`;
+    }).join("");
   }
 
   async function scanStorage() {
@@ -325,6 +382,90 @@
     try { renderScan(await api.post("/api/storage/scan", { max_candidates: 40 })); }
     catch (error) { if (summary) summary.textContent = `Analyse fehlgeschlagen · ${error.message}`; }
     finally { scanRunning = false; if (button) { button.disabled = false; button.textContent = "Große Inhalte analysieren"; } }
+  }
+
+  function closeMove() {
+    activeMove = null;
+    const modal = document.getElementById("storage-move-modal");
+    if (modal) modal.hidden = true;
+  }
+
+  function renderMoveTargetNote() {
+    const select = document.getElementById("storage-move-target");
+    const note = document.getElementById("storage-move-target-note");
+    if (!select || !note || !activeMove) return;
+    const target = activeMove.plan.targets.find((item) => item.root === select.value);
+    note.textContent = target
+      ? `${target.path} · ${formatBytes(target.free_bytes)} frei · benötigt ca. ${formatBytes(target.required_bytes)}`
+      : "Kein verfügbares Ziel ausgewählt.";
+  }
+
+  async function openMove(button) {
+    const status = document.getElementById("storage-cleanup-status");
+    const payload = candidateData(button);
+    button.disabled = true;
+    if (status) status.textContent = "Verschiebeziel und vollständiger Inhalt werden sicher geprüft …";
+    try {
+      const plan = await api.post("/api/storage/move/plan", payload);
+      activeMove = { payload, plan };
+      const modal = document.getElementById("storage-move-modal");
+      const select = document.getElementById("storage-move-target");
+      const blocked = document.getElementById("storage-move-blocked");
+      const confirm = document.getElementById("storage-move-confirm");
+      document.getElementById("storage-move-name").textContent = plan.source_name || "Inhalt";
+      document.getElementById("storage-move-size").textContent = formatBytes(plan.size_bytes);
+      document.getElementById("storage-move-kind").textContent = plan.source_kind === "series" ? "GESAMTER SERIENORDNER" : "FILMDATEI";
+      const eligible = (plan.targets || []).filter((item) => item.eligible);
+      select.innerHTML = eligible.length
+        ? eligible.map((item) => `<option value="${html(item.root)}">${html(item.label)} · ${formatBytes(item.free_bytes)} frei</option>`).join("")
+        : '<option value="">Kein anderes Medien-Volume verfügbar</option>';
+      select.disabled = !eligible.length;
+      confirm.disabled = !eligible.length;
+      blocked.innerHTML = (plan.targets || []).filter((item) => !item.eligible).map((item) => `<span>${html(item.label)}: ${html(item.reason || "nicht verfügbar")}</span>`).join("");
+      renderMoveTargetNote();
+      if (modal) modal.hidden = false;
+      if (status) status.textContent = eligible.length ? `${plan.source_name} kann sicher verschoben werden.` : "Kein geeignetes anderes Medien-Volume gefunden.";
+    } catch (error) {
+      if (status) status.textContent = `Verschieben nicht möglich · ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function executeMove() {
+    if (!activeMove) return;
+    const select = document.getElementById("storage-move-target");
+    const destinationRoot = select?.value || "";
+    const target = activeMove.plan.targets.find((item) => item.root === destinationRoot && item.eligible);
+    if (!target) return;
+    const name = activeMove.plan.source_name || "Inhalt";
+    const kind = activeMove.plan.source_kind === "series" ? "der gesamte Serienordner" : "die Filmdatei";
+    if (!window.confirm(`„${name}“ nach „${target.label}“ verschieben?\n\nEs wird ${kind} verschoben. Nach erfolgreichem Transfer wird die Quelle entfernt. Vorhandene Zieldaten werden niemals überschrieben.`)) return;
+    const confirm = document.getElementById("storage-move-confirm");
+    const cancel = document.getElementById("storage-move-cancel");
+    const close = document.getElementById("storage-move-close");
+    const status = document.getElementById("storage-cleanup-status");
+    if (confirm) { confirm.disabled = true; confirm.textContent = "Verschiebe …"; }
+    if (cancel) cancel.disabled = true;
+    if (close) close.disabled = true;
+    if (status) status.textContent = `${name} wird nach ${target.label} verschoben …`;
+    try {
+      const result = await api.post("/api/storage/move", {
+        ...activeMove.payload,
+        destination_root: destinationRoot,
+        confirm: true,
+      });
+      closeMove();
+      if (status) status.textContent = `${result.name || name} verschoben · ${formatBytes(result.moved_bytes)} nach ${target.label}. Quelle wurde entfernt.`;
+      await refreshStatus(false);
+      await scanStorage();
+    } catch (error) {
+      if (status) status.textContent = `Verschieben abgebrochen · ${error.message}`;
+    } finally {
+      if (confirm) { confirm.disabled = false; confirm.textContent = "Jetzt verschieben"; }
+      if (cancel) cancel.disabled = false;
+      if (close) close.disabled = false;
+    }
   }
 
   async function cleanup(button) {

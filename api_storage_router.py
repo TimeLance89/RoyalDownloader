@@ -1,4 +1,4 @@
-"""Storage telemetry, multi-volume registry, scanning, and guarded cleanup endpoints."""
+"""Storage telemetry, multi-volume registry, scanning, cleanup, and guarded moves."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from storage_locations import (
     save_storage_location,
     scan_configured_storage,
 )
+from storage_move import move_candidate, plan_move_candidate
 
 router = APIRouter(tags=["administration", "storage"])
 
@@ -38,6 +39,19 @@ class StorageCleanupBody(BaseModel):
     token: str = Field(min_length=32, max_length=256)
     expected_size: int = Field(ge=0)
     expires_at: int = Field(gt=0)
+    confirm: bool = False
+
+
+class StorageMovePlanBody(BaseModel):
+    root: str = Field(min_length=1, max_length=96)
+    relative_path: str = Field(min_length=1, max_length=2048)
+    token: str = Field(min_length=32, max_length=256)
+    expected_size: int = Field(ge=0)
+    expires_at: int = Field(gt=0)
+
+
+class StorageMoveBody(StorageMovePlanBody):
+    destination_root: str = Field(min_length=1, max_length=96)
     confirm: bool = False
 
 
@@ -113,6 +127,53 @@ async def api_storage_scan(body: StorageScanBody):
         load_storage_locations(),
         max_candidates=body.max_candidates,
     )
+
+
+@router.post("/api/v1/storage/move/plan")
+@router.post("/api/storage/move/plan")
+async def api_storage_move_plan(body: StorageMovePlanBody):
+    if appconfig.demo_mode_enabled():
+        raise HTTPException(409, "Im Demo-Modus können keine Mediendateien verschoben werden.")
+    try:
+        return await run_in_threadpool(
+            plan_move_candidate,
+            _media_paths(),
+            load_storage_locations(),
+            root_key=body.root,
+            relative_path=body.relative_path,
+            token=body.token,
+            expected_size=body.expected_size,
+            expires_at=body.expires_at,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/api/v1/storage/move")
+@router.post("/api/storage/move")
+async def api_storage_move(body: StorageMoveBody):
+    if appconfig.demo_mode_enabled():
+        raise HTTPException(409, "Im Demo-Modus können keine Mediendateien verschoben werden.")
+    if not body.confirm:
+        raise HTTPException(400, "Das Verschieben muss ausdrücklich bestätigt werden.")
+    try:
+        return await run_in_threadpool(
+            move_candidate,
+            _media_paths(),
+            load_storage_locations(),
+            root_key=body.root,
+            relative_path=body.relative_path,
+            token=body.token,
+            expected_size=body.expected_size,
+            expires_at=body.expires_at,
+            destination_root=body.destination_root,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/api/v1/storage/cleanup")
