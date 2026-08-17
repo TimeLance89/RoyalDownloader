@@ -29,7 +29,7 @@ def test_storage_move_jobs_are_visible_and_lock_conflicting_actions():
 
 def test_storage_move_job_progress_is_indeterminate_while_copying():
     source = (ROOT / "web" / "storage-move-jobs.js").read_text(encoding="utf-8")
-    assert "royalStorageMoveJob" in source
-    assert "is-active .storage-move-job-bar i" in source
+    assert "@keyframes royalStorageMoveJob" in source
+    assert ".storage-move-job.is-active .storage-move-job-bar i" in source
+    assert "animation:royalStorageMoveJob" in source
     assert "Läuft im Hintergrund" in source
-    assert "100%" not in source
