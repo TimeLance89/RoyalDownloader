@@ -211,7 +211,10 @@ async def run() -> int:
                 item["http_cookie_names_before"] = cookie_names(session)
                 item["http_cookies_pushed"] = await push_http_cookies_to_browser(session, browser)
 
-                tab = await browser.get(episode_url)
+                # With an externally launched Chromium nodriver may temporarily have
+                # no cached page target. Creating an explicit fresh target avoids the
+                # Browser.get() StopIteration race on the attached instance.
+                tab = await browser.get(episode_url, new_tab=True)
                 await asyncio.sleep(4)
                 item["page_state_before_click"] = page_state(await tab.get_content())
 
