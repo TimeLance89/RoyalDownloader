@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+import traceback
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -37,6 +38,7 @@ def cookie_names(session: SessionManager) -> list[str]:
 
 async def push_http_cookies_to_browser(session: SessionManager, browser) -> int:
     import nodriver.cdp.network as cdp_network
+    import nodriver.cdp.storage as cdp_storage
 
     params = []
     for cookie in session._curl.cookies.jar:
@@ -53,12 +55,17 @@ async def push_http_cookies_to_browser(session: SessionManager, browser) -> int:
             )
         )
     if params:
-        await browser.cookies.set_all(params)
+        # CookieJar.set_all() iterates Browser.main_tab internally. An attached
+        # CDP browser can have no nodriver-registered page target yet, so set
+        # cookies directly through the browser-level Storage domain.
+        await browser.send(cdp_storage.set_cookies(params))
     return len(params)
 
 
 async def pull_browser_cookies_to_http(session: SessionManager, browser) -> list[str]:
-    raw = await browser.cookies.get_all()
+    import nodriver.cdp.storage as cdp_storage
+
+    raw = await browser.send(cdp_storage.get_cookies())
     copied = {}
     for cookie in raw:
         domain = str(getattr(cookie, "domain", "") or "")
@@ -126,6 +133,7 @@ def write_github_outputs(summary: dict) -> None:
         "challenge_cases": sum(bool((r.get("page_state_after_click") or {}).get("challenge")) for r in results),
         "click_cases": sum(r.get("hoster_click") == "clicked" for r in results),
         "clearance_cases": sum("cf_clearance" in (r.get("browser_cookie_names") or []) for r in results),
+        "error_cases": sum(str(r.get("after_browser") or "").startswith("error:") for r in results),
     }
     with open(output_path, "a", encoding="utf-8") as handle:
         for key, value in metrics.items():
@@ -211,15 +219,14 @@ async def run() -> int:
                 item["http_cookie_names_before"] = cookie_names(session)
                 item["http_cookies_pushed"] = await push_http_cookies_to_browser(session, browser)
 
-                # With an externally launched Chromium nodriver may temporarily have
-                # no cached page target. Creating an explicit fresh target avoids the
-                # Browser.get() StopIteration race on the attached instance.
+                # Creating a fresh target avoids Browser.get() depending on an
+                # initial page target that may not exist on an attached Chrome.
                 tab = await browser.get(episode_url, new_tab=True)
                 await asyncio.sleep(4)
                 item["page_state_before_click"] = page_state(await tab.get_content())
 
-                # Reproduce the user's normal site action only. The challenge widget,
-                # if one appears, is deliberately left untouched.
+                # Reproduce the normal site action only. Any challenge widget is
+                # deliberately left untouched.
                 item["hoster_click"] = await click_normal_hoster(tab)
                 await asyncio.sleep(3)
                 item["browser_url_after_click"] = await current_browser_url(tab)
@@ -245,6 +252,7 @@ async def run() -> int:
             except Exception as exc:
                 item["after_browser"] = f"error:{type(exc).__name__}"
                 item["error"] = str(exc)[:300]
+                item["traceback"] = traceback.format_exc()[-1600:]
 
             item["elapsed_seconds"] = round(time.monotonic() - started, 2)
             results.append(item)
