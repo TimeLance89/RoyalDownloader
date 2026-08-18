@@ -40,6 +40,7 @@ jobs:
         run: python -m pip install -r requirements-dev.lock
 
       - name: Live SerienStream browser-session probe
+        id: serien_probe
         shell: bash
         run: |
           chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
@@ -68,6 +69,38 @@ jobs:
             sleep 1
           done
           ROYAL_PROBE_CDP_PORT=9222 PYTHONPATH=. python tools/live_serienstream_browser_session_probe.py
+
+      - name: Probe observed Turnstile verification UI
+        if: steps.serien_probe.outputs.turnstile_cases != '0'
+        run: echo "turnstile_cases=${{ steps.serien_probe.outputs.turnstile_cases }}"
+
+      - name: Probe observed SerienStream gate root
+        if: steps.serien_probe.outputs.gate_root_cases != '0'
+        run: echo "gate_root_cases=${{ steps.serien_probe.outputs.gate_root_cases }}"
+
+      - name: Probe observed player preparation modal
+        if: steps.serien_probe.outputs.prepare_modal_cases != '0'
+        run: echo "prepare_modal_cases=${{ steps.serien_probe.outputs.prepare_modal_cases }}"
+
+      - name: Probe observed Cloudflare challenge asset
+        if: steps.serien_probe.outputs.challenge_cases != '0'
+        run: echo "challenge_cases=${{ steps.serien_probe.outputs.challenge_cases }}"
+
+      - name: Probe did not observe verification UI
+        if: steps.serien_probe.outputs.turnstile_cases == '0' && steps.serien_probe.outputs.gate_root_cases == '0' && steps.serien_probe.outputs.prepare_modal_cases == '0' && steps.serien_probe.outputs.challenge_cases == '0'
+        run: echo "No known verification UI markers were observed in Chromium."
+
+      - name: Probe reached external embeds for all series
+        if: steps.serien_probe.outputs.external_total == '3'
+        run: echo "External embed reached for all ${{ steps.serien_probe.outputs.external_total }}/3 cases."
+
+      - name: Probe still gated after shared browser session
+        if: steps.serien_probe.outputs.external_total != '3'
+        run: |
+          echo "external_total=${{ steps.serien_probe.outputs.external_total }}"
+          echo "external_after_browser=${{ steps.serien_probe.outputs.external_after_browser }}"
+          echo "gated_after_browser=${{ steps.serien_probe.outputs.gated_after_browser }}"
+          exit 1
 
       - name: Compile Python sources
         run: |
