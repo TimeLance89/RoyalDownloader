@@ -9,7 +9,16 @@ an interactive gate.
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
+
+# Executing this diagnostic file directly sets sys.path[0] to ``tools/`` inside
+# the container. Add the repository root explicitly so the production modules
+# are imported exactly as they are by Royal itself.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from bs4 import BeautifulSoup
 
