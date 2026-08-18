@@ -88,6 +88,26 @@ def page_state(html: str) -> dict[str, bool]:
     }
 
 
+def write_github_outputs(summary: dict) -> None:
+    output_path = os.getenv("GITHUB_OUTPUT")
+    if not output_path:
+        return
+    results = summary.get("results") or []
+    metrics = {
+        "cases": len(results),
+        "external_total": int(summary.get("external_total") or 0),
+        "external_after_browser": int(summary.get("external_after_browser") or 0),
+        "gated_after_browser": sum(r.get("after_browser") == "gate_blocked" for r in results),
+        "turnstile_cases": sum(bool((r.get("page_state") or {}).get("turnstile")) for r in results),
+        "gate_root_cases": sum(bool((r.get("page_state") or {}).get("gate_root")) for r in results),
+        "prepare_modal_cases": sum(bool((r.get("page_state") or {}).get("prepare_modal")) for r in results),
+        "challenge_cases": sum(bool((r.get("page_state") or {}).get("challenge")) for r in results),
+    }
+    with open(output_path, "a", encoding="utf-8") as handle:
+        for key, value in metrics.items():
+            handle.write(f"{key}={value}\n")
+
+
 async def run() -> int:
     import nodriver as uc
     import nodriver_patch
@@ -207,6 +227,7 @@ async def run() -> int:
         ),
         "results": results,
     }
+    write_github_outputs(summary)
     print("BROWSER_PROBE_SUMMARY " + json.dumps(summary, ensure_ascii=False), flush=True)
     return 0
 
