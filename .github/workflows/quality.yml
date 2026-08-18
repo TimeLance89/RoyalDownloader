@@ -54,7 +54,7 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 .
 
       - name: Security baseline
-        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_setup_router.py api_storage_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py media_quality.py network_guard.py queue_jobs.py queue_performance.py runtime_cache.py self_updater.py storage_locations.py storage_manager.py storage_move.py storage_move_runtime.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
+        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_serienstream_verification_router.py api_setup_router.py api_storage_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py media_quality.py network_guard.py queue_jobs.py queue_performance.py runtime_cache.py self_updater.py serienstream_verification.py storage_locations.py storage_manager.py storage_move.py storage_move_runtime.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
@@ -82,6 +82,24 @@ jobs:
             --tag royal-downloader:quality \
             .
 
+      - name: Smoke-test SerienStream browser verifier runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint python royal-downloader:quality -c '
+          import time
+          from serienstream_verification import SERIESSTREAM_VERIFICATION
+          manager = SERIESSTREAM_VERIFICATION
+          with manager._lock:
+              cdp = manager._start_processes_locked()
+              try:
+                  cdp.navigate("data:text/html,<html><body><h1>Royal Browser OK</h1></body></html>")
+                  time.sleep(0.5)
+                  image = cdp.screenshot()
+                  assert image.startswith(b"\x89PNG\r\n\x1a\n"), "Chromium did not return a PNG screenshot"
+              finally:
+                  manager._cleanup_locked()
+          '
+
       - name: Smoke-test fresh and persistent container startup
         shell: bash
         run: |
@@ -103,7 +121,7 @@ jobs:
             if curl --fail --silent http://127.0.0.1:18765/api/health > health.json; then
               break
             fi
-            if [ "${attempt}" -eq 90 ]; then
+            if [ "$attempt" -eq 90 ]; then
               docker logs royal-quality-smoke
               exit 1
             fi
