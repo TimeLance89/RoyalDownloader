@@ -101,9 +101,12 @@
         state.globalSearch.pendingCatalogs = state.globalSearch.pendingCatalogs
           .filter((label) => label !== catalog.label);
         state.globalSearch.results = mergeCatalogGroups(groups);
-        // Sobald mindestens ein Katalog geantwortet hat, zeigen wir dessen
-        // Treffer sofort. Langsamere Kataloge ergänzen dieselbe Ansicht später.
-        state.globalSearch.loading = groups.size === 0
+        // Ein leer beantworteter schneller Katalog ist noch kein endgültiges
+        // "nichts gefunden". Solange weitere Kataloge laufen und noch kein
+        // Treffer vorliegt, bleibt der echte Loading-/Skeleton-Zustand aktiv.
+        // Sobald irgendein Treffer da ist, zeigen wir ihn dagegen sofort und
+        // ergänzen die langsameren Kataloge progressiv im Hintergrund.
+        state.globalSearch.loading = state.globalSearch.results.length === 0
           && state.globalSearch.pendingCatalogs.length > 0;
         renderGlobalSearchResults();
       }
