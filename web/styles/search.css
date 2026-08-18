@@ -182,6 +182,11 @@ body.global-search-open { overflow: hidden; }
   text-align: center;
 }
 
+/* Während die asynchrone Suche noch läuft, sind leere Resultate nur ein
+   Zwischenzustand. Die Skeletons und der Status "Suche nach …" bleiben
+   sichtbar; der echte Empty-State darf erst nach Abschluss erscheinen. */
+.global-search-page.is-loading .global-search-empty { display: none; }
+
 .global-search-empty strong { color: #fff; font-size: 22px; }
 .global-search-empty span { font-size: 13px; }
 
