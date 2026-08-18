@@ -41,7 +41,7 @@ jobs:
 
       - name: Live SerienStream redirect probe
         if: github.head_ref == 'agent/live-serienstream-redirect-probe'
-        run: python tools/live_serienstream_redirect_probe.py
+        run: PYTHONPATH=. python tools/live_serienstream_redirect_probe.py
 
       - name: Compile Python sources
         run: |
