@@ -5,12 +5,14 @@ ARG APP_UID=1000
 ARG APP_GID=1000
 
 # System dependencies:
-#  - chromium:         real, sandboxed browser for CDP-assisted extraction.
+#  - chromium:         real browser for CDP-assisted extraction and verification.
+#  - xvfb:             private virtual display for the user-driven browser view.
 #  - ffmpeg:           required by yt-dlp for HLS/M3U8 streams.
 #  - ca-certificates:  root certificates used by curl_cffi and HTTPS.
-#  - fonts-liberation: fonts for consistent headless Chromium rendering.
+#  - fonts-liberation: fonts for consistent Chromium rendering.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
+        xvfb \
         ffmpeg \
         ca-certificates \
         fonts-liberation \
@@ -44,11 +46,11 @@ COPY --from=source --chown=royal:royal /opt/seriendownloader /opt/seriendownload
 RUN python -c "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()" || true
 
 # Container runtime:
-#  - SERIENDL_DATA_DIR: persistent settings, cookies, subscriptions, and queue state.
+#  - SERIENDL_DATA_DIR: persistent settings, cookies, browser profile, subscriptions, and queue state.
 #  - DOWNLOAD_DIR:      completed movie destination mounted from the NAS.
 #  - HOST/PORT:         expose the service on the container network.
-#  - OPEN_BROWSER=0:    never open a desktop browser inside the container.
-#  - CHROME_PATH:       explicit Chromium binary for the browser pool.
+#  - OPEN_BROWSER=0:    never open a host desktop browser inside the container.
+#  - CHROME_PATH:       explicit Chromium binary for the browser pool/verifier.
 ENV SERIENDL_DATA_DIR=/app/data \
     APP_RUNTIME_DIR=/runtime \
     DOWNLOAD_DIR=/movies \
