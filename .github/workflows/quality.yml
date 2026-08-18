@@ -116,10 +116,20 @@ jobs:
         if: github.head_ref == 'agent/live-serienstream-shared-session-probe'
         shell: bash
         run: |
+          mkdir -p "${RUNNER_TEMP}/live-probe"
+          set -o pipefail
           docker run --rm \
             --entrypoint python \
             royal-downloader:quality \
-            tools/live_serienstream_shared_session_probe.py
+            tools/live_serienstream_shared_session_probe.py \
+            | tee "${RUNNER_TEMP}/live-probe/live-probe.log"
+
+      - name: Upload live SerienStream probe evidence
+        if: always() && github.head_ref == 'agent/live-serienstream-shared-session-probe'
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-serienstream-shared-session-probe
+          path: ${{ runner.temp }}/live-probe/live-probe.log
 
       - name: Smoke-test fresh and persistent container startup
         shell: bash
