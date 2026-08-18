@@ -39,6 +39,10 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.lock
 
+      - name: Live SerienStream redirect probe
+        if: github.head_ref == 'agent/live-serienstream-redirect-probe'
+        run: python tools/live_serienstream_redirect_probe.py
+
       - name: Compile Python sources
         run: |
           python -m py_compile *.py
