@@ -111,7 +111,7 @@ async def run() -> int:
     browser = await uc.start(
         headless=True,
         lang="de-DE",
-        no_sandbox=True,
+        sandbox=False,
         browser_args=browser_args,
     )
     results = []
