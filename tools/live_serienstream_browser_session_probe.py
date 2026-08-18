@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from urllib.parse import urljoin, urlsplit
 
@@ -98,22 +99,26 @@ async def run() -> int:
     )
     session.clear_cookies()
 
-    browser_args = [
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-client-side-phishing-detection",
-    ]
-    proxy = safe_proxy_url()
-    if proxy:
-        browser_args.append(f"--proxy-server={proxy}")
+    cdp_port = int(os.getenv("ROYAL_PROBE_CDP_PORT", "0") or 0)
+    if cdp_port:
+        browser = await uc.start(host="127.0.0.1", port=cdp_port)
+    else:
+        browser_args = [
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-client-side-phishing-detection",
+        ]
+        proxy = safe_proxy_url()
+        if proxy:
+            browser_args.append(f"--proxy-server={proxy}")
+        browser = await uc.start(
+            headless=True,
+            lang="de-DE",
+            sandbox=False,
+            browser_args=browser_args,
+        )
 
-    browser = await uc.start(
-        headless=True,
-        lang="de-DE",
-        sandbox=False,
-        browser_args=browser_args,
-    )
     results = []
     try:
         for index, (name, episode_url) in enumerate(CASES, 1):
@@ -157,8 +162,7 @@ async def run() -> int:
                     continue
 
                 item["http_cookie_names_before"] = cookie_names(session)
-                pushed = await push_http_cookies_to_browser(session, browser)
-                item["http_cookies_pushed"] = pushed
+                item["http_cookies_pushed"] = await push_http_cookies_to_browser(session, browser)
 
                 tab = await browser.get(episode_url)
                 await asyncio.sleep(4)
