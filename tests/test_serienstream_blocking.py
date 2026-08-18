@@ -41,6 +41,102 @@ def test_http_429_redirect_does_not_start_browser(monkeypatch):
     assert manager.get_redirect_location("https://serienstream.to/r?t=x") == GATE_BLOCKED
 
 
+def test_serienstream_redirect_follows_chain_to_external_embed(monkeypatch):
+    manager = SessionManager.__new__(SessionManager)
+    manager.TARGET_DOMAIN = "serienstream.to"
+    manager._human_delay = lambda: None
+    manager._browser_headers = lambda *_args: {}
+    observed = {}
+
+    def get(_url, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(
+            url="https://voe.sx/e/example",
+            request=SimpleNamespace(url="https://voe.sx/e/example"),
+            headers={},
+            text="<html>embed</html>",
+            status_code=200,
+        )
+
+    manager._curl = SimpleNamespace(get=get)
+    monkeypatch.setattr(
+        manager, "_nodriver_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser started")),
+    )
+
+    assert manager.get_redirect_location(
+        "https://serienstream.to/r?t=x",
+        referer="https://serienstream.to/serie/test/staffel-1/episode-1",
+    ) == "https://voe.sx/e/example"
+    assert observed["allow_redirects"] is True
+
+
+def test_serienstream_redirect_keeps_gate_when_chain_stays_on_provider(monkeypatch):
+    manager = SessionManager.__new__(SessionManager)
+    manager.TARGET_DOMAIN = "serienstream.to"
+    manager._human_delay = lambda: None
+    manager._browser_headers = lambda *_args: {}
+    manager._curl = SimpleNamespace(get=lambda *_args, **_kwargs: SimpleNamespace(
+        url="https://serienstream.to/redirect-gate",
+        request=SimpleNamespace(url="https://serienstream.to/redirect-gate"),
+        headers={},
+        text="<html><div id='frameBridge'>turnstile</div></html>",
+        status_code=200,
+    ))
+    monkeypatch.setattr(
+        manager, "_nodriver_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser started")),
+    )
+
+    assert manager.get_redirect_location("https://serienstream.to/r?t=x") == GATE_BLOCKED
+
+
+def test_serienstream_redirect_accepts_external_js_fallback(monkeypatch):
+    manager = SessionManager.__new__(SessionManager)
+    manager.TARGET_DOMAIN = "serienstream.to"
+    manager._human_delay = lambda: None
+    manager._browser_headers = lambda *_args: {}
+    manager._curl = SimpleNamespace(get=lambda *_args, **_kwargs: SimpleNamespace(
+        url="https://serienstream.to/r?t=x",
+        request=SimpleNamespace(url="https://serienstream.to/r?t=x"),
+        headers={},
+        text='<script>window.location.href = "https://dood.example/e/abc"</script>',
+        status_code=200,
+    ))
+    monkeypatch.setattr(
+        manager, "_nodriver_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser started")),
+    )
+
+    assert manager.get_redirect_location("https://serienstream.to/r?t=x") == "https://dood.example/e/abc"
+
+
+def test_other_provider_redirect_probe_stays_non_following(monkeypatch):
+    manager = SessionManager.__new__(SessionManager)
+    manager.TARGET_DOMAIN = "filmpalast.to"
+    manager._human_delay = lambda: None
+    manager._browser_headers = lambda *_args: {}
+    manager._log = lambda *_args: None
+    observed = {}
+
+    def get(_url, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(
+            headers={"Location": "https://example.org/embed"},
+            text="",
+            status_code=302,
+        )
+
+    manager._curl = SimpleNamespace(get=get)
+    monkeypatch.setattr(
+        manager, "_nodriver_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser started")),
+    )
+
+    assert manager.get_redirect_location("https://filmpalast.to/r?t=x") == "https://example.org/embed"
+    assert observed["allow_redirects"] is False
+
+
 def test_blocked_episode_page_does_not_start_browser(monkeypatch):
     manager = SessionManager.__new__(SessionManager)
     manager.TARGET_DOMAIN = "serienstream.to"

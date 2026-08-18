@@ -25,6 +25,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
 
 from runtime_paths import data_dir
 from network_guard import safe_proxy_url
@@ -188,15 +189,69 @@ class SessionManager:
         return html
 
     def get_redirect_location(self, url: str, referer: Optional[str] = None) -> Optional[str]:
-        """Löst eine Weiterleitungs-URL (z.B. serienstream /r?t=<token>) zur
-        Ziel-URL auf, OHNE ihr komplett zu folgen. Reihenfolge:
-          1. curl_cffi GET (allow_redirects=False) -> Location-Header.
-          2. Meta-Refresh/JS-Redirect im Body.
-          3. Bei Captcha/Block: Browser-Fallback holt CF-/Session-Cookies auf
-             der Startseite, danach Wiederholung von Schritt 1/2.
+        """Löst eine Weiterleitungs-URL zur finalen externen Ziel-URL auf.
+
+        Für serienstream.to folgt Royal der normalen HTTP-Redirect-Kette wie ein
+        Browser/OkHttp-Client und übernimmt ausschließlich eine finale externe
+        HTTP(S)-URL. Schutz-/Rate-Limit-Seiten werden weiterhin erkannt und
+        führen unverändert zum Provider-Cooldown; es gibt keinen Browser-Retry.
+
+        Für andere Provider bleibt der bisherige konservative Location-/HTML-
+        Fallback inklusive Browser-Recovery unverändert.
         """
         self._human_delay()
         ref = referer or f"https://{self.TARGET_DOMAIN}/"
+
+        def _external_http_target(candidate: str) -> Optional[str]:
+            candidate = str(candidate or "").strip()
+            if not candidate:
+                return None
+            try:
+                parsed = urlparse(candidate)
+            except ValueError:
+                return None
+            if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+                return None
+            host = parsed.hostname.casefold().rstrip(".")
+            provider_host = self.TARGET_DOMAIN.casefold().rstrip(".")
+            if host == provider_host or host.endswith("." + provider_host):
+                return None
+            return candidate
+
+        if self.TARGET_DOMAIN == "serienstream.to":
+            try:
+                resp = self._curl.get(
+                    url,
+                    headers=self._browser_headers(url, ref),
+                    timeout=25,
+                    allow_redirects=True,
+                    proxies={"http": safe_proxy_url(), "https": safe_proxy_url()},
+                )
+            except Exception as exc:
+                logger.debug("Redirect-Kette Fehler: %s", exc)
+                return None
+
+            body = str(getattr(resp, "text", "") or "")
+            status = int(getattr(resp, "status_code", 0) or 0)
+            final_url = str(
+                getattr(resp, "url", "")
+                or getattr(getattr(resp, "request", None), "url", "")
+                or ""
+            )
+            external = _external_http_target(final_url)
+            if external:
+                return external
+
+            # Manche Redirect-Bridges antworten HTTP 200 und navigieren per
+            # Meta-/JS-Redirect. Diesen normalen Weiterleitungstyp weiterhin
+            # akzeptieren, aber ebenfalls nur wenn das Ziel extern ist.
+            external = _external_http_target(_extract_redirect_target(body) or "")
+            if external:
+                return external
+
+            if _looks_gated(body) or _looks_blocked(body, status):
+                return GATE_BLOCKED
+            return None
 
         def _probe() -> tuple[Optional[str], str, int]:
             try:
@@ -219,16 +274,11 @@ class SessionManager:
         target = _extract_redirect_target(body)
         if target:
             return target
-        # Anti-Scraping-Gate mit Captcha (frameBridge/Turnstile)? -> Signal,
-        # damit der Aufrufer sofort aufhört zu hämmern (kein Cookie-Retry hilft).
         if _looks_gated(body):
             return GATE_BLOCKED
 
         if _looks_blocked(body, status):
-            if self.TARGET_DOMAIN == "serienstream.to":
-                return GATE_BLOCKED
             self._log(f"Captcha/Block bei Redirect (Status {status}) → Browser holt Clearance …")
-            # Challenge auf der Startseite lösen -> gültige Cookies -> retry.
             self._nodriver_get(f"https://{self.TARGET_DOMAIN}/")
             loc, body, status = _probe()
             if loc and loc.startswith("http"):
