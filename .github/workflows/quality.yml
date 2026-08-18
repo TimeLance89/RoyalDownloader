@@ -112,6 +112,15 @@ jobs:
               runtime.close()
           '
 
+      - name: Live SerienStream shared-session probe
+        if: github.head_ref == 'agent/live-serienstream-shared-session-probe'
+        shell: bash
+        run: |
+          docker run --rm \
+            --entrypoint python \
+            royal-downloader:quality \
+            tools/live_serienstream_shared_session_probe.py
+
       - name: Smoke-test fresh and persistent container startup
         shell: bash
         run: |
