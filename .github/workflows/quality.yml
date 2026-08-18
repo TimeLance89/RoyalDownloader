@@ -54,7 +54,7 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 .
 
       - name: Security baseline
-        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_serienstream_verification_router.py api_setup_router.py api_storage_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py media_quality.py network_guard.py queue_jobs.py queue_performance.py runtime_cache.py self_updater.py serienstream_verification.py storage_locations.py storage_manager.py storage_move.py storage_move_runtime.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
+        run: bandit -q -ll -r application_services api_administration_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_serienstream_verification_router.py api_setup_router.py api_storage_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py media_quality.py network_guard.py queue_jobs.py queue_performance.py runtime_cache.py self_updater.py serienstream_session_identity.py serienstream_shared_session.py serienstream_verification.py session_manager.py storage_locations.py storage_manager.py storage_move.py storage_move_runtime.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
@@ -64,7 +64,7 @@ jobs:
 
       - name: Run tests with critical-module coverage
         run: |
-          coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,queue_jobs,queue_performance,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q
+          coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,queue_jobs,queue_performance,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater,serienstream_shared_session,session_manager -m pytest -q
           # Ratchet the current broad repository baseline instead of pretending
           # the legacy/provider-heavy service graph already has 85% coverage.
           coverage report --skip-covered --fail-under=45
@@ -73,6 +73,7 @@ jobs:
           coverage report \
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
+          coverage report --include='serienstream_shared_session.py' --fail-under=70
           coverage xml -o coverage.xml
 
       - name: Build container image
@@ -82,22 +83,33 @@ jobs:
             --tag royal-downloader:quality \
             .
 
-      - name: Smoke-test SerienStream browser verifier runtime
+      - name: Smoke-test SerienStream browser runtimes
         shell: bash
         run: |
           docker run --rm --entrypoint python royal-downloader:quality -c '
           import time
           from serienstream_verification import SERIESSTREAM_VERIFICATION
+          from serienstream_shared_session import _BrowserRuntime
+
           manager = SERIESSTREAM_VERIFICATION
           with manager._lock:
               cdp = manager._start_processes_locked()
               try:
-                  cdp.navigate("data:text/html,<html><body><h1>Royal Browser OK</h1></body></html>")
+                  cdp.navigate("data:text/html,<html><body><h1>Royal Verifier OK</h1></body></html>")
                   time.sleep(0.5)
                   image = cdp.screenshot()
-                  assert image.startswith(b"\x89PNG\r\n\x1a\n"), "Chromium did not return a PNG screenshot"
+                  assert image.startswith(b"\x89PNG\r\n\x1a\n"), "Verifier Chromium did not return PNG"
               finally:
                   manager._cleanup_locked()
+
+          runtime = _BrowserRuntime()
+          try:
+              cdp = runtime.start()
+              cdp.navigate("data:text/html,<html><body><h1>Royal Shared Session OK</h1></body></html>")
+              time.sleep(0.5)
+              assert "Royal Shared Session OK" in cdp.html(), "Shared-session Chromium did not render"
+          finally:
+              runtime.close()
           '
 
       - name: Smoke-test fresh and persistent container startup
