@@ -7,7 +7,14 @@ public contract unchanged and makes later source extraction mechanical.
 
 from fastapi import APIRouter, FastAPI
 
+from api_serienstream_verification_router import router as serienstream_verification_router
 from api_storage_router import router as storage_router
+
+# Administration already owns the storage router. Attach supplemental admin
+# surfaces before the legacy composition root migrates routes into this owner.
+for route in serienstream_verification_router.routes:
+    if route not in storage_router.routes:
+        storage_router.routes.append(route)
 
 DOMAIN_ROUTERS = {
     "discovery": APIRouter(tags=["discovery"]),
