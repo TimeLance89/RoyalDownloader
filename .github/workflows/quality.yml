@@ -39,6 +39,11 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.lock
 
+      - name: Live SerienStream browser-session probe
+        run: |
+          command -v google-chrome || command -v chromium || command -v chromium-browser || true
+          PYTHONPATH=. python tools/live_serienstream_browser_session_probe.py
+
       - name: Compile Python sources
         run: |
           python -m py_compile *.py
