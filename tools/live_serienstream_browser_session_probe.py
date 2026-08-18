@@ -28,7 +28,7 @@ def is_external(value: str | None) -> bool:
 
 def cookie_names(session: SessionManager) -> list[str]:
     names = set()
-    for cookie in session._curl.cookies.jar:  # diagnostic only: preserve path/domain data
+    for cookie in session._curl.cookies.jar:  # diagnostic only
         domain = str(getattr(cookie, "domain", "") or "").casefold()
         if "serienstream.to" in domain or not domain:
             names.add(str(cookie.name))
@@ -88,6 +88,28 @@ def page_state(html: str) -> dict[str, bool]:
     }
 
 
+async def click_normal_hoster(tab) -> str:
+    """Click only the site's own first hoster button; never touch challenge UI."""
+    result = await tab.evaluate(
+        """
+        (() => {
+          const button = document.querySelector('[data-play-url]');
+          if (!button) return 'missing';
+          button.scrollIntoView({block: 'center', inline: 'center'});
+          button.click();
+          return 'clicked';
+        })()
+        """,
+        return_by_value=True,
+    )
+    return str(result or "unknown")
+
+
+async def current_browser_url(tab) -> str:
+    result = await tab.evaluate("window.location.href", return_by_value=True)
+    return str(result or "")
+
+
 def write_github_outputs(summary: dict) -> None:
     output_path = os.getenv("GITHUB_OUTPUT")
     if not output_path:
@@ -98,10 +120,12 @@ def write_github_outputs(summary: dict) -> None:
         "external_total": int(summary.get("external_total") or 0),
         "external_after_browser": int(summary.get("external_after_browser") or 0),
         "gated_after_browser": sum(r.get("after_browser") == "gate_blocked" for r in results),
-        "turnstile_cases": sum(bool((r.get("page_state") or {}).get("turnstile")) for r in results),
-        "gate_root_cases": sum(bool((r.get("page_state") or {}).get("gate_root")) for r in results),
-        "prepare_modal_cases": sum(bool((r.get("page_state") or {}).get("prepare_modal")) for r in results),
-        "challenge_cases": sum(bool((r.get("page_state") or {}).get("challenge")) for r in results),
+        "turnstile_cases": sum(bool((r.get("page_state_after_click") or {}).get("turnstile")) for r in results),
+        "gate_root_cases": sum(bool((r.get("page_state_after_click") or {}).get("gate_root")) for r in results),
+        "prepare_modal_cases": sum(bool((r.get("page_state_after_click") or {}).get("prepare_modal")) for r in results),
+        "challenge_cases": sum(bool((r.get("page_state_after_click") or {}).get("challenge")) for r in results),
+        "click_cases": sum(r.get("hoster_click") == "clicked" for r in results),
+        "clearance_cases": sum("cf_clearance" in (r.get("browser_cookie_names") or []) for r in results),
     }
     with open(output_path, "a", encoding="utf-8") as handle:
         for key, value in metrics.items():
@@ -152,7 +176,10 @@ async def run() -> int:
                 "final_host": "",
                 "http_cookie_names_before": [],
                 "browser_cookie_names": [],
-                "page_state": {},
+                "page_state_before_click": {},
+                "page_state_after_click": {},
+                "hoster_click": "not_attempted",
+                "browser_url_after_click": "",
             }
             try:
                 html = session.get(episode_url)
@@ -186,12 +213,16 @@ async def run() -> int:
 
                 tab = await browser.get(episode_url)
                 await asyncio.sleep(4)
-                browser_html = await tab.get_content()
-                item["page_state"] = page_state(browser_html)
+                item["page_state_before_click"] = page_state(await tab.get_content())
 
-                # Use the site's normal browser verification flow. We never synthesize
-                # or inject a challenge response; we only preserve the same session.
-                for delay_seconds in (8, 12, 20):
+                # Reproduce the user's normal site action only. The challenge widget,
+                # if one appears, is deliberately left untouched.
+                item["hoster_click"] = await click_normal_hoster(tab)
+                await asyncio.sleep(3)
+                item["browser_url_after_click"] = await current_browser_url(tab)
+                item["page_state_after_click"] = page_state(await tab.get_content())
+
+                for delay_seconds in (5, 10, 15):
                     await asyncio.sleep(delay_seconds)
                     pulled = await pull_browser_cookies_to_http(session, browser)
                     item["browser_cookie_names"] = pulled
