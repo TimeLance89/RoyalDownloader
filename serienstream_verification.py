@@ -9,6 +9,7 @@ SerienStream cookies only after the site has accepted the normal interaction.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
@@ -17,7 +18,6 @@ import socket
 import subprocess
 import threading
 import time
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -67,12 +67,18 @@ def _free_local_port() -> int:
 
 
 def _json_endpoint(port: int, path: str, *, method: str = "GET") -> Any:
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}",
-        method=method,
-    )
-    with urllib.request.urlopen(request, timeout=3) as response:
-        return json.load(response)
+    """Read Chromium DevTools JSON from the fixed loopback listener only."""
+    if not str(path).startswith("/json/"):
+        raise ValueError("Only Chromium DevTools JSON endpoints are allowed.")
+    connection = http.client.HTTPConnection("127.0.0.1", int(port), timeout=3)
+    try:
+        connection.request(method, path)
+        response = connection.getresponse()
+        if response.status != 200:
+            raise RuntimeError(f"Chromium DevTools returned HTTP {response.status}")
+        return json.loads(response.read().decode("utf-8"))
+    finally:
+        connection.close()
 
 
 class _Cdp:
@@ -290,7 +296,7 @@ class SerienStreamVerificationManager:
             "--disable-client-side-phishing-detection",
             "--no-first-run",
             "--no-default-browser-check",
-            f"--remote-debugging-address=127.0.0.1",
+            "--remote-debugging-address=127.0.0.1",
             f"--remote-debugging-port={self._port}",
             f"--user-data-dir={self.profile_dir}",
             f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}",
