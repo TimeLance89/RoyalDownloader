@@ -40,9 +40,34 @@ jobs:
         run: python -m pip install -r requirements-dev.lock
 
       - name: Live SerienStream browser-session probe
+        shell: bash
         run: |
-          command -v google-chrome || command -v chromium || command -v chromium-browser || true
-          PYTHONPATH=. python tools/live_serienstream_browser_session_probe.py
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$chrome"
+          rm -rf /tmp/royal-probe-chrome
+          "$chrome" \
+            --headless=new \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --disable-gpu \
+            --remote-debugging-address=127.0.0.1 \
+            --remote-debugging-port=9222 \
+            --user-data-dir=/tmp/royal-probe-chrome \
+            about:blank >/tmp/royal-probe-chrome.log 2>&1 &
+          chrome_pid=$!
+          cleanup_probe_chrome() { kill "$chrome_pid" >/dev/null 2>&1 || true; }
+          trap cleanup_probe_chrome EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:9222/json/version >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              cat /tmp/royal-probe-chrome.log
+              exit 1
+            fi
+            sleep 1
+          done
+          ROYAL_PROBE_CDP_PORT=9222 PYTHONPATH=. python tools/live_serienstream_browser_session_probe.py
 
       - name: Compile Python sources
         run: |
