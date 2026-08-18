@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
@@ -10,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from serienstream_verification import (
     DEFAULT_EPISODE_URL,
     SERIESSTREAM_VERIFICATION,
+    SESSION_TTL_SECONDS,
 )
 
 router = APIRouter(tags=["administration", "serienstream"])
@@ -34,6 +37,24 @@ def _translate_error(exc: Exception) -> HTTPException:
     return HTTPException(409, str(exc))
 
 
+def _schedule_expiration(started_at: float) -> None:
+    """Close an abandoned browser without ever closing a newer replacement."""
+    if not started_at:
+        return
+
+    def expire() -> None:
+        status = SERIESSTREAM_VERIFICATION.status()
+        if (
+            status.get("active")
+            and float(status.get("started_at") or 0) == float(started_at)
+        ):
+            SERIESSTREAM_VERIFICATION.close()
+
+    timer = threading.Timer(SESSION_TTL_SECONDS + 2, expire)
+    timer.daemon = True
+    timer.start()
+
+
 @router.get("/api/v1/providers/serienstream/verification")
 @router.get("/api/providers/serienstream/verification")
 async def verification_status():
@@ -44,7 +65,12 @@ async def verification_status():
 @router.post("/api/providers/serienstream/verification/start")
 async def verification_start(body: VerificationStartBody):
     try:
-        return await run_in_threadpool(SERIESSTREAM_VERIFICATION.start, body.episode_url)
+        result = await run_in_threadpool(
+            SERIESSTREAM_VERIFICATION.start,
+            body.episode_url,
+        )
+        _schedule_expiration(float(result.get("started_at") or 0))
+        return result
     except Exception as exc:
         raise _translate_error(exc) from exc
 
