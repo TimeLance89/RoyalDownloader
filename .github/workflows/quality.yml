@@ -45,25 +45,37 @@ jobs:
         run: |
           chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           test -n "$chrome"
+          xvfb="$(command -v Xvfb || true)"
+          if [ -z "$xvfb" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq xvfb
+            xvfb="$(command -v Xvfb)"
+          fi
           rm -rf /tmp/royal-probe-chrome
+          "$xvfb" :99 -screen 0 1920x1080x24 >/tmp/royal-probe-xvfb.log 2>&1 &
+          xvfb_pid=$!
+          export DISPLAY=:99
           "$chrome" \
-            --headless=new \
             --no-sandbox \
             --disable-dev-shm-usage \
-            --disable-gpu \
             --remote-debugging-address=127.0.0.1 \
             --remote-debugging-port=9222 \
             --user-data-dir=/tmp/royal-probe-chrome \
+            --window-size=1280,900 \
             about:blank >/tmp/royal-probe-chrome.log 2>&1 &
           chrome_pid=$!
-          cleanup_probe_chrome() { kill "$chrome_pid" >/dev/null 2>&1 || true; }
-          trap cleanup_probe_chrome EXIT
+          cleanup_probe_browser() {
+            kill "$chrome_pid" >/dev/null 2>&1 || true
+            kill "$xvfb_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup_probe_browser EXIT
           for attempt in $(seq 1 20); do
             if curl --fail --silent http://127.0.0.1:9222/json/version >/dev/null; then
               break
             fi
             if [ "$attempt" -eq 20 ]; then
-              cat /tmp/royal-probe-chrome.log
+              cat /tmp/royal-probe-xvfb.log || true
+              cat /tmp/royal-probe-chrome.log || true
               exit 1
             fi
             sleep 1
@@ -128,11 +140,7 @@ jobs:
       - name: Run tests with critical-module coverage
         run: |
           coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,queue_jobs,queue_performance,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q
-          # Ratchet the current broad repository baseline instead of pretending
-          # the legacy/provider-heavy service graph already has 85% coverage.
           coverage report --skip-covered --fail-under=45
-          # New hardening code must stay substantially better covered than the
-          # broad legacy baseline so future changes cannot silently dilute it.
           coverage report \
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
