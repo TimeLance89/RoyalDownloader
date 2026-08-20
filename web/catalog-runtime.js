@@ -264,17 +264,3 @@ function refreshSeriesCatalogInBackground() {
     .catch((error) => console.warn("Serienkatalog konnte nicht im Hintergrund aktualisiert werden:", error))
     .finally(() => { seriesCatalogRefreshPromise = null; });
 }
-
-function loadRoyalHomeShowcaseV3() {
-  if (document.querySelector('script[data-royal-home-showcase-v3]')) return;
-  const script = document.createElement("script");
-  script.src = "/home_showcase_v3.js?v=royal-20260820-1";
-  script.async = false;
-  script.dataset.royalHomeShowcaseV3 = "true";
-  script.addEventListener("error", () => {
-    console.warn("Royal Home Showcase konnte nicht geladen werden.");
-  }, { once: true });
-  document.head.appendChild(script);
-}
-
-loadRoyalHomeShowcaseV3();
