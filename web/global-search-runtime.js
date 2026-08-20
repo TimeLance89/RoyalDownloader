@@ -188,3 +188,17 @@
     return baseCloseGlobalSearch(options);
   };
 })();
+
+function loadRoyalSmartAutomationPolicy() {
+  if (document.querySelector('script[data-royal-smart-automation]')) return;
+  const script = document.createElement("script");
+  script.src = "/automation-policy.js?v=royal-20260820-1";
+  script.async = false;
+  script.setAttribute("data-royal-smart-automation", "true");
+  script.addEventListener("error", () => {
+    console.warn("Royal Smart Automation konnte nicht geladen werden.");
+  }, { once: true });
+  document.body.appendChild(script);
+}
+
+window.setTimeout(loadRoyalSmartAutomationPolicy, 0);
