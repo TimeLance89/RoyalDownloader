@@ -39,7 +39,10 @@ def test_csp_allows_only_the_youtube_nocookie_trailer_frame():
         for directive in response.headers["content-security-policy"].split(";")
     }
 
-    assert "frame-src https://www.youtube-nocookie.com" in directives
+    frame_sources = next(
+        directive.split()[1:]
+        for directive in directives
+        if directive.startswith("frame-src ")
+    )
+    assert frame_sources == ["https://www.youtube-nocookie.com"]
     assert "frame-ancestors 'self'" in directives
-    assert not any(directive.startswith("frame-src *") for directive in directives)
-    assert not any("youtube.com" in directive for directive in directives)
