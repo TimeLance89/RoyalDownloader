@@ -868,21 +868,12 @@ async function toggleFpPick(slug) {
       return;
     }
     setFpDownloadFeedback(slug);
+    const movie = await prepareFpMovieDownload(slug);
+    if (!movie) return;
     const resp = await api.queueAdd([slug]);
     refreshQueueUiAfterChange(resp);
     if (applyFpQueueAddResponse(slug, resp)) {
-      const item = state.fp.moviesCache[slug]
-        || state.fp.metadataCache[slug]
-        || state.fp.results.find((movie) => movie.slug === slug)
-        || homeMovieBySlug(slug);
-      trackDiscoveryPreference("movie", { ...item, slug }, 5, "download");
-    }
-    if (!state.fp.moviesCache[slug]) {
-      void api.movie(slug).then((movie) => {
-        state.fp.moviesCache[slug] = movie;
-        updateFpResultCard(slug);
-        if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
-      }).catch(() => { /* server logs */ });
+      trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
     }
   } catch (error) {
     const reason = error?.message || "Unbekannter Fehler";
