@@ -114,7 +114,7 @@ def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():
     assert "uses: ./.github/workflows/quality.yml" in release
     assert "needs: quality" in release
     assert "Build container image" in quality
-    assert "Smoke-test fresh and persistent container startup" in quality
+    assert "Smoke-test fail-closed read-only container startup" in quality
     assert 'if [[ "${RELEASE_TAG}" == *-* ]]; then' in release
     assert "release_flags+=(--prerelease)" in release
     assert release.count("--prerelease") == 1
