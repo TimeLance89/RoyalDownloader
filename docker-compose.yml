@@ -125,7 +125,7 @@ services:
     shm_size: "1gb"
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777
-      - /home/royal:rw,nosuid,nodev,size=256m,mode=0700
+      - /home/royal:rw,nosuid,nodev,size=256m,mode=0700,uid=${PUID:-1000},gid=${PGID:-1000}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=5)"]
       interval: 30s
@@ -160,8 +160,8 @@ services:
     shm_size: "1gb"
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777
-      - /home/royal:rw,nosuid,nodev,size=128m,mode=0700
-      - /browser-profile:rw,nosuid,nodev,size=512m,mode=0700
+      - /home/royal:rw,nosuid,nodev,size=128m,mode=0700,uid=${PUID:-1000},gid=${PGID:-1000}
+      - /browser-profile:rw,nosuid,nodev,size=512m,mode=0700,uid=${PUID:-1000},gid=${PGID:-1000}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-

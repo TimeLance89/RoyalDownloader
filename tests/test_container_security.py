@@ -21,6 +21,19 @@ def test_image_and_compose_run_unprivileged_with_reduced_privileges():
     assert "APP_GID: ${PGID:-1000}" in compose
 
 
+def test_private_tmpfs_mounts_belong_to_the_unprivileged_runtime_user():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+
+    for mount in (
+        "/home/royal:rw,nosuid,nodev,size=256m,mode=0700",
+        "/home/royal:rw,nosuid,nodev,size=128m,mode=0700",
+        "/browser-profile:rw,nosuid,nodev,size=512m,mode=0700",
+    ):
+        assert f"{mount},uid=${{PUID:-1000}},gid=${{PGID:-1000}}" in compose
+        assert f"{mount},uid=1000,gid=1000" in workflow
+
+
 @requires_posix
 def test_smoke_check_writes_only_required_mounts(monkeypatch, tmp_path):
     for name in ("runtime", "data", "movies", "series"):

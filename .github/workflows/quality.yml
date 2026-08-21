@@ -125,8 +125,8 @@ jobs:
             --cap-drop ALL \
             --shm-size 1g \
             --tmpfs /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777 \
-            --tmpfs /home/royal:rw,nosuid,nodev,size=128m,mode=0700 \
-            --tmpfs /browser-profile:rw,nosuid,nodev,size=512m,mode=0700 \
+            --tmpfs /home/royal:rw,nosuid,nodev,size=128m,mode=0700,uid=1000,gid=1000 \
+            --tmpfs /browser-profile:rw,nosuid,nodev,size=512m,mode=0700,uid=1000,gid=1000 \
             --entrypoint /bin/sh \
             royal-downloader:quality -c '
               Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
@@ -198,7 +198,7 @@ jobs:
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
             --tmpfs /tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777 \
-            --tmpfs /home/royal:rw,nosuid,nodev,size=256m,mode=0700 \
+            --tmpfs /home/royal:rw,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000 \
             --volume "${smoke_root}/runtime:/runtime" \
             --volume "${smoke_root}/data:/app/data" \
             --volume "${smoke_root}/movies:/movies" \
