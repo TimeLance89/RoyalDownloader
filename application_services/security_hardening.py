@@ -1,5 +1,6 @@
 """Install security guards that require the completed application graph."""
 
+from functools import wraps
 from urllib.parse import urlparse
 
 from application_services.runtime import _registered_backend
@@ -10,6 +11,7 @@ backend = _registered_backend()
 _original_get_jellyfin_client = backend.get_jellyfin_client
 
 
+@wraps(_original_get_jellyfin_client)
 def secure_get_jellyfin_client():
     """Only allow the explicit HTTP(S) schemes required by Jellyfin."""
     client = _original_get_jellyfin_client()
