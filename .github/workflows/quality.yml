@@ -59,7 +59,9 @@ jobs:
         run: python scripts/security_scan.py
 
       - name: Security baseline
-        run: bandit -q -ll -r . -x ./tests
+        # B310 is covered more strictly by security_scan.py: every urlopen call
+        # is inventoried and its endpoint/scheme boundary is asserted there.
+        run: bandit -q -ll -r . -x ./tests -s B310
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
