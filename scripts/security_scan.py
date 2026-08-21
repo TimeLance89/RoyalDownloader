@@ -27,7 +27,18 @@ SECRET_PATTERNS = {
 ACTION_SHA_RE = re.compile(r"^\s*uses:\s*([^#\s]+)(?:\s*#.*)?$", re.MULTILINE)
 INLINE_SCRIPT_RE = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>", re.IGNORECASE)
 SHELL_TRUE_RE = re.compile(r"\bshell\s*=\s*" + "True" + r"\b")
+URLOPEN_RE = re.compile(r"\burllib\.request\.urlopen\s*\(")
 SANDBOX_BYPASS = "--no-" + "sandbox"
+
+# Bandit's B310 is deliberately too broad for these stdlib clients. Keep an
+# exact inventory here so skipping that generic rule never permits a new call
+# site silently. Each client has a separate endpoint/scheme invariant below.
+EXPECTED_URLOPEN_CALLS = {
+    "jellyfin_client.py": 4,
+    "telegram_bot.py": 2,
+    "tmdb_client.py": 1,
+    "smart_automation.py": 1,
+}
 
 
 def tracked_files() -> list[Path]:
@@ -92,6 +103,33 @@ def scan() -> list[str]:
                     )
         if path.suffix == ".html" and INLINE_SCRIPT_RE.search(text):
             failures.append(f"{relative}: inline script conflicts with strict CSP")
+
+    for path, text in texts.items():
+        if path.resolve() == SELF or path.suffix != ".py":
+            continue
+        relative = path.relative_to(ROOT).as_posix()
+        count = len(URLOPEN_RE.findall(text))
+        expected = EXPECTED_URLOPEN_CALLS.get(relative, 0)
+        if count != expected:
+            failures.append(
+                f"{relative}: urllib urlopen inventory changed (expected {expected}, found {count})"
+            )
+    for relative, expected in EXPECTED_URLOPEN_CALLS.items():
+        if expected and ROOT / relative not in texts:
+            failures.append(f"{relative}: audited urllib client missing from scan")
+
+    telegram_text = texts.get(ROOT / "telegram_bot.py", "")
+    tmdb_text = texts.get(ROOT / "tmdb_client.py", "")
+    jellyfin_guard = texts.get(ROOT / "application_services/security_hardening.py", "")
+    if "https://api.telegram.org/" not in telegram_text:
+        failures.append("telegram_bot.py: Telegram urlopen endpoint is no longer fixed HTTPS")
+    if 'API_BASE = "https://api.themoviedb.org/3"' not in tmdb_text:
+        failures.append("tmdb_client.py: TMDB urlopen endpoint is no longer fixed HTTPS")
+    if (
+        'parsed.scheme.casefold() not in {"http", "https"}' not in jellyfin_guard
+        or "not parsed.hostname" not in jellyfin_guard
+    ):
+        failures.append("application_services/security_hardening.py: Jellyfin scheme guard missing")
 
     # The provider modules and isolated-container launchers legitimately retain
     # the legacy flag as a compatibility seam. security_runtime.py is also
