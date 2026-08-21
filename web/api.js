@@ -73,7 +73,12 @@ const api = {
       "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter.",
     );
   },
-  movie(slug) { return this.get(`/api/movie/${encodeURIComponent(slug)}`); },
+  movie(slug, tmdbId = null) {
+    const query = Number(tmdbId) > 0
+      ? `?${new URLSearchParams({ tmdb_id: String(tmdbId) })}`
+      : "";
+    return this.get(`/api/movie/${encodeURIComponent(slug)}${query}`);
+  },
   moviesPreload(slugs) { return this.post("/api/movies/preload", { slugs }); },
   tmdbMovies(items, background = false) {
     return this.post("/api/tmdb/movies", { items, background });

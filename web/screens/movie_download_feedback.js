@@ -32,7 +32,11 @@ function applyFpQueueAddResponse(slug, response) {
 async function prepareFpMovieDownload(slug) {
   const cached = state.fp.moviesCache[slug];
   if (Array.isArray(cached?.hosters) && cached.hosters.length) return cached;
-  const movie = await api.movie(slug);
+  const tmdbId = state.fp.metadataCache[slug]?.tmdb_id
+    || state.fp.results.find((item) => item.slug === slug)?.tmdb_id
+    || homeMovieBySlug(slug)?.tmdb_id
+    || null;
+  const movie = await api.movie(slug, tmdbId);
   state.fp.moviesCache[slug] = movie;
   updateFpResultCard(slug);
   if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
