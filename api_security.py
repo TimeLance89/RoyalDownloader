@@ -155,6 +155,7 @@ def harden_http_response(
         "base-uri 'none'",
         "object-src 'none'",
         "frame-ancestors 'self'",
+        "frame-src https://www.youtube-nocookie.com",
         "form-action 'self'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
