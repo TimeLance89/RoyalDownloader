@@ -159,7 +159,7 @@ def _install_queue_fakes(server, slug: str, title: str) -> None:
 
 
 def queue_seed_flow() -> None:
-    """E2E 2a: create a durable queue claim through the authenticated API."""
+    """E2E 2a: create a durable queue claim through the authenticated web API."""
     from fastapi.testclient import TestClient
     import config as appconfig
     import server
@@ -170,7 +170,7 @@ def queue_seed_flow() -> None:
 
     added = _response_json(
         client.post(
-            "/api/v1/queue/add",
+            "/api/queue/add",
             json={"slugs": [QUEUE_SLUG], "source": "release-readiness"},
         ),
         200,
@@ -180,7 +180,7 @@ def queue_seed_flow() -> None:
 
     duplicate = _response_json(
         client.post(
-            "/api/v1/queue/add",
+            "/api/queue/add",
             json={"slugs": [QUEUE_SLUG], "source": "release-readiness"},
         ),
         200,
@@ -204,7 +204,7 @@ def queue_seed_flow() -> None:
 
 
 def queue_restart_verify_flow() -> None:
-    """E2E 2b: a new process restores the same durable job and claim exactly once."""
+    """E2E 2b: a new process restores the same durable job and claim exactly once.""
     import config as appconfig
     import server
 
@@ -228,7 +228,7 @@ def queue_restart_verify_flow() -> None:
 
 
 def media_integration_flow() -> None:
-    """E2E 3: authenticated API -> controlled provider media -> queue -> status."""
+    """E2E 3: authenticated web API -> controlled provider media -> queue -> status."""
     from fastapi.testclient import TestClient
     import server
 
@@ -238,7 +238,7 @@ def media_integration_flow() -> None:
 
     added = _response_json(
         client.post(
-            "/api/v1/queue/add",
+            "/api/queue/add",
             json={"slugs": [MEDIA_SLUG], "source": "release-media-flow"},
         ),
         200,
@@ -246,8 +246,8 @@ def media_integration_flow() -> None:
     )
     _expect(added.get("added") == 1, f"media flow did not reach queue: {added}")
 
-    queue_status = _response_json(client.get("/api/v1/queue"), 200, "media queue status")
-    jobs_status = _response_json(client.get("/api/v1/queue/jobs"), 200, "media jobs status")
+    queue_status = _response_json(client.get("/api/queue"), 200, "media queue status")
+    jobs_status = _response_json(client.get("/api/queue/jobs"), 200, "media jobs status")
     _expect(_json_contains(queue_status, MEDIA_SLUG), "queue status lost media fixture")
     _expect(_json_contains(jobs_status, MEDIA_SLUG), "job status lost media fixture")
     _expect(
