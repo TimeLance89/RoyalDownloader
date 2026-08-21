@@ -4,6 +4,7 @@ import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
+import server  # noqa: F401 - registers the application-service composition root
 import application_services.jellyfin_live as live
 
 
