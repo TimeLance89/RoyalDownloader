@@ -199,7 +199,27 @@ def test_targeted_episode_status_is_derived_from_shared_snapshot_without_network
     assert checked_at == fake_state.jellyfin_episodes_time
 
 
-def test_background_change_coalesces_into_one_snapshot_and_one_live_push(monkeypatch):
+def test_targeted_episode_first_load_preserves_legacy_cache_path(monkeypatch):
+    fake_state = _state(jellyfin_episodes=None, jellyfin_episodes_available=False)
+    monkeypatch.setattr(live, "state", fake_state)
+    calls = []
+    refreshes = []
+    monkeypatch.setattr(
+        live,
+        "_legacy_get_jellyfin_targeted_episodes",
+        lambda series_ids, force=False: calls.append((set(series_ids), force))
+        or ([{"series_id": "series-1"}], True, False, 42.0),
+    )
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **kwargs: refreshes.append(kwargs))
+
+    result = live.get_jellyfin_targeted_episodes({"series-1"})
+
+    assert result == ([{"series_id": "series-1"}], True, False, 42.0)
+    assert calls == [({"series-1"}, False)]
+    assert refreshes == [{"force_full": True}]
+
+
+def test_background_change_coalesces_into_one_snapshot_push_and_automation_wake(monkeypatch):
     fake_state = _state()
     monkeypatch.setattr(live, "state", fake_state)
     monkeypatch.setattr(live, "_last_revision", "old-revision")
@@ -207,23 +227,27 @@ def test_background_change_coalesces_into_one_snapshot_and_one_live_push(monkeyp
     monkeypatch.setattr(live, "_probe_library_revision", lambda _client: "new-revision")
     snapshots = []
     pushes = []
+    wakes = []
     monkeypatch.setattr(live, "_refresh_snapshot", lambda _client: snapshots.append(True) or True)
     monkeypatch.setattr(live, "_broadcast_live_update", lambda: pushes.append(True))
-    live._watchlist_wake_event.clear()
     client = SimpleNamespace(configured=True)
-    monkeypatch.setattr(
-        live,
-        "backend_value",
-        lambda name: (lambda: client) if name == "get_jellyfin_client" else None,
-    )
+
+    def backend(name):
+        if name == "get_jellyfin_client":
+            return lambda: client
+        if name == "wake_watchlist_auto_check":
+            return lambda: wakes.append(True)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(live, "backend_value", backend)
 
     result = live._monitor_cycle()
 
     assert result == "changed"
     assert snapshots == [True]
     assert pushes == [True]
+    assert wakes == [True]
     assert live._last_revision == "new-revision"
-    assert live._watchlist_wake_event.is_set()
 
 
 def test_unchanged_probe_verifies_cache_without_another_full_snapshot(monkeypatch):
@@ -302,11 +326,15 @@ def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():
     assert "state.anime.results.map(homeAnimeEntry)" in home
 
 
-def test_live_service_is_installed_after_core_services():
-    runtime = (live.backend_value("APP_DIR") / "application_services" / "runtime.py").read_text(
-        encoding="utf-8",
-    )
+def test_live_service_preserves_automation_ownership_and_is_installed_last():
+    app_dir = live.backend_value("APP_DIR")
+    runtime = (app_dir / "application_services" / "runtime.py").read_text(encoding="utf-8")
+    automation = (app_dir / "application_services" / "automation.py").read_text(encoding="utf-8")
+
     assert '"application_services.jellyfin_live"' in runtime
     assert runtime.index('"application_services.smart_automation"') < runtime.index(
         '"application_services.jellyfin_live"'
     )
+    assert "def wake_watchlist_auto_check()" in automation
+    assert "_watchlist_wake_event.wait" in automation
+    assert server.watchlist_auto_check_loop.__module__ == "application_services.automation"
