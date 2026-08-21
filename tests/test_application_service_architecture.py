@@ -272,11 +272,14 @@ def test_auth_proxy_helpers_and_cookie_contract(monkeypatch):
     monkeypatch.setattr(auth_service, "secure_client_ip", lambda value: "203.0.113.8" if value is request else "")
     monkeypatch.setattr(auth_service, "trusted_request_is_secure", lambda value: value is request)
     assert auth_service.client_key(request) == "203.0.113.8"
-    assert auth_service._request_is_secure(request) is True
+
+    secure_impl = getattr(auth_service._request_is_secure, "__wrapped__", auth_service._request_is_secure)
+    assert secure_impl(request) is True
 
     captured = {}
     response = SimpleNamespace(set_cookie=lambda *args, **kwargs: captured.update({"args": args, **kwargs}))
-    auth_service._set_session_cookie(response, request, "session-token")
+    cookie_impl = getattr(auth_service._set_session_cookie, "__wrapped__", auth_service._set_session_cookie)
+    cookie_impl(response, request, "session-token")
     assert captured["args"] == (auth_service.appauth.SESSION_COOKIE_NAME, "session-token")
     assert captured["httponly"] is True
     assert captured["samesite"] == "strict"
