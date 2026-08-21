@@ -146,6 +146,8 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /state\.anime\.results\.map\(homeAnimeEntry\)/);
   assert.match(app, /for \(let index = 0; index < requests\.length; index \+= 100\)/);
   assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
+  assert.match(app, /\[401, 403\]\.includes\(Number\(result\.reason\?\.status\)\)/);
+  assert.match(app, /Jellyfin-Statusanfrage blockiert/);
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
