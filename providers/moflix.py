@@ -9,7 +9,7 @@ import json
 import logging
 import re
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cr
@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://moflix-stream.xyz"
 API_URL = f"{BASE_URL}/api/v1"
 SOURCE_PREFIX = "moflix:"
+WATCH_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+)
 GENRES = [
     "Action", "Abenteuer", "Komödie", "Drama", "Thriller", "Horror",
     "Sci-Fi & Fantasy", "Sci-Fi", "Science Fiction", "Fantasy", "Krimi",
@@ -115,13 +119,16 @@ class MoflixScraper:
             return None
 
         hosters: List[HosterInfo] = []
+        seen_sources = set()
         videos = self._collect_videos(title)
         if not videos:
             videos = self._collect_videos(page)
         if not videos:
             primary = title.get("primary_video")
             if primary:
-                videos.append(primary)
+                videos.append(primary if isinstance(primary, dict) else {"id": primary})
+        if not videos and title.get("primary_video_id"):
+            videos.append({"id": title["primary_video_id"]})
 
         for video in videos:
             video_id = video.get("id")
@@ -130,6 +137,10 @@ class MoflixScraper:
                 src = self._watch_src(video_id)
             if not src:
                 continue
+            src = self._valid_stream_url(src)
+            if not src or src in seen_sources:
+                continue
+            seen_sources.add(src)
             name = self._hoster_name(src, video.get("name") or "Moflix")
             quality = str(video.get("quality") or "")
             hosters.append(HosterInfo(name=name, url=src, quality=quality))
@@ -166,10 +177,15 @@ class MoflixScraper:
         title_obj = page.get("title") or {}
 
         hosters: List[HosterInfo] = []
-        for video in ep.get("videos") or []:
+        seen_sources = set()
+        for video in self._collect_videos(ep):
             src = video.get("src")
-            if not src:
+            if not src and video.get("id"):
+                src = self._watch_src(video["id"])
+            src = self._valid_stream_url(src)
+            if not src or src in seen_sources:
                 continue
+            seen_sources.add(src)
             name = self._hoster_name(src, video.get("name") or "Moflix")
             hosters.append(HosterInfo(
                 name=name, url=src,
@@ -286,10 +302,73 @@ class MoflixScraper:
         return urljoin(BASE_URL + "/", raw) if raw else ""
 
     def _watch_src(self, video_id: int) -> str:
-        data = self._bootstrap(f"{BASE_URL}/watch/{video_id}")
-        page = data.get("loaders", {}).get("watchPage", {})
-        video = page.get("video") or {}
-        return video.get("src") or ""
+        """Resolve a Moflix video ID to the actual hoster URL.
+
+        The watch page no longer embeds the stream reliably.  Its own frontend
+        resolves video IDs through the JSON endpoint, which rejects requests
+        without the site referer and a browser user agent.  Keep the legacy
+        bootstrap path as a compatibility fallback for older mirrors.
+        """
+        video_id = int(video_id)
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"{BASE_URL}/",
+            "User-Agent": WATCH_USER_AGENT,
+        }
+        try:
+            resp = self.session.get(
+                f"{API_URL}/watch/{video_id}",
+                timeout=25,
+                allow_redirects=True,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            src = self._extract_watch_src(resp.json())
+            if src:
+                return src
+        except Exception as exc:
+            logger.debug("Moflix Watch-API fehlgeschlagen (%s): %s", video_id, exc)
+
+        try:
+            data = self._bootstrap(f"{BASE_URL}/watch/{video_id}")
+            return self._extract_watch_src(data)
+        except Exception as exc:
+            logger.warning("Moflix Video %s konnte nicht aufgelöst werden: %s", video_id, exc)
+            return ""
+
+    @classmethod
+    def _extract_watch_src(cls, data) -> str:
+        """Find the first valid player/hoster URL in supported API shapes."""
+        preferred_keys = ("src", "embed_url", "embedUrl", "file", "stream_url", "url")
+
+        def walk(value) -> str:
+            if isinstance(value, dict):
+                for key in preferred_keys:
+                    candidate = cls._valid_stream_url(value.get(key))
+                    if candidate:
+                        return candidate
+                for child in value.values():
+                    candidate = walk(child)
+                    if candidate:
+                        return candidate
+            elif isinstance(value, list):
+                for child in value:
+                    candidate = walk(child)
+                    if candidate:
+                        return candidate
+            return ""
+
+        return walk(data)
+
+    @staticmethod
+    def _valid_stream_url(value) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlsplit(raw)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        return raw
 
     def _bootstrap(self, url: str) -> dict:
         resp = self.session.get(
@@ -330,16 +409,30 @@ class MoflixScraper:
         videos = []
         seen = set()
 
-        def walk(x):
+        def add(value):
+            if isinstance(value, (int, str)) and str(value).isdigit():
+                value = {"id": int(value)}
+            if not isinstance(value, dict) or not value.get("id"):
+                return
+            identity = str(value["id"])
+            if identity not in seen:
+                seen.add(identity)
+                videos.append(value)
+
+        def walk(x, key=""):
             if isinstance(x, dict):
-                if x.get("model_type") == "video" and x.get("id") and x["id"] not in seen:
-                    seen.add(x["id"])
-                    videos.append(x)
-                for v in x.values():
-                    walk(v)
+                if x.get("model_type") == "video" or key in ("video", "primary_video"):
+                    add(x)
+                for child_key, value in x.items():
+                    if child_key == "primary_video_id":
+                        add(value)
+                    elif child_key == "videos" and isinstance(value, list):
+                        for item in value:
+                            add(item)
+                    walk(value, child_key)
             elif isinstance(x, list):
                 for v in x:
-                    walk(v)
+                    walk(v, key)
 
         walk(data)
         return videos
