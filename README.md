@@ -52,10 +52,10 @@ the complete path from request to library visible and controllable.
   </sub>
 </p>
 
-> [!WARNING]
-> **`v1.0.0-rc.3` is a release candidate.** Back up at least `.env` and `data/`
-> before upgrading. See the [release guide](docs/RELEASE.md) for installation,
-> verification, backup, and rollback instructions.
+> [!NOTE]
+> **`v1.0.0` is the current Stable release.** Back up at least `.env`, `data/`,
+> and `runtime/` before upgrading. See the [release guide](docs/RELEASE.md) for
+> installation, verification, backup, and rollback instructions.
 
 > [!IMPORTANT]
 > Royal Downloader is intended for private, self-hosted use. Only access and
@@ -158,7 +158,7 @@ Discover → Match metadata → Check Jellyfin → Select provider → Queue
 and series directories.
 
 ```bash
-git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```
@@ -210,7 +210,7 @@ Select **Regular computer** and choose separate movie and series directories.
 <summary><strong>macOS or Linux</strong></summary>
 
 ```bash
-git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python3 -m pip install -r requirements.lock
 python3 server.py
@@ -228,7 +228,7 @@ This mode is intended for NAS systems that mount the project directory into a
 Python container.
 
 ```bash
-git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 bash start.sh
 ```

@@ -5,10 +5,9 @@
 
 ## Release status
 
-The current official release is **`v1.0.0-rc.3`**. It is a release candidate,
-not the final `v1.0.0`. It preserves the existing HTTP, `/api/v1`, WebSocket,
-Docker, update, and persistent-data contracts, but should still be validated on
-the target NAS before unattended operation.
+The current official Stable release is **`v1.0.0`**. It preserves the existing
+HTTP, `/api/v1`, WebSocket, Docker, update, and persistent-data contracts and
+should still be validated on the target NAS before unattended operation.
 
 External providers may change pages, domains, availability, or protection
 mechanisms at any time. Provider health and fallback handling reduce the impact
@@ -29,7 +28,7 @@ chat IDs, media paths, or unsanitized logs in GitHub issues.
 ## Fresh Docker installation
 
 ```bash
-git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -65,7 +64,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.0.0-rc.3` and reports the source revision separately
+`application_version` as `1.0.0` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -99,13 +98,13 @@ snapshot policy. Do not copy Seerr SQLite files while Seerr is running.
 ## Upgrade from continuous `main`
 
 This path moves an existing checkout that previously followed `main` to the
-current versioned release candidate without changing persistent formats:
+current versioned Stable release without changing persistent formats:
 
 ```bash
 docker compose down
 git fetch --tags origin
 git status --short
-git switch --detach v1.0.0-rc.3
+git switch --detach v1.0.0
 APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 curl --fail http://127.0.0.1:8765/api/health
 ```
@@ -113,7 +112,7 @@ curl --fail http://127.0.0.1:8765/api/health
 Stop if `git status --short` shows local source changes; preserve or review them
 before switching. Do not delete `data/` or `runtime/`. The queue is restored
 from persistent state after startup. Keep automatic application updates in
-manual mode when the installation must remain pinned to the release candidate;
+manual mode when the installation must remain pinned to the Stable tag;
 the in-app updater otherwise follows the selected channel. Existing
 installations default to **Stable** (`main`). **Overnight** (`overnight`) is an
 explicit development-channel opt-in; follow the
@@ -167,7 +166,6 @@ the `verify` Quality check. The restrictions also apply to administrators.
 The release workflow runs the complete Quality workflow before creating an
 annotated tag and its GitHub Release. Both operations are idempotent, so a safe
 rerun accepts only the same tag target and never duplicates an existing
-Release. Tags with a semantic pre-release suffix, for example
-`v1.0.0-rc.3`, are marked as pre-releases. A future stable tag such as
-`v1.0.0` is not marked as a pre-release merely because it uses the same
-workflow.
+Release. Tags with a semantic pre-release suffix, for example `v1.0.0-rc.3`,
+are marked as pre-releases. The Stable tag `v1.0.0` is published without the
+pre-release flag by the same workflow.

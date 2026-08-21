@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v1.0.0 – 2026-08-21
+
+RoyalDownloader 1.0.0 promotes the reviewed RC line and the subsequent
+Overnight hardening work to Stable. The release keeps the existing HTTP,
+`/api/v1`, WebSocket, Docker-volume, queue, and update-channel contracts while
+adding fail-closed authentication, protected first-run ownership, hardened
+unprivileged containers, persistent queue/restart recovery, browser isolation,
+storage orchestration, and the complete Jellyfin, Telegram, Seerr, and Moonfin
+integration set documented below.
+
+Stable promotion is gated by the complete Quality and CodeQL workflows,
+including container build and CVE scan, browser/runtime smoke tests, first-run
+and web/mobile authentication boundaries, queue persistence, media integration,
+and RC3 upgrade, rollback, backup, and recovery verification. See
+[`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md) for installation and
+operational notes.
+
 ## 2026-08-21 – Smart automation, storage orchestration, search, and provider resilience
 
 ### Automation and NAS load control

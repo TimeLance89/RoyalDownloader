@@ -1,5 +1,4 @@
 import asyncio
-import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -10,8 +9,8 @@ from app_version import APP_VERSION
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_application_version_has_expected_release_candidate_value():
-    assert APP_VERSION == "1.0.0-rc.3"
+def test_application_version_has_expected_stable_value():
+    assert APP_VERSION == "1.0.0"
 
 
 def test_capabilities_add_version_without_changing_health_contracts():
@@ -76,23 +75,26 @@ def test_updater_status_adds_version_without_replacing_revision_fields(monkeypat
 
 
 def test_current_release_documents_use_the_central_semantic_version():
+    stable_tag = f"v{APP_VERSION}"
     documents = [
         ROOT / "README.md",
         ROOT / "docs" / "RELEASE.md",
         ROOT / "docs" / "DOCKER.md",
-        ROOT / "docs" / "releases" / "v1.0.0-rc.3.md",
+        ROOT / "docs" / "releases" / f"{stable_tag}.md",
     ]
-    referenced_versions = set()
     for document in documents:
         text = document.read_text(encoding="utf-8")
-        assert "v1.0.0-rc.3" in text, document
-        referenced_versions.update(re.findall(r"v\d+\.\d+\.\d+-rc\.\d+", text))
-    assert referenced_versions == {"v1.0.0-rc.3"}
+        assert stable_tag in text, document
+
+    historical_rc = ROOT / "docs" / "releases" / "v1.0.0-rc.3.md"
+    assert historical_rc.is_file()
+    assert "v1.0.0-rc.3" in historical_rc.read_text(encoding="utf-8")
 
     android_api = (ROOT / "docs" / "ANDROID_API.md").read_text(encoding="utf-8")
     assert f'"application_version": "{APP_VERSION}"' in android_api
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert changelog.index("## v1.0.0 –") < changelog.index("## v1.0.0-rc.3")
     assert changelog.index("## v1.0.0-rc.3") < changelog.index("## v1.0.0-rc.2")
 
 
