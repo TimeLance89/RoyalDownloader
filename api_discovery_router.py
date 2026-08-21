@@ -287,12 +287,21 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
 
 @router.get("/api/v1/movie/{slug:path}")
 @router.get("/api/movie/{slug:path}")
-async def api_movie(slug: str):
+async def api_movie(slug: str, tmdb_id: int | None = None):
     def _work():
         movie = state.fp_movies.get(slug)
-        if movie is None:
+        if movie is None or not getattr(movie, "hosters", None):
             movie = load_movie_for_slug(slug)
-        if movie is not None:
+        if (
+            (movie is None or not getattr(movie, "hosters", None))
+            and tmdb_id is not None
+            and slug.casefold() != f"tmdb:{tmdb_id}"
+        ):
+            try:
+                movie = load_movie_for_slug(f"tmdb:{tmdb_id}")
+            except (LookupError, ValueError):
+                movie = None
+        if movie is not None and getattr(movie, "hosters", None):
             state.fp_movies[slug] = movie
             return movie_detail_to_dict(slug, movie)
         return None
@@ -302,7 +311,13 @@ async def api_movie(slug: str):
     except (LookupError, ValueError) as exc:
         raise HTTPException(404, str(exc)) from exc
     if payload is None:
-        raise HTTPException(404, "Film nicht gefunden oder kein Hoster.")
+        raise HTTPException(
+            404,
+            {
+                "code": "movie_hoster_unavailable",
+                "message": "Aktuell ist für diesen Film kein Hoster verfügbar.",
+            },
+        )
     return payload
 
 

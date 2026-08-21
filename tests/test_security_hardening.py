@@ -53,6 +53,44 @@ def test_forwarded_headers_require_a_trusted_direct_peer(monkeypatch):
     assert proxy_security.request_is_secure(trusted) is True
 
 
+def test_allowlisted_public_tunnel_origin_is_https_without_trusting_client_ip(monkeypatch):
+    monkeypatch.setenv("ROYAL_ALLOWED_HOSTS", "royal-downloader.de")
+    monkeypatch.setenv("TRUST_CLOUDFLARE_HEADERS", "true")
+    monkeypatch.delenv("ROYAL_TRUSTED_PROXIES", raising=False)
+    request = _connection(
+        "172.31.0.9",
+        host="royal-downloader.de",
+        origin="https://royal-downloader.de",
+        cf_connecting_ip="203.0.113.10",
+        x_forwarded_proto="https",
+    )
+
+    assert proxy_security.host_allowed(request) is True
+    assert proxy_security.origin_matches(request, request.headers["origin"]) is True
+    assert proxy_security.request_is_secure(request) is True
+    assert proxy_security.client_ip(request) == "172.31.0.9"
+
+
+def test_public_https_inference_rejects_wildcard_and_local_http_origins(monkeypatch):
+    monkeypatch.setenv("ROYAL_ALLOWED_HOSTS", "*")
+    wildcard = _connection(
+        "172.31.0.9",
+        host="royal-downloader.de",
+        origin="https://royal-downloader.de",
+    )
+    assert proxy_security.request_is_secure(wildcard) is False
+    assert proxy_security.origin_matches(wildcard, wildcard.headers["origin"]) is False
+
+    monkeypatch.setenv("ROYAL_ALLOWED_HOSTS", "royal-nas.local")
+    local = _connection(
+        "192.168.1.20",
+        host="royal-nas.local:8765",
+        origin="http://royal-nas.local:8765",
+    )
+    assert proxy_security.request_is_secure(local) is False
+    assert proxy_security.origin_matches(local, local.headers["origin"]) is True
+
+
 def test_setup_bootstrap_is_private_one_time_and_not_returned(monkeypatch, tmp_path):
     sessions = tmp_path / "sessions.json"
     monkeypatch.setattr(setup_bootstrap.appconfig, "sessions_file", lambda: sessions)

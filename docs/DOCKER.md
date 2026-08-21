@@ -174,12 +174,17 @@ closed if account configuration is ever lost:
 ```dotenv
 ROYAL_BIND_ADDRESS=127.0.0.1
 APP_REQUIRE_AUTH=true
+ROYAL_ALLOWED_HOSTS=royal.example.com
 TRUST_CLOUDFLARE_HEADERS=true
 ```
 
 Point `cloudflared` to `http://127.0.0.1:8765`. If `cloudflared` runs in a
-container, use a private Docker network instead of publishing port 8765. Do not
-enable `TRUST_CLOUDFLARE_HEADERS` while clients can reach the origin directly;
+container, use a private Docker network instead of publishing port 8765. A
+named public entry in `ROYAL_ALLOWED_HOSTS` establishes the external HTTPS
+origin without trusting a mutable Docker subnet. Add that private network to
+`ROYAL_TRUSTED_PROXIES` only when Royal must use Cloudflare's forwarded client
+address for per-client login rate limiting. Do not enable
+`TRUST_CLOUDFLARE_HEADERS` while clients can reach the origin directly;
 otherwise they can forge the source address used by login rate limiting.
 
 ## Volumes and persistent data
@@ -222,7 +227,9 @@ it may be entered in the wizard instead of `.env`.
 | `APP_PASSWORD` | empty | Fallback account password; only used until an account is created in the interface |
 | `APP_REQUIRE_AUTH` | `true` | Legacy compatibility setting; Royal remains fail-closed when account configuration is missing even if an older file contains `false` |
 | `ROYAL_BIND_ADDRESS` | `0.0.0.0` | Host address used by Compose when publishing port 8765; use `127.0.0.1` for a host-managed tunnel |
-| `TRUST_CLOUDFLARE_HEADERS` | `false` | Trust validated `CF-Connecting-IP` for rate limiting; only safe when the origin is otherwise unreachable |
+| `ROYAL_ALLOWED_HOSTS` | empty | Comma-separated public reverse-proxy hostnames; named public entries also establish their external HTTPS origin |
+| `ROYAL_TRUSTED_PROXIES` | loopback only | Proxy CIDRs allowed to supply forwarding metadata such as the client address |
+| `TRUST_CLOUDFLARE_HEADERS` | `false` | Use validated `CF-Connecting-IP` for rate limiting, but only from a peer in `ROYAL_TRUSTED_PROXIES` |
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
 | `DNS_SECONDARY` | `9.9.9.9` | Fallback container resolver |
 | `DNS_OVERRIDE` | `1` | `start.sh` only: set to `0` to keep Docker's existing `resolv.conf` |

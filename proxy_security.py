@@ -134,14 +134,20 @@ def effective_scheme(connection) -> str:
         direct = "https"
     else:
         direct = "http"
+    # An explicitly allowlisted public reverse-proxy hostname is an operator
+    # declaration that browsers reach this origin over HTTPS.  This lets a
+    # Cloudflare Tunnel terminate TLS in front of an unprivileged container
+    # without trusting the tunnel's mutable Docker subnet.  Forwarded client-IP
+    # headers remain untrusted; only the externally visible scheme is inferred.
+    explicit_https = _explicit_public_https_host(connection)
     if not is_trusted_proxy_peer(connection):
-        return direct
+        return "https" if explicit_https else direct
     forwarded = _header(connection, "x-forwarded-proto").split(",", 1)[0].strip().casefold()
     if forwarded in {"https", "wss"}:
         return "https"
     if forwarded in {"http", "ws"}:
         return "http"
-    return direct
+    return "https" if explicit_https else direct
 
 
 def request_is_secure(connection) -> bool:
@@ -168,23 +174,55 @@ def _split_host_header(value: str) -> tuple[str, int | None] | None:
     return host, port
 
 
-def _explicit_host_allowed(host: str) -> bool | None:
+def _matching_explicit_host_pattern(host: str) -> str:
     raw = str(os.environ.get("ROYAL_ALLOWED_HOSTS", "") or "").strip()
     if not raw:
-        return None
+        return ""
     for pattern in raw.replace(";", ",").split(","):
         pattern = pattern.strip().casefold().rstrip(".")
         if not pattern:
             continue
         if pattern == "*":
-            return True
+            return pattern
         if pattern.startswith("*."):
             suffix = pattern[1:]
             if host.endswith(suffix) and host != suffix[1:]:
-                return True
+                return pattern
         elif host == pattern:
-            return True
-    return False
+            return pattern
+    return ""
+
+
+def _explicit_host_allowed(host: str) -> bool | None:
+    raw = str(os.environ.get("ROYAL_ALLOWED_HOSTS", "") or "").strip()
+    if not raw:
+        return None
+    return bool(_matching_explicit_host_pattern(host))
+
+
+def _explicit_public_https_host(connection) -> bool:
+    """Treat a named public allowlist entry as the external HTTPS boundary.
+
+    A blanket ``*`` deliberately does not carry this meaning.  Local names and
+    private addresses keep their direct scheme so HTTP-only NAS access remains
+    usable and cannot accidentally receive Secure-only session cookies.
+    """
+    parsed = _split_host_header(_header(connection, "host"))
+    if parsed is None:
+        return False
+    host, _port = parsed
+    pattern = _matching_explicit_host_pattern(host)
+    if not pattern or pattern == "*":
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None:
+        return bool(not (address.is_private or address.is_loopback or address.is_link_local))
+    if "." not in host or any(host.endswith(suffix) for suffix in _LOCAL_HOST_SUFFIXES):
+        return False
+    return all(bool(_HOSTNAME_RE.fullmatch(label)) for label in host.split("."))
 
 
 def host_allowed(connection) -> bool:

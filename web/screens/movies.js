@@ -288,6 +288,7 @@ function setFpPosterJellyfinBadge(badge, status) {
     missing: "Nicht in Jellyfin",
     checking: "Jellyfin wird geprüft",
     unavailable: "Jellyfin nicht erreichbar",
+    blocked: "Jellyfin-Statusanfrage blockiert",
     unconfigured: "Jellyfin nicht verbunden",
     ambiguous: "Jellyfin-Zuordnung unklar",
   }[normalized] || "Jellyfin wird geprüft";
@@ -862,25 +863,23 @@ async function toggleFpPick(slug) {
   try {
     if (state.queuedSlugs.has(slug)) {
       const resp = await api.queueRemove(slug);
+      setFpDownloadFeedback(slug);
       refreshQueueUiAfterChange(resp);
       return;
     }
+    setFpDownloadFeedback(slug);
+    const movie = await prepareFpMovieDownload(slug);
+    if (!movie) return;
     const resp = await api.queueAdd([slug]);
     refreshQueueUiAfterChange(resp);
-    if (Number(resp.added || 0) > 0) {
-      const item = state.fp.moviesCache[slug]
-        || state.fp.metadataCache[slug]
-        || state.fp.results.find((movie) => movie.slug === slug)
-        || homeMovieBySlug(slug);
-      trackDiscoveryPreference("movie", { ...item, slug }, 5, "download");
+    if (applyFpQueueAddResponse(slug, resp)) {
+      trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
     }
-    if (!state.fp.moviesCache[slug]) {
-      void api.movie(slug).then((movie) => {
-        state.fp.moviesCache[slug] = movie;
-        updateFpResultCard(slug);
-        if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
-      }).catch(() => { /* server logs */ });
-    }
+  } catch (error) {
+    const reason = error?.message || "Unbekannter Fehler";
+    setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
+    setDownloadState("error", "Download nicht gestartet", reason, 0);
+    console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
   } finally {
     fpQueueMutations.delete(slug);
     refreshFpQueuePresentation();
@@ -913,10 +912,11 @@ async function selectFpRow(slug, initialItem = null) {
   openMediaModal("fp-detail-modal", findFpResultCard(slug));
   if (movie) return;
   await loadFpMetadata(item);
-  if (!String(slug).startsWith("tmdb:") || state.fp.selectedSlug !== slug) return;
+  if (state.fp.selectedSlug !== slug) return;
   setFpDetailAvailability("Alle Anbieter werden durchsucht", "loading");
   try {
-    const resolved = await api.movie(slug);
+    const identity = state.fp.metadataCache[slug] || item;
+    const resolved = await api.movie(slug, identity.tmdb_id || null);
     state.fp.moviesCache[slug] = resolved;
     updateFpResultCard(slug);
     if (state.fp.selectedSlug === slug) showFpDetail(slug, resolved);
@@ -924,8 +924,19 @@ async function selectFpRow(slug, initialItem = null) {
     console.warn("Anbietersuche fehlgeschlagen:", error);
     if (state.fp.selectedSlug === slug) {
       const preview = state.fp.metadataCache[slug] || basicMovieMetadata(item);
-      showFpDetail(slug, metadataPreviewMovie(preview), true);
-      setFpDetailAvailability(error.message, "error");
+      const unavailable = {
+        ...metadataPreviewMovie(preview),
+        hosters: [],
+        hoster_route: "Kein Hoster verfügbar",
+        hoster_fallback_count: 0,
+      };
+      showFpDetail(slug, unavailable, false);
+      setFpDetailAvailability(
+        error.code === "movie_hoster_unavailable"
+          ? "Aktuell kein Hoster verfügbar"
+          : `Anbieterprüfung fehlgeschlagen: ${error.message}`,
+        "error",
+      );
     }
   }
 }
@@ -987,6 +998,10 @@ function setFpDetailJellyfinStatus(owned) {
   }
   if (owned === "unavailable") {
     label.textContent = "Jellyfin nicht erreichbar";
+    return;
+  }
+  if (owned === "blocked") {
+    label.textContent = "Jellyfin-Statusanfrage blockiert";
     return;
   }
   if (owned === "unconfigured") {
@@ -1336,11 +1351,18 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const owned = fpDetailJellyfinValue(slug, movie) === true;
   const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
   const mutationPending = fpQueueMutations.has(slug);
+  renderFpDownloadFeedback(slug);
   addBtn.hidden = owned && !queued;
-  addBtn.disabled = mutationPending || (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
+  addBtn.disabled = mutationPending || (owned && !queued) || (!queued && (metadataOnly || !hasHosters));
   addBtn.textContent = mutationPending
     ? (queued ? "Entferne …" : "Füge hinzu …")
-    : (queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen");
+    : queued
+      ? "✕ Aus Queue entfernen"
+      : metadataOnly
+        ? "Prüfe Verfügbarkeit …"
+        : hasHosters
+          ? "↓ Herunterladen"
+          : "Derzeit nicht verfügbar";
 
   addBtn.onclick = async () => {
     if (fpQueueMutations.has(slug)) return;
@@ -1357,16 +1379,22 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
         return;
       }
       fpQueueMutations.add(slug);
+      if (!shouldRemove) setFpDownloadFeedback(slug);
       const selection = state.fp.downloadSelections.get(slug);
       const resp = shouldRemove
         ? await api.queueRemove(slug)
         : await api.queueAdd([slug], selection ? { [slug]: selection } : {});
-      if (!shouldRemove && Number(resp.added || 0) > 0) {
+      const accepted = shouldRemove || applyFpQueueAddResponse(slug, resp);
+      if (shouldRemove) setFpDownloadFeedback(slug);
+      if (!shouldRemove && accepted) {
         trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
       }
       refreshQueueUiAfterChange(resp);
       if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
     } catch (error) {
+      const reason = error?.message || "Unbekannter Fehler";
+      setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
+      setDownloadState("error", "Download nicht gestartet", reason, 0);
       console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
     } finally {
       fpQueueMutations.delete(slug);

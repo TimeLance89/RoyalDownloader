@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_movie_search_is_not_discarded_by_catalog_timeout():
     source = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
     movies_start = source.index("  movies(params) {")
-    movies_end = source.index("  movie(slug)", movies_start)
+    movies_end = source.index("  movie(slug,", movies_start)
     block = source[movies_start:movies_end]
 
     assert 'if (params?.mode === "search") return request;' in block

@@ -73,7 +73,12 @@ const api = {
       "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter.",
     );
   },
-  movie(slug) { return this.get(`/api/movie/${encodeURIComponent(slug)}`); },
+  movie(slug, tmdbId = null) {
+    const query = Number(tmdbId) > 0
+      ? `?${new URLSearchParams({ tmdb_id: String(tmdbId) })}`
+      : "";
+    return this.get(`/api/movie/${encodeURIComponent(slug)}${query}`);
+  },
   moviesPreload(slugs) { return this.post("/api/movies/preload", { slugs }); },
   tmdbMovies(items, background = false) {
     return this.post("/api/tmdb/movies", { items, background });
@@ -114,6 +119,19 @@ const api = {
   },
 
   queueGet() { return this.get("/api/queue"); },
+  queueAddFailureReason(response, slugs = []) {
+    if (Number(response?.added || 0) > 0) return "";
+    const requested = Array.isArray(slugs) ? slugs : [slugs];
+    const details = response?.skipped_details;
+    const reasons = [...new Set(requested.map((slug) => {
+      const reason = details && typeof details === "object" ? details[slug] : "";
+      return typeof reason === "string" ? reason.trim() : "";
+    }).filter(Boolean))];
+    if (reasons.length) return reasons.join(" · ");
+    return Number(response?.skipped || 0) > 0
+      ? "Der Inhalt wurde vom Server nicht eingeplant."
+      : "Der Server hat keinen Download eingeplant.";
+  },
   queueAdd(slugs, preferences = {}, source = "web") {
     return this.post("/api/queue/add", { slugs, preferences, source });
   },

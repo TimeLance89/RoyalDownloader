@@ -22,6 +22,7 @@ const appModulePaths = [
   "screens/mood.js",
   "trailer-runtime.js",
   "catalog-runtime.js",
+  "screens/movie_download_feedback.js",
   "screens/movies.js",
   "screens/movie_filters.js",
   "screens/series.js",
@@ -146,10 +147,12 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /state\.anime\.results\.map\(homeAnimeEntry\)/);
   assert.match(app, /for \(let index = 0; index < requests\.length; index \+= 100\)/);
   assert.match(app, /batches\.map\(\(batch\) => api\.jellyfinMatches\(batch\)\)/);
+  assert.match(app, /\[401, 403\]\.includes\(Number\(result\.reason\?\.status\)\)/);
+  assert.match(app, /Jellyfin-Statusanfrage blockiert/);
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260811-5/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260821-3/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -372,7 +375,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260810-2/);
+  assert.match(html, /core\.js\?v=royal-20260821-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -478,6 +481,54 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
 });
 
+test("movie download failures stay visible with their exact queue reason", () => {
+  requiresIds("fp-detail-add", "fp-detail-download-status");
+  const helperSource = api.match(
+    /queueAddFailureReason\(response, slugs = \[\]\) \{([\s\S]*?)\n  \},\n  queueAdd\(/,
+  );
+  assert.ok(helperSource, "queue failure helper remains independently testable");
+  const queueAddFailureReason = vm.runInNewContext(
+    `(function queueAddFailureReason(response, slugs = []) {${helperSource[1]}\n})`,
+  );
+  assert.equal(
+    queueAddFailureReason(
+      { added: 0, skipped: 1, skipped_details: { movie: "kein Hoster verfügbar" } },
+      ["movie"],
+    ),
+    "kein Hoster verfügbar",
+  );
+  assert.equal(
+    queueAddFailureReason({ added: 1, skipped: 0 }, ["movie"]),
+    "",
+  );
+  assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
+  assert.match(app, /applyFpDownloadJobResult\(data\)/);
+  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-3/);
+  assert.match(
+    app,
+    /const movie = await prepareFpMovieDownload\(slug\);[\s\S]*?if \(!movie\) return;[\s\S]*?await api\.queueAdd\(\[slug\]\)/,
+  );
+  assert.match(app, /if \(Array\.isArray\(cached\?\.hosters\) && cached\.hosters\.length\) return cached/);
+  assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
+  assert.match(app, /Download nicht gestartet:/);
+  assert.match(app, /Download fehlgeschlagen:/);
+  assert.match(
+    app,
+    /await loadFpMetadata\(item\);[\s\S]*?if \(state\.fp\.selectedSlug !== slug\) return;[\s\S]*?await api\.movie\(slug, identity\.tmdb_id \|\| null\)/,
+  );
+  assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
+  assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);
+  assert.match(app, /Prüfe Verfügbarkeit …/);
+  assert.match(app, /Derzeit nicht verfügbar/);
+  assert.match(app, /error\.code === "movie_hoster_unavailable"/);
+  assert.match(
+    app,
+    /const tmdbId = state\.fp\.metadataCache\[slug\]\?\.tmdb_id[\s\S]*?api\.movie\(slug, tmdbId\)/,
+  );
+  assert.match(api, /movie\(slug, tmdbId = null\)/);
+  assert.match(api, /new URLSearchParams\(\{ tmdb_id: String\(tmdbId\) \}\)/);
+});
+
 test("Royal archive behaves like a searchable media center", () => {
   requiresIds(
     "library-hero-title", "wl-hero-open", "wl-hero-check",
@@ -492,7 +543,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-7/);
+  assert.match(html, /style\.css\?v=royal-20260821-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
