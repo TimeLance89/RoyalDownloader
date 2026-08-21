@@ -247,6 +247,7 @@ function jellyfinStatusText(status) {
     missing: "Fehlt in Jellyfin",
     checking: "Jellyfin wird geprüft",
     unavailable: "Jellyfin nicht erreichbar",
+    blocked: "Jellyfin-Statusanfrage blockiert",
     unconfigured: "Jellyfin nicht verbunden",
     ambiguous: "Jellyfin-Zuordnung unklar",
   };
@@ -259,6 +260,7 @@ function setCatalogJellyfinBadge(badge, status) {
     missing: "Fehlt in Jellyfin",
     checking: "Jellyfin wird geprüft",
     unavailable: "Jellyfin nicht erreichbar",
+    blocked: "Jellyfin-Statusanfrage blockiert",
     unconfigured: "Jellyfin nicht verbunden",
     ambiguous: "Jellyfin-Zuordnung unklar",
   };
@@ -294,7 +296,9 @@ async function refreshCatalogJellyfinStatus(entries, render) {
   responses.forEach((result, batchIndex) => {
     const batch = batches[batchIndex];
     if (result.status !== "fulfilled") {
-      batch.forEach((request) => statusByKey.set(request.slug, "unavailable"));
+      const status = [401, 403].includes(Number(result.reason?.status))
+        ? "blocked" : "unavailable";
+      batch.forEach((request) => statusByKey.set(request.slug, status));
       return;
     }
     const response = result.value;

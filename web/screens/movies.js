@@ -288,6 +288,7 @@ function setFpPosterJellyfinBadge(badge, status) {
     missing: "Nicht in Jellyfin",
     checking: "Jellyfin wird geprüft",
     unavailable: "Jellyfin nicht erreichbar",
+    blocked: "Jellyfin-Statusanfrage blockiert",
     unconfigured: "Jellyfin nicht verbunden",
     ambiguous: "Jellyfin-Zuordnung unklar",
   }[normalized] || "Jellyfin wird geprüft";
@@ -987,6 +988,10 @@ function setFpDetailJellyfinStatus(owned) {
   }
   if (owned === "unavailable") {
     label.textContent = "Jellyfin nicht erreichbar";
+    return;
+  }
+  if (owned === "blocked") {
+    label.textContent = "Jellyfin-Statusanfrage blockiert";
     return;
   }
   if (owned === "unconfigured") {
