@@ -37,6 +37,7 @@ _POST_SERVICE_MODULES = (
     "application_services.taste_recommender_runtime",
     "application_services.daily_top",
     "application_services.smart_automation",
+    "application_services.jellyfin_live",
 )
 
 
