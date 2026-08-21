@@ -8,6 +8,36 @@ import socket
 import socketserver
 import threading
 
+_MAX_REQUEST_HEAD_BYTES = 64 * 1024
+
+
+def _read_request_head(connection: socket.socket) -> tuple[bytes, bytes]:
+    received = bytearray()
+    while b"\r\n\r\n" not in received:
+        chunk = connection.recv(4096)
+        if not chunk:
+            raise ConnectionError("CDP client closed before sending an HTTP header")
+        received.extend(chunk)
+        if len(received) > _MAX_REQUEST_HEAD_BYTES:
+            raise ValueError("CDP request header exceeds the configured limit")
+    head, remainder = bytes(received).split(b"\r\n\r\n", 1)
+    return head + b"\r\n\r\n", remainder
+
+
+def _normalize_host_header(head: bytes, upstream_host: str, upstream_port: int) -> bytes:
+    lines = head.removesuffix(b"\r\n\r\n").split(b"\r\n")
+    if not lines or not lines[0].startswith((b"GET ", b"PUT ")):
+        raise ValueError("Only CDP GET and PUT requests are allowed")
+    normalized_host = f"Host: {upstream_host}:{upstream_port}".encode("ascii")
+    host_found = False
+    for index in range(1, len(lines)):
+        if lines[index].lower().startswith(b"host:"):
+            lines[index] = normalized_host
+            host_found = True
+    if not host_found:
+        lines.append(normalized_host)
+    return b"\r\n".join(lines) + b"\r\n\r\n"
+
 
 class _CDPProxyServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
@@ -21,11 +51,21 @@ class _CDPProxyServer(socketserver.ThreadingTCPServer):
 class _CDPProxyHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         try:
+            self.request.settimeout(5)
+            request_head, remainder = _read_request_head(self.request)
             upstream = socket.create_connection(self.server.upstream_address, timeout=5)
-        except OSError:
+            upstream.sendall(_normalize_host_header(
+                request_head,
+                self.server.upstream_address[0],
+                self.server.upstream_address[1],
+            ))
+            if remainder:
+                upstream.sendall(remainder)
+        except (ConnectionError, OSError, ValueError):
             return
         upstream.settimeout(None)
         client = self.request
+        client.settimeout(None)
         close_lock = threading.Lock()
         closed = False
 

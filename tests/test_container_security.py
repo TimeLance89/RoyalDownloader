@@ -39,12 +39,20 @@ def test_private_tmpfs_mounts_belong_to_the_unprivileged_runtime_user():
 
 
 def test_browser_cdp_proxy_preserves_bidirectional_tcp():
-    class EchoHandler(socketserver.BaseRequestHandler):
+    class UpgradeEchoHandler(socketserver.BaseRequestHandler):
         def handle(self):
+            request_head = bytearray()
+            while b"\r\n\r\n" not in request_head:
+                request_head.extend(self.request.recv(4096))
+            self.server.request_head = bytes(request_head)
+            self.request.sendall(
+                b"HTTP/1.1 101 Switching Protocols\r\n"
+                b"Connection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+            )
             while data := self.request.recv(4096):
                 self.request.sendall(data)
 
-    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), EchoHandler) as upstream:
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), UpgradeEchoHandler) as upstream:
         upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
         upstream_thread.start()
         with create_proxy_server(
@@ -56,8 +64,20 @@ def test_browser_cdp_proxy_preserves_bidirectional_tcp():
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
             proxy_thread.start()
             with socket.create_connection(proxy.server_address, timeout=2) as client:
+                client.sendall(
+                    b"GET /devtools/page/royal HTTP/1.1\r\n"
+                    b"Host: royal-browser:9222\r\n"
+                    b"Connection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+                )
+                response_head = bytearray()
+                while b"\r\n\r\n" not in response_head:
+                    response_head.extend(client.recv(4096))
+                assert response_head.startswith(b"HTTP/1.1 101")
                 client.sendall(b"royal-cdp")
                 assert client.recv(4096) == b"royal-cdp"
+            expected_host = f"Host: 127.0.0.1:{upstream.server_address[1]}".encode()
+            assert expected_host in upstream.request_head
+            assert b"Host: royal-browser:9222" not in upstream.request_head
             proxy.shutdown()
         upstream.shutdown()
 
