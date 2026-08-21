@@ -994,23 +994,6 @@ function openHomeEntry(kind, key) {
   if (series) loadSeries(series);
 }
 
-function updateHomeCardHoverEdge(card) {
-  if (!card || card.classList.contains("is-ranked")) return;
-  const track = card.closest(".home-track");
-  if (!track) return;
-  const cardRect = card.getBoundingClientRect();
-  const trackRect = track.getBoundingClientRect();
-  const growth = cardRect.width * 0.35;
-  const clipsLeft = cardRect.left - growth < trackRect.left;
-  const clipsRight = cardRect.right + growth > trackRect.right;
-  card.classList.toggle("is-hover-edge-left", clipsLeft && !clipsRight);
-  card.classList.toggle("is-hover-edge-right", clipsRight && !clipsLeft);
-  if (clipsLeft && clipsRight) {
-    const useLeft = cardRect.left + (cardRect.width / 2) < trackRect.left + (trackRect.width / 2);
-    card.classList.toggle("is-hover-edge-left", useLeft);
-    card.classList.toggle("is-hover-edge-right", !useLeft);
-  }
-}
 
 function updateHomeRailNavigation(track) {
   if (!track?.id) return;
@@ -1103,48 +1086,20 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
   overlay.append(title, meta);
 
-  const preview = document.createElement("span");
-  preview.className = "home-card-preview";
-  preview.setAttribute("aria-hidden", "true");
-  const previewActions = document.createElement("span");
-  previewActions.className = "home-card-preview-actions";
-  const playMark = document.createElement("span");
-  playMark.className = "is-play";
-  playMark.textContent = "▶";
-  const addMark = document.createElement("span");
-  addMark.className = "is-add";
-  addMark.textContent = "+";
-  const moreMark = document.createElement("span");
-  moreMark.className = "is-more";
-  moreMark.textContent = "⌄";
-  previewActions.append(playMark, addMark, moreMark);
-  const previewTitle = document.createElement("strong");
-  previewTitle.translate = false;
-  previewTitle.textContent = media.title;
-  const previewMeta = document.createElement("span");
-  previewMeta.className = "home-card-preview-meta";
-  previewMeta.textContent = [
-    media.rating ? `★ ${media.rating}` : "",
-    media.year || "",
-    media.runtime || "",
-    kindLabel,
-  ].filter(Boolean).join(" · ");
-  const previewGenres = document.createElement("span");
-  previewGenres.className = "home-card-preview-genres";
-  previewGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
-    || `${kindLabel} entdecken`;
-  preview.append(previewActions, previewTitle, previewMeta, previewGenres);
-
-  art.append(type, jellyfin, overlay, preview);
+  art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
-  card.addEventListener("pointerenter", () => updateHomeCardHoverEdge(card));
-  card.addEventListener("pointerleave", () => {
-    card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
-  });
-  primaryAction.addEventListener("focus", () => updateHomeCardHoverEdge(card));
-  primaryAction.addEventListener("blur", () => {
-    card.classList.remove("is-hover-edge-left", "is-hover-edge-right");
-  });
+  if (!rank) {
+    registerHomeCardDock(card, entry);
+    primaryAction.addEventListener("focus", () => {
+      if (!homeCardDockSuppressFocus) scheduleHomeCardDock(card, entry, { immediate: true });
+    });
+    primaryAction.addEventListener("blur", scheduleHomeCardDockHide);
+    primaryAction.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown") return;
+      event.preventDefault();
+      scheduleHomeCardDock(card, entry, { immediate: true, focusDock: true });
+    });
+  }
   primaryAction.addEventListener("click", () => openHomeEntry(kind, key));
   return card;
 }
@@ -1292,8 +1247,8 @@ function rememberSearch(query, kind) {
   } catch {
     // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
   }
-  const matchingGenre = [...document.querySelectorAll("#genre-filter [data-genre]")]
-    .map((element) => element.dataset.genre || "")
+  const matchingGenre = (state.fp.availableGenres || [])
+    .map((genre) => String(genre || ""))
     .find((genre) => genre && genre !== "Alle Genres"
       && genre.localeCompare(normalized, "de", { sensitivity: "base" }) === 0);
   api.tasteEvent({

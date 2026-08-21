@@ -386,49 +386,10 @@
     });
   }
 
-  function formatRuntime(value) {
-    if (value === null || value === undefined || value === "") return "";
-    const text = String(value).trim();
-    if (!text) return "";
-    if (/^\d+(?:[.,]\d+)?$/.test(text)) return `${Math.round(Number(text.replace(",", ".")))} Min.`;
-    return text;
-  }
-
   function enhanceHomeCard(card, entry) {
-    if (!card || card.classList.contains("is-ranked")) return card;
-    const preview = card.querySelector(".home-card-preview");
-    if (!preview || preview.dataset.homeExperienceV2 === "true") return card;
-    preview.dataset.homeExperienceV2 = "true";
-
-    const media = entryMedia(entry);
-    preview.querySelector(".home-card-preview-actions")?.remove();
-    preview.querySelector(":scope > strong")?.remove();
-    preview.querySelector(".home-card-preview-meta")?.remove();
-
-    const legacyGenres = preview.querySelector(".home-card-preview-genres");
-    if (legacyGenres) {
-      legacyGenres.textContent = (media.genres || []).slice(0, 3).join(" · ")
-        || (entry.kind === "movie" ? "Film entdecken" : "Serie entdecken");
-    }
-
-    const detailMeta = document.createElement("span");
-    detailMeta.className = "home-card-hover-meta";
-    detailMeta.textContent = [
-      formatRuntime(media.runtime),
-      entry.kind === "movie" ? "Film" : entry.kind === "series" ? "Serie" : "Anime",
-    ].filter(Boolean).join(" · ");
-
-    const context = document.createElement("span");
-    context.className = "home-card-hover-context";
-    context.append(detailMeta);
-    if (legacyGenres) context.append(legacyGenres);
-
-    const openHint = document.createElement("span");
-    openHint.className = "home-card-preview-open";
-    openHint.textContent = "→";
-    openHint.title = "Details öffnen";
-
-    preview.replaceChildren(context, openHint);
+    if (!card) return card;
+    card.dataset.homeExperienceV2 = "true";
+    card.dataset.homeExperienceKind = entry.kind;
     return card;
   }
 

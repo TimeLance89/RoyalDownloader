@@ -1,19 +1,11 @@
 """
-Zwei-Tier Session-Manager für filmpalast.to (Cloudflare-Bypass):
+Zwei-Tier Session-Manager für Provider mit Browser-Recovery.
 
-  Tier 1 – curl_cffi   Impersoniert Chrome TLS/JA3/HTTP2-Fingerprint.
-                        Kein Browser nötig, sehr schnell.
-                        Besteht Cloudflare-Checks, die nur auf TLS/Header
-                        schauen (der häufigste Fall bei filmpalast.to).
-
-  Tier 2 – nodriver    Echter Chrome via Chrome DevTools Protocol (CDP).
-                        Kein WebDriver – daher von CF Bot Management nicht
-                        erkannt. Löst JS-Challenges.
-                        Wird nur gestartet wenn Tier 1 geblockt wird.
-
-  Cookie-Sharing:       Cookies aus nodriver werden in curl_cffi eingespielt
-                        und auf Disk gespeichert → nächste Session startet
-                        direkt mit gültiger CF-Clearance.
+Für SerienStream gilt zusätzlich ein gemeinsamer Session-Pfad nach dem gleichen
+Grundprinzip wie StreamFlix: curl_cffi ist der schnelle HTTP-Client, Chromium
+nutzt dasselbe persistente Provider-Profil und beide Seiten synchronisieren
+Cookies bidirektional. Eine echte interaktive Turnstile/CAPTCHA-Bestätigung
+wird dabei nicht automatisiert.
 """
 
 import asyncio
@@ -25,9 +17,14 @@ import time
 import threading
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
 
 from runtime_paths import data_dir
 from network_guard import safe_proxy_url
+from serienstream_session_identity import (
+    SERIESSTREAM_ACCEPT_LANGUAGE,
+    SERIESSTREAM_USER_AGENT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +60,6 @@ def _is_cf_challenge(html: str, status: int) -> bool:
     return False
 
 
-# Marker für eine Captcha-/Bot-Schutz-Seite (serienstream.to zeigt nach zu
-# vielen Abrufen ein Captcha statt des eigentlichen Redirects).
 _CAPTCHA_MARKERS = [
     "captcha", "hcaptcha", "recaptcha", "turnstile", "cf-chl",
     "bitte bestätige", "kein roboter", "are you human",
@@ -72,8 +67,7 @@ _CAPTCHA_MARKERS = [
 
 
 def _looks_blocked(html: str, status: int) -> bool:
-    """True wenn die Antwort wie eine Captcha-/Challenge-Seite aussieht
-    (kleine Seite mit Captcha-Markern oder ein blockierender Statuscode)."""
+    """True wenn die Antwort wie eine Captcha-/Challenge-Seite aussieht."""
     if status in (403, 429, 503):
         return True
     if not html:
@@ -85,27 +79,24 @@ def _looks_blocked(html: str, status: int) -> bool:
     return False
 
 
-# Sentinel: der Redirect wurde von einem Anti-Scraping-Gate mit Captcha
-# abgefangen (serienstream.to „redirect gate" / frameBridge + Cloudflare
-# Turnstile). Der Aufrufer pausiert den Provider; es gibt keinen Umgehungsretry.
+# Erst wenn auch die gemeinsame echte Browser-Session am interaktiven Gate
+# hängen bleibt, wird dieser Sentinel an den Circuit-Breaker weitergegeben.
 GATE_BLOCKED = "__redirect_gate_blocked__"
 
 
 class ProviderBlockedError(ConnectionError):
-    """Antwort wurde von Rate-Limit/CAPTCHA/Cloudflare blockiert.
-
-    Der Fehler ist absichtlich kein Signal für einen Browser- oder Cookie-
-    Umgehungsversuch. Der Aufrufer muss den Provider pausieren.
-    """
+    """Provider blieb auch nach dem vorgesehenen Session-Recovery blockiert."""
 
     def __init__(self, reason: str, status: int = 0):
         self.reason = str(reason or "provider_blocked")
         self.status = int(status or 0)
         super().__init__(f"Provider blockiert ({self.reason}, HTTP {self.status or 'unbekannt'})")
 
-# Marker der serienstream frameBridge-/Redirect-Gate-Seite.
-_GATE_MARKERS = ("framebridge", "episode-redirect-gate", "player-prepare-token",
-                 'window.location.replace("https:\\/\\/serienstream')
+
+_GATE_MARKERS = (
+    "framebridge", "episode-redirect-gate", "player-prepare-token",
+    'window.location.replace("https:\\/\\/serienstream',
+)
 
 
 def _looks_gated(html: str) -> bool:
@@ -116,8 +107,7 @@ def _looks_gated(html: str) -> bool:
 
 
 def _extract_redirect_target(html: str) -> Optional[str]:
-    """Zieht das Ziel aus einer Meta-Refresh-/JS-Redirect-Seite (der /r?t=-
-    Endpoint liefert genau so eine Weiterleitungsseite)."""
+    """Zieht das Ziel aus einer Meta-Refresh-/JS-Redirect-Seite."""
     if not html:
         return None
     for pat in (
@@ -134,15 +124,10 @@ def _extract_redirect_target(html: str) -> Optional[str]:
 
 
 class SessionManager:
-    """
-    Öffentliche API: nur .get(url) und .cookies (dict).
-    Alles andere (Tier-Wechsel, Cookie-Sync) läuft intern.
+    """Persistente HTTP-/Browser-Session für einen Provider."""
 
-    Wird für filmpalast.to benutzt; Default-Domain entsprechend gesetzt.
-    """
-
-    TARGET_DOMAIN = "filmpalast.to"  # Klassen-Default, wird durch __init__ überschrieben
-    IMPERSONATE = "chrome136"  # curl_cffi Browser-Profil
+    TARGET_DOMAIN = "filmpalast.to"
+    IMPERSONATE = "chrome136"
 
     def __init__(
         self,
@@ -155,25 +140,123 @@ class SessionManager:
         self._cookies: dict = self._load_cookies()
         self._curl = self._make_curl_session()
         self._last_req = 0.0
-        self._nodriver_lock = threading.Lock()  # immer nur ein Browser gleichzeitig
+        self._nodriver_lock = threading.Lock()
 
     # ------------------------------------------------------------------
-    # Öffentliche Methode
+    # SerienStream shared Cookie/WebView-style session
+    # ------------------------------------------------------------------
+    def _browser_cookie_seed(self) -> list[dict]:
+        result: list[dict] = []
+        jar = getattr(getattr(getattr(self, "_curl", None), "cookies", None), "jar", None)
+        if jar is not None:
+            try:
+                for cookie in jar:
+                    domain = str(getattr(cookie, "domain", "") or "").strip()
+                    if domain and self.TARGET_DOMAIN not in domain:
+                        continue
+                    result.append({
+                        "name": str(cookie.name),
+                        "value": str(cookie.value),
+                        "domain": domain or self.TARGET_DOMAIN,
+                        "path": str(getattr(cookie, "path", "/") or "/"),
+                        "secure": bool(getattr(cookie, "secure", True)),
+                    })
+            except TypeError:
+                result = []
+        if result:
+            return result
+        return [
+            {
+                "name": str(name),
+                "value": str(value),
+                "domain": self.TARGET_DOMAIN,
+                "path": "/",
+                "secure": True,
+            }
+            for name, value in dict(getattr(self, "_cookies", {}) or {}).items()
+        ]
+
+    def _install_shared_browser_cookies(self, cookies: list[dict]) -> list[str]:
+        installed: dict[str, str] = {}
+        cookie_jar = getattr(getattr(self, "_curl", None), "cookies", None)
+        for cookie in cookies or []:
+            name = str(cookie.get("name") or "")
+            value = str(cookie.get("value") or "")
+            domain = str(cookie.get("domain") or self.TARGET_DOMAIN)
+            path = str(cookie.get("path") or "/")
+            if not name or self.TARGET_DOMAIN not in domain:
+                continue
+            if cookie_jar is not None and hasattr(cookie_jar, "set"):
+                cookie_jar.set(
+                    name,
+                    value,
+                    domain=domain,
+                    path=path,
+                    secure=bool(cookie.get("secure", True)),
+                )
+            installed[name] = value
+        if installed:
+            if not hasattr(self, "_cookies"):
+                self._cookies = {}
+            self._cookies.update(installed)
+            if hasattr(self, "_cookie_file"):
+                self._save_cookies()
+            self._log(
+                f"SerienStream Browser-Session synchronisiert: {len(installed)} Cookie(s)."
+            )
+        return sorted(installed)
+
+    def _serienstream_browser_html(self, url: str) -> Optional[str]:
+        try:
+            from serienstream_shared_session import fetch_provider_html
+
+            result = fetch_provider_html(url, self._browser_cookie_seed())
+        except Exception as exc:
+            logger.debug("SerienStream Browser-HTML Fehler: %s", exc)
+            return None
+        self._install_shared_browser_cookies(result.cookies)
+        if result.html and not result.gated:
+            self._log("SerienStream-Seite aus gemeinsamer Chromium-Session übernommen.")
+            return result.html
+        if result.error:
+            logger.debug("SerienStream Browser-HTML: %s", result.error)
+        return None
+
+    def _serienstream_browser_redirect(self, url: str, referer: str) -> Optional[str]:
+        try:
+            from serienstream_shared_session import resolve_provider_redirect
+
+            result = resolve_provider_redirect(
+                url,
+                referer,
+                self._browser_cookie_seed(),
+            )
+        except Exception as exc:
+            logger.debug("SerienStream Browser-Redirect Fehler: %s", exc)
+            return None
+        self._install_shared_browser_cookies(result.cookies)
+        if result.target:
+            self._log(f"SerienStream Browser-Session -> {result.target[:70]}")
+            return result.target
+        if result.gated:
+            return GATE_BLOCKED
+        if result.error:
+            logger.debug("SerienStream Browser-Redirect: %s", result.error)
+        return None
+
+    # ------------------------------------------------------------------
+    # Öffentliche Methoden
     # ------------------------------------------------------------------
     def get(self, url: str, fast: bool = False) -> str:
-        """
-        Holt url und gibt den HTML-Body zurück.
-        Handled CF-Challenges transparent.
-
-        ``fast`` ist für direkt zusammengehörige Folgeseiten gedacht, etwa
-        mehrere Staffeln derselben Serie. Die Requests bleiben seriell, nutzen
-        aber keinen mehrsekündigen Zufallsabstand.
-        """
+        """Holt HTML; SerienStream kann seine persistente Browser-Session nutzen."""
         self._human_delay(fast=fast)
         html, status = self._curl_get(url)
 
         if _is_cf_challenge(html, status):
             if self.TARGET_DOMAIN == "serienstream.to":
+                browser_html = self._serienstream_browser_html(url)
+                if browser_html:
+                    return browser_html
                 reason = "rate_limit" if status == 429 else "captcha_gate"
                 raise ProviderBlockedError(reason, status)
             self._log(f"Cloudflare erkannt (Status {status}) → Browser wird gestartet…")
@@ -188,15 +271,79 @@ class SessionManager:
         return html
 
     def get_redirect_location(self, url: str, referer: Optional[str] = None) -> Optional[str]:
-        """Löst eine Weiterleitungs-URL (z.B. serienstream /r?t=<token>) zur
-        Ziel-URL auf, OHNE ihr komplett zu folgen. Reihenfolge:
-          1. curl_cffi GET (allow_redirects=False) -> Location-Header.
-          2. Meta-Refresh/JS-Redirect im Body.
-          3. Bei Captcha/Block: Browser-Fallback holt CF-/Session-Cookies auf
-             der Startseite, danach Wiederholung von Schritt 1/2.
+        """Löst eine Weiterleitungs-URL zur finalen externen Ziel-URL auf.
+
+        SerienStream versucht zuerst den schnellen HTTP-Pfad. Liefert dieser
+        keine externe Embed-URL, wird vor einem Provider-Cooldown automatisch
+        dieselbe persistente Chromium-Session benutzt: Episodenseite laden,
+        exakt den vorhandenen Hoster anklicken, Browser-Cookies zurückspielen.
+        Nur ein weiterhin interaktives Gate wird als ``GATE_BLOCKED`` gemeldet.
         """
         self._human_delay()
         ref = referer or f"https://{self.TARGET_DOMAIN}/"
+
+        def _external_http_target(candidate: str) -> Optional[str]:
+            candidate = str(candidate or "").strip()
+            if not candidate:
+                return None
+            try:
+                parsed = urlparse(candidate)
+            except ValueError:
+                return None
+            if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+                return None
+            host = parsed.hostname.casefold().rstrip(".")
+            provider_host = self.TARGET_DOMAIN.casefold().rstrip(".")
+            if host == provider_host or host.endswith("." + provider_host):
+                return None
+            if host == "challenges.cloudflare.com":
+                return None
+            return candidate
+
+        if self.TARGET_DOMAIN == "serienstream.to":
+            body = ""
+            status = 0
+            final_url = ""
+            try:
+                resp = self._curl.get(
+                    url,
+                    headers=self._browser_headers(url, ref),
+                    timeout=25,
+                    allow_redirects=True,
+                    proxies={"http": safe_proxy_url(), "https": safe_proxy_url()},
+                )
+                body = str(getattr(resp, "text", "") or "")
+                status = int(getattr(resp, "status_code", 0) or 0)
+                final_url = str(
+                    getattr(resp, "url", "")
+                    or getattr(getattr(resp, "request", None), "url", "")
+                    or ""
+                )
+            except Exception as exc:
+                logger.debug("Redirect-Kette Fehler: %s", exc)
+
+            external = _external_http_target(final_url)
+            if external:
+                return external
+
+            external = _external_http_target(_extract_redirect_target(body) or "")
+            if external:
+                return external
+
+            # Wichtig: Noch NICHT den Circuit-Breaker auslösen. Wie bei einer
+            # WebView/OkHttp-Session bekommt das persistente Chromium-Profil
+            # zuerst die Chance, denselben Token im normalen Seitenkontext zu
+            # öffnen und Cookies an den HTTP-Client zurückzugeben.
+            browser_target = self._serienstream_browser_redirect(url, ref)
+            if browser_target == GATE_BLOCKED:
+                return GATE_BLOCKED
+            external = _external_http_target(browser_target or "")
+            if external:
+                return external
+
+            if _looks_gated(body) or _looks_blocked(body, status):
+                return GATE_BLOCKED
+            return None
 
         def _probe() -> tuple[Optional[str], str, int]:
             try:
@@ -219,16 +366,11 @@ class SessionManager:
         target = _extract_redirect_target(body)
         if target:
             return target
-        # Anti-Scraping-Gate mit Captcha (frameBridge/Turnstile)? -> Signal,
-        # damit der Aufrufer sofort aufhört zu hämmern (kein Cookie-Retry hilft).
         if _looks_gated(body):
             return GATE_BLOCKED
 
         if _looks_blocked(body, status):
-            if self.TARGET_DOMAIN == "serienstream.to":
-                return GATE_BLOCKED
             self._log(f"Captcha/Block bei Redirect (Status {status}) → Browser holt Clearance …")
-            # Challenge auf der Startseite lösen -> gültige Cookies -> retry.
             self._nodriver_get(f"https://{self.TARGET_DOMAIN}/")
             loc, body, status = _probe()
             if loc and loc.startswith("http"):
@@ -246,7 +388,6 @@ class SessionManager:
     def _make_curl_session(self):
         from curl_cffi import requests as cffi_req
         session = cffi_req.Session(impersonate=self.IMPERSONATE)
-        # Gespeicherte Cookies einsetzen
         for name, value in self._cookies.items():
             session.cookies.set(name, value, domain=self.TARGET_DOMAIN)
         return session
@@ -269,8 +410,9 @@ class SessionManager:
     @staticmethod
     def _browser_headers(url: str, referer: str) -> dict:
         return {
+            "User-Agent": SERIESSTREAM_USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Language": SERIESSTREAM_ACCEPT_LANGUAGE,
             "Accept-Encoding": "gzip, deflate, br",
             "Cache-Control": "max-age=0",
             "Referer": referer,
@@ -285,7 +427,7 @@ class SessionManager:
         }
 
     # ------------------------------------------------------------------
-    # Tier 2: nodriver  (echter Chrome, kein WebDriver)
+    # Tier 2: nodriver (andere Provider)
     # ------------------------------------------------------------------
     def _nodriver_get(self, url: str) -> Optional[str]:
         """Blockierender Wrapper um den async nodriver-Code."""
@@ -315,56 +457,50 @@ class SessionManager:
     async def _nodriver_async(self, url: str) -> Optional[str]:
         import nodriver as uc
         import nodriver_patch
-        nodriver_patch.apply()  # nodriver-Listener-Busy-Loop-Fix (siehe Modul)
+        nodriver_patch.apply()
 
         self._log("Browser startet (bitte Fenster nicht schließen)…")
 
+        browser_args = [
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-client-side-phishing-detection",
+        ]
+        proxy = safe_proxy_url()
+        if proxy:
+            browser_args.append(f"--proxy-server={proxy}")
         browser = await uc.start(
             headless=True,
             lang="de-DE",
             sandbox=True,
-            browser_args=[
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-background-networking",
-                "--disable-client-side-phishing-detection",
-                f"--proxy-server={safe_proxy_url()}",
-            ],
+            browser_args=browser_args,
         )
 
         html = None
         try:
-            # Erst Startseite besuchen (menschliches Muster)
             home = f"https://{self.TARGET_DOMAIN}/"
             if url != home:
                 start_tab = await browser.get(home)
                 await asyncio.sleep(random.uniform(1.5, 3.0))
-                # Warte bis CF-Challenge auf Startseite weg ist
                 html_home = await start_tab.get_content()
                 if _is_cf_challenge(html_home, 200):
                     self._log("CF-Challenge auf Startseite – warte auf Lösung…")
-                    html_home = await self._wait_for_cf(start_tab, timeout=30)
+                    await self._wait_for_cf(start_tab, timeout=30)
 
-            # Ziel-URL navigieren
             tab = await browser.get(url)
             await asyncio.sleep(random.uniform(1.0, 2.5))
-
-            # Warte bis Challenge gelöst ist
             html = await tab.get_content()
             if _is_cf_challenge(html, 200):
                 self._log("CF-Challenge auf Zielseite – warte auf Lösung…")
                 html = await self._wait_for_cf(tab, timeout=40)
-
-            # Cookies aus dem Browser holen und persistieren
             await self._steal_cookies(browser)
-
         finally:
             browser.stop()
 
         return html
 
     async def _wait_for_cf(self, tab, timeout: int = 30) -> str:
-        """Pollt den Tab-Inhalt bis die CF-Challenge verschwunden ist."""
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             await asyncio.sleep(1.0)
@@ -378,7 +514,6 @@ class SessionManager:
     async def _steal_cookies(self, browser):
         """Cookies aus dem Browser in curl_cffi-Session und Disk übertragen."""
         try:
-            # CDP-Aufruf für alle Cookies
             import nodriver.cdp.network as cdp_net
             raw = await browser.connection.send(cdp_net.get_all_cookies())
             new: dict = {}
@@ -390,21 +525,18 @@ class SessionManager:
             if new:
                 self._cookies.update(new)
                 self._save_cookies()
-                # curl_cffi-Session neu initialisieren mit frischen Cookies
                 self._curl = self._make_curl_session()
                 self._log(f"{len(new)} neue Cookies gesichert – nächste Anfrage ohne Browser.")
         except Exception as exc:
             logger.warning("Cookie-Extraktion fehlgeschlagen: %s", exc)
 
     # ------------------------------------------------------------------
-    # Rate-Limiting (menschliches Timing)
+    # Rate-Limiting
     # ------------------------------------------------------------------
     def _human_delay(self, fast: bool = False):
         elapsed = time.monotonic() - self._last_req
-        # Zusammengehörige Staffel-Seiten zügig, aber weiterhin seriell laden.
-        # Einzelaufrufe behalten das vorsichtige menschliche Timing.
         delay = random.uniform(0.15, 0.35) if fast else random.uniform(0.8, 2.0)
-        if not fast and random.random() < 0.1:  # 10% Chance auf längere Pause
+        if not fast and random.random() < 0.1:
             delay += random.uniform(2.0, 5.0)
         if elapsed < delay:
             time.sleep(delay - elapsed)
@@ -430,7 +562,6 @@ class SessionManager:
             logger.warning("Cookie-Speicherung fehlgeschlagen: %s", exc)
 
     def clear_cookies(self):
-        """Cookies löschen (z. B. bei Login-Problemen)."""
         self._cookies = {}
         if self._cookie_file.exists():
             self._cookie_file.unlink()

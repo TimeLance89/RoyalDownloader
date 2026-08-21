@@ -62,8 +62,13 @@ const api = {
 
   genres() { return this.get("/api/genres"); },
   movies(params) {
+    const request = this.get("/api/movies?" + new URLSearchParams(params));
+    // Die provider-first Filmsuche fragt bewusst alle aktiven Quellen ab. Sie
+    // darf nicht nach 15 Sekunden im Browser verworfen werden, während der
+    // Server noch korrekt weiterarbeitet. Browse-Kataloge behalten ihr Budget.
+    if (params?.mode === "search") return request;
     return this._within(
-      this.get("/api/movies?" + new URLSearchParams(params)),
+      request,
       15_000,
       "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter.",
     );
@@ -336,7 +341,7 @@ function loadRoyalHomeExperienceV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/home_experience_v2.js?v=royal-20260809-1";
+  script.src = "/home_experience_v2.js?v=royal-20260811-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });
@@ -354,7 +359,7 @@ function loadRoyalTasteProfileV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/taste_v2.js?v=royal-20260808-1";
+  script.src = "/taste_v2.js?v=royal-20260811-1";
   script.async = false;
   script.dataset.tasteProfileV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalHomeExperienceV2, 0), { once: true });
@@ -367,4 +372,56 @@ if (document.readyState === "loading") {
   }, { once: true });
 } else {
   window.setTimeout(loadRoyalTasteProfileV2, 0);
+}
+
+function loadRoyalGlobalSearchRuntime() {
+  if (document.querySelector('script[data-royal-global-search-runtime]')) return;
+  const script = document.createElement("script");
+  script.src = "/global-search-runtime.js?v=royal-20260817-1";
+  script.async = false;
+  script.setAttribute("data-royal-global-search-runtime", "true");
+  document.body.appendChild(script);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    window.setTimeout(loadRoyalGlobalSearchRuntime, 0);
+  }, { once: true });
+} else {
+  window.setTimeout(loadRoyalGlobalSearchRuntime, 0);
+}
+
+function loadRoyalStorageMoveJobs() {
+  if (document.querySelector('script[data-royal-storage-move-jobs]')) return;
+  const script = document.createElement("script");
+  script.src = "/storage-move-jobs.js?v=royal-20260817-1";
+  script.async = false;
+  script.setAttribute("data-royal-storage-move-jobs", "true");
+  document.body.appendChild(script);
+}
+
+function loadRoyalStorageManager() {
+  const existing = document.querySelector('script[data-royal-storage-manager]');
+  if (existing) {
+    if (window.__royalStorageManagerInstalled) {
+      window.setTimeout(loadRoyalStorageMoveJobs, 0);
+    } else {
+      existing.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
+    }
+    return;
+  }
+  const script = document.createElement("script");
+  script.src = "/storage-manager.js?v=royal-20260817-2";
+  script.async = false;
+  script.setAttribute("data-royal-storage-manager", "true");
+  script.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
+  document.body.appendChild(script);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    window.setTimeout(loadRoyalStorageManager, 0);
+  }, { once: true });
+} else {
+  window.setTimeout(loadRoyalStorageManager, 0);
 }

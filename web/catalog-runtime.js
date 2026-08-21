@@ -28,7 +28,12 @@ function scheduleResultPoster(image, coverCandidates) {
     else image.remove();
   });
   if (resultPosterObserver) resultPosterObserver.observe(image);
-  else load();
+  // Infinite-Scroll begrenzt bereits, welche Katalogseiten überhaupt im DOM
+  // existieren. Für eine tatsächlich geladene 32er-Seite bringt ein zweites
+  // bildweises Lazy-Gate nur sichtbare Platzhalter und minutenlanges Nachladen.
+  // Deshalb die kleinen w500-Thumbnails sofort starten; neuere Seiten werden
+  // weiterhin erst geladen, wenn der Katalog-Sentinel die nächste Seite holt.
+  load();
 }
 
 function discardObservedResultPosters(container) {

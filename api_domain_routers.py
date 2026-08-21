@@ -7,11 +7,25 @@ public contract unchanged and makes later source extraction mechanical.
 
 from fastapi import APIRouter, FastAPI
 
+from api_automation_policy_router import router as automation_policy_router
+from api_serienstream_verification_router import router as serienstream_verification_router
+from api_storage_router import router as storage_router
+
+# Administration already owns the storage router. Attach supplemental admin
+# surfaces before the legacy composition root migrates routes into this owner.
+for supplemental_router in (
+    serienstream_verification_router,
+    automation_policy_router,
+):
+    for route in supplemental_router.routes:
+        if route not in storage_router.routes:
+            storage_router.routes.append(route)
+
 DOMAIN_ROUTERS = {
     "discovery": APIRouter(tags=["discovery"]),
     "queue": APIRouter(tags=["queue"]),
     "library": APIRouter(tags=["library"]),
-    "administration": APIRouter(tags=["administration"]),
+    "administration": storage_router,
     "live_updates": APIRouter(tags=["live-updates"]),
 }
 
@@ -49,9 +63,14 @@ def _domain(path: str) -> str | None:
 
 
 def register_domain_router(name: str, router: APIRouter) -> None:
-    """Replace a transitional owner with its extracted production router."""
+    """Replace a transitional owner while preserving supplemental domain routes."""
     if name not in DOMAIN_ROUTERS:
         raise KeyError(f"Unknown API domain: {name}")
+    existing = DOMAIN_ROUTERS[name]
+    if existing is not router:
+        for route in existing.routes:
+            if route not in router.routes:
+                router.routes.append(route)
     DOMAIN_ROUTERS[name] = router
 
 

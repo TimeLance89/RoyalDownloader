@@ -8,7 +8,7 @@ RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf
 
 
 def test_taste_v2_is_loaded_after_legacy_discovery_installers():
-    assert 'script.src = "/taste_v2.js?v=royal-20260808-1"' in API
+    assert 'script.src = "/taste_v2.js?v=royal-20260811-1"' in API
     assert "window.setTimeout(loadRoyalTasteProfileV2, 0)" in API
 
 
@@ -29,7 +29,7 @@ def test_manual_shuffle_penalizes_current_session_exposure():
 def test_home_cards_offer_direct_not_for_me_feedback_and_reason():
     assert 'control.setAttribute("aria-label", "Nicht für mich")' in TASTE
     assert 'action: "dismiss"' in TASTE
-    assert "Passt: ${positives.join" in TASTE
+    assert 'card.dataset.tasteReason = positives.join(" · ")' in TASTE
 
 
 def test_blocking_uses_logical_media_identity_as_well_as_provider_slug():

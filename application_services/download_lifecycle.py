@@ -91,6 +91,18 @@ def _watchlist_retry_allowed(slug: str) -> bool:
     return True
 
 
+def _ensure_jellyfin_media_readable(path: Path) -> None:
+    """Repariert auch bereits vorhandene Dateien aus älteren Downloads."""
+    try:
+        media_path = Path(path)
+        if media_path.is_file():
+            media_path.chmod(media_path.stat().st_mode | 0o044)
+    except OSError:
+        # NAS-ACLs können chmod ablehnen; der anschließende Scan bleibt
+        # trotzdem sinnvoll und liefert Jellyfin die eigentliche Diagnose.
+        pass
+
+
 def on_job_done(
     ok: bool,
     msg: str,
@@ -137,6 +149,13 @@ def on_job_done(
             f"Demo abgeschlossen: {label} · keine Datei gespeichert"
             if demo_mode else f"Fertig: {label} -> {out_path}"
         )
+        if not demo_mode:
+            _ensure_jellyfin_media_readable(out_path)
+            # Nicht auf eine vollständig leere Queue warten: Dauerhafte
+            # Seerr-/Abo-Queues können sonst fertige Dateien minutenlang vor
+            # Jellyfin verbergen. Die Refresh-Funktion fasst Parallelaufrufe
+            # bereits zusammen.
+            threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
     else:
         log(f"Fehler {label}: {msg}", "err")
     terminal_job = None
@@ -241,6 +260,9 @@ def _refresh_jellyfin_after_download_once():
                     return
 
             get_jellyfin_library(force=True)
+            # Die Film-Badges verwenden bewusst einen separaten, kleineren
+            # Index. Auch dieser muss dem laufenden Jellyfin-Import folgen.
+            get_jellyfin_movie_identities(force=True)
             # Der globale Bestand und der benutzerspezifische Gesehen-Status
             # dürfen sich nicht gegenseitig überschreiben.
             get_jellyfin_episodes(force=True)
@@ -424,8 +446,6 @@ def _on_queue_done_locked():
     successful_jobs = len(state.done_slugs)
     failed_jobs = max(0, state.done_jobs - successful_jobs)
     log(f"Downloadlauf beendet: {successful_jobs} erfolgreich, {failed_jobs} fehlgeschlagen.")
-    if successful_jobs and not appconfig.demo_mode_enabled():
-        threading.Thread(target=refresh_jellyfin_after_download, daemon=True).start()
     broadcast({
         "type": "queue_done",
         "done_jobs": state.done_jobs,

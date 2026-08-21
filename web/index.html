@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260810-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260811-7">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -375,32 +375,80 @@
         </div>
         <div id="fp-search-suggestions" class="smart-search-suggestions" hidden></div>
       </section>
-      <section class="genre-browser" aria-labelledby="genre-browser-title">
-        <div class="genre-browser-summary">
-          <div class="genre-browser-heading">
-            <span class="genre-browser-kicker">GENRE-ATLAS</span>
-            <div class="genre-browser-title-row">
-              <strong id="genre-browser-title">Welcher Filmkosmos darf es sein?</strong>
-              <span id="genre-active">Alle Filme</span>
-            </div>
+      <section class="movie-filter-studio" aria-labelledby="movie-filter-title">
+        <header class="movie-filter-head">
+          <div>
+            <span class="movie-filter-kicker">FILMREGIE</span>
+            <h2 id="movie-filter-title">Was soll heute laufen?</h2>
+            <p>Mehrere Kriterien kombinieren – Royal grenzt das Programm sofort ein.</p>
           </div>
-          <div class="genre-browser-actions">
-            <span id="genre-count">Genres werden geladen …</span>
-            <button id="genre-random" class="genre-action" type="button" disabled>
-              <span aria-hidden="true">↝</span> Überrasch mich
-            </button>
-            <button id="genre-toggle" class="genre-action" type="button" aria-expanded="false" disabled>
-              <span class="genre-toggle-label">Alle Genres</span>
-              <span class="genre-toggle-icon" aria-hidden="true">⌄</span>
-            </button>
+          <div class="movie-filter-result" aria-live="polite">
+            <span id="genre-active">Alle Filme</span>
+            <strong id="genre-count">Filter werden geladen …</strong>
           </div>
+        </header>
+        <div class="movie-filter-controls">
+          <label class="movie-filter-field">
+            <span>Genre</span>
+            <select id="movie-filter-genre" aria-label="Nach Genre filtern">
+              <option value="Alle Genres">Alle Genres</option>
+            </select>
+          </label>
+          <label class="movie-filter-field">
+            <span>Zeitraum</span>
+            <select id="movie-filter-period" aria-label="Nach Erscheinungszeitraum filtern">
+              <option value="all">Alle Jahre</option>
+              <option value="2020s">Seit 2020</option>
+              <option value="2010s">2010–2019</option>
+              <option value="2000s">2000–2009</option>
+              <option value="classic">Vor 2000</option>
+            </select>
+          </label>
+          <label class="movie-filter-field">
+            <span>Bewertung</span>
+            <select id="movie-filter-rating" aria-label="Nach Mindestbewertung filtern">
+              <option value="all">Beliebig</option>
+              <option value="6">Ab 6,0</option>
+              <option value="7">Ab 7,0</option>
+              <option value="8">Ab 8,0</option>
+            </select>
+          </label>
+          <label class="movie-filter-field">
+            <span>Bibliothek</span>
+            <select id="movie-filter-availability" aria-label="Nach Bibliotheksstatus filtern">
+              <option value="all">Alles</option>
+              <option value="owned">In Jellyfin</option>
+              <option value="missing">Noch nicht in Jellyfin</option>
+              <option value="queued">In der Queue</option>
+            </select>
+          </label>
+          <label class="movie-filter-field">
+            <span>Sprache</span>
+            <select id="movie-filter-language" aria-label="Nach Inhaltssprache filtern">
+              <option value="all">Alle Sprachen</option>
+              <option value="de">Deutsch verfügbar</option>
+              <option value="en">Englisch verfügbar</option>
+            </select>
+          </label>
+          <label class="movie-filter-field is-sort">
+            <span>Sortierung</span>
+            <select id="movie-filter-sort" aria-label="Filme sortieren">
+              <option value="default">Royal-Reihenfolge</option>
+              <option value="newest">Neueste zuerst</option>
+              <option value="rating">Beste Bewertung</option>
+              <option value="title">Titel A–Z</option>
+            </select>
+          </label>
         </div>
-        <div id="genre-filter" class="genre-options" aria-label="Filmgenre auswählen">
-          <button class="genre-chip is-active" type="button" data-genre="Alle Genres" aria-pressed="true">
-            <span class="genre-chip-mark" aria-hidden="true">◎</span>
-            <span class="genre-chip-copy"><strong>Alle Filme</strong><small>Das ganze Programm</small></span>
-          </button>
-        </div>
+        <footer class="movie-filter-footer">
+          <div id="movie-filter-chips" class="movie-filter-chips" aria-label="Aktive Filter">
+            <span>Keine Einschränkungen</span>
+          </div>
+          <div class="movie-filter-actions">
+            <button id="genre-random" type="button" disabled><span aria-hidden="true">↝</span> Zufallsmix</button>
+            <button id="movie-filter-reset" type="button" disabled>Zurücksetzen</button>
+          </div>
+        </footer>
       </section>
 
       <section class="movie-subscriptions" aria-labelledby="movie-subscriptions-title">
@@ -1983,23 +2031,25 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260810-2"></script>
+<script src="/api.js?v=royal-20260811-1"></script>
 <script src="/i18n.js?v=royal-20260809-1"></script>
-<script src="/store.js?v=royal-20260810-1"></script>
+<script src="/store.js?v=royal-20260811-2"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260810-2"></script>
-<script src="/screens/home.js?v=royal-20260810-6"></script>
+<script src="/home_card_dock.js?v=royal-20260811-10"></script>
+<script src="/screens/home.js?v=royal-20260811-4"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
-<script src="/screens/movies.js?v=royal-20260811-1"></script>
-<script src="/screens/series.js?v=royal-20260810-3"></script>
+<script src="/screens/movies.js?v=royal-20260811-5"></script>
+<script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
+<script src="/screens/series.js?v=royal-20260811-2"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/library.js?v=royal-20260809-1"></script>
 <script src="/screens/notifications.js?v=royal-20260809-1"></script>
 <script src="/screens/settings.js?v=royal-20260809-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
-<script src="/screens/setup.js?v=royal-20260810-3"></script>
-<script src="/app.js?v=royal-20260810-12"></script>
+<script src="/screens/setup.js?v=royal-20260811-4"></script>
+<script src="/app.js?v=royal-20260811-13"></script>
 </body>
 </html>

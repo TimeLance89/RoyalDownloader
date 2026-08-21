@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 
 import server as app
@@ -54,6 +55,20 @@ def test_commit_never_overwrites_existing_media(tmp_path: Path):
     assert first_target.read_bytes() == b"first"
     assert second_target not in {target, first_target}
     assert second_target.read_bytes() == b"second"
+
+
+def test_committed_media_is_readable_by_jellyfin_user(tmp_path: Path):
+    source = tmp_path / "staged.part"
+    source.write_bytes(b"movie")
+    source.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    target = tmp_path / "The.Return.2006.mp4"
+    job = DownloadJob("https://example.com/video.mp4", "mp4", target)
+
+    committed = job._commit_file(source, target)
+
+    mode = committed.stat().st_mode
+    assert mode & stat.S_IRGRP
+    assert mode & stat.S_IROTH
 
 
 def test_staging_is_isolated_per_attempt(tmp_path: Path):

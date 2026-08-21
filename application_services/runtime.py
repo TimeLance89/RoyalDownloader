@@ -36,6 +36,7 @@ _POST_SERVICE_MODULES = (
     "application_services.download_storage_guard",
     "application_services.taste_recommender_runtime",
     "application_services.daily_top",
+    "application_services.smart_automation",
 )
 
 

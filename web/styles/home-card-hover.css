@@ -1,241 +1,432 @@
-/* ── Home cards: cinematic focus without turning a card into a detail page ── */
-/* The resting state is untouched. Hover adds one compact context rail, a clear
-   details affordance and a restrained Royal-red focus edge. */
+/* Royal Cinema Dock: a floating, edge-safe action surface for Home cards. */
 
 .home-card-primary-action {
   position: absolute;
-  inset: 0;
   z-index: 7;
+  inset: 0;
   width: 100%;
   height: 100%;
   padding: 0;
+  color: inherit;
+  background: transparent;
   border: 0;
   border-radius: inherit;
-  background: transparent;
-  color: inherit;
   cursor: pointer;
 }
 
-.home-card:focus-within {
-  z-index: 20;
+#tab-home .home-card:focus-within { z-index: 20; }
+
+#tab-home .home-card:focus-within .home-card-art {
+  box-shadow: 0 0 0 2px #f5f2e9, 0 18px 38px -18px #000;
 }
 
-.home-card:focus-within .home-card-art {
-  box-shadow: 0 0 0 3px #fff, 0 26px 46px -18px #000;
+.home-card-dock[hidden] { display: none !important; }
+
+.home-card-dock {
+  --dock-ink: #0b0c0f;
+  --dock-panel: #15171c;
+  --dock-paper: #f5f2e9;
+  --dock-muted: #9ca2ad;
+  --dock-red: #d7192d;
+  --dock-mint: #63d99b;
+  position: fixed;
+  z-index: 240;
+  overflow: hidden;
+  color: var(--dock-paper);
+  background: var(--dock-panel);
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 10px;
+  box-shadow:
+    0 30px 70px -20px rgba(0, 0, 0, .98),
+    0 0 0 1px rgba(0, 0, 0, .45);
+  opacity: 0;
+  transform: translateY(9px) scale(.975);
+  transform-origin: 50% 18%;
+  pointer-events: none;
+  transition:
+    opacity .17s ease,
+    transform .22s cubic-bezier(.2, .82, .2, 1);
+  will-change: opacity, transform;
+  cursor: pointer;
+}
+
+.home-card-dock.is-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.home-card-dock.is-leaving {
+  opacity: 0;
+  transform: translateY(5px) scale(.985);
+  pointer-events: none;
+  transition-duration: .15s;
+}
+
+/* Rail navigation remains above the floating Dock as a final collision guard. */
+#tab-home .home-rail-controls button {
+  z-index: 260;
+}
+
+.home-card-dock-visual {
+  position: relative;
+  display: grid;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 70% 26%, rgba(215, 25, 45, .2), transparent 34%),
+    #202228;
+}
+
+.home-card-dock-visual::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7, 8, 11, .03) 35%, rgba(7, 8, 11, .72) 100%),
+    linear-gradient(90deg, rgba(7, 8, 11, .12), transparent 40%);
+  pointer-events: none;
+}
+
+.home-card-dock-visual img {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.04) contrast(1.025);
+  transform: scale(1.015);
+  transition: opacity .22s ease;
+}
+
+.home-card-dock-fallback {
+  color: #686c76;
+  font: 800 38px/1 "Archivo", sans-serif;
+  transition: opacity .22s ease;
+}
+
+.home-card-dock-preview {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #050505;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .24s ease;
+}
+
+.home-card-dock.is-previewing .home-card-dock-preview { opacity: 1; }
+
+.home-card-dock.is-previewing .home-card-dock-visual > img,
+.home-card-dock.is-previewing .home-card-dock-fallback { opacity: 0; }
+
+.home-card-dock-mute {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  place-items: center;
+  color: #fff;
+  background: rgba(11, 12, 15, .78);
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 50%;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.home-card-dock-mute[hidden] { display: none; }
+
+.home-card-dock-mute:hover,
+.home-card-dock-mute:focus-visible {
+  background: var(--dock-red);
+  border-color: #f04a5b;
+  outline: none;
+}
+
+.home-card-dock-visual-top {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.home-card-dock-kind {
+  padding: 4px 7px;
+  color: #fff;
+  background: rgba(11, 12, 15, .78);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 4px;
+  font: 750 8px/1 "JetBrains Mono", monospace;
+  letter-spacing: .11em;
+  backdrop-filter: blur(8px);
+}
+
+.home-card-dock .catalog-jellyfin-badge {
+  position: static;
+  min-width: 0;
+  opacity: 1;
+  backdrop-filter: blur(8px);
+}
+
+.home-card-dock-panel {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-height: 126px;
+  padding: 13px 14px 11px 17px;
+  background:
+    linear-gradient(90deg, rgba(215, 25, 45, .16), transparent 5px),
+    var(--dock-panel);
+}
+
+.home-card-dock-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 17px;
+  width: 42px;
+  height: 2px;
+  background: var(--dock-red);
+  box-shadow: 48px 0 0 rgba(215, 25, 45, .34), 68px 0 0 rgba(215, 25, 45, .18);
+}
+
+.home-card-dock-heading {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.home-card-dock-heading strong {
+  overflow: hidden;
+  color: var(--dock-paper);
+  font: 720 15px/1.16 "Archivo", sans-serif;
+  letter-spacing: -.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-dock-meta {
+  overflow: hidden;
+  color: var(--dock-muted);
+  font: 650 9px/1.3 "JetBrains Mono", monospace;
+  letter-spacing: .015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.home-card-dock-action {
+  display: inline-flex;
+  min-width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0;
+  color: var(--dock-paper);
+  background: #202229;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 999px;
+  font: 720 10px/1 "DM Sans", sans-serif;
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.home-card-dock-action.is-primary {
+  min-width: 91px;
+  padding: 0 14px 0 10px;
+  color: #111318;
+  background: var(--dock-paper);
+  border-color: var(--dock-paper);
+}
+
+.home-card-dock-action-icon {
+  display: grid;
+  width: 20px;
+  place-items: center;
+  font: 750 17px/1 "DM Sans", sans-serif;
+}
+
+.home-card-dock-action:hover:not(:disabled),
+.home-card-dock-action:focus-visible {
+  outline: none;
+  background: #30333c;
+  border-color: rgba(255, 255, 255, .7);
+  transform: translateY(-1px);
+}
+
+.home-card-dock-action.is-primary:hover:not(:disabled),
+.home-card-dock-action.is-primary:focus-visible {
+  color: #fff;
+  background: var(--dock-red);
+  border-color: #f04a5b;
+}
+
+.home-card-dock-action.is-active {
+  color: var(--dock-mint);
+  background: rgba(40, 112, 77, .22);
+  border-color: rgba(99, 217, 155, .65);
+}
+
+.home-card-dock-action.is-dismiss:hover:not(:disabled),
+.home-card-dock-action.is-dismiss:focus-visible {
+  color: #fff;
+  background: rgba(120, 17, 31, .78);
+  border-color: rgba(240, 74, 91, .78);
+}
+
+.home-card-dock-action:disabled {
+  opacity: .48;
+  cursor: wait;
+}
+
+.home-card-dock-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #d9dbe0;
+  font: 650 10px/1.25 "DM Sans", sans-serif;
+}
+
+.home-card-dock-context > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-dock-reason {
+  color: #d8b766;
+}
+
+.home-card-dock-context > span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin: 0 7px 2px 0;
+  background: var(--dock-red);
+  border-radius: 50%;
+}
+
+.home-card-dock-status {
+  min-height: 11px;
+  overflow: hidden;
+  color: #858b96;
+  font: 600 8px/1.3 "JetBrains Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (hover: hover) and (pointer: fine) {
   #tab-home .home-card {
-    transition: transform .24s cubic-bezier(.2, .8, .2, 1), z-index 0s .24s;
+    transition: transform .2s cubic-bezier(.2, .8, .2, 1), filter .18s ease;
   }
 
   #tab-home .home-card:hover,
-  #tab-home .home-card:focus-visible {
+  #tab-home .home-card:focus-within {
     z-index: 20;
-    transform: translateY(-5px) scale(1.028);
-    transition-delay: 0s;
-  }
-
-  #tab-home .is-spotlight-track .home-card:hover,
-  #tab-home .is-spotlight-track .home-card:focus-visible {
-    transform: translateY(-3px) scale(1.014);
+    transform: translateY(-2px) scale(1.012);
   }
 
   #tab-home .home-card:hover .home-card-art,
-  #tab-home .home-card:focus-visible .home-card-art {
-    border-color: rgba(255, 255, 255, .3);
-    box-shadow:
-      inset 0 -3px 0 #e50914,
-      0 22px 48px -16px rgba(0, 0, 0, .96),
-      0 0 0 1px rgba(255, 255, 255, .04);
+  #tab-home .home-card:focus-within .home-card-art {
+    border-color: rgba(255, 255, 255, .2);
+    box-shadow: 0 18px 38px -18px #000;
     transform: none;
   }
 
   #tab-home .home-card-art img {
-    transition: transform .38s cubic-bezier(.2, .8, .2, 1), filter .24s ease;
+    transition: filter .2s ease, transform .28s cubic-bezier(.2, .8, .2, 1);
   }
 
   #tab-home .home-card:hover .home-card-art img,
-  #tab-home .home-card:focus-visible .home-card-art img {
-    filter: saturate(1.04) contrast(1.03) brightness(.84);
-    transform: scale(1.025);
+  #tab-home .home-card:focus-within .home-card-art img {
+    filter: saturate(1.025) contrast(1.02) brightness(.93);
+    transform: scale(1.018);
   }
 
-  #tab-home .home-card-art::after {
-    background: linear-gradient(180deg, transparent 50%, rgba(4, 5, 7, .12) 61%, rgba(4, 5, 7, .86) 100%);
-    transition: background .22s ease;
+  #tab-home .home-card.is-dock-open .home-card-art > :not(img) {
+    opacity: 0;
   }
 
-  #tab-home .home-card:hover .home-card-art::after,
-  #tab-home .home-card:focus-visible .home-card-art::after {
-    background: linear-gradient(180deg, transparent 34%, rgba(4, 5, 7, .16) 52%, rgba(4, 5, 7, .91) 100%);
-  }
-
-  /* Title and year/rating stay exactly where they are in the resting card. */
-  #tab-home .home-card-overlay {
-    z-index: 7;
-    transition: opacity .16s ease;
-  }
-
-  #tab-home .home-card:hover .home-card-overlay,
-  #tab-home .home-card:focus-visible .home-card-overlay {
-    opacity: 1;
+  /* Top 10 is already a distinct ranked presentation. It deliberately keeps
+     its resting appearance instead of opening or visually reacting on hover. */
+  #tab-home .home-card.is-ranked:hover {
+    z-index: 1;
+    filter: none;
     transform: none;
   }
 
-  #tab-home .home-card:not(.is-ranked) .home-card-preview {
-    display: grid !important;
-    position: absolute;
-    z-index: 6;
-    inset: auto 12px 48px 12px !important;
-    width: auto;
-    height: auto;
-    min-height: 30px;
-    grid-template-columns: minmax(0, 1fr) 30px;
-    align-items: end;
-    gap: 10px;
-    padding: 0;
-    overflow: visible;
-    color: #fff;
-    background: transparent !important;
-    border: 0;
-    border-radius: 0;
+  #tab-home .home-card.is-ranked:hover .home-card-art {
+    border-color: transparent;
     box-shadow: none;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(7px);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    transform: none;
+  }
+
+  #tab-home .home-card.is-ranked:hover .home-card-art img {
+    filter: none;
+    transform: none;
+  }
+
+  #tab-home .home-card.is-ranked:hover .home-card-overlay {
+    opacity: 1;
+  }
+
+  /* The desktop feedback source stays available to keyboard users; the Dock
+     exposes the same real action without leaving a stray icon over artwork. */
+  #tab-home .home-card .taste-v2-dismiss:not(:focus) {
+    opacity: 0 !important;
     pointer-events: none;
-    transition: opacity .16s ease, transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s .17s;
   }
 
-  #tab-home .home-card:not(.is-ranked):hover .home-card-preview,
-  #tab-home .home-card:not(.is-ranked):focus-visible .home-card-preview {
-    opacity: 1;
-    visibility: visible;
-    transform: none;
-    transition-delay: .04s, .04s, 0s;
-  }
-
-  #tab-home .home-card.is-ranked .home-card-preview { display: none !important; }
-
-  #tab-home .home-card-preview-actions,
-  #tab-home .home-card-preview > strong,
-  #tab-home .home-card-preview-meta { display: none !important; }
-
-  #tab-home .home-card-hover-context {
-    display: grid;
-    min-width: 0;
-    gap: 3px;
-  }
-
-  #tab-home .home-card-hover-meta,
-  #tab-home .home-card-preview-genres {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  #tab-home .home-card-hover-meta {
-    color: rgba(255, 255, 255, .68);
-    font: 700 9px/1.2 "JetBrains Mono", monospace;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-  }
-
-  #tab-home .home-card-preview-genres {
-    color: rgba(255, 255, 255, .94);
-    font: 700 11px/1.25 "DM Sans", sans-serif;
-    letter-spacing: .005em;
-  }
-
-  #tab-home .home-card-preview-open {
-    display: grid;
-    width: 30px;
-    height: 30px;
-    place-items: center;
-    align-self: end;
-    color: #fff;
-    background: rgba(229, 9, 20, .88);
-    border: 1px solid rgba(255, 255, 255, .35);
-    border-radius: 50%;
-    box-shadow: 0 7px 18px rgba(0, 0, 0, .34);
-    font: 700 17px/1 "DM Sans", sans-serif;
-  }
-
-  #tab-home .is-spotlight-track .home-card-preview {
-    inset: auto 18px 62px 18px !important;
-    grid-template-columns: minmax(0, 1fr) 36px;
-    gap: 14px;
-  }
-
-  #tab-home .is-spotlight-track .home-card-hover-meta { font-size: 10px; }
-  #tab-home .is-spotlight-track .home-card-preview-genres { font-size: 13px; }
-  #tab-home .is-spotlight-track .home-card-preview-open {
-    width: 36px;
-    height: 36px;
-    font-size: 20px;
-  }
-
-  #tab-home .home-card:hover .home-card-type,
-  #tab-home .home-card:focus-visible .home-card-type,
-  #tab-home .home-card:hover .catalog-jellyfin-badge,
-  #tab-home .home-card:focus-visible .catalog-jellyfin-badge { opacity: .96; }
-
-  #tab-home .home-card .taste-v2-dismiss {
-    top: 42px;
-    right: 10px;
-    width: 24px;
-    height: 24px;
-    color: rgba(255, 255, 255, .88);
-    background: rgba(8, 10, 14, .62);
-    border-color: rgba(255, 255, 255, .24);
-    font-size: 14px;
-    opacity: 0;
-    transform: translateY(-2px) scale(.96);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
-  }
-
-  #tab-home .home-card:hover .taste-v2-dismiss,
-  #tab-home .home-card:focus-within .taste-v2-dismiss,
   #tab-home .home-card .taste-v2-dismiss:focus {
-    opacity: .78;
-    transform: none;
-  }
-
-  #tab-home .home-card .taste-v2-dismiss:hover,
-  #tab-home .home-card .taste-v2-dismiss:focus {
-    color: #fff;
-    background: rgba(111, 9, 20, .92);
-    border-color: rgba(255, 71, 88, .9);
-    opacity: 1;
-    transform: scale(1.06);
+    opacity: 1 !important;
+    pointer-events: auto;
   }
 }
 
 @media (hover: none), (pointer: coarse) {
+  .home-card-dock { display: none !important; }
+
   #tab-home .home-card .taste-v2-dismiss {
     top: 39px;
     right: 8px;
     width: 25px;
     height: 25px;
     font-size: 14px;
-    opacity: .78;
+    opacity: .82;
     transform: none;
   }
+}
 
-  #tab-home .home-card-preview { display: none !important; }
+@media (max-width: 720px) {
+  .home-card-dock { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   #tab-home .home-card,
   #tab-home .home-card-art,
   #tab-home .home-card-art img,
-  #tab-home .home-card-overlay,
-  #tab-home .home-card-preview,
-  #tab-home .taste-v2-dismiss {
+  .home-card-dock,
+  .home-card-dock-preview,
+  .home-card-dock-action {
     transition: none !important;
   }
 }

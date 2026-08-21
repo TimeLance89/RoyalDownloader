@@ -230,16 +230,18 @@ async function initApp() {
       scheduleHomeHeroRotation();
     }
   });
-  document.getElementById("genre-filter").addEventListener("click", (e) => {
-    const button = e.target.closest("[data-genre]");
-    if (button) fpGenreChange(button.dataset.genre);
+  document.getElementById("movie-filter-genre").addEventListener("change", (event) => {
+    fpGenreChange(event.currentTarget.value);
   });
-  document.getElementById("genre-toggle").addEventListener("click", (e) => {
-    setGenreBrowserExpanded(e.currentTarget.getAttribute("aria-expanded") !== "true");
-  });
+  for (const id of ["period", "rating", "availability", "language", "sort"]) {
+    document.getElementById(`movie-filter-${id}`).addEventListener("change", (event) => {
+      state.fp.filters[id] = event.currentTarget.value;
+      applyFpSmartFilters();
+    });
+  }
+  document.getElementById("movie-filter-reset").addEventListener("click", resetFpSmartFilters);
   document.getElementById("genre-random").addEventListener("click", () => {
-    const genres = [...document.querySelectorAll("#genre-filter [data-genre]")]
-      .map((button) => button.dataset.genre)
+    const genres = (state.fp.availableGenres || [])
       .filter((genre) => genre !== "Alle Genres" && genre !== state.fp.activeGenre);
     if (!genres.length) return;
     fpGenreChange(genres[Math.floor(Math.random() * genres.length)]);

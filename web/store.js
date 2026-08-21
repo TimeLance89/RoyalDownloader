@@ -16,6 +16,8 @@ function createInitialState() {
     fp: {
       results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
       activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
+      availableGenres: [],
+      filters: { period: "all", rating: "all", availability: "all", language: "all", sort: "default" },
       metadataCache: {}, requestSeq: 0, metadataRequestSeq: 0, sources: [], loadingMore: false,
       loadError: "", searchActive: false, searchReturn: null,
       previewFromHome: false, lastCatalogRefreshAt: 0,

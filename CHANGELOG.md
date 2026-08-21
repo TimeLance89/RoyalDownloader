@@ -2,6 +2,117 @@
 
 ## Unreleased
 
+## 2026-08-21 – Smart automation, storage orchestration, search, and provider resilience
+
+### Automation and NAS load control
+
+- Expand unattended automation from a single interval and hour window into a
+  NAS-aware policy engine with independent weekday/weekend schedules, live
+  limits of one to four parallel downloads, a configurable aggregate bandwidth
+  budget, and a minimum-free-space guard for new automatic work.
+- Detect active, non-paused Jellyfin playback and optionally reduce Royal's
+  transfer budget while somebody is streaming so background downloads are less
+  likely to compete with media playback.
+- Add a dedicated nighttime policy for automatic movie-quality upgrades while
+  keeping manual subscription checks available outside that window.
+- Preserve existing automation settings and legacy API behavior while adding
+  `/api/automation/policy` and `/api/v1/automation/policy` as the richer policy
+  contract.
+- Replace raw numeric hour controls with a friendlier schedule editor: weekdays
+  use **Any time**, **Night only**, or **Custom times**; weekends use **Any
+  time**, **Same as weekdays**, or **Custom times**. Custom schedules and movie
+  upgrade windows use clock-style `HH:MM` inputs while the existing whole-hour
+  backend semantics remain unchanged.
+- Prevent the 15-second live policy refresh from overwriting schedule or load
+  settings that the user is still editing but has not saved yet.
+
+### Storage management and safe moves
+
+- Add live storage telemetry and a Smart Scan for unusually large movies,
+  series, and folders, with signed short-lived cleanup approvals, revalidation
+  before deletion, and protections against path traversal, symlinks, changed
+  files, and active Royal staging data.
+- Add persistent multi-volume storage management for up to twelve additional
+  locations, distinguish read-only **Monitor** locations from writable **Media**
+  locations, show offline mounts explicitly, and deduplicate capacity for paths
+  that point to the same physical filesystem.
+- Add guarded moves between storage volumes: films move as individual media
+  files, series move as complete series folders, and Royal blocks same-volume
+  moves, overlapping paths, collisions, insufficient target space, monitor-only
+  destinations, and overwrites.
+- Run storage moves as visible persistent background jobs with a serial NAS-I/O
+  worker, active-job locking, status/history UI, and automatic storage/scan
+  refresh after completion.
+- Make large cross-volume moves restart-safe with deterministic partial paths,
+  chunked copying, byte-offset resume for interrupted files, skipping of already
+  complete files, destination verification before source deletion, and
+  idempotent recovery if a crash happens after publishing the destination.
+- Safely adopt older interrupted move jobs only when their source, destination,
+  and partial data can be matched unambiguously; otherwise fail closed without
+  deleting source media or persisting sensitive scan tokens.
+
+### Search, catalogs, and media details
+
+- Make movie search provider-first: every enabled provider remains a source of
+  visible results, while TMDB enriches metadata and helps conservative
+  deduplication instead of limiting the provider result set.
+- Keep provider hits visible without loading detail/hoster pages during the
+  search request. Resolve the selected source lazily when a title is opened or
+  queued, try the explicitly chosen provider first, and then fall back through
+  the remaining configured sources.
+- Remove the inappropriate 15-second browser timeout from provider-wide movie
+  searches while retaining bounded catalog browsing, and make global movie,
+  series, and anime search progressive so fast catalogs appear while slower
+  catalogs continue in the background.
+- Show pending and partial-failure state instead of silently dropping a slow
+  catalog, avoid a premature empty result while another catalog is still
+  running, and start thumbnails immediately for cards that have actually been
+  rendered.
+- Deduplicate global search results by content identity rather than technical
+  provider slugs, repeat the deduplication after metadata hydration, and keep
+  the query, filters, results, and scroll position intact while a movie, series,
+  or anime detail modal is open above the search page.
+- Stabilize season/detail loading and preserve already rendered catalog content
+  while slower background refreshes finish, reducing flicker and misleading
+  intermediate states.
+
+### SerienStream session reliability
+
+- Follow SerienStream's normal HTTP redirect chain for successful `/r?t=`
+  resolutions and accept only a final external embed URL as success; provider
+  gate, rate-limit, and Turnstile pages remain explicit blocked states.
+- Add an authenticated, user-driven browser verification flow backed by a real
+  Chromium profile. Royal can display the browser viewport, forward the user's
+  own click/scroll gestures, persist resulting cookies, and retry the original
+  redirect without implementing an automated CAPTCHA or Turnstile solver.
+- Integrate the persistent browser profile into the normal SerienStream session
+  path: HTTP and Chromium share the same Chrome identity, HTTP cookies are
+  seeded into the browser, and browser cookies are synchronized back into the
+  live and persistent SessionManager.
+- Retry a blocked episode page or matching hoster action through that shared
+  browser session before marking SerienStream unavailable; if an interactive
+  challenge still remains, Royal reports it instead of synthesizing a bypass.
+- Harden provider URL validation and serialized profile ownership, and extend
+  the final Docker smoke tests so both verification and shared-session Chromium
+  runtimes are exercised in the built image.
+
+### Updates, UI, and quality
+
+- Harden Stable/Overnight revision comparison when GitHub's compare endpoint
+  returns a transient 404 by using bounded parent/ancestry checks; retain a
+  fail-safe `unknown` result when history cannot be proven instead of guessing
+  a dangerous downgrade/divergence state.
+- Extend the administration and storage UI with live status for background
+  work, responsive controls, clearer loading/error states, keyboard focus
+  handling, and cache revisions for the new runtime modules.
+- Expand regression coverage for storage safety and resume, provider-first and
+  progressive search, SerienStream session ownership, smart automation,
+  schedule UX, and update comparison behavior.
+- Expand Bandit/security coverage to the new automation, storage, browser
+  session, and move-runtime modules while retaining the complete Python/JS
+  syntax, frontend contract, dependency-audit, Docker Compose, test/coverage,
+  image-build, browser-runtime, fresh-start, persistence, and restart gates.
+
 ## 2026-08-11 – Instant catalogs, immediate artwork, and Jellyfin throughput
 
 - Make movie and series catalogs appear almost immediately by enforcing bounded

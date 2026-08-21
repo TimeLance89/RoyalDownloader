@@ -41,7 +41,7 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from session_manager import SessionManager, GATE_BLOCKED
+from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 from series_episode_filter import episode_listings
 
 logger = logging.getLogger(__name__)
@@ -389,12 +389,26 @@ class SerienstreamScraper:
 
     def _load_season(self, slug: str, season: int) -> List[SeriesEpisode]:
         url = f"{BASE_URL}/serie/{slug}/staffel-{season}"
-        try:
-            soup = self._get_soup(url, fast=True)
-        except Exception as exc:
-            self._log(f"  Staffel {season} nicht ladbar: {exc}", )
-            return []
-        return self._episodes_from_soup(soup, slug, season)
+        for attempt in range(2):
+            try:
+                soup = self._get_soup(url, fast=True)
+            except ProviderBlockedError:
+                # Der zentrale Circuit-Breaker muss den Anbieter stoppen;
+                # eine Blockseite darf nie als „leere Staffel“ erscheinen.
+                raise
+            except Exception as exc:
+                if attempt == 0:
+                    self._log(f"  Staffel {season} wird erneut geladen: {exc}")
+                    time.sleep(0.2)
+                    continue
+                self._log(f"  Staffel {season} nicht ladbar: {exc}")
+                return []
+            episodes = self._episodes_from_soup(soup, slug, season)
+            if episodes or attempt > 0:
+                return episodes
+            self._log(f"  Staffel {season} war leer und wird erneut geladen.")
+            time.sleep(0.2)
+        return []
 
     @staticmethod
     def _episodes_from_soup(
