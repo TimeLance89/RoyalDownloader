@@ -23,7 +23,7 @@ from application_services.runtime import backend_value, publish_service
 logger = logging.getLogger(__name__)
 state = backend_value("state")
 
-# Preserve the established implementations before publishing the live wrappers.
+# Preserve the established implementations before publishing live wrappers.
 _legacy_get_jellyfin_library = backend_value("get_jellyfin_library")
 _legacy_get_jellyfin_movie_identities = backend_value("get_jellyfin_movie_identities")
 _legacy_get_jellyfin_episodes = backend_value("get_jellyfin_episodes")
@@ -33,9 +33,6 @@ _legacy_get_jellyfin_user_episodes = backend_value("get_jellyfin_user_episodes")
 _legacy_set_runtime_jellyfin_config = backend_value("_set_runtime_jellyfin_config")
 _legacy_stop_jellyfin_recommender = backend_value("stop_jellyfin_recommender")
 _legacy_content_already_available = backend_value("_content_already_available")
-_legacy_watchlist_auto_check_once = backend_value("_watchlist_auto_check_once")
-_legacy_watchlist_auto_check_delay = backend_value("_watchlist_auto_check_delay")
-_legacy_check_movie_subscriptions = backend_value("check_movie_subscriptions")
 
 _LIVE_PROBE_LIMIT = 12
 _LIVE_MIN_INTERVAL_SECONDS = 0.5
@@ -46,7 +43,6 @@ _LIVE_MAX_FAILURE_BACKOFF_SECONDS = 15.0
 _live_lock = threading.RLock()
 _live_wake_event = threading.Event()
 _live_stop_event = threading.Event()
-_watchlist_wake_event = threading.Event()
 _live_thread: threading.Thread | None = None
 _force_full_refresh = False
 _last_revision = ""
@@ -74,12 +70,20 @@ def _set_live_state(*, stale: bool, checked_at: float | None = None) -> None:
             state.jellyfin_live_checked_at = float(checked_at)
 
 
+def _wake_automation() -> None:
+    try:
+        backend_value("wake_watchlist_auto_check")()
+    except Exception as exc:
+        logger.warning("Jellyfin-Liveupdate konnte Automatik nicht wecken: %s", exc)
+
+
 def _mark_probe_unavailable() -> None:
     """Keep visual snapshots but fail closed for download/automation safety."""
     with state.jellyfin_cache_lock:
         state.jellyfin_live_stale = True
-        # Keep identity snapshots for stable visual badges, but never let heavy
-        # safety paths interpret old ownership data as proof that media is absent.
+        # Identity snapshots stay readable so catalog badges do not flicker.
+        # Heavy safety caches become unavailable, so old ownership data cannot
+        # be interpreted as proof that a title or episode is missing.
         if state.jellyfin_library is not None:
             state.jellyfin_library_available = False
         if state.jellyfin_episodes is not None:
@@ -295,9 +299,9 @@ def _monitor_cycle(*, force_full: bool = False) -> str:
         if complete:
             _last_revision = revision
             _failure_count = 0
+            _wake_automation()
         else:
             _failure_count += 1
-        _watchlist_wake_event.set()
         _broadcast_live_update()
         return "changed" if changed else ("refreshed" if complete else "stale")
 
@@ -305,7 +309,7 @@ def _monitor_cycle(*, force_full: bool = False) -> str:
     _mark_cached_snapshots_verified(time.time())
     if previous_stale:
         _broadcast_live_update()
-        _watchlist_wake_event.set()
+        _wake_automation()
         return "recovered"
     return "unchanged"
 
@@ -361,13 +365,13 @@ def _ensure_live_monitor() -> None:
 
 
 def _cached_snapshot(value_attr: str, force: bool, legacy):
+    client = backend_value("get_jellyfin_client")()
+    if not client.configured:
+        return None
     if force:
         value = legacy(force=True)
         request_jellyfin_live_refresh()
         return value
-    client = backend_value("get_jellyfin_client")()
-    if not client.configured:
-        return None
     with state.jellyfin_cache_lock:
         value = getattr(state, value_attr)
         checked_at = float(getattr(state, "jellyfin_live_checked_at", 0.0) or 0.0)
@@ -404,10 +408,6 @@ def get_jellyfin_user_episodes(force: bool = False):
 
 
 def get_jellyfin_targeted_episodes(series_ids: set[str], force: bool = False):
-    if force:
-        result = _legacy_get_jellyfin_targeted_episodes(series_ids, force=True)
-        request_jellyfin_live_refresh()
-        return result
     wanted = {str(value).strip() for value in series_ids if str(value).strip()}
     if not wanted:
         return [], True, False, time.time()
@@ -416,9 +416,26 @@ def get_jellyfin_targeted_episodes(series_ids: set[str], force: bool = False):
         available = bool(state.jellyfin_episodes_available)
         checked_at = float(state.jellyfin_episodes_time or 0.0)
         stale = bool(getattr(state, "jellyfin_live_stale", False))
+
+    # Preserve the old targeted first-load path until the shared snapshot exists.
+    # This is both backwards compatible and avoids a misleading unavailable state
+    # during the few moments before background warm-up completes.
     if episodes is None:
+        result = _legacy_get_jellyfin_targeted_episodes(wanted, force=force)
         request_jellyfin_live_refresh(force_full=True)
-        return None, False, stale, checked_at
+        return result
+    if force:
+        if available and not stale:
+            return (
+                [item for item in episodes if str(item.get("series_id") or "") in wanted],
+                True,
+                False,
+                checked_at,
+            )
+        result = _legacy_get_jellyfin_targeted_episodes(wanted, force=True)
+        request_jellyfin_live_refresh(force_full=True)
+        return result
+
     targeted = [
         item for item in episodes
         if str(item.get("series_id") or "") in wanted
@@ -433,7 +450,8 @@ def _set_runtime_jellyfin_config(cfg: dict) -> None:
     _legacy_set_runtime_jellyfin_config(cfg)
     with _live_lock:
         _last_revision = ""
-    _set_live_state(stale=False, checked_at=0.0)
+    configured = backend_value("get_jellyfin_client")().configured
+    _set_live_state(stale=configured, checked_at=0.0)
     _broadcast_live_update()
     request_jellyfin_live_refresh(force_full=True)
 
@@ -458,42 +476,10 @@ def warm_jellyfin_identity_cache() -> None:
     _ensure_live_monitor()
 
 
-def watchlist_auto_check_loop() -> None:
-    """Existing cadence plus immediate wake-up on verified Jellyfin changes."""
-    while not _live_stop_event.is_set():
-        interval_min = state.automation.get("check_interval_min", 30)
-        checked = total = 0
-        configured = backend_value("get_jellyfin_client")().configured
-        if configured and _live_stale():
-            with state.watchlist_lock:
-                total = len(state.watchlist)
-            backend_value("log")(
-                "Automatische Bibliotheks-Prüfung wartet auf aktuellen Jellyfin-Livestatus.",
-                "warn",
-            )
-        else:
-            try:
-                checked, total = _legacy_watchlist_auto_check_once()
-            except Exception as exc:
-                backend_value("log")(
-                    f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn",
-                )
-            try:
-                _legacy_check_movie_subscriptions()
-            except Exception as exc:
-                backend_value("log")(
-                    f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn",
-                )
-        delay = _legacy_watchlist_auto_check_delay(checked, total, interval_min)
-        _watchlist_wake_event.wait(delay)
-        _watchlist_wake_event.clear()
-
-
 def stop_jellyfin_recommender() -> None:
     global _live_thread
     _live_stop_event.set()
     _live_wake_event.set()
-    _watchlist_wake_event.set()
     thread = _live_thread
     if thread is not None and thread.is_alive() and thread is not threading.current_thread():
         thread.join(timeout=5)
@@ -512,7 +498,6 @@ _SERVICE_EXPORTS = (
     "_set_runtime_jellyfin_config",
     "_content_already_available",
     "warm_jellyfin_identity_cache",
-    "watchlist_auto_check_loop",
     "stop_jellyfin_recommender",
 )
 publish_service(globals(), _SERVICE_EXPORTS)
