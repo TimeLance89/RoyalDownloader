@@ -1,0 +1,156 @@
+name: Release readiness
+
+on:
+  pull_request:
+    branches: [overnight, main]
+  push:
+    branches: [overnight, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stable-1-0-gates:
+    name: Stable 1.0 E2E + upgrade/rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CURRENT_IMAGE: royal-release-candidate:${{ github.sha }}
+      RC3_SHA: 0376d1c17ba3ab25ad312cbecc066f186c152bbe
+      RC_IMAGE: royal-release-rc3:0376d1c17ba3ab25ad312cbecc066f186c152bbe
+      FLOW_VOLUME: royal-release-flow-${{ github.run_id }}
+      SOAK_VOLUME: royal-release-soak-${{ github.run_id }}
+      RECOVERY_VOLUME: royal-release-recovery-${{ github.run_id }}
+      BACKUP_DIR: ${{ runner.temp }}/royal-release-backup-${{ github.run_id }}
+      ROYAL_SETUP_TOKEN: release-readiness-bootstrap
+
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build exact candidate container
+        run: |
+          docker build \
+            --build-arg APP_COMMIT_SHA="${GITHUB_SHA}" \
+            -t "${CURRENT_IMAGE}" \
+            .
+
+      - name: E2E 1 - first run, bootstrap, login and protected API
+        run: |
+          docker volume create "${FLOW_VOLUME}"
+          docker run --rm \
+            -e ROYAL_SETUP_TOKEN="${ROYAL_SETUP_TOKEN}" \
+            -v "${FLOW_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py first-run-auth
+
+      - name: E2E 2 - queue claim and duplicate suppression
+        run: |
+          docker run --rm \
+            -v "${FLOW_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py queue-seed
+
+      - name: E2E 2 - persistence and process restart
+        run: |
+          docker run --rm \
+            -v "${FLOW_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py queue-restart-verify
+
+      - name: E2E 3 - provider media to queue to status
+        run: |
+          docker run --rm \
+            -v "${FLOW_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py media-flow
+
+      - name: Build known 1.0.0-rc.3 baseline
+        run: |
+          RC_DIR="${RUNNER_TEMP}/royal-rc3"
+          git worktree add --detach "${RC_DIR}" "${RC3_SHA}"
+          docker build \
+            --build-arg APP_COMMIT_SHA="${RC3_SHA}" \
+            -t "${RC_IMAGE}" \
+            "${RC_DIR}"
+
+      - name: Upgrade soak - seed persistent RC3 installation
+        run: |
+          docker volume create "${SOAK_VOLUME}"
+          docker run --rm \
+            -v "${SOAK_VOLUME}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            "${RC_IMAGE}" \
+            /tmp/release_gate.py seed-upgrade-rc
+
+      - name: Recovery gate - back up RC3 data before upgrade
+        run: |
+          mkdir -p "${BACKUP_DIR}"
+          chmod 0777 "${BACKUP_DIR}"
+          docker run --rm --user 0 \
+            -v "${SOAK_VOLUME}:/app/data:ro" \
+            -v "${BACKUP_DIR}:/backup" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            -c "import tarfile; archive=tarfile.open('/backup/rc3-data.tar','w'); archive.add('/app/data', arcname='.'); archive.close()"
+          test -s "${BACKUP_DIR}/rc3-data.tar"
+
+      - name: Upgrade soak - verify candidate on RC3 volume
+        run: |
+          docker run --rm \
+            -v "${SOAK_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py verify-upgrade-current
+
+      - name: Upgrade soak - verify candidate after restart
+        run: |
+          docker run --rm \
+            -v "${SOAK_VOLUME}:/app/data" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            scripts/release_readiness_gate.py verify-upgrade-current
+
+      - name: Rollback gate - RC3 reads candidate-touched volume
+        run: |
+          docker run --rm \
+            -v "${SOAK_VOLUME}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            "${RC_IMAGE}" \
+            /tmp/release_gate.py verify-rollback-rc
+
+      - name: Recovery gate - restore pre-upgrade backup and verify RC3
+        run: |
+          docker volume create "${RECOVERY_VOLUME}"
+          docker run --rm --user 0 \
+            -v "${RECOVERY_VOLUME}:/app/data" \
+            -v "${BACKUP_DIR}:/backup:ro" \
+            --entrypoint python \
+            "${CURRENT_IMAGE}" \
+            -c "import tarfile; archive=tarfile.open('/backup/rc3-data.tar','r'); archive.extractall('/app/data'); archive.close()"
+          docker run --rm \
+            -v "${RECOVERY_VOLUME}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            "${RC_IMAGE}" \
+            /tmp/release_gate.py verify-rollback-rc
+
+      - name: Clean release-readiness resources
+        if: always()
+        run: |
+          docker volume rm -f "${FLOW_VOLUME}" "${SOAK_VOLUME}" "${RECOVERY_VOLUME}" || true
+          git worktree remove --force "${RUNNER_TEMP}/royal-rc3" || true
+          rm -rf "${BACKUP_DIR}"
