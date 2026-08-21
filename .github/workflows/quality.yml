@@ -81,6 +81,8 @@ jobs:
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
           coverage report --include='serienstream_shared_session.py' --fail-under=70
+          coverage report --include='application_services/auth.py' --fail-under=75
+          coverage report --include='application_services/security_hardening.py' --fail-under=90
           coverage xml -o coverage.xml
 
       - name: Build container image
@@ -240,6 +242,11 @@ jobs:
         run: |
           flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
           docker volume create "${flow_volume}"
+          docker run --rm --user 0 \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
           docker run --rm \
             -e ROYAL_SETUP_TOKEN=release-readiness-bootstrap \
             -v "${flow_volume}:/app/data" \
@@ -284,6 +291,11 @@ jobs:
             --tag royal-downloader:release-rc3 \
             "${rc_dir}"
           docker volume create "${soak_volume}"
+          docker run --rm --user 0 \
+            -v "${soak_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
           docker run --rm \
             -v "${soak_volume}:/app/data" \
             -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
@@ -322,10 +334,20 @@ jobs:
           docker volume create "${recovery_volume}"
           docker run --rm --user 0 \
             -v "${recovery_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
+          docker run --rm --user 0 \
+            -v "${recovery_volume}:/app/data" \
             -v "${backup_dir}:/backup:ro" \
             --entrypoint python \
             royal-downloader:quality \
             -c "import tarfile; a=tarfile.open('/backup/rc3-data.tar','r'); a.extractall('/app/data'); a.close()"
+          docker run --rm --user 0 \
+            -v "${recovery_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
           docker run --rm \
             -v "${recovery_volume}:/app/data" \
             -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
