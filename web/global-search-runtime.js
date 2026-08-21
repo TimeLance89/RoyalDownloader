@@ -192,7 +192,7 @@
 function loadRoyalSmartAutomationPolicy() {
   if (document.querySelector('script[data-royal-smart-automation]')) return;
   const script = document.createElement("script");
-  script.src = "/automation-policy.js?v=royal-20260820-1";
+  script.src = "/automation-policy.js?v=royal-20260821-1";
   script.async = false;
   script.setAttribute("data-royal-smart-automation", "true");
   script.addEventListener("error", () => {
