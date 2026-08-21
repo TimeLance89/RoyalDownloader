@@ -29,6 +29,20 @@ function applyFpQueueAddResponse(slug, response) {
   return true;
 }
 
+async function prepareFpMovieDownload(slug) {
+  const cached = state.fp.moviesCache[slug];
+  if (Array.isArray(cached?.hosters) && cached.hosters.length) return cached;
+  const movie = await api.movie(slug);
+  state.fp.moviesCache[slug] = movie;
+  updateFpResultCard(slug);
+  if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
+  if (Array.isArray(movie?.hosters) && movie.hosters.length) return movie;
+  const reason = "kein Hoster verfügbar";
+  setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
+  setDownloadState("error", "Download nicht gestartet", reason, 0);
+  return null;
+}
+
 function applyFpDownloadJobResult(result) {
   const slug = String(result?.slug || "");
   if (!slug) return;
