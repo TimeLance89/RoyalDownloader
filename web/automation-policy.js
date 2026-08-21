@@ -339,8 +339,12 @@
     return true;
   }
 
+  function settingsHaveUnsavedChanges() {
+    return byId("settings-saved-status")?.textContent?.trim() === "Ungespeicherte Änderungen.";
+  }
+
   async function refreshPolicy() {
-    if (typeof api === "undefined" || !injectUi()) return;
+    if (typeof api === "undefined" || !injectUi() || settingsHaveUnsavedChanges()) return;
     try { renderPolicy(await api.get(POLICY_URL)); }
     catch (error) {
       const summary = byId("auto-status");
