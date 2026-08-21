@@ -204,7 +204,7 @@ def queue_seed_flow() -> None:
 
 
 def queue_restart_verify_flow() -> None:
-    """E2E 2b: a new process restores the same durable job and claim exactly once.""
+    """E2E 2b: a new process restores the same durable job and claim exactly once."""
     import config as appconfig
     import server
 
