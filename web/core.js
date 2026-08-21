@@ -226,6 +226,9 @@ function connectWs() {
         ? `${data.active} aktiv · ${data.pending} warten`
         : String(data.msg || "Alle Anbieter sind ausgefallen").slice(0, 110);
       setDownloadState(kind, title, detail, percent);
+      if (typeof applyFpDownloadJobResult === "function") {
+        applyFpDownloadJobResult(data);
+      }
       syncQueueSnapshot("Queue-Aktualisierung nach Download");
       if (data.ok && data.slug) {
         markSeriesSlugDownloaded(data.slug);
