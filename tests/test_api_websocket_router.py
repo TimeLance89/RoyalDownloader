@@ -31,11 +31,18 @@ def websocket(*, origin: str, host="royal.example", forwarded="https"):
     )
 
 
-def test_websocket_origin_uses_effective_proxy_scheme_and_host():
+def test_websocket_origin_uses_effective_proxy_scheme_and_allowlisted_host(monkeypatch):
+    monkeypatch.setenv("ROYAL_ALLOWED_HOSTS", "royal.example")
     assert websocket_origin_allowed(websocket(origin="https://royal.example"))
     assert not websocket_origin_allowed(websocket(origin="http://royal.example"))
     assert not websocket_origin_allowed(websocket(origin="https://other.example"))
 
 
-def test_native_websocket_without_origin_remains_supported():
-    assert websocket_origin_allowed(websocket(origin=""))
+def test_public_websocket_host_fails_closed_without_allowlist(monkeypatch):
+    monkeypatch.delenv("ROYAL_ALLOWED_HOSTS", raising=False)
+    assert not websocket_origin_allowed(websocket(origin="https://royal.example"))
+
+
+def test_cookie_websocket_without_origin_is_rejected(monkeypatch):
+    monkeypatch.setenv("ROYAL_ALLOWED_HOSTS", "royal.example")
+    assert not websocket_origin_allowed(websocket(origin=""))
