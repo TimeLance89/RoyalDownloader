@@ -17,7 +17,15 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPT_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = next(
+    (
+        candidate
+        for candidate in (_SCRIPT_PROJECT_ROOT, Path.cwd().resolve())
+        if (candidate / "app_version.py").is_file()
+    ),
+    _SCRIPT_PROJECT_ROOT,
+)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -43,6 +51,17 @@ def _expect(condition: bool, message: str) -> None:
 
 def _json_contains(value: Any, needle: str) -> bool:
     return needle in json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _expect_persisted_mapping(actual: Any, expected: Any, label: str) -> None:
+    _expect(isinstance(actual, dict), f"{label}: current value is not a mapping")
+    _expect(isinstance(expected, dict), f"{label}: persisted value is not a mapping")
+    changed = {
+        key: {"expected": value, "actual": actual.get(key)}
+        for key, value in expected.items()
+        if key not in actual or actual.get(key) != value
+    }
+    _expect(not changed, f"{label}: persisted values changed: {changed}")
 
 
 def _response_json(response, expected_status: int, label: str) -> Any:
@@ -374,8 +393,12 @@ def verify_upgrade_current() -> None:
     _expect(appconfig.is_initialized(), "candidate no longer recognizes RC installation")
     _expect(account.get("username") == marker.get("username"), "upgrade changed account identity")
     _expect(_auth_matches(appauth, account, ADMIN_PASSWORD), "candidate cannot verify RC password")
-    _expect(appconfig.load_automation() == marker.get("automation"), "upgrade changed automation settings")
-    _expect(appconfig.load_updater() == marker.get("updater"), "upgrade changed updater settings")
+    _expect_persisted_mapping(
+        appconfig.load_automation(), marker.get("automation"), "upgrade automation",
+    )
+    _expect_persisted_mapping(
+        appconfig.load_updater(), marker.get("updater"), "upgrade updater",
+    )
     _expect(appconfig.load() == marker.get("save_path"), "upgrade changed movie path")
     _expect(appconfig.load_series_path() == marker.get("series_path"), "upgrade changed series path")
     _expect(slugs.count(UPGRADE_SLUG) == 1, "upgrade lost or duplicated durable queue entry")
@@ -408,8 +431,12 @@ def verify_rollback_or_recovery_rc() -> None:
     _expect(appconfig.is_initialized(), "RC rollback no longer recognizes installation")
     _expect(account.get("username") == marker.get("username"), "rollback changed account identity")
     _expect(_auth_matches(appauth, account, ADMIN_PASSWORD), "rollback cannot verify password")
-    _expect(appconfig.load_automation() == marker.get("automation"), "rollback changed automation settings")
-    _expect(appconfig.load_updater() == marker.get("updater"), "rollback changed updater settings")
+    _expect_persisted_mapping(
+        appconfig.load_automation(), marker.get("automation"), "rollback automation",
+    )
+    _expect_persisted_mapping(
+        appconfig.load_updater(), marker.get("updater"), "rollback updater",
+    )
     _expect(slugs.count(UPGRADE_SLUG) == 1, "rollback lost or duplicated queue data")
     _expect(appconfig.load() == marker.get("save_path"), "rollback changed movie path")
     _expect(appconfig.load_series_path() == marker.get("series_path"), "rollback changed series path")
