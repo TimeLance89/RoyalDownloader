@@ -165,9 +165,10 @@ def scan() -> list[str]:
 def main() -> int:
     failures = scan()
     if failures:
-        print("Security regression scan failed:")
-        for failure in failures:
-            print(f"  - {failure}")
+        # Findings can originate from files that themselves contain secrets. Do
+        # not echo dynamic scanner diagnostics into hosted CI logs; the failing
+        # exit code is the gate and the scanner can be inspected locally.
+        print(f"Security regression scan failed with {len(failures)} finding(s).")
         return 1
     print("Security regression scan passed.")
     return 0
