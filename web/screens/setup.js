@@ -1,6 +1,9 @@
 // ── Ersteinrichtung ─────────────────────────────────────────────────────────
 let setupStep = 1;
 let setupRequired = false;
+let setupBootstrapRequired = false;
+let setupBootstrapToken = "";
+let setupBootstrapHint = "";
 let initialDataStarted = false;
 
 const setupStepCopy = {
@@ -26,7 +29,7 @@ const setupStepCopy = {
   },
   6: {
     title: "Zugang sichern",
-    intro: "Ein Konto schützt die Oberfläche. Ohne Anmeldung könnte jedes Gerät im Netzwerk Downloads auslösen.",
+    intro: "Ein Konto schützt die Oberfläche. Der erste Besitzer bestätigt zusätzlich den einmaligen Sicherheitscode aus dem Royal-Log.",
   },
 };
 
@@ -53,7 +56,7 @@ const setupEnglishStepCopy = {
   },
   6: {
     title: "Secure your access",
-    intro: "An account protects Royal. Without sign-in, every device on the network could start downloads.",
+    intro: "An account protects Royal. The first owner also confirms the one-time security code shown in the Royal server log.",
   },
 };
 
@@ -213,9 +216,9 @@ function validateSetupStep(step) {
       username.focus();
       return false;
     }
-    if (password.value.length < 8) {
+    if (password.value.length < 12) {
       password.setAttribute("aria-invalid", "true");
-      setSetupStatus("Das Passwort braucht mindestens 8 Zeichen.", true);
+      setSetupStatus("Das Passwort braucht mindestens 12 Zeichen.", true);
       password.focus();
       return false;
     }
@@ -235,8 +238,23 @@ function parseSetupHour(id) {
   return Math.max(0, Math.min(23, parseInt(value, 10) || 0));
 }
 
+function requestSetupBootstrapToken() {
+  if (!setupBootstrapRequired) return true;
+  if (setupBootstrapToken) return true;
+  const hint = setupBootstrapHint
+    || "Den einmaligen Sicherheitscode aus dem Royal-Server-/Container-Log eingeben.";
+  const candidate = window.prompt(`${hint}\n\nSetup-Sicherheitscode:`);
+  setupBootstrapToken = String(candidate || "").trim();
+  if (!setupBootstrapToken) {
+    setSetupStatus("Für die erste Einrichtung wird der Sicherheitscode aus dem Royal-Log benötigt.", true);
+    return false;
+  }
+  return true;
+}
+
 async function finishSetup() {
   if (!validateSetupStep(4) || !validateSetupStep(5) || !validateSetupStep(6)) return;
+  if (!requestSetupBootstrapToken()) return;
   const finish = document.getElementById("setup-finish");
   const back = document.getElementById("setup-back");
   finish.disabled = true;
@@ -275,15 +293,20 @@ async function finishSetup() {
       telegram_chat_id: document.getElementById("setup-telegram-chat").value.trim(),
       auth_username: document.getElementById("setup-auth-username").value.trim(),
       auth_password: document.getElementById("setup-auth-password").value,
+      bootstrap_token: setupBootstrapToken,
     });
     document.getElementById("setup-auth-password").value = "";
     document.getElementById("setup-auth-password-repeat").value = "";
+    setupBootstrapToken = "";
+    setupBootstrapRequired = false;
     setupRequired = false;
     document.body.classList.remove("setup-open");
     document.getElementById("setup-wizard").classList.add("hidden");
     await initSettings();
     startInitialData();
   } catch (e) {
+    // A failed bootstrap attempt is never retained in browser storage or reused.
+    if (setupBootstrapRequired) setupBootstrapToken = "";
     setSetupStatus(`Einrichtung fehlgeschlagen: ${e.message}`, true);
   } finally {
     finish.disabled = false;
@@ -296,6 +319,9 @@ async function initSetupWizard() {
     const data = await api.setupStatus();
     if (!data.required) return false;
     setupRequired = true;
+    setupBootstrapRequired = Boolean(data.bootstrap_required);
+    setupBootstrapHint = String(data.bootstrap_hint || "");
+    setupBootstrapToken = "";
     const defaults = data.defaults || {};
     const deploymentMode = ["desktop", "nas", "demo"].includes(defaults.deployment_mode)
       ? defaults.deployment_mode

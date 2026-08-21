@@ -13,6 +13,21 @@ def _http_error(status: int) -> requests.HTTPError:
     return requests.HTTPError(f"{status} response", response=response, request=request)
 
 
+def _green_quality():
+    return {"check_runs": [{
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success",
+    }]}
+
+
+def _verified_commit(sha: str):
+    return {
+        "sha": sha,
+        "commit": {"verification": {"verified": True, "reason": "valid"}},
+    }
+
+
 def test_compare_404_uses_latest_parent_without_reporting_github_failure(
     monkeypatch,
     tmp_path,
@@ -31,11 +46,9 @@ def test_compare_404_uses_latest_parent_without_reporting_github_failure(
                 "parents": [{"sha": current_sha}],
             }
         if path == f"commits/{latest_sha}/check-runs?per_page=100":
-            return {"check_runs": [{
-                "name": "verify",
-                "status": "completed",
-                "conclusion": "success",
-            }]}
+            return _green_quality()
+        if path == f"commits/{latest_sha}":
+            return _verified_commit(latest_sha)
         if path == f"compare/{current_sha}...{latest_sha}":
             raise _http_error(404)
         raise AssertionError(f"unexpected GitHub API path: {path}")
@@ -47,6 +60,8 @@ def test_compare_404_uses_latest_parent_without_reporting_github_failure(
     assert result["comparison"] == "ahead"
     assert result["ahead_by"] == 1
     assert result["behind_by"] == 0
+    assert result["commit_signature_verified"] is True
+    assert result["security_approved"] is True
     assert result["update_available"] is True
     assert result["error"] == ""
 
@@ -64,6 +79,10 @@ def test_compare_404_without_provable_ancestry_fails_safe(monkeypatch, tmp_path)
                 "commit": {"message": "latest"},
                 "parents": [],
             }
+        if path == f"commits/{latest_sha}/check-runs?per_page=100":
+            return _green_quality()
+        if path == f"commits/{latest_sha}":
+            return _verified_commit(latest_sha)
         if path == f"compare/{current_sha}...{latest_sha}":
             raise _http_error(404)
         if path == f"commits/{current_sha}":
@@ -78,6 +97,7 @@ def test_compare_404_without_provable_ancestry_fails_safe(monkeypatch, tmp_path)
     assert result["update_available"] is False
     assert result["ahead_by"] == 0
     assert result["behind_by"] == 0
+    assert result["security_approved"] is True
     assert result["error"] == ""
 
 
@@ -90,6 +110,10 @@ def test_non_404_compare_error_is_still_reported(monkeypatch, tmp_path):
     def fake_get_json(path):
         if path == "commits/main":
             return {"sha": latest_sha, "commit": {"message": "latest"}}
+        if path == f"commits/{latest_sha}/check-runs?per_page=100":
+            return _green_quality()
+        if path == f"commits/{latest_sha}":
+            return _verified_commit(latest_sha)
         if path == f"compare/{current_sha}...{latest_sha}":
             raise _http_error(503)
         raise AssertionError(f"unexpected GitHub API path: {path}")
@@ -100,4 +124,5 @@ def test_non_404_compare_error_is_still_reported(monkeypatch, tmp_path):
 
     assert result["comparison"] == "unknown"
     assert result["update_available"] is None
+    assert result["security_approved"] is True
     assert "503 response" in result["error"]

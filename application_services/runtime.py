@@ -38,6 +38,8 @@ _POST_SERVICE_MODULES = (
     "application_services.daily_top",
     "application_services.smart_automation",
     "application_services.jellyfin_live",
+    # Security runs last so updater/runtime seams are already fully composed.
+    "application_services.security_hardening",
 )
 
 

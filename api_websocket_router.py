@@ -3,13 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from proxy_security import client_ip, host_allowed, origin_matches
+
+
+DEFAULT_WS_MAX_CONNECTIONS_PER_CLIENT = 4
+DEFAULT_WS_MAX_MESSAGE_BYTES = 4096
+DEFAULT_WS_MESSAGES_PER_MINUTE = 30
+_connection_lock = threading.Lock()
+_connections_by_client: dict[str, int] = {}
 
 
 @dataclass(frozen=True)
@@ -26,35 +37,46 @@ class WebSocketDependencies:
     authenticated_web_token: Callable[..., str]
 
 
-def websocket_origin_allowed(websocket: WebSocket) -> bool:
-    """Allow cookie WebSockets only from the web application's own origin."""
-    origin = websocket.headers.get("origin", "")
-    if not origin:
-        return True
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
-        parsed = urlparse(origin)
-    except ValueError:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(maximum, max(minimum, value))
+
+
+def websocket_origin_allowed(websocket: WebSocket) -> bool:
+    """Cookie WebSockets require Royal's exact effective browser origin."""
+    if not host_allowed(websocket):
         return False
-    forwarded = (
-        websocket.headers.get("x-forwarded-proto", "")
-        .split(",")[0]
-        .strip()
-        .casefold()
+    origin = str(websocket.headers.get("origin", "") or "").strip()
+    if not origin:
+        return False
+    return origin_matches(websocket, origin)
+
+
+def _acquire_client_slot(key: str) -> bool:
+    maximum = _bounded_env_int(
+        "ROYAL_WS_MAX_CONNECTIONS_PER_CLIENT",
+        DEFAULT_WS_MAX_CONNECTIONS_PER_CLIENT,
+        1,
+        32,
     )
-    if forwarded in {"https", "wss"}:
-        effective_scheme = "https"
-    elif forwarded in {"http", "ws"}:
-        effective_scheme = "http"
-    else:
-        effective_scheme = (
-            "https"
-            if websocket.url.scheme.casefold() in {"https", "wss"}
-            else "http"
-        )
-    return bool(parsed.netloc) and (
-        parsed.netloc.casefold() == websocket.headers.get("host", "").casefold()
-        and parsed.scheme.casefold() == effective_scheme
-    )
+    with _connection_lock:
+        current = int(_connections_by_client.get(key, 0))
+        if current >= maximum:
+            return False
+        _connections_by_client[key] = current + 1
+        return True
+
+
+def _release_client_slot(key: str) -> None:
+    with _connection_lock:
+        current = int(_connections_by_client.get(key, 0))
+        if current <= 1:
+            _connections_by_client.pop(key, None)
+        else:
+            _connections_by_client[key] = current - 1
 
 
 def create_websocket_router(
@@ -89,6 +111,8 @@ def create_websocket_router(
         versioned: bool,
         touch: bool,
     ) -> bool:
+        if not host_allowed(websocket):
+            return False
         if not dependencies.auth_required():
             return True
         if dependencies.authenticated_mobile_token(
@@ -113,20 +137,55 @@ def create_websocket_router(
         if not is_authenticated(websocket, versioned=is_v1, touch=True):
             await websocket.close(code=1008, reason="Anmeldung erforderlich")
             return
-        await dependencies.manager.connect(
-            websocket,
-            initial_payload_factory=snapshot_payload if is_v1 else None,
+
+        connection_key = client_ip(websocket)
+        if not _acquire_client_slot(connection_key):
+            await websocket.close(
+                code=1013,
+                reason="Zu viele gleichzeitige Live-Verbindungen",
+            )
+            return
+
+        max_message_bytes = _bounded_env_int(
+            "ROYAL_WS_MAX_MESSAGE_BYTES",
+            DEFAULT_WS_MAX_MESSAGE_BYTES,
+            256,
+            64 * 1024,
         )
-        loop = asyncio.get_running_loop()
-        recheck_interval = max(0.01, float(dependencies.auth_recheck_seconds))
-        next_auth_check = loop.time() + recheck_interval
+        messages_per_minute = _bounded_env_int(
+            "ROYAL_WS_MESSAGES_PER_MINUTE",
+            DEFAULT_WS_MESSAGES_PER_MINUTE,
+            1,
+            600,
+        )
+        message_times: deque[float] = deque()
+        connected = False
         try:
+            await dependencies.manager.connect(
+                websocket,
+                initial_payload_factory=snapshot_payload if is_v1 else None,
+            )
+            connected = True
+            loop = asyncio.get_running_loop()
+            recheck_interval = max(0.01, float(dependencies.auth_recheck_seconds))
+            next_auth_check = loop.time() + recheck_interval
             while True:
                 try:
-                    await asyncio.wait_for(
+                    message = await asyncio.wait_for(
                         websocket.receive_text(),
                         timeout=max(0.0, next_auth_check - loop.time()),
                     )
+                    if len(message.encode("utf-8")) > max_message_bytes:
+                        await websocket.close(code=1009, reason="WebSocket-Nachricht zu groß")
+                        break
+                    now = loop.time()
+                    cutoff = now - 60.0
+                    while message_times and message_times[0] < cutoff:
+                        message_times.popleft()
+                    message_times.append(now)
+                    if len(message_times) > messages_per_minute:
+                        await websocket.close(code=1008, reason="Zu viele WebSocket-Nachrichten")
+                        break
                 except asyncio.TimeoutError:
                     pass
                 now = loop.time()
@@ -145,6 +204,8 @@ def create_websocket_router(
         except WebSocketDisconnect:
             pass
         finally:
-            dependencies.manager.disconnect(websocket)
+            if connected:
+                dependencies.manager.disconnect(websocket)
+            _release_client_slot(connection_key)
 
     return router, snapshot_payload, is_authenticated

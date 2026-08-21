@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
+import api_setup_router
 import server
 
 
@@ -57,12 +58,12 @@ def test_fail_closed_protects_initialized_install_without_account(monkeypatch):
     assert response.json()["code"] == "auth_required"
 
 
-def test_explicit_trusted_lan_mode_remains_available(monkeypatch):
+def test_legacy_open_lan_flag_cannot_disable_auth(monkeypatch):
     monkeypatch.setattr(server.appconfig, "is_initialized", lambda: True)
     monkeypatch.setattr(server, "auth_configured", lambda: False)
     monkeypatch.setenv("APP_REQUIRE_AUTH", "false")
 
-    assert server.auth_required() is False
+    assert server.auth_required() is True
 
 
 def test_public_legacy_health_contains_only_liveness():
@@ -75,6 +76,11 @@ def test_public_legacy_health_contains_only_liveness():
 def test_parallel_setup_completion_rejects_second_request(monkeypatch):
     monkeypatch.setattr(server.appconfig, "is_initialized", lambda: False)
     monkeypatch.setattr(server, "auth_configured", lambda: False)
+    # This test targets the non-blocking transaction lock. Bootstrap validation
+    # has dedicated adversarial coverage and is stubbed here so both concurrent
+    # requests reach the lock deterministically without touching real token state.
+    monkeypatch.setattr(api_setup_router, "verify_setup_token", lambda _token, _request: None)
+    monkeypatch.setattr(api_setup_router, "consume_setup_token", lambda: None)
     entered = threading.Event()
     release = threading.Event()
 
@@ -87,7 +93,8 @@ def test_parallel_setup_completion_rejects_second_request(monkeypatch):
 
     def _complete():
         return TestClient(server.app).post(
-            "/api/setup/complete", json={"save_path": "/tmp"},
+            "/api/setup/complete",
+            json={"save_path": "/tmp", "bootstrap_token": "test-bootstrap-token"},
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:

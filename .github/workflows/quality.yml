@@ -19,20 +19,22 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # immutable v7 line
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba # immutable v6 line
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 
@@ -41,7 +43,7 @@ jobs:
 
       - name: Compile Python sources
         run: |
-          python -m py_compile *.py
+          python -m py_compile *.py scripts/*.py
           python -m compileall -q application_services providers
 
       - name: Check web JavaScript
@@ -53,23 +55,27 @@ jobs:
       - name: Python correctness baseline
         run: ruff check --select E9,F63,F7,F82 .
 
+      - name: Project security regression scan
+        run: python scripts/security_scan.py
+
       - name: Security baseline
-        run: bandit -q -ll -r application_services api_administration_router.py api_automation_policy_router.py api_auth_router.py api_discovery_router.py api_library_router.py api_queue_router.py api_security.py api_serienstream_verification_router.py api_setup_router.py api_storage_router.py api_websocket_router.py app_state.py auth.py config.py media_paths.py media_quality.py network_guard.py queue_jobs.py queue_performance.py runtime_cache.py self_updater.py serienstream_session_identity.py serienstream_shared_session.py serienstream_verification.py session_manager.py smart_automation.py storage_locations.py storage_manager.py storage_move.py storage_move_runtime.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
+        # B310 is covered more strictly by security_scan.py: every urlopen call
+        # is inventoried and its endpoint/scheme boundary is asserted there.
+        run: bandit -q -ll -r . -x ./tests -s B310
 
       - name: Audit locked dependencies
         run: pip-audit -r requirements.lock
+
+      - name: Generate Python dependency SBOM
+        run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
 
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
       - name: Run tests with critical-module coverage
         run: |
-          coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,queue_jobs,queue_performance,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater,serienstream_shared_session,session_manager -m pytest -q
-          # Ratchet the current broad repository baseline instead of pretending
-          # the legacy/provider-heavy service graph already has 85% coverage.
+          coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,proxy_security,queue_jobs,queue_performance,runtime_cache,security_runtime,self_updater,setup_bootstrap,update_channels,update_checker,websocket_manager,ytdlp_updater,serienstream_shared_session,session_manager -m pytest -q
           coverage report --skip-covered --fail-under=45
-          # New hardening code must stay substantially better covered than the
-          # broad legacy baseline so future changes cannot silently dilute it.
           coverage report \
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
@@ -83,22 +89,87 @@ jobs:
             --tag royal-downloader:quality \
             .
 
-      - name: Smoke-test SerienStream browser runtimes
+      - name: Scan container for high and critical CVEs
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # trivy 0.74 line
+        with:
+          image-ref: royal-downloader:quality
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Generate container SBOM
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297
+        with:
+          image-ref: royal-downloader:quality
+          format: cyclonedx
+          output: container-sbom.cdx.json
+          exit-code: "0"
+
+      - name: Smoke-test isolated SerienStream browser boundary
         shell: bash
         run: |
-          docker run --rm --entrypoint python royal-downloader:quality -c '
+          browser_network="royal-browser-quality-${GITHUB_RUN_ID}"
+          cleanup_browser() {
+            docker rm -f royal-browser-quality >/dev/null 2>&1 || true
+            docker network rm "${browser_network}" >/dev/null 2>&1 || true
+          }
+          trap cleanup_browser EXIT
+          docker network create "${browser_network}"
+          docker run --detach --name royal-browser-quality \
+            --network "${browser_network}" \
+            --read-only \
+            --pids-limit 256 \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            --shm-size 1g \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777 \
+            --tmpfs /home/royal:rw,nosuid,nodev,size=128m,mode=0700,uid=1000,gid=1000 \
+            --tmpfs /browser-profile:rw,nosuid,nodev,size=512m,mode=0700,uid=1000,gid=1000 \
+            --entrypoint /bin/sh \
+            royal-downloader:quality -c '
+              Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
+              python browser_cdp_proxy.py --listen-host 0.0.0.0 &
+              export DISPLAY=:99
+              exec chromium --no-sandbox --disable-dev-shm-usage \
+                --disable-background-networking --disable-client-side-phishing-detection \
+                --no-first-run --no-default-browser-check \
+                --remote-debugging-port=9223 \
+                --user-data-dir=/browser-profile --window-size=1280,900 about:blank
+            '
+          for attempt in $(seq 1 45); do
+            if docker exec royal-browser-quality python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=2)"; then
+              break
+            fi
+            if [ "$attempt" -eq 45 ]; then
+              docker logs royal-browser-quality
+              exit 1
+            fi
+            sleep 1
+          done
+          docker run --rm \
+            --network "${browser_network}" \
+            --env ROYAL_BROWSER_CDP_URL=http://royal-browser-quality:9222 \
+            --entrypoint python \
+            royal-downloader:quality -c '
           import time
+          import auth
+          import config
+          from security_runtime import install_pre_state_security
+          install_pre_state_security(config, auth)
           from serienstream_verification import SERIESSTREAM_VERIFICATION
           from serienstream_shared_session import _BrowserRuntime
 
           manager = SERIESSTREAM_VERIFICATION
           with manager._lock:
               cdp = manager._start_processes_locked()
+              manager._cdp = cdp
               try:
                   cdp.navigate("data:text/html,<html><body><h1>Royal Verifier OK</h1></body></html>")
                   time.sleep(0.5)
                   image = cdp.screenshot()
-                  assert image.startswith(b"\x89PNG\r\n\x1a\n"), "Verifier Chromium did not return PNG"
+                  assert image.startswith(b"\x89PNG\r\n\x1a\n"), "Verifier CDP did not return PNG"
               finally:
                   manager._cleanup_locked()
 
@@ -107,12 +178,12 @@ jobs:
               cdp = runtime.start()
               cdp.navigate("data:text/html,<html><body><h1>Royal Shared Session OK</h1></body></html>")
               time.sleep(0.5)
-              assert "Royal Shared Session OK" in cdp.html(), "Shared-session Chromium did not render"
+              assert "Royal Shared Session OK" in cdp.html(), "Shared CDP did not render"
           finally:
               runtime.close()
           '
 
-      - name: Smoke-test fresh and persistent container startup
+      - name: Smoke-test fail-closed read-only container startup
         shell: bash
         run: |
           smoke_root="${RUNNER_TEMP}/royal-quality-smoke"
@@ -123,7 +194,12 @@ jobs:
           trap cleanup EXIT
           docker run --detach --name royal-quality-smoke \
             --publish 127.0.0.1:18765:8765 \
-            --env APP_REQUIRE_AUTH=false \
+            --read-only \
+            --pids-limit 512 \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777 \
+            --tmpfs /home/royal:rw,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000 \
             --volume "${smoke_root}/runtime:/runtime" \
             --volume "${smoke_root}/data:/app/data" \
             --volume "${smoke_root}/movies:/movies" \
@@ -143,9 +219,12 @@ jobs:
           curl --fail --silent http://127.0.0.1:18765/api/v1/capabilities > capabilities.json
           python -c 'import json,os; from app_version import APP_VERSION; p=json.load(open("capabilities.json")); assert p["application_version"] == APP_VERSION; assert p["build"] == os.environ["GITHUB_SHA"][:12]'
           python -c 'import json; p=json.load(open("capabilities.json")); assert p["update_channels"] == {"stable": "main", "overnight": "overnight"}'
-          curl --fail --silent http://127.0.0.1:18765/api/v1/updater/config > updater-config.json
-          python -c 'import json; p=json.load(open("updater-config.json")); assert p["update_channel"] == "stable"; assert p["update_branch"] == "main"'
-          test -d "${smoke_root}/data/FilmeDownloader"
+          curl --fail --silent http://127.0.0.1:18765/api/setup/status > setup-status.json
+          python -c 'import json; p=json.load(open("setup-status.json")); assert p["required"] is True; assert p["bootstrap_required"] is True; assert "token" not in p'
+          test "$(docker exec royal-quality-smoke stat -c %a /app/data/FilmeDownloader/setup_bootstrap.json)" = "600"
+          status="$(curl --silent --output protected.json --write-out '%{http_code}' http://127.0.0.1:18765/api/v1/updater/config)"
+          test "$status" = "401"
+          python -c 'import json; p=json.load(open("protected.json")); assert p["code"] == "auth_required"'
           docker restart royal-quality-smoke
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18765/api/health > /dev/null; then
@@ -156,8 +235,11 @@ jobs:
           docker logs royal-quality-smoke
           exit 1
 
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v6
+      - name: Upload security and coverage artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
         with:
-          name: critical-module-coverage
-          path: coverage.xml
+          name: security-verification-artifacts
+          path: |
+            coverage.xml
+            dependency-sbom.cdx.json
+            container-sbom.cdx.json
