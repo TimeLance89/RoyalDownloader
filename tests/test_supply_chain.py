@@ -33,6 +33,31 @@ def test_runtime_dependencies_and_images_are_exactly_pinned():
     assert "YTDLP_AUTO_UPDATE:-false" in compose
 
 
+def test_release_gate_dependencies_are_locked_and_kept_out_of_runtime_image():
+    gate_dockerfile = _content("Dockerfile.release-gate")
+    workflow = _content(".github/workflows/quality.yml")
+
+    assert "requirements-dev.lock" in gate_dockerfile
+    assert "royal-downloader:quality" in gate_dockerfile
+    assert "royal-downloader:release-gate" in workflow
+    assert "pip-audit -r requirements-dev.lock" in workflow
+    assert "requirements-dev.lock" not in _content("Dockerfile")
+
+
+def test_container_browser_uses_signed_patched_source_and_fails_closed():
+    dockerfile = _content("Dockerfile")
+    assert 'ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"' in dockerfile
+    assert 'ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"' in dockerfile
+    assert "https://dl.google.com/linux/linux_signing_key.pub" in dockerfile
+    assert "signed-by=/usr/share/keyrings/google-chrome.asc" in dockerfile
+    assert "https://dl.google.com/linux/chrome/deb/ stable main" in dockerfile
+    assert 'dpkg --compare-versions "${chrome_version}" ge "${CHROME_SECURITY_FLOOR}"' in dockerfile
+    assert 'dpkg --compare-versions "${chromium_version}" ge "${DEBIAN_CHROMIUM_SECURITY_FLOOR}"' in dockerfile
+    assert 'dpkg --compare-versions "${chromium_common_version}" ge "${DEBIAN_CHROMIUM_SECURITY_FLOOR}"' in dockerfile
+    assert "CHROME_PATH=/usr/local/bin/royal-chrome" in dockerfile
+    assert "ln -sfn /usr/local/bin/royal-chrome /usr/local/bin/chromium" in dockerfile
+
+
 def test_legacy_updater_dependency_sentinel_stays_compatible():
     # Version 6457b78d compares this file byte-for-byte before accepting an
     # update. Runtime dependency changes belong in requirements.in/.lock.

@@ -144,6 +144,11 @@ def test_overnight_update_requires_successful_quality_for_exact_commit(
             }
         if path == f"commits/{latest_sha}/check-runs?per_page=100":
             return {"check_runs": [check_run]}
+        if path == f"commits/{latest_sha}":
+            return {
+                "sha": latest_sha,
+                "commit": {"verification": {"verified": True, "reason": "valid"}},
+            }
         if path == f"compare/{current_sha}...{latest_sha}":
             return {"status": "ahead", "ahead_by": 1, "behind_by": 0}
         raise AssertionError(f"unexpected GitHub API path: {path}")
@@ -155,6 +160,8 @@ def test_overnight_update_requires_successful_quality_for_exact_commit(
     assert result["latest_sha"] == latest_sha
     assert result["quality_gate"] == expected_gate
     assert result["quality_approved"] is expected_approved
+    assert result["commit_signature_verified"] is True
+    assert result["security_approved"] is expected_approved
     assert result["update_available"] is expected_update
 
 
@@ -187,6 +194,11 @@ def test_fresh_stable_archive_is_detected_after_switch_to_overnight(
             return {"check_runs": [{
                 "name": "verify", "status": "completed", "conclusion": "success",
             }]}
+        if path == f"commits/{overnight_sha}":
+            return {
+                "sha": overnight_sha,
+                "commit": {"verification": {"verified": True, "reason": "valid"}},
+            }
         if path == "commits/main":
             return {
                 "sha": stable_sha,
@@ -207,18 +219,23 @@ def test_fresh_stable_archive_is_detected_after_switch_to_overnight(
 
     assert result["current_sha"] == stable_sha
     assert result["comparison"] == "ahead"
+    assert result["security_approved"] is True
     assert result["update_available"] is True
 
 
-def test_stable_does_not_require_overnight_quality_gate(monkeypatch, tmp_path):
+def test_stable_requires_the_same_green_quality_gate(monkeypatch, tmp_path):
     checker = UpdateChecker(branch="main", app_dir=tmp_path)
-    monkeypatch.setattr(
-        checker,
-        "_get_json",
-        lambda _path: pytest.fail("Stable must not query Overnight check runs"),
-    )
+    latest_sha = "b" * 40
 
-    assert checker._quality_gate_state("b" * 40) == "not_required"
+    def fake_get_json(path):
+        assert path == f"commits/{latest_sha}/check-runs?per_page=100"
+        return {"check_runs": [{
+            "name": "verify", "status": "completed", "conclusion": "success",
+        }]}
+
+    monkeypatch.setattr(checker, "_get_json", fake_get_json)
+
+    assert checker._quality_gate_state(latest_sha) == "passed"
 
 
 def test_channel_selection_is_persisted_and_survives_reload(isolated_config):

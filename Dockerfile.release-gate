@@ -1,0 +1,12 @@
+# Deterministic test-only overlay for the release-readiness E2E harness.
+# The shipped runtime image deliberately contains only requirements.lock;
+# FastAPI's TestClient and the other verification tools stay in the audited
+# development lock and are never added to the production image.
+ARG BASE_IMAGE=royal-downloader:quality
+FROM ${BASE_IMAGE}
+
+USER root
+COPY requirements.lock requirements-dev.lock /tmp/royal-release-gate/
+RUN pip install --no-cache-dir -r /tmp/royal-release-gate/requirements-dev.lock \
+    && rm -rf /tmp/royal-release-gate
+USER royal

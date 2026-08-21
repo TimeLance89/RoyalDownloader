@@ -30,7 +30,7 @@ jobs:
       contents: write
     steps:
       - name: Check out release revision
-        uses: actions/checkout@v7
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # immutable v7 line
         with:
           fetch-depth: 0
 

@@ -1,18 +1,21 @@
 import api_administration_router as administration
+import pytest
 
 
-def test_nas_container_does_not_rewrite_bundled_env(monkeypatch):
+@pytest.mark.parametrize("mode", ["nas", "demo", "desktop"])
+def test_container_does_not_rewrite_bundled_env(monkeypatch, mode):
     monkeypatch.setenv("SERIENDL_DATA_DIR", "/app/data")
 
     def fail_if_called(*_args, **_kwargs):
-        raise AssertionError("NAS must not write the bundled .env")
+        raise AssertionError("container must not write the bundled .env")
 
     monkeypatch.setattr(administration, "write_project_env", fail_if_called)
 
-    result = administration._write_deployment_environment("nas", "/movies", "/serien")
+    result = administration._write_deployment_environment(mode, "/movies", "/serien")
 
     assert result["managed_by_compose"] is True
     assert result["created"] is False
+    assert result["mode"] == mode
 
 
 def test_desktop_still_writes_project_env(monkeypatch):

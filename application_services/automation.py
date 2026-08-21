@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import threading
+
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -231,6 +233,12 @@ WATCHLIST_QUICK_RETRY_ERRORS = (
     "Jellyfin-Konfiguration wird geprüft",
     "Prüfung läuft",
 )
+_watchlist_wake_event = threading.Event()
+
+
+def wake_watchlist_auto_check() -> None:
+    """Wake the existing automation owner after a verified Jellyfin change."""
+    _watchlist_wake_event.set()
 
 
 def _watchlist_auto_check_once() -> tuple[int, int]:
@@ -276,15 +284,25 @@ def watchlist_auto_check_loop():
     while True:
         interval_min = state.automation.get("check_interval_min", 30)
         checked = total = 0
-        try:
-            checked, total = _watchlist_auto_check_once()
-        except Exception as exc:
-            log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
-        try:
-            check_movie_subscriptions()
-        except Exception as exc:
-            log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
-        time.sleep(_watchlist_auto_check_delay(checked, total, interval_min))
+        jf_configured = get_jellyfin_client().configured
+        if jf_configured and getattr(state, "jellyfin_live_stale", False):
+            with state.watchlist_lock:
+                total = len(state.watchlist)
+            log(
+                "Automatische Bibliotheks-Prüfung wartet auf aktuellen Jellyfin-Livestatus.",
+                "warn",
+            )
+        else:
+            try:
+                checked, total = _watchlist_auto_check_once()
+            except Exception as exc:
+                log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
+            try:
+                check_movie_subscriptions()
+            except Exception as exc:
+                log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
+        _watchlist_wake_event.wait(_watchlist_auto_check_delay(checked, total, interval_min))
+        _watchlist_wake_event.clear()
 
 
 _SERVICE_EXPORTS = (
@@ -293,6 +311,7 @@ _SERVICE_EXPORTS = (
     "_auto_download_new_episodes",
     "WATCHLIST_JELLYFIN_RETRY_SECONDS",
     "WATCHLIST_QUICK_RETRY_ERRORS",
+    "wake_watchlist_auto_check",
     "_watchlist_auto_check_once",
     "_watchlist_auto_check_delay",
     "watchlist_auto_check_loop",

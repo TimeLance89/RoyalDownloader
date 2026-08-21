@@ -1,13 +1,62 @@
 """Authentication policy and request identity services."""
-# Runtime service publication is intentionally invisible to static name resolution.
-# ruff: noqa: F821
 
-from application_services.runtime import (
-    import_backend_namespace,
-    publish_service,
-)
+from __future__ import annotations
 
-globals().update(import_backend_namespace())
+import base64
+import logging
+import os
+import secrets
+from dataclasses import dataclass
+from typing import Any
+
+import auth as appauth
+import config as appconfig
+from application_services.runtime import backend_value, publish_service
+from proxy_security import client_ip as secure_client_ip
+from proxy_security import request_is_secure as trusted_request_is_secure
+from security_runtime import install_pre_state_security, maybe_upgrade_password_hash
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AuthRuntimeDependencies:
+    """Mutable runtime objects used by the authentication service.
+
+    Configuration and password policy are normal module imports.  The session
+    store and Basic-auth guard are process-owned runtime objects and therefore
+    remain explicit injection seams for tests and the composition root.
+    """
+
+    basic_auth_guard: Any
+    session_store: Any
+
+
+_injected_dependencies: AuthRuntimeDependencies | None = None
+
+
+def configure_auth_dependencies(dependencies: AuthRuntimeDependencies | None) -> None:
+    """Install explicit runtime dependencies; ``None`` restores composition fallback."""
+    global _injected_dependencies
+    _injected_dependencies = dependencies
+
+
+def _runtime_dependencies() -> AuthRuntimeDependencies:
+    dependencies = _injected_dependencies
+    if dependencies is not None:
+        return dependencies
+    # Compatibility fallback for the current composition root.  Unlike the old
+    # namespace copy this resolves only the two declared runtime dependencies.
+    return AuthRuntimeDependencies(
+        basic_auth_guard=backend_value("BASIC_AUTH_GUARD"),
+        session_store=backend_value("SESSION_STORE"),
+    )
+
+
+# This service is imported before AppState is constructed.  Security-sensitive
+# environment/secret loading and password policy therefore take effect before
+# integrations or credentials are read into runtime state.
+install_pre_state_security(appconfig, appauth)
 
 
 # ---------------------------------------------------------------------------
@@ -29,29 +78,19 @@ def auth_configured() -> bool:
 
 
 def fail_closed_auth_enabled() -> bool:
-    """Expliziter Schutz für öffentlich angebundene Installationen.
+    """Royal besitzt nach dem Security-Hardening keine offene API-Betriebsart.
 
-    Der Default bleibt für bestehende reine LAN-Installationen kompatibel. Wer
-    den Dienst über einen Tunnel veröffentlicht, setzt `APP_REQUIRE_AUTH=1`;
-    eine verlorene oder beschädigte Kontokonfiguration öffnet die API dann
-    nicht stillschweigend.
+    First-run setup is the only unauthenticated administration surface and is
+    protected by its one-time bootstrap token. ``APP_REQUIRE_AUTH`` remains a
+    compatibility setting but can no longer turn an initialized instance into
+    an unauthenticated service when account state is missing or damaged.
     """
-    return os.environ.get("APP_REQUIRE_AUTH", "").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    return True
 
 
 def auth_required() -> bool:
-    """Ob Anfragen abgewiesen werden, wenn keine Anmeldung vorliegt.
-
-    Vor abgeschlossener Ersteinrichtung ist die Oberfläche offen – sonst wäre
-    der Assistent, der das Konto erst anlegt, selbst nicht erreichbar.
-    """
-    if fail_closed_auth_enabled():
-        return True
-    if not appconfig.is_initialized():
-        return False
-    return auth_configured()
+    """All non-public application APIs require an authenticated session."""
+    return True
 
 
 def setup_required() -> bool:
@@ -60,7 +99,7 @@ def setup_required() -> bool:
 
 
 def verify_credentials(username: str, password: str) -> bool:
-    """Prüft Zugangsdaten gegen das hinterlegte Konto (zeitkonstant)."""
+    """Prüft Zugangsdaten zeitkonstant und aktualisiert alte Hashparameter."""
     account = auth_account()
     if not account.get("configured"):
         return False
@@ -71,7 +110,13 @@ def verify_credentials(username: str, password: str) -> bool:
         return False
     if account.get("source") == "env":
         return secrets.compare_digest(str(password or ""), str(account.get("env_password", "")))
-    return appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+    verified = appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+    if verified:
+        try:
+            maybe_upgrade_password_hash(appconfig, appauth, account, str(password or ""))
+        except Exception as exc:  # login stays available if a background rehash cannot persist
+            logger.warning("Passwort-Hash konnte nicht automatisch aktualisiert werden: %s", exc)
+    return verified
 
 
 def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
@@ -84,13 +129,14 @@ def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
     except Exception:
         return False
     key = guard_key or "basic-global"
-    if BASIC_AUTH_GUARD.retry_after(key):
+    guard = _runtime_dependencies().basic_auth_guard
+    if guard.retry_after(key):
         return False
     authenticated = verify_credentials(username, password)
     if authenticated:
-        BASIC_AUTH_GUARD.register_success(key)
+        guard.register_success(key)
     else:
-        BASIC_AUTH_GUARD.register_failure(key)
+        guard.register_failure(key)
     return authenticated
 
 
@@ -113,7 +159,7 @@ def _session_token(scope_cookies: dict) -> str:
 def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
     """Gibt ausschließlich ein gültiges Mobile-Bearer-Token zurück."""
     bearer = _bearer_token(headers)
-    if bearer and SESSION_STORE.validate(
+    if bearer and _runtime_dependencies().session_store.validate(
         bearer, appauth.SESSION_KIND_MOBILE, touch=touch,
     ):
         return bearer
@@ -123,7 +169,7 @@ def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
 def authenticated_web_token(cookies, *, touch: bool = True) -> str:
     """Gibt ausschließlich ein gültiges Browser-Cookie-Token zurück."""
     cookie = _session_token(cookies)
-    if cookie and SESSION_STORE.validate(
+    if cookie and _runtime_dependencies().session_store.validate(
         cookie, appauth.SESSION_KIND_WEB, touch=touch,
     ):
         return cookie
@@ -165,8 +211,6 @@ def request_is_authenticated(
     touch: bool = True,
 ) -> bool:
     """Gültiges Cookie-/Bearer-Token oder gültiger Basic-Header?"""
-    if not auth_required():
-        return True
     if allow_mobile_bearer and authenticated_mobile_token(headers, touch=touch):
         return True
     if not versioned and authenticated_web_token(cookies, touch=touch):
@@ -179,28 +223,32 @@ def request_is_authenticated(
 
 
 def trust_cloudflare_headers_enabled() -> bool:
-    """Nur explizit aktivieren, wenn der Origin ausschließlich den Tunnel sieht."""
+    """Compatibility flag; peer trust is enforced separately by proxy_security."""
     return os.environ.get("TRUST_CLOUDFLARE_HEADERS", "").strip().casefold() in {
         "1", "true", "yes", "on",
     }
 
 
 def client_key(request) -> str:
-    """Herkunfts-IP für Sperren und Budgets."""
-    client = getattr(request, "client", None)
-    peer = getattr(client, "host", "") or "unbekannt"
-    if not trust_cloudflare_headers_enabled():
-        return peer
-    raw = str(request.headers.get("cf-connecting-ip", "") or "").strip()
-    # CF-Connecting-IP enthält exakt eine Adresse. Listen gehören zu XFF und
-    # werden hier absichtlich nicht akzeptiert, damit kein frei wählbarer
-    # erster Eintrag zum Umgehen der Login-Sperre wird.
-    if not raw or "," in raw or len(raw) > 64:
-        return peer
-    try:
-        return str(ipaddress.ip_address(raw))
-    except ValueError:
-        return peer
+    """Spoof-resistant Herkunfts-IP für Sperren und Budgets."""
+    return secure_client_ip(request)
+
+
+def _request_is_secure(request) -> bool:
+    """HTTPS only follows forwarding metadata from an explicitly trusted proxy."""
+    return trusted_request_is_secure(request)
+
+
+def _set_session_cookie(response, request, token: str) -> None:
+    response.set_cookie(
+        appauth.SESSION_COOKIE_NAME,
+        token,
+        max_age=appauth.DEFAULT_SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="strict",
+        secure=_request_is_secure(request),
+        path="/",
+    )
 
 
 _SERVICE_EXPORTS = (
@@ -219,5 +267,7 @@ _SERVICE_EXPORTS = (
     "request_is_authenticated",
     "trust_cloudflare_headers_enabled",
     "client_key",
+    "_request_is_secure",
+    "_set_session_cookie",
 )
 publish_service(globals(), _SERVICE_EXPORTS)

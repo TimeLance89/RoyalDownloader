@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cr
+from defusedxml import ElementTree as SafeET
 
 from providers.models import FilmpalastMovie, FilmpalastSearchResult, HosterInfo
 
@@ -81,7 +82,7 @@ class KinoxScraper:
         try:
             resp = self.session.get(f"{BASE_URL}/rss.xml", timeout=25)
             resp.raise_for_status()
-            root = ET.fromstring(resp.content)
+            root = SafeET.fromstring(resp.content)
         except Exception as exc:
             self._log(f"Kinox RSS nicht ladbar: {exc}")
             return []

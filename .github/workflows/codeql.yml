@@ -1,0 +1,39 @@
+name: CodeQL security analysis
+
+on:
+  push:
+    branches:
+      - main
+      - overnight
+  pull_request:
+    branches:
+      - main
+      - overnight
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9ee088e13615f8d1eaef4766f9dde95d3356a8f6
+        with:
+          languages: python
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@9ee088e13615f8d1eaef4766f9dde95d3356a8f6
+        with:
+          category: "/language:python"

@@ -22,7 +22,6 @@ from environment_file import (
     DEPLOYMENT_MODES,
     ENV_PATH,
     MODE_DEMO,
-    MODE_NAS,
     write_project_env,
 )
 from jellyfin_client import JellyfinClient
@@ -46,18 +45,19 @@ router = APIRouter(tags=["administration"])
 def _write_deployment_environment(
     mode: str, movie_path: str, series_path: str,
 ) -> dict[str, object]:
-    """Persist desktop setup values without writing into a Docker image.
+    """Persist native setup values without writing into a container image.
 
-    A NAS container receives its Compose environment when it is created.  Its
-    bundled source directory is intentionally read-only, so trying to rewrite
-    ``.env`` from the web UI both cannot affect Compose and used to make an
-    otherwise successful settings save look like a failure.
+    A container receives its environment when it is created, independent of
+    the deployment mode selected in the web setup.  Its bundled source
+    directory is intentionally read-only, so trying to rewrite ``.env`` both
+    cannot affect the running container and would turn a valid settings save
+    into a failure.  Runtime settings remain durable in ``SERIENDL_DATA_DIR``.
     """
-    if mode == MODE_NAS and os.environ.get("SERIENDL_DATA_DIR", "").strip():
+    if os.environ.get("SERIENDL_DATA_DIR", "").strip():
         return {
-            "path": "Docker-Compose-.env auf dem NAS-Host",
+            "path": "Container-Umgebung (beim Start gesetzt)",
             "created": False,
-            "mode": MODE_NAS,
+            "mode": mode,
             "managed_by_compose": True,
         }
     return write_project_env(mode, movie_path, series_path)
