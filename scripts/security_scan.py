@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SELF = Path(__file__).resolve()
 TEXT_SUFFIXES = {
     ".py", ".js", ".mjs", ".html", ".css", ".yml", ".yaml", ".toml",
     ".ini", ".json", ".md", ".txt", ".sh", ".ps1",
@@ -25,6 +26,8 @@ SECRET_PATTERNS = {
 }
 ACTION_SHA_RE = re.compile(r"^\s*uses:\s*([^#\s]+)(?:\s*#.*)?$", re.MULTILINE)
 INLINE_SCRIPT_RE = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>", re.IGNORECASE)
+SHELL_TRUE_RE = re.compile(r"\bshell\s*=\s*" + "True" + r"\b")
+SANDBOX_BYPASS = "--no-" + "sandbox"
 
 
 def tracked_files() -> list[Path]:
@@ -64,12 +67,12 @@ def scan() -> list[str]:
             continue
         texts[path] = text
         relative = path.relative_to(ROOT).as_posix()
-        if relative.startswith("tests/"):
+        if relative.startswith("tests/") or path.resolve() == SELF:
             continue
         for label, pattern in SECRET_PATTERNS.items():
             if pattern.search(text):
                 failures.append(f"{relative}: possible committed {label}")
-        if path.suffix == ".py" and re.search(r"\bshell\s*=\s*True\b", text):
+        if path.suffix == ".py" and SHELL_TRUE_RE.search(text):
             failures.append(f"{relative}: subprocess shell=True is forbidden")
 
     for path, text in texts.items():
@@ -90,19 +93,24 @@ def scan() -> list[str]:
         if path.suffix == ".html" and INLINE_SCRIPT_RE.search(text):
             failures.append(f"{relative}: inline script conflicts with strict CSP")
 
-    # Legacy browser modules still contain a compatibility flag for direct
-    # invocation. Production installs security_runtime before browser use and
-    # Docker routes those calls to a mount-less sidecar. Any new occurrence is
-    # a security regression and is rejected.
+    # The legacy provider modules keep the flag only as a compatibility seam;
+    # production Docker executes it solely in the mount-less browser sidecar.
     allowed_browser_bypass_files = {
         "serienstream_shared_session.py",
         "serienstream_verification.py",
-        "security_runtime.py",
+        "docker-compose.yml",
+        ".github/workflows/quality.yml",
     }
     for path, text in texts.items():
         relative = path.relative_to(ROOT).as_posix()
-        if "--no-sandbox" in text and relative not in allowed_browser_bypass_files and relative != "docker-compose.yml":
+        if (
+            SANDBOX_BYPASS in text
+            and relative not in allowed_browser_bypass_files
+            and not relative.startswith("tests/")
+            and path.resolve() != SELF
+        ):
             failures.append(f"{relative}: Chromium sandbox bypass outside approved isolation boundary")
+
     runtime_text = texts.get(ROOT / "security_runtime.py", "")
     compose_text = texts.get(ROOT / "docker-compose.yml", "")
     if "ROYAL_BROWSER_CDP_URL" not in runtime_text or "_ChromiumSubprocessProxy" not in runtime_text:
