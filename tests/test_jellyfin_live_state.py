@@ -2,7 +2,6 @@ import json
 import threading
 import time
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlparse
 
 import server  # noqa: F401 - registers the application-service composition root
 import application_services.jellyfin_live as live
@@ -12,14 +11,11 @@ class _Response:
     def __init__(self, payload):
         self.payload = payload
 
-    def __enter__(self):
-        return self
+    def raise_for_status(self):
+        return None
 
-    def __exit__(self, *_args):
-        return False
-
-    def read(self):
-        return json.dumps(self.payload).encode("utf-8")
+    def json(self):
+        return self.payload
 
 
 def _state(**overrides):
@@ -53,6 +49,8 @@ def _state(**overrides):
         "jellyfin_live_stale": False,
         "jellyfin_live_checked_at": time.time(),
         "automation": {"check_interval_min": 30},
+        "watchlist_lock": threading.RLock(),
+        "watchlist": [],
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -61,8 +59,8 @@ def _state(**overrides):
 def test_live_probe_is_one_bounded_page(monkeypatch):
     calls = []
 
-    def fake_urlopen(request, timeout):
-        calls.append((request, timeout))
+    def fake_get(url, *, params, headers, timeout):
+        calls.append((url, params, headers, timeout))
         return _Response({
             "Items": [
                 {"Id": "episode-2", "Type": "Episode", "DateCreated": "2026-08-21T05:00:00Z"},
@@ -71,7 +69,7 @@ def test_live_probe_is_one_bounded_page(monkeypatch):
             "TotalRecordCount": 502,
         })
 
-    monkeypatch.setattr(live.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(live.requests, "get", fake_get)
     client = SimpleNamespace(
         configured=True,
         base_url="http://jellyfin:8096",
@@ -84,13 +82,15 @@ def test_live_probe_is_one_bounded_page(monkeypatch):
 
     assert first == second
     assert len(calls) == 2
-    query = parse_qs(urlparse(calls[0][0].full_url).query)
-    assert query["Limit"] == [str(live._LIVE_PROBE_LIMIT)]
-    assert int(query["Limit"][0]) <= 20
-    assert query["StartIndex"] == ["0"]
-    assert query["IncludeItemTypes"] == ["Movie,Series,Episode"]
-    assert query["EnableTotalRecordCount"] == ["true"]
-    assert calls[0][0].headers["X-emby-token"] == "secret"
+    url, params, headers, timeout = calls[0]
+    assert url == "http://jellyfin:8096/Items"
+    assert params["Limit"] == str(live._LIVE_PROBE_LIMIT)
+    assert int(params["Limit"]) <= 20
+    assert params["StartIndex"] == "0"
+    assert params["IncludeItemTypes"] == "Movie,Series,Episode"
+    assert params["EnableTotalRecordCount"] == "true"
+    assert headers["X-Emby-Token"] == "secret"
+    assert timeout == 5.0
 
 
 def test_shared_snapshot_refreshes_all_core_indexes_once_and_clears_targeted(monkeypatch):
@@ -249,7 +249,7 @@ def test_unchanged_probe_verifies_cache_without_another_full_snapshot(monkeypatc
     assert fake_state.jellyfin_series_time > 1.0
 
 
-def test_probe_failure_preserves_cached_data_as_stale(monkeypatch):
+def test_probe_failure_preserves_visual_cache_but_blocks_safety_caches(monkeypatch):
     fake_state = _state(jellyfin_library=[{"id": "keep-me"}])
     monkeypatch.setattr(live, "state", fake_state)
     monkeypatch.setattr(live, "_last_revision", "known")
@@ -264,6 +264,11 @@ def test_probe_failure_preserves_cached_data_as_stale(monkeypatch):
 
     assert live._monitor_cycle() == "unavailable"
     assert fake_state.jellyfin_library == [{"id": "keep-me"}]
+    assert fake_state.jellyfin_movie_identities_available is True
+    assert fake_state.jellyfin_series_available is True
+    assert fake_state.jellyfin_library_available is False
+    assert fake_state.jellyfin_episodes_available is False
+    assert fake_state.jellyfin_user_episodes_available is False
     assert fake_state.jellyfin_live_stale is True
     assert live._failure_count == 1
 
