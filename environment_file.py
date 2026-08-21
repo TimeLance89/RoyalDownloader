@@ -76,12 +76,16 @@ def deployment_env_values(mode: str, movie_path: str, series_path: str) -> dict[
     normalized = normalize_deployment_mode(mode)
     desktop = normalized in {MODE_DESKTOP, MODE_DEMO}
     demo = normalized == MODE_DEMO
+    # NAS mode is intentionally reachable on the host network; every non-public
+    # application route is fail-closed behind authentication and first-run setup
+    # is protected by the one-time bootstrap token.
+    nas_bind = "0.0.0.0"  # nosec B104 -- intentional authenticated NAS listener
     return {
         "ROYAL_DEPLOYMENT_MODE": normalized,
         "ROYAL_DEMO_MODE": "1" if demo else "0",
-        "HOST": "127.0.0.1" if desktop else "0.0.0.0",
+        "HOST": "127.0.0.1" if desktop else nas_bind,
         "OPEN_BROWSER": "1" if desktop else "0",
-        "ROYAL_BIND_ADDRESS": "127.0.0.1" if desktop else "0.0.0.0",
+        "ROYAL_BIND_ADDRESS": "127.0.0.1" if desktop else nas_bind,
         "DNS_OVERRIDE": "0" if desktop else "1",
         "MOVIES_HOST_DIR": str(movie_path).strip(),
         "SERIES_HOST_DIR": str(series_path).strip(),
