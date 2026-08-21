@@ -130,11 +130,12 @@ jobs:
             --entrypoint /bin/sh \
             royal-downloader:quality -c '
               Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
+              python browser_cdp_proxy.py --listen-host 0.0.0.0 &
               export DISPLAY=:99
               exec chromium --no-sandbox --disable-dev-shm-usage \
                 --disable-background-networking --disable-client-side-phishing-detection \
                 --no-first-run --no-default-browser-check \
-                --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 \
+                --remote-debugging-port=9223 \
                 --user-data-dir=/browser-profile --window-size=1280,900 about:blank
             '
           for attempt in $(seq 1 45); do
