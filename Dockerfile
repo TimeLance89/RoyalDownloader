@@ -1,8 +1,9 @@
 # Royal Downloader container image for 24/7 NAS and Docker operation.
 ARG APP_COMMIT_SHA=""
-FROM python:3.12.13-slim-bookworm AS runtime-base
+FROM python:3.12.14-slim-bookworm AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
+ARG CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
 
 # System dependencies:
 #  - chromium:         real browser for CDP-assisted extraction and verification.
@@ -16,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         ca-certificates \
         fonts-liberation \
+    && chromium_version="$(dpkg-query -W -f='${Version}' chromium)" \
+    && chromium_common_version="$(dpkg-query -W -f='${Version}' chromium-common)" \
+    && dpkg --compare-versions "${chromium_version}" ge "${CHROMIUM_SECURITY_FLOOR}" \
+    && dpkg --compare-versions "${chromium_common_version}" ge "${CHROMIUM_SECURITY_FLOOR}" \
     && rm -rf /var/lib/apt/lists/*
 
 RUN test "${APP_UID}" -gt 0 && test "${APP_GID}" -gt 0 \
