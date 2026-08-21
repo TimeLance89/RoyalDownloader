@@ -113,17 +113,27 @@ def first_run_auth_flow() -> None:
 
     client.cookies.clear()
     _response_json(
+        client.get("/api/updater/config"),
+        401,
+        "unauthorized protected web API",
+    )
+    _response_json(
         client.get("/api/v1/updater/config"),
         401,
-        "unauthorized protected API",
+        "unauthorized protected bearer API",
     )
     _login(client)
     protected = _response_json(
-        client.get("/api/v1/updater/config"),
+        client.get("/api/updater/config"),
         200,
-        "authorized protected API",
+        "authorized protected web API",
     )
     _expect("update_channel" in protected, "protected updater API returned incomplete payload")
+    _response_json(
+        client.get("/api/v1/updater/config"),
+        401,
+        "web session must not cross into bearer-only v1 API",
+    )
 
     post_setup = _response_json(client.get("/api/setup/status"), 200, "post-setup status")
     _expect(post_setup.get("required") is False, "completed setup regressed to first-run state")
