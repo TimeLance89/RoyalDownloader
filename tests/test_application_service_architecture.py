@@ -275,6 +275,10 @@ def test_auth_proxy_helpers_and_cookie_contract(monkeypatch):
 
     secure_impl = getattr(auth_service._request_is_secure, "__wrapped__", auth_service._request_is_secure)
     assert secure_impl(request) is True
+    # Published service symbols are dynamic compatibility wrappers.  The cookie
+    # implementation must be tested with its own secure-request implementation,
+    # not the composition-root wrapper that tests may replace independently.
+    monkeypatch.setattr(auth_service, "_request_is_secure", secure_impl)
 
     captured = {}
     response = SimpleNamespace(set_cookie=lambda *args, **kwargs: captured.update({"args": args, **kwargs}))
