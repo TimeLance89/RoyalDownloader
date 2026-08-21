@@ -125,7 +125,6 @@ def first_run_auth_flow() -> None:
     )
     _expect("update_channel" in protected, "protected updater API returned incomplete payload")
 
-    client.cookies.clear()
     post_setup = _response_json(client.get("/api/setup/status"), 200, "post-setup status")
     _expect(post_setup.get("required") is False, "completed setup regressed to first-run state")
     _expect(post_setup.get("bootstrap_required") is False, "bootstrap remained active after setup")
@@ -139,7 +138,7 @@ def _install_queue_fakes(server, slug: str, title: str) -> None:
         title=title,
         url=f"https://provider.invalid/{slug.split(':', 1)[-1]}",
         hosters=[HosterInfo("Fixture", "https://cdn.invalid/release-readiness.mp4")],
-        year=2026,
+        year="2026",
         genres=["Test"],
     )
     server._content_already_available = lambda *_args, **_kwargs: (False, "")
