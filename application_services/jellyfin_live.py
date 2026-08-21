@@ -14,14 +14,13 @@ import logging
 import os
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlencode
+
+import requests
 
 from application_services.runtime import backend_value, publish_service
 
 logger = logging.getLogger(__name__)
-
 state = backend_value("state")
 
 # Preserve the established implementations before publishing the live wrappers.
@@ -73,6 +72,20 @@ def _set_live_state(*, stale: bool, checked_at: float | None = None) -> None:
         state.jellyfin_live_stale = bool(stale)
         if checked_at is not None:
             state.jellyfin_live_checked_at = float(checked_at)
+
+
+def _mark_probe_unavailable() -> None:
+    """Keep visual snapshots but fail closed for download/automation safety."""
+    with state.jellyfin_cache_lock:
+        state.jellyfin_live_stale = True
+        # Keep identity snapshots for stable visual badges, but never let heavy
+        # safety paths interpret old ownership data as proof that media is absent.
+        if state.jellyfin_library is not None:
+            state.jellyfin_library_available = False
+        if state.jellyfin_episodes is not None:
+            state.jellyfin_episodes_available = False
+        if state.jellyfin_user_episodes is not None:
+            state.jellyfin_user_episodes_available = False
 
 
 def _mark_cached_snapshots_verified(now: float) -> None:
@@ -130,14 +143,16 @@ def _probe_library_revision(client) -> str | None:
         "Limit": str(_LIVE_PROBE_LIMIT),
         "EnableTotalRecordCount": "true",
     }
-    request = urllib.request.Request(
-        f"{client.base_url}/Items?{urlencode(params)}",
-        headers={"X-Emby-Token": client.api_key},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=client.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
+        response = requests.get(
+            f"{client.base_url}/Items",
+            params=params,
+            headers={"X-Emby-Token": client.api_key},
+            timeout=client.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
         logger.warning("Jellyfin-Liveprobe fehlgeschlagen (%s): %s", client.base_url, exc)
         return None
     if not isinstance(payload, dict) or not isinstance(payload.get("Items", []), list):
@@ -160,7 +175,7 @@ def _probe_library_revision(client) -> str | None:
 
 
 def _refresh_snapshot(client) -> bool:
-    """Rebuild all ownership data in parallel, then publish it as one generation."""
+    """Rebuild ownership data in parallel and publish one coherent generation."""
     with state.jellyfin_cache_lock:
         generation = state.jellyfin_config_generation
         user_id = str(state.jellyfin_cfg.get("user_id") or "").strip()
@@ -203,9 +218,10 @@ def _refresh_snapshot(client) -> bool:
             state.jellyfin_movie_identities_time = now
             state.jellyfin_movie_identities_available = True
             state.jellyfin_movie_identities_retry_after = 0.0
-        elif state.jellyfin_library is None:
+        else:
             state.jellyfin_library_available = False
-            state.jellyfin_movie_identities_available = False
+            if state.jellyfin_movie_identities is None:
+                state.jellyfin_movie_identities_available = False
 
         if series is not None:
             state.jellyfin_series = series
@@ -222,7 +238,7 @@ def _refresh_snapshot(client) -> bool:
             state.jellyfin_episodes_available = True
             state.jellyfin_episodes_retry_after = 0.0
             state.jellyfin_targeted_episodes.clear()
-        elif state.jellyfin_episodes is None:
+        else:
             state.jellyfin_episodes_available = False
 
         if user_id:
@@ -231,7 +247,7 @@ def _refresh_snapshot(client) -> bool:
                 state.jellyfin_user_episodes_time = now
                 state.jellyfin_user_episodes_available = True
                 state.jellyfin_user_episodes_retry_after = 0.0
-            elif state.jellyfin_user_episodes is None:
+            else:
                 state.jellyfin_user_episodes_available = False
         else:
             state.jellyfin_user_episodes = None
@@ -249,8 +265,10 @@ def _refresh_snapshot(client) -> bool:
 
 def _broadcast_live_update() -> None:
     try:
-        payload = backend_value("watchlist_payload")()
-        backend_value("broadcast")({"type": "jellyfin_update", **payload})
+        backend_value("broadcast")({
+            "type": "jellyfin_update",
+            **backend_value("watchlist_payload")(),
+        })
     except Exception as exc:
         logger.warning("Jellyfin-Liveupdate konnte nicht verteilt werden: %s", exc)
 
@@ -267,24 +285,20 @@ def _monitor_cycle(*, force_full: bool = False) -> str:
     revision = _probe_library_revision(client)
     if revision is None:
         _failure_count += 1
-        _set_live_state(stale=True)
+        _mark_probe_unavailable()
         return "unavailable"
 
     previous_stale = _live_stale()
     changed = bool(_last_revision and revision != _last_revision)
-    needs_snapshot = force_full or not _last_revision or changed
-    if needs_snapshot:
+    if force_full or not _last_revision or changed:
         complete = _refresh_snapshot(client)
         if complete:
             _last_revision = revision
             _failure_count = 0
         else:
             _failure_count += 1
-        # A changed library invalidates current detail/watchlist assumptions even
-        # if one heavy subfetch failed; retain old data but mark it stale.
-        if changed or force_full or not _last_revision:
-            _watchlist_wake_event.set()
-            _broadcast_live_update()
+        _watchlist_wake_event.set()
+        _broadcast_live_update()
         return "changed" if changed else ("refreshed" if complete else "stale")
 
     _failure_count = 0
@@ -420,6 +434,7 @@ def _set_runtime_jellyfin_config(cfg: dict) -> None:
     with _live_lock:
         _last_revision = ""
     _set_live_state(stale=False, checked_at=0.0)
+    _broadcast_live_update()
     request_jellyfin_live_refresh(force_full=True)
 
 
@@ -444,18 +459,31 @@ def warm_jellyfin_identity_cache() -> None:
 
 
 def watchlist_auto_check_loop() -> None:
-    """Existing automation cadence plus immediate wake-up on Jellyfin changes."""
+    """Existing cadence plus immediate wake-up on verified Jellyfin changes."""
     while not _live_stop_event.is_set():
         interval_min = state.automation.get("check_interval_min", 30)
         checked = total = 0
-        try:
-            checked, total = _legacy_watchlist_auto_check_once()
-        except Exception as exc:
-            backend_value("log")(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
-        try:
-            _legacy_check_movie_subscriptions()
-        except Exception as exc:
-            backend_value("log")(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
+        configured = backend_value("get_jellyfin_client")().configured
+        if configured and _live_stale():
+            with state.watchlist_lock:
+                total = len(state.watchlist)
+            backend_value("log")(
+                "Automatische Bibliotheks-Prüfung wartet auf aktuellen Jellyfin-Livestatus.",
+                "warn",
+            )
+        else:
+            try:
+                checked, total = _legacy_watchlist_auto_check_once()
+            except Exception as exc:
+                backend_value("log")(
+                    f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn",
+                )
+            try:
+                _legacy_check_movie_subscriptions()
+            except Exception as exc:
+                backend_value("log")(
+                    f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn",
+                )
         delay = _legacy_watchlist_auto_check_delay(checked, total, interval_min)
         _watchlist_wake_event.wait(delay)
         _watchlist_wake_event.clear()
