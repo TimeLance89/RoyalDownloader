@@ -152,7 +152,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260821-2/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260821-3/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -503,7 +503,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
   );
   assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
   assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-2/);
+  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-3/);
   assert.match(
     app,
     /const movie = await prepareFpMovieDownload\(slug\);[\s\S]*?if \(!movie\) return;[\s\S]*?await api\.queueAdd\(\[slug\]\)/,
@@ -512,6 +512,21 @@ test("movie download failures stay visible with their exact queue reason", () =>
   assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
   assert.match(app, /Download nicht gestartet:/);
   assert.match(app, /Download fehlgeschlagen:/);
+  assert.match(
+    app,
+    /await loadFpMetadata\(item\);[\s\S]*?if \(state\.fp\.selectedSlug !== slug\) return;[\s\S]*?await api\.movie\(slug, identity\.tmdb_id \|\| null\)/,
+  );
+  assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
+  assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);
+  assert.match(app, /Prüfe Verfügbarkeit …/);
+  assert.match(app, /Derzeit nicht verfügbar/);
+  assert.match(app, /error\.code === "movie_hoster_unavailable"/);
+  assert.match(
+    app,
+    /const tmdbId = state\.fp\.metadataCache\[slug\]\?\.tmdb_id[\s\S]*?api\.movie\(slug, tmdbId\)/,
+  );
+  assert.match(api, /movie\(slug, tmdbId = null\)/);
+  assert.match(api, /new URLSearchParams\(\{ tmdb_id: String\(tmdbId\) \}\)/);
 });
 
 test("Royal archive behaves like a searchable media center", () => {

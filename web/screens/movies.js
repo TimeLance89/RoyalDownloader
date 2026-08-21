@@ -912,10 +912,11 @@ async function selectFpRow(slug, initialItem = null) {
   openMediaModal("fp-detail-modal", findFpResultCard(slug));
   if (movie) return;
   await loadFpMetadata(item);
-  if (!String(slug).startsWith("tmdb:") || state.fp.selectedSlug !== slug) return;
+  if (state.fp.selectedSlug !== slug) return;
   setFpDetailAvailability("Alle Anbieter werden durchsucht", "loading");
   try {
-    const resolved = await api.movie(slug);
+    const identity = state.fp.metadataCache[slug] || item;
+    const resolved = await api.movie(slug, identity.tmdb_id || null);
     state.fp.moviesCache[slug] = resolved;
     updateFpResultCard(slug);
     if (state.fp.selectedSlug === slug) showFpDetail(slug, resolved);
@@ -923,8 +924,19 @@ async function selectFpRow(slug, initialItem = null) {
     console.warn("Anbietersuche fehlgeschlagen:", error);
     if (state.fp.selectedSlug === slug) {
       const preview = state.fp.metadataCache[slug] || basicMovieMetadata(item);
-      showFpDetail(slug, metadataPreviewMovie(preview), true);
-      setFpDetailAvailability(error.message, "error");
+      const unavailable = {
+        ...metadataPreviewMovie(preview),
+        hosters: [],
+        hoster_route: "Kein Hoster verfügbar",
+        hoster_fallback_count: 0,
+      };
+      showFpDetail(slug, unavailable, false);
+      setFpDetailAvailability(
+        error.code === "movie_hoster_unavailable"
+          ? "Aktuell kein Hoster verfügbar"
+          : `Anbieterprüfung fehlgeschlagen: ${error.message}`,
+        "error",
+      );
     }
   }
 }
@@ -1341,10 +1353,16 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const mutationPending = fpQueueMutations.has(slug);
   renderFpDownloadFeedback(slug);
   addBtn.hidden = owned && !queued;
-  addBtn.disabled = mutationPending || (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
+  addBtn.disabled = mutationPending || (owned && !queued) || (!queued && (metadataOnly || !hasHosters));
   addBtn.textContent = mutationPending
     ? (queued ? "Entferne …" : "Füge hinzu …")
-    : (queued ? "✕ Aus Queue entfernen" : "↓ Herunterladen");
+    : queued
+      ? "✕ Aus Queue entfernen"
+      : metadataOnly
+        ? "Prüfe Verfügbarkeit …"
+        : hasHosters
+          ? "↓ Herunterladen"
+          : "Derzeit nicht verfügbar";
 
   addBtn.onclick = async () => {
     if (fpQueueMutations.has(slug)) return;
