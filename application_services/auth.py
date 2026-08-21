@@ -1,17 +1,57 @@
 """Authentication policy and request identity services."""
-# Runtime service publication is intentionally invisible to static name resolution.
-# ruff: noqa: F821
 
-from application_services.runtime import (
-    import_backend_namespace,
-    publish_service,
-)
+from __future__ import annotations
+
+import base64
+import logging
+import os
+import secrets
+from dataclasses import dataclass
+from typing import Any
+
+import auth as appauth
+import config as appconfig
+from application_services.runtime import backend_value, publish_service
 from proxy_security import client_ip as secure_client_ip
 from proxy_security import request_is_secure as trusted_request_is_secure
 from security_runtime import install_pre_state_security, maybe_upgrade_password_hash
 
+logger = logging.getLogger(__name__)
 
-globals().update(import_backend_namespace())
+
+@dataclass(frozen=True)
+class AuthRuntimeDependencies:
+    """Mutable runtime objects used by the authentication service.
+
+    Configuration and password policy are normal module imports.  The session
+    store and Basic-auth guard are process-owned runtime objects and therefore
+    remain explicit injection seams for tests and the composition root.
+    """
+
+    basic_auth_guard: Any
+    session_store: Any
+
+
+_injected_dependencies: AuthRuntimeDependencies | None = None
+
+
+def configure_auth_dependencies(dependencies: AuthRuntimeDependencies | None) -> None:
+    """Install explicit runtime dependencies; ``None`` restores composition fallback."""
+    global _injected_dependencies
+    _injected_dependencies = dependencies
+
+
+def _runtime_dependencies() -> AuthRuntimeDependencies:
+    dependencies = _injected_dependencies
+    if dependencies is not None:
+        return dependencies
+    # Compatibility fallback for the current composition root.  Unlike the old
+    # namespace copy this resolves only the two declared runtime dependencies.
+    return AuthRuntimeDependencies(
+        basic_auth_guard=backend_value("BASIC_AUTH_GUARD"),
+        session_store=backend_value("SESSION_STORE"),
+    )
+
 
 # This service is imported before AppState is constructed.  Security-sensitive
 # environment/secret loading and password policy therefore take effect before
@@ -75,7 +115,7 @@ def verify_credentials(username: str, password: str) -> bool:
         try:
             maybe_upgrade_password_hash(appconfig, appauth, account, str(password or ""))
         except Exception as exc:  # login stays available if a background rehash cannot persist
-            log(f"Passwort-Hash konnte nicht automatisch aktualisiert werden: {exc}", "warn")
+            logger.warning("Passwort-Hash konnte nicht automatisch aktualisiert werden: %s", exc)
     return verified
 
 
@@ -89,13 +129,14 @@ def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
     except Exception:
         return False
     key = guard_key or "basic-global"
-    if BASIC_AUTH_GUARD.retry_after(key):
+    guard = _runtime_dependencies().basic_auth_guard
+    if guard.retry_after(key):
         return False
     authenticated = verify_credentials(username, password)
     if authenticated:
-        BASIC_AUTH_GUARD.register_success(key)
+        guard.register_success(key)
     else:
-        BASIC_AUTH_GUARD.register_failure(key)
+        guard.register_failure(key)
     return authenticated
 
 
@@ -118,7 +159,7 @@ def _session_token(scope_cookies: dict) -> str:
 def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
     """Gibt ausschließlich ein gültiges Mobile-Bearer-Token zurück."""
     bearer = _bearer_token(headers)
-    if bearer and SESSION_STORE.validate(
+    if bearer and _runtime_dependencies().session_store.validate(
         bearer, appauth.SESSION_KIND_MOBILE, touch=touch,
     ):
         return bearer
@@ -128,7 +169,7 @@ def authenticated_mobile_token(headers, *, touch: bool = True) -> str:
 def authenticated_web_token(cookies, *, touch: bool = True) -> str:
     """Gibt ausschließlich ein gültiges Browser-Cookie-Token zurück."""
     cookie = _session_token(cookies)
-    if cookie and SESSION_STORE.validate(
+    if cookie and _runtime_dependencies().session_store.validate(
         cookie, appauth.SESSION_KIND_WEB, touch=touch,
     ):
         return cookie

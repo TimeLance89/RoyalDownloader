@@ -5,9 +5,9 @@
 [Release operations](RELEASE.md) ·
 [Repository migration](REPOSITORY_RENAME.md)
 
-> [!WARNING]
-> The current official build is **`v1.0.0-rc.3`**, a release candidate. Pin
-> fresh installations to that tag and back up persistent state before upgrading.
+> [!NOTE]
+> The current official Stable build is **`v1.0.0`**. Pin fresh installations to
+> that tag and back up persistent state before upgrading.
 
 ## Contents
 
@@ -129,7 +129,7 @@ Docker Compose creates a self-contained image with dependencies installed during
 the image build:
 
 ```bash
-git clone --branch v1.0.0-rc.3 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 docker compose up -d --build
@@ -161,9 +161,10 @@ Startup fails with the exact unwritable path if any required mount is wrong.
 only onboarding, login and liveness until the first administrator account is
 stored. After updating an older installation that has settings but no account,
 open the web interface once and complete the security migration shown by the
-setup wizard. Existing media paths and integrations remain pre-filled. Set
-`APP_REQUIRE_AUTH=false` only when an intentionally unauthenticated instance is
-restricted to a trusted LAN.
+setup wizard. Existing media paths and integrations remain pre-filled.
+`APP_REQUIRE_AUTH=false` does not disable this boundary: the variable is kept
+only for compatibility with older environment files, and Royal still requires
+an account before protected routes become available.
 
 ### Cloudflare Tunnel
 
@@ -219,7 +220,7 @@ it may be entered in the wizard instead of `.env`.
 | `OPEN_BROWSER` | `0` | Prevents opening a desktop browser inside the container |
 | `APP_USERNAME` | empty | Fallback account name; only used until an account is created in the interface |
 | `APP_PASSWORD` | empty | Fallback account password; only used until an account is created in the interface |
-| `APP_REQUIRE_AUTH` | `true` | Fail closed when account configuration is missing; set `false` only for a deliberately open trusted-LAN installation |
+| `APP_REQUIRE_AUTH` | `true` | Legacy compatibility setting; Royal remains fail-closed when account configuration is missing even if an older file contains `false` |
 | `ROYAL_BIND_ADDRESS` | `0.0.0.0` | Host address used by Compose when publishing port 8765; use `127.0.0.1` for a host-managed tunnel |
 | `TRUST_CLOUDFLARE_HEADERS` | `false` | Trust validated `CF-Connecting-IP` for rate limiting; only safe when the origin is otherwise unreachable |
 | `DNS_PRIMARY` | `1.1.1.1` | Preferred container resolver |
@@ -390,7 +391,7 @@ its own interval and never replaces the executable during an active download.
 
 ## Release installation and recovery
 
-The authoritative procedure for `v1.0.0-rc.3` is the
+The authoritative procedure for `v1.0.0` is the
 [release operations guide](RELEASE.md). It covers:
 
 - prerequisites and a fresh version-pinned Compose installation;

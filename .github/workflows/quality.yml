@@ -19,13 +19,14 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # immutable v7 line
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba # immutable v6 line
@@ -64,7 +65,9 @@ jobs:
         run: bandit -q -ll -r . -x ./tests -s B310
 
       - name: Audit locked dependencies
-        run: pip-audit -r requirements.lock
+        run: |
+          pip-audit -r requirements.lock
+          pip-audit -r requirements-dev.lock
 
       - name: Generate Python dependency SBOM
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
@@ -80,6 +83,8 @@ jobs:
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
           coverage report --include='serienstream_shared_session.py' --fail-under=70
+          coverage report --include='application_services/auth.py' --fail-under=75
+          coverage report --include='application_services/security_hardening.py' --fail-under=90
           coverage xml -o coverage.xml
 
       - name: Build container image
@@ -87,6 +92,11 @@ jobs:
           docker build \
             --build-arg APP_COMMIT_SHA="${GITHUB_SHA}" \
             --tag royal-downloader:quality \
+            .
+          docker build \
+            --build-arg BASE_IMAGE=royal-downloader:quality \
+            --file Dockerfile.release-gate \
+            --tag royal-downloader:release-gate \
             .
 
       - name: Scan container for high and critical CVEs
@@ -234,6 +244,134 @@ jobs:
           done
           docker logs royal-quality-smoke
           exit 1
+
+      - name: E2E 1 - first run, bootstrap, login and protected API
+        run: |
+          flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
+          docker volume create "${flow_volume}"
+          docker run --rm --user 0 \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
+          docker run --rm \
+            -e ROYAL_SETUP_TOKEN=release-readiness-bootstrap \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py first-run-auth
+
+      - name: E2E 2 - queue, persistence and restart
+        run: |
+          flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
+          docker run --rm \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py queue-seed
+          docker run --rm \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py queue-restart-verify
+
+      - name: E2E 3 - provider media to queue to status
+        run: |
+          flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
+          docker run --rm \
+            -v "${flow_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py media-flow
+
+      - name: Upgrade and rollback soak from 1.0.0-rc.3
+        shell: bash
+        run: |
+          rc3_sha="0376d1c17ba3ab25ad312cbecc066f186c152bbe"
+          rc_dir="${RUNNER_TEMP}/royal-release-rc3"
+          soak_volume="royal-release-soak-${GITHUB_RUN_ID}"
+          recovery_volume="royal-release-recovery-${GITHUB_RUN_ID}"
+          backup_dir="${RUNNER_TEMP}/royal-release-backup-${GITHUB_RUN_ID}"
+          git worktree add --detach "${rc_dir}" "${rc3_sha}"
+          docker build \
+            --build-arg APP_COMMIT_SHA="${rc3_sha}" \
+            --tag royal-downloader:release-rc3 \
+            "${rc_dir}"
+          docker volume create "${soak_volume}"
+          docker run --rm --user 0 \
+            -v "${soak_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
+          docker run --rm \
+            -v "${soak_volume}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            royal-downloader:release-rc3 \
+            /tmp/release_gate.py seed-upgrade-rc
+
+          mkdir -p "${backup_dir}"
+          chmod 0777 "${backup_dir}"
+          docker run --rm --user 0 \
+            -v "${soak_volume}:/app/data:ro" \
+            -v "${backup_dir}:/backup" \
+            --entrypoint python \
+            royal-downloader:quality \
+            -c "import tarfile; a=tarfile.open('/backup/rc3-data.tar','w'); a.add('/app/data', arcname='.'); a.close()"
+          test -s "${backup_dir}/rc3-data.tar"
+
+          docker run --rm \
+            -v "${soak_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py verify-upgrade-current
+          docker run --rm \
+            -v "${soak_volume}:/app/data" \
+            --entrypoint python \
+            royal-downloader:release-gate \
+            scripts/release_readiness_gate.py verify-upgrade-current
+
+          docker run --rm \
+            -v "${soak_volume}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            royal-downloader:release-rc3 \
+            /tmp/release_gate.py verify-rollback-rc
+
+          docker volume create "${recovery_volume}"
+          docker run --rm --user 0 \
+            -v "${recovery_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
+          docker run --rm --user 0 \
+            -v "${recovery_volume}:/app/data" \
+            -v "${backup_dir}:/backup:ro" \
+            --entrypoint python \
+            royal-downloader:quality \
+            -c "import tarfile; a=tarfile.open('/backup/rc3-data.tar','r'); a.extractall('/app/data'); a.close()"
+          docker run --rm --user 0 \
+            -v "${recovery_volume}:/app/data" \
+            --entrypoint sh \
+            royal-downloader:quality \
+            -c 'chown -R 1000:1000 /app/data'
+          docker run --rm \
+            -v "${recovery_volume}:/app/data" \
+            -v "${GITHUB_WORKSPACE}/scripts/release_readiness_gate.py:/tmp/release_gate.py:ro" \
+            --entrypoint python \
+            royal-downloader:release-rc3 \
+            /tmp/release_gate.py verify-rollback-rc
+
+      - name: Clean release-readiness resources
+        if: always()
+        shell: bash
+        run: |
+          docker volume rm -f \
+            "royal-release-flow-${GITHUB_RUN_ID}" \
+            "royal-release-soak-${GITHUB_RUN_ID}" \
+            "royal-release-recovery-${GITHUB_RUN_ID}" >/dev/null 2>&1 || true
+          git worktree remove --force "${RUNNER_TEMP}/royal-release-rc3" >/dev/null 2>&1 || true
+          rm -rf "${RUNNER_TEMP}/royal-release-backup-${GITHUB_RUN_ID}"
 
       - name: Upload security and coverage artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line

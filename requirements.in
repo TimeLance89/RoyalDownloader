@@ -7,3 +7,4 @@ fastapi==0.141.1
 uvicorn[standard]==0.52.0
 requests==2.34.2
 cryptography==50.0.0
+defusedxml==0.7.1
