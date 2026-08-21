@@ -9,29 +9,35 @@ services:
         APP_GID: ${PGID:-1000}
     image: seriendownloader:latest
     container_name: seriendownloader
+    init: true
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    pids_limit: 512
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    depends_on:
+      royal-browser:
+        condition: service_healthy
     ports:
       # Web interface: http://<NAS-IP>:8765
-      # For a host-managed Cloudflare Tunnel set ROYAL_BIND_ADDRESS=127.0.0.1.
+      # For a host-managed reverse proxy/tunnel set ROYAL_BIND_ADDRESS=127.0.0.1.
       - "${ROYAL_BIND_ADDRESS:-0.0.0.0}:8765:8765"
-    # Consistent DNS resolution for Python, Chromium, ffmpeg, and yt-dlp.
-    # A local resolver may use DNS-over-TLS for its upstream connection.
+    # Consistent DNS resolution for Python, ffmpeg, yt-dlp and the app runtime.
     dns:
       - ${DNS_PRIMARY:-1.1.1.1}
       - ${DNS_SECONDARY:-9.9.9.9}
+    networks:
+      - default
+      - browser_isolation
     volumes:
       # Persistent application revision used by in-app updates.
       - ./runtime:/runtime
-      # Persistent application state: cookies, anti-bot sessions, hoster
-      # intelligence, settings, subscriptions, and queue state.
+      # Persistent application state. The isolated browser does NOT receive it.
       - ./data:/app/data
       # Write completed media directly to Jellyfin library directories.
-      # Set absolute NAS host paths in .env.
       - ${MOVIES_HOST_DIR:-./downloads/Filme}:/movies
       - ${SERIES_HOST_DIR:-./downloads/Serien}:/serien
     environment:
@@ -44,15 +50,32 @@ services:
       OPEN_BROWSER: "0"
       APP_USERNAME: ${APP_USERNAME:-}
       APP_PASSWORD: ${APP_PASSWORD:-}
-      # Public/tunnel deployments must fail closed if account data is missing.
+      APP_PASSWORD_FILE: ${APP_PASSWORD_FILE:-}
+      # Authentication is fail-closed after the security update. This legacy
+      # flag is kept only so existing .env files remain parse-compatible.
       APP_REQUIRE_AUTH: ${APP_REQUIRE_AUTH:-true}
-      # Enable only when the origin port is reachable exclusively through Cloudflare.
+      # Public reverse-proxy hostnames must be explicit, comma separated.
+      ROYAL_ALLOWED_HOSTS: ${ROYAL_ALLOWED_HOSTS:-}
+      # Only direct peers in these CIDRs may supply forwarding metadata.
+      ROYAL_TRUSTED_PROXIES: ${ROYAL_TRUSTED_PROXIES:-}
       TRUST_CLOUDFLARE_HEADERS: ${TRUST_CLOUDFLARE_HEADERS:-false}
+      TRUST_X_FORWARDED_FOR: ${TRUST_X_FORWARDED_FOR:-false}
+      ROYAL_MAX_API_BODY_BYTES: ${ROYAL_MAX_API_BODY_BYTES:-2097152}
+      ROYAL_WS_MAX_CONNECTIONS_PER_CLIENT: ${ROYAL_WS_MAX_CONNECTIONS_PER_CLIENT:-4}
+      ROYAL_WS_MAX_MESSAGE_BYTES: ${ROYAL_WS_MAX_MESSAGE_BYTES:-4096}
+      ROYAL_WS_MESSAGES_PER_MINUTE: ${ROYAL_WS_MESSAGES_PER_MINUTE:-30}
+      # First-run ownership secret. Leave both empty to generate a 0600 token
+      # under the persistent data volume and print it once to the server log.
+      ROYAL_SETUP_TOKEN: ${ROYAL_SETUP_TOKEN:-}
+      ROYAL_SETUP_TOKEN_FILE: ${ROYAL_SETUP_TOKEN_FILE:-}
+      # Provider Chromium runs in the mount-less sidecar below, never in the
+      # main Royal trust domain while Compose is used.
+      ROYAL_BROWSER_CDP_URL: http://royal-browser:9222
       JELLYFIN_URL: ${JELLYFIN_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      JELLYFIN_API_KEY_FILE: ${JELLYFIN_API_KEY_FILE:-}
       JELLYFIN_USER_ID: ${JELLYFIN_USER_ID:-}
       JELLYFIN_USER_NAME: ${JELLYFIN_USER_NAME:-}
-      # The recommender runs inside the server; settings.ini takes precedence.
       COLLECTION_NAME: ${COLLECTION_NAME:-Für dich empfohlen}
       TOP_N: ${TOP_N:-20}
       RECENCY_HALF_LIFE_DAYS: ${RECENCY_HALF_LIFE_DAYS:-180}
@@ -61,22 +84,27 @@ services:
       PAGE_SIZE: ${PAGE_SIZE:-100}
       TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_TOKEN_FILE: ${TELEGRAM_BOT_TOKEN_FILE:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_API_KEY_FILE: ${TMDB_API_KEY_FILE:-}
       TMDB_LANGUAGE: ${TMDB_LANGUAGE:-de-DE}
       UI_LANGUAGE: ${UI_LANGUAGE:-de}
       UI_TRANSLATOR_URL: ${UI_TRANSLATOR_URL:-}
       UI_TRANSLATOR_API_KEY: ${UI_TRANSLATOR_API_KEY:-}
+      UI_TRANSLATOR_API_KEY_FILE: ${UI_TRANSLATOR_API_KEY_FILE:-}
       SFLIX_BASE_URL: ${SFLIX_BASE_URL:-https://sflix.win}
       RIDOMOVIES_BASE_URL: ${RIDOMOVIES_BASE_URL:-https://ridomovies.su}
       SEERR_ENABLED: ${SEERR_ENABLED:-false}
       SEERR_URL: ${SEERR_URL:-http://seerr:5055}
       SEERR_API_KEY: ${SEERR_API_KEY:-}
+      SEERR_API_KEY_FILE: ${SEERR_API_KEY_FILE:-}
       SEERR_POLL_INTERVAL_SECONDS: ${SEERR_POLL_INTERVAL_SECONDS:-60}
       UPDATE_GITHUB_REPOSITORY: ${UPDATE_GITHUB_REPOSITORY:-TimeLance89/RoyalDownloader}
       UPDATE_CHANNEL: ${UPDATE_CHANNEL:-}
       UPDATE_GITHUB_BRANCH: ${UPDATE_GITHUB_BRANCH:-main}
       UPDATE_GITHUB_TOKEN: ${UPDATE_GITHUB_TOKEN:-}
+      UPDATE_GITHUB_TOKEN_FILE: ${UPDATE_GITHUB_TOKEN_FILE:-}
       UPDATE_MODE: ${UPDATE_MODE:-manual}
       AUTO_UPDATE_INTERVAL_HOURS: ${AUTO_UPDATE_INTERVAL_HOURS:-6}
       YTDLP_AUTO_UPDATE: ${YTDLP_AUTO_UPDATE:-false}
@@ -86,8 +114,6 @@ services:
       CHECK_INTERVAL_MIN: ${CHECK_INTERVAL_MIN:-30}
       DL_WINDOW_START: ${DL_WINDOW_START:-}
       DL_WINDOW_END: ${DL_WINDOW_END:-}
-      # Media transfer: parallel HLS and ranged requests for throttled MP4 CDNs.
-      # Sustained slow sources are replaced after the grace and sampling windows.
       HLS_CONCURRENT_FRAGMENTS: ${HLS_CONCURRENT_FRAGMENTS:-8}
       MP4_HTTP_CHUNK_SIZE: ${MP4_HTTP_CHUNK_SIZE:-4M}
       SLOW_DOWNLOAD_MIN_KIBPS: ${SLOW_DOWNLOAD_MIN_KIBPS:-384}
@@ -95,18 +121,63 @@ services:
       SLOW_DOWNLOAD_WINDOW_SECONDS: ${SLOW_DOWNLOAD_WINDOW_SECONDS:-90}
       DNS_PRIMARY: ${DNS_PRIMARY:-1.1.1.1}
       DNS_SECONDARY: ${DNS_SECONDARY:-9.9.9.9}
-      # Time zone used by logs and schedules; override it in .env.
       TZ: ${TZ:-Europe/Berlin}
-    # Headless Chromium needs more than Docker's default 64 MB /dev/shm.
     shm_size: "1gb"
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777
+      - /home/royal:rw,nosuid,nodev,size=256m,mode=0700
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Untrusted provider pages execute here. This container has no Royal data,
+  # media mounts, API tokens or host port. The browser may therefore use the
+  # Docker container itself as its outer sandbox without sharing Royal's trust
+  # domain. CDP is reachable only on the dedicated bridge network.
+  royal-browser:
+    build:
+      context: .
+      args:
+        APP_COMMIT_SHA: ${APP_COMMIT_SHA:-}
+        APP_UID: ${PUID:-1000}
+        APP_GID: ${PGID:-1000}
+    image: seriendownloader:latest
+    container_name: royal-browser
+    init: true
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - browser_isolation
+    shm_size: "1gb"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777
+      - /home/royal:rw,nosuid,nodev,size=128m,mode=0700
+      - /browser-profile:rw,nosuid,nodev,size=512m,mode=0700
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
+        export DISPLAY=:99;
+        exec chromium --no-sandbox --disable-dev-shm-usage
+        --disable-background-networking --disable-client-side-phishing-detection
+        --no-first-run --no-default-browser-check
+        --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
+        --user-data-dir=/browser-profile --window-size=1280,900 about:blank
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   seerr:
     image: ghcr.io/seerr-team/seerr:${SEERR_IMAGE_TAG:-v3.4.1}
@@ -117,9 +188,10 @@ services:
       TZ: ${TZ:-Europe/Berlin}
       PORT: 5055
     ports:
-      - "5055:5055"
+      # Safe default: Royal can reach Seerr on the Compose network while its UI
+      # is not exposed to the LAN unless explicitly requested.
+      - "${SEERR_BIND_ADDRESS:-127.0.0.1}:5055:5055"
     volumes:
-      # SQLite and application configuration. Copy only while Seerr is stopped.
       - ./data/seerr:/app/config
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5055/api/v1/settings/public || exit 1"]
@@ -128,3 +200,7 @@ services:
       interval: 15s
       retries: 3
     restart: unless-stopped
+
+networks:
+  browser_isolation:
+    driver: bridge
