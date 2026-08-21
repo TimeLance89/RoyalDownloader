@@ -123,6 +123,6 @@ def test_non_404_compare_error_is_still_reported(monkeypatch, tmp_path):
     result = checker.check(force=True)
 
     assert result["comparison"] == "unknown"
-    assert result["update_available"] is False
+    assert result["update_available"] is None
     assert result["security_approved"] is True
     assert "503 response" in result["error"]
