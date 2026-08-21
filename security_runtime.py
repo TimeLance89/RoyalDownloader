@@ -1,7 +1,7 @@
 """Runtime hardening that can be installed without widening server.py.
 
 The project is mid-refactor and still publishes application services back into
-its composition root.  Keeping these guards in one module lets the security
+its composition root. Keeping these guards in one module lets the security
 boundary be tested directly while preserving that transitional architecture.
 """
 
@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import stat
-import subprocess as _subprocess
 import threading
 from pathlib import Path
 from types import ModuleType
@@ -41,12 +40,6 @@ _preinstalled = False
 _postinstalled = False
 _original_hash_password = None
 _original_log_record_factory = None
-
-
-def _truthy(name: str) -> bool:
-    return str(os.environ.get(name, "") or "").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
 
 
 def _read_secret_file(raw_path: str) -> str:
@@ -82,7 +75,7 @@ def load_secret_files_into_environment() -> dict[str, str]:
 def _redact_url(match: re.Match[str]) -> str:
     raw = match.group(0)
     trailing = ""
-    while raw and raw[-1] in ".,);]}":
+    while raw and raw[-1] in ".,);]}\"":
         trailing = raw[-1] + trailing
         raw = raw[:-1]
     try:
@@ -397,7 +390,9 @@ def install_post_state_security(backend) -> None:
                 checker._cache = None
                 checker._cache_time = 0.0
         except Exception:
-            logging.getLogger(__name__).exception("Updater-Sicherheitsregeln konnten nicht aktiviert werden")
+            logging.getLogger(__name__).exception(
+                "Updater-Sicherheitsregeln konnten nicht aktiviert werden"
+            )
 
         try:
             config_path = Path(backend.appconfig.config_path())
@@ -406,8 +401,7 @@ def install_post_state_security(backend) -> None:
             data_root = config_path.parent.parent
             for cookie in data_root.glob(".cf_cookies_*.json"):
                 _harden_path_permissions(cookie, 0o600)
-            for profile_name in ("serienstream-browser-profile",):
-                _harden_path_permissions(data_root / profile_name, 0o700)
+            _harden_path_permissions(data_root / "serienstream-browser-profile", 0o700)
         except Exception:
             pass
         _postinstalled = True
