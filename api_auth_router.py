@@ -31,9 +31,9 @@ class ApiV1LoginBody(LoginBody):
 
 
 class AuthConfigBody(BaseModel):
-    username: str
-    password: str
-    current_password: str | None = ""
+    username: str = Field(max_length=MAX_USERNAME_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    current_password: str | None = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,15 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     """Build the authentication router with no dependency on server globals."""
     router = APIRouter(tags=["auth-setup"])
     appauth = dependencies.appauth
+    # The existing guard limits one source IP.  A second, account-wide budget
+    # prevents distributed password guessing through many addresses while a
+    # deliberately higher threshold avoids making a few typos a global DoS.
+    account_login_guard = appauth.LoginGuard(
+        max_attempts=20,
+        window_seconds=15 * 60,
+        lockout_seconds=15 * 60,
+        max_tracked_keys=32,
+    )
 
     def set_session_cookie(response: Response, request: Request, token: str) -> None:
         response.set_cookie(
@@ -72,7 +81,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             token,
             max_age=appauth.DEFAULT_SESSION_TTL_SECONDS,
             httponly=True,
-            samesite="lax",
+            samesite="strict",
             secure=dependencies.request_is_secure(request),
             path="/",
         )
@@ -119,7 +128,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     ) -> tuple[str, dict, str]:
         key = dependencies.client_key(request)
         login_guard = dependencies.login_guard()
-        blocked = login_guard.retry_after(key)
+        account_key = "royal-admin"
+        blocked_ip = login_guard.retry_after(key)
+        blocked_account = account_login_guard.retry_after(account_key)
+        blocked = max(blocked_ip, blocked_account)
         if blocked:
             raise HTTPException(
                 429,
@@ -134,7 +146,9 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             password,
         )
         if not ok:
-            lockout = login_guard.register_failure(key)
+            lockout_ip = login_guard.register_failure(key)
+            lockout_account = account_login_guard.register_failure(account_key)
+            lockout = max(lockout_ip, lockout_account)
             dependencies.log(f"Fehlgeschlagene Anmeldung von {key}.", "warn")
             if lockout:
                 raise HTTPException(
@@ -142,12 +156,16 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                     f"Zu viele Fehlversuche. Bitte {lockout} Sekunden warten.",
                     headers={"Retry-After": str(lockout)},
                 )
-            remaining = login_guard.remaining_attempts(key)
+            remaining = min(
+                login_guard.remaining_attempts(key),
+                account_login_guard.remaining_attempts(account_key),
+            )
             raise HTTPException(
                 401,
                 f"Benutzername oder Passwort ist falsch. Noch {remaining} Versuch(e).",
             )
         login_guard.register_success(key)
+        account_login_guard.register_success(account_key)
         session_label = str(label or "").strip()[:120]
         token = dependencies.session_store().create(
             label=session_label,
