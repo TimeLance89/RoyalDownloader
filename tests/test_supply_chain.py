@@ -33,6 +33,17 @@ def test_runtime_dependencies_and_images_are_exactly_pinned():
     assert "YTDLP_AUTO_UPDATE:-false" in compose
 
 
+def test_release_gate_dependencies_are_locked_and_kept_out_of_runtime_image():
+    gate_dockerfile = _content("Dockerfile.release-gate")
+    workflow = _content(".github/workflows/quality.yml")
+
+    assert "requirements-dev.lock" in gate_dockerfile
+    assert "royal-downloader:quality" in gate_dockerfile
+    assert "royal-downloader:release-gate" in workflow
+    assert "pip-audit -r requirements-dev.lock" in workflow
+    assert "requirements-dev.lock" not in _content("Dockerfile")
+
+
 def test_container_browser_uses_signed_patched_source_and_fails_closed():
     dockerfile = _content("Dockerfile")
     assert 'ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"' in dockerfile

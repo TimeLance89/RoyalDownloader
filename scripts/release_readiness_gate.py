@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Any
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 DATA_DIR = Path(os.environ.get("SERIENDL_DATA_DIR", "/app/data"))
 BOOTSTRAP_TOKEN = os.environ.get("ROYAL_SETUP_TOKEN", "release-readiness-bootstrap")
 ADMIN_USER = "release-admin"
@@ -144,6 +148,13 @@ def first_run_auth_flow() -> None:
 def _install_queue_fakes(server, slug: str, title: str) -> None:
     from providers.models import FilmpalastMovie, HosterInfo
 
+    class _FixtureTmdbClient:
+        def movie_summary(self, *_args, **_kwargs) -> dict:
+            return {}
+
+        def __getattr__(self, name: str):
+            raise AssertionError(f"unexpected TMDB call in release gate: {name}")
+
     server.state.fp_movies[slug] = FilmpalastMovie(
         title=title,
         url=f"https://provider.invalid/{slug.split(':', 1)[-1]}",
@@ -151,6 +162,7 @@ def _install_queue_fakes(server, slug: str, title: str) -> None:
         year="2026",
         genres=["Test"],
     )
+    server.state.tmdb_client = _FixtureTmdbClient()
     server._content_already_available = lambda *_args, **_kwargs: (False, "")
 
     # Exercise the real logical queue/scheduler admission path while preventing

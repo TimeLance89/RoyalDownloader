@@ -65,7 +65,9 @@ jobs:
         run: bandit -q -ll -r . -x ./tests -s B310
 
       - name: Audit locked dependencies
-        run: pip-audit -r requirements.lock
+        run: |
+          pip-audit -r requirements.lock
+          pip-audit -r requirements-dev.lock
 
       - name: Generate Python dependency SBOM
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
@@ -90,6 +92,11 @@ jobs:
           docker build \
             --build-arg APP_COMMIT_SHA="${GITHUB_SHA}" \
             --tag royal-downloader:quality \
+            .
+          docker build \
+            --build-arg BASE_IMAGE=royal-downloader:quality \
+            --file Dockerfile.release-gate \
+            --tag royal-downloader:release-gate \
             .
 
       - name: Scan container for high and critical CVEs
@@ -251,7 +258,7 @@ jobs:
             -e ROYAL_SETUP_TOKEN=release-readiness-bootstrap \
             -v "${flow_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py first-run-auth
 
       - name: E2E 2 - queue, persistence and restart
@@ -260,12 +267,12 @@ jobs:
           docker run --rm \
             -v "${flow_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py queue-seed
           docker run --rm \
             -v "${flow_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py queue-restart-verify
 
       - name: E2E 3 - provider media to queue to status
@@ -274,7 +281,7 @@ jobs:
           docker run --rm \
             -v "${flow_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py media-flow
 
       - name: Upgrade and rollback soak from 1.0.0-rc.3
@@ -316,12 +323,12 @@ jobs:
           docker run --rm \
             -v "${soak_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py verify-upgrade-current
           docker run --rm \
             -v "${soak_volume}:/app/data" \
             --entrypoint python \
-            royal-downloader:quality \
+            royal-downloader:release-gate \
             scripts/release_readiness_gate.py verify-upgrade-current
 
           docker run --rm \
