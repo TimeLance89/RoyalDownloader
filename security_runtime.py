@@ -7,6 +7,7 @@ boundary be tested directly while preserving that transitional architecture.
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ import stat
 import threading
 from pathlib import Path
 from types import ModuleType
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 
 PBKDF2_SECURITY_ITERATIONS = 600_000
@@ -40,6 +41,7 @@ _preinstalled = False
 _postinstalled = False
 _original_hash_password = None
 _original_log_record_factory = None
+_remote_browser_context = threading.local()
 
 
 def _read_secret_file(raw_path: str) -> str:
@@ -209,8 +211,214 @@ class _ChromiumSubprocessProxy:
         return self._delegate.Popen(normalized, *popen_args, **popen_kwargs)
 
 
+def _remote_browser_base() -> tuple[str, int] | None:
+    raw = str(os.environ.get("ROYAL_BROWSER_CDP_URL", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urlsplit(raw)
+        if parsed.scheme != "http" or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        port = parsed.port or 9222
+    except ValueError:
+        return None
+    return str(parsed.hostname), int(port)
+
+
+def _remote_browser_json(path: str, *, method: str = "GET"):
+    base = _remote_browser_base()
+    if base is None:
+        raise RuntimeError("Kein isolierter Royal-Browser konfiguriert.")
+    if not (
+        path == "/json/list"
+        or path.startswith("/json/new?")
+        or path.startswith("/json/close/")
+        or path == "/json/version"
+    ):
+        raise ValueError("Nicht erlaubter Chromium-DevTools-Endpunkt.")
+    connection = http.client.HTTPConnection(base[0], base[1], timeout=5)
+    try:
+        connection.request(method, path, headers={"Host": f"{base[0]}:{base[1]}"})
+        response = connection.getresponse()
+        payload = response.read()
+        if response.status != 200:
+            raise RuntimeError(f"Isolierter Chromium-Dienst lieferte HTTP {response.status}")
+        if not payload:
+            return {}
+        return json.loads(payload.decode("utf-8"))
+    finally:
+        connection.close()
+
+
+def _remote_browser_targets() -> list[dict]:
+    payload = _remote_browser_json("/json/list")
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def _rewrite_remote_websocket_url(value: str) -> str:
+    base = _remote_browser_base()
+    if base is None:
+        raise RuntimeError("Kein isolierter Royal-Browser konfiguriert.")
+    try:
+        parsed = urlsplit(str(value or ""))
+    except ValueError as exc:
+        raise RuntimeError("Ungültige Chromium-WebSocket-Adresse.") from exc
+    if parsed.scheme not in {"ws", "wss"} or not parsed.path.startswith("/devtools/"):
+        raise RuntimeError("Ungültige Chromium-WebSocket-Adresse.")
+    return urlunsplit(("ws", f"{base[0]}:{base[1]}", parsed.path, parsed.query, ""))
+
+
+def _remote_new_target() -> tuple[dict, set[str]]:
+    before = {
+        str(item.get("id") or "")
+        for item in _remote_browser_targets()
+        if item.get("id")
+    }
+    target = _remote_browser_json(
+        "/json/new?" + quote("about:blank", safe=""),
+        method="PUT",
+    )
+    if not isinstance(target, dict) or not target.get("id") or not target.get("webSocketDebuggerUrl"):
+        raise RuntimeError("Isolierter Chromium-Dienst konnte keinen Tab anlegen.")
+    return target, before
+
+
+def _remote_close_target(target_id: str) -> None:
+    target_id = str(target_id or "").strip()
+    if not target_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", target_id):
+        return
+    try:
+        _remote_browser_json(f"/json/close/{target_id}")
+    except Exception:
+        pass
+
+
+class _RemoteProcess:
+    """Popen-compatible lifecycle seam for one tab in the isolated browser."""
+
+    def __init__(self, target_id: str):
+        self.target_id = target_id
+        self._closed = False
+
+    def poll(self):
+        return 0 if self._closed else None
+
+    def terminate(self):
+        if not self._closed:
+            _remote_close_target(self.target_id)
+            self._closed = True
+
+    def wait(self, timeout=None):
+        del timeout
+        self.terminate()
+        return 0
+
+    def kill(self):
+        self.terminate()
+
+
+def _configure_verification_cdp(module, cdp) -> None:
+    cdp._command("Network.enable")
+    cdp._command("Page.enable")
+    cdp._command("Runtime.enable")
+    cdp._command("Emulation.setDeviceMetricsOverride", {
+        "width": module.VIEWPORT_WIDTH,
+        "height": module.VIEWPORT_HEIGHT,
+        "deviceScaleFactor": 1,
+        "mobile": False,
+    })
+    cdp._command("Network.setUserAgentOverride", {
+        "userAgent": module.CHROME_USER_AGENT,
+        "acceptLanguage": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        "platform": "Win32",
+    })
+
+
+def _configure_shared_cdp(module, cdp) -> None:
+    cdp.command("Network.enable")
+    cdp.command("Page.enable")
+    cdp.command("Runtime.enable")
+    cdp.command("Emulation.setDeviceMetricsOverride", {
+        "width": module.VIEWPORT_WIDTH,
+        "height": module.VIEWPORT_HEIGHT,
+        "deviceScaleFactor": 1,
+        "mobile": False,
+    })
+    cdp.command("Network.setUserAgentOverride", {
+        "userAgent": module.SERIESSTREAM_USER_AGENT,
+        "acceptLanguage": module.SERIESSTREAM_ACCEPT_LANGUAGE,
+        "platform": "Win32",
+    })
+
+
+def _install_remote_browser_adapters() -> bool:
+    if _remote_browser_base() is None:
+        return False
+    import serienstream_shared_session as shared
+    import serienstream_verification as verification
+
+    if not getattr(verification.SerienStreamVerificationManager, "_royal_remote_browser", False):
+        def verification_start_processes(self):
+            target, _before = _remote_new_target()
+            cdp = verification._Cdp(
+                _rewrite_remote_websocket_url(str(target["webSocketDebuggerUrl"]))
+            )
+            _configure_verification_cdp(verification, cdp)
+            self._chrome = _RemoteProcess(str(target["id"]))
+            self._xvfb = None
+            self._port = 0
+            self._display = "isolated-browser"
+            return cdp
+
+        verification.SerienStreamVerificationManager._start_processes_locked = verification_start_processes
+        verification.SerienStreamVerificationManager._royal_remote_browser = True
+
+    if not getattr(shared._BrowserRuntime, "_royal_remote_browser", False):
+        def shared_start(self):
+            target, before = _remote_new_target()
+            self._royal_remote_before = before
+            self._royal_remote_target_id = str(target["id"])
+            cdp = shared._Cdp(
+                _rewrite_remote_websocket_url(str(target["webSocketDebuggerUrl"]))
+            )
+            _configure_shared_cdp(shared, cdp)
+            self.chrome = _RemoteProcess(self._royal_remote_target_id)
+            self.xvfb = None
+            self.port = 0
+            self.display = "isolated-browser"
+            self.cdp = cdp
+            _remote_browser_context.shared_runtime = self
+            return cdp
+
+        shared._BrowserRuntime.start = shared_start
+        shared._BrowserRuntime._royal_remote_browser = True
+
+        def remote_external_target(_port: int) -> str:
+            runtime = getattr(_remote_browser_context, "shared_runtime", None)
+            before = set(getattr(runtime, "_royal_remote_before", set()) or set())
+            own_id = str(getattr(runtime, "_royal_remote_target_id", "") or "")
+            try:
+                for target in _remote_browser_targets():
+                    target_id = str(target.get("id") or "")
+                    if not target_id or target_id == own_id or target_id in before:
+                        continue
+                    external = shared._external_http_url(str(target.get("url") or ""))
+                    if external:
+                        return external
+            except Exception:
+                return ""
+            return ""
+
+        shared._external_target = remote_external_target
+    return True
+
+
 def _install_browser_sandbox_guards() -> None:
-    """Enforce Chromium's native sandbox even in older source paths."""
+    """Use an isolated NAS browser; otherwise enforce Chromium's native sandbox."""
+    if _install_remote_browser_adapters():
+        return
     for module_name in ("serienstream_verification", "serienstream_shared_session"):
         try:
             module = __import__(module_name)
