@@ -46,6 +46,14 @@ def test_schedule_uses_friendly_modes_and_clock_inputs_instead_of_raw_hours():
     assert "smart-automation-legacy-window" in js
 
 
+def test_live_policy_refresh_does_not_overwrite_unsaved_settings():
+    js = POLICY_JS.read_text(encoding="utf-8")
+    assert "settingsHaveUnsavedChanges" in js
+    assert 'byId("settings-saved-status")' in js
+    assert '=== "Ungespeicherte Änderungen."' in js
+    assert "!injectUi() || settingsHaveUnsavedChanges()" in js
+
+
 def test_smart_automation_frontend_is_loaded_and_styled():
     runtime = GLOBAL_RUNTIME.read_text(encoding="utf-8")
     css = POLICY_CSS.read_text(encoding="utf-8")
