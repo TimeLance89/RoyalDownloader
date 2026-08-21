@@ -65,7 +65,7 @@ jobs:
         run: pip-audit -r requirements.lock
 
       - name: Generate Python dependency SBOM
-        run: cyclonedx-py requirements requirements.lock --output-format JSON --output-file dependency-sbom.cdx.json
+        run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
 
       - name: Validate Docker Compose
         run: docker compose config --quiet
