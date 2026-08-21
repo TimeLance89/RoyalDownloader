@@ -89,6 +89,19 @@
 .media-modal .detail-subscribe-btn { order: 3; }
 .media-modal .detail-availability { order: 4; margin-left: auto; }
 .media-modal .detail-jellyfin { order: 5; }
+.media-modal .detail-download-status {
+  order: 6;
+  flex: 1 0 100%;
+  padding: 9px 11px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.media-modal .detail-download-status[hidden] { display: none; }
+.media-modal .detail-download-status.is-active { color: #e8c15b; background: rgba(232, 193, 91, .08); }
+.media-modal .detail-download-status.is-success { color: #46d369; background: rgba(70, 211, 105, .08); }
+.media-modal .detail-download-status.is-error { color: #ff6b72; background: rgba(229, 9, 20, .1); }
 
 .media-modal .detail-download-btn,
 .media-modal .detail-trailer-btn,
@@ -190,7 +203,8 @@
       "download trailer"
       "subscribe subscribe"
       "taste taste"
-      "availability jellyfin";
+      "availability jellyfin"
+      "feedback feedback";
     gap: 8px;
     padding: 10px;
     margin-bottom: 60px;
@@ -223,6 +237,10 @@
     width: 100%;
     justify-content: center;
   }
+
+  .media-modal .detail-download-status {
+    grid-area: feedback;
+  }
 }
 
 @media (max-width: 520px) {
@@ -238,7 +256,8 @@
       "subscribe"
       "taste"
       "availability"
-      "jellyfin";
+      "jellyfin"
+      "feedback";
   }
 
   .media-modal .detail-text h2 {

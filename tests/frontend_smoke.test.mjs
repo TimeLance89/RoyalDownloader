@@ -22,6 +22,7 @@ const appModulePaths = [
   "screens/mood.js",
   "trailer-runtime.js",
   "catalog-runtime.js",
+  "screens/movie_download_feedback.js",
   "screens/movies.js",
   "screens/movie_filters.js",
   "screens/series.js",
@@ -151,7 +152,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260811-5/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260821-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -374,7 +375,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260810-2/);
+  assert.match(html, /core\.js\?v=royal-20260821-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -480,6 +481,33 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
 });
 
+test("movie download failures stay visible with their exact queue reason", () => {
+  requiresIds("fp-detail-add", "fp-detail-download-status");
+  const helperSource = api.match(
+    /queueAddFailureReason\(response, slugs = \[\]\) \{([\s\S]*?)\n  \},\n  queueAdd\(/,
+  );
+  assert.ok(helperSource, "queue failure helper remains independently testable");
+  const queueAddFailureReason = vm.runInNewContext(
+    `(function queueAddFailureReason(response, slugs = []) {${helperSource[1]}\n})`,
+  );
+  assert.equal(
+    queueAddFailureReason(
+      { added: 0, skipped: 1, skipped_details: { movie: "kein Hoster verfügbar" } },
+      ["movie"],
+    ),
+    "kein Hoster verfügbar",
+  );
+  assert.equal(
+    queueAddFailureReason({ added: 1, skipped: 0 }, ["movie"]),
+    "",
+  );
+  assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
+  assert.match(app, /applyFpDownloadJobResult\(data\)/);
+  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-1/);
+  assert.match(app, /Download nicht gestartet:/);
+  assert.match(app, /Download fehlgeschlagen:/);
+});
+
 test("Royal archive behaves like a searchable media center", () => {
   requiresIds(
     "library-hero-title", "wl-hero-open", "wl-hero-check",
@@ -494,7 +522,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260811-7/);
+  assert.match(html, /style\.css\?v=royal-20260821-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

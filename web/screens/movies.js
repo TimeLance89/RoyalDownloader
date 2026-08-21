@@ -863,12 +863,14 @@ async function toggleFpPick(slug) {
   try {
     if (state.queuedSlugs.has(slug)) {
       const resp = await api.queueRemove(slug);
+      setFpDownloadFeedback(slug);
       refreshQueueUiAfterChange(resp);
       return;
     }
+    setFpDownloadFeedback(slug);
     const resp = await api.queueAdd([slug]);
     refreshQueueUiAfterChange(resp);
-    if (Number(resp.added || 0) > 0) {
+    if (applyFpQueueAddResponse(slug, resp)) {
       const item = state.fp.moviesCache[slug]
         || state.fp.metadataCache[slug]
         || state.fp.results.find((movie) => movie.slug === slug)
@@ -882,6 +884,11 @@ async function toggleFpPick(slug) {
         if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
       }).catch(() => { /* server logs */ });
     }
+  } catch (error) {
+    const reason = error?.message || "Unbekannter Fehler";
+    setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
+    setDownloadState("error", "Download nicht gestartet", reason, 0);
+    console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
   } finally {
     fpQueueMutations.delete(slug);
     refreshFpQueuePresentation();
@@ -1341,6 +1348,7 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
   const owned = fpDetailJellyfinValue(slug, movie) === true;
   const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
   const mutationPending = fpQueueMutations.has(slug);
+  renderFpDownloadFeedback(slug);
   addBtn.hidden = owned && !queued;
   addBtn.disabled = mutationPending || (owned && !queued) || (!queued && !metadataOnly && !hasHosters);
   addBtn.textContent = mutationPending
@@ -1362,16 +1370,22 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
         return;
       }
       fpQueueMutations.add(slug);
+      if (!shouldRemove) setFpDownloadFeedback(slug);
       const selection = state.fp.downloadSelections.get(slug);
       const resp = shouldRemove
         ? await api.queueRemove(slug)
         : await api.queueAdd([slug], selection ? { [slug]: selection } : {});
-      if (!shouldRemove && Number(resp.added || 0) > 0) {
+      const accepted = shouldRemove || applyFpQueueAddResponse(slug, resp);
+      if (shouldRemove) setFpDownloadFeedback(slug);
+      if (!shouldRemove && accepted) {
         trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
       }
       refreshQueueUiAfterChange(resp);
       if (state.fp.selectedSlug === slug) showFpDetail(slug, movie);
     } catch (error) {
+      const reason = error?.message || "Unbekannter Fehler";
+      setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
+      setDownloadState("error", "Download nicht gestartet", reason, 0);
       console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
     } finally {
       fpQueueMutations.delete(slug);
