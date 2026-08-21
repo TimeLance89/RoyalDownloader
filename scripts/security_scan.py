@@ -93,11 +93,14 @@ def scan() -> list[str]:
         if path.suffix == ".html" and INLINE_SCRIPT_RE.search(text):
             failures.append(f"{relative}: inline script conflicts with strict CSP")
 
-    # The legacy provider modules keep the flag only as a compatibility seam;
-    # production Docker executes it solely in the mount-less browser sidecar.
+    # The provider modules and isolated-container launchers legitimately retain
+    # the legacy flag as a compatibility seam. security_runtime.py is also
+    # allowed to reference it because that module removes the flag for every
+    # non-sidecar Chromium launch; its enforcement seam is asserted separately.
     allowed_browser_bypass_files = {
         "serienstream_shared_session.py",
         "serienstream_verification.py",
+        "security_runtime.py",
         "docker-compose.yml",
         ".github/workflows/quality.yml",
     }
