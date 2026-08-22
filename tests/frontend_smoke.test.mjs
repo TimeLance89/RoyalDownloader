@@ -152,7 +152,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260821-3/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260822-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -607,11 +607,12 @@ test("movie download failures stay visible with their exact queue reason", () =>
   );
   assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
   assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-3/);
+  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260822-1/);
   assert.match(
     app,
     /const movie = await prepareFpMovieDownload\(slug\);[\s\S]*?if \(!movie\) return;[\s\S]*?await api\.queueAdd\(\[slug\]\)/,
   );
+  assert.match(app, /Jellyfin wird live geprüft\. Der Download startet danach automatisch\./);
   assert.match(app, /if \(Array\.isArray\(cached\?\.hosters\) && cached\.hosters\.length\) return cached/);
   assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
   assert.match(app, /Download nicht gestartet:/);

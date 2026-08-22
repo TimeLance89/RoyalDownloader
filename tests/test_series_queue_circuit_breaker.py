@@ -151,6 +151,66 @@ def test_jellyfin_duplicate_protection_still_rejects_episode(monkeypatch):
     assert slug not in server.state.picked
 
 
+def test_series_queue_does_not_wait_for_stale_jellyfin_status(monkeypatch):
+    slug = "serienstream:exact-show-s01e02"
+    waits = []
+    monkeypatch.setattr(
+        server,
+        "_content_already_available",
+        lambda *_args: (True, "Jellyfin nicht erreichbar"),
+    )
+    monkeypatch.setattr(
+        server,
+        "wait_for_jellyfin_live_ready",
+        lambda: waits.append(True) or False,
+    )
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+
+    assert response["added"] == 1
+    assert waits == []
+
+
+def test_movie_queue_waits_once_for_jellyfin_before_enqueue(monkeypatch):
+    slugs = ["filmpalast:first", "filmpalast:second"]
+    waits = []
+    for slug in slugs:
+        server.state.fp_movies[slug] = episode_movie("filmpalast", slug, title=slug)
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(
+        server,
+        "wait_for_jellyfin_live_ready",
+        lambda: waits.append(True) or True,
+    )
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs)))
+
+    assert response["added"] == 2
+    assert waits == [True]
+
+
+def test_movie_queue_stays_fail_closed_when_jellyfin_refresh_times_out(monkeypatch):
+    slug = "filmpalast:offline"
+    checks = []
+    server.state.fp_movies[slug] = episode_movie("filmpalast", slug, title="Offline")
+    monkeypatch.setattr(server, "wait_for_jellyfin_live_ready", lambda: False)
+    monkeypatch.setattr(
+        server,
+        "_content_already_available",
+        lambda *_args: checks.append(True) or (False, ""),
+    )
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[slug])))
+
+    assert response["added"] == 0
+    assert "Jellyfin nicht erreichbar" in response["skipped_details"][slug]
+    assert checks == []
+    assert slug not in server.state.picked
+
+
 def test_fallback_uses_exact_series_season_episode_and_ttl_cache(monkeypatch):
     result = FilmpalastSeriesResult(
         title="Exact Show", base_slug="filmpalast:exact", sample_slug="filmpalast:exact",

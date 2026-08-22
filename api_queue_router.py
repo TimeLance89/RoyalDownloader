@@ -56,6 +56,7 @@ queue_history_payload = _unbound_dependency
 queue_jobs_payload = _unbound_dependency
 refresh_jellyfin_after_download = _unbound_dependency
 run_download_queue = _unbound_dependency
+wait_for_jellyfin_live_ready = _unbound_dependency
 
 _DYNAMIC_CALLS = (
     "_cancel_queue_slugs",
@@ -95,6 +96,7 @@ _DYNAMIC_CALLS = (
     "queue_jobs_payload",
     "refresh_jellyfin_after_download",
     "run_download_queue",
+    "wait_for_jellyfin_live_ready",
 )
 
 
@@ -615,6 +617,7 @@ async def api_queue_add(body: QueueAddBody):
         selected_fallbacks: dict[str, list[FilmpalastMovie]] = {}
         skipped = 0
         skipped_details: dict[str, str] = {}
+        movie_jellyfin_ready: bool | None = None
         for slug in body.slugs:
             scheduled_reason = _scheduled_episode_reason(slug)
             if scheduled_reason:
@@ -649,7 +652,25 @@ async def api_queue_add(body: QueueAddBody):
                         movie = _episode_placeholder(slug)
                     else:
                         raise RuntimeError("kein Hoster verfügbar")
+                episode_info = parse_episode_slug(slug)
+                if episode_info is None:
+                    if movie_jellyfin_ready is None:
+                        movie_jellyfin_ready = wait_for_jellyfin_live_ready()
+                    if not movie_jellyfin_ready:
+                        skipped += 1
+                        skipped_details[slug] = (
+                            "Jellyfin nicht erreichbar – Sicherheitsprüfung "
+                            "konnte nicht abgeschlossen werden"
+                        )
+                        with state.queue_claim_lock:
+                            state.picked.discard(slug)
+                        continue
                 already_available, reason = _content_already_available(movie, slug)
+                if episode_info is not None and _is_jellyfin_safety_block(reason):
+                    # Serien sollen nicht auf einen laufenden Jellyfin-Abgleich
+                    # warten. Sicher erkannte Duplikate und lokale Dateien
+                    # bleiben weiterhin gesperrt.
+                    already_available, reason = False, ""
                 if already_available:
                     skipped += 1
                     skipped_details[slug] = reason

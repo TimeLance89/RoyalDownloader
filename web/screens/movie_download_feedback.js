@@ -17,6 +17,12 @@ function setFpDownloadFeedback(slug, message = "", kind = "error") {
   if (state.fp.selectedSlug === slug) renderFpDownloadFeedback(slug);
 }
 
+function setFpJellyfinDownloadPending(slug) {
+  setFpDownloadFeedback(
+    slug, "Jellyfin wird live geprüft. Der Download startet danach automatisch.", "active",
+  );
+}
+
 function applyFpQueueAddResponse(slug, response) {
   const reason = api.queueAddFailureReason(response, [slug]);
   if (reason) {
