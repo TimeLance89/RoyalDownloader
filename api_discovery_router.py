@@ -40,6 +40,10 @@ _TMDB_METADATA_BACKGROUND_POOL = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="tmdb-metadata-background",
 )
+_TMDB_SERIES_METADATA_POOL = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="tmdb-series-metadata",
+)
 _TMDB_METADATA_INFLIGHT: dict[tuple, Any] = {}
 _TMDB_METADATA_INFLIGHT_LOCK = threading.Lock()
 
@@ -574,9 +578,9 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 @router.post("/api/v1/tmdb/series")
 @router.post("/api/tmdb/series")
 async def api_tmdb_series(body: SeriesMetadataBody):
-    """Lädt schnelle TMDB-Backdrops für Serien-Rails ohne Seriendetails."""
+    """Lädt Serien-Backdrops innerhalb eines festen First-Paint-Budgets."""
     if not get_tmdb_client().configured or not body.items:
-        return {"series": {}}
+        return {"series": {}, "pending": []}
 
     def _work():
         unique = {}
@@ -591,32 +595,51 @@ async def api_tmdb_series(body: SeriesMetadataBody):
 
         result = {}
         groups = list(unique.values())
-        with ThreadPoolExecutor(
-            max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups)),
-        ) as pool:
-            futures = [
-                (
-                    group,
-                    pool.submit(
-                        get_tmdb_client().series_summary,
+        client = get_tmdb_client()
+        futures = []
+        for group in groups:
+            job_key = (
+                "series",
+                _norm_title(group["title"]),
+                str(group.get("year") or ""),
+            )
+            created = False
+            with _TMDB_METADATA_INFLIGHT_LOCK:
+                future = _TMDB_METADATA_INFLIGHT.get(job_key)
+                if future is None:
+                    future = _TMDB_SERIES_METADATA_POOL.submit(
+                        client.series_summary,
                         group["title"],
                         group["year"],
-                    ),
+                    )
+                    _TMDB_METADATA_INFLIGHT[job_key] = future
+                    created = True
+            if created:
+                future.add_done_callback(
+                    lambda done, key=job_key: _discard_tmdb_metadata_future(key, done)
                 )
-                for group in groups
-            ]
-            for group, future in futures:
-                try:
-                    metadata = future.result()
-                except Exception as exc:
-                    log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    metadata = None
-                if metadata:
-                    for base_slug in group["base_slugs"]:
-                        result[base_slug] = metadata
-        return result
+            futures.append((group, future))
 
-    return {"series": await run_in_threadpool(_work)}
+        done, _pending = wait(
+            {future for _group, future in futures},
+            timeout=TMDB_METADATA_BATCH_BUDGET_SECONDS,
+        )
+        pending_base_slugs = []
+        for group, future in futures:
+            if future not in done:
+                pending_base_slugs.extend(group["base_slugs"])
+                continue
+            try:
+                metadata = future.result()
+            except Exception as exc:
+                log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
+                metadata = None
+            if metadata:
+                for base_slug in group["base_slugs"]:
+                    result[base_slug] = metadata
+        return {"series": result, "pending": pending_base_slugs}
+
+    return await run_in_threadpool(_work)
 
 
 # ── Serien ───────────────────────────────────────────────────────────────────

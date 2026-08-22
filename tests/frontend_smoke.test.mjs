@@ -206,7 +206,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260811-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260811-4/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260822-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -331,14 +331,118 @@ test("series wallpaper hydration updates every duplicate catalog object", async 
       }),
     },
     renderHome: () => {},
+    saveHomeCache: () => {},
   });
-  vm.runInContext(home.slice(home.indexOf("async function hydrateHomeSeriesArtwork")), context);
+  vm.runInContext(home.slice(home.indexOf("const HOME_SERIES_ARTWORK_BATCH_SIZE")), context);
   context.items = [trending, discovery];
   await vm.runInContext("hydrateHomeSeriesArtwork(items, { render: false })", context);
   assert.equal(trending.backdrop_url, "/wallpaper.jpg");
   assert.equal(discovery.backdrop_url, "/wallpaper.jpg");
   assert.deepEqual(trending.genres, ["Drama"]);
   assert.deepEqual(discovery.genres, ["Drama"]);
+});
+
+test("series wallpapers paint progressively and retry only server-reported pending titles", async () => {
+  const calls = [];
+  let renders = 0;
+  let cacheWrites = 0;
+  const context = vm.createContext({
+    console,
+    api: {
+      tmdbSeries: async (items) => {
+        calls.push(items.map((item) => item.base_slug));
+        const resolved = calls.length === 1 ? items.slice(0, 7) : items;
+        return {
+          series: Object.fromEntries(resolved.map((item) => [item.base_slug, {
+            backdrop_url: `/wallpaper/${item.base_slug}.jpg`,
+          }])),
+          pending: calls.length === 1 ? [items[7].base_slug] : [],
+        };
+      },
+    },
+    renderHome: () => { renders += 1; },
+    saveHomeCache: () => { cacheWrites += 1; },
+  });
+  vm.runInContext(home.slice(home.indexOf("const HOME_SERIES_ARTWORK_BATCH_SIZE")), context);
+  context.items = Array.from({ length: 10 }, (_, index) => ({
+    base_slug: `series-${index}`,
+    title: `Series ${index}`,
+    cover_url: "/poster.jpg",
+    backdrop_url: "",
+    genres: ["Drama"],
+  }));
+
+  const hydrated = await vm.runInContext(
+    "hydrateHomeSeriesArtwork(items, { render: true })",
+    context,
+  );
+
+  assert.deepEqual(calls.map((batch) => batch.length), [8, 1, 2]);
+  assert.equal(renders, 3);
+  assert.equal(cacheWrites, 3);
+  assert.equal(hydrated.length, 10);
+  assert.ok(context.items.every((item) => item.backdrop_url));
+});
+
+test("home load waits for movie Jellyfin truth but never blocks on series Jellyfin", async () => {
+  const start = home.indexOf("async function loadHomeData()");
+  const end = home.indexOf("async function hydrateHomeMovieArtwork", start);
+  let releaseMovie;
+  let releaseSeries;
+  const movieStatus = new Promise((resolve) => { releaseMovie = resolve; });
+  const seriesStatus = new Promise((resolve) => { releaseSeries = resolve; });
+  const calls = [];
+  const state = {
+    tab: "home",
+    home: {
+      loading: false,
+      newMovies: [],
+      topMovies: [],
+      discoveryMovies: [],
+      trendingSeries: [],
+      newSeries: [],
+      discoverySeries: [],
+    },
+  };
+  const context = vm.createContext({
+    console,
+    state,
+    api: {
+      movies: async () => ({ results: [{ slug: "movie", title: "Movie" }] }),
+      series: async () => ({ results: [{ base_slug: "series", title: "Series" }] }),
+    },
+    homeAllEntries: () => [
+      { kind: "movie", item: { slug: "movie", title: "Movie" } },
+      { kind: "series", item: { base_slug: "series", title: "Series" } },
+    ],
+    renderHome: () => { calls.push("render"); },
+    syncFpCatalogFromHome: () => {},
+    syncSeriesCatalogFromHome: () => {},
+    hydrateHomeMovieArtwork: async () => {},
+    hydrateHomeSeriesArtwork: async () => { calls.push("series-artwork"); },
+    refreshCatalogJellyfinStatus: (entries, render) => {
+      const kind = entries[0]?.kind;
+      calls.push(`jellyfin-${kind}`);
+      if (kind === "movie") return movieStatus;
+      return seriesStatus.then(() => render?.());
+    },
+    saveHomeCache: () => {},
+  });
+  vm.runInContext(home.slice(start, end), context);
+
+  let completed = false;
+  const load = vm.runInContext("loadHomeData()", context).then(() => { completed = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(calls.includes("series-artwork"));
+  assert.ok(calls.includes("jellyfin-movie"));
+  assert.equal(completed, false);
+
+  releaseMovie();
+  await load;
+  assert.equal(completed, true);
+  assert.equal(state.home.loading, false);
+  assert.ok(calls.includes("jellyfin-series"));
+  releaseSeries();
 });
 
 test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
