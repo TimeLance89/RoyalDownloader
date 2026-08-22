@@ -113,7 +113,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 4
+PROVIDER_CATALOG_REVISION = 5
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -507,6 +507,27 @@ def _migrate_provider_catalog(values: dict) -> dict:
         if "filmo" not in movie_enabled:
             movie_enabled.append("filmo")
             updates["movie_provider_enabled"] = ",".join(movie_enabled)
+
+    # Revision 5: AniWorld ist die erste deutsche Anime-Quelle. Bestehende
+    # Installationen erhalten sie einmalig in Reihenfolge und Aktiv-Auswahl;
+    # danach bleibt eine bewusste Deaktivierung erhalten.
+    anime_priority_raw = values.get("anime_provider_priority")
+    if anime_priority_raw is not None and revision < 5:
+        anime_order = normalize_provider_order(
+            anime_priority_raw, ANIME_PROVIDER_DEFAULTS,
+        )
+        anime_order.remove("aniworld")
+        anime_order.insert(ANIME_PROVIDER_DEFAULTS.index("aniworld"), "aniworld")
+        updates["anime_provider_priority"] = ",".join(anime_order)
+
+    anime_enabled_raw = values.get("anime_provider_enabled")
+    if anime_enabled_raw is not None and revision < 5:
+        anime_enabled = normalize_provider_selection(
+            anime_enabled_raw, ANIME_PROVIDER_DEFAULTS,
+        )
+        if "aniworld" not in anime_enabled:
+            anime_enabled.append("aniworld")
+        updates["anime_provider_enabled"] = ",".join(anime_enabled)
 
     _update_all(updates)
     return {**values, **updates}
