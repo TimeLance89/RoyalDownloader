@@ -255,6 +255,9 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     elif slug.startswith(MKISSA_PREFIX):
         with state.mkissa_lock:
             movie = get_mkissa_scraper().get_episode(slug)
+    elif slug.startswith(ANIWORLD_PREFIX):
+        with state.aniworld_lock:
+            movie = get_aniworld_scraper().get_episode(slug)
     else:
         if slug.lower().startswith(("http://", "https://")):
             host = (urlparse(slug).hostname or "").casefold()

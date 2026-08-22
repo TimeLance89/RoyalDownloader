@@ -428,8 +428,9 @@
   .topbar .tabs [data-tab="serien"] { order: 2; }
   .topbar .tabs [data-tab="filme"] { order: 3; }
   .topbar .tabs [data-tab="anime"] { order: 4; }
-  .topbar .tabs [data-tab="bibliothek"] { order: 5; }
-  .topbar .tabs .mood-nav-open { order: 6; }
+  .topbar .tabs [data-tab="aniworld"] { order: 5; }
+  .topbar .tabs [data-tab="bibliothek"] { order: 6; }
+  .topbar .tabs .mood-nav-open { order: 7; }
 
   /* Setup belongs to settings, not to the primary content navigation. Keep
      the element for the existing JS/mobile contract, but remove it on desktop. */

@@ -372,6 +372,42 @@ async function initApp() {
     loadAnimeDetail({ keepSelection: true });
   });
   document.getElementById("anime-add-btn").addEventListener("click", animeAddSelected);
+  document.getElementById("aniworld-search-btn").addEventListener("click", () => aniworldBrowse("search", 1));
+  document.getElementById("aniworld-search").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    aniworldBrowse("search", 1);
+  });
+  document.getElementById("aniworld-latest-btn").addEventListener("click", () => aniworldBrowse("latest", 1));
+  document.getElementById("aniworld-trending-btn").addEventListener("click", () => aniworldBrowse("trending", 1));
+  document.getElementById("aniworld-popular-btn").addEventListener("click", () => aniworldBrowse("popular", 1));
+  document.getElementById("aniworld-prev").addEventListener("click", () => {
+    aniworldBrowse(state.aniworld.mode || "latest", Math.max(1, state.aniworld.page - 1));
+  });
+  document.getElementById("aniworld-next").addEventListener("click", () => {
+    aniworldBrowse(state.aniworld.mode || "latest", state.aniworld.page + 1);
+  });
+  document.getElementById("aniworld-select-page").addEventListener("click", () => {
+    for (const episode of state.aniworld.current?.episodes || []) {
+      if (!episode.queued && !episode.downloaded) state.aniworld.picked.add(episode.slug);
+    }
+    renderAniworldEpisodes();
+  });
+  document.getElementById("aniworld-select-none").addEventListener("click", () => {
+    state.aniworld.picked.clear();
+    renderAniworldEpisodes();
+  });
+  document.getElementById("aniworld-episode-prev").addEventListener("click", () => {
+    if (!state.aniworld.current || state.aniworld.current.page <= 1) return;
+    state.aniworld.episodePage = state.aniworld.current.page - 1;
+    loadAniworldDetail({ keepSelection: true });
+  });
+  document.getElementById("aniworld-episode-next").addEventListener("click", () => {
+    if (!state.aniworld.current || state.aniworld.current.page >= state.aniworld.current.page_count) return;
+    state.aniworld.episodePage = state.aniworld.current.page + 1;
+    loadAniworldDetail({ keepSelection: true });
+  });
+  document.getElementById("aniworld-add-btn").addEventListener("click", aniworldAddSelected);
   document.getElementById("watch-mode-close").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-cancel").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-save").addEventListener("click", saveWatchMode);

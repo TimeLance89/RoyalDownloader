@@ -15,6 +15,7 @@ from provider_health import ProviderHealth
 from providers.filmpalast import FilmpalastScraper
 from providers.huhu import HuhuScraper
 from providers.mkissa import MkissaScraper
+from providers.aniworld import AniWorldScraper
 from providers.models import FilmpalastMovie, FilmpalastSeries
 from providers.moflix import MoflixScraper
 from providers.serienstream import SerienstreamScraper
@@ -257,6 +258,8 @@ class AppState:
         self.huhu_lock = threading.RLock()
         self.mkissa_scraper: MkissaScraper | None = None
         self.mkissa_lock = threading.RLock()
+        self.aniworld_scraper: AniWorldScraper | None = None
+        self.aniworld_lock = threading.RLock()
 
         self.fp_provider_genres: set = set()
         self.filmfrei24_provider_genres: set = set()

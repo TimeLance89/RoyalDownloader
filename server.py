@@ -257,6 +257,10 @@ from providers.mkissa import (
     SOURCE_PREFIX as MKISSA_PREFIX,
     anime_episode_page,
 )
+from providers.aniworld import (
+    AniWorldScraper,
+    SOURCE_PREFIX as ANIWORLD_PREFIX,
+)
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from jellyfin_client import JellyfinClient
 from jellyfin_recommender import (
@@ -601,6 +605,7 @@ def _capabilities_payload():
             "movies": True,
             "series": True,
             "anime": True,
+            "aniworld": True,
             "queue": True,
             "watchlist": True,
             "taste_profile": True,

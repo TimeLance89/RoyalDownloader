@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from providers.mkissa import SOURCE_PREFIX as MKISSA_PREFIX
+from providers.aniworld import SOURCE_PREFIX as ANIWORLD_PREFIX
 from providers.models import FilmpalastMovie, parse_episode_slug, strip_episode_suffix
 
 router = APIRouter(tags=["queue"])
@@ -252,12 +253,12 @@ def _record_download_taste(jobs: list[tuple[FilmpalastMovie, str]], source: str)
         return
     for movie, slug in jobs:
         episode = parse_episode_slug(slug)
-        is_anime = source == "anime" or slug.startswith(MKISSA_PREFIX)
+        is_anime = source == "anime" or slug.startswith((MKISSA_PREFIX, ANIWORLD_PREFIX))
         media_type = "anime" if is_anime else ("series" if episode else "movie")
         if is_anime:
             anime_base = (
                 episode[0] if episode else slug
-            ).removeprefix(MKISSA_PREFIX).split("|", 1)[0]
+            ).removeprefix(MKISSA_PREFIX).removeprefix(ANIWORLD_PREFIX).split("|", 1)[0]
             item_key = f"anime:{anime_base}"
         else:
             item_key = f"series:{episode[0]}" if episode else f"movie:{slug}"
