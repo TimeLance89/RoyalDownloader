@@ -1625,6 +1625,13 @@ async function loadHomeData() {
       syncSeriesCatalogFromHome({ fresh: true });
     }),
   ]);
+  // Die erste sichtbare Serienreihe bekommt ihre Wallpaper sofort. Diese
+  // Hydrierung läuft parallel zu den sekundären Provider-Katalogen und wartet
+  // insbesondere nicht auf den späteren Jellyfin-Abgleich.
+  const primarySeriesArtwork = hydrateHomeSeriesArtwork(
+    state.home.trendingSeries,
+    { render: true },
+  );
   // Sekundaere Reihen konkurrieren beim Kaltstart nicht um Provider-Sessions.
   const secondary = await Promise.allSettled([
     api.movies({ mode: "top", page: 1 }), api.series({ mode: "new", page: 1 }),
@@ -1636,6 +1643,11 @@ async function loadHomeData() {
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
   renderHome();
+  const remainingSeriesArtwork = primarySeriesArtwork.then(() => hydrateHomeSeriesArtwork([
+    ...state.home.trendingSeries,
+    ...state.home.newSeries,
+    ...state.home.discoverySeries,
+  ], { render: true }));
   const discoveryMovies = await Promise.allSettled([
     api.movies({ mode: "new", page: 2 }), api.movies({ mode: "top", page: 2 }),
   ]);
@@ -1649,15 +1661,22 @@ async function loadHomeData() {
       ...state.home.topMovies,
       ...state.home.discoveryMovies,
     ], { render: false }),
-    hydrateHomeSeriesArtwork([
-      ...state.home.trendingSeries,
-      ...state.home.newSeries,
-      ...state.home.discoverySeries,
-    ], { render: false }),
+    remainingSeriesArtwork,
   ]);
-  await refreshCatalogJellyfinStatus(homeAllEntries(), null);
+  const currentEntries = homeAllEntries();
+  const movieEntries = currentEntries.filter((entry) => entry.kind === "movie");
+  const seriesEntries = currentEntries.filter((entry) => entry.kind === "series");
+  // Filme behalten die ausdrücklich gewünschte synchrone Gegenprüfung. Serien
+  // sind dagegen bereits vollständig benutzbar; ihr Badge wird nachträglich
+  // aktualisiert und blockiert weder Bilder noch den Abschluss des Startladens.
+  await refreshCatalogJellyfinStatus(movieEntries, null);
   state.home.loading = false;
   saveHomeCache(); renderHome();
+  if (seriesEntries.length) {
+    void refreshCatalogJellyfinStatus(seriesEntries, () => {
+      if (state.tab === "home") renderHome();
+    }).catch((error) => console.warn("Serien-Jellyfin-Status konnte nicht aktualisiert werden:", error));
+  }
 }
 
 async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
@@ -1691,6 +1710,9 @@ async function hydrateHomeMovieArtwork(items, { render = true } = {}) {
     console.warn("Startseitenbilder konnten nicht ergänzt werden:", error);
   }
 }
+
+const HOME_SERIES_ARTWORK_BATCH_SIZE = 8;
+const HOME_SERIES_ARTWORK_MAX_PASSES = 3;
 
 async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
   const groups = new Map();
@@ -1726,33 +1748,50 @@ async function hydrateHomeSeriesArtwork(items, { render = true } = {}) {
     }
   });
   if (!targets.length) return [];
-  const hydratedBaseSlugs = [];
-  try {
-    const response = await api.tmdbSeries(targets.map((target) => ({
-      base_slug: target.base_slug,
-      title: target.title,
-      year: target.year,
-    })));
-    for (const target of targets) {
-      const metadata = response.series?.[target.base_slug];
-      if (!metadata) continue;
-      let hydrated = false;
-      target.variants.forEach((item) => {
-        const hadCover = Boolean(item.cover_url);
-        const hadBackdrop = Boolean(item.backdrop_url);
-        Object.assign(item, metadata, {
-          cover_url: metadata.cover_url || item.cover_url || "",
-          backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+  const hydratedBaseSlugs = new Set();
+  for (let index = 0; index < targets.length; index += HOME_SERIES_ARTWORK_BATCH_SIZE) {
+    const batch = targets.slice(index, index + HOME_SERIES_ARTWORK_BATCH_SIZE);
+    let pendingTargets = batch;
+    for (let pass = 0; pendingTargets.length && pass < HOME_SERIES_ARTWORK_MAX_PASSES; pass += 1) {
+      let response;
+      try {
+        response = await api.tmdbSeries(pendingTargets.map((target) => ({
+          base_slug: target.base_slug,
+          title: target.title,
+          year: target.year,
+        })));
+      } catch (error) {
+        console.warn("Serien-Wallpaper konnten nicht ergänzt werden:", error);
+        break;
+      }
+      let repainted = false;
+      for (const target of pendingTargets) {
+        const metadata = response.series?.[target.base_slug];
+        if (!metadata) continue;
+        let hydrated = false;
+        target.variants.forEach((item) => {
+          const hadCover = Boolean(item.cover_url);
+          const hadBackdrop = Boolean(item.backdrop_url);
+          Object.assign(item, metadata, {
+            cover_url: metadata.cover_url || item.cover_url || "",
+            backdrop_url: metadata.backdrop_url || item.backdrop_url || "",
+          });
+          if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
+            hydrated = true;
+          }
         });
-        if ((!hadCover && item.cover_url) || (!hadBackdrop && item.backdrop_url)) {
-          hydrated = true;
+        if (hydrated) {
+          hydratedBaseSlugs.add(target.base_slug);
+          repainted = true;
         }
-      });
-      if (hydrated) hydratedBaseSlugs.push(target.base_slug);
+      }
+      if (repainted) {
+        saveHomeCache();
+        if (render) renderHome();
+      }
+      const pending = new Set(Array.isArray(response.pending) ? response.pending : []);
+      pendingTargets = pendingTargets.filter((target) => pending.has(target.base_slug));
     }
-    if (render) renderHome();
-  } catch (error) {
-    console.warn("Serien-Wallpaper konnten nicht ergänzt werden:", error);
   }
-  return hydratedBaseSlugs;
+  return [...hydratedBaseSlugs];
 }
