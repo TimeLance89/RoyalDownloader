@@ -39,10 +39,12 @@ _LIVE_MIN_INTERVAL_SECONDS = 0.5
 _LIVE_DEFAULT_INTERVAL_SECONDS = 1.0
 _LIVE_MAX_INTERVAL_SECONDS = 30.0
 _LIVE_MAX_FAILURE_BACKOFF_SECONDS = 15.0
+_LIVE_DOWNLOAD_WAIT_SECONDS = 20.0
 
 _live_lock = threading.RLock()
 _live_wake_event = threading.Event()
 _live_stop_event = threading.Event()
+_live_ready_event = threading.Event()
 _live_thread: threading.Thread | None = None
 _force_full_refresh = False
 _last_revision = ""
@@ -63,11 +65,27 @@ def _live_stale() -> bool:
         return bool(getattr(state, "jellyfin_live_stale", False))
 
 
+def _download_wait_seconds() -> float:
+    raw = os.environ.get(
+        "JELLYFIN_LIVE_DOWNLOAD_WAIT_SECONDS",
+        str(_LIVE_DOWNLOAD_WAIT_SECONDS),
+    )
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        timeout = _LIVE_DOWNLOAD_WAIT_SECONDS
+    return max(0.5, min(60.0, timeout))
+
+
 def _set_live_state(*, stale: bool, checked_at: float | None = None) -> None:
     with state.jellyfin_cache_lock:
         state.jellyfin_live_stale = bool(stale)
         if checked_at is not None:
             state.jellyfin_live_checked_at = float(checked_at)
+    if stale:
+        _live_ready_event.clear()
+    else:
+        _live_ready_event.set()
 
 
 def _wake_automation() -> None:
@@ -90,6 +108,7 @@ def _mark_probe_unavailable() -> None:
             state.jellyfin_episodes_available = False
         if state.jellyfin_user_episodes is not None:
             state.jellyfin_user_episodes_available = False
+    _live_ready_event.clear()
 
 
 def _mark_cached_snapshots_verified(now: float) -> None:
@@ -117,6 +136,7 @@ def _mark_cached_snapshots_verified(now: float) -> None:
             state.jellyfin_user_episodes_retry_after = 0.0
         state.jellyfin_live_stale = False
         state.jellyfin_live_checked_at = now
+    _live_ready_event.set()
 
 
 def _movie_identities_from_library(items: list[dict]) -> list[dict]:
@@ -264,6 +284,10 @@ def _refresh_snapshot(client) -> bool:
             complete = complete and user_episodes is not None
         state.jellyfin_live_stale = not complete
         state.jellyfin_live_checked_at = now
+    if complete:
+        _live_ready_event.set()
+    else:
+        _live_ready_event.clear()
     return complete
 
 
@@ -320,6 +344,30 @@ def request_jellyfin_live_refresh(*, force_full: bool = False) -> None:
         _force_full_refresh = _force_full_refresh or bool(force_full)
     _ensure_live_monitor()
     _live_wake_event.set()
+
+
+def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
+    """Wait boundedly for a fresh movie-ownership snapshot.
+
+    Movie queue requests must remain fail-closed, but a transient refresh must
+    not force users to click the download action repeatedly.  Series queue
+    requests deliberately do not use this wait path.
+    """
+    if not backend_value("get_jellyfin_client")().configured:
+        return True
+    with state.jellyfin_cache_lock:
+        if not bool(getattr(state, "jellyfin_live_stale", False)):
+            return True
+        # Clear while holding the state lock so a concurrent successful monitor
+        # cycle cannot publish freshness immediately before this reset.
+        _live_ready_event.clear()
+    # A successful lightweight revision probe is enough when the library did
+    # not change; the monitor escalates to a full snapshot only when needed.
+    request_jellyfin_live_refresh()
+    wait_seconds = _download_wait_seconds() if timeout is None else max(0.0, float(timeout))
+    if wait_seconds:
+        _live_ready_event.wait(wait_seconds)
+    return not _live_stale()
 
 
 def _consume_force_refresh() -> bool:
@@ -489,6 +537,7 @@ def stop_jellyfin_recommender() -> None:
 
 _SERVICE_EXPORTS = (
     "request_jellyfin_live_refresh",
+    "wait_for_jellyfin_live_ready",
     "get_jellyfin_library",
     "get_jellyfin_movie_identities",
     "get_jellyfin_episodes",

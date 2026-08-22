@@ -313,6 +313,54 @@ def test_download_safety_blocks_when_live_snapshot_is_stale(monkeypatch):
     assert "Jellyfin-Livestatus veraltet" in reason
 
 
+def test_movie_download_waits_for_running_live_refresh(monkeypatch):
+    fake_state = _state(jellyfin_live_stale=True)
+    waits = []
+    refreshes = []
+
+    class CompletingEvent:
+        def clear(self):
+            return None
+
+        def set(self):
+            return None
+
+        def wait(self, timeout):
+            waits.append(timeout)
+            fake_state.jellyfin_live_stale = False
+            return True
+
+    monkeypatch.setattr(live, "state", fake_state)
+    monkeypatch.setattr(live, "_live_ready_event", CompletingEvent())
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **kwargs: refreshes.append(kwargs))
+    monkeypatch.setattr(
+        live,
+        "backend_value",
+        lambda name: (lambda: SimpleNamespace(configured=True))
+        if name == "get_jellyfin_client" else None,
+    )
+
+    assert live.wait_for_jellyfin_live_ready(timeout=0.25) is True
+    assert refreshes == [{}]
+    assert waits == [0.25]
+
+
+def test_movie_download_wait_fails_closed_after_timeout(monkeypatch):
+    fake_state = _state(jellyfin_live_stale=True)
+    monkeypatch.setattr(live, "state", fake_state)
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        live,
+        "backend_value",
+        lambda name: (lambda: SimpleNamespace(configured=True))
+        if name == "get_jellyfin_client" else None,
+    )
+    event = threading.Event()
+    monkeypatch.setattr(live, "_live_ready_event", event)
+
+    assert live.wait_for_jellyfin_live_ready(timeout=0.0) is False
+
+
 def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():
     core = (live.backend_value("APP_DIR") / "web" / "core.js").read_text(encoding="utf-8")
     home = (live.backend_value("APP_DIR") / "web" / "screens" / "home.js").read_text(encoding="utf-8")

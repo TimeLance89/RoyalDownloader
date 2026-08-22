@@ -870,6 +870,7 @@ async function toggleFpPick(slug) {
     setFpDownloadFeedback(slug);
     const movie = await prepareFpMovieDownload(slug);
     if (!movie) return;
+    setFpJellyfinDownloadPending(slug);
     const resp = await api.queueAdd([slug]);
     refreshQueueUiAfterChange(resp);
     if (applyFpQueueAddResponse(slug, resp)) {
@@ -1381,9 +1382,13 @@ function configureFpDetailAction(slug, movie, metadataOnly = false) {
       fpQueueMutations.add(slug);
       if (!shouldRemove) setFpDownloadFeedback(slug);
       const selection = state.fp.downloadSelections.get(slug);
-      const resp = shouldRemove
-        ? await api.queueRemove(slug)
-        : await api.queueAdd([slug], selection ? { [slug]: selection } : {});
+      let resp;
+      if (shouldRemove) {
+        resp = await api.queueRemove(slug);
+      } else {
+        setFpJellyfinDownloadPending(slug);
+        resp = await api.queueAdd([slug], selection ? { [slug]: selection } : {});
+      }
       const accepted = shouldRemove || applyFpQueueAddResponse(slug, resp);
       if (shouldRemove) setFpDownloadFeedback(slug);
       if (!shouldRemove && accepted) {
