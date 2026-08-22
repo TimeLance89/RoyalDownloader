@@ -1,0 +1,361 @@
+.aniworld-tab-content {
+  --aw-red: #ff334a;
+  --aw-coral: #ff7668;
+  --aw-ice: #69d9e8;
+  --aw-paper: #f5f1eb;
+  --aw-muted: #9e98a6;
+  --aw-line: rgba(255, 255, 255, 0.09);
+  --aw-panel: rgba(12, 10, 15, 0.92);
+  gap: 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 36px;
+  color: var(--aw-paper);
+  font-family: "DM Sans", "Segoe UI", sans-serif;
+}
+
+.aniworld-tab-content button,
+.aniworld-tab-content input,
+.aniworld-tab-content select { font: inherit; }
+.aniworld-tab-content button:focus-visible,
+.aniworld-tab-content input:focus-visible,
+.aniworld-tab-content select:focus-visible {
+  outline: 2px solid var(--aw-ice);
+  outline-offset: 2px;
+}
+
+.aniworld-hero {
+  position: relative;
+  display: grid;
+  min-height: 296px;
+  grid-template-columns: minmax(360px, 1.12fr) minmax(320px, 0.88fr);
+  gap: 26px;
+  overflow: hidden;
+  padding: 30px 32px 58px;
+  border: 1px solid rgba(255, 51, 74, 0.22);
+  border-radius: 22px;
+  background:
+    linear-gradient(90deg, rgba(255, 51, 74, 0.07) 1px, transparent 1px) 0 0 / 62px 100%,
+    radial-gradient(circle at 13% 8%, rgba(255, 51, 74, 0.17), transparent 32%),
+    linear-gradient(125deg, #151017 0%, #0a090d 60%, #11141a 100%);
+  box-shadow: 0 26px 70px -50px rgba(255, 51, 74, 0.8);
+}
+.aniworld-hero::after {
+  position: absolute;
+  right: -110px;
+  bottom: -170px;
+  width: 420px;
+  height: 420px;
+  border: 1px solid rgba(105, 217, 232, 0.12);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 35px rgba(105, 217, 232, 0.018), inset 0 0 0 80px rgba(105, 217, 232, 0.012);
+  content: "";
+}
+.aniworld-hero-signal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  height: 5px;
+  gap: 3px;
+}
+.aniworld-hero-signal i { width: 44px; background: var(--aw-red); }
+.aniworld-hero-signal i:nth-child(2) { width: 19px; opacity: 0.68; }
+.aniworld-hero-signal i:nth-child(3) { width: 62px; opacity: 0.4; }
+.aniworld-hero-signal i:nth-child(4) { width: 10px; background: var(--aw-ice); }
+.aniworld-hero-signal i:nth-child(5) { width: 28px; opacity: 0.18; }
+.aniworld-hero-copy { position: relative; z-index: 2; align-self: center; }
+.aniworld-kicker,
+.aniworld-section-code,
+.aniworld-console-head > div > span,
+.aniworld-track-head > div > span {
+  color: var(--aw-red);
+  font: 600 9px/1 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: 0.16em;
+}
+.aniworld-hero h1 {
+  margin: 12px 0 13px;
+  color: var(--aw-paper);
+  font: 800 clamp(38px, 5vw, 66px)/0.91 "Archivo", "Arial Narrow", sans-serif;
+  letter-spacing: -0.065em;
+}
+.aniworld-hero h1 em { color: var(--aw-red); font-style: normal; }
+.aniworld-hero-copy > p { max-width: 610px; margin: 0; color: #b9b3bd; font-size: 12px; line-height: 1.58; }
+.aniworld-hero-tracks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 19px; }
+.aniworld-hero-tracks span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--aw-line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--aw-muted);
+  font-size: 9px;
+}
+.aniworld-hero-tracks b { color: var(--aw-paper); font: 700 8px "JetBrains Mono", monospace; }
+.aniworld-featured {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-height: 182px;
+  align-self: center;
+  overflow: hidden;
+  padding: 0;
+  color: #fff;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 17px;
+  background: #161119;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+.aniworld-featured:hover { transform: translateY(-3px); border-color: rgba(255, 51, 74, 0.7); }
+.aniworld-featured[hidden] { display: none; }
+.aniworld-featured-art,
+.aniworld-featured-shade { position: absolute; inset: 0; }
+.aniworld-featured-art { background-position: center 25%; background-size: cover; filter: saturate(0.75); }
+.aniworld-featured-shade { background: linear-gradient(90deg, rgba(9, 8, 11, 0.95), rgba(9, 8, 11, 0.38)), linear-gradient(0deg, rgba(9, 8, 11, 0.76), transparent 70%); }
+.aniworld-featured-copy { position: relative; align-self: end; padding: 23px; }
+.aniworld-featured-copy small { color: var(--aw-coral); font: 600 8px "JetBrains Mono", monospace; letter-spacing: 0.14em; }
+.aniworld-featured-copy strong { display: block; max-width: 75%; margin-top: 7px; font: 700 20px/1.06 "Archivo", sans-serif; }
+.aniworld-featured-copy > span { display: block; margin-top: 8px; color: #c7c0ca; font: 500 8px "JetBrains Mono", monospace; }
+.aniworld-featured-open { position: absolute; right: 18px; bottom: 20px; color: var(--aw-red); font-size: 24px; }
+.aniworld-hero-metrics {
+  position: absolute;
+  right: 24px;
+  bottom: 14px;
+  left: 32px;
+  z-index: 2;
+  display: flex;
+  gap: 24px;
+  margin: 0;
+}
+.aniworld-hero-metrics div { display: flex; align-items: baseline; gap: 7px; }
+.aniworld-hero-metrics dt { color: var(--aw-paper); font: 700 12px "JetBrains Mono", monospace; }
+.aniworld-hero-metrics dd { margin: 0; color: #77717c; font: 500 8px "JetBrains Mono", monospace; text-transform: uppercase; }
+
+.aniworld-console,
+.aniworld-catalog-panel {
+  border: 1px solid var(--aw-line);
+  border-radius: 17px;
+  background: var(--aw-panel);
+}
+.aniworld-console { padding: 17px; }
+.aniworld-console-head,
+.aniworld-catalog-head,
+.aniworld-track-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.aniworld-console-head h2,
+.aniworld-catalog-head h2,
+.aniworld-track-head h3 { margin: 5px 0 0; color: var(--aw-paper); font: 700 18px/1.1 "Archivo", sans-serif; letter-spacing: -0.035em; }
+.aniworld-console-head > span { max-width: 50%; color: var(--aw-muted); font-size: 9px; text-align: right; }
+.aniworld-command-row { display: grid; grid-template-columns: minmax(230px, 1fr) auto auto; gap: 8px; margin-top: 15px; }
+.aniworld-search-field,
+.aniworld-episode-search {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid var(--aw-line);
+  border-radius: 9px;
+  background: #09080b;
+}
+.aniworld-search-field > span,
+.aniworld-episode-search > span { color: var(--aw-red); text-align: center; }
+.aniworld-search-field input,
+.aniworld-episode-search input {
+  min-width: 0;
+  height: 39px;
+  padding: 0 12px 0 0;
+  color: var(--aw-paper);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 11px;
+}
+.aniworld-search-submit,
+.aniworld-mode-switch button,
+.aniworld-filter-deck button,
+.aniworld-pager button,
+.aniworld-episode-tools button,
+.aniworld-episode-nav button {
+  min-height: 39px;
+  padding: 0 13px;
+  color: #bbb5c0;
+  border: 1px solid var(--aw-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.aniworld-search-submit { color: #fff; border-color: var(--aw-red); background: var(--aw-red); }
+.aniworld-mode-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--aw-line); border-radius: 10px; background: #09080b; }
+.aniworld-mode-switch button { min-height: 31px; border: 0; background: transparent; font: 600 8px "JetBrains Mono", monospace; }
+.aniworld-mode-switch button:hover { color: #fff; }
+.aniworld-mode-switch button.is-active { color: #fff; background: rgba(255, 51, 74, 0.88); }
+.aniworld-filter-deck { display: grid; grid-template-columns: 1fr 210px auto; align-items: end; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--aw-line); }
+.aniworld-filter-deck[hidden] { display: none; }
+.aniworld-letter-filter { display: flex; flex-wrap: wrap; gap: 3px; }
+.aniworld-letter-filter button { min-width: 28px; min-height: 28px; padding: 0 6px; font: 600 8px "JetBrains Mono", monospace; }
+.aniworld-letter-filter button.is-active { color: #fff; border-color: var(--aw-red); background: rgba(255, 51, 74, 0.18); }
+.aniworld-letter-filter button:disabled { opacity: 0.2; cursor: default; }
+.aniworld-filter-deck label,
+.aniworld-episode-tools label:not(.aniworld-episode-search) { display: grid; gap: 5px; color: var(--aw-muted); font: 600 7px "JetBrains Mono", monospace; letter-spacing: 0.1em; text-transform: uppercase; }
+.aniworld-filter-deck select,
+.aniworld-episode-tools select { height: 33px; padding: 0 28px 0 9px; color: var(--aw-paper); border: 1px solid var(--aw-line); border-radius: 7px; background: #0a090c; font-size: 9px; }
+
+.aniworld-catalog-panel { padding: 18px; }
+.aniworld-catalog-head { margin-bottom: 15px; }
+.aniworld-catalog-head > span { color: var(--aw-muted); font: 500 8px "JetBrains Mono", monospace; }
+.aniworld-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }
+.aniworld-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  color: var(--aw-paper);
+  text-align: left;
+  border: 1px solid var(--aw-line);
+  border-radius: 12px;
+  background: #100e12;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+.aniworld-card:hover { transform: translateY(-4px); border-color: rgba(255, 51, 74, 0.5); box-shadow: 0 18px 35px -25px rgba(255, 51, 74, 0.75); }
+.aniworld-card-poster { position: relative; display: grid; aspect-ratio: 2 / 2.75; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 30%, rgba(255, 51, 74, 0.16), transparent 55%), #171218; }
+.aniworld-card-poster::after { position: absolute; inset: 40% 0 0; z-index: 2; background: linear-gradient(transparent, #100e12); content: ""; }
+.aniworld-card-poster img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; transition: transform 320ms ease; }
+.aniworld-card:hover img { transform: scale(1.035); }
+.aniworld-card-fallback { color: rgba(255, 51, 74, 0.45); font: 800 31px "Archivo", sans-serif; }
+.aniworld-card-source,
+.aniworld-card-update { position: absolute; z-index: 3; top: 8px; padding: 4px 5px; border-radius: 4px; font: 700 7px "JetBrains Mono", monospace; }
+.aniworld-card-source { left: 8px; color: #fff; background: var(--aw-red); }
+.aniworld-card-update { right: 8px; color: #081316; background: var(--aw-ice); }
+.aniworld-card-copy { display: block; min-height: 92px; padding: 10px; }
+.aniworld-card-copy > strong { display: -webkit-box; min-height: 32px; overflow: hidden; font: 700 11px/1.4 "Archivo", sans-serif; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.aniworld-card-copy > small { display: block; margin-top: 5px; overflow: hidden; color: var(--aw-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.aniworld-card-tracks { display: flex; gap: 4px; margin-top: 9px; }
+.aniworld-card-tracks b { padding: 3px 5px; color: #d7d1da; border: 1px solid var(--aw-line); border-radius: 4px; font: 600 7px "JetBrains Mono", monospace; }
+.aniworld-card-tracks .is-dub { color: #ff8b97; border-color: rgba(255, 51, 74, 0.28); }
+.aniworld-card-tracks .is-sub { color: var(--aw-ice); border-color: rgba(105, 217, 232, 0.24); }
+.aniworld-card-open { position: absolute; right: 10px; bottom: 10px; color: var(--aw-red); }
+.aniworld-card-skeleton { aspect-ratio: 2 / 3.6; background: linear-gradient(100deg, #100e12 20%, #1e171e 40%, #100e12 60%) 0 0 / 220% 100%; animation: aniworld-skeleton 1.4s infinite linear; }
+@keyframes aniworld-skeleton { to { background-position: -220% 0; } }
+.aniworld-empty { grid-column: 1 / -1; display: grid; min-height: 210px; place-content: center; gap: 7px; padding: 25px; color: var(--aw-muted); border: 1px dashed rgba(255, 51, 74, 0.25); border-radius: 12px; text-align: center; }
+.aniworld-empty strong { color: var(--aw-paper); font: 700 15px "Archivo", sans-serif; }
+.aniworld-empty span { font-size: 10px; }
+.aniworld-empty.is-compact { min-height: 120px; }
+.aniworld-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 17px; }
+.aniworld-pager span { color: var(--aw-muted); font: 600 8px "JetBrains Mono", monospace; }
+.aniworld-pager button:disabled,
+.aniworld-episode-tools button:disabled,
+.aniworld-episode-nav button:disabled { opacity: 0.35; cursor: default; }
+
+.aniworld-detail-panel { position: relative; width: min(1180px, calc(100vw - 38px)); height: min(820px, calc(100dvh - 42px)); overflow: hidden; border: 1px solid rgba(255, 51, 74, 0.3); border-radius: 20px; background: #0b090c; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.78); }
+.aniworld-detail-banner { position: absolute; inset: 0 0 auto; height: 310px; opacity: 0.2; background-position: center 22%; background-size: cover; mask-image: linear-gradient(#000 25%, transparent 100%); filter: saturate(0.7); }
+.aniworld-detail-scroll { position: relative; z-index: 1; height: 100%; overflow-y: auto; padding: 62px 24px 25px; }
+.aniworld-detail-profile { display: grid; grid-template-columns: 175px minmax(0, 1fr); gap: 24px; max-width: 950px; }
+.aniworld-detail-visual { position: relative; }
+.aniworld-detail-visual img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 11px; background: #171218; box-shadow: 0 25px 48px -30px #000; }
+.aniworld-detail-visual > span { position: absolute; right: 7px; bottom: 7px; padding: 5px 6px; color: #fff; border-radius: 5px; background: var(--aw-red); font: 700 7px "JetBrains Mono", monospace; }
+.aniworld-detail-copy h2 { max-width: 820px; margin: 8px 0 10px; color: var(--aw-paper); font: 800 clamp(27px, 4vw, 48px)/0.95 "Archivo", sans-serif; letter-spacing: -0.055em; }
+.aniworld-detail-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.aniworld-detail-meta span { padding: 4px 6px; color: #cbc4cf; border: 1px solid var(--aw-line); border-radius: 5px; background: rgba(255, 255, 255, 0.025); font: 500 7px "JetBrains Mono", monospace; }
+.aniworld-detail-alternatives { margin: 11px 0 0 !important; color: #76717b !important; font: 500 8px/1.45 "JetBrains Mono", monospace !important; }
+.aniworld-detail-copy > p:not(.aniworld-detail-alternatives) { max-width: 780px; margin: 13px 0 0; color: #aaa4ae; font-size: 10px; line-height: 1.62; }
+.aniworld-detail-credits { display: grid; gap: 6px; margin: 13px 0 0; }
+.aniworld-detail-credits div { display: grid; grid-template-columns: 55px 1fr; gap: 9px; }
+.aniworld-detail-credits dt { color: var(--aw-red); font: 600 7px "JetBrains Mono", monospace; text-transform: uppercase; }
+.aniworld-detail-credits dd { margin: 0; color: #8f8993; font-size: 8px; }
+.aniworld-episode-console { margin-top: 22px; padding: 17px; border: 1px solid var(--aw-line); border-radius: 14px; background: rgba(8, 7, 9, 0.88); }
+.aniworld-track-head > strong { color: var(--aw-coral); font: 600 9px "JetBrains Mono", monospace; }
+.aniworld-track-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 13px; }
+.aniworld-track-option { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; min-height: 54px; padding: 8px; color: var(--aw-muted); text-align: left; border: 1px solid var(--aw-line); border-radius: 9px; background: rgba(255, 255, 255, 0.02); cursor: pointer; }
+.aniworld-track-option > b { display: grid; width: 34px; height: 34px; place-items: center; color: #fff; border-radius: 7px; background: rgba(255, 51, 74, 0.15); font: 700 8px "JetBrains Mono", monospace; }
+.aniworld-track-option.is-sub > b { background: rgba(105, 217, 232, 0.13); }
+.aniworld-track-option span { display: grid; gap: 3px; }
+.aniworld-track-option strong { color: #d8d2dc; font-size: 9px; }
+.aniworld-track-option small { font-size: 8px; }
+.aniworld-track-option.is-active { border-color: var(--aw-red); background: rgba(255, 51, 74, 0.11); }
+.aniworld-track-option.is-sub.is-active { border-color: var(--aw-ice); background: rgba(105, 217, 232, 0.08); }
+.aniworld-season-options { display: flex; gap: 5px; margin-top: 12px; padding-bottom: 4px; overflow-x: auto; }
+.aniworld-season-options button { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; min-height: 32px; padding: 0 9px; color: var(--aw-muted); border: 1px solid var(--aw-line); border-radius: 7px; background: rgba(255, 255, 255, 0.02); cursor: pointer; }
+.aniworld-season-options strong { font-size: 8px; }
+.aniworld-season-options small { color: #69636d; font: 600 7px "JetBrains Mono", monospace; }
+.aniworld-season-options button.is-active { color: #fff; border-color: rgba(255, 51, 74, 0.55); background: rgba(255, 51, 74, 0.13); }
+.aniworld-episode-tools { display: grid; grid-template-columns: minmax(180px, 1fr) 135px auto auto auto; align-items: end; gap: 6px; margin-top: 12px; }
+.aniworld-episode-search input { height: 33px; font-size: 9px; }
+.aniworld-episode-tools button { min-height: 33px; padding-inline: 10px; }
+.aniworld-episode-tools button:hover:not(:disabled) { color: #fff; border-color: rgba(255, 51, 74, 0.45); }
+.aniworld-episode-nav { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin: 10px 0 7px; }
+.aniworld-episode-nav span { min-width: 0; flex: 1; color: var(--aw-muted); font: 500 8px "JetBrains Mono", monospace; }
+.aniworld-episode-nav button { width: 31px; min-height: 28px; padding: 0; }
+.aniworld-episode-grid { display: grid; gap: 5px; max-height: 330px; overflow-y: auto; padding: 2px; }
+.aniworld-episode { display: grid; min-height: 48px; grid-template-columns: 72px minmax(160px, 1fr) minmax(130px, 0.8fr) 74px; align-items: center; gap: 10px; padding: 7px 9px; color: var(--aw-muted); text-align: left; border: 1px solid var(--aw-line); border-radius: 8px; background: rgba(255, 255, 255, 0.018); cursor: pointer; }
+.aniworld-episode:hover:not(:disabled) { color: #fff; border-color: rgba(255, 51, 74, 0.5); background: rgba(255, 51, 74, 0.055); }
+.aniworld-episode-code { color: var(--aw-coral); font: 650 8px "JetBrains Mono", monospace; }
+.aniworld-episode-title { display: grid; gap: 2px; min-width: 0; }
+.aniworld-episode-title strong,
+.aniworld-episode-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aniworld-episode-title strong { color: #ded8e1; font-size: 9px; }
+.aniworld-episode-title small { color: #746f78; font-size: 7.5px; }
+.aniworld-episode-hosters { display: flex; gap: 3px; overflow: hidden; color: #69636d; font-size: 7px; }
+.aniworld-episode-hosters i { padding: 3px 4px; border: 1px solid var(--aw-line); border-radius: 4px; font-style: normal; white-space: nowrap; }
+.aniworld-episode-state { justify-self: end; color: #89838d; font: 600 7px "JetBrains Mono", monospace; text-transform: uppercase; }
+.aniworld-episode.is-selected { border-color: var(--aw-red); background: rgba(255, 51, 74, 0.14); }
+.aniworld-episode.is-selected .aniworld-episode-state { color: var(--aw-coral); }
+.aniworld-episode.is-queued { border-color: rgba(105, 217, 232, 0.35); }
+.aniworld-episode.is-queued .aniworld-episode-state { color: var(--aw-ice); }
+.aniworld-episode.is-downloaded { border-color: rgba(79, 202, 132, 0.3); }
+.aniworld-episode.is-downloaded .aniworld-episode-state { color: #65d598; }
+.aniworld-episode:disabled { opacity: 0.63; cursor: default; }
+.aniworld-episode-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 9px; color: #77717c; font: 500 7px "JetBrains Mono", monospace; }
+.aniworld-episode-legend span { display: flex; align-items: center; gap: 5px; }
+.aniworld-episode-legend i { width: 6px; height: 6px; border-radius: 50%; background: #77717c; }
+.aniworld-episode-legend .is-picked { background: var(--aw-red); }
+.aniworld-episode-legend .is-queued { background: var(--aw-ice); }
+.aniworld-episode-legend .is-downloaded { background: #65d598; }
+.aniworld-add-button { width: 100%; min-height: 42px; margin-top: 11px; color: #fff; border: 1px solid var(--aw-red); border-radius: 9px; background: var(--aw-red); font-size: 10px; font-weight: 800; cursor: pointer; }
+.aniworld-add-button:disabled { opacity: 0.36; cursor: default; }
+
+@media (max-width: 980px) {
+  .aniworld-hero { grid-template-columns: 1fr 0.85fr; padding-inline: 22px; }
+  .aniworld-command-row { grid-template-columns: minmax(180px, 1fr) auto; }
+  .aniworld-mode-switch { grid-column: 1 / -1; }
+  .aniworld-mode-switch button { flex: 1; }
+  .aniworld-filter-deck { grid-template-columns: 1fr 180px; }
+  .aniworld-filter-deck > button { grid-column: 2; }
+  .aniworld-episode-tools { grid-template-columns: minmax(180px, 1fr) 130px repeat(2, auto); }
+  .aniworld-episode-tools #aniworld-select-none { grid-column: 4; }
+}
+@media (max-width: 720px) {
+  .aniworld-hero { min-height: auto; grid-template-columns: 1fr; padding: 26px 17px 70px; }
+  .aniworld-hero h1 { font-size: 39px; }
+  .aniworld-featured { min-height: 145px; }
+  .aniworld-hero-metrics { left: 17px; gap: 13px; }
+  .aniworld-hero-metrics dd { display: none; }
+  .aniworld-console-head { align-items: flex-start; flex-direction: column; }
+  .aniworld-console-head > span { max-width: none; text-align: left; }
+  .aniworld-mode-switch { overflow-x: auto; }
+  .aniworld-mode-switch button { flex: 0 0 auto; }
+  .aniworld-filter-deck { grid-template-columns: 1fr; }
+  .aniworld-filter-deck > button { grid-column: auto; }
+  .aniworld-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .aniworld-catalog-panel { padding: 10px; }
+  .aniworld-detail-scroll { padding: 57px 13px 16px; }
+  .aniworld-detail-profile { grid-template-columns: 1fr; gap: 13px; }
+  .aniworld-detail-visual { width: 112px; }
+  .aniworld-detail-copy h2 { font-size: 25px; }
+  .aniworld-track-options { grid-template-columns: 1fr; }
+  .aniworld-episode-tools { grid-template-columns: 1fr 1fr; }
+  .aniworld-episode-tools .aniworld-episode-search { grid-column: 1 / -1; }
+  .aniworld-episode-tools #aniworld-select-none { grid-column: auto; }
+  .aniworld-episode { grid-template-columns: 60px minmax(0, 1fr) 62px; }
+  .aniworld-episode-hosters { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aniworld-card,
+  .aniworld-featured,
+  .aniworld-card-poster img { transition: none; }
+  .aniworld-card-skeleton { animation: none; }
+}

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config as appconfig
+from providers.aniworld import aniworld_episode_page
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
@@ -23,7 +24,6 @@ from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
-from providers.aniworld import aniworld_episode_page
 from providers.models import FilmpalastSeriesResult
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
@@ -914,6 +914,8 @@ async def api_aniworld(
     mode: str = "latest",
     query: str = "",
     page: int = 1,
+    letter: str = "",
+    genre: str = "",
 ):
     if page < 1 or page > 50:
         raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
@@ -926,7 +928,9 @@ async def api_aniworld(
                 "Anime-Quelle in den Einstellungen."
             ),
         }
-    browse_mode = mode if mode in {"search", "latest", "popular", "trending"} else "latest"
+    browse_mode = mode if mode in {
+        "search", "latest", "popular", "trending", "updates", "catalog",
+    } else "latest"
     if browse_mode == "search" and not query.strip():
         return {
             "results": [], "mode": browse_mode, "page": 1,
@@ -936,7 +940,12 @@ async def api_aniworld(
     def _work():
         with state.aniworld_lock:
             return get_aniworld_scraper().browse(
-                mode=browse_mode, query=query, page=page, limit=50,
+                mode=browse_mode,
+                query=query,
+                page=page,
+                limit=24,
+                letter=letter,
+                genre=genre,
             )
 
     try:
@@ -960,6 +969,7 @@ async def api_aniworld_detail(
     anime_id: str,
     translation: str = "",
     episode_page: int = 1,
+    season: int | None = None,
 ):
     if "aniworld" not in provider_priority("anime"):
         raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
@@ -977,7 +987,11 @@ async def api_aniworld_detail(
         if not track:
             raise LookupError("AniWorld meldet keine verfügbaren Episoden.")
         episodes = aniworld_episode_page(
-            anime, track, page=episode_page, page_size=100,
+            anime,
+            track,
+            page=episode_page,
+            page_size=100,
+            season=season,
         )
         for episode in episodes["episodes"]:
             slug = episode["slug"]

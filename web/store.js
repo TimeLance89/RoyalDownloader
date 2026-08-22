@@ -40,9 +40,11 @@ function createInitialState() {
     },
     aniworld: {
       results: [], mode: null, query: "", page: 1, hasMore: false,
+      total: 0, facets: { letters: {}, genres: {} }, letter: "ALL", genre: "",
       loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
       currentId: "", current: null, translation: "", episodePage: 1,
-      picked: new Set(), searchReturn: null,
+      selectedSeason: null, episodeQuery: "", episodeStatus: "all",
+      picked: new Set(), searchReturn: null, disabledReason: "",
     },
     wl: {
       items: [], selected: new Set(), loaded: false,

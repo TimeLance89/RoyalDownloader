@@ -118,10 +118,17 @@ const api = {
     );
   },
   aniworld(params) { return this.get("/api/aniworld?" + new URLSearchParams(params)); },
-  aniworldDetail(id, translation = "", episodePage = 1) {
+  aniworldDetail(id, translation = "", episodePage = 1, season = null) {
+    const params = {
+      translation,
+      episode_page: String(episodePage),
+    };
+    if (season !== null && season !== undefined && season !== "") {
+      params.season = String(season);
+    }
     return this.get(
       `/api/aniworld/${encodeURIComponent(id)}?`
-      + new URLSearchParams({ translation, episode_page: String(episodePage) }),
+      + new URLSearchParams(params),
     );
   },
 

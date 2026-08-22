@@ -146,3 +146,140 @@ def test_episode_page_filters_the_selected_language_track():
         (1, 1),
         (2, 1),
     ]
+
+
+def test_catalog_deduplicates_titles_and_exposes_letter_and_genre_facets():
+    catalog_html = b"""
+    <div id="seriesContainer">
+      <div class="genre"><div class="seriesGenreList"><h3>Action</h3></div><ul>
+        <li><a href="/anime/stream/black-torch" data-alternative-title="Black Torch, Burakku Tochi">BLACK TORCH</a></li>
+        <li><a href="/anime/stream/86-eighty-six">86: Eighty Six</a></li>
+      </ul></div>
+      <div class="genre"><div class="seriesGenreList"><h3>Drama</h3></div><ul>
+        <li><a href="/anime/stream/black-torch">BLACK TORCH</a></li>
+      </ul></div>
+    </div>
+    """
+    scraper = AniWorldScraper(
+        session=_Session({"https://aniworld.to/animes": _Response(catalog_html)})
+    )
+
+    payload = scraper.browse(mode="catalog", letter="B", page=1, limit=24)
+
+    assert payload["total"] == 1
+    assert payload["results"][0]["genres"] == ["Action", "Drama"]
+    assert payload["results"][0]["alternative_titles"] == [
+        "Black Torch",
+        "Burakku Tochi",
+    ]
+    assert payload["facets"]["letters"] == {"#": 1, "B": 1}
+    assert payload["facets"]["genres"] == {"Action": 2, "Drama": 1}
+
+
+def test_detail_exposes_complete_title_metadata():
+    rich_html = b"""
+    <section class="SeriesSection"><div class="backdrop" style="background-image:url('/banner.jpg')"></div></section>
+    <h1 itemprop="name" data-alternativetitles="Alternativ Eins, Alternativ Zwei"><span>Test Anime</span></h1>
+    <span itemprop="startDate">2024</span><span itemprop="endDate">Heute</span>
+    <div class="fsk" data-fsk="16"></div><a class="imdb-link" data-imdb="tt123"></a>
+    <p data-full-description="Die vollstaendige Beschreibung."></p>
+    <div class="seriesCoverBox"><img data-src="/cover.jpg"></div>
+    <li itemprop="director"><span itemprop="name">Regie Name</span></li>
+    <li itemprop="actor"><span itemprop="name">Stimme Name</span></li>
+    <li itemprop="creator"><span itemprop="name">Studio Name</span></li>
+    <li itemprop="countryOfOrigin"><span itemprop="name">Japan</span></li>
+    <a href="/genre/action" itemprop="genre">Action</a>
+    <span itemprop="ratingValue" content="4.5"></span>
+    <span itemprop="ratingCount" content="1.234"></span>
+    <a href="/anime/stream/test-anime/staffel-1">1</a>
+    <table class="seasonEpisodesList"><tbody><tr>
+      <td><a href="/anime/stream/test-anime/staffel-1/episode-1">Folge 1</a></td>
+      <td class="seasonEpisodeTitle"><strong>Deutscher Titel</strong><span>Original Title</span></td>
+      <td><i class="icon VOE" title="VOE"></i></td>
+      <td><img class="flag" src="/public/img/german.svg"></td>
+    </tr></tbody></table>
+    """
+    scraper = AniWorldScraper(
+        session=_Session(
+            {"https://aniworld.to/anime/stream/test-anime": _Response(rich_html)}
+        )
+    )
+
+    anime = scraper.get_anime("test-anime")
+
+    assert anime.banner_url == "https://aniworld.to/banner.jpg"
+    assert anime.description == "Die vollstaendige Beschreibung."
+    assert anime.alternative_titles == ["Alternativ Eins", "Alternativ Zwei"]
+    assert anime.status == "Laufend"
+    assert anime.fsk == "16"
+    assert anime.imdb_id == "tt123"
+    assert anime.rating == 4.5
+    assert anime.rating_count == 1234
+    assert anime.country == "Japan"
+    assert anime.directors == ["Regie Name"]
+    assert anime.cast == ["Stimme Name"]
+    assert anime.producers == ["Studio Name"]
+    assert anime.episodes[0].original_title == "Original Title"
+    assert anime.episodes[0].hosters == ("VOE",)
+
+
+def test_companion_movies_are_included_as_season_zero_and_resolve():
+    base = "https://aniworld.to/anime/stream/test-anime"
+    detail_html = _detail_html().replace(
+        b"<table",
+        b'<a href="/anime/stream/test-anime/filme">Filme</a><table',
+        1,
+    )
+    movie_html = b"""
+    <table class="seasonEpisodesList" data-season-id="0"><tbody><tr>
+      <td><a href="/anime/stream/test-anime/filme/film-1">Film 1</a></td>
+      <td class="seasonEpisodeTitle"><strong>Der Film</strong><span>The Movie</span></td>
+      <td><i class="icon VOE" title="VOE"></i></td>
+      <td><img class="flag" src="/public/img/german.svg"></td>
+    </tr></tbody></table>
+    """
+    movie_episode_html = b"""
+    <li data-lang-key="1" data-link-target="/redirect/movie"><h4>VOE</h4></li>
+    """
+    scraper = AniWorldScraper(
+        session=_Session(
+            {
+                base: _Response(detail_html),
+                f"{base}/filme": _Response(movie_html),
+                f"{base}/filme/film-1": _Response(movie_episode_html),
+            }
+        )
+    )
+
+    anime = scraper.get_anime("test-anime")
+    page = aniworld_episode_page(anime, "dub", season=0)
+
+    assert page["seasons"][0] == {"season": 0, "label": "Filme", "count": 1}
+    assert page["episodes"][0]["kind"] == "movie"
+    assert page["episodes"][0]["slug"] == "aniworld:test-anime|dub-s00e001"
+    movie = scraper.get_episode(page["episodes"][0]["slug"])
+    assert movie.title == "Test Anime S00E001"
+    assert movie.url == f"{base}/filme/film-1"
+    assert [hoster.name for hoster in movie.hosters] == ["VOE"]
+
+
+def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
+    root = Path(__file__).parents[1]
+    screen = (root / "web" / "screens" / "aniworld.js").read_text(encoding="utf-8")
+    styles = (root / "web" / "styles" / "aniworld.css").read_text(encoding="utf-8")
+
+    for expected in (
+        'id="aniworld-updates-btn"',
+        'id="aniworld-catalog-btn"',
+        'id="aniworld-letter-filter"',
+        'id="aniworld-genre-filter"',
+        'id="aniworld-season-options"',
+        'id="aniworld-episode-search"',
+        'id="aniworld-episode-status"',
+        'id="aniworld-select-season"',
+    ):
+        assert expected in screen
+    assert 'episode.kind === "movie"' in screen
+    assert "aniworldSelectableEpisodes" in screen
+    assert ".aniworld-detail-panel" in styles
+    assert "prefers-reduced-motion" in styles
