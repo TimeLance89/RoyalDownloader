@@ -57,8 +57,14 @@ function animeNavigationAvailable() {
 
 function syncAnimeNavigationVisibility() {
   const visible = animeNavigationAvailable();
-  document.querySelectorAll(".anime-tab-button, .provider-source-lane.is-anime").forEach((element) => {
+  document.querySelectorAll(".anime-tab-button").forEach((element) => {
     element.classList.toggle("hidden", !visible);
+  });
+  const providerLaneVisible = (state.providers.anime || []).some(
+    (provider) => state.providers.contentLanguages.has(providerLanguage(provider)),
+  );
+  document.querySelectorAll(".provider-source-lane.is-anime").forEach((element) => {
+    element.classList.toggle("hidden", !providerLaneVisible);
   });
   const animeContent = document.getElementById("tab-anime");
   if (animeContent) animeContent.setAttribute("aria-hidden", String(!visible));

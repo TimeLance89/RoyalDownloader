@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import config
 from providers.aniworld import (
     AniWorldAnime,
     AniWorldEpisode,
@@ -58,6 +61,45 @@ def test_aniworld_is_registered_as_german_anime_provider():
     assert (
         provider_for_source("https://aniworld.to/anime/stream/test-anime") == "aniworld"
     )
+
+
+def test_existing_installation_enables_aniworld_once(monkeypatch):
+    writes = []
+    monkeypatch.setattr(
+        config, "_update_all", lambda values: writes.append(values) or True
+    )
+    old = {
+        "provider_catalog_revision": "4",
+        "anime_provider_priority": "mkissa",
+        "anime_provider_enabled": "mkissa",
+        "content_languages": "de",
+    }
+
+    migrated = config._migrate_provider_catalog(old)
+
+    assert migrated["anime_provider_priority"] == "aniworld,mkissa"
+    assert migrated["anime_provider_enabled"] == "mkissa,aniworld"
+    assert writes == [
+        {
+            "provider_catalog_revision": "5",
+            "anime_provider_priority": "aniworld,mkissa",
+            "anime_provider_enabled": "mkissa,aniworld",
+        }
+    ]
+
+    migrated["anime_provider_enabled"] = "mkissa"
+    assert (
+        config._migrate_provider_catalog(migrated)["anime_provider_enabled"] == "mkissa"
+    )
+    assert len(writes) == 1
+
+
+def test_german_aniworld_settings_remain_visible_without_english():
+    core = (Path(__file__).parents[1] / "web" / "core.js").read_text(encoding="utf-8")
+
+    assert 'querySelectorAll(".anime-tab-button")' in core
+    assert 'querySelectorAll(".provider-source-lane.is-anime")' in core
+    assert 'state.providers.contentLanguages.has(providerLanguage(provider))' in core
 
 
 def test_detail_and_episode_hosters_preserve_track_and_season():
