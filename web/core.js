@@ -65,8 +65,23 @@ function syncAnimeNavigationVisibility() {
   if (!visible && state.tab === "anime") switchTab("filme");
 }
 
+function aniworldNavigationAvailable() {
+  return state.providers.contentLanguages.has("de");
+}
+
+function syncAniworldNavigationVisibility() {
+  const visible = aniworldNavigationAvailable();
+  document.querySelectorAll(".aniworld-tab-button").forEach((element) => {
+    element.classList.toggle("hidden", !visible);
+  });
+  const content = document.getElementById("tab-aniworld");
+  if (content) content.setAttribute("aria-hidden", String(!visible));
+  if (!visible && state.tab === "aniworld") switchTab("filme");
+}
+
 function switchTab(name, { autoLoad = true } = {}) {
   if (name === "anime" && !animeNavigationAvailable()) name = "filme";
+  if (name === "aniworld" && !aniworldNavigationAvailable()) name = "filme";
   if (state.globalSearch.active) closeGlobalSearch();
   closeAllMediaModals(false);
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
@@ -81,6 +96,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "filme" && autoLoad) ensureFpResults();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
+  if (name === "aniworld" && autoLoad && !state.aniworld.loaded) aniworldBrowse("latest", 1);
   if (name === "filme") scheduleMovieFeatureRotation();
   else stopMovieFeatureRotation();
   if (name !== "home") stopHomeHeroRotation();
@@ -233,6 +249,7 @@ function connectWs() {
       if (data.ok && data.slug) {
         markSeriesSlugDownloaded(data.slug);
         markAnimeSlugDownloaded(data.slug);
+        markAniworldSlugDownloaded(data.slug);
       }
     } else if (data.type === "queue_started") {
       state.download.completed = data.done_jobs;
@@ -316,6 +333,7 @@ function renderQueue(payload) {
   for (const group of payload.groups) for (const item of group.items) state.queuedSlugs.add(item.slug);
   syncSeriesQueueFlags();
   syncAnimeQueueFlags();
+  syncAniworldQueueFlags();
 
   const count = Number(payload.count) || 0;
   document.getElementById("queue-count").textContent = `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;

@@ -44,6 +44,12 @@ def get_mkissa_scraper() -> MkissaScraper:
     return state.mkissa_scraper
 
 
+def get_aniworld_scraper() -> AniWorldScraper:
+    if state.aniworld_scraper is None:
+        state.aniworld_scraper = AniWorldScraper(progress_cb=log)
+    return state.aniworld_scraper
+
+
 def get_jellyfin_client() -> JellyfinClient:
     with state.jellyfin_cache_lock:
         cfg = dict(state.jellyfin_cfg)
@@ -553,6 +559,7 @@ _SERVICE_EXPORTS = (
     "get_moflix_scraper",
     "get_huhu_scraper",
     "get_mkissa_scraper",
+    "get_aniworld_scraper",
     "get_jellyfin_client",
     "_build_recommender_config",
     "_run_recommender_once",

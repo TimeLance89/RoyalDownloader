@@ -348,6 +348,7 @@ function renderAllProviderBoards() {
     });
   }
   syncAnimeNavigationVisibility();
+  syncAniworldNavigationVisibility();
 }
 
 function applyProviderPriority(cfg) {

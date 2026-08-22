@@ -144,8 +144,25 @@ def _extract_from_movie(
         # wird gar nicht erst provoziert. Fällt ein Hoster durch, wird nur der
         # nächste aufgelöst.
         was_sto = SerienstreamScraper.is_redirect_url(hoster.url)
+        was_aniworld = AniWorldScraper.is_redirect_url(hoster.url)
         play_url = hoster.url
         resolved_by_provider = False
+        if was_aniworld:
+            cached_target = state.resolved_link_cache.get(hoster.url)
+            if cached_target:
+                play_url = cached_target
+                res.resolved_from_cache = True
+            else:
+                with state.aniworld_lock:
+                    play_url = get_aniworld_scraper().resolve_play_url(
+                        hoster.url, referer=movie.url,
+                    )
+                if play_url:
+                    state.resolved_link_cache.put(hoster.url, play_url)
+                    resolved_by_provider = True
+                else:
+                    barren_hoster_urls.add(hoster.url)
+                    continue
         if was_sto:
             cached_target = state.resolved_link_cache.get(hoster.url)
             if cached_target:

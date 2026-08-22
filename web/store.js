@@ -38,6 +38,12 @@ function createInitialState() {
       currentId: "", current: null, translation: "", episodePage: 1,
       picked: new Set(), searchReturn: null,
     },
+    aniworld: {
+      results: [], mode: null, query: "", page: 1, hasMore: false,
+      loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
+      currentId: "", current: null, translation: "", episodePage: 1,
+      picked: new Set(), searchReturn: null,
+    },
     wl: {
       items: [], selected: new Set(), loaded: false,
       filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",

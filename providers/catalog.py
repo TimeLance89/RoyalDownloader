@@ -257,6 +257,15 @@ PROVIDER_CATALOG = {
         source_prefixes=("mkissa:",),
         domains=("mkissa.to", "api.mkissa.net"),
     ),
+    "aniworld": ProviderDefinition(
+        key="aniworld",
+        label="AniWorld",
+        content_language="de",
+        media_types=("anime",),
+        anime_priority=5,
+        source_prefixes=("aniworld:",),
+        domains=("aniworld.to",),
+    ),
     "serienstream": ProviderDefinition(
         key="serienstream",
         label="Serienstream",

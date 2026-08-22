@@ -23,6 +23,7 @@ from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
+from providers.aniworld import aniworld_episode_page
 from providers.models import FilmpalastSeriesResult
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
@@ -84,6 +85,7 @@ get_jellyfin_library = _unbound_dependency
 get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
+get_aniworld_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
 load_movie_for_slug = _unbound_dependency
@@ -117,6 +119,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_movie_identities",
     "get_jellyfin_series",
     "get_mkissa_scraper",
+    "get_aniworld_scraper",
     "get_series_for_value",
     "get_tmdb_client",
     "load_movie_for_slug",
@@ -902,3 +905,101 @@ async def api_anime_detail(
     except Exception as exc:
         log(f"MKissa-Details fehlgeschlagen: {exc}", "warn")
         raise HTTPException(502, f"MKissa-Details sind nicht verfügbar: {exc}") from exc
+
+
+# ── AniWorld (deutscher Anime-Bereich) ─────────────────────────────────────
+@router.get("/api/v1/aniworld")
+@router.get("/api/aniworld")
+async def api_aniworld(
+    mode: str = "latest",
+    query: str = "",
+    page: int = 1,
+):
+    if page < 1 or page > 50:
+        raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
+    if "aniworld" not in provider_priority("anime"):
+        return {
+            "results": [], "mode": mode, "page": 1, "has_more": False,
+            "total": 0, "disabled": True,
+            "disabled_reason": (
+                "AniWorld ist pausiert. Aktiviere deutsche Inhalte und die "
+                "Anime-Quelle in den Einstellungen."
+            ),
+        }
+    browse_mode = mode if mode in {"search", "latest", "popular", "trending"} else "latest"
+    if browse_mode == "search" and not query.strip():
+        return {
+            "results": [], "mode": browse_mode, "page": 1,
+            "has_more": False, "total": 0, "disabled": False,
+        }
+
+    def _work():
+        with state.aniworld_lock:
+            return get_aniworld_scraper().browse(
+                mode=browse_mode, query=query, page=page, limit=50,
+            )
+
+    try:
+        payload = await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"AniWorld-Katalog fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"AniWorld ist gerade nicht erreichbar: {exc}") from exc
+    return {
+        **payload,
+        "mode": browse_mode,
+        "disabled": False,
+        "provider": "aniworld",
+        "provider_label": PROVIDER_LABELS["aniworld"],
+        "content_language": provider_content_language("aniworld"),
+    }
+
+
+@router.get("/api/v1/aniworld/{anime_id}")
+@router.get("/api/aniworld/{anime_id}")
+async def api_aniworld_detail(
+    anime_id: str,
+    translation: str = "",
+    episode_page: int = 1,
+):
+    if "aniworld" not in provider_priority("anime"):
+        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    requested_track = str(translation or "").strip().casefold()
+
+    def _work():
+        with state.aniworld_lock:
+            anime = get_aniworld_scraper().get_anime(anime_id)
+        available = anime.translations
+        track = requested_track if requested_track in available else (
+            "dub" if available.get("dub") else
+            "sub" if available.get("sub") else
+            "eng" if available.get("eng") else ""
+        )
+        if not track:
+            raise LookupError("AniWorld meldet keine verfügbaren Episoden.")
+        episodes = aniworld_episode_page(
+            anime, track, page=episode_page, page_size=100,
+        )
+        for episode in episodes["episodes"]:
+            slug = episode["slug"]
+            episode["queued"] = slug in state.picked
+            episode["downloaded"] = bool(_existing_valid_episode_path(
+                anime.title, int(episode["season"]), int(episode["number"]),
+            ))
+        return {
+            **anime.public_dict(),
+            "translation": track,
+            "translation_labels": {
+                "dub": "Deutsch Dub",
+                "sub": "Deutsch Sub",
+                "eng": "Englisch",
+            },
+            **episodes,
+        }
+
+    try:
+        return await run_in_threadpool(_work)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        log(f"AniWorld-Details fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"AniWorld-Details sind nicht verfügbar: {exc}") from exc

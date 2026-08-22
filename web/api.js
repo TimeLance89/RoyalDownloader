@@ -117,6 +117,13 @@ const api = {
       }),
     );
   },
+  aniworld(params) { return this.get("/api/aniworld?" + new URLSearchParams(params)); },
+  aniworldDetail(id, translation = "", episodePage = 1) {
+    return this.get(
+      `/api/aniworld/${encodeURIComponent(id)}?`
+      + new URLSearchParams({ translation, episode_page: String(episodePage) }),
+    );
+  },
 
   queueGet() { return this.get("/api/queue"); },
   queueAddFailureReason(response, slugs = []) {
