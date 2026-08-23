@@ -1134,6 +1134,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
   }
 }
 function renderHome() {
+  rememberAllHomeRailScroll();
   state.home.discoveryDay = localDateKey();
   const profile = loadDiscoveryProfile();
   const favoriteGenre = favoriteDiscoveryGenre(profile);

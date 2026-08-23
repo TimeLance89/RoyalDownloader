@@ -28,6 +28,7 @@
       <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Startseite</span></button>
       <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+      <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
       <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
       <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
@@ -136,6 +137,7 @@
     <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
     <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
     <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+    <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
     <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
     <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
     <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
@@ -803,6 +805,65 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section class="tab-content" id="tab-kalender">
+      <header class="calendar-hero">
+        <div class="calendar-hero-copy">
+          <span class="calendar-kicker">ROYAL SENDEPLAN · SERIENSTREAM</span>
+          <h1>Deine Woche.<br><em>Folge für Folge.</em></h1>
+          <p>Veröffentlichungen kompakt nach Tagen sortiert – mit Sprache, Staffel, Folge und direktem Weg zur Serie.</p>
+          <div class="calendar-hero-stats" aria-label="Kalenderübersicht">
+            <span><b id="calendar-total">—</b> Einträge</span>
+            <span><b id="calendar-today-count">—</b> heute</span>
+            <span><b id="calendar-upcoming-count">—</b> angekündigt</span>
+          </div>
+        </div>
+        <div class="calendar-hero-date" aria-hidden="true">
+          <span id="calendar-hero-weekday">HEUTE</span>
+          <strong id="calendar-hero-day">—</strong>
+          <small id="calendar-hero-month">—</small>
+        </div>
+      </header>
+
+      <section class="calendar-console" aria-labelledby="calendar-title">
+        <header class="calendar-console-head">
+          <div>
+            <span class="calendar-section-kicker">VERÖFFENTLICHUNGSPLAN</span>
+            <h2 id="calendar-title" tabindex="-1">Serienkalender</h2>
+            <p id="calendar-range" aria-live="polite">Kalender wird geladen …</p>
+          </div>
+          <div class="calendar-week-actions">
+            <button id="calendar-prev-week" type="button" aria-label="Vorherige Woche">←</button>
+            <button id="calendar-today" type="button">Heute</button>
+            <button id="calendar-next-week" type="button" aria-label="Nächste Woche">→</button>
+          </div>
+        </header>
+
+        <div class="calendar-filters">
+          <label class="calendar-search" for="calendar-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="calendar-search" type="search" autocomplete="off" placeholder="Serie suchen">
+          </label>
+          <div class="calendar-language-filter" role="group" aria-label="Sprache filtern">
+            <button class="is-active" type="button" data-calendar-language="all" aria-pressed="true">Alle</button>
+            <button type="button" data-calendar-language="1" aria-pressed="false">DE</button>
+            <button type="button" data-calendar-language="3" aria-pressed="false">Ger-Sub</button>
+            <button type="button" data-calendar-language="2" aria-pressed="false">EN</button>
+          </div>
+          <button id="calendar-subscribed" class="calendar-subscribed" type="button" aria-pressed="false">
+            <span aria-hidden="true">★</span> Nur Abonnements
+          </button>
+        </div>
+
+        <div id="calendar-week-strip" class="calendar-week-strip" aria-label="Wochentage"></div>
+        <div id="calendar-status" class="calendar-status" role="status" aria-live="polite">
+          <span class="calendar-loader" aria-hidden="true"></span>
+          <strong>Sendeplan wird geladen</strong>
+          <small>Termine und Cover werden vorbereitet.</small>
+        </div>
+        <div id="calendar-days" class="calendar-days" hidden></div>
+      </section>
     </section>
 
     <section class="tab-content anime-tab-content" id="tab-anime">
@@ -2060,12 +2121,12 @@
 
 <script src="/api.js?v=royal-20260823-4"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
-<script src="/store.js?v=royal-20260811-2"></script>
+<script src="/store.js?v=royal-20260823-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260823-2"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/screens/home.js?v=royal-20260823-1"></script>
-<script src="/home_layout_editor.js?v=royal-20260823-1"></script>
+<script src="/screens/home.js?v=royal-20260823-2"></script>
+<script src="/home_layout_editor.js?v=royal-20260823-2"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
@@ -2073,6 +2134,7 @@
 <script src="/screens/movies.js?v=royal-20260822-1"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
 <script src="/screens/series.js?v=royal-20260811-2"></script>
+<script src="/screens/series-calendar.js?v=royal-20260823-1"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
 <script src="/screens/library.js?v=royal-20260809-1"></script>
@@ -2080,6 +2142,6 @@
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
-<script src="/app.js?v=royal-20260823-1"></script>
+<script src="/app.js?v=royal-20260823-2"></script>
 </body>
 </html>

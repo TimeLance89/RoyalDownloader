@@ -31,11 +31,12 @@ def test_desktop_navigation_matches_streaming_content_order_without_html_contrac
     expected = [
         '[data-tab="home"] { order: 1; }',
         '[data-tab="serien"] { order: 2; }',
-        '[data-tab="filme"] { order: 3; }',
-        '[data-tab="anime"] { order: 4; }',
-        '[data-tab="aniworld"] { order: 5; }',
-        '[data-tab="bibliothek"] { order: 6; }',
-        '.mood-nav-open { order: 7; }',
+        '[data-tab="kalender"] { order: 3; }',
+        '[data-tab="filme"] { order: 4; }',
+        '[data-tab="anime"] { order: 5; }',
+        '[data-tab="aniworld"] { order: 6; }',
+        '[data-tab="bibliothek"] { order: 7; }',
+        '.mood-nav-open { order: 8; }',
     ]
     for contract in expected:
         assert contract in css

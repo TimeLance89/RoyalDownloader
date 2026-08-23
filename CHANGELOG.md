@@ -4,6 +4,13 @@
 
 - Preserve each home carousel's horizontal scroll position when progressive
   artwork, Jellyfin status, or discovery data triggers a background rerender.
+- Persist the intended carousel target before smooth scrolling begins and bump
+  the affected browser asset versions so cached clients receive the fix.
+- Add a dedicated top-level series calendar with week navigation, day jumps,
+  title and language filters, subscription-only mode, direct provider artwork,
+  release status, and one-click handoff into the regular series workflow.
+- Validate and cache SerienStream calendar data server-side, retain the last
+  valid snapshot during short outages, and reject foreign series or image URLs.
 
 ## 2026-08-23 – Custom home programme
 

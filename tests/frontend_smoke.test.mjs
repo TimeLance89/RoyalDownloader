@@ -108,7 +108,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260823-1/);
+  assert.match(html, /app\.js\?v=royal-20260823-2/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -205,7 +205,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260823-4/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260823-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260823-2/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -489,9 +489,10 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
     children: [], classList: { toggle() {} },
     replaceChildren() { this.children = []; this.scrollLeft = 0; },
     appendChild(child) { this.children.push(child); },
+    scrollTo(options) { this.requestedScrollLeft = options.left; },
   };
   const context = vm.createContext({
-    state: { home: { loading: false } },
+    state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {} } },
     document: { getElementById: () => track, querySelectorAll: () => [] },
     requestAnimationFrame: (callback) => animationFrames.push(callback),
     updateHomeRailNavigation: () => {},
@@ -505,6 +506,14 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   assert.equal(track.scrollLeft, 640);
   animationFrames.forEach((callback) => callback());
   assert.equal(track.scrollLeft, 640);
+
+  // Smooth scrolling starts asynchronously. A data refresh in the same frame
+  // must restore the requested target, not the still-current zero position.
+  track.scrollLeft = 0;
+  vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
+  assert.ok(Math.abs(track.requestedScrollLeft - 492) < 0.01);
+  vm.runInContext('renderHomeRail("home-test-track", entries)', context);
+  assert.ok(Math.abs(track.scrollLeft - 492) < 0.01);
 });
 
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {

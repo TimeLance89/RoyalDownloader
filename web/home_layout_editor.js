@@ -26,14 +26,81 @@ function updateHomeRailNavigation(track) {
   });
 }
 
-function restoreHomeRailScroll(track, scrollLeft) {
+function homeRailStoredScroll(track, fallback = 0) {
+  const target = Number(state.home.railScrollTargets?.[track.id]);
+  if (Number.isFinite(target)) return target;
+  const stored = Number(state.home.railScrollPositions?.[track.id]);
+  return Number.isFinite(stored) ? stored : fallback;
+}
+
+function rememberHomeRailScroll(track, { force = false } = {}) {
+  if (!track?.id) return;
+  state.home.railScrollPositions ||= {};
+  state.home.railScrollTargets ||= {};
+  const target = Number(state.home.railScrollTargets[track.id]);
+  if (!force && Number.isFinite(target)) {
+    if (Math.abs(track.scrollLeft - target) <= 3) {
+      state.home.railScrollPositions[track.id] = track.scrollLeft;
+      delete state.home.railScrollTargets[track.id];
+    }
+    return;
+  }
+  state.home.railScrollPositions[track.id] = track.scrollLeft;
+}
+
+function rememberAllHomeRailScroll() {
+  document.querySelectorAll("#tab-home .home-track").forEach((track) => rememberHomeRailScroll(track));
+}
+
+function restoreHomeRailScroll(track, scrollLeft = 0) {
+  const desired = homeRailStoredScroll(track, scrollLeft);
   const restore = () => {
     const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
-    track.scrollLeft = Math.min(scrollLeft, maximum);
+    track.scrollLeft = Math.max(0, Math.min(desired, maximum));
     updateHomeRailNavigation(track);
   };
   restore();
   requestAnimationFrame(restore);
+}
+
+function moveHomeRail(button) {
+  const track = document.getElementById(button.dataset.homeScroll);
+  if (!track) return;
+  const direction = Number(button.dataset.direction) || 1;
+  const distance = Math.max(280, track.clientWidth * 0.82);
+  const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+  const target = Math.max(0, Math.min(track.scrollLeft + direction * distance, maximum));
+  state.home.railScrollTargets ||= {};
+  state.home.railScrollPositions ||= {};
+  // Das Ziel muss vor dem asynchronen Smooth-Scroll feststehen. Andernfalls
+  // kann ein Poster-Update im selben Frame noch den alten Wert 0 konservieren.
+  state.home.railScrollTargets[track.id] = target;
+  state.home.railScrollPositions[track.id] = target;
+  track.scrollTo({ left: target, behavior: "smooth" });
+}
+
+function initHomeRailScrolling() {
+  const home = document.getElementById("tab-home");
+  home.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-home-scroll]");
+    if (button) moveHomeRail(button);
+  });
+  home.addEventListener("scroll", (event) => {
+    const track = event.target.closest?.(".home-track");
+    if (!track) return;
+    rememberHomeRailScroll(track);
+    updateHomeRailNavigation(track);
+  }, true);
+  home.addEventListener("wheel", (event) => {
+    const track = event.target.closest?.(".home-track");
+    if (!track?.id) return;
+    delete state.home.railScrollTargets?.[track.id];
+  }, { passive: true, capture: true });
+  home.addEventListener("pointerdown", (event) => {
+    const track = event.target.closest?.(".home-track");
+    if (!track?.id || event.target.closest?.("[data-home-scroll]")) return;
+    delete state.home.railScrollTargets?.[track.id];
+  }, true);
 }
 
 function defaultHomeLayout() {

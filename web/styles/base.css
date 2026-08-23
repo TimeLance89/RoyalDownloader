@@ -1437,7 +1437,7 @@ body {
 }
 
 @media (max-width: 820px) {
-  .mobile-tabs { grid-template-columns: repeat(6, 1fr); gap: 2px; }
+  .mobile-tabs { grid-template-columns: repeat(8, 1fr); gap: 2px; }
   .mobile-tabs .tab-btn { min-height: 47px; padding-inline: 1px; font-size: 8px; }
   .mobile-tabs .tab-icon { font-size: 13px; }
   .home-hero { min-height: min(67dvh, 600px); }
