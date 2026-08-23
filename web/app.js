@@ -27,6 +27,8 @@ async function initApp() {
   document.getElementById("series-taste-dislike").addEventListener("click", () => setTasteFeedback("series", "dislike"));
 
   // Startseite
+  initHomeLayoutEditor();
+  void loadHomeLayout();
   document.getElementById("home-hero-open").addEventListener("click", (event) => {
     const { kind, key } = event.currentTarget.dataset;
     if (kind && key) openHomeEntry(kind, key);

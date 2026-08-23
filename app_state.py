@@ -11,6 +11,7 @@ import config as appconfig
 from downloader import DownloadQueue
 from extractor import VOEBrowserPool
 from hoster_intel import HosterIntel
+from home_layout import HomeLayoutStore
 from provider_health import ProviderHealth
 from providers.filmpalast import FilmpalastScraper
 from providers.huhu import HuhuScraper
@@ -102,6 +103,7 @@ class AppState:
         self.auto_download_lock = threading.Lock()
         self.hoster_intel = HosterIntel()
         self.taste_profile = TasteProfileStore(appconfig.taste_profile_file())
+        self.home_layout = HomeLayoutStore(appconfig.home_layout_file())
 
         self.jellyfin_cfg: dict = appconfig.load_jellyfin()
         self.tmdb_cfg: dict = appconfig.load_tmdb()

@@ -252,6 +252,9 @@ const api = {
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
+  homeLayout() { return this.get("/api/home/layout"); },
+  saveHomeLayout(layout) { return this._req("PUT", "/api/home/layout", layout); },
+
   _upgradeTmdbImageUrl(url) {
     const parsed = new URL(url, location.origin);
     if (parsed.protocol !== "https:" || parsed.hostname !== "image.tmdb.org") return parsed;

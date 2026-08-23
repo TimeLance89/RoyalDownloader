@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2026-08-23 – Custom home programme
+
+- Add a visual start-page editor with live preview, drag-and-drop ordering,
+  keyboard controls, per-row visibility, optional hero visibility, reset, and
+  server-side persistence shared by authenticated browsers.
+- Expand the available programme from seven fixed rows to twelve selectable
+  carousels, including dedicated new-film, new-series, highly rated, movie-night,
+  and Jellyfin-library rows while preserving the established default layout.
+- Prioritize artwork hydration in the user's visible row order, load visible
+  images eagerly, and show provider posters in a framed fallback treatment until
+  wide artwork becomes available.
+
 ## 2026-08-23 – AniWorld archive, faster catalogs, and production-only setup
 
 ### AniWorld archive and downloads

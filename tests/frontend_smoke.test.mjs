@@ -9,6 +9,7 @@ const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "u
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
+const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -19,6 +20,7 @@ const appModulePaths = [
   "core.js",
   "home_card_dock.js",
   "screens/home.js",
+  "home_layout_editor.js",
   "screens/mood.js",
   "trailer-runtime.js",
   "catalog-runtime.js",
@@ -106,7 +108,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260811-13/);
+  assert.match(html, /app\.js\?v=royal-20260823-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -178,7 +180,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260823-3/);
+  assert.match(html, /api\.js\?v=royal-20260823-4/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -202,8 +204,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260823-3/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260822-1/);
+  assert.match(html, /api\.js\?v=royal-20260823-4/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260823-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -307,8 +309,9 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
   assert.equal(result.length, 1);
 });
 
-test("only Top 10 cards may fall back to portrait posters", () => {
-  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
+test("home cards show provider posters while wide artwork is still loading", () => {
+  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url, media\.cover_url\]/);
+  assert.match(app, /image\.classList\.add\("is-poster-fallback"\)/);
   assert.doesNotMatch(app, /rank \? media\.backdrop_url : media\.cover_url/);
 });
 
@@ -412,6 +415,10 @@ test("home load waits for movie Jellyfin truth but never blocks on series Jellyf
       { kind: "movie", item: { slug: "movie", title: "Movie" } },
       { kind: "series", item: { base_slug: "series", title: "Series" } },
     ],
+    homeArtworkEntriesInLayout: () => [
+      { kind: "movie", item: { slug: "movie", title: "Movie" } },
+      { kind: "series", item: { base_slug: "series", title: "Series" } },
+    ],
     renderHome: () => { calls.push("render"); },
     syncFpCatalogFromHome: () => {},
     syncSeriesCatalogFromHome: () => {},
@@ -452,6 +459,23 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /layout === "spotlight"/);
   assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
+});
+
+test("home programme planner controls visibility, order, and fast artwork", () => {
+  requiresIds(
+    "home-layout-open", "home-layout-modal", "home-layout-list", "home-layout-hero",
+    "home-layout-reset", "home-layout-cancel", "home-layout-save", "home-layout-status",
+  );
+  assert.match(homeLayoutEditor, /const HOME_RAIL_CATALOG = \[/);
+  for (const rail of ["new_movies", "new_series", "high_rated", "movies", "library"]) {
+    assert.match(homeLayoutEditor, new RegExp(`id: ["']${rail}["']`));
+  }
+  assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
+  assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(home, /image\.loading = "eager"/);
+  assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
+  assert.match(home, /\[media\.backdrop_url, media\.cover_url\]/);
+  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260823-1/);
 });
 
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {

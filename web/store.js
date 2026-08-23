@@ -9,6 +9,7 @@ function createInitialState() {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
       heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
+      layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
       jellyfinStatusByKey: new Map(),
       mood: { step: 0, answers: {}, results: [], open: false },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },

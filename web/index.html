@@ -227,6 +227,10 @@
             <span aria-hidden="true">↻</span>
             Neu mischen
           </button>
+          <button id="home-layout-open" class="home-program-layout" type="button">
+            <span aria-hidden="true">☷</span>
+            Startseite gestalten
+          </button>
         </div>
       </section>
 
@@ -327,6 +331,45 @@
         </section>
       </div>
     </section>
+
+    <div id="home-layout-modal" class="home-layout-modal" role="dialog" aria-modal="true" aria-labelledby="home-layout-title" hidden>
+      <div class="home-layout-dialog">
+        <header class="home-layout-head">
+          <div>
+            <span class="home-layout-kicker">DEIN PROGRAMMPLAN</span>
+            <h2 id="home-layout-title">Was läuft auf deiner Startseite?</h2>
+            <p>Reihen einblenden, ausblenden und in die gewünschte Reihenfolge ziehen.</p>
+          </div>
+          <button id="home-layout-close" class="home-layout-close" type="button" aria-label="Startseiten-Editor schließen">×</button>
+        </header>
+        <div class="home-layout-stage">
+          <aside class="home-layout-summary">
+            <span class="home-layout-summary-label">LIVE-VORSCHAU</span>
+            <strong id="home-layout-count">7 von 12 Reihen sichtbar</strong>
+            <p>Jede Änderung ist direkt hinter diesem Fenster auf der Startseite sichtbar.</p>
+            <label class="home-layout-hero-option">
+              <input id="home-layout-hero" type="checkbox" checked>
+              <span><strong>Große Empfehlung</strong><small>Das wechselnde Titelbild oben anzeigen</small></span>
+            </label>
+            <button id="home-layout-reset" class="home-layout-reset" type="button">Standard wiederherstellen</button>
+          </aside>
+          <section class="home-layout-workspace" aria-label="Reihenfolge der Startseite">
+            <div class="home-layout-workspace-head">
+              <span>REIHENFOLGE</span>
+              <small>Ziehen oder Pfeile verwenden</small>
+            </div>
+            <div id="home-layout-list" class="home-layout-list"></div>
+          </section>
+        </div>
+        <footer class="home-layout-footer">
+          <span id="home-layout-status" role="status" aria-live="polite">Änderungen erscheinen sofort als Vorschau.</span>
+          <div>
+            <button id="home-layout-cancel" type="button">Abbrechen</button>
+            <button id="home-layout-save" type="button">Startseite speichern</button>
+          </div>
+        </footer>
+      </div>
+    </div>
 
     <section class="tab-content" id="tab-filme">
       <section id="movie-feature" class="movie-feature hidden" aria-label="Aktuelle Kinofilme"
@@ -2015,13 +2058,14 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260823-3"></script>
+<script src="/api.js?v=royal-20260823-4"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
 <script src="/store.js?v=royal-20260811-2"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260823-2"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/screens/home.js?v=royal-20260822-1"></script>
+<script src="/screens/home.js?v=royal-20260823-1"></script>
+<script src="/home_layout_editor.js?v=royal-20260823-1"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
@@ -2036,6 +2080,6 @@
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
-<script src="/app.js?v=royal-20260811-13"></script>
+<script src="/app.js?v=royal-20260823-1"></script>
 </body>
 </html>
