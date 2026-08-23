@@ -6,6 +6,9 @@
   artwork, Jellyfin status, or discovery data triggers a background rerender.
 - Persist the intended carousel target before smooth scrolling begins and bump
   the affected browser asset versions so cached clients receive the fix.
+- Keep unchanged carousel sections and cards mounted during background updates;
+  only actually changed cards are reconciled, eliminating the visible jump to
+  zero and the subsequent snap-back.
 - Add a dedicated top-level series calendar with week navigation, day jumps,
   title and language filters, subscription-only mode, direct provider artwork,
   release status, and one-click handoff into the regular series workflow.
