@@ -88,6 +88,7 @@ const api = {
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
+  seriesCalendar() { return this.get("/api/series-calendar"); },
   seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
     return this.post("/api/series/load", {
       sample_slug: sampleSlug, base_slug: baseSlug,

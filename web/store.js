@@ -10,6 +10,7 @@ function createInitialState() {
       discoveryMovies: [], discoverySeries: [],
       heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
       layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
+      railScrollPositions: {}, railScrollTargets: {},
       jellyfinStatusByKey: new Map(),
       mood: { step: 0, answers: {}, results: [], open: false },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
@@ -32,6 +33,11 @@ function createInitialState() {
       pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
       jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(), searchReturn: null,
       previewFromHome: false, lastCatalogRefreshAt: 0,
+    },
+    calendar: {
+      days: [], total: 0, loaded: false, loading: false, error: "",
+      activeWeek: "", language: "all", query: "", subscribedOnly: false,
+      disabledReason: "", stale: false,
     },
     anime: {
       results: [], mode: null, query: "", page: 1, hasMore: false,

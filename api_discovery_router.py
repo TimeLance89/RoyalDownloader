@@ -86,6 +86,7 @@ get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_aniworld_scraper = _unbound_dependency
+get_sto_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
 load_movie_for_slug = _unbound_dependency
@@ -120,6 +121,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_series",
     "get_mkissa_scraper",
     "get_aniworld_scraper",
+    "get_sto_scraper",
     "get_series_for_value",
     "get_tmdb_client",
     "load_movie_for_slug",
@@ -756,6 +758,46 @@ class SeriesJellyfinStatusBody(BaseModel):
 
 class AniWorldPosterBody(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/api/v1/series-calendar")
+@router.get("/api/series-calendar")
+async def api_series_calendar():
+    """Eigener Serienkalender auf Basis der freigegebenen SerienStream-Daten."""
+    if "serienstream" not in provider_priority("series"):
+        return {
+            "days": [], "total": 0, "disabled": True,
+            "disabled_reason": (
+                "Der Kalender benötigt die deutsche SerienStream-Quelle. "
+                "Aktiviere sie in den Einstellungen."
+            ),
+            "provider": "serienstream",
+        }
+
+    def _work():
+        with state.sto_lock:
+            payload = get_sto_scraper().series_calendar()
+        subscribed_slugs = {
+            str(item.get("base_slug") or "")
+            for item in state.watchlist
+            if isinstance(item, dict)
+        }
+        days = []
+        for day in payload.get("days", []):
+            entries = [
+                {**entry, "subscribed": entry["base_slug"] in subscribed_slugs}
+                for entry in day.get("entries", [])
+            ]
+            days.append({"date": day.get("date", ""), "entries": entries})
+        return {**payload, "days": days, "disabled": False}
+
+    try:
+        return await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"Serienkalender fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(
+            502, "Der Serienkalender ist gerade nicht erreichbar."
+        ) from exc
 
 
 @router.post("/api/v1/series/jellyfin-status")
