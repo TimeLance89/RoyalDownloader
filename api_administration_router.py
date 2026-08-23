@@ -21,7 +21,6 @@ from app_version import APP_VERSION
 from environment_file import (
     DEPLOYMENT_MODES,
     ENV_PATH,
-    MODE_DEMO,
     write_project_env,
 )
 from jellyfin_client import JellyfinClient
@@ -297,7 +296,6 @@ def _recover_misplaced_media(label: str, old_path: str, effective_path: str) -> 
 
 
 def _setup_status_payload() -> dict:
-    demo_mode = appconfig.demo_mode_enabled()
     return {
         "required": setup_required(),
         "config_path": str(appconfig.config_path()),
@@ -305,8 +303,8 @@ def _setup_status_payload() -> dict:
         "env_exists": ENV_PATH.is_file(),
         "defaults": {
             "deployment_mode": appconfig.load_deployment_mode(),
-            "save_path": "" if demo_mode else state.save_path,
-            "series_path": "" if demo_mode else state.series_path,
+            "save_path": state.save_path,
+            "series_path": state.series_path,
             "ui_language": state.ui_language,
             "ui_language_configured": appconfig.ui_language_configured(),
             "providers": _provider_priority_payload(),
@@ -374,11 +372,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     series_path = body.series_path.strip() or movie_path
     deployment_mode = str(body.deployment_mode or "").strip().casefold()
     if deployment_mode not in DEPLOYMENT_MODES:
-        raise HTTPException(400, "Betriebsmodus muss 'desktop', 'nas' oder 'demo' sein.")
-    demo_mode = deployment_mode == MODE_DEMO
-    if demo_mode:
-        movie_path = ""
-        series_path = ""
+        raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
     jellyfin_url = body.jellyfin_url.strip()
     with state.jellyfin_cache_lock:
         previous_jellyfin = dict(state.jellyfin_cfg)
@@ -427,7 +421,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         if body.content_languages is not None
         else list(state.content_languages)
     )
-    if not demo_mode and not movie_path:
+    if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
     if (
         len(movie_order) != len(set(movie_order))
@@ -482,9 +476,8 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     await _validate_setup_tmdb_key(tmdb_api_key, body.ui_language)
     if body.telegram_enabled and not (body.telegram_bot_token.strip() or state.telegram_cfg.get("bot_token", "")):
         raise HTTPException(400, "Für Telegram fehlt der Bot-Token.")
-    if not demo_mode:
-        for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
-            await run_in_threadpool(_prepare_media_directory, value, label)
+    for value, label in ((movie_path, "Filmordner"), (series_path, "Serienordner")):
+        await run_in_threadpool(_prepare_media_directory, value, label)
 
     try:
         env_result = await run_in_threadpool(
@@ -520,7 +513,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         body.telegram_enabled,
         body.telegram_bot_token or state.telegram_cfg.get("bot_token", ""),
         body.telegram_chat_id,
-        body.auto_download and not demo_mode,
+        body.auto_download,
         body.check_interval_min,
         body.dl_window_start,
         body.dl_window_end,
@@ -572,8 +565,8 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         "saved": True,
         "required": False,
         "config_path": str(appconfig.config_path()),
-        "save_path": "" if demo_mode else state.save_path,
-        "series_path": "" if demo_mode else state.series_path,
+        "save_path": state.save_path,
+        "series_path": state.series_path,
         "ui_language": state.ui_language,
         "auth_configured": auth_configured(),
         "deployment_mode": appconfig.load_deployment_mode(),
@@ -699,10 +692,9 @@ class ConfigBody(BaseModel):
 @router.get("/api/v1/config")
 @router.get("/api/config")
 async def api_config_get():
-    demo_mode = appconfig.demo_mode_enabled()
     return {
-        "save_path": "" if demo_mode else state.save_path,
-        "series_path": "" if demo_mode else state.series_path,
+        "save_path": state.save_path,
+        "series_path": state.series_path,
         "deployment_mode": appconfig.load_deployment_mode(),
         "env_path": str(ENV_PATH),
         "env_exists": ENV_PATH.is_file(),
@@ -717,16 +709,11 @@ async def api_config_set(body: ConfigBody):
     previous_mode = appconfig.load_deployment_mode()
     deployment_mode = previous_mode if body.deployment_mode is None else str(body.deployment_mode).strip().casefold()
     if deployment_mode not in DEPLOYMENT_MODES:
-        raise HTTPException(400, "Betriebsmodus muss 'desktop', 'nas' oder 'demo' sein.")
-    demo_mode = deployment_mode == MODE_DEMO
-    if demo_mode:
-        movie_path = ""
-        series = ""
-    if not demo_mode and not movie_path:
+        raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
+    if not movie_path:
         raise HTTPException(400, "Ein Speicherordner für Filme fehlt.")
-    if not demo_mode:
-        await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
-        await run_in_threadpool(_prepare_media_directory, series, "Serienordner")
+    await run_in_threadpool(_prepare_media_directory, movie_path, "Filmordner")
+    await run_in_threadpool(_prepare_media_directory, series, "Serienordner")
     def _save_paths():
         ok = appconfig.save(movie_path)
         # Serien-Pfad optional: leer/None -> gleicher Ordner wie Filme (Fallback).
@@ -746,8 +733,8 @@ async def api_config_set(body: ConfigBody):
     state.save_path = appconfig.load()
     state.series_path = appconfig.load_series_path()
     return {
-        "save_path": "" if demo_mode else state.save_path,
-        "series_path": "" if demo_mode else state.series_path,
+        "save_path": state.save_path,
+        "series_path": state.series_path,
         "deployment_mode": deployment_mode,
         "env_path": env_result["path"],
         "env_created": env_result["created"],
@@ -1113,7 +1100,7 @@ async def api_automation_config_get():
 @router.post("/api/v1/automation/config")
 @router.post("/api/automation/config")
 async def api_automation_config_set(body: AutomationConfigBody):
-    effective_auto_download = body.auto_download and not appconfig.demo_mode_enabled()
+    effective_auto_download = body.auto_download
 
     def _save_automation_config():
         ok = appconfig.save_automation(

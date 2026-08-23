@@ -534,11 +534,9 @@ async def lifespan(app: FastAPI):
                 result["label"], result["copied"], result["source"], result["target"],
                 len(result["errors"]),
             )
-    removed_staging = 0
-    if not appconfig.demo_mode_enabled():
-        removed_staging = await asyncio.to_thread(
-            cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
-        )
+    removed_staging = await asyncio.to_thread(
+        cleanup_stale_staging, [state.save_path, state.series_path], 24 * 60 * 60,
+    )
     if removed_staging:
         logger.info("%s altes Staging-Artefakt(e) entfernt.", removed_staging)
     if appconfig.is_initialized():
@@ -575,7 +573,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
     try:
-        if appconfig.is_initialized() and not appconfig.demo_mode_enabled():
+        if appconfig.is_initialized():
             await asyncio.to_thread(appconfig.save, state.save_path)
     except Exception:
         pass

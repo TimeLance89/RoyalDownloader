@@ -68,21 +68,18 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /configGet\(\)/);
 });
 
-test("setup and settings expose desktop, NAS, and safe demo deployment modes", () => {
+test("setup and settings expose only desktop and NAS deployment modes", () => {
   for (const id of [
     "setup-mode-desktop",
     "setup-mode-nas",
-    "setup-mode-demo",
     "deployment-mode-desktop",
     "deployment-mode-nas",
-    "deployment-mode-demo",
     "deployment-mode-status",
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
   assert.match(html, /Normaler Computer/);
   assert.match(html, /NAS \/ Heimserver/);
-  assert.match(html, /Alles sichtbar\. Nichts gespeichert\./);
-  assert.match(app, /selectedDeploymentMode\("setup-deployment-mode"\) === "demo"/);
-  assert.match(app, /Demo-Modus · Abläufe werden simuliert · keine Mediendateien/);
+  assert.doesNotMatch(html, /setup-mode-demo|deployment-mode-demo|Demo-Modus/);
+  assert.doesNotMatch(app, /=== "demo"|Demo-Modus/);
   assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
   assert.match(api, /deployment_mode: deploymentMode/);
 });
@@ -94,8 +91,8 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260811-4/);
+  assert.match(html, /i18n\.js\?v=royal-20260823-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260823-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -181,7 +178,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260823-2/);
+  assert.match(html, /api\.js\?v=royal-20260823-3/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -205,7 +202,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260823-2/);
+  assert.match(html, /api\.js\?v=royal-20260823-3/);
   assert.match(html, /screens\/home\.js\?v=royal-20260822-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
@@ -557,7 +554,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260809-1/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260823-1/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -648,7 +645,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260821-1/);
+  assert.match(html, /style\.css\?v=royal-20260823-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

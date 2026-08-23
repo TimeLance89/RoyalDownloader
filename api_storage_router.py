@@ -97,8 +97,6 @@ async def api_storage_move_jobs():
 @router.post("/api/v1/storage/locations/save")
 @router.post("/api/storage/locations/save")
 async def api_storage_location_save(body: StorageLocationBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus können keine realen Speicherorte verwaltet werden.")
     try:
         location = await run_in_threadpool(
             save_storage_location,
@@ -115,8 +113,6 @@ async def api_storage_location_save(body: StorageLocationBody):
 @router.post("/api/v1/storage/locations/remove")
 @router.post("/api/storage/locations/remove")
 async def api_storage_location_remove(body: StorageLocationRemoveBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus können keine realen Speicherorte verwaltet werden.")
     removed = await run_in_threadpool(remove_storage_location, body.location_id)
     if not removed:
         raise HTTPException(404, "Der Speicherort wurde nicht gefunden.")
@@ -126,8 +122,6 @@ async def api_storage_location_remove(body: StorageLocationRemoveBody):
 @router.post("/api/v1/storage/scan")
 @router.post("/api/storage/scan")
 async def api_storage_scan(body: StorageScanBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus gibt es keinen realen Medienspeicher.")
     return await run_in_threadpool(
         scan_configured_storage,
         _media_paths(),
@@ -139,8 +133,6 @@ async def api_storage_scan(body: StorageScanBody):
 @router.post("/api/v1/storage/move/plan")
 @router.post("/api/storage/move/plan")
 async def api_storage_move_plan(body: StorageMovePlanBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus können keine Mediendateien verschoben werden.")
     try:
         return await run_in_threadpool(
             plan_move_candidate,
@@ -161,8 +153,6 @@ async def api_storage_move_plan(body: StorageMovePlanBody):
 @router.post("/api/v1/storage/move")
 @router.post("/api/storage/move")
 async def api_storage_move(body: StorageMoveBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus können keine Mediendateien verschoben werden.")
     if not body.confirm:
         raise HTTPException(400, "Das Verschieben muss ausdrücklich bestätigt werden.")
     try:
@@ -187,8 +177,6 @@ async def api_storage_move(body: StorageMoveBody):
 @router.post("/api/v1/storage/cleanup")
 @router.post("/api/storage/cleanup")
 async def api_storage_cleanup(body: StorageCleanupBody):
-    if appconfig.demo_mode_enabled():
-        raise HTTPException(409, "Im Demo-Modus können keine Mediendateien gelöscht werden.")
     if not body.confirm:
         raise HTTPException(400, "Die dauerhafte Bereinigung muss ausdrücklich bestätigt werden.")
     try:

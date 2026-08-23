@@ -9,14 +9,14 @@ from pathlib import Path
 
 MODE_DESKTOP = "desktop"
 MODE_NAS = "nas"
-MODE_DEMO = "demo"
-DEPLOYMENT_MODES = {MODE_DESKTOP, MODE_NAS, MODE_DEMO}
+DEPLOYMENT_MODES = {MODE_DESKTOP, MODE_NAS}
 PROJECT_DIR = Path(
     os.environ.get("APP_SOURCE_DIR", "").strip() or Path(__file__).resolve().parent
 ).resolve()
 ENV_PATH = PROJECT_DIR / ".env"
 ENV_EXAMPLE_PATH = PROJECT_DIR / ".env.example"
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+_REMOVED_ENV_KEYS = {"ROYAL_DEMO_MODE"}
 
 
 def normalize_deployment_mode(value: str | None) -> str:
@@ -59,6 +59,8 @@ def _replace_values(template: str, updates: dict[str, str]) -> str:
     lines: list[str] = []
     for line in template.splitlines():
         match = _ENV_LINE.match(line.strip())
+        if match and match.group(1) in _REMOVED_ENV_KEYS:
+            continue
         if match and match.group(1) in remaining:
             key = match.group(1)
             lines.append(f"{key}={remaining.pop(key)}")
@@ -74,15 +76,13 @@ def _replace_values(template: str, updates: dict[str, str]) -> str:
 
 def deployment_env_values(mode: str, movie_path: str, series_path: str) -> dict[str, str]:
     normalized = normalize_deployment_mode(mode)
-    desktop = normalized in {MODE_DESKTOP, MODE_DEMO}
-    demo = normalized == MODE_DEMO
+    desktop = normalized == MODE_DESKTOP
     # NAS mode is intentionally reachable on the host network; every non-public
     # application route is fail-closed behind authentication and first-run setup
     # is protected by the one-time bootstrap token.
     nas_bind = "0.0.0.0"  # nosec B104 -- intentional authenticated NAS listener
     return {
         "ROYAL_DEPLOYMENT_MODE": normalized,
-        "ROYAL_DEMO_MODE": "1" if demo else "0",
         "HOST": "127.0.0.1" if desktop else nas_bind,
         "OPEN_BROWSER": "1" if desktop else "0",
         "ROYAL_BIND_ADDRESS": "127.0.0.1" if desktop else nas_bind,

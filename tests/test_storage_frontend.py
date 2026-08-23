@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_storage_runtime_is_loaded_by_frontend_manifest():
     api_js = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
-    assert "/storage-manager.js?v=royal-20260817-2" in api_js
+    assert "/storage-manager.js?v=royal-20260823-1" in api_js
     assert "data-royal-storage-manager" in api_js
 
 

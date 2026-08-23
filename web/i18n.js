@@ -42,7 +42,6 @@ const i18n = (() => {
       "Empfohlen": "Recommended",
       "NAS / Heimserver": "NAS / home server",
       "Dauerbetrieb im Netzwerk. Nutzt start.sh oder Docker Compose.": "Always-on network service using start.sh or Docker Compose.",
-      "Demo-Modus": "Demo mode",
       "Erlebe Queue, Fortschritt und Abschluss – ohne Download oder Dateiablage.": "Experience the queue, progress, and completion without downloading or storing files.",
       "Sicher testen": "Safe preview",
       "VIRTUELLER DURCHLAUF": "VIRTUAL RUN",
