@@ -1003,17 +1003,6 @@ function openHomeEntry(kind, key) {
 }
 
 
-function updateHomeRailNavigation(track) {
-  if (!track?.id) return;
-  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-  const canScroll = maxScroll > 2;
-  const atStart = track.scrollLeft <= 2;
-  const atEnd = track.scrollLeft >= maxScroll - 2;
-  document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
-    const direction = Number(button.dataset.direction) || 1;
-    button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
-  });
-}
 function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1114,31 +1103,35 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
 function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
+  const preservedScrollLeft = track.scrollLeft;
   track.classList.toggle("is-spotlight-track", layout === "spotlight");
   track.replaceChildren();
-  requestAnimationFrame(() => updateHomeRailNavigation(track));
-  if (!entries.length) {
-    if (!state.home.loading) {
-      const empty = document.createElement("span");
-      empty.className = "home-rail-empty";
-      empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
-      track.appendChild(empty);
+  try {
+    if (!entries.length) {
+      if (!state.home.loading) {
+        const empty = document.createElement("span");
+        empty.className = "home-rail-empty";
+        empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
+        track.appendChild(empty);
+        return;
+      }
+      for (let index = 0; index < 6; index += 1) {
+        const skeleton = document.createElement("span");
+        skeleton.className = "home-card-skeleton";
+        skeleton.setAttribute("aria-hidden", "true");
+        track.appendChild(skeleton);
+      }
       return;
     }
-    for (let index = 0; index < 6; index += 1) {
-      const skeleton = document.createElement("span");
-      skeleton.className = "home-card-skeleton";
-      skeleton.setAttribute("aria-hidden", "true");
-      track.appendChild(skeleton);
-    }
-    return;
+    const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
+    visibleEntries.forEach((entry, index) => {
+      const eagerCount = ranked ? 5 : 3;
+      const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
+      track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
+    });
+  } finally {
+    restoreHomeRailScroll(track, preservedScrollLeft);
   }
-  const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
-  visibleEntries.forEach((entry, index) => {
-    const eagerCount = ranked ? 5 : 3;
-    const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
-    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
-  });
 }
 function renderHome() {
   state.home.discoveryDay = localDateKey();
