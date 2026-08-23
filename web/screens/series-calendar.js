@@ -47,12 +47,16 @@ function calendarEntriesForDate(date) {
   return (day?.entries || []).filter(calendarEntryMatches);
 }
 
-function calendarSetStatus(title, copy, isError = false) {
+function calendarSetStatus(title, copy, { error = false, retry = false, loading = false } = {}) {
   const status = document.getElementById("calendar-status");
-  status.classList.toggle("is-error", isError);
+  status.classList.toggle("is-error", error);
+  status.classList.toggle("is-loading", loading);
   status.hidden = false;
-  status.innerHTML = `${isError ? '<span class="calendar-status-mark">!</span>' : '<span class="calendar-loader" aria-hidden="true"></span>'}
-    <strong>${escapeHtml(title)}</strong><small>${escapeHtml(copy)}</small>`;
+  status.innerHTML = `${loading
+    ? '<span class="calendar-loader" aria-hidden="true"></span>'
+    : `<span class="calendar-status-mark">${error ? "!" : "·"}</span>`}
+    <strong>${escapeHtml(title)}</strong><small>${escapeHtml(copy)}</small>
+    ${retry ? '<button type="button" data-calendar-retry>Erneut laden</button>' : ""}`;
   document.getElementById("calendar-days").hidden = true;
 }
 
@@ -67,7 +71,8 @@ async function seriesCalendarLoad(force = false) {
   if (state.calendar.loading || (state.calendar.loaded && !force)) return;
   state.calendar.loading = true;
   state.calendar.error = "";
-  calendarSetStatus("Sendeplan wird geladen", "Termine und Cover werden vorbereitet.");
+  document.getElementById("calendar-range").textContent = "Sendeplan wird aktualisiert …";
+  calendarSetStatus("Sendeplan wird geladen", "Termine werden von SerienStream abgerufen.", { loading: true });
   try {
     const payload = await api.seriesCalendar();
     state.calendar.days = Array.isArray(payload.days) ? payload.days : [];
@@ -79,7 +84,8 @@ async function seriesCalendarLoad(force = false) {
     renderSeriesCalendar();
   } catch (error) {
     state.calendar.error = error.message;
-    calendarSetStatus("Kalender nicht erreichbar", error.message, true);
+    document.getElementById("calendar-range").textContent = "Laden fehlgeschlagen";
+    calendarSetStatus("Kalender nicht erreichbar", error.message, { error: true, retry: true });
   } finally {
     state.calendar.loading = false;
   }
@@ -134,10 +140,9 @@ function calendarCard(entry, date, index, eager) {
         decoding="async" referrerpolicy="no-referrer" ${eager ? 'fetchpriority="high"' : ""}>` : ""}
       <i aria-hidden="true">${escapeHtml(entry.title.slice(0, 2).toLocaleUpperCase("de"))}</i>
     </span>
-    <span class="calendar-entry-time"><b>${escapeHtml(entry.time)}</b><small>UHR</small></span>
     <span class="calendar-entry-copy">
       <strong translate="no">${escapeHtml(entry.title)}</strong>
-      <span><b>${code}</b><i>${escapeHtml(entry.language)}</i>${entry.subscribed ? "<i>★ Abo</i>" : ""}</span>
+      <span><b>${code}</b><i>${escapeHtml(entry.language)}</i>${entry.time !== "00:00" ? `<i>${escapeHtml(entry.time)} Uhr</i>` : ""}${entry.subscribed ? "<i>★ Meine Serie</i>" : ""}</span>
     </span>
     <span class="calendar-entry-state"><i></i>${stateLabel}</span>
     <span class="calendar-entry-open" aria-hidden="true">→</span>
@@ -146,23 +151,26 @@ function calendarCard(entry, date, index, eager) {
 
 function renderCalendarDays(dates) {
   const today = calendarTodayKey();
-  const fullDate = new Intl.DateTimeFormat(i18n.locale(), {
-    weekday: "long", day: "2-digit", month: "long",
-  });
+  const weekday = new Intl.DateTimeFormat(i18n.locale(), { weekday: "long" });
+  const month = new Intl.DateTimeFormat(i18n.locale(), { day: "2-digit", month: "long" });
   let imageBudget = 10;
   let visible = 0;
   const html = dates.map((date) => {
     const entries = calendarEntriesForDate(date);
-    if (!entries.length) return "";
     visible += entries.length;
     const cards = entries.map((entry, index) => {
       const eager = imageBudget-- > 0;
       return calendarCard(entry, date, index, eager);
     }).join("");
     return `<section class="calendar-day ${date === today ? "is-today" : ""}" id="calendar-day-${date}">
-      <header><span>${date === today ? "HEUTE" : escapeHtml(fullDate.format(calendarDate(date)))}</span>
-        <strong>${entries.length} ${entries.length === 1 ? "Eintrag" : "Einträge"}</strong></header>
-      <div>${cards}</div>
+      <header>
+        <span class="calendar-day-date"><b>${calendarDate(date).getDate()}</b><span>
+          <strong>${date === today ? "Heute" : escapeHtml(weekday.format(calendarDate(date)))}</strong>
+          <small>${escapeHtml(month.format(calendarDate(date)))}</small>
+        </span></span>
+        <em>${entries.length} ${entries.length === 1 ? "Folge" : "Folgen"}</em>
+      </header>
+      <div>${cards || '<p class="calendar-day-empty">Keine Veröffentlichung</p>'}</div>
     </section>`;
   }).join("");
   const days = document.getElementById("calendar-days");
@@ -174,7 +182,7 @@ function renderCalendarDays(dates) {
     calendarSetStatus(
       state.calendar.disabledReason ? "Kalender pausiert" : "Keine Treffer in dieser Woche",
       state.calendar.disabledReason || "Passe Suche oder Filter an.",
-      !!state.calendar.disabledReason,
+      { error: !!state.calendar.disabledReason },
     );
   }
   days.querySelectorAll("img").forEach((image) => {
@@ -259,5 +267,8 @@ function initSeriesCalendar() {
   document.getElementById("calendar-days").addEventListener("click", (event) => {
     const entry = event.target.closest("[data-calendar-entry]");
     if (entry) calendarOpenEntry(entry.dataset.calendarEntry);
+  });
+  document.getElementById("calendar-status").addEventListener("click", (event) => {
+    if (event.target.closest("[data-calendar-retry]")) void seriesCalendarLoad(true);
   });
 }

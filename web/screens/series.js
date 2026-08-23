@@ -272,16 +272,18 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   }
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();
-  if (artworkPrepared) {
-    void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-  } else {
+  // Jellyfin ist ein eigener Live-Status und darf nie auf Poster/TMDB warten.
+  // Das betrifft insbesondere die komplette erste 32er-Katalogseite.
+  void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null)
+    .then(() => {
+      if (browseGeneration !== state.series.browseRequestSeq) return;
+      for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
+      renderSeriesCatalogHero();
+    });
+  if (!artworkPrepared) {
     void hydrateHomeSeriesArtwork(incoming, { render: false }).then(async (hydratedBaseSlugs) => {
       for (const baseSlug of hydratedBaseSlugs) updateSeriesResultCard(baseSlug);
       renderSeriesCatalogHero();
-      await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-      if (browseGeneration === state.series.browseRequestSeq) {
-        for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
-      }
     });
   }
   updateSeriesInfiniteState();

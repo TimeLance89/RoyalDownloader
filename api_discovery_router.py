@@ -86,6 +86,7 @@ get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_aniworld_scraper = _unbound_dependency
+get_sto_calendar_scraper = _unbound_dependency
 get_sto_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
@@ -121,6 +122,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_series",
     "get_mkissa_scraper",
     "get_aniworld_scraper",
+    "get_sto_calendar_scraper",
     "get_sto_scraper",
     "get_series_for_value",
     "get_tmdb_client",
@@ -775,8 +777,8 @@ async def api_series_calendar():
         }
 
     def _work():
-        with state.sto_lock:
-            payload = get_sto_scraper().series_calendar()
+        with state.sto_calendar_lock:
+            payload = get_sto_calendar_scraper().series_calendar()
         subscribed_slugs = {
             str(item.get("base_slug") or "")
             for item in state.watchlist

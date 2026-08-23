@@ -182,7 +182,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260823-4/);
+  assert.match(html, /api\.js\?v=royal-20260823-5/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -206,7 +206,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260823-4/);
+  assert.match(html, /api\.js\?v=royal-20260823-5/);
   assert.match(html, /screens\/home\.js\?v=royal-20260823-3/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);

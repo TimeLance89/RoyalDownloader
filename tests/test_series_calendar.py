@@ -70,9 +70,9 @@ def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
     }
     scraper = SimpleNamespace(series_calendar=lambda: payload)
     monkeypatch.setattr(api_discovery_router, "provider_priority", lambda _kind: ["serienstream"])
-    monkeypatch.setattr(api_discovery_router, "get_sto_scraper", lambda: scraper)
+    monkeypatch.setattr(api_discovery_router, "get_sto_calendar_scraper", lambda: scraper)
     monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
-        sto_lock=threading.Lock(),
+        sto_calendar_lock=threading.Lock(),
         watchlist=[{"base_slug": "serienstream:test"}],
     ))
 
@@ -91,10 +91,34 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
     for contract in (
         'id="tab-kalender"', 'id="calendar-week-strip"',
         'id="calendar-search"', 'id="calendar-subscribed"',
+        'class="calendar-ledger"', 'class="calendar-legend"',
     ):
         assert contract in index
     assert "api.seriesCalendar()" in screen
+    assert "data-calendar-retry" in screen
     assert 'switchTab("serien", { autoLoad: false })' in screen
     assert "loadSeries({" in screen
     assert 'fetchpriority="high"' in screen
     assert "@media (prefers-reduced-motion: reduce)" in css
+
+
+def test_calendar_uses_an_independent_provider_session_and_client_timeout():
+    router = (ROOT / "api_discovery_router.py").read_text(encoding="utf-8")
+    clients = (ROOT / "application_services" / "media_clients.py").read_text(encoding="utf-8")
+    api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+
+    assert "with state.sto_calendar_lock" in router
+    assert "get_sto_calendar_scraper().series_calendar()" in router
+    assert "def get_sto_calendar_scraper()" in clients
+    assert 'controller.abort(), 20_000' in api
+    assert 'opts.signal = signal' in api
+
+
+def test_series_catalog_checks_jellyfin_before_artwork_hydration():
+    screen = (ROOT / "web" / "screens" / "series.js").read_text(encoding="utf-8")
+    body = screen.split("function applySeriesResults", 1)[1].split(
+        "function clearSeriesSearchContext", 1
+    )[0]
+
+    assert body.index("refreshCatalogJellyfinStatus") < body.index("hydrateHomeSeriesArtwork")
+    assert "for (const result of state.series.results) updateSeriesResultCard" in body

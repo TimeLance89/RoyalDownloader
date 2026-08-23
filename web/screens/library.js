@@ -133,6 +133,18 @@ function catalogLogicalMediaMatch(left, right) {
   if (!left || !right) return false;
   const leftIdentity = catalogIdentityView(left);
   const rightIdentity = catalogIdentityView(right);
+  const leftTitles = catalogMediaTitles(leftIdentity);
+  const rightTitles = catalogMediaTitles(rightIdentity);
+  const titleMatches = [...leftTitles].some((title) => rightTitles.has(title));
+  const leftSources = new Set([
+    ...(leftIdentity.sources || []), ...(leftIdentity.source_providers || []),
+  ].map(catalogSourceIdentity).filter(Boolean));
+  const sharesSource = [
+    ...(rightIdentity.sources || []), ...(rightIdentity.source_providers || []),
+  ].map(catalogSourceIdentity).some((source) => leftSources.has(source));
+  // Anbieter melden bei Serien teilweise das Jahr der neuesten Staffel statt
+  // des Serienstarts. Exakter Titel plus gleiche Quelle ist dennoch eindeutig.
+  if (titleMatches && sharesSource) return true;
   const leftTmdb = String(leftIdentity.tmdb_id || "").trim();
   const rightTmdb = String(rightIdentity.tmdb_id || "").trim();
   if (leftTmdb && rightTmdb) return leftTmdb === rightTmdb;
@@ -141,9 +153,7 @@ function catalogLogicalMediaMatch(left, right) {
   const rightYear = catalogMediaYear(rightIdentity);
   if (leftYear && rightYear && leftYear !== rightYear) return false;
 
-  const leftTitles = catalogMediaTitles(leftIdentity);
-  const rightTitles = catalogMediaTitles(rightIdentity);
-  if (![...leftTitles].some((title) => rightTitles.has(title))) return false;
+  if (!titleMatches) return false;
 
   // With an unknown year, avoid collapsing obvious separate remakes when both
   // records have different explicit TMDB identities. That case was handled
