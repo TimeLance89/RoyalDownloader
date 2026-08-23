@@ -67,6 +67,90 @@ function calendarInitialWeek() {
   return weeks.find((week) => week > todayWeek) || weeks.at(-1) || todayWeek;
 }
 
+function calendarProviderEntry(item, date) {
+  if (!item || typeof item !== "object") return null;
+  const title = String(item.title || "").replace(/\s+/g, " ").trim().slice(0, 240);
+  const path = String(item.url || "").trim();
+  const match = path.match(/^\/serie\/([a-z0-9-]+)\/staffel-(\d+)(?:\/episode-(\d+))?\/?$/);
+  if (!title || !match) return null;
+  const season = Math.max(0, Math.min(Number(item.season || match[2]) || 0, 100));
+  const episode = Math.max(0, Math.min(Number(item.episode || match[3]) || 0, 10_000));
+  const languageId = Number(item.language_id || 0);
+  const coverPath = String(item.cover_url || "").trim();
+  const coverUrl = /^\/media\/images\/channel\/desktop\/[A-Za-z0-9_-]+$/.test(coverPath)
+    ? `https://serienstream.to${coverPath}` : "";
+  const baseSlug = `serienstream:${match[1]}`;
+  return {
+    date,
+    time: /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(item.time || "")) ? item.time : "00:00",
+    title,
+    language: { 1: "Deutsch", 2: "Englisch", 3: "Deutsch (Untertitel)" }[languageId] || "Unbekannt",
+    language_id: languageId,
+    season,
+    episode,
+    released: Boolean(item.released),
+    cover_url: coverUrl,
+    base_slug: baseSlug,
+    sample_slug: season > 0 && episode > 0
+      ? `serienstream:${match[1]}-s${String(season).padStart(2, "0")}e${String(episode).padStart(2, "0")}`
+      : baseSlug,
+    subscribed: (state.wl?.items || []).some((entry) => entry?.base_slug === baseSlug),
+  };
+}
+
+function calendarNormalizeProviderPayload(document) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("SerienStream hat keinen gültigen Sendeplan geliefert.");
+  }
+  let total = 0;
+  const days = Object.keys(document).sort().flatMap((date) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(document[date])) return [];
+    const entries = document[date]
+      .map((item) => calendarProviderEntry(item, date)).filter(Boolean)
+      .sort((left, right) => left.time.localeCompare(right.time) || left.title.localeCompare(right.title, "de"));
+    total += entries.length;
+    return [{ date, entries }];
+  });
+  return {
+    days, total, provider: "serienstream", direct: true,
+    available_from: days[0]?.date || "", available_to: days.at(-1)?.date || "",
+  };
+}
+
+async function calendarDirectProviderLoad() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch("https://serienstream.to/api/calendar", {
+      signal: controller.signal, cache: "no-store", credentials: "omit",
+    });
+    if (!response.ok) throw new Error(`SerienStream antwortet mit HTTP ${response.status}.`);
+    return calendarNormalizeProviderPayload(await response.json());
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("SerienStream antwortet nicht.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function calendarLoadPayload() {
+  try {
+    return await Promise.race([
+      api.seriesCalendar(),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error("Der lokale Kalenderdienst antwortet nicht.")), 4_000,
+      )),
+    ]);
+  } catch (backendError) {
+    try {
+      return await calendarDirectProviderLoad();
+    } catch (providerError) {
+      throw new Error(`${backendError.message} ${providerError.message}`.trim());
+    }
+  }
+}
+
 async function seriesCalendarLoad(force = false) {
   if (state.calendar.loading || (state.calendar.loaded && !force)) return;
   state.calendar.loading = true;
@@ -74,7 +158,7 @@ async function seriesCalendarLoad(force = false) {
   document.getElementById("calendar-range").textContent = "Sendeplan wird aktualisiert …";
   calendarSetStatus("Sendeplan wird geladen", "Termine werden von SerienStream abgerufen.", { loading: true });
   try {
-    const payload = await api.seriesCalendar();
+    const payload = await calendarLoadPayload();
     state.calendar.days = Array.isArray(payload.days) ? payload.days : [];
     state.calendar.total = Number(payload.total || 0);
     state.calendar.disabledReason = payload.disabled_reason || "";
