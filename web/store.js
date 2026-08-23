@@ -43,8 +43,8 @@ function createInitialState() {
       total: 0, facets: { letters: {}, genres: {} }, letter: "ALL", genre: "",
       loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
       currentId: "", current: null, translation: "", episodePage: 1,
-      selectedSeason: null, episodeQuery: "", episodeStatus: "all",
-      picked: new Set(), searchReturn: null, disabledReason: "",
+      selectedSeason: null, picked: new Set(), searchReturn: null,
+      disabledReason: "", loadError: "",
     },
     wl: {
       items: [], selected: new Set(), loaded: false,

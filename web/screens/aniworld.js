@@ -61,13 +61,13 @@
       <section class="aniworld-catalog-panel" aria-labelledby="aniworld-catalog-title">
         <header class="aniworld-catalog-head">
           <div><span class="aniworld-section-code">ANIWORLD / KATALOG</span><h2 id="aniworld-catalog-title">Neu im Archiv</h2></div>
-          <span id="aniworld-catalog-summary">Seite 1</span>
+          <span id="aniworld-catalog-summary">Titel werden geladen</span>
         </header>
         <div id="aniworld-results" class="aniworld-grid" aria-label="AniWorld-Ergebnisse"></div>
-        <div id="aniworld-pager" class="aniworld-pager">
-          <button id="aniworld-prev" type="button" disabled>‹ Vorherige</button>
-          <span id="aniworld-page-label">Seite 1</span>
-          <button id="aniworld-next" type="button" disabled>Nächste ›</button>
+        <div id="aniworld-infinite" class="catalog-infinite aniworld-infinite hidden" role="status" aria-live="polite" aria-atomic="true">
+          <span class="catalog-infinite-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="aniworld-infinite-label">Weitere Anime werden beim Scrollen geladen</span>
+          <button id="aniworld-infinite-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
         </div>
       </section>
 
@@ -93,26 +93,21 @@
             </section>
             <section class="aniworld-episode-console" aria-labelledby="aniworld-track-title">
               <header class="aniworld-track-head">
-                <div><span>SPRACHE / STAFFEL / FOLGE</span><h3 id="aniworld-track-title">Download zusammenstellen</h3></div>
+                <div><span>SPRACHE · STAFFEL · FOLGEN</span><h3 id="aniworld-track-title">Folgen auswählen</h3></div>
                 <strong id="aniworld-pick-count">0 ausgewählt</strong>
               </header>
               <div id="aniworld-track-options" class="aniworld-track-options"></div>
               <div id="aniworld-season-options" class="aniworld-season-options" role="group" aria-label="Staffel wählen"></div>
-              <div class="aniworld-episode-tools">
-                <label class="aniworld-episode-search"><span aria-hidden="true">⌕</span><input id="aniworld-episode-search" type="search" placeholder="Folge oder Titel filtern"></label>
-                <label><span>Status</span><select id="aniworld-episode-status"><option value="all">Alle</option><option value="available">Verfügbar</option><option value="queued">In Queue</option><option value="downloaded">Geladen</option></select></label>
-                <button id="aniworld-select-page" type="button">Sichtbare wählen</button>
-                <button id="aniworld-select-season" type="button">Staffel wählen</button>
+              <div class="aniworld-episode-tools aniworld-season-toolbar">
+                <div><strong id="aniworld-current-season">Staffel</strong><span id="aniworld-episode-count">Folgen werden geladen</span></div>
+                <button id="aniworld-select-all" type="button">Alle auswählen</button>
                 <button id="aniworld-select-none" type="button">Auswahl leeren</button>
               </div>
-              <div class="aniworld-episode-nav">
-                <span id="aniworld-episode-page-label">Episoden werden geladen</span>
-                <button id="aniworld-episode-prev" type="button" disabled aria-label="Vorherige Episodenseite">‹</button>
-                <button id="aniworld-episode-next" type="button" disabled aria-label="Nächste Episodenseite">›</button>
-              </div>
               <div id="aniworld-episode-grid" class="aniworld-episode-grid"></div>
-              <div class="aniworld-episode-legend"><span><i class="is-free"></i>Verfügbar</span><span><i class="is-picked"></i>Ausgewählt</span><span><i class="is-queued"></i>Queue</span><span><i class="is-downloaded"></i>Geladen</span></div>
-              <button id="aniworld-add-btn" class="aniworld-add-button" type="button" disabled>Auswahl herunterladen</button>
+              <div class="aniworld-download-bar">
+                <span><strong id="aniworld-download-count">Keine Folgen ausgewählt</strong><small>Die Auswahl landet direkt in der Warteschlange.</small></span>
+                <button id="aniworld-add-btn" class="aniworld-add-button" type="button" disabled>Auswahl herunterladen</button>
+              </div>
             </section>
           </div>
         </div>
@@ -163,9 +158,9 @@ function aniworldCardTracks(anime) {
   return tracks.length ? tracks : ["dub", "sub"];
 }
 
-function renderAniworldResults() {
+function renderAniworldResults(appendFrom = 0) {
   const container = document.getElementById("aniworld-results");
-  container.innerHTML = "";
+  if (appendFrom <= 0) container.innerHTML = "";
   container.setAttribute("aria-busy", state.aniworld.loading ? "true" : "false");
   if (state.aniworld.loading && !state.aniworld.results.length) {
     for (let index = 0; index < 8; index += 1) {
@@ -175,7 +170,7 @@ function renderAniworldResults() {
       container.appendChild(skeleton);
     }
   }
-  for (const anime of state.aniworld.results) {
+  for (const anime of state.aniworld.results.slice(appendFrom)) {
     const card = document.createElement("button");
     card.className = "aniworld-card";
     card.type = "button";
@@ -208,9 +203,28 @@ function renderAniworldResults() {
   document.getElementById("aniworld-result-count").textContent = total.toLocaleString("de-DE");
   document.getElementById("aniworld-source-state").textContent = state.aniworld.disabledReason ? "PAUSE" : "LIVE";
   document.getElementById("aniworld-catalog-summary").textContent = `${total.toLocaleString("de-DE")} Titel · ${state.aniworld.results.length} sichtbar`;
-  document.getElementById("aniworld-page-label").textContent = `Seite ${state.aniworld.page}`;
-  document.getElementById("aniworld-prev").disabled = state.aniworld.loading || state.aniworld.page <= 1;
-  document.getElementById("aniworld-next").disabled = state.aniworld.loading || !state.aniworld.hasMore;
+  updateAniworldInfiniteState();
+}
+
+function updateAniworldInfiniteState() {
+  const sentinel = document.getElementById("aniworld-infinite");
+  const label = document.getElementById("aniworld-infinite-label");
+  const retry = document.getElementById("aniworld-infinite-retry");
+  const browsable = Boolean(state.aniworld.mode && state.aniworld.mode !== "search" && state.aniworld.results.length);
+  sentinel.classList.toggle("hidden", !browsable);
+  if (!browsable) return;
+  const count = state.aniworld.results.length;
+  sentinel.setAttribute("aria-busy", String(state.aniworld.loading));
+  retry.hidden = !state.aniworld.loadError;
+  if (state.aniworld.loading) {
+    sentinel.dataset.state = "loading"; label.textContent = "Weitere Anime werden geladen …";
+  } else if (state.aniworld.loadError) {
+    sentinel.dataset.state = "error"; label.textContent = `Nachladen fehlgeschlagen · ${count} Titel geladen`;
+  } else if (state.aniworld.hasMore) {
+    sentinel.dataset.state = "ready"; label.textContent = `${count} Titel geladen · Weiter scrollen`;
+  } else {
+    sentinel.dataset.state = "complete"; label.textContent = `${count} Titel geladen · Ende des Katalogs`;
+  }
 }
 
 function renderAniworldFacets() {
@@ -236,44 +250,63 @@ function renderAniworldFacets() {
   }
 }
 
-async function aniworldBrowse(mode, page = 1) {
+async function aniworldBrowse(mode, page = 1, { append = false } = {}) {
   const query = mode === "search" ? document.getElementById("aniworld-search").value.trim() : "";
   if (mode === "search" && !query) return;
   if (state.aniworld.loading) return;
-  state.aniworld.loading = true; state.aniworld.results = [];
+  state.aniworld.loading = true; state.aniworld.loadError = "";
+  if (!append) state.aniworld.results = [];
   const requestSeq = ++state.aniworld.requestSeq;
   setAniworldMode(mode);
   document.getElementById("aniworld-status").textContent = mode === "search" ? `Suche nach „${query}“ …` : `${aniworldModeTitle(mode)} werden geladen …`;
-  renderAniworldResults();
+  if (!append) renderAniworldResults(); else updateAniworldInfiniteState();
   try {
     const response = await api.aniworld({ mode, query, page,
       letter: mode === "catalog" && state.aniworld.letter !== "ALL" ? state.aniworld.letter : "",
       genre: mode === "catalog" ? state.aniworld.genre : "" });
     if (requestSeq !== state.aniworld.requestSeq) return;
-    state.aniworld.results = response.results || []; state.aniworld.mode = mode; state.aniworld.query = query;
+    const appendFrom = append ? state.aniworld.results.length : 0;
+    const incoming = response.results || [];
+    state.aniworld.results = append
+      ? [...new Map([...state.aniworld.results, ...incoming].map((item) => [item.id, item])).values()]
+      : incoming;
+    state.aniworld.mode = mode; state.aniworld.query = query;
     state.aniworld.page = Number(response.page) || page; state.aniworld.hasMore = !!response.has_more;
     state.aniworld.total = Number(response.total) || 0; state.aniworld.loaded = true;
     state.aniworld.disabledReason = response.disabled ? response.disabled_reason : "";
     if (response.facets) state.aniworld.facets = response.facets;
     document.getElementById("aniworld-status").textContent = response.disabled ? response.disabled_reason : `${state.aniworld.total.toLocaleString("de-DE")} Titel gefunden`;
     if (mode === "catalog") renderAniworldFacets();
+    renderAniworldResults(appendFrom);
+    recheckAniworldInfinite();
   } catch (error) {
     if (requestSeq !== state.aniworld.requestSeq) return;
-    state.aniworld.results = []; state.aniworld.hasMore = false; state.aniworld.total = 0;
-    state.aniworld.loaded = true; state.aniworld.disabledReason = error.message;
-    document.getElementById("aniworld-status").textContent = `AniWorld nicht erreichbar: ${error.message}`;
+    if (!append) {
+      state.aniworld.results = []; state.aniworld.hasMore = false; state.aniworld.total = 0;
+      state.aniworld.disabledReason = error.message;
+    } else state.aniworld.loadError = error.message;
+    state.aniworld.loaded = true;
+    document.getElementById("aniworld-status").textContent = append ? `Nachladen fehlgeschlagen: ${error.message}` : `AniWorld nicht erreichbar: ${error.message}`;
   } finally {
-    if (requestSeq === state.aniworld.requestSeq) { state.aniworld.loading = false; renderAniworldResults(); }
+    if (requestSeq === state.aniworld.requestSeq) {
+      state.aniworld.loading = false;
+      if (!append || state.aniworld.loadError) renderAniworldResults();
+      else updateAniworldInfiniteState();
+      recheckAniworldInfinite();
+    }
   }
+}
+
+async function loadNextAniworldPage() {
+  if (state.tab !== "aniworld" || state.aniworld.loading || !state.aniworld.hasMore || state.aniworld.mode === "search") return;
+  await aniworldBrowse(state.aniworld.mode, state.aniworld.page + 1, { append: true });
 }
 
 async function openAniworldDetail(anime, returnFocus = null) {
   state.aniworld.currentId = anime.id; state.aniworld.current = { ...anime, episodes: [] };
   state.aniworld.translation = anime.translations?.dub ? "dub" : (anime.translations?.sub ? "sub" : "");
   state.aniworld.episodePage = 1; state.aniworld.selectedSeason = null;
-  state.aniworld.episodeQuery = ""; state.aniworld.episodeStatus = "all"; state.aniworld.picked.clear();
-  document.getElementById("aniworld-episode-search").value = "";
-  document.getElementById("aniworld-episode-status").value = "all";
+  state.aniworld.picked.clear();
   document.querySelector("#aniworld-detail-modal .aniworld-detail-scroll").scrollTop = 0;
   openMediaModal("aniworld-detail-modal", returnFocus);
   document.getElementById("aniworld-detail-title").textContent = anime.title;
@@ -292,7 +325,10 @@ async function loadAniworldDetail({ keepSelection = false } = {}) {
     const detail = await api.aniworldDetail(animeId, state.aniworld.translation, state.aniworld.episodePage, state.aniworld.selectedSeason);
     if (detailSeq !== state.aniworld.detailSeq || animeId !== state.aniworld.currentId) return;
     state.aniworld.current = detail; state.aniworld.translation = detail.translation;
-    state.aniworld.episodePage = detail.page; state.aniworld.selectedSeason = detail.season;
+    state.aniworld.episodePage = 1;
+    if (state.aniworld.selectedSeason === null || !detail.seasons?.some((item) => item.season === state.aniworld.selectedSeason)) {
+      state.aniworld.selectedSeason = detail.seasons?.find((item) => item.season > 0)?.season ?? detail.seasons?.[0]?.season ?? null;
+    }
     syncAniworldQueueFlags(); renderAniworldDetail();
   } catch (error) {
     if (detailSeq !== state.aniworld.detailSeq) return;
@@ -336,31 +372,21 @@ function renderAniworldDetail() {
 
 function renderAniworldSeasons() {
   const anime = state.aniworld.current; const container = document.getElementById("aniworld-season-options"); container.innerHTML = "";
-  const choices = [{ season: null, label: "Alles", count: anime?.translations?.[state.aniworld.translation] || 0 }, ...(anime?.seasons || [])];
-  for (const choice of choices) {
+  for (const choice of anime?.seasons || []) {
     const button = document.createElement("button"); button.type = "button";
     button.classList.toggle("is-active", choice.season === state.aniworld.selectedSeason);
     button.innerHTML = `<strong>${escapeHtml(choice.label)}</strong><small>${Number(choice.count) || 0}</small>`;
     button.addEventListener("click", () => {
       if (choice.season === state.aniworld.selectedSeason) return;
-      state.aniworld.selectedSeason = choice.season; state.aniworld.episodePage = 1;
-      loadAniworldDetail({ keepSelection: true });
+      state.aniworld.selectedSeason = choice.season;
+      renderAniworldSeasons(); renderAniworldEpisodes();
     });
     container.appendChild(button);
   }
-  document.getElementById("aniworld-select-season").hidden = state.aniworld.selectedSeason === null;
 }
 
 function aniworldVisibleEpisodes() {
-  const query = String(state.aniworld.episodeQuery || "").trim().toLowerCase();
-  const status = state.aniworld.episodeStatus || "all";
-  return (state.aniworld.current?.episodes || []).filter((episode) => {
-    const queued = episode.queued || state.queuedSlugs.has(episode.slug);
-    const matchesStatus = status === "all" || (status === "available" && !queued && !episode.downloaded)
-      || (status === "queued" && queued) || (status === "downloaded" && episode.downloaded);
-    const haystack = `${episode.label} ${episode.title || ""} ${episode.original_title || ""}`.toLowerCase();
-    return matchesStatus && (!query || haystack.includes(query));
-  });
+  return (state.aniworld.current?.episodes || []).filter((episode) => episode.season === state.aniworld.selectedSeason);
 }
 
 function aniworldSelectableEpisodes() {
@@ -370,27 +396,28 @@ function aniworldSelectableEpisodes() {
 function renderAniworldEpisodes() {
   const anime = state.aniworld.current; const container = document.getElementById("aniworld-episode-grid"); container.innerHTML = "";
   const visible = aniworldVisibleEpisodes();
-  if (!anime?.episodes?.length || !visible.length) container.innerHTML = '<div class="aniworld-empty is-compact"><strong>Keine passenden Einträge</strong><span>Ändere Staffel, Status oder Suchtext.</span></div>';
+  if (!anime?.episodes?.length || !visible.length) container.innerHTML = '<div class="aniworld-empty is-compact"><strong>Keine Folgen verfügbar</strong><span>Wähle eine andere Staffel oder Sprachspur.</span></div>';
   for (const episode of visible) {
     const selected = state.aniworld.picked.has(episode.slug); const queued = episode.queued || state.queuedSlugs.has(episode.slug);
     const button = document.createElement("button"); button.type = "button";
     button.className = "aniworld-episode" + (selected ? " is-selected" : "") + (queued ? " is-queued" : "") + (episode.downloaded ? " is-downloaded" : "");
     const code = episode.kind === "movie" ? `FILM ${String(episode.number).padStart(2, "0")}` : `S${String(episode.season).padStart(2, "0")} · E${String(episode.number).padStart(2, "0")}`;
     const stateLabel = episode.downloaded ? "Geladen" : (queued ? "Queue" : (selected ? "Ausgewählt" : "Verfügbar"));
-    button.innerHTML = `<span class="aniworld-episode-code">${escapeHtml(code)}</span><span class="aniworld-episode-title"><strong>${escapeHtml(episode.title || episode.label)}</strong>${episode.original_title && episode.original_title !== episode.title ? `<small>${escapeHtml(episode.original_title)}</small>` : ""}</span><span class="aniworld-episode-hosters">${(episode.hosters || []).slice(0, 3).map((hoster) => `<i>${escapeHtml(hoster)}</i>`).join("") || "Hoster beim Start"}</span><span class="aniworld-episode-state">${escapeHtml(stateLabel)}</span>`;
+    const secondary = [episode.original_title && episode.original_title !== episode.title ? episode.original_title : "", ...(episode.hosters || []).slice(0, 3)].filter(Boolean).join(" · ");
+    button.innerHTML = `<span class="aniworld-episode-code">${escapeHtml(code)}</span><span class="aniworld-episode-title"><strong>${escapeHtml(episode.title || episode.label)}</strong>${secondary ? `<small>${escapeHtml(secondary)}</small>` : ""}</span><span class="aniworld-episode-state">${escapeHtml(stateLabel)}</span>`;
     button.title = `${episode.label}${episode.title ? ` · ${episode.title}` : ""}`; button.disabled = queued || episode.downloaded;
     button.addEventListener("click", () => { if (selected) state.aniworld.picked.delete(episode.slug); else state.aniworld.picked.add(episode.slug); renderAniworldEpisodes(); });
     container.appendChild(button);
   }
-  document.getElementById("aniworld-episode-page-label").textContent = anime ? `${visible.length} von ${anime.total} Einträgen · Seite ${anime.page}/${anime.page_count}` : "Episoden werden geladen";
-  document.getElementById("aniworld-episode-prev").disabled = !anime || anime.page <= 1;
-  document.getElementById("aniworld-episode-next").disabled = !anime || anime.page >= anime.page_count;
+  const season = (anime?.seasons || []).find((item) => item.season === state.aniworld.selectedSeason);
+  document.getElementById("aniworld-current-season").textContent = season?.label || "Staffel";
+  document.getElementById("aniworld-episode-count").textContent = `${visible.length} ${visible.length === 1 ? "Eintrag" : "Einträge"}`;
   document.getElementById("aniworld-pick-count").textContent = `${state.aniworld.picked.size} ausgewählt`;
-  document.getElementById("aniworld-select-page").disabled = !aniworldSelectableEpisodes().length;
-  document.getElementById("aniworld-select-season").disabled = !aniworldSelectableEpisodes().length;
+  document.getElementById("aniworld-select-all").disabled = !aniworldSelectableEpisodes().length;
   document.getElementById("aniworld-select-none").disabled = !state.aniworld.picked.size;
   document.getElementById("aniworld-add-btn").disabled = !state.aniworld.picked.size;
   document.getElementById("aniworld-add-btn").textContent = state.aniworld.picked.size ? `${state.aniworld.picked.size} Einträge herunterladen` : "Auswahl herunterladen";
+  document.getElementById("aniworld-download-count").textContent = state.aniworld.picked.size ? `${state.aniworld.picked.size} ausgewählt` : "Keine Folgen ausgewählt";
 }
 
 function syncAniworldQueueFlags() {

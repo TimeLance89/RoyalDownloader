@@ -450,6 +450,7 @@ function initCatalogInfiniteScroll() {
 
   recheckFpInfinite = bind("tab-filme", "fp-infinite", loadNextFpPage);
   recheckSeriesInfinite = bind("tab-serien", "series-infinite", loadNextSeriesPage);
+  recheckAniworldInfinite = bind("tab-aniworld", "aniworld-infinite", loadNextAniworldPage);
 }
 
 function startInitialData() {

@@ -359,3 +359,76 @@
   .aniworld-card-poster img { transition: none; }
   .aniworld-card-skeleton { animation: none; }
 }
+
+/* Unified Royal archive flow: AniWorld keeps its signal strip, while the
+   surrounding controls and detail workflow follow the shared app language. */
+.aniworld-tab-content {
+  --aw-red: var(--accent);
+  --aw-coral: var(--accent-hov);
+  --aw-ice: #8ab8ff;
+  --aw-paper: var(--text);
+  --aw-muted: var(--text-dim);
+  --aw-line: var(--border);
+  --aw-panel: var(--bg2);
+}
+.aniworld-hero {
+  min-height: 250px;
+  padding: 28px 30px 52px;
+  border-color: var(--border);
+  border-radius: 18px;
+  background: radial-gradient(circle at 13% 8%, rgba(229, 9, 20, 0.14), transparent 34%), linear-gradient(125deg, var(--bg3), var(--bg2) 60%, #101319);
+  box-shadow: var(--shadow-lift);
+}
+.aniworld-hero h1 { font-family: "DM Sans", "Segoe UI", sans-serif; font-size: clamp(36px, 4.4vw, 58px); line-height: 0.96; letter-spacing: -0.055em; }
+.aniworld-featured-copy strong,
+.aniworld-console-head h2,
+.aniworld-catalog-head h2,
+.aniworld-track-head h3,
+.aniworld-card-copy > strong,
+.aniworld-card-fallback,
+.aniworld-empty strong,
+.aniworld-detail-copy h2 { font-family: "DM Sans", "Segoe UI", sans-serif; }
+.aniworld-infinite { margin-top: 14px; }
+.aniworld-detail-panel {
+  width: min(1080px, calc(100vw - 38px));
+  height: min(860px, calc(100dvh - 42px));
+  border-color: var(--border-strong);
+  border-radius: 18px;
+  background: var(--bg2);
+}
+.aniworld-track-options { display: flex; flex-wrap: wrap; }
+.aniworld-track-option { flex: 1 1 180px; }
+.aniworld-season-options strong { font-size: 9px; }
+.aniworld-season-options small { color: #8b858e; font-size: 8px; }
+.aniworld-episode-tools { display: flex; align-items: center; gap: 6px; }
+.aniworld-season-toolbar > div { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.aniworld-season-toolbar > div strong { color: var(--text); font-size: 12px; }
+.aniworld-season-toolbar > div span { color: var(--text-dim); font-size: 9px; }
+.aniworld-episode-grid { max-height: none; margin-top: 9px; overflow: visible; }
+.aniworld-episode { min-height: 54px; grid-template-columns: 74px minmax(160px, 1fr) 82px; padding: 8px 10px; }
+.aniworld-download-bar {
+  position: sticky;
+  bottom: -25px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 14px -17px -17px;
+  padding: 12px 17px;
+  border-top: 1px solid var(--border);
+  background: rgba(17, 17, 17, 0.96);
+  backdrop-filter: blur(12px);
+}
+.aniworld-download-bar > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.aniworld-download-bar strong { color: var(--text); font-size: 11px; }
+.aniworld-download-bar small { color: var(--text-dim); font-size: 8px; }
+.aniworld-add-button { width: auto; min-height: 40px; margin: 0; padding: 0 16px; border-radius: 8px; }
+
+@media (max-width: 720px) {
+  .aniworld-track-option { flex-basis: 100%; }
+  .aniworld-episode-tools { display: flex; flex-wrap: wrap; }
+  .aniworld-season-toolbar > div { flex-basis: 100%; }
+  .aniworld-episode { grid-template-columns: 54px minmax(0, 1fr) 58px; gap: 7px; }
+  .aniworld-download-bar { align-items: stretch; flex-direction: column; bottom: -16px; margin-inline: -13px; }
+  .aniworld-add-button { width: 100%; }
+}

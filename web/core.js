@@ -39,6 +39,7 @@ const catalogInfiniteObserverSupported = true;
 // kurzer Container automatisch bis zum Fuellstand nachlaedt).
 let recheckFpInfinite = () => {};
 let recheckSeriesInfinite = () => {};
+let recheckAniworldInfinite = () => {};
 let watchModeContext = null;
 let watchModeReturnFocus = null;
 let movieSubscriptionContext = null;
@@ -108,6 +109,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name !== "home") stopHomeHeroRotation();
   if (name === "filme") recheckFpInfinite();
   if (name === "serien") recheckSeriesInfinite();
+  if (name === "aniworld") recheckAniworldInfinite();
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
