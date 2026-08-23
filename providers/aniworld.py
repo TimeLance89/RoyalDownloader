@@ -656,7 +656,7 @@ def aniworld_episode_page(
         matching = [episode for episode in matching if episode.season == int(season)]
         if not matching:
             raise ValueError("Diese Staffel ist in der Sprachspur nicht verfügbar.")
-    page_size = max(1, min(100, int(page_size)))
+    page_size = max(1, min(5000, int(page_size)))
     page_count = max(1, math.ceil(len(matching) / page_size))
     page = max(1, min(page_count, int(page)))
     selected = matching[(page - 1) * page_size : page * page_size]

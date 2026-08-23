@@ -990,7 +990,7 @@ async def api_aniworld_detail(
             anime,
             track,
             page=episode_page,
-            page_size=100,
+            page_size=5000,
             season=season,
         )
         for episode in episodes["episodes"]:

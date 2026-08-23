@@ -389,34 +389,16 @@ async function initApp() {
   document.getElementById("aniworld-filter-reset").addEventListener("click", () => {
     Object.assign(state.aniworld, { letter: "ALL", genre: "" }); aniworldBrowse("catalog", 1);
   });
-  document.getElementById("aniworld-prev").addEventListener("click", () => {
-    aniworldBrowse(state.aniworld.mode || "latest", Math.max(1, state.aniworld.page - 1));
-  });
-  document.getElementById("aniworld-next").addEventListener("click", () => {
-    aniworldBrowse(state.aniworld.mode || "latest", state.aniworld.page + 1);
-  });
+  document.getElementById("aniworld-infinite-retry").addEventListener("click", loadNextAniworldPage);
   const selectVisibleAniworldEpisodes = () => {
     for (const episode of aniworldSelectableEpisodes()) state.aniworld.picked.add(episode.slug);
     renderAniworldEpisodes();
   };
-  document.getElementById("aniworld-select-page").addEventListener("click", selectVisibleAniworldEpisodes);
-  document.getElementById("aniworld-select-season").addEventListener("click", selectVisibleAniworldEpisodes);
+  document.getElementById("aniworld-select-all").addEventListener("click", selectVisibleAniworldEpisodes);
   document.getElementById("aniworld-select-none").addEventListener("click", () => {
     state.aniworld.picked.clear();
     renderAniworldEpisodes();
   });
-  document.getElementById("aniworld-episode-prev").addEventListener("click", () => {
-    if (!state.aniworld.current || state.aniworld.current.page <= 1) return;
-    state.aniworld.episodePage = state.aniworld.current.page - 1;
-    loadAniworldDetail({ keepSelection: true });
-  });
-  document.getElementById("aniworld-episode-next").addEventListener("click", () => {
-    if (!state.aniworld.current || state.aniworld.current.page >= state.aniworld.current.page_count) return;
-    state.aniworld.episodePage = state.aniworld.current.page + 1;
-    loadAniworldDetail({ keepSelection: true });
-  });
-  document.getElementById("aniworld-episode-search").addEventListener("input", (event) => renderAniworldEpisodes(state.aniworld.episodeQuery = event.currentTarget.value));
-  document.getElementById("aniworld-episode-status").addEventListener("change", (event) => renderAniworldEpisodes(state.aniworld.episodeStatus = event.currentTarget.value));
   document.getElementById("aniworld-add-btn").addEventListener("click", aniworldAddSelected);
   document.getElementById("watch-mode-close").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-cancel").addEventListener("click", closeWatchModeModal);

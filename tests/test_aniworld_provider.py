@@ -273,13 +273,41 @@ def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
         'id="aniworld-catalog-btn"',
         'id="aniworld-letter-filter"',
         'id="aniworld-genre-filter"',
+        'id="aniworld-infinite"',
         'id="aniworld-season-options"',
-        'id="aniworld-episode-search"',
-        'id="aniworld-episode-status"',
-        'id="aniworld-select-season"',
+        'id="aniworld-select-all"',
+        'id="aniworld-download-count"',
     ):
         assert expected in screen
+    for removed in (
+        'id="aniworld-prev"',
+        'id="aniworld-next"',
+        'id="aniworld-episode-prev"',
+        'id="aniworld-episode-next"',
+        'id="aniworld-episode-status"',
+    ):
+        assert removed not in screen
+    assert "loadNextAniworldPage" in screen
     assert 'episode.kind === "movie"' in screen
     assert "aniworldSelectableEpisodes" in screen
     assert ".aniworld-detail-panel" in styles
+    assert ".aniworld-download-bar" in styles
     assert "prefers-reduced-motion" in styles
+
+
+def test_aniworld_can_return_a_complete_long_running_series_without_episode_pages():
+    anime = AniWorldAnime(
+        id="lange-serie",
+        title="Lange Serie",
+        episodes=[
+            AniWorldEpisode(1 + (number - 1) // 100, number, tracks=("dub",))
+            for number in range(1, 1206)
+        ],
+    )
+
+    payload = aniworld_episode_page(anime, "dub", page_size=5000)
+
+    assert payload["page"] == 1
+    assert payload["page_count"] == 1
+    assert payload["total"] == 1205
+    assert len(payload["episodes"]) == 1205
