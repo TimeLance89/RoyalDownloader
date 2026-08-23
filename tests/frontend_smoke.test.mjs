@@ -9,6 +9,7 @@ const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "u
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
+const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", import.meta.url), "utf8");
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
@@ -19,6 +20,7 @@ const accountStyles = readFileSync(
 const appModulePaths = [
   "core.js",
   "home_card_dock.js",
+  "home_rail_runtime.js",
   "screens/home.js",
   "home_layout_editor.js",
   "screens/mood.js",
@@ -205,7 +207,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260823-4/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260823-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260823-3/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -487,23 +489,28 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   const track = {
     id: "home-test-track", scrollLeft: 640, scrollWidth: 1800, clientWidth: 600,
     children: [], classList: { toggle() {} },
-    replaceChildren() { this.children = []; this.scrollLeft = 0; },
+    replaceChildren() { this.replaceCount = (this.replaceCount || 0) + 1; this.children = []; this.scrollLeft = 0; },
     appendChild(child) { this.children.push(child); },
     scrollTo(options) { this.requestedScrollLeft = options.left; },
   };
   const context = vm.createContext({
-    state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {} } },
+    state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {}, jellyfinStatusByKey: new Map() } },
     document: { getElementById: () => track, querySelectorAll: () => [] },
     requestAnimationFrame: (callback) => animationFrames.push(callback),
     updateHomeRailNavigation: () => {},
-    createHomeCard: (entry) => entry,
+    createHomeCard: (entry) => ({ ...entry, dataset: {} }),
+    homeEntryMedia: (entry) => entry.item || entry,
+    homeEntryKey: (entry) => String(entry.index),
+    mediaJellyfinStatus: () => "unknown",
   });
   vm.runInContext(homeLayoutEditor.slice(helperStart, helperEnd), context);
+  vm.runInContext(homeRailRuntime, context);
   vm.runInContext(home.slice(renderStart, renderEnd), context);
   context.entries = Array.from({ length: 12 }, (_, index) => ({ index }));
 
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
   assert.equal(track.scrollLeft, 640);
+  assert.equal(track.replaceCount || 0, 0);
   animationFrames.forEach((callback) => callback());
   assert.equal(track.scrollLeft, 640);
 
@@ -512,8 +519,10 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   track.scrollLeft = 0;
   vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
   assert.ok(Math.abs(track.requestedScrollLeft - 492) < 0.01);
+  track.scrollLeft = 137;
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
-  assert.ok(Math.abs(track.scrollLeft - 492) < 0.01);
+  assert.equal(track.scrollLeft, 137);
+  assert.equal(track.replaceCount || 0, 0);
 });
 
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {

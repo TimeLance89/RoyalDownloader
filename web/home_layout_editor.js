@@ -190,12 +190,22 @@ function applyHomeLayout() {
   const layout = currentHomeLayout();
   const hidden = new Set(layout.hidden_rails);
   const container = document.querySelector("#tab-home .home-rails");
+  let cursor = container?.firstElementChild || null;
   layout.rail_order.forEach((railId) => {
     const section = document.querySelector(`[data-home-rail="${railId}"]`);
     if (!section) return;
     section.classList.toggle("home-layout-hidden", hidden.has(railId));
     section.setAttribute("aria-hidden", String(hidden.has(railId)));
-    container?.appendChild(section);
+    // Ein bereits korrekt einsortierter Abschnitt darf bei Daten-Updates nicht
+    // erneut in den DOM eingehängt werden. Das erneute appendChild setzte in
+    // Chromium den horizontalen Scroll-Container sichtbar auf den Anfang.
+    if (container && section !== cursor) {
+      const track = section.querySelector(".home-track");
+      const scrollLeft = homeRailStoredScroll(track, track?.scrollLeft || 0);
+      container.insertBefore(section, cursor);
+      if (track) restoreHomeRailScroll(track, scrollLeft);
+    }
+    cursor = section.nextElementSibling;
   });
   const hero = document.getElementById("home-hero");
   hero?.classList.toggle("home-layout-hidden", !layout.hero_visible);
