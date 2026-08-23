@@ -43,6 +43,7 @@ _PREFIXES = {
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
         "/api/movie", "/api/v1/movie", "/api/series", "/api/v1/series",
         "/api/anime", "/api/v1/anime", "/api/home", "/api/v1/home",
+        "/api/aniworld", "/api/v1/aniworld",
         "/api/daily-top", "/api/v1/daily-top", "/api/search", "/api/v1/search",
         "/api/tmdb/movie", "/api/v1/tmdb/movie", "/api/tmdb/movies",
         "/api/v1/tmdb/movies", "/api/tmdb/series", "/api/v1/tmdb/series",

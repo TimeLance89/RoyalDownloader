@@ -181,7 +181,7 @@ def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(
     assert "huhu" in migrated["movie_provider_enabled"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert writes == [{
-        "provider_catalog_revision": "4",
+        "provider_catalog_revision": "5",
         "movie_provider_priority": migrated["movie_provider_priority"],
         "movie_provider_enabled": migrated["movie_provider_enabled"],
     }]
@@ -202,7 +202,7 @@ def test_filmo_migration_preserves_revision_three_user_choices(monkeypatch):
     assert "filmo" in migrated["movie_provider_priority"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert "huhu" not in migrated["movie_provider_enabled"].split(",")
-    assert writes[0]["provider_catalog_revision"] == "4"
+    assert writes[0]["provider_catalog_revision"] == "5"
 
 
 def test_new_install_movie_defaults_start_with_filmpalast_then_huhu():

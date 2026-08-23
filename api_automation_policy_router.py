@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-import config as appconfig
 import smart_automation as smart_policy
 
 router = APIRouter(tags=["administration"])
@@ -81,8 +80,6 @@ async def api_automation_policy_get():
 async def api_automation_policy_set(body: AutomationPolicyBody):
     backend = _runtime_backend()
     payload = _validated_payload(body)
-    if appconfig.demo_mode_enabled():
-        payload["auto_download"] = False
 
     saved = await run_in_threadpool(smart_policy.save_automation_policy, **payload)
     if not saved:

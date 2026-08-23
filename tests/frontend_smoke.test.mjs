@@ -68,21 +68,18 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(api, /configGet\(\)/);
 });
 
-test("setup and settings expose desktop, NAS, and safe demo deployment modes", () => {
+test("setup and settings expose only desktop and NAS deployment modes", () => {
   for (const id of [
     "setup-mode-desktop",
     "setup-mode-nas",
-    "setup-mode-demo",
     "deployment-mode-desktop",
     "deployment-mode-nas",
-    "deployment-mode-demo",
     "deployment-mode-status",
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
   assert.match(html, /Normaler Computer/);
   assert.match(html, /NAS \/ Heimserver/);
-  assert.match(html, /Alles sichtbar\. Nichts gespeichert\./);
-  assert.match(app, /selectedDeploymentMode\("setup-deployment-mode"\) === "demo"/);
-  assert.match(app, /Demo-Modus · Abläufe werden simuliert · keine Mediendateien/);
+  assert.doesNotMatch(html, /setup-mode-demo|deployment-mode-demo|Demo-Modus/);
+  assert.doesNotMatch(app, /=== "demo"|Demo-Modus/);
   assert.match(app, /deployment_mode: selectedDeploymentMode\("setup-deployment-mode"\)/);
   assert.match(api, /deployment_mode: deploymentMode/);
 });
@@ -94,8 +91,8 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260809-1/);
-  assert.match(html, /screens\/setup\.js\?v=royal-20260811-4/);
+  assert.match(html, /i18n\.js\?v=royal-20260823-1/);
+  assert.match(html, /screens\/setup\.js\?v=royal-20260823-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
 });
@@ -152,7 +149,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260821-3/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260822-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -181,7 +178,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260811-1/);
+  assert.match(html, /api\.js\?v=royal-20260823-3/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -205,8 +202,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260811-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260811-4/);
+  assert.match(html, /api\.js\?v=royal-20260823-3/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260822-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -331,14 +328,118 @@ test("series wallpaper hydration updates every duplicate catalog object", async 
       }),
     },
     renderHome: () => {},
+    saveHomeCache: () => {},
   });
-  vm.runInContext(home.slice(home.indexOf("async function hydrateHomeSeriesArtwork")), context);
+  vm.runInContext(home.slice(home.indexOf("const HOME_SERIES_ARTWORK_BATCH_SIZE")), context);
   context.items = [trending, discovery];
   await vm.runInContext("hydrateHomeSeriesArtwork(items, { render: false })", context);
   assert.equal(trending.backdrop_url, "/wallpaper.jpg");
   assert.equal(discovery.backdrop_url, "/wallpaper.jpg");
   assert.deepEqual(trending.genres, ["Drama"]);
   assert.deepEqual(discovery.genres, ["Drama"]);
+});
+
+test("series wallpapers paint progressively and retry only server-reported pending titles", async () => {
+  const calls = [];
+  let renders = 0;
+  let cacheWrites = 0;
+  const context = vm.createContext({
+    console,
+    api: {
+      tmdbSeries: async (items) => {
+        calls.push(items.map((item) => item.base_slug));
+        const resolved = calls.length === 1 ? items.slice(0, 7) : items;
+        return {
+          series: Object.fromEntries(resolved.map((item) => [item.base_slug, {
+            backdrop_url: `/wallpaper/${item.base_slug}.jpg`,
+          }])),
+          pending: calls.length === 1 ? [items[7].base_slug] : [],
+        };
+      },
+    },
+    renderHome: () => { renders += 1; },
+    saveHomeCache: () => { cacheWrites += 1; },
+  });
+  vm.runInContext(home.slice(home.indexOf("const HOME_SERIES_ARTWORK_BATCH_SIZE")), context);
+  context.items = Array.from({ length: 10 }, (_, index) => ({
+    base_slug: `series-${index}`,
+    title: `Series ${index}`,
+    cover_url: "/poster.jpg",
+    backdrop_url: "",
+    genres: ["Drama"],
+  }));
+
+  const hydrated = await vm.runInContext(
+    "hydrateHomeSeriesArtwork(items, { render: true })",
+    context,
+  );
+
+  assert.deepEqual(calls.map((batch) => batch.length), [8, 1, 2]);
+  assert.equal(renders, 3);
+  assert.equal(cacheWrites, 3);
+  assert.equal(hydrated.length, 10);
+  assert.ok(context.items.every((item) => item.backdrop_url));
+});
+
+test("home load waits for movie Jellyfin truth but never blocks on series Jellyfin", async () => {
+  const start = home.indexOf("async function loadHomeData()");
+  const end = home.indexOf("async function hydrateHomeMovieArtwork", start);
+  let releaseMovie;
+  let releaseSeries;
+  const movieStatus = new Promise((resolve) => { releaseMovie = resolve; });
+  const seriesStatus = new Promise((resolve) => { releaseSeries = resolve; });
+  const calls = [];
+  const state = {
+    tab: "home",
+    home: {
+      loading: false,
+      newMovies: [],
+      topMovies: [],
+      discoveryMovies: [],
+      trendingSeries: [],
+      newSeries: [],
+      discoverySeries: [],
+    },
+  };
+  const context = vm.createContext({
+    console,
+    state,
+    api: {
+      movies: async () => ({ results: [{ slug: "movie", title: "Movie" }] }),
+      series: async () => ({ results: [{ base_slug: "series", title: "Series" }] }),
+    },
+    homeAllEntries: () => [
+      { kind: "movie", item: { slug: "movie", title: "Movie" } },
+      { kind: "series", item: { base_slug: "series", title: "Series" } },
+    ],
+    renderHome: () => { calls.push("render"); },
+    syncFpCatalogFromHome: () => {},
+    syncSeriesCatalogFromHome: () => {},
+    hydrateHomeMovieArtwork: async () => {},
+    hydrateHomeSeriesArtwork: async () => { calls.push("series-artwork"); },
+    refreshCatalogJellyfinStatus: (entries, render) => {
+      const kind = entries[0]?.kind;
+      calls.push(`jellyfin-${kind}`);
+      if (kind === "movie") return movieStatus;
+      return seriesStatus.then(() => render?.());
+    },
+    saveHomeCache: () => {},
+  });
+  vm.runInContext(home.slice(start, end), context);
+
+  let completed = false;
+  const load = vm.runInContext("loadHomeData()", context).then(() => { completed = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(calls.includes("series-artwork"));
+  assert.ok(calls.includes("jellyfin-movie"));
+  assert.equal(completed, false);
+
+  releaseMovie();
+  await load;
+  assert.equal(completed, true);
+  assert.equal(state.home.loading, false);
+  assert.ok(calls.includes("jellyfin-series"));
+  releaseSeries();
 });
 
 test("home discovery is larger, shuffleable, and avoids repetitive rails", () => {
@@ -375,7 +476,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260821-1/);
+  assert.match(html, /core\.js\?v=royal-20260823-2/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
@@ -453,7 +554,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260809-1/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260823-1/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -503,11 +604,12 @@ test("movie download failures stay visible with their exact queue reason", () =>
   );
   assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
   assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260821-3/);
+  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260822-1/);
   assert.match(
     app,
     /const movie = await prepareFpMovieDownload\(slug\);[\s\S]*?if \(!movie\) return;[\s\S]*?await api\.queueAdd\(\[slug\]\)/,
   );
+  assert.match(app, /Jellyfin wird live geprüft\. Der Download startet danach automatisch\./);
   assert.match(app, /if \(Array\.isArray\(cached\?\.hosters\) && cached\.hosters\.length\) return cached/);
   assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
   assert.match(app, /Download nicht gestartet:/);
@@ -543,7 +645,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260821-1/);
+  assert.match(html, /style\.css\?v=royal-20260823-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

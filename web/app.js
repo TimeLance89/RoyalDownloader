@@ -372,6 +372,34 @@ async function initApp() {
     loadAnimeDetail({ keepSelection: true });
   });
   document.getElementById("anime-add-btn").addEventListener("click", animeAddSelected);
+  document.getElementById("aniworld-search-btn").addEventListener("click", () => aniworldBrowse("search", 1));
+  document.getElementById("aniworld-search").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    aniworldBrowse("search", 1);
+  });
+  document.getElementById("aniworld-latest-btn").addEventListener("click", () => aniworldBrowse("latest", 1));
+  document.getElementById("aniworld-updates-btn").addEventListener("click", () => aniworldBrowse("updates", 1));
+  document.getElementById("aniworld-trending-btn").addEventListener("click", () => aniworldBrowse("trending", 1));
+  document.getElementById("aniworld-popular-btn").addEventListener("click", () => aniworldBrowse("popular", 1));
+  document.getElementById("aniworld-catalog-btn").addEventListener("click", () => aniworldBrowse("catalog", 1));
+  document.getElementById("aniworld-genre-filter").addEventListener("change", (event) => {
+    state.aniworld.genre = event.currentTarget.value; aniworldBrowse("catalog", 1);
+  });
+  document.getElementById("aniworld-filter-reset").addEventListener("click", () => {
+    Object.assign(state.aniworld, { letter: "ALL", genre: "" }); aniworldBrowse("catalog", 1);
+  });
+  document.getElementById("aniworld-infinite-retry").addEventListener("click", loadNextAniworldPage);
+  const selectVisibleAniworldEpisodes = () => {
+    for (const episode of aniworldSelectableEpisodes()) state.aniworld.picked.add(episode.slug);
+    renderAniworldEpisodes();
+  };
+  document.getElementById("aniworld-select-all").addEventListener("click", selectVisibleAniworldEpisodes);
+  document.getElementById("aniworld-select-none").addEventListener("click", () => {
+    state.aniworld.picked.clear();
+    renderAniworldEpisodes();
+  });
+  document.getElementById("aniworld-add-btn").addEventListener("click", aniworldAddSelected);
   document.getElementById("watch-mode-close").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-cancel").addEventListener("click", closeWatchModeModal);
   document.getElementById("watch-mode-save").addEventListener("click", saveWatchMode);

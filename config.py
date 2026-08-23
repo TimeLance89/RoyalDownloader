@@ -23,7 +23,6 @@ from typing import List, Optional
 
 from runtime_paths import data_dir, in_container, persistent_container_path
 from environment_file import (
-    MODE_DEMO,
     MODE_DESKTOP,
     normalize_deployment_mode,
 )
@@ -113,7 +112,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 4
+PROVIDER_CATALOG_REVISION = 5
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -213,11 +212,6 @@ def _default_path() -> str:
     return str(Path.home() / "Downloads" / "Filme")
 
 
-def _demo_media_path(kind: str) -> str:
-    """Nicht angelegtes, internes Ziel für Pfadberechnungen im Demo-Modus."""
-    return str(_config_dir() / "demo-output" / kind)
-
-
 def _effective_media_path(stored: str, env_name: str, label: str) -> str:
     stored = str(stored or "").strip()
     env_path = os.environ.get(env_name, "").strip()
@@ -298,8 +292,6 @@ def load() -> str:
     """
     Lädt den gespeicherten Download-Pfad. Fallback: ~/Downloads/Filme.
     """
-    if demo_mode_enabled():
-        return _demo_media_path("Filme")
     values = _read_all()
     save_path = _effective_media_path(
         values.get("save_path", ""), "DOWNLOAD_DIR", "Filmordner",
@@ -321,8 +313,6 @@ def load_series_path() -> str:
     """Lädt den separaten Zielordner für SERIEN. Priorität: gespeicherter Wert
     (UI) > Umgebungsvariable SERIES_DIR > Film-Pfad (Rückwärtskompatibilität:
     ohne eigene Serien-Einstellung landen Serien wie bisher im Film-Ordner)."""
-    if demo_mode_enabled():
-        return _demo_media_path("Serien")
     values = _read_all()
     series_path = _effective_media_path(
         values.get("series_path", ""), "SERIES_DIR", "Serienordner",
@@ -373,10 +363,6 @@ def load_deployment_mode() -> str:
 
 def save_deployment_mode(mode: str) -> bool:
     return _update_all({"deployment_mode": normalize_deployment_mode(mode)})
-
-
-def demo_mode_enabled() -> bool:
-    return load_deployment_mode() == MODE_DEMO
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +493,27 @@ def _migrate_provider_catalog(values: dict) -> dict:
         if "filmo" not in movie_enabled:
             movie_enabled.append("filmo")
             updates["movie_provider_enabled"] = ",".join(movie_enabled)
+
+    # Revision 5: AniWorld ist die erste deutsche Anime-Quelle. Bestehende
+    # Installationen erhalten sie einmalig in Reihenfolge und Aktiv-Auswahl;
+    # danach bleibt eine bewusste Deaktivierung erhalten.
+    anime_priority_raw = values.get("anime_provider_priority")
+    if anime_priority_raw is not None and revision < 5:
+        anime_order = normalize_provider_order(
+            anime_priority_raw, ANIME_PROVIDER_DEFAULTS,
+        )
+        anime_order.remove("aniworld")
+        anime_order.insert(ANIME_PROVIDER_DEFAULTS.index("aniworld"), "aniworld")
+        updates["anime_provider_priority"] = ",".join(anime_order)
+
+    anime_enabled_raw = values.get("anime_provider_enabled")
+    if anime_enabled_raw is not None and revision < 5:
+        anime_enabled = normalize_provider_selection(
+            anime_enabled_raw, ANIME_PROVIDER_DEFAULTS,
+        )
+        if "aniworld" not in anime_enabled:
+            anime_enabled.append("aniworld")
+        updates["anime_provider_enabled"] = ",".join(anime_enabled)
 
     _update_all(updates)
     return {**values, **updates}
@@ -832,10 +839,7 @@ def is_initialized() -> bool:
     if not _config_file().is_file():
         return False
     values = _read_all()
-    return (
-        normalize_deployment_mode(values.get("deployment_mode")) == MODE_DEMO
-        or bool(values.get("save_path", "").strip())
-    )
+    return bool(values.get("save_path", "").strip())
 
 
 def save_initial_setup(

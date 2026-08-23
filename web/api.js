@@ -117,6 +117,21 @@ const api = {
       }),
     );
   },
+  aniworld(params) { return this.get("/api/aniworld?" + new URLSearchParams(params)); },
+  aniworldPosters(ids) { return this.post("/api/aniworld/posters", { ids }); },
+  aniworldDetail(id, translation = "", episodePage = 1, season = null) {
+    const params = {
+      translation,
+      episode_page: String(episodePage),
+    };
+    if (season !== null && season !== undefined && season !== "") {
+      params.season = String(season);
+    }
+    return this.get(
+      `/api/aniworld/${encodeURIComponent(id)}?`
+      + new URLSearchParams(params),
+    );
+  },
 
   queueGet() { return this.get("/api/queue"); },
   queueAddFailureReason(response, slugs = []) {
@@ -429,7 +444,7 @@ function loadRoyalStorageManager() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/storage-manager.js?v=royal-20260817-2";
+  script.src = "/storage-manager.js?v=royal-20260823-1";
   script.async = false;
   script.setAttribute("data-royal-storage-manager", "true");
   script.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });

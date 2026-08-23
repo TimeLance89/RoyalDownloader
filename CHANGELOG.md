@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+## 2026-08-23 – AniWorld archive, faster catalogs, and production-only setup
+
+### AniWorld archive and downloads
+
+- Add AniWorld as a dedicated German anime provider and a first-class top-level
+  workspace instead of mixing it into the regular movie and series views.
+- Enable AniWorld automatically for existing German installations while
+  retaining its provider visibility and settings when English sources are
+  disabled.
+- Cover the complete AniWorld A–Z catalog on the archive start page with
+  infinite loading, title search, letter and genre facets, deduplication, and
+  dedicated views for new episodes, new anime, trending, and popular titles.
+- Keep the compact discovery views bounded to 22 entries while the A–Z archive
+  remains fully browsable without page-by-page navigation.
+- Use only artwork hosted by AniWorld for AniWorld cards and details, hydrate
+  missing posters in bounded batches, cache successful results, and reject
+  external poster hosts.
+- Add complete anime metadata, language-track selection, seasons, episode
+  titles, hoster availability, companion movies as Season 0, per-episode
+  selection, whole-season selection, and direct queue handoff.
+- Simplify long-running series navigation to one selected season at a time and
+  return complete season episode sets without exposing internal pagination to
+  the user.
+- Preserve the selected language track and season through detail and hoster
+  resolution, and include AniWorld in the established fallback and provider
+  health infrastructure.
+- Store AniWorld episodes with the same clean series, season, and episode
+  naming convention as other series instead of embedding provider and language
+  identifiers in Jellyfin titles.
+
+### Catalog and Jellyfin responsiveness
+
+- Stream series artwork and visible catalog content before targeted Jellyfin
+  availability checks finish so library status cannot delay the first render.
+- Await movie Jellyfin readiness once per download decision, reuse the live
+  state, and keep duplicate-download protection consistent across the catalog
+  and queue boundary.
+- Add regression coverage for delayed artwork, stale Jellyfin state, series
+  queue circuit breaking, complete AniWorld catalogs, official poster origin,
+  language tracks, long-running series, and portable download names.
+
+### Deployment cleanup
+
+- Remove the Demo deployment mode, simulated download pipeline, and all related
+  setup, settings, storage, automation, environment, and runtime branches.
+- Migrate legacy Demo configurations to Desktop mode and require real media
+  paths before downloading, leaving Regular computer and NAS / home server as
+  the supported deployment choices.
+
 ## v1.0.0 – 2026-08-21
 
 RoyalDownloader 1.0.0 promotes the reviewed RC line and the subsequent

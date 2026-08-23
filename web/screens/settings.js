@@ -4,42 +4,17 @@ let dirModalTarget = "save-path";   // welches Feld der Ordner-Dialog befüllt
 
 function updateDeploymentModeHints(context, mode) {
   const nas = mode === "nas";
-  const demo = mode === "demo";
   const movie = document.getElementById(context === "setup" ? "setup-save-path" : "save-path");
   const series = document.getElementById(context === "setup" ? "setup-series-path" : "series-path");
   if (movie) {
-    movie.disabled = demo;
-    movie.placeholder = demo ? "Im Demo-Modus nicht erforderlich" : (nas ? "/volume1/media/Filme" : "C:\\Users\\Name\\Downloads\\Royal\\Filme");
+    movie.placeholder = nas ? "/volume1/media/Filme" : "C:\\Users\\Name\\Downloads\\Royal\\Filme";
   }
   if (series) {
-    series.disabled = demo;
-    series.placeholder = demo ? "Im Demo-Modus nicht erforderlich" : (nas ? "/volume1/media/Serien" : "C:\\Users\\Name\\Downloads\\Royal\\Serien");
-  }
-  const browseIds = context === "setup"
-    ? ["setup-browse-movies", "setup-browse-series"]
-    : ["browse-dir-btn", "browse-series-btn"];
-  browseIds.forEach((id) => {
-    const button = document.getElementById(id);
-    if (button) button.disabled = demo;
-  });
-  const autoDownload = document.getElementById(
-    context === "setup" ? "setup-auto-download" : "auto-download",
-  );
-  if (autoDownload) {
-    autoDownload.disabled = demo;
-    if (demo) autoDownload.checked = false;
-  }
-  if (context === "setup") {
-    document.getElementById("setup-storage-fields")?.classList.toggle("is-demo-disabled", demo);
-    document.getElementById("setup-demo-storage")?.classList.toggle("hidden", !demo);
-  } else {
-    document.getElementById("settings-storage-card")?.classList.toggle("is-demo-disabled", demo);
+    series.placeholder = nas ? "/volume1/media/Serien" : "C:\\Users\\Name\\Downloads\\Royal\\Serien";
   }
   const status = document.getElementById("deployment-mode-status");
   if (context === "settings" && status) {
-    status.textContent = demo
-      ? "Demo-Modus · Abläufe werden simuliert · keine Mediendateien"
-      : nas
+    status.textContent = nas
       ? "NAS-Modus · start.sh/Docker · im Netzwerk erreichbar"
       : "Computer-Modus · lokaler Browser · nur auf diesem Gerät";
   }
@@ -348,6 +323,7 @@ function renderAllProviderBoards() {
     });
   }
   syncAnimeNavigationVisibility();
+  syncAniworldNavigationVisibility();
 }
 
 function applyProviderPriority(cfg) {
@@ -396,7 +372,7 @@ function applyProviderPriority(cfg) {
 async function initSettings() {
   document.getElementById("ui-language").value = i18n.language;
   const cfg = await api.configGet();
-  const mode = ["desktop", "nas", "demo"].includes(cfg.deployment_mode)
+  const mode = ["desktop", "nas"].includes(cfg.deployment_mode)
     ? cfg.deployment_mode
     : "desktop";
   const modeRadio = document.querySelector(`input[name="deployment-mode"][value="${mode}"]`);

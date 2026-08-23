@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from providers.mkissa import SOURCE_PREFIX as MKISSA_PREFIX
+from providers.aniworld import SOURCE_PREFIX as ANIWORLD_PREFIX
 from providers.models import FilmpalastMovie, parse_episode_slug, strip_episode_suffix
 
 router = APIRouter(tags=["queue"])
@@ -56,6 +57,7 @@ queue_history_payload = _unbound_dependency
 queue_jobs_payload = _unbound_dependency
 refresh_jellyfin_after_download = _unbound_dependency
 run_download_queue = _unbound_dependency
+wait_for_jellyfin_live_ready = _unbound_dependency
 
 _DYNAMIC_CALLS = (
     "_cancel_queue_slugs",
@@ -95,6 +97,7 @@ _DYNAMIC_CALLS = (
     "queue_jobs_payload",
     "refresh_jellyfin_after_download",
     "run_download_queue",
+    "wait_for_jellyfin_live_ready",
 )
 
 
@@ -250,12 +253,12 @@ def _record_download_taste(jobs: list[tuple[FilmpalastMovie, str]], source: str)
         return
     for movie, slug in jobs:
         episode = parse_episode_slug(slug)
-        is_anime = source == "anime" or slug.startswith(MKISSA_PREFIX)
+        is_anime = source == "anime" or slug.startswith((MKISSA_PREFIX, ANIWORLD_PREFIX))
         media_type = "anime" if is_anime else ("series" if episode else "movie")
         if is_anime:
             anime_base = (
                 episode[0] if episode else slug
-            ).removeprefix(MKISSA_PREFIX).split("|", 1)[0]
+            ).removeprefix(MKISSA_PREFIX).removeprefix(ANIWORLD_PREFIX).split("|", 1)[0]
             item_key = f"anime:{anime_base}"
         else:
             item_key = f"series:{episode[0]}" if episode else f"movie:{slug}"
@@ -615,6 +618,7 @@ async def api_queue_add(body: QueueAddBody):
         selected_fallbacks: dict[str, list[FilmpalastMovie]] = {}
         skipped = 0
         skipped_details: dict[str, str] = {}
+        movie_jellyfin_ready: bool | None = None
         for slug in body.slugs:
             scheduled_reason = _scheduled_episode_reason(slug)
             if scheduled_reason:
@@ -649,7 +653,25 @@ async def api_queue_add(body: QueueAddBody):
                         movie = _episode_placeholder(slug)
                     else:
                         raise RuntimeError("kein Hoster verfügbar")
+                episode_info = parse_episode_slug(slug)
+                if episode_info is None:
+                    if movie_jellyfin_ready is None:
+                        movie_jellyfin_ready = wait_for_jellyfin_live_ready()
+                    if not movie_jellyfin_ready:
+                        skipped += 1
+                        skipped_details[slug] = (
+                            "Jellyfin nicht erreichbar – Sicherheitsprüfung "
+                            "konnte nicht abgeschlossen werden"
+                        )
+                        with state.queue_claim_lock:
+                            state.picked.discard(slug)
+                        continue
                 already_available, reason = _content_already_available(movie, slug)
+                if episode_info is not None and _is_jellyfin_safety_block(reason):
+                    # Serien sollen nicht auf einen laufenden Jellyfin-Abgleich
+                    # warten. Sicher erkannte Duplikate und lokale Dateien
+                    # bleiben weiterhin gesperrt.
+                    already_available, reason = False, ""
                 if already_available:
                     skipped += 1
                     skipped_details[slug] = reason

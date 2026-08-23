@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config as appconfig
+from providers.aniworld import aniworld_episode_page
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
@@ -39,6 +40,10 @@ _TMDB_METADATA_POOL = ThreadPoolExecutor(
 _TMDB_METADATA_BACKGROUND_POOL = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="tmdb-metadata-background",
+)
+_TMDB_SERIES_METADATA_POOL = ThreadPoolExecutor(
+    max_workers=8,
+    thread_name_prefix="tmdb-series-metadata",
 )
 _TMDB_METADATA_INFLIGHT: dict[tuple, Any] = {}
 _TMDB_METADATA_INFLIGHT_LOCK = threading.Lock()
@@ -80,6 +85,7 @@ get_jellyfin_library = _unbound_dependency
 get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
+get_aniworld_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
 load_movie_for_slug = _unbound_dependency
@@ -113,6 +119,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_movie_identities",
     "get_jellyfin_series",
     "get_mkissa_scraper",
+    "get_aniworld_scraper",
     "get_series_for_value",
     "get_tmdb_client",
     "load_movie_for_slug",
@@ -574,9 +581,9 @@ async def api_tmdb_movies(body: MovieMetadataBody):
 @router.post("/api/v1/tmdb/series")
 @router.post("/api/tmdb/series")
 async def api_tmdb_series(body: SeriesMetadataBody):
-    """Lädt schnelle TMDB-Backdrops für Serien-Rails ohne Seriendetails."""
+    """Lädt Serien-Backdrops innerhalb eines festen First-Paint-Budgets."""
     if not get_tmdb_client().configured or not body.items:
-        return {"series": {}}
+        return {"series": {}, "pending": []}
 
     def _work():
         unique = {}
@@ -591,32 +598,51 @@ async def api_tmdb_series(body: SeriesMetadataBody):
 
         result = {}
         groups = list(unique.values())
-        with ThreadPoolExecutor(
-            max_workers=min(TMDB_MOVIE_BATCH_MAX_WORKERS, len(groups)),
-        ) as pool:
-            futures = [
-                (
-                    group,
-                    pool.submit(
-                        get_tmdb_client().series_summary,
+        client = get_tmdb_client()
+        futures = []
+        for group in groups:
+            job_key = (
+                "series",
+                _norm_title(group["title"]),
+                str(group.get("year") or ""),
+            )
+            created = False
+            with _TMDB_METADATA_INFLIGHT_LOCK:
+                future = _TMDB_METADATA_INFLIGHT.get(job_key)
+                if future is None:
+                    future = _TMDB_SERIES_METADATA_POOL.submit(
+                        client.series_summary,
                         group["title"],
                         group["year"],
-                    ),
+                    )
+                    _TMDB_METADATA_INFLIGHT[job_key] = future
+                    created = True
+            if created:
+                future.add_done_callback(
+                    lambda done, key=job_key: _discard_tmdb_metadata_future(key, done)
                 )
-                for group in groups
-            ]
-            for group, future in futures:
-                try:
-                    metadata = future.result()
-                except Exception as exc:
-                    log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
-                    metadata = None
-                if metadata:
-                    for base_slug in group["base_slugs"]:
-                        result[base_slug] = metadata
-        return result
+            futures.append((group, future))
 
-    return {"series": await run_in_threadpool(_work)}
+        done, _pending = wait(
+            {future for _group, future in futures},
+            timeout=TMDB_METADATA_BATCH_BUDGET_SECONDS,
+        )
+        pending_base_slugs = []
+        for group, future in futures:
+            if future not in done:
+                pending_base_slugs.extend(group["base_slugs"])
+                continue
+            try:
+                metadata = future.result()
+            except Exception as exc:
+                log(f"TMDB-Serienbild fehlgeschlagen ({group['title']}): {exc}", "warn")
+                metadata = None
+            if metadata:
+                for base_slug in group["base_slugs"]:
+                    result[base_slug] = metadata
+        return {"series": result, "pending": pending_base_slugs}
+
+    return await run_in_threadpool(_work)
 
 
 # ── Serien ───────────────────────────────────────────────────────────────────
@@ -704,6 +730,10 @@ class SeriesJellyfinStatusBody(BaseModel):
     aliases: list[str] = Field(default_factory=list, max_length=30)
     episodes: list[SeriesJellyfinEpisodeBody] = Field(max_length=2000)
     force: bool = False
+
+
+class AniWorldPosterBody(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=50)
 
 
 @router.post("/api/v1/series/jellyfin-status")
@@ -879,3 +909,138 @@ async def api_anime_detail(
     except Exception as exc:
         log(f"MKissa-Details fehlgeschlagen: {exc}", "warn")
         raise HTTPException(502, f"MKissa-Details sind nicht verfügbar: {exc}") from exc
+
+
+# ── AniWorld (deutscher Anime-Bereich) ─────────────────────────────────────
+@router.get("/api/v1/aniworld")
+@router.get("/api/aniworld")
+async def api_aniworld(
+    mode: str = "latest",
+    query: str = "",
+    page: int = 1,
+    letter: str = "",
+    genre: str = "",
+):
+    if page < 1 or page > 50:
+        raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
+    if "aniworld" not in provider_priority("anime"):
+        return {
+            "results": [], "mode": mode, "page": 1, "has_more": False,
+            "total": 0, "disabled": True,
+            "disabled_reason": (
+                "AniWorld ist pausiert. Aktiviere deutsche Inhalte und die "
+                "Anime-Quelle in den Einstellungen."
+            ),
+        }
+    browse_mode = mode if mode in {
+        "search", "latest", "popular", "trending", "updates", "catalog",
+    } else "latest"
+    if browse_mode == "search" and not query.strip():
+        return {
+            "results": [], "mode": browse_mode, "page": 1,
+            "has_more": False, "total": 0, "disabled": False,
+        }
+
+    def _work():
+        with state.aniworld_lock:
+            return get_aniworld_scraper().browse(
+                mode=browse_mode,
+                query=query,
+                page=page,
+                limit=24 if browse_mode == "catalog" else 22,
+                letter=letter,
+                genre=genre,
+            )
+
+    try:
+        payload = await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"AniWorld-Katalog fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"AniWorld ist gerade nicht erreichbar: {exc}") from exc
+    return {
+        **payload,
+        "mode": browse_mode,
+        "disabled": False,
+        "provider": "aniworld",
+        "provider_label": PROVIDER_LABELS["aniworld"],
+        "content_language": provider_content_language("aniworld"),
+    }
+
+
+@router.post("/api/v1/aniworld/posters")
+@router.post("/api/aniworld/posters")
+async def api_aniworld_posters(body: AniWorldPosterBody):
+    if "aniworld" not in provider_priority("anime"):
+        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    anime_ids = list(dict.fromkeys(
+        str(anime_id or "").strip() for anime_id in body.ids if anime_id
+    ))[:50]
+
+    def _work():
+        with state.aniworld_lock:
+            return get_aniworld_scraper().get_posters(anime_ids)
+
+    try:
+        posters = await run_in_threadpool(_work)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        log(f"AniWorld-Poster fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, "AniWorld-Poster sind gerade nicht verfügbar.") from exc
+    return {"posters": posters, "provider": "aniworld"}
+
+
+@router.get("/api/v1/aniworld/{anime_id}")
+@router.get("/api/aniworld/{anime_id}")
+async def api_aniworld_detail(
+    anime_id: str,
+    translation: str = "",
+    episode_page: int = 1,
+    season: int | None = None,
+):
+    if "aniworld" not in provider_priority("anime"):
+        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    requested_track = str(translation or "").strip().casefold()
+
+    def _work():
+        with state.aniworld_lock:
+            anime = get_aniworld_scraper().get_anime(anime_id)
+        available = anime.translations
+        track = requested_track if requested_track in available else (
+            "dub" if available.get("dub") else
+            "sub" if available.get("sub") else
+            "eng" if available.get("eng") else ""
+        )
+        if not track:
+            raise LookupError("AniWorld meldet keine verfügbaren Episoden.")
+        episodes = aniworld_episode_page(
+            anime,
+            track,
+            page=episode_page,
+            page_size=5000,
+            season=season,
+        )
+        for episode in episodes["episodes"]:
+            slug = episode["slug"]
+            episode["queued"] = slug in state.picked
+            episode["downloaded"] = bool(_existing_valid_episode_path(
+                anime.title, int(episode["season"]), int(episode["number"]),
+            ))
+        return {
+            **anime.public_dict(),
+            "translation": track,
+            "translation_labels": {
+                "dub": "Deutsch Dub",
+                "sub": "Deutsch Sub",
+                "eng": "Englisch",
+            },
+            **episodes,
+        }
+
+    try:
+        return await run_in_threadpool(_work)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        log(f"AniWorld-Details fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, f"AniWorld-Details sind nicht verfügbar: {exc}") from exc

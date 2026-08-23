@@ -40,7 +40,6 @@ def test_storage_status_route_uses_configured_paths(monkeypatch, tmp_path):
 
 
 def test_storage_location_save_uses_safe_registry(monkeypatch):
-    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
     calls = []
     monkeypatch.setattr(
         storage_api,
@@ -65,7 +64,6 @@ def test_storage_location_save_uses_safe_registry(monkeypatch):
 
 def test_cleanup_route_requires_explicit_confirmation(monkeypatch, tmp_path):
     movies = tmp_path / "movies"; movies.mkdir()
-    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
     monkeypatch.setattr(storage_api.appconfig, "load", lambda: str(movies))
     monkeypatch.setattr(storage_api.appconfig, "load_series_path", lambda: str(movies))
     body = storage_api.StorageCleanupBody(
@@ -81,7 +79,6 @@ def test_cleanup_route_requires_explicit_confirmation(monkeypatch, tmp_path):
 
 
 def test_move_plan_returns_safe_targets(monkeypatch):
-    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
     monkeypatch.setattr(storage_api, "_media_paths", lambda: {"movies": "/movies", "series": "/series"})
     monkeypatch.setattr(storage_api, "load_storage_locations", lambda: [])
     monkeypatch.setattr(storage_api, "plan_move_candidate", lambda *args, **kwargs: {
@@ -100,7 +97,6 @@ def test_move_plan_returns_safe_targets(monkeypatch):
 
 
 def test_move_route_requires_explicit_confirmation(monkeypatch):
-    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
     body = storage_api.StorageMoveBody(
         root="movies", relative_path="Movie.mkv", token="x" * 64,
         expected_size=100, expires_at=9999999999,
@@ -115,7 +111,6 @@ def test_move_route_requires_explicit_confirmation(monkeypatch):
 
 
 def test_move_route_enqueues_background_job(monkeypatch):
-    monkeypatch.setattr(storage_api.appconfig, "demo_mode_enabled", lambda: False)
     monkeypatch.setattr(storage_api, "_media_paths", lambda: {"movies": "/movies", "series": "/series"})
     monkeypatch.setattr(storage_api, "load_storage_locations", lambda: [])
     captured = {}

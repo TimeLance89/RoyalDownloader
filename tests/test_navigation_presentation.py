@@ -33,8 +33,9 @@ def test_desktop_navigation_matches_streaming_content_order_without_html_contrac
         '[data-tab="serien"] { order: 2; }',
         '[data-tab="filme"] { order: 3; }',
         '[data-tab="anime"] { order: 4; }',
-        '[data-tab="bibliothek"] { order: 5; }',
-        '.mood-nav-open { order: 6; }',
+        '[data-tab="aniworld"] { order: 5; }',
+        '[data-tab="bibliothek"] { order: 6; }',
+        '.mood-nav-open { order: 7; }',
     ]
     for contract in expected:
         assert contract in css

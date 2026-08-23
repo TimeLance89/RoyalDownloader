@@ -38,6 +38,15 @@ function createInitialState() {
       currentId: "", current: null, translation: "", episodePage: 1,
       picked: new Set(), searchReturn: null,
     },
+    aniworld: {
+      results: [], mode: null, query: "", page: 1, hasMore: false,
+      total: 0, facets: { letters: {}, genres: {} }, letter: "ALL", genre: "",
+      loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
+      currentId: "", current: null, translation: "", episodePage: 1,
+      selectedSeason: null, picked: new Set(), searchReturn: null,
+      disabledReason: "", loadError: "", posterCache: new Map(),
+      posterLoading: new Set(),
+    },
     wl: {
       items: [], selected: new Set(), loaded: false,
       filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",

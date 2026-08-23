@@ -144,8 +144,25 @@ def _extract_from_movie(
         # wird gar nicht erst provoziert. Fällt ein Hoster durch, wird nur der
         # nächste aufgelöst.
         was_sto = SerienstreamScraper.is_redirect_url(hoster.url)
+        was_aniworld = AniWorldScraper.is_redirect_url(hoster.url)
         play_url = hoster.url
         resolved_by_provider = False
+        if was_aniworld:
+            cached_target = state.resolved_link_cache.get(hoster.url)
+            if cached_target:
+                play_url = cached_target
+                res.resolved_from_cache = True
+            else:
+                with state.aniworld_lock:
+                    play_url = get_aniworld_scraper().resolve_play_url(
+                        hoster.url, referer=movie.url,
+                    )
+                if play_url:
+                    state.resolved_link_cache.put(hoster.url, play_url)
+                    resolved_by_provider = True
+                else:
+                    barren_hoster_urls.add(hoster.url)
+                    continue
         if was_sto:
             cached_target = state.resolved_link_cache.get(hoster.url)
             if cached_target:
@@ -603,7 +620,6 @@ def _enqueue_hoster_attempt(
     hoster_used = result.hoster_used
     label = f"{movie.title}  ({hoster_used})"
     logical_job = _ensure_queue_job(movie_slug, movie)
-    demo_mode = appconfig.demo_mode_enabled()
     logical_attempt_id = attempt_id or str(logical_job.get("attempt_id") or "")
     if attempt_id and logical_job.get("attempt_id") != attempt_id:
         return False
@@ -632,7 +648,7 @@ def _enqueue_hoster_attempt(
             or current.get("attempt_id") != logical_attempt_id
         ):
             return
-        if result.hoster_url_used and not demo_mode:
+        if result.hoster_url_used:
             state.hoster_intel.record_download(
                 result.hoster_url_used,
                 ok,
@@ -654,7 +670,6 @@ def _enqueue_hoster_attempt(
                 and terminal.get("attempt_id") == logical_attempt_id
                 and terminal.get("status") == "completed"
                 and not parse_episode_slug(movie_slug)
-                and not demo_mode
             ):
                 _movie_subscription_download_finished(movie_slug, out_path, result.quality)
             return
@@ -906,7 +921,6 @@ def _enqueue_hoster_attempt(
         attempt_id=logical_attempt_id,
         allow_slow=last_resort,
         queue_priority=0 if not parse_episode_slug(movie_slug) else 100,
-        demo_mode=demo_mode,
     )
     with state.queue_lifecycle_lock:
         with state.queue_claim_lock:
