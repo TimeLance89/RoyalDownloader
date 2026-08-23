@@ -161,6 +161,28 @@ def create_discovery_router(backend) -> APIRouter:
     return router
 
 
+# ── Start-page composition ────────────────────────────────────────────────
+class HomeLayoutBody(BaseModel):
+    hero_visible: bool = True
+    rail_order: list[str] = Field(default_factory=list, max_length=12)
+    hidden_rails: list[str] = Field(default_factory=list, max_length=12)
+
+
+@router.get("/api/v1/home/layout")
+@router.get("/api/home/layout")
+async def api_home_layout_get():
+    return state.home_layout.public_layout()
+
+
+@router.put("/api/v1/home/layout")
+@router.put("/api/home/layout")
+async def api_home_layout_put(body: HomeLayoutBody):
+    try:
+        return await run_in_threadpool(state.home_layout.update, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 # ── Genres ──────────────────────────────────────────────────────────────────
 @router.get("/api/v1/genres")
 @router.get("/api/genres")

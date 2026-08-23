@@ -858,7 +858,6 @@ function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
   selected.forEach((entry) => seen.add(homeEntryKey(entry)));
   return selected;
 }
-
 function homeDiscoveryLanes() {
   const top = homeTopEntries();
   const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
@@ -873,9 +872,15 @@ function homeDiscoveryLanes() {
     // "Neu hinzugefügt" ist eine chronologische Katalogreihe, keine Discovery-Reihe.
     // Titel dürfen hier auch vorkommen, wenn sie bereits weiter oben empfohlen wurden.
     fresh: homeNewEntries(),
+    new_movies: uniqueHomeEntries(state.home.newMovies.map(homeMovieEntry)).slice(0, 24),
+    new_series: uniqueHomeEntries(state.home.newSeries.map(homeSeriesEntry)).slice(0, 24),
+    high_rated: homeRatedEntries(),
+    movies: stableDailyOrder(uniqueHomeEntries([
+      ...state.home.newMovies, ...state.home.topMovies, ...state.home.discoveryMovies,
+    ].map(homeMovieEntry)), "movie-night").slice(0, 24),
+    library: homeLibraryEntries(),
   };
 }
-
 function shuffleHomeDiscovery() {
   state.home.discoveryShuffle = Number(state.home.discoveryShuffle || 0) + 1;
   state.home.heroIndex = 0;
@@ -884,7 +889,6 @@ function shuffleHomeDiscovery() {
   button?.classList.remove("is-shuffling");
   requestAnimationFrame(() => button?.classList.add("is-shuffling"));
 }
-
 function homeHeroCandidates() {
   const entries = uniqueHomeEntries([
     ...homePersonalizedEntries().slice(0, 4),
@@ -1010,7 +1014,6 @@ function updateHomeRailNavigation(track) {
     button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
   });
 }
-
 function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1048,16 +1051,14 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  // Poster gehören ausschließlich in die hochformatige Top-10-Darstellung.
-  // Alle 16:9-Karten warten auf das nachgeladene Wallpaper, statt ein Poster
-  // unpassend auf Landschaftsformat zu beschneiden.
   const artworkCandidates = (rank
     ? [media.cover_url, media.backdrop_url]
-    : [media.backdrop_url])
+    : [media.backdrop_url, media.cover_url])
     .flatMap((url) => api.coverCandidates(url))
     .filter((url, index, urls) => url && urls.indexOf(url) === index);
   if (artworkCandidates.length) {
     const image = document.createElement("img");
+    if (!rank && !media.backdrop_url && media.cover_url) image.classList.add("is-poster-fallback");
     let artworkIndex = 0;
     image.src = artworkCandidates[artworkIndex];
     image.alt = "";
@@ -1068,7 +1069,10 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     image.decoding = "async";
     image.addEventListener("error", () => {
       artworkIndex += 1;
-      if (artworkIndex < artworkCandidates.length) image.src = artworkCandidates[artworkIndex];
+      if (artworkIndex < artworkCandidates.length) {
+        image.src = artworkCandidates[artworkIndex];
+        image.classList.toggle("is-poster-fallback", !rank && artworkIndex > 0);
+      }
       else image.remove();
     });
     art.appendChild(image);
@@ -1107,7 +1111,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   primaryAction.addEventListener("click", () => openHomeEntry(kind, key));
   return card;
 }
-
 function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
@@ -1137,7 +1140,6 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
     track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
   });
 }
-
 function renderHome() {
   state.home.discoveryDay = localDateKey();
   const profile = loadDiscoveryProfile();
@@ -1160,18 +1162,20 @@ function renderHome() {
       ? `Neue Blickwinkel rund um ${favoriteGenre} – ohne dieselben Titel in jeder Reihe.`
       : "Filme und Serien aus verschiedenen Richtungen – ohne dieselben Titel in jeder Reihe.";
   }
-  renderHomeHero();
+  applyHomeLayout();
+  if (currentHomeLayout().hero_visible) renderHomeHero();
   const lanes = homeDiscoveryLanes();
-  renderHomeRail("home-movies-track", lanes.personal, { layout: "spotlight" });
-  renderHomeRail("home-explore-track", lanes.explore);
-  renderHomeRail("home-series-track", lanes.series);
-  renderHomeRail("home-top-track", lanes.top, { ranked: true });
-  renderHomeRail("home-genre-track", lanes.genre);
-  renderHomeRail("home-gems-track", lanes.gems);
-  renderHomeRail("home-new-track", lanes.fresh);
-  scheduleHomeHeroRotation();
+  const hidden = new Set(currentHomeLayout().hidden_rails);
+  currentHomeLayout().rail_order.forEach((railId) => {
+    if (hidden.has(railId)) return;
+    const definition = homeRailDefinition(railId);
+    if (!definition) return;
+    renderHomeRail(definition.trackId, lanes[railId] || [], {
+      ranked: Boolean(definition.ranked), layout: definition.layout || "rail",
+    });
+  });
+  if (currentHomeLayout().hero_visible) scheduleHomeHeroRotation();
 }
-
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
 const HOME_CACHE_KEY = "royal-home-cache-v3";
 const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1643,11 +1647,10 @@ async function loadHomeData() {
   if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
   if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
   renderHome();
-  const remainingSeriesArtwork = primarySeriesArtwork.then(() => hydrateHomeSeriesArtwork([
-    ...state.home.trendingSeries,
-    ...state.home.newSeries,
-    ...state.home.discoverySeries,
-  ], { render: true }));
+  const remainingSeriesArtwork = primarySeriesArtwork.then(() => hydrateHomeSeriesArtwork(
+    homeArtworkEntriesInLayout().filter((entry) => entry.kind === "series").map((entry) => entry.item),
+    { render: true },
+  ));
   const discoveryMovies = await Promise.allSettled([
     api.movies({ mode: "new", page: 2 }), api.movies({ mode: "top", page: 2 }),
   ]);
@@ -1656,11 +1659,10 @@ async function loadHomeData() {
   if (discovered.length) state.home.discoveryMovies = discovered;
   renderHome();
   await Promise.allSettled([
-    hydrateHomeMovieArtwork([
-      ...state.home.newMovies,
-      ...state.home.topMovies,
-      ...state.home.discoveryMovies,
-    ], { render: false }),
+    hydrateHomeMovieArtwork(
+      homeArtworkEntriesInLayout().filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+      { render: false },
+    ),
     remainingSeriesArtwork,
   ]);
   const currentEntries = homeAllEntries();
