@@ -461,8 +461,6 @@ class DownloadJob:
         job_id: str = "",
         attempt_id: str = "",
         on_start: Optional[Callable[[], None]] = None,
-        demo_mode: bool = False,
-        demo_step_delay: float = 0.45,
     ):
         self.stream_url = stream_url
         self.stream_type = stream_type
@@ -488,8 +486,6 @@ class DownloadJob:
         self.total_bytes: Optional[int] = None
         self.eta_seconds: Optional[int] = None
         self.on_start = on_start or (lambda: None)
-        self.demo_mode = bool(demo_mode)
-        self.demo_step_delay = max(0.0, float(demo_step_delay))
         self._preferred_staging_root = out_path.parent / ".downloading"
         self._fallback_staging_root = STAGING_DIR
         self._staging_root = self._preferred_staging_root
@@ -523,10 +519,6 @@ class DownloadJob:
                 self.on_done(False, "Abgebrochen")
                 return
             self.on_start()
-            if self.demo_mode:
-                success, msg = self._run_demo()
-                self.on_done(success, msg)
-                return
             # Die Hoster-Probe läuft bereits über yt-dlp. Deshalb denselben Weg
             # auch für den echten Download zuerst nutzen; der generische
             # Extraktor verarbeitet direkte MP4-URLs zuverlässiger als ein
@@ -572,32 +564,6 @@ class DownloadJob:
         except Exception as exc:
             self._cleanup_staging()
             self.on_done(False, str(exc))
-
-    def _run_demo(self) -> tuple:
-        """Simuliert den sichtbaren Ablauf, ohne Netzwerk- oder Dateizugriff."""
-        steps = (
-            (6.0, "Demo · Quelle wird vorbereitet …"),
-            (18.0, "Demo · Stream wurde aufgelöst"),
-            (36.0, "Demo · Download läuft …"),
-            (58.0, "Demo · Fragmente werden verarbeitet …"),
-            (79.0, "Demo · Medienprüfung läuft …"),
-            (94.0, "Demo · Abschluss wird vorbereitet …"),
-            (100.0, "Demo · Durchlauf abgeschlossen"),
-        )
-        self.downloaded_bytes = 0
-        self.total_bytes = None
-        self.average_speed_bps = 0.0
-        self.eta_seconds = None
-        for pct, message in steps:
-            deadline = time.monotonic() + self.demo_step_delay
-            while time.monotonic() < deadline:
-                if self._cancelled:
-                    return False, "Abgebrochen"
-                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
-            if self._cancelled:
-                return False, "Abgebrochen"
-            self.on_progress(pct, message)
-        return True, "Demo abgeschlossen · keine Datei gespeichert"
 
     def _finalize(self) -> tuple:
         """Validiert und veroeffentlicht eine Datei atomar am Ziel."""
@@ -669,8 +635,6 @@ class DownloadJob:
 
     def _prepare_staging(self) -> tuple:
         """Legt ein isoliertes Job-Staging an, bevorzugt am Ziel."""
-        if self.demo_mode:
-            return False, "Demo-Modus verweigert Dateispeicherung"
         errors = []
         roots = [self._preferred_staging_root]
         if self._fallback_staging_root != self._preferred_staging_root:
@@ -724,8 +688,6 @@ class DownloadJob:
 
     def _commit_file(self, source: Path, target: Path) -> Path:
         """Veröffentlicht atomar, ohne eine vorhandene Mediendatei zu ersetzen."""
-        if self.demo_mode:
-            raise RuntimeError("Demo-Modus verweigert Dateispeicherung")
         target.parent.mkdir(parents=True, exist_ok=True)
         for attempt in range(1000):
             candidate = target if attempt == 0 else self._collision_target(target, attempt - 1)

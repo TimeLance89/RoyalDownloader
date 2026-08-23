@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Remove the Demo deployment mode, simulated download pipeline, and all related
+  setup, settings, storage, automation, environment, and runtime branches.
+  Legacy Demo configurations fall back to Desktop and require real media paths.
+
 ## v1.0.0 – 2026-08-21
 
 RoyalDownloader 1.0.0 promotes the reviewed RC line and the subsequent

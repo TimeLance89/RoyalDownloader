@@ -233,14 +233,6 @@
     if (!live || !summary || !grid) return;
     const roots = payload.roots || [];
     renderLocations(payload.locations || [], roots);
-    if (payload.enabled === false || payload.deployment_mode === "demo") {
-      live.textContent = "Demo-Modus · kein realer Speicher";
-      summary.classList.add("is-unavailable");
-      summary.querySelector(".storage-summary-copy h3").textContent = "Im Demo-Modus deaktiviert";
-      summary.querySelector(".storage-summary-copy p").textContent = "Wechsle zu Computer oder NAS, um reale Speicherwerte abzurufen.";
-      grid.innerHTML = "";
-      return;
-    }
     const total = payload.summary || {};
     const percent = Number(total.used_percent) || 0;
     summary.classList.remove("is-unavailable");

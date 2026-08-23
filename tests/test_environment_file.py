@@ -1,7 +1,13 @@
 import os
 from pathlib import Path
 
-from environment_file import load_project_env, read_env, write_project_env
+import config as appconfig
+from environment_file import (
+    load_project_env,
+    normalize_deployment_mode,
+    read_env,
+    write_project_env,
+)
 
 
 def test_setup_creates_env_from_example_and_applies_desktop_mode(tmp_path: Path):
@@ -42,19 +48,40 @@ def test_existing_env_keeps_unknown_values_when_switching_to_nas(tmp_path: Path)
     assert values["OPEN_BROWSER"] == "0"
 
 
-def test_demo_mode_uses_local_binding_and_marks_media_writes_disabled(tmp_path: Path):
+def test_removed_demo_mode_migrates_to_desktop_and_drops_legacy_flag(tmp_path: Path):
+    assert normalize_deployment_mode("demo") == "desktop"
     example = tmp_path / ".env.example"
     target = tmp_path / ".env"
     example.write_text("ROYAL_DEPLOYMENT_MODE=nas\n", encoding="utf-8")
+    target.write_text(
+        "ROYAL_DEPLOYMENT_MODE=demo\nROYAL_DEMO_MODE=1\n",
+        encoding="utf-8",
+    )
 
-    write_project_env("demo", "", "", path=target, example_path=example)
+    write_project_env(
+        "demo", r"C:\Media\Filme", r"C:\Media\Serien",
+        path=target, example_path=example,
+    )
 
     values = read_env(target)
-    assert values["ROYAL_DEPLOYMENT_MODE"] == "demo"
-    assert values["ROYAL_DEMO_MODE"] == "1"
+    assert values["ROYAL_DEPLOYMENT_MODE"] == "desktop"
+    assert "ROYAL_DEMO_MODE" not in values
     assert values["HOST"] == "127.0.0.1"
-    assert values["DOWNLOAD_DIR"] == ""
-    assert values["SERIES_DIR"] == ""
+    assert values["DOWNLOAD_DIR"] == r"C:\Media\Filme"
+    assert values["SERIES_DIR"] == r"C:\Media\Serien"
+
+
+def test_legacy_demo_installation_requires_real_setup(monkeypatch, tmp_path: Path):
+    config_file = tmp_path / "settings.ini"
+    config_file.write_text(
+        "deployment_mode = demo\nsave_path =\nseries_path =\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(appconfig, "_config_file", lambda: config_file)
+    monkeypatch.setattr(appconfig, "_config_dir", lambda: tmp_path)
+
+    assert appconfig.load_deployment_mode() == "desktop"
+    assert appconfig.is_initialized() is False
 
 
 def test_project_env_replaces_empty_container_placeholder(monkeypatch, tmp_path: Path):

@@ -132,7 +132,7 @@ def storage_status(paths: dict[str, str], deployment_mode: str) -> dict:
     free = sum(item["free_bytes"] for item in volumes)
     return {
         "deployment_mode": mode,
-        "enabled": mode != "demo",
+        "enabled": True,
         "observed_at": time.time(),
         "poll_interval_seconds": 5,
         "roots": roots,

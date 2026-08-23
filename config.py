@@ -23,7 +23,6 @@ from typing import List, Optional
 
 from runtime_paths import data_dir, in_container, persistent_container_path
 from environment_file import (
-    MODE_DEMO,
     MODE_DESKTOP,
     normalize_deployment_mode,
 )
@@ -213,11 +212,6 @@ def _default_path() -> str:
     return str(Path.home() / "Downloads" / "Filme")
 
 
-def _demo_media_path(kind: str) -> str:
-    """Nicht angelegtes, internes Ziel für Pfadberechnungen im Demo-Modus."""
-    return str(_config_dir() / "demo-output" / kind)
-
-
 def _effective_media_path(stored: str, env_name: str, label: str) -> str:
     stored = str(stored or "").strip()
     env_path = os.environ.get(env_name, "").strip()
@@ -298,8 +292,6 @@ def load() -> str:
     """
     Lädt den gespeicherten Download-Pfad. Fallback: ~/Downloads/Filme.
     """
-    if demo_mode_enabled():
-        return _demo_media_path("Filme")
     values = _read_all()
     save_path = _effective_media_path(
         values.get("save_path", ""), "DOWNLOAD_DIR", "Filmordner",
@@ -321,8 +313,6 @@ def load_series_path() -> str:
     """Lädt den separaten Zielordner für SERIEN. Priorität: gespeicherter Wert
     (UI) > Umgebungsvariable SERIES_DIR > Film-Pfad (Rückwärtskompatibilität:
     ohne eigene Serien-Einstellung landen Serien wie bisher im Film-Ordner)."""
-    if demo_mode_enabled():
-        return _demo_media_path("Serien")
     values = _read_all()
     series_path = _effective_media_path(
         values.get("series_path", ""), "SERIES_DIR", "Serienordner",
@@ -373,10 +363,6 @@ def load_deployment_mode() -> str:
 
 def save_deployment_mode(mode: str) -> bool:
     return _update_all({"deployment_mode": normalize_deployment_mode(mode)})
-
-
-def demo_mode_enabled() -> bool:
-    return load_deployment_mode() == MODE_DEMO
 
 
 # ---------------------------------------------------------------------------
@@ -853,10 +839,7 @@ def is_initialized() -> bool:
     if not _config_file().is_file():
         return False
     values = _read_all()
-    return (
-        normalize_deployment_mode(values.get("deployment_mode")) == MODE_DEMO
-        or bool(values.get("save_path", "").strip())
-    )
+    return bool(values.get("save_path", "").strip())
 
 
 def save_initial_setup(

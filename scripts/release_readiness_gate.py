@@ -118,7 +118,9 @@ def first_run_auth_flow() -> None:
         client.post(
             "/api/setup/complete",
             json={
-                "deployment_mode": "demo",
+                "deployment_mode": "desktop",
+                "save_path": str(DATA_DIR / "Filme"),
+                "series_path": str(DATA_DIR / "Serien"),
                 "ui_language": "de",
                 "tmdb_api_key": "release-readiness-fixture",
                 "auth_username": ADMIN_USER,
@@ -132,7 +134,7 @@ def first_run_auth_flow() -> None:
     )
     _expect(setup.get("required") is False, "setup transaction remained required")
     _expect(setup.get("auth_configured") is True, "setup did not persist authentication")
-    _expect(setup.get("deployment_mode") == "demo", "setup did not persist deployment mode")
+    _expect(setup.get("deployment_mode") == "desktop", "setup did not persist deployment mode")
 
     client.cookies.clear()
     _response_json(

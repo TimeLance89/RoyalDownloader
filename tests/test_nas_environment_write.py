@@ -1,8 +1,10 @@
+import asyncio
+
 import api_administration_router as administration
 import pytest
 
 
-@pytest.mark.parametrize("mode", ["nas", "demo", "desktop"])
+@pytest.mark.parametrize("mode", ["nas", "desktop"])
 def test_container_does_not_rewrite_bundled_env(monkeypatch, mode):
     monkeypatch.setenv("SERIENDL_DATA_DIR", "/app/data")
 
@@ -36,3 +38,16 @@ def test_desktop_still_writes_project_env(monkeypatch):
         "series_path": "series",
     }
     assert result["path"] == ".env"
+
+
+def test_removed_demo_mode_is_rejected_by_runtime_settings():
+    with pytest.raises(administration.HTTPException) as exc_info:
+        asyncio.run(administration.api_config_set(
+            administration.ConfigBody(
+                deployment_mode="demo",
+                save_path="movies",
+                series_path="series",
+            )
+        ))
+
+    assert exc_info.value.status_code == 400
