@@ -8,8 +8,9 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -94,6 +95,8 @@ class AniWorldScraper:
         )
         self._detail_cache: dict[str, tuple[float, AniWorldAnime]] = {}
         self._detail_lock = threading.RLock()
+        self._poster_cache: dict[str, tuple[float, str]] = {}
+        self._poster_lock = threading.RLock()
         self._catalog_cache: tuple[float, list[AniWorldAnime]] | None = None
 
     @staticmethod
@@ -156,6 +159,9 @@ class AniWorldScraper:
                 entries = self._parse_cards(container or soup)
             else:
                 entries = self._parse_cards(soup)
+        if mode != "catalog":
+            entries = entries[:limit]
+            page = 1
         start = (page - 1) * limit
         selected = entries[start : start + limit]
         payload = {
@@ -247,6 +253,62 @@ class AniWorldScraper:
         result = sorted(entries.values(), key=lambda item: item.title.casefold())
         self._catalog_cache = (time.time(), result)
         return result
+
+    def get_poster(self, anime_id: str) -> str:
+        """Return the cover published on the AniWorld title page itself."""
+        anime_id = self._normalize_id(anime_id)
+        now = time.time()
+        with self._poster_lock:
+            cached = self._poster_cache.get(anime_id)
+            if cached and now - cached[0] < 3600:
+                return cached[1]
+        with self._detail_lock:
+            detail = self._detail_cache.get(anime_id)
+            if detail and now - detail[0] < 3600 and detail[1].cover_url:
+                cached_cover = self._abs(detail[1].cover_url)
+                cached_host = (urlsplit(cached_cover).hostname or "").casefold()
+                if cached_host in {"aniworld.to", "www.aniworld.to"}:
+                    return cached_cover
+
+        response = requests.get(
+            f"{BASE_URL}/anime/stream/{anime_id}",
+            headers=dict(self.session.headers),
+            timeout=20,
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "lxml")
+        cover = self._image_source(soup.select_one(".seriesCoverBox img"))
+        absolute = self._abs(cover) if cover else ""
+        hostname = (urlsplit(absolute).hostname or "").casefold()
+        if hostname not in {"aniworld.to", "www.aniworld.to"}:
+            absolute = ""
+        with self._poster_lock:
+            self._poster_cache[anime_id] = (now, absolute)
+        return absolute
+
+    def get_posters(self, anime_ids: list[str], max_workers: int = 6) -> dict[str, str]:
+        """Hydrate visible catalog cards without touching third-party artwork."""
+        normalized = list(dict.fromkeys(
+            self._normalize_id(anime_id) for anime_id in anime_ids
+        ))[:50]
+        if not normalized:
+            return {}
+        posters: dict[str, str] = {}
+        workers = max(1, min(8, int(max_workers), len(normalized)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self.get_poster, anime_id): anime_id
+                for anime_id in normalized
+            }
+            for future in as_completed(futures):
+                anime_id = futures[future]
+                try:
+                    poster = future.result()
+                except (requests.RequestException, LookupError, ValueError):
+                    continue
+                if poster:
+                    posters[anime_id] = poster
+        return posters
 
     @staticmethod
     def _title_letter(title: str) -> str:

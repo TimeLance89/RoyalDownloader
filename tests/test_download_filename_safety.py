@@ -12,6 +12,22 @@ def test_normal_filenames_remain_readable_and_compatible():
     assert app.build_filename("Breaking Bad", 1, 3) == "Breaking.Bad.S01E03.mp4"
 
 
+def test_aniworld_episodes_use_normal_series_names(monkeypatch, tmp_path):
+    episode = app._episode_placeholder(
+        "aniworld:detektiv-conan|dub-s01e001",
+    )
+    monkeypatch.setattr(app.state, "series_path", str(tmp_path))
+    out_path = app.series_episode_out_path("Detektiv Conan", 1, 1)
+
+    assert episode.title == "Detektiv Conan S01E01"
+    assert out_path == (
+        tmp_path
+        / "Detektiv Conan"
+        / "Staffel 01"
+        / "Detektiv.Conan.S01E01.mp4"
+    )
+
+
 def test_punctuation_sanitization_stays_readable_without_identity_hashes():
     assert app._sanitize("A/B") == "A B"
     assert app._sanitize("A:B") == "A B"

@@ -118,6 +118,7 @@ const api = {
     );
   },
   aniworld(params) { return this.get("/api/aniworld?" + new URLSearchParams(params)); },
+  aniworldPosters(ids) { return this.post("/api/aniworld/posters", { ids }); },
   aniworldDetail(id, translation = "", episodePage = 1, season = null) {
     const params = {
       translation,

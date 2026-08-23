@@ -35,7 +35,7 @@
       <section class="aniworld-console" aria-labelledby="aniworld-console-title">
         <div class="aniworld-console-head">
           <div><span>ARCHIVSTEUERUNG</span><h2 id="aniworld-console-title">Was möchtest du laden?</h2></div>
-          <span id="aniworld-status" role="status" aria-live="polite">Wird beim Öffnen geladen …</span>
+          <span id="aniworld-status" role="status" aria-live="polite">Der vollständige Katalog wird beim Öffnen geladen …</span>
         </div>
         <div class="aniworld-command-row">
           <label class="aniworld-search-field">
@@ -45,13 +45,13 @@
           <button id="aniworld-search-btn" class="aniworld-search-submit" type="button">Suchen</button>
           <div class="aniworld-mode-switch" role="group" aria-label="Katalogansicht">
             <button id="aniworld-updates-btn" type="button">Neue Folgen</button>
-            <button id="aniworld-latest-btn" class="is-active" type="button">Neue Anime</button>
+            <button id="aniworld-latest-btn" type="button">Neue Anime</button>
             <button id="aniworld-trending-btn" type="button">Trending</button>
             <button id="aniworld-popular-btn" type="button">Beliebt</button>
-            <button id="aniworld-catalog-btn" type="button">A–Z</button>
+            <button id="aniworld-catalog-btn" class="is-active" type="button">A–Z</button>
           </div>
         </div>
-        <div id="aniworld-filters" class="aniworld-filter-deck" hidden>
+        <div id="aniworld-filters" class="aniworld-filter-deck">
           <div id="aniworld-letter-filter" class="aniworld-letter-filter" role="group" aria-label="Anfangsbuchstabe"></div>
           <label><span>Genre</span><select id="aniworld-genre-filter"><option value="">Alle Genres</option></select></label>
           <button id="aniworld-filter-reset" type="button">Filter löschen</button>
@@ -60,7 +60,7 @@
 
       <section class="aniworld-catalog-panel" aria-labelledby="aniworld-catalog-title">
         <header class="aniworld-catalog-head">
-          <div><span class="aniworld-section-code">ANIWORLD / KATALOG</span><h2 id="aniworld-catalog-title">Neu im Archiv</h2></div>
+          <div><span class="aniworld-section-code">ANIWORLD / KATALOG</span><h2 id="aniworld-catalog-title">Vollständiger A–Z-Katalog</h2></div>
           <span id="aniworld-catalog-summary">Titel werden geladen</span>
         </header>
         <div id="aniworld-results" class="aniworld-grid" aria-label="AniWorld-Ergebnisse"></div>
@@ -158,6 +158,48 @@ function aniworldCardTracks(anime) {
   return tracks.length ? tracks : ["dub", "sub"];
 }
 
+function applyAniworldPoster(anime, posterUrl) {
+  if (!anime || !posterUrl) return;
+  anime.cover_url = posterUrl;
+  state.aniworld.posterCache.set(anime.id, posterUrl);
+  const card = [...document.querySelectorAll("#aniworld-results .aniworld-card")]
+    .find((candidate) => candidate.dataset.aniworldId === anime.id);
+  const shell = card?.querySelector(".aniworld-card-poster");
+  if (!shell) return;
+  let image = shell.querySelector("img");
+  if (!image) {
+    image = document.createElement("img");
+    image.alt = "";
+    image.loading = "lazy";
+    shell.prepend(image);
+  }
+  image.src = api.coverUrl(posterUrl);
+}
+
+async function hydrateAniworldPosters(entries) {
+  const candidates = (entries || []).filter((anime) => {
+    const cached = state.aniworld.posterCache.get(anime.id);
+    if (cached) { applyAniworldPoster(anime, cached); return false; }
+    return !anime.cover_url && !state.aniworld.posterLoading.has(anime.id);
+  });
+  const ids = candidates.map((anime) => anime.id);
+  if (!ids.length) return;
+  ids.forEach((id) => state.aniworld.posterLoading.add(id));
+  try {
+    const response = await api.aniworldPosters(ids);
+    for (const [animeId, posterUrl] of Object.entries(response.posters || {})) {
+      const anime = state.aniworld.results.find((item) => item.id === animeId);
+      if (anime) applyAniworldPoster(anime, posterUrl);
+      else state.aniworld.posterCache.set(animeId, posterUrl);
+    }
+    renderAniworldFeature();
+  } catch (error) {
+    console.warn("AniWorld-Poster konnten nicht geladen werden:", error);
+  } finally {
+    ids.forEach((id) => state.aniworld.posterLoading.delete(id));
+  }
+}
+
 function renderAniworldResults(appendFrom = 0) {
   const container = document.getElementById("aniworld-results");
   if (appendFrom <= 0) container.innerHTML = "";
@@ -171,6 +213,8 @@ function renderAniworldResults(appendFrom = 0) {
     }
   }
   for (const anime of state.aniworld.results.slice(appendFrom)) {
+    const cachedPoster = state.aniworld.posterCache.get(anime.id);
+    if (cachedPoster) anime.cover_url = cachedPoster;
     const card = document.createElement("button");
     card.className = "aniworld-card";
     card.type = "button";
@@ -210,7 +254,7 @@ function updateAniworldInfiniteState() {
   const sentinel = document.getElementById("aniworld-infinite");
   const label = document.getElementById("aniworld-infinite-label");
   const retry = document.getElementById("aniworld-infinite-retry");
-  const browsable = Boolean(state.aniworld.mode && state.aniworld.mode !== "search" && state.aniworld.results.length);
+  const browsable = Boolean(state.aniworld.mode === "catalog" && state.aniworld.results.length);
   sentinel.classList.toggle("hidden", !browsable);
   if (!browsable) return;
   const count = state.aniworld.results.length;
@@ -278,6 +322,7 @@ async function aniworldBrowse(mode, page = 1, { append = false } = {}) {
     document.getElementById("aniworld-status").textContent = response.disabled ? response.disabled_reason : `${state.aniworld.total.toLocaleString("de-DE")} Titel gefunden`;
     if (mode === "catalog") renderAniworldFacets();
     renderAniworldResults(appendFrom);
+    void hydrateAniworldPosters(incoming);
     recheckAniworldInfinite();
   } catch (error) {
     if (requestSeq !== state.aniworld.requestSeq) return;
@@ -298,7 +343,7 @@ async function aniworldBrowse(mode, page = 1, { append = false } = {}) {
 }
 
 async function loadNextAniworldPage() {
-  if (state.tab !== "aniworld" || state.aniworld.loading || !state.aniworld.hasMore || state.aniworld.mode === "search") return;
+  if (state.tab !== "aniworld" || state.aniworld.loading || !state.aniworld.hasMore || state.aniworld.mode !== "catalog") return;
   await aniworldBrowse(state.aniworld.mode, state.aniworld.page + 1, { append: true });
 }
 

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 import config
 from providers.aniworld import (
     AniWorldAnime,
@@ -176,6 +178,55 @@ def test_catalog_deduplicates_titles_and_exposes_letter_and_genre_facets():
     assert payload["facets"]["genres"] == {"Action": 2, "Drama": 1}
 
 
+def test_visible_catalog_posters_come_directly_from_aniworld(monkeypatch):
+    poster_html = b"""
+    <div class="seriesCoverBox">
+      <img src="data:image/png;base64,placeholder" data-src="/public/img/cover/test-cover.png">
+    </div>
+    """
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _Response(poster_html)
+
+    monkeypatch.setattr("providers.aniworld.requests.get", fake_get)
+    scraper = AniWorldScraper(session=_Session({}))
+
+    posters = scraper.get_posters(["test-anime"])
+
+    assert posters == {
+        "test-anime": "https://aniworld.to/public/img/cover/test-cover.png"
+    }
+    assert calls[0][0] == "https://aniworld.to/anime/stream/test-anime"
+
+
+def test_compact_aniworld_modes_stop_after_22_titles(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    entries = [AniWorldAnime(id=f"anime-{index}", title=f"Anime {index}") for index in range(30)]
+    monkeypatch.setattr(scraper, "_soup", lambda _url: BeautifulSoup("", "html.parser"))
+    monkeypatch.setattr(scraper, "_parse_cards", lambda _soup: entries)
+
+    payload = scraper.browse(mode="latest", page=2, limit=22)
+
+    assert payload["page"] == 1
+    assert payload["total"] == 22
+    assert len(payload["results"]) == 22
+    assert payload["has_more"] is False
+
+
+def test_external_catalog_poster_hosts_are_rejected(monkeypatch):
+    monkeypatch.setattr(
+        "providers.aniworld.requests.get",
+        lambda *_args, **_kwargs: _Response(
+            b'<div class="seriesCoverBox"><img data-src="https://example.org/poster.jpg"></div>'
+        ),
+    )
+    scraper = AniWorldScraper(session=_Session({}))
+
+    assert scraper.get_poster("test-anime") == ""
+
+
 def test_detail_exposes_complete_title_metadata():
     rich_html = b"""
     <section class="SeriesSection"><div class="backdrop" style="background-image:url('/banner.jpg')"></div></section>
@@ -288,6 +339,11 @@ def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
     ):
         assert removed not in screen
     assert "loadNextAniworldPage" in screen
+    assert 'id="aniworld-catalog-btn" class="is-active"' in screen
+    assert "hydrateAniworldPosters" in screen
+    assert 'aniworldBrowse("catalog", 1)' in (
+        root / "web" / "core.js"
+    ).read_text(encoding="utf-8")
     assert 'episode.kind === "movie"' in screen
     assert "aniworldSelectableEpisodes" in screen
     assert ".aniworld-detail-panel" in styles
