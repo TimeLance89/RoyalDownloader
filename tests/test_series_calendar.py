@@ -114,6 +114,17 @@ def test_calendar_uses_an_independent_provider_session_and_client_timeout():
     assert 'opts.signal = signal' in api
 
 
+def test_calendar_has_a_bounded_direct_provider_fallback():
+    screen = (ROOT / "web" / "screens" / "series-calendar.js").read_text(encoding="utf-8")
+
+    assert "function calendarNormalizeProviderPayload" in screen
+    assert "async function calendarDirectProviderLoad" in screen
+    assert 'fetch("https://serienstream.to/api/calendar"' in screen
+    assert "controller.abort(), 10_000" in screen
+    assert "calendarLoadPayload()" in screen
+    assert "Der lokale Kalenderdienst antwortet nicht." in screen
+
+
 def test_series_catalog_checks_jellyfin_before_artwork_hydration():
     screen = (ROOT / "web" / "screens" / "series.js").read_text(encoding="utf-8")
     body = screen.split("function applySeriesResults", 1)[1].split(
