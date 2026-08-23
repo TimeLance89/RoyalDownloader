@@ -732,6 +732,10 @@ class SeriesJellyfinStatusBody(BaseModel):
     force: bool = False
 
 
+class AniWorldPosterBody(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=50)
+
+
 @router.post("/api/v1/series/jellyfin-status")
 @router.post("/api/series/jellyfin-status")
 async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
@@ -943,7 +947,7 @@ async def api_aniworld(
                 mode=browse_mode,
                 query=query,
                 page=page,
-                limit=24,
+                limit=24 if browse_mode == "catalog" else 22,
                 letter=letter,
                 genre=genre,
             )
@@ -961,6 +965,29 @@ async def api_aniworld(
         "provider_label": PROVIDER_LABELS["aniworld"],
         "content_language": provider_content_language("aniworld"),
     }
+
+
+@router.post("/api/v1/aniworld/posters")
+@router.post("/api/aniworld/posters")
+async def api_aniworld_posters(body: AniWorldPosterBody):
+    if "aniworld" not in provider_priority("anime"):
+        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    anime_ids = list(dict.fromkeys(
+        str(anime_id or "").strip() for anime_id in body.ids if anime_id
+    ))[:50]
+
+    def _work():
+        with state.aniworld_lock:
+            return get_aniworld_scraper().get_posters(anime_ids)
+
+    try:
+        posters = await run_in_threadpool(_work)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        log(f"AniWorld-Poster fehlgeschlagen: {exc}", "warn")
+        raise HTTPException(502, "AniWorld-Poster sind gerade nicht verfügbar.") from exc
+    return {"posters": posters, "provider": "aniworld"}
 
 
 @router.get("/api/v1/aniworld/{anime_id}")

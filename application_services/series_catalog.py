@@ -5,11 +5,11 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from application_services import series_catalog_cache
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from application_services import series_catalog_cache
 
 globals().update(import_backend_namespace())
 
@@ -628,7 +628,7 @@ def _series_search_title(value: str) -> str:
     for pfx in (
         SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
         KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
-        SFLIX_PREFIX, RIDOMOVIES_PREFIX,
+        SFLIX_PREFIX, RIDOMOVIES_PREFIX, ANIWORLD_PREFIX,
     ):
         if v.startswith(pfx):
             v = v[len(pfx):]
@@ -645,6 +645,8 @@ def _series_search_title(value: str) -> str:
         v = re.sub(r"\.html$", "", v, flags=re.I)
     if is_xcine and ":" in v:
         v = v.split(":", 1)[1]
+    if "|" in v:
+        v = v.split("|", 1)[0]
     parsed = parse_episode_slug(v)
     if parsed:
         v = parsed[0]

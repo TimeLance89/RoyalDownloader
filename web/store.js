@@ -44,7 +44,8 @@ function createInitialState() {
       loaded: false, loading: false, requestSeq: 0, detailSeq: 0,
       currentId: "", current: null, translation: "", episodePage: 1,
       selectedSeason: null, picked: new Set(), searchReturn: null,
-      disabledReason: "", loadError: "",
+      disabledReason: "", loadError: "", posterCache: new Map(),
+      posterLoading: new Set(),
     },
     wl: {
       items: [], selected: new Set(), loaded: false,
