@@ -4,8 +4,9 @@ const api = {
   onUnauthorized: null,
   _inflightGets: new Map(),
 
-  async _req(method, url, body) {
+  async _req(method, url, body, signal = undefined) {
     const opts = { method, headers: {}, credentials: "same-origin" };
+    if (signal) opts.signal = signal;
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
@@ -88,7 +89,18 @@ const api = {
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
-  seriesCalendar() { return this.get("/api/series-calendar"); },
+  seriesCalendar() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    return this._req("GET", "/api/series-calendar", undefined, controller.signal)
+      .catch((error) => {
+        if (error?.name === "AbortError") {
+          throw new Error("Der Sendeplan hat nach 20 Sekunden nicht geantwortet.");
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timer));
+  },
   seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
     return this.post("/api/series/load", {
       sample_slug: sampleSlug, base_slug: baseSlug,

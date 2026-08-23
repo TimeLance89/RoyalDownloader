@@ -26,6 +26,12 @@ def get_sto_scraper() -> SerienstreamScraper:
     return state.sto_scraper
 
 
+def get_sto_calendar_scraper() -> SerienstreamScraper:
+    if state.sto_calendar_scraper is None:
+        state.sto_calendar_scraper = SerienstreamScraper(progress_cb=log)
+    return state.sto_calendar_scraper
+
+
 def get_moflix_scraper() -> MoflixScraper:
     if state.moflix_scraper is None:
         state.moflix_scraper = MoflixScraper(progress_cb=log)
@@ -556,6 +562,7 @@ def get_jellyfin_user_episodes(force: bool = False) -> Optional[List[dict]]:
 _SERVICE_EXPORTS = (
     "get_fp_scraper",
     "get_sto_scraper",
+    "get_sto_calendar_scraper",
     "get_moflix_scraper",
     "get_huhu_scraper",
     "get_mkissa_scraper",

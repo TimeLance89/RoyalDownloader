@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Der Serienkalender lädt über eine unabhängige SerienStream-Session, bricht festhängende Anfragen nach 20 Sekunden kontrolliert ab und bietet eine direkte Wiederholen-Aktion. Der Bereich wurde als kompakter Wochen-Sendeplan mit Tagesnavigation, Statuslegende und zweispaltiger Agenda neu gestaltet.
+- Die Serienübersicht startet den Jellyfin-Liveabgleich für die komplette erste Katalogseite sofort und unabhängig von Postern/TMDB. Doppelte Serien mit widersprüchlichen Staffel-Jahresangaben werden bei identischem Titel und überlappender Quelle zusammengeführt.
+
 - Preserve each home carousel's horizontal scroll position when progressive
   artwork, Jellyfin status, or discovery data triggers a background rerender.
 - Persist the intended carousel target before smooth scrolling begins and bump

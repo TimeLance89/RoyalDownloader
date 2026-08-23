@@ -808,62 +808,72 @@
     </section>
 
     <section class="tab-content" id="tab-kalender">
-      <header class="calendar-hero">
-        <div class="calendar-hero-copy">
+      <header class="calendar-masthead">
+        <div class="calendar-masthead-copy">
           <span class="calendar-kicker">ROYAL SENDEPLAN · SERIENSTREAM</span>
-          <h1>Deine Woche.<br><em>Folge für Folge.</em></h1>
-          <p>Veröffentlichungen kompakt nach Tagen sortiert – mit Sprache, Staffel, Folge und direktem Weg zur Serie.</p>
-          <div class="calendar-hero-stats" aria-label="Kalenderübersicht">
-            <span><b id="calendar-total">—</b> Einträge</span>
-            <span><b id="calendar-today-count">—</b> heute</span>
-            <span><b id="calendar-upcoming-count">—</b> angekündigt</span>
-          </div>
+          <h1>Was läuft wann?</h1>
+          <p>Alle angekündigten und verfügbaren Folgen einer Woche – schnell erfassbar und direkt zur Serie.</p>
         </div>
-        <div class="calendar-hero-date" aria-hidden="true">
+        <div class="calendar-today" aria-label="Heutiges Datum">
           <span id="calendar-hero-weekday">HEUTE</span>
           <strong id="calendar-hero-day">—</strong>
           <small id="calendar-hero-month">—</small>
         </div>
+        <div class="calendar-overview" aria-label="Kalenderübersicht">
+          <span><small>Gesamt</small><b id="calendar-total">—</b></span>
+          <span><small>Heute</small><b id="calendar-today-count">—</b></span>
+          <span><small>Demnächst</small><b id="calendar-upcoming-count">—</b></span>
+        </div>
       </header>
 
-      <section class="calendar-console" aria-labelledby="calendar-title">
-        <header class="calendar-console-head">
+      <main class="calendar-workspace" aria-labelledby="calendar-title">
+        <header class="calendar-toolbar">
           <div>
-            <span class="calendar-section-kicker">VERÖFFENTLICHUNGSPLAN</span>
-            <h2 id="calendar-title" tabindex="-1">Serienkalender</h2>
+            <span class="calendar-section-kicker">WOCHENPROGRAMM</span>
+            <h2 id="calendar-title" tabindex="-1">Sendeplan</h2>
             <p id="calendar-range" aria-live="polite">Kalender wird geladen …</p>
           </div>
-          <div class="calendar-week-actions">
+          <div class="calendar-week-actions" aria-label="Woche wechseln">
             <button id="calendar-prev-week" type="button" aria-label="Vorherige Woche">←</button>
-            <button id="calendar-today" type="button">Heute</button>
+            <button id="calendar-today" type="button">Diese Woche</button>
             <button id="calendar-next-week" type="button" aria-label="Nächste Woche">→</button>
           </div>
         </header>
 
-        <div class="calendar-filters">
+        <div class="calendar-controls">
           <label class="calendar-search" for="calendar-search">
             <span aria-hidden="true">⌕</span>
-            <input id="calendar-search" type="search" autocomplete="off" placeholder="Serie suchen">
+            <input id="calendar-search" type="search" autocomplete="off" placeholder="Im Sendeplan suchen">
           </label>
           <div class="calendar-language-filter" role="group" aria-label="Sprache filtern">
             <button class="is-active" type="button" data-calendar-language="all" aria-pressed="true">Alle</button>
-            <button type="button" data-calendar-language="1" aria-pressed="false">DE</button>
+            <button type="button" data-calendar-language="1" aria-pressed="false">Deutsch</button>
             <button type="button" data-calendar-language="3" aria-pressed="false">Ger-Sub</button>
-            <button type="button" data-calendar-language="2" aria-pressed="false">EN</button>
+            <button type="button" data-calendar-language="2" aria-pressed="false">Englisch</button>
           </div>
           <button id="calendar-subscribed" class="calendar-subscribed" type="button" aria-pressed="false">
-            <span aria-hidden="true">★</span> Nur Abonnements
+            <span aria-hidden="true">★</span> Meine Serien
           </button>
         </div>
 
-        <div id="calendar-week-strip" class="calendar-week-strip" aria-label="Wochentage"></div>
-        <div id="calendar-status" class="calendar-status" role="status" aria-live="polite">
-          <span class="calendar-loader" aria-hidden="true"></span>
-          <strong>Sendeplan wird geladen</strong>
-          <small>Termine und Cover werden vorbereitet.</small>
+        <nav id="calendar-week-strip" class="calendar-week-strip" aria-label="Wochentage"></nav>
+        <div class="calendar-ledger">
+          <aside class="calendar-legend" aria-label="Legende">
+            <span class="calendar-section-kicker">STATUS</span>
+            <p><i class="is-available"></i><b>Verfügbar</b><small>Folge kann geöffnet werden</small></p>
+            <p><i class="is-scheduled"></i><b>Angekündigt</b><small>Erscheint laut Sendeplan</small></p>
+            <p class="calendar-source-note">Quelle: SerienStream<br>Stand wird alle 5 Minuten erneuert.</p>
+          </aside>
+          <section class="calendar-agenda" aria-label="Folgen dieser Woche">
+            <div id="calendar-status" class="calendar-status" role="status" aria-live="polite">
+              <span class="calendar-loader" aria-hidden="true"></span>
+              <strong>Sendeplan wird geladen</strong>
+              <small>Termine werden abgerufen.</small>
+            </div>
+            <div id="calendar-days" class="calendar-days" hidden></div>
+          </section>
         </div>
-        <div id="calendar-days" class="calendar-days" hidden></div>
-      </section>
+      </main>
     </section>
 
     <section class="tab-content anime-tab-content" id="tab-anime">
@@ -2119,7 +2129,7 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260823-4"></script>
+<script src="/api.js?v=royal-20260823-5"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
 <script src="/store.js?v=royal-20260823-1"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
@@ -2134,11 +2144,11 @@
 <script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
 <script src="/screens/movies.js?v=royal-20260822-1"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
-<script src="/screens/series.js?v=royal-20260811-2"></script>
-<script src="/screens/series-calendar.js?v=royal-20260823-1"></script>
+<script src="/screens/series.js?v=royal-20260823-1"></script>
+<script src="/screens/series-calendar.js?v=royal-20260823-2"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
-<script src="/screens/library.js?v=royal-20260809-1"></script>
+<script src="/screens/library.js?v=royal-20260823-1"></script>
 <script src="/screens/notifications.js?v=royal-20260809-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
