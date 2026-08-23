@@ -478,6 +478,35 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260823-1/);
 });
 
+test("home carousel keeps its scroll position across artwork rerenders", () => {
+  const helperStart = homeLayoutEditor.indexOf("function updateHomeRailNavigation(track)");
+  const helperEnd = homeLayoutEditor.indexOf("function defaultHomeLayout()", helperStart);
+  const renderStart = home.indexOf("function renderHomeRail(");
+  const renderEnd = home.indexOf("function renderHome()", renderStart);
+  const animationFrames = [];
+  const track = {
+    id: "home-test-track", scrollLeft: 640, scrollWidth: 1800, clientWidth: 600,
+    children: [], classList: { toggle() {} },
+    replaceChildren() { this.children = []; this.scrollLeft = 0; },
+    appendChild(child) { this.children.push(child); },
+  };
+  const context = vm.createContext({
+    state: { home: { loading: false } },
+    document: { getElementById: () => track, querySelectorAll: () => [] },
+    requestAnimationFrame: (callback) => animationFrames.push(callback),
+    updateHomeRailNavigation: () => {},
+    createHomeCard: (entry) => entry,
+  });
+  vm.runInContext(homeLayoutEditor.slice(helperStart, helperEnd), context);
+  vm.runInContext(home.slice(renderStart, renderEnd), context);
+  context.entries = Array.from({ length: 12 }, (_, index) => ({ index }));
+
+  vm.runInContext('renderHomeRail("home-test-track", entries)', context);
+  assert.equal(track.scrollLeft, 640);
+  animationFrames.forEach((callback) => callback());
+  assert.equal(track.scrollLeft, 640);
+});
+
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
   requiresIds("mood-modal", "mood-options", "mood-results", "mood-back", "mood-next");
   assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve each home carousel's horizontal scroll position when progressive
+  artwork, Jellyfin status, or discovery data triggers a background rerender.
+
 ## 2026-08-23 – Custom home programme
 
 - Add a visual start-page editor with live preview, drag-and-drop ordering,

@@ -14,6 +14,28 @@ const HOME_RAIL_CATALOG = [
 ];
 const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "top", "series", "genre", "explore", "gems", "fresh"];
 
+function updateHomeRailNavigation(track) {
+  if (!track?.id) return;
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+  const canScroll = maxScroll > 2;
+  const atStart = track.scrollLeft <= 2;
+  const atEnd = track.scrollLeft >= maxScroll - 2;
+  document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
+    const direction = Number(button.dataset.direction) || 1;
+    button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
+  });
+}
+
+function restoreHomeRailScroll(track, scrollLeft) {
+  const restore = () => {
+    const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+    track.scrollLeft = Math.min(scrollLeft, maximum);
+    updateHomeRailNavigation(track);
+  };
+  restore();
+  requestAnimationFrame(restore);
+}
+
 function defaultHomeLayout() {
   return {
     version: 1, hero_visible: true,
