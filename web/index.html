@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260824-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260824-3">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -615,11 +615,27 @@
                   <div><label>Freigabe</label><span id="fp-detail-certification" data-i18n-ignore>—</span></div>
                   <div><label>Sprache · Herkunft</label><span id="fp-detail-origin" data-i18n-ignore>—</span></div>
                 </div>
+                <section id="fp-detail-similar-section" class="detail-similar" aria-labelledby="fp-detail-similar-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
+                    <small>Passend aus dem Filmarchiv</small>
+                  </div>
+                  <div id="fp-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
+                </section>
+                <section id="fp-detail-extras-section" class="detail-extras" aria-labelledby="fp-detail-extras-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-extras-title" class="detail-section-title">Trailer und mehr</span>
+                    <small>Offizielle Vorschau</small>
+                  </div>
+                  <div id="fp-detail-extras" class="detail-extras-grid" data-i18n-ignore></div>
+                </section>
                 <section class="detail-credits" aria-labelledby="fp-detail-credits-title">
-                  <span id="fp-detail-credits-title" class="detail-section-title">Stab & Produktion</span>
+                  <span id="fp-detail-credits-title" class="detail-section-title">Über <b id="fp-detail-about-title" data-i18n-ignore>den Film</b></span>
                   <div class="detail-credit-grid">
                     <div><label>Regie</label><span id="fp-detail-directors" data-i18n-ignore>—</span></div>
+                    <div><label>Besetzung</label><span id="fp-detail-about-cast" data-i18n-ignore>—</span></div>
                     <div><label>Drehbuch</label><span id="fp-detail-writers" data-i18n-ignore>—</span></div>
+                    <div><label>Genres</label><span id="fp-detail-about-genres" data-i18n-ignore>—</span></div>
                     <div><label>Produktion</label><span id="fp-detail-studios" data-i18n-ignore>—</span></div>
                   </div>
                   <div id="fp-detail-insights" class="detail-insights" data-i18n-ignore></div>
@@ -2142,7 +2158,8 @@
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
 <script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
-<script src="/screens/movies.js?v=royal-20260822-1"></script>
+<script src="/screens/movie-detail-discovery.js?v=royal-20260824-1"></script>
+<script src="/screens/movies.js?v=royal-20260824-2"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
 <script src="/screens/series.js?v=royal-20260823-1"></script>
 <script src="/screens/series-calendar.js?v=royal-20260824-4"></script>

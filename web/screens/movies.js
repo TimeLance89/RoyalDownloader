@@ -1754,9 +1754,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
     ...(movie.countries || []),
   ].filter(Boolean).join(" · ");
   setFpDetailText("fp-detail-origin", origin);
-  setFpDetailText("fp-detail-directors", (movie.directors || []).join(", "));
-  setFpDetailText("fp-detail-writers", (movie.writers || []).join(", "));
-  setFpDetailText("fp-detail-studios", (movie.production_companies || []).join(", "));
+  renderFpAbout(movie);
   const insights = [];
   const status = movieStatusLabel(movie.status);
   const budget = formatMovieMoney(movie.budget);
@@ -1767,6 +1765,8 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   if (revenue) insights.push(`Einspiel · ${revenue}`);
   renderFpDetailItems("fp-detail-insights", insights);
   renderFpDetailItems("fp-detail-keywords", movie.keywords || []);
+  renderFpSimilarTitles(movie.similar_titles);
+  renderFpExtras(movie);
   renderFpCast(movie.cast, movie.tmdb_url);
   renderFpDownloadSources(slug, movie, metadataOnly);
   document.getElementById("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);

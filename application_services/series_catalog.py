@@ -809,7 +809,7 @@ def movie_to_dict(
             "certification", "certification_country", "status", "original_language",
             "spoken_languages", "countries", "directors", "writers", "cast",
             "production_companies", "keywords", "collection", "budget", "revenue",
-            "trailer", "tmdb_url",
+            "trailer", "similar_titles", "tmdb_url",
         ):
             if tmdb.get(field):
                 payload[field] = tmdb[field]
@@ -835,7 +835,7 @@ def movie_detail_to_dict(slug: str, movie: FilmpalastMovie) -> dict:
                 "certification_country", "status", "original_language",
                 "spoken_languages", "countries", "directors", "writers", "cast",
                 "production_companies", "keywords", "collection", "budget",
-                "revenue", "trailer", "tmdb_url",
+                "revenue", "trailer", "similar_titles", "tmdb_url",
             ):
                 if tmdb.get(field):
                     payload[field] = tmdb[field]

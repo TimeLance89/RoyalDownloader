@@ -18,6 +18,24 @@ class FakeTMDBClient(TMDBClient):
                 "genres": [{"id": 18, "name": "Drama"}],
                 "vote_average": 7.4,
                 "vote_count": 80,
+                "recommendations": {"results": [
+                    {
+                        "id": 100,
+                        "title": "Ähnlicher Film",
+                        "release_date": "2024-08-09",
+                        "backdrop_path": "/similar-wallpaper.jpg",
+                        "poster_path": "/similar-poster.jpg",
+                        "overview": "Eine verwandte Geschichte.",
+                        "vote_average": 8.2,
+                        "vote_count": 120,
+                        "original_language": "de",
+                    },
+                    {
+                        "id": 101,
+                        "title": "Nur mit Poster",
+                        "poster_path": "/poster-only.jpg",
+                    },
+                ]},
             }
         if path == "/search/tv":
             return {"results": [{
@@ -55,3 +73,19 @@ def test_movie_summary_by_id_uses_exact_tmdb_artwork():
     assert summary["cover_url"].endswith("/movie-poster.jpg")
     assert summary["backdrop_url"].endswith("/movie-wallpaper.jpg")
     assert summary["genres"] == ["Drama"]
+
+
+def test_movie_details_include_landscape_recommendations_only():
+    movie = FakeTMDBClient().movie_by_id(99)
+
+    assert movie["similar_titles"] == [{
+        "tmdb_id": 100,
+        "slug": "tmdb:100",
+        "title": "Ähnlicher Film",
+        "year": "2024",
+        "backdrop_url": "https://image.tmdb.org/t/p/w1280/similar-wallpaper.jpg",
+        "description": "Eine verwandte Geschichte.",
+        "rating": 8.2,
+        "vote_count": 120,
+        "original_language": "DE",
+    }]

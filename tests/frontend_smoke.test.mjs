@@ -29,6 +29,7 @@ const appModulePaths = [
   "trailer-runtime.js",
   "catalog-runtime.js",
   "screens/movie_download_feedback.js",
+  "screens/movie-detail-discovery.js",
   "screens/movies.js",
   "screens/movie_filters.js",
   "screens/series.js",
@@ -60,7 +61,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260824-4/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260824-3/);
-  assert.match(html, /style\.css\?v=royal-20260824-2/);
+  assert.match(html, /style\.css\?v=royal-20260824-3/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -142,6 +143,16 @@ test("login flow keeps its browser and API contract", () => {
 
 test("detail, queue, and settings screens remain wired", () => {
   requiresIds("fp-detail-modal", "fp-detail-title", "fp-detail-add");
+  requiresIds(
+    "fp-detail-similar-section", "fp-detail-similar", "fp-detail-extras-section",
+    "fp-detail-extras",
+  );
+  assert.match(html, /id=["']fp-detail-about-title["']/);
+  assert.match(html, /id=["']fp-detail-about-cast["']/);
+  assert.match(app, /function renderFpAbout\(movie\)/);
+  assert.match(app, /function renderFpSimilarTitles\(titles\)/);
+  assert.match(app, /function renderFpExtras\(movie\)/);
+  assert.match(app, /selectFpRow\(slug, \{/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
   requiresIds("settings-btn");
   assert.match(html, /id=["']settings-overview["']/);
@@ -237,7 +248,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260822-1/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260824-2/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -803,7 +814,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260824-2/);
+  assert.match(html, /style\.css\?v=royal-20260824-3/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

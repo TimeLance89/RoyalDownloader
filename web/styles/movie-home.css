@@ -34,7 +34,8 @@
     "title title"
     "actions actions"
     "synopsis facts"
-    "credits facts"
+    "similar similar"
+    "extras credits"
     "cast cast"
     "sources sources"
     "route route"
@@ -147,7 +148,223 @@
   z-index: 2;
 }
 
+/* Filmdetail-Dossier: breite Empfehlungen, Vorführung und kompakter Abspann. */
+.media-modal .detail-similar {
+  grid-area: similar;
+  min-width: 0;
+}
+
+.media-modal .detail-extras {
+  grid-area: extras;
+  min-width: 0;
+}
+
+.media-modal .detail-similar .detail-section-head small,
+.media-modal .detail-extras .detail-section-head small {
+  color: rgba(255, 255, 255, .44);
+  font: 600 8px/1.2 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.media-modal .detail-similar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.media-modal .detail-similar-card,
+.media-modal .detail-extra-card {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #f1efeb;
+  text-align: left;
+  background: #111114;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 6px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .22);
+  cursor: pointer;
+  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+
+.media-modal .detail-similar-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-modal .detail-similar-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #f13749, rgba(241, 55, 73, .08));
+  opacity: .72;
+}
+
+.media-modal .detail-similar-card:hover,
+.media-modal .detail-similar-card:focus-visible,
+.media-modal .detail-extra-card:hover,
+.media-modal .detail-extra-card:focus-visible {
+  outline: none;
+  border-color: rgba(241, 55, 73, .68);
+  box-shadow: 0 20px 42px rgba(0, 0, 0, .42);
+  transform: translateY(-3px);
+}
+
+.media-modal .detail-similar-art,
+.media-modal .detail-extra-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(241, 55, 73, .18), transparent 52%),
+    #1a191c;
+}
+
+.media-modal .detail-similar-art::after,
+.media-modal .detail-extra-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(8, 8, 10, .7), transparent 54%);
+  pointer-events: none;
+}
+
+.media-modal .detail-similar-art img,
+.media-modal .detail-extra-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .32s ease;
+}
+
+.media-modal .detail-similar-card:hover img,
+.media-modal .detail-similar-card:focus-visible img,
+.media-modal .detail-extra-card:hover img,
+.media-modal .detail-extra-card:focus-visible img {
+  transform: scale(1.035);
+}
+
+.media-modal .detail-similar-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 126px;
+  padding: 12px 13px 13px 15px;
+}
+
+.media-modal .detail-similar-meta,
+.media-modal .detail-similar-action,
+.media-modal .detail-extra-copy small {
+  color: rgba(224, 186, 103, .72);
+  font: 650 7px/1.3 "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .1em;
+}
+
+.media-modal .detail-similar-copy strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-modal .detail-similar-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .62);
+  font-size: 10px;
+  line-height: 1.48;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.media-modal .detail-similar-action {
+  margin-top: auto;
+  color: #f13749;
+}
+
+.media-modal .detail-extras-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-modal .detail-extra-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-modal .detail-extra-play {
+  position: absolute;
+  z-index: 2;
+  inset: 50% auto auto 50%;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: #fff;
+  background: rgba(8, 8, 10, .72);
+  border: 1px solid rgba(255, 255, 255, .74);
+  border-radius: 50%;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .4);
+  transform: translate(-50%, -50%);
+}
+
+.media-modal .detail-extra-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+}
+
+.media-modal .detail-extra-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-modal .detail-credits {
+  grid-area: credits;
+  align-self: stretch;
+  padding: 16px;
+  background:
+    linear-gradient(145deg, rgba(224, 186, 103, .08), transparent 52%),
+    rgba(13, 13, 16, .78);
+  border: 1px solid rgba(224, 186, 103, .14);
+  border-radius: 6px;
+}
+
+.media-modal #fp-detail-credits-title b {
+  color: rgba(255, 255, 255, .92);
+  font: inherit;
+}
+
+.media-modal .detail-credit-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-modal .detail-credit-grid > div {
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 0;
+}
+
+.media-modal .detail-credit-grid > div:last-child { border-bottom: 0; }
+.media-modal .detail-credit-grid span { -webkit-line-clamp: 2; }
+
 @media (max-width: 980px) {
+  .media-modal .detail-similar-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
   .media-modal .detail-body .detail-head-actions {
     align-items: stretch;
   }
@@ -180,6 +397,8 @@
       "actions"
       "synopsis"
       "facts"
+      "similar"
+      "extras"
       "credits"
       "cast"
       "sources"
@@ -187,6 +406,18 @@
       "queue";
     gap: 22px;
   }
+
+  .media-modal .detail-similar-grid {
+    grid-auto-columns: minmax(260px, 78vw);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    padding-bottom: 8px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+
+  .media-modal .detail-similar-card { scroll-snap-align: start; }
 
   .media-modal .detail-title-block {
     width: calc(100% - 36px);
@@ -364,6 +595,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .media-modal .detail-hero-trailer { display: none; transition: none; }
+  .media-modal .detail-similar-card,
+  .media-modal .detail-extra-card,
+  .media-modal .detail-similar-art img,
+  .media-modal .detail-extra-art img { transition: none; }
 }
 
 /* ── Startseite: Netflix-dichte 16:9-Rails ─────────────────────────── */
