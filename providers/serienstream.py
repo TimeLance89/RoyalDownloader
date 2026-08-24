@@ -25,12 +25,11 @@ Hoster-Embed-URL (z.B. https://voe.sx/e/...) zeigt. Diese Auflösung ist teuer
 """
 
 import html as ihtml
-import json
 import logging
 import re
 import time
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
@@ -91,10 +90,6 @@ class SerienstreamScraper:
         self._catalog_cache: Optional[List[FilmpalastSeriesResult]] = None
         # /beliebte-serien (Rubriken Neu/Angesagt) kurz cachen.
         self._beliebte_cache: Optional[tuple] = None
-        # Der Kalender ist ein separates, kleines JSON-Dokument. Ein kurzer
-        # Cache hält Navigation und erneutes Öffnen sofort responsiv; bei einem
-        # temporären Providerfehler bleibt der letzte gültige Stand erhalten.
-        self._calendar_cache: Optional[tuple[float, dict]] = None
         # True sobald serienstream das Captcha-Gate (Turnstile) aktiviert hat –
         # dann sind ALLE /r?t=-Auflösungen blockiert; nicht weiter hämmern.
         self.gated: bool = False
@@ -207,110 +202,6 @@ class SerienstreamScraper:
     # Rückwärtskompatibel: list_series -> angesagte Serien
     def list_series(self, page: int = 1) -> List[FilmpalastSeriesResult]:
         return self.list_trending(page)
-
-    def series_calendar(self, *, max_age: int = 300) -> dict:
-        """Validierter Veröffentlichungsplan von SerienStream.
-
-        Nur SerienStream-eigene Serien- und Bildpfade werden durchgereicht.
-        Ein fehlerhafter Fremdeintrag kann dadurch weder beliebige URLs in die
-        Weboberfläche einschleusen noch einen kompletten Kalendertag zerstören.
-        """
-        now = time.time()
-        if self._calendar_cache and now - self._calendar_cache[0] < max_age:
-            return self._calendar_cache[1]
-        try:
-            json_get = getattr(self.session, "get_json", None)
-            if callable(json_get):
-                document = json_get(
-                    f"{BASE_URL}/api/calendar",
-                    referer=f"{BASE_URL}/serienkalender",
-                    timeout=8,
-                )
-            else:
-                raw = self.session.get(f"{BASE_URL}/api/calendar", fast=True)
-                document = json.loads(raw)
-            if not isinstance(document, dict):
-                raise TypeError("Kalenderantwort ist kein Objekt")
-            days: list[dict] = []
-            total = 0
-            for date in sorted(document):
-                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)):
-                    continue
-                raw_entries = document[date]
-                if not isinstance(raw_entries, list):
-                    continue
-                entries = [
-                    entry
-                    for item in raw_entries
-                    if (entry := self._calendar_entry(item, str(date))) is not None
-                ]
-                entries.sort(key=lambda item: (item["time"], item["title"].casefold()))
-                days.append({"date": str(date), "entries": entries})
-                total += len(entries)
-            if not days:
-                raise ValueError("Kalenderantwort enthält keine gültigen Tage")
-            payload = {
-                "days": days,
-                "total": total,
-                "available_from": days[0]["date"] if days else "",
-                "available_to": days[-1]["date"] if days else "",
-                "provider": "serienstream",
-            }
-            self._calendar_cache = (now, payload)
-            return payload
-        except Exception:
-            if self._calendar_cache:
-                stale = dict(self._calendar_cache[1])
-                stale["stale"] = True
-                return stale
-            raise
-
-    @classmethod
-    def _calendar_entry(cls, item: object, date: str) -> dict | None:
-        if not isinstance(item, dict):
-            return None
-        title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()[:240]
-        path = str(item.get("url") or "").strip()
-        match = re.fullmatch(
-            r"/serie/([a-z0-9-]+)/staffel-(\d+)(?:/episode-(\d+))?/?",
-            path,
-        )
-        if not title or not match:
-            return None
-        season = max(0, min(int(item.get("season") or match.group(2)), 100))
-        episode = max(0, min(int(item.get("episode") or match.group(3) or 0), 10000))
-        time_label = str(item.get("time") or "00:00").strip()
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time_label):
-            time_label = "00:00"
-        language_id = int(item.get("language_id") or 0)
-        language = LANG_LABEL.get(str(language_id), "Unbekannt")
-        cover = str(item.get("cover_url") or "").strip()
-        if cover.startswith("/"):
-            cover = cls._abs(cover)
-        else:
-            parsed = urlparse(cover)
-            if parsed.scheme != "https" or parsed.hostname not in {
-                "serienstream.to", "www.serienstream.to",
-            }:
-                cover = ""
-        slug = match.group(1)
-        return {
-            "date": date,
-            "time": time_label,
-            "title": title,
-            "language": language,
-            "language_id": language_id,
-            "season": season,
-            "episode": episode,
-            "released": bool(item.get("released")),
-            "url": cls._abs(path),
-            "cover_url": cover,
-            "base_slug": f"{SOURCE_PREFIX}{slug}",
-            "sample_slug": (
-                f"{SOURCE_PREFIX}{slug}-s{season:02d}e{episode:02d}"
-                if season > 0 and episode > 0 else f"{SOURCE_PREFIX}{slug}"
-            ),
-        }
 
     @staticmethod
     def _cards_under_heading(soup: BeautifulSoup, needle: str) -> list:

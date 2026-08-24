@@ -39,6 +39,7 @@ function createInitialState() {
       days: [], total: 0, loaded: false, loading: false, error: "",
       activeWeek: "", language: "all", query: "", subscribedOnly: false,
       disabledReason: "", stale: false, cached: false, updatedAt: 0,
+      initialized: false, phase: "idle", requestId: 0,
     },
     anime: {
       results: [], mode: null, query: "", page: 1, hasMore: false,

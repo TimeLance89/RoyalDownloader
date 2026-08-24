@@ -254,10 +254,6 @@ class AppState:
         # Rate-Limiting) über alle Aufrufe erhalten bleibt.
         self.sto_scraper: SerienstreamScraper | None = None
         self.sto_lock = threading.Lock()
-        # Der öffentliche Sendeplan darf nicht hinter Serien- oder Download-
-        # Aufrufen warten. Er nutzt deshalb eine kleine, unabhängige Session.
-        self.sto_calendar_scraper: SerienstreamScraper | None = None
-        self.sto_calendar_lock = threading.Lock()
         self.moflix_scraper: MoflixScraper | None = None
         self.moflix_lock = threading.RLock()
         self.huhu_scraper: HuhuScraper | None = None

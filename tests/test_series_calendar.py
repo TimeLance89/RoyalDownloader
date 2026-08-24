@@ -1,37 +1,17 @@
 import asyncio
-import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import api_discovery_router
-from providers.serienstream import SerienstreamScraper
+from series_calendar_service import SeriesCalendarService, normalize_calendar_document
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class _CalendarSession:
-    def __init__(self, document):
-        self.document = document
-        self.calls = []
-
-    def get(self, url, fast=False):
-        self.calls.append((url, fast))
-        return json.dumps(self.document)
-
-
-class _JsonCalendarSession:
-    def __init__(self, document):
-        self.document = document
-        self.calls = []
-
-    def get_json(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        return self.document
-
-
-def test_serienstream_calendar_validates_entries_and_uses_direct_cover():
-    session = _CalendarSession({
+def _calendar_document():
+    return {
         "2026-08-23": [{
             "date": "2026-08-23", "time": "20:15", "title": "Test Serie",
             "language": "Deutsch", "language_id": 1, "season": 2, "episode": 4,
@@ -41,11 +21,13 @@ def test_serienstream_calendar_validates_entries_and_uses_direct_cover():
             "title": "Fremdlink", "url": "https://evil.invalid/serie/test",
         }],
         "not-a-date": [],
-    })
-    scraper = SerienstreamScraper(session=session)
+    }
 
-    result = scraper.series_calendar()
 
+def test_calendar_service_validates_entries_and_uses_direct_cover():
+    result = normalize_calendar_document(_calendar_document(), fetched_at=1234)
+
+    assert result["ready"] is True
     assert result["total"] == 1
     assert result["available_from"] == "2026-08-23"
     entry = result["days"][0]["entries"][0]
@@ -54,35 +36,66 @@ def test_serienstream_calendar_validates_entries_and_uses_direct_cover():
     assert entry["cover_url"] == (
         "https://serienstream.to/media/images/channel/desktop/test-poster"
     )
-    assert session.calls == [("https://serienstream.to/api/calendar", True)]
+
+    document = _calendar_document()
+    document["2026-08-23"][0]["cover_url"] = (
+        "https://www.serienstream.to/media/images/channel/desktop/test-poster"
+    )
+    canonical = normalize_calendar_document(document, fetched_at=1234)
+    assert canonical["days"][0]["entries"][0]["cover_url"] == entry["cover_url"]
 
 
-def test_serienstream_calendar_uses_last_valid_snapshot_on_provider_failure():
-    session = _CalendarSession({"2026-08-23": []})
-    scraper = SerienstreamScraper(session=session)
-    first = scraper.series_calendar(max_age=0)
-    assert first["total"] == 0
-    session.get = lambda *_args, **_kwargs: (_ for _ in ()).throw(ConnectionError("down"))
+def test_calendar_service_persists_last_valid_snapshot(tmp_path):
+    path = tmp_path / "calendar.json"
+    service = SeriesCalendarService(
+        path, fetcher=_calendar_document, now=lambda: 1000,
+    )
+    first = service.refresh()
+    assert first["total"] == 1
+    assert path.is_file()
 
-    result = scraper.series_calendar(max_age=0)
+    restored = SeriesCalendarService(
+        path,
+        fetcher=lambda: (_ for _ in ()).throw(ConnectionError("offline")),
+        now=lambda: 2000,
+    ).refresh()
 
-    assert result["stale"] is True
-    assert result["days"] == [{"date": "2026-08-23", "entries": []}]
+    assert restored["ready"] is True
+    assert restored["stale"] is True
+    assert restored["total"] == 1
+    assert restored["error"] == "offline"
 
 
-def test_serienstream_calendar_uses_short_json_endpoint_with_page_referer():
-    session = _JsonCalendarSession({"2026-08-23": []})
+def test_calendar_service_returns_terminal_failure_without_snapshot(tmp_path):
+    service = SeriesCalendarService(
+        tmp_path / "missing.json",
+        fetcher=lambda: (_ for _ in ()).throw(TimeoutError("Zeitlimit")),
+    )
 
-    result = SerienstreamScraper(session=session).series_calendar(max_age=0)
+    result = service.get()
 
-    assert result["days"] == [{"date": "2026-08-23", "entries": []}]
-    assert session.calls == [(
-        "https://serienstream.to/api/calendar",
-        {
-            "referer": "https://serienstream.to/serienkalender",
-            "timeout": 8,
-        },
-    )]
+    assert result["ready"] is False
+    assert result["refreshing"] is False
+    assert result["days"] == []
+    assert result["error"] == "Zeitlimit"
+
+
+def test_calendar_service_waits_for_initial_background_refresh(tmp_path):
+    release = threading.Event()
+
+    def delayed_fetch():
+        release.wait(timeout=1)
+        return _calendar_document()
+
+    service = SeriesCalendarService(tmp_path / "calendar.json", fetcher=delayed_fetch)
+    assert service.refresh_async() is True
+    threading.Thread(target=lambda: (time.sleep(0.02), release.set()), daemon=True).start()
+
+    result = service.get()
+
+    assert result["ready"] is True
+    assert result["refreshing"] is False
+    assert result["total"] == 1
 
 
 def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
@@ -93,15 +106,14 @@ def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
         "total": 1,
         "provider": "serienstream",
     }
-    scraper = SimpleNamespace(series_calendar=lambda: payload)
+    service = SimpleNamespace(get=lambda **_kwargs: payload)
     monkeypatch.setattr(
         api_discovery_router,
         "provider_priority",
         lambda _kind: (_ for _ in ()).throw(AssertionError("provider setting read")),
     )
-    monkeypatch.setattr(api_discovery_router, "get_sto_calendar_scraper", lambda: scraper)
+    monkeypatch.setattr(api_discovery_router, "get_series_calendar_service", lambda: service)
     monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
-        sto_calendar_lock=threading.Lock(),
         watchlist=[{"base_slug": "serienstream:test"}],
     ))
 
@@ -123,7 +135,7 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
         'class="calendar-ledger"', 'class="calendar-legend"',
     ):
         assert contract in index
-    assert "api.seriesCalendar()" in screen
+    assert "api.seriesCalendar(force)" in screen
     assert "data-calendar-retry" in screen
     assert 'switchTab("serien", { autoLoad: false })' in screen
     assert "loadSeries({" in screen
@@ -133,29 +145,29 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
 
 def test_calendar_uses_an_independent_provider_session_and_client_timeout():
     router = (ROOT / "api_discovery_router.py").read_text(encoding="utf-8")
-    clients = (ROOT / "application_services" / "media_clients.py").read_text(encoding="utf-8")
+    service = (ROOT / "series_calendar_service.py").read_text(encoding="utf-8")
+    server = (ROOT / "server.py").read_text(encoding="utf-8")
     api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
 
-    assert "with state.sto_calendar_lock" in router
-    assert "get_sto_calendar_scraper().series_calendar()" in router
-    assert "def get_sto_calendar_scraper()" in clients
-    assert 'controller.abort(), 20_000' in api
+    assert "get_series_calendar_service().get(force=refresh)" in router
+    assert "series_calendar_snapshot.json" in service
+    assert "os.replace(temporary, self.snapshot_path)" in service
+    assert "get_series_calendar_service().refresh_async()" in server
+    assert 'controller.abort(), 15_000' in api
     assert 'opts.signal = signal' in api
 
 
-def test_calendar_has_a_bounded_direct_provider_fallback():
+def test_calendar_has_a_terminal_state_and_no_browser_provider_request():
     screen = (ROOT / "web" / "screens" / "series-calendar.js").read_text(encoding="utf-8")
 
-    assert "function calendarNormalizeProviderPayload" in screen
-    assert "async function calendarDirectProviderLoad" in screen
-    assert 'fetch("https://serienstream.to/api/calendar"' in screen
-    assert "controller.abort(), 10_000" in screen
-    assert "calendarLoadPayload()" in screen
-    assert "Der lokale Kalenderdienst antwortet nicht." in screen
+    assert "SERIES_CALENDAR_WATCHDOG_MS = 16_000" in screen
+    assert "calendarInstallSafetyNet()" in screen
+    assert "state.calendar.phase = \"error\"" in screen
+    assert "https://serienstream.to/api/calendar" not in screen
     assert "SERIES_CALENDAR_CACHE_MAX_AGE" in screen
     assert "calendarRestoreSnapshot()" in screen
     assert "calendarStoreSnapshot(payload)" in screen
-    assert "void seriesCalendarLoad();" in screen
+    assert "Sendeplan wird geladen" not in screen
 
 
 def test_series_catalog_checks_jellyfin_before_artwork_hydration():

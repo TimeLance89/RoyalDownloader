@@ -89,13 +89,14 @@ const api = {
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
-  seriesCalendar() {
+  seriesCalendar(refresh = false) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
-    return this._req("GET", "/api/series-calendar", undefined, controller.signal)
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const query = refresh ? "?refresh=true" : "";
+    return this._req("GET", `/api/series-calendar${query}`, undefined, controller.signal)
       .catch((error) => {
         if (error?.name === "AbortError") {
-          throw new Error("Der Sendeplan hat nach 20 Sekunden nicht geantwortet.");
+          throw new Error("Der Kalenderdienst hat nach 15 Sekunden nicht geantwortet.");
         }
         throw error;
       })

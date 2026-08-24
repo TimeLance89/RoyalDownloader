@@ -208,36 +208,6 @@ def test_shared_browser_and_http_use_same_user_agent():
     assert headers["User-Agent"] == SERIESSTREAM_USER_AGENT
 
 
-def test_public_json_request_is_short_and_uses_api_headers():
-    observed = {}
-
-    def get(_url, **kwargs):
-        observed.update(kwargs)
-        return SimpleNamespace(
-            text='{"ok": true}',
-            status_code=200,
-            json=lambda: {"ok": True},
-        )
-
-    manager = SessionManager.__new__(SessionManager)
-    manager.TARGET_DOMAIN = "serienstream.to"
-    manager._human_delay = lambda fast=False: observed.update({"fast": fast})
-    manager._curl = SimpleNamespace(get=get)
-
-    result = manager.get_json(
-        "https://serienstream.to/api/calendar",
-        referer="https://serienstream.to/serienkalender",
-        timeout=8,
-    )
-
-    assert result == {"ok": True}
-    assert observed["fast"] is True
-    assert observed["timeout"] == 8
-    assert observed["headers"]["Accept"] == "application/json"
-    assert observed["headers"]["Referer"] == "https://serienstream.to/serienkalender"
-    assert observed["headers"]["Sec-Fetch-Dest"] == "empty"
-
-
 def test_shared_browser_cookie_sync_preserves_domain_and_persists(monkeypatch):
     class CookieJar:
         def __init__(self):
