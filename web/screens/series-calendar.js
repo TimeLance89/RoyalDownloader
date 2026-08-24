@@ -387,7 +387,6 @@ function calendarOpenEntry(key) {
   const [date, rawIndex] = key.split(":");
   const entry = calendarEntriesForDate(date)[Number(rawIndex)];
   if (!entry) return;
-  switchTab("serien", { autoLoad: false });
   loadSeries({
     title: entry.title,
     base_slug: entry.base_slug,
