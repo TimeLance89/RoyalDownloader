@@ -161,6 +161,8 @@ def test_calendar_has_a_terminal_state_and_no_browser_provider_request():
     screen = (ROOT / "web" / "screens" / "series-calendar.js").read_text(encoding="utf-8")
 
     assert "SERIES_CALENDAR_WATCHDOG_MS = 16_000" in screen
+    assert "calendarNextRequestId()" in screen
+    assert "calendarCheckHardDeadline" in screen
     assert "calendarInstallSafetyNet()" in screen
     assert "state.calendar.phase = \"error\"" in screen
     assert "https://serienstream.to/api/calendar" not in screen

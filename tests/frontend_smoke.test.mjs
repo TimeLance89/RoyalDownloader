@@ -51,12 +51,68 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.match(seriesCalendar, /calendarRestoreSnapshot\(\)/);
   assert.match(seriesCalendar, /calendarStoreSnapshot\(payload\)/);
   assert.match(seriesCalendar, /SERIES_CALENDAR_WATCHDOG_MS = 16_000/);
+  assert.match(seriesCalendar, /calendarNextRequestId\(\)/);
+  assert.match(seriesCalendar, /calendarCheckHardDeadline/);
   assert.match(seriesCalendar, /calendarInstallSafetyNet\(\)/);
   assert.match(seriesCalendar, /state\.calendar\.phase = "error"/);
   assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
   assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
-  assert.match(html, /series-calendar\.js\?v=royal-20260824-2/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260824-3/);
+});
+
+function calendarTestContext(seriesCalendarApi) {
+  const elements = {
+    "calendar-status": {
+      classList: { toggle() {} }, hidden: false, innerHTML: "",
+    },
+    "calendar-days": { hidden: false },
+    "calendar-range": { textContent: "" },
+  };
+  return vm.createContext({
+    api: { seriesCalendar: seriesCalendarApi },
+    document: {
+      readyState: "loading",
+      addEventListener() {},
+      getElementById(id) { return elements[id] || null; },
+    },
+    escapeHtml(value) { return String(value); },
+    state: {
+      // Absichtlich das Kalenderobjekt einer älteren, bereits geöffneten UI.
+      calendar: { days: [], loaded: false, loading: false, error: "" },
+      wl: { items: [] },
+    },
+    window: { setTimeout, clearTimeout, setInterval },
+    __elements: elements,
+  });
+}
+
+test("series calendar terminates with an older in-memory store", async () => {
+  const context = calendarTestContext(async () => { throw new Error("offline"); });
+  vm.runInContext(seriesCalendar, context);
+
+  await vm.runInContext("seriesCalendarLoad()", context);
+
+  assert.equal(context.state.calendar.loading, false);
+  assert.equal(context.state.calendar.phase, "error");
+  assert.equal(context.state.calendar.requestId, 1);
+  assert.match(context.__elements["calendar-status"].innerHTML, /Kalender nicht erreichbar/);
+});
+
+test("series calendar watchdog terminates a request that never settles", async () => {
+  const context = calendarTestContext(() => new Promise(() => {}));
+  const fastCalendar = seriesCalendar.replace(
+    "const SERIES_CALENDAR_WATCHDOG_MS = 16_000;",
+    "const SERIES_CALENDAR_WATCHDOG_MS = 5;",
+  );
+  vm.runInContext(fastCalendar, context);
+
+  void vm.runInContext("seriesCalendarLoad()", context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(context.state.calendar.loading, false);
+  assert.equal(context.state.calendar.phase, "error");
+  assert.match(context.__elements["calendar-status"].innerHTML, /Zeitlimit überschritten/);
 });
 
 function requiresIds(...ids) {
