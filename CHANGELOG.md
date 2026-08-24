@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Film- und Seriendetails erhalten im einheitlichen Royal-Aktenstil eigene
+  Bereiche für ähnliche Titel, offizielle Trailer und kompakte
+  Produktionsinformationen; Empfehlungen verwenden ausschließlich breite
+  16:9-Hintergründe.
+- Ähnliche Serien öffnen direkt die vollständige Serienakte mit unverändertem
+  Staffel- und Episodenbrowser; beim Schließen bleibt der zuvor aktive Kalender
+  erhalten.
+- Laufende Hero-Trailer in Film- und Seriendetails pausieren automatisch,
+  sobald der Kopfbereich aus dem sichtbaren Ausschnitt gescrollt wird, und
+  setzen beim Zurückscrollen fort.
 - Aus dem Kalender geöffnete Seriendetails bleiben als Modal über dem Kalender; Schließen führt nicht mehr in die Serienübersicht.
 - Fertig geladene Kalenderdaten blenden den vorbereitenden Statusblock nun zuverlässig aus; die Kalender-CSS respektiert `hidden` auch gegen ihre eigenen Grid-Regeln.
 - Der Kalender beendet den Ladezustand nun auch bei gemischten Browser-Assets und gedrosselten Hintergrund-Timern sicher; ein zweiter Fristwächter fängt hängende Altzustände ab.
