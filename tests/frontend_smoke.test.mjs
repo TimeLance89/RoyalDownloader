@@ -46,14 +46,17 @@ const app = appModulePaths
   .join("\n");
 const frontend = `${login}\n${app}`;
 
-test("series calendar restores a validated snapshot while refreshing", () => {
+test("series calendar always leaves loading and restores a validated snapshot", () => {
   assert.match(seriesCalendar, /SERIES_CALENDAR_CACHE_MAX_AGE/);
   assert.match(seriesCalendar, /calendarRestoreSnapshot\(\)/);
   assert.match(seriesCalendar, /calendarStoreSnapshot\(payload\)/);
-  assert.match(seriesCalendar, /if \(!hadSnapshot\)/);
+  assert.match(seriesCalendar, /SERIES_CALENDAR_WATCHDOG_MS = 16_000/);
+  assert.match(seriesCalendar, /calendarInstallSafetyNet\(\)/);
+  assert.match(seriesCalendar, /state\.calendar\.phase = "error"/);
   assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
-  assert.match(seriesCalendar, /void seriesCalendarLoad\(\);/);
-  assert.match(html, /series-calendar\.js\?v=royal-20260824-1/);
+  assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
+  assert.doesNotMatch(html, /Sendeplan wird geladen/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260824-2/);
 });
 
 function requiresIds(...ids) {
@@ -123,7 +126,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260823-2/);
+  assert.match(html, /app\.js\?v=royal-20260824-2/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -195,7 +198,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260824-1/);
+  assert.match(html, /api\.js\?v=royal-20260824-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -219,7 +222,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260824-1/);
+  assert.match(html, /api\.js\?v=royal-20260824-2/);
   assert.match(html, /screens\/home\.js\?v=royal-20260824-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);

@@ -51,6 +51,4 @@ def test_csp_allows_only_the_youtube_nocookie_trailer_frame():
         for directive in directives
         if directive.startswith("connect-src ")
     )
-    assert connect_sources == [
-        "'self'", "https://serienstream.to", "wss://localhost",
-    ]
+    assert connect_sources == ["'self'", "wss://localhost"]

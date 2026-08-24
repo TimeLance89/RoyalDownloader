@@ -86,7 +86,7 @@ get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_aniworld_scraper = _unbound_dependency
-get_sto_calendar_scraper = _unbound_dependency
+get_series_calendar_service = _unbound_dependency
 get_sto_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
@@ -122,7 +122,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_series",
     "get_mkissa_scraper",
     "get_aniworld_scraper",
-    "get_sto_calendar_scraper",
+    "get_series_calendar_service",
     "get_sto_scraper",
     "get_series_for_value",
     "get_tmdb_client",
@@ -764,11 +764,10 @@ class AniWorldPosterBody(BaseModel):
 
 @router.get("/api/v1/series-calendar")
 @router.get("/api/series-calendar")
-async def api_series_calendar():
-    """Eigener Serienkalender auf Basis der freigegebenen SerienStream-Daten."""
+async def api_series_calendar(refresh: bool = False):
+    """Persistenter SerienStream-Sendeplan ohne Abhängigkeit von Provider-Sessions."""
     def _work():
-        with state.sto_calendar_lock:
-            payload = get_sto_calendar_scraper().series_calendar()
+        payload = get_series_calendar_service().get(force=refresh)
         subscribed_slugs = {
             str(item.get("base_slug") or "")
             for item in state.watchlist
@@ -783,13 +782,7 @@ async def api_series_calendar():
             days.append({"date": day.get("date", ""), "entries": entries})
         return {**payload, "days": days, "disabled": False}
 
-    try:
-        return await run_in_threadpool(_work)
-    except Exception as exc:
-        log(f"Serienkalender fehlgeschlagen: {exc}", "warn")
-        raise HTTPException(
-            502, "Der Serienkalender ist gerade nicht erreichbar."
-        ) from exc
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/series/jellyfin-status")

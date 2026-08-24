@@ -1,5 +1,6 @@
-const SERIES_CALENDAR_CACHE_KEY = "royal.series-calendar.v1";
-const SERIES_CALENDAR_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1_000;
+const SERIES_CALENDAR_CACHE_KEY = "royal.series-calendar.v2";
+const SERIES_CALENDAR_CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1_000;
+const SERIES_CALENDAR_WATCHDOG_MS = 16_000;
 
 function calendarDate(value) {
   return new Date(`${value}T12:00:00`);
@@ -89,7 +90,8 @@ function calendarRestoreSnapshot() {
     const payload = calendarNormalizeSnapshotPayload(cached.payload);
     state.calendar.days = payload.days;
     state.calendar.total = payload.total;
-    state.calendar.loaded = false;
+    state.calendar.loaded = true;
+    state.calendar.phase = "ready";
     state.calendar.cached = true;
     state.calendar.stale = true;
     state.calendar.updatedAt = savedAt;
@@ -138,6 +140,8 @@ function calendarEntriesForDate(date) {
 
 function calendarSetStatus(title, copy, { error = false, retry = false, loading = false } = {}) {
   const status = document.getElementById("calendar-status");
+  const days = document.getElementById("calendar-days");
+  if (!status || !days) return;
   status.classList.toggle("is-error", error);
   status.classList.toggle("is-loading", loading);
   status.hidden = false;
@@ -146,7 +150,7 @@ function calendarSetStatus(title, copy, { error = false, retry = false, loading 
     : `<span class="calendar-status-mark">${error ? "!" : "·"}</span>`}
     <strong>${escapeHtml(title)}</strong><small>${escapeHtml(copy)}</small>
     ${retry ? '<button type="button" data-calendar-retry>Erneut laden</button>' : ""}`;
-  document.getElementById("calendar-days").hidden = true;
+  days.hidden = true;
 }
 
 function calendarInitialWeek() {
@@ -156,127 +160,69 @@ function calendarInitialWeek() {
   return weeks.find((week) => week > todayWeek) || weeks.at(-1) || todayWeek;
 }
 
-function calendarProviderEntry(item, date) {
-  if (!item || typeof item !== "object") return null;
-  const title = String(item.title || "").replace(/\s+/g, " ").trim().slice(0, 240);
-  const path = String(item.url || "").trim();
-  const match = path.match(/^\/serie\/([a-z0-9-]+)\/staffel-(\d+)(?:\/episode-(\d+))?\/?$/);
-  if (!title || !match) return null;
-  const season = Math.max(0, Math.min(Number(item.season || match[2]) || 0, 100));
-  const episode = Math.max(0, Math.min(Number(item.episode || match[3]) || 0, 10_000));
-  const languageId = Number(item.language_id || 0);
-  const coverPath = String(item.cover_url || "").trim();
-  const coverUrl = /^\/media\/images\/channel\/desktop\/[A-Za-z0-9_-]+$/.test(coverPath)
-    ? `https://serienstream.to${coverPath}` : "";
-  const baseSlug = `serienstream:${match[1]}`;
-  return {
-    date,
-    time: /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(item.time || "")) ? item.time : "00:00",
-    title,
-    language: { 1: "Deutsch", 2: "Englisch", 3: "Deutsch (Untertitel)" }[languageId] || "Unbekannt",
-    language_id: languageId,
-    season,
-    episode,
-    released: Boolean(item.released),
-    cover_url: coverUrl,
-    base_slug: baseSlug,
-    sample_slug: season > 0 && episode > 0
-      ? `serienstream:${match[1]}-s${String(season).padStart(2, "0")}e${String(episode).padStart(2, "0")}`
-      : baseSlug,
-    subscribed: (state.wl?.items || []).some((entry) => entry?.base_slug === baseSlug),
-  };
-}
-
-function calendarNormalizeProviderPayload(document) {
-  if (!document || typeof document !== "object" || Array.isArray(document)) {
-    throw new Error("SerienStream hat keinen gültigen Sendeplan geliefert.");
-  }
-  let total = 0;
-  const days = Object.keys(document).sort().flatMap((date) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(document[date])) return [];
-    const entries = document[date]
-      .map((item) => calendarProviderEntry(item, date)).filter(Boolean)
-      .sort((left, right) => left.time.localeCompare(right.time) || left.title.localeCompare(right.title, "de"));
-    total += entries.length;
-    return [{ date, entries }];
-  });
-  return {
-    days, total, provider: "serienstream", direct: true,
-    available_from: days[0]?.date || "", available_to: days.at(-1)?.date || "",
-  };
-}
-
-async function calendarDirectProviderLoad() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const response = await fetch("https://serienstream.to/api/calendar", {
-      signal: controller.signal, cache: "no-store", credentials: "omit", mode: "cors",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) throw new Error(`SerienStream antwortet mit HTTP ${response.status}.`);
-    return calendarNormalizeSnapshotPayload(calendarNormalizeProviderPayload(await response.json()));
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error("SerienStream antwortet nicht.");
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function calendarLoadPayload() {
-  try {
-    const payload = await Promise.race([
-      api.seriesCalendar(),
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error("Der lokale Kalenderdienst antwortet nicht.")), 4_000,
-      )),
-    ]);
-    return calendarNormalizeSnapshotPayload(payload);
-  } catch (backendError) {
-    try {
-      return await calendarDirectProviderLoad();
-    } catch (providerError) {
-      throw new Error(`${backendError.message} ${providerError.message}`.trim());
-    }
-  }
-}
-
 async function seriesCalendarLoad(force = false) {
-  if (state.calendar.loading || (state.calendar.loaded && !force)) return;
-  state.calendar.loading = true;
-  state.calendar.error = "";
+  if (state.calendar.loading || (state.calendar.loaded && !force)) return false;
+  const requestId = ++state.calendar.requestId;
   const hadSnapshot = state.calendar.days.length > 0;
-  document.getElementById("calendar-range").textContent = "Sendeplan wird aktualisiert …";
-  if (!hadSnapshot) {
-    calendarSetStatus("Sendeplan wird geladen", "Termine werden von SerienStream abgerufen.", { loading: true });
-  }
+  let watchdog = 0;
+  state.calendar.loading = true;
+  state.calendar.phase = "loading";
+  state.calendar.error = "";
   try {
-    const payload = await calendarLoadPayload();
+    const range = document.getElementById("calendar-range");
+    if (range) range.textContent = hadSnapshot ? "Sendeplan wird aktualisiert …" : "Kalender wird vorbereitet …";
+    if (!hadSnapshot) {
+      calendarSetStatus("Kalender wird vorbereitet", "Der Server übernimmt den Sendeplan von SerienStream.", { loading: true });
+    }
+    watchdog = window.setTimeout(() => {
+      if (state.calendar.requestId !== requestId || !state.calendar.loading) return;
+      state.calendar.loading = false;
+      state.calendar.phase = hadSnapshot ? "ready" : "error";
+      state.calendar.error = "Der Kalenderdienst hat das Zeitlimit überschritten.";
+      if (hadSnapshot) renderSeriesCalendar();
+      else calendarSetStatus("Kalender nicht erreichbar", state.calendar.error, { error: true, retry: true });
+    }, SERIES_CALENDAR_WATCHDOG_MS);
+    const response = await api.seriesCalendar(force);
+    if (state.calendar.requestId !== requestId || !state.calendar.loading) return false;
+    if (!response?.ready && !response?.days?.length) {
+      throw new Error(response?.error || "Der Server hat noch keinen gültigen Sendeplan.");
+    }
+    const payload = calendarNormalizeSnapshotPayload(response);
+    if (!payload.total) throw new Error("Der Sendeplan enthält aktuell keine Einträge.");
     state.calendar.days = payload.days;
     state.calendar.total = payload.total;
     state.calendar.disabledReason = "";
-    state.calendar.stale = !!payload.stale;
-    state.calendar.cached = false;
-    state.calendar.updatedAt = Date.now();
+    state.calendar.stale = Boolean(response.stale);
+    state.calendar.cached = Boolean(response.stale);
+    state.calendar.updatedAt = Number(response.updated_at || 0) * 1_000 || Date.now();
     state.calendar.loaded = true;
+    state.calendar.phase = "ready";
     state.calendar.activeWeek = calendarInitialWeek();
     calendarStoreSnapshot(payload);
     renderSeriesCalendar();
+    return true;
   } catch (error) {
+    if (state.calendar.requestId !== requestId) return false;
     state.calendar.error = error?.message || "Unbekannter Kalenderfehler";
     if (hadSnapshot) {
       state.calendar.stale = true;
       state.calendar.cached = true;
-      state.calendar.loaded = false;
+      state.calendar.loaded = true;
+      state.calendar.phase = "ready";
       renderSeriesCalendar();
-      document.getElementById("calendar-range").textContent += " · Aktualisierung fehlgeschlagen";
+      const range = document.getElementById("calendar-range");
+      if (range) range.textContent += " · Aktualisierung fehlgeschlagen";
     } else {
-      document.getElementById("calendar-range").textContent = "Laden fehlgeschlagen";
+      state.calendar.loaded = false;
+      state.calendar.phase = "error";
+      const range = document.getElementById("calendar-range");
+      if (range) range.textContent = "Kalender nicht verfügbar";
       calendarSetStatus("Kalender nicht erreichbar", state.calendar.error, { error: true, retry: true });
     }
+    return false;
   } finally {
-    state.calendar.loading = false;
+    window.clearTimeout(watchdog);
+    if (state.calendar.requestId === requestId) state.calendar.loading = false;
   }
 }
 
@@ -418,17 +364,22 @@ function calendarOpenEntry(key) {
   });
 }
 
-function initSeriesCalendar() {
-  calendarRestoreSnapshot();
-  document.getElementById("calendar-prev-week").addEventListener("click", () => calendarMoveWeek(-1));
-  document.getElementById("calendar-next-week").addEventListener("click", () => calendarMoveWeek(1));
-  document.getElementById("calendar-today").addEventListener("click", () => {
+function initSeriesCalendar({ autoLoad = false } = {}) {
+  if (state.calendar.initialized) {
+    if (autoLoad) void seriesCalendarLoad(state.calendar.loaded);
+    return;
+  }
+  state.calendar.initialized = true;
+  const restored = calendarRestoreSnapshot();
+  document.getElementById("calendar-prev-week")?.addEventListener("click", () => calendarMoveWeek(-1));
+  document.getElementById("calendar-next-week")?.addEventListener("click", () => calendarMoveWeek(1));
+  document.getElementById("calendar-today")?.addEventListener("click", () => {
     const week = calendarWeekKey(calendarTodayKey());
     if (calendarAvailableWeeks().includes(week)) state.calendar.activeWeek = week;
     renderSeriesCalendar();
     document.getElementById(`calendar-day-${calendarTodayKey()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
-  document.getElementById("calendar-search").addEventListener("input", (event) => {
+  document.getElementById("calendar-search")?.addEventListener("input", (event) => {
     state.calendar.query = event.currentTarget.value;
     renderSeriesCalendar();
   });
@@ -443,25 +394,42 @@ function initSeriesCalendar() {
       renderSeriesCalendar();
     });
   });
-  document.getElementById("calendar-subscribed").addEventListener("click", (event) => {
+  document.getElementById("calendar-subscribed")?.addEventListener("click", (event) => {
     state.calendar.subscribedOnly = !state.calendar.subscribedOnly;
     event.currentTarget.classList.toggle("is-active", state.calendar.subscribedOnly);
     event.currentTarget.setAttribute("aria-pressed", String(state.calendar.subscribedOnly));
     renderSeriesCalendar();
   });
-  document.getElementById("calendar-week-strip").addEventListener("click", (event) => {
+  document.getElementById("calendar-week-strip")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-calendar-date]");
     if (!button) return;
     document.getElementById(`calendar-day-${button.dataset.calendarDate}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
-  document.getElementById("calendar-days").addEventListener("click", (event) => {
+  document.getElementById("calendar-days")?.addEventListener("click", (event) => {
     const entry = event.target.closest("[data-calendar-entry]");
     if (entry) calendarOpenEntry(entry.dataset.calendarEntry);
   });
-  document.getElementById("calendar-status").addEventListener("click", (event) => {
+  document.getElementById("calendar-status")?.addEventListener("click", (event) => {
     if (event.target.closest("[data-calendar-retry]")) void seriesCalendarLoad(true);
   });
-  // Früh laden: Beim ersten Öffnen ist der Sendeplan dadurch meist bereits da.
-  // Ein gespeicherter Stand bleibt während der Aktualisierung sichtbar.
-  void seriesCalendarLoad();
+  if (!restored) {
+    state.calendar.phase = "idle";
+    calendarSetStatus(
+      "Kalender bereit",
+      "Der Sendeplan wird direkt nach der Anmeldung automatisch übernommen.",
+      { retry: true },
+    );
+  }
+  if (autoLoad) void seriesCalendarLoad(restored);
+}
+
+// Die Bedienung wird unabhängig vom großen App-Bootstrap verdrahtet. Selbst
+// wenn ein anderes Startmodul ausfällt, bleibt nie ein statischer Loader stehen.
+function calendarInstallSafetyNet() {
+  window.setTimeout(() => initSeriesCalendar({ autoLoad: false }), 0);
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", calendarInstallSafetyNet, { once: true });
+} else {
+  calendarInstallSafetyNet();
 }

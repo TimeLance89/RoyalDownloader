@@ -5,13 +5,15 @@ async function initApp() {
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
   await requireLogin();
+  // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
+  // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
+  initSeriesCalendar({ autoLoad: true });
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
   initSettingsNavigation();
   initCatalogInfiniteScroll();
   initializeTrailerExperience();
-  initSeriesCalendar();
 
   document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 

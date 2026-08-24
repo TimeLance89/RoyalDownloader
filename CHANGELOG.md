@@ -3,10 +3,9 @@
 ## Unreleased
 
 - Die Startseite verwendet außerhalb der Top 10 ausschließlich 16:9-Hintergründe, füllt „Aus deinen Klicks und Downloads“ auf bis zu 16 Titel auf und hält beim Aktualisieren die einmal geladenen Karten stabil im DOM.
-- Der Serienkalender übernimmt den öffentlichen Sendeplan unabhängig von den Download-Quellen über einen kurzen JSON-Proxy. Ein validierter Browser-Snapshot bleibt bei Neustarts und Ausfällen sichtbar; der direkte Fallback ist nun durch die Sicherheitsrichtlinie tatsächlich freigegeben.
-- Der Serienkalender lädt über eine unabhängige SerienStream-Session, bricht festhängende Anfragen nach 20 Sekunden kontrolliert ab und bietet eine direkte Wiederholen-Aktion. Der Bereich wurde als kompakter Wochen-Sendeplan mit Tagesnavigation, Statuslegende und zweispaltiger Agenda neu gestaltet.
+- Der Serienkalender wird vollständig serverseitig über eine unabhängige SerienStream-Session synchronisiert. Ein atomar gespeicherter, validierter Snapshot übersteht Neustarts und Ausfälle; der Browser ruft die Kalenderdaten nie direkt vom Fremddienst ab.
+- Die Kalenderoberfläche besitzt klar begrenzte Abrufe, einen harten Lade-Wächter und abschließende Erfolgs-, Offline- oder Wiederholen-Zustände. Dadurch kann kein dauerhafter Ladehinweis mehr stehen bleiben.
 - Die Serienübersicht startet den Jellyfin-Liveabgleich für die komplette erste Katalogseite sofort und unabhängig von Postern/TMDB. Doppelte Serien mit widersprüchlichen Staffel-Jahresangaben werden bei identischem Titel und überlappender Quelle zusammengeführt.
-- Falls der lokale Kalenderdienst nicht binnen vier Sekunden antwortet, lädt die Oberfläche den öffentlichen SerienStream-Sendeplan direkt, validiert alle Pfade und beendet den Ladezustand spätestens nach dem begrenzten Fallback-Abruf.
 
 - Preserve each home carousel's horizontal scroll position when progressive
   artwork, Jellyfin status, or discovery data triggers a background rerender.
