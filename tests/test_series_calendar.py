@@ -20,6 +20,16 @@ class _CalendarSession:
         return json.dumps(self.document)
 
 
+class _JsonCalendarSession:
+    def __init__(self, document):
+        self.document = document
+        self.calls = []
+
+    def get_json(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.document
+
+
 def test_serienstream_calendar_validates_entries_and_uses_direct_cover():
     session = _CalendarSession({
         "2026-08-23": [{
@@ -60,6 +70,21 @@ def test_serienstream_calendar_uses_last_valid_snapshot_on_provider_failure():
     assert result["days"] == [{"date": "2026-08-23", "entries": []}]
 
 
+def test_serienstream_calendar_uses_short_json_endpoint_with_page_referer():
+    session = _JsonCalendarSession({"2026-08-23": []})
+
+    result = SerienstreamScraper(session=session).series_calendar(max_age=0)
+
+    assert result["days"] == [{"date": "2026-08-23", "entries": []}]
+    assert session.calls == [(
+        "https://serienstream.to/api/calendar",
+        {
+            "referer": "https://serienstream.to/serienkalender",
+            "timeout": 8,
+        },
+    )]
+
+
 def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
     payload = {
         "days": [{"date": "2026-08-23", "entries": [{
@@ -69,7 +94,11 @@ def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
         "provider": "serienstream",
     }
     scraper = SimpleNamespace(series_calendar=lambda: payload)
-    monkeypatch.setattr(api_discovery_router, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(
+        api_discovery_router,
+        "provider_priority",
+        lambda _kind: (_ for _ in ()).throw(AssertionError("provider setting read")),
+    )
     monkeypatch.setattr(api_discovery_router, "get_sto_calendar_scraper", lambda: scraper)
     monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
         sto_calendar_lock=threading.Lock(),
@@ -123,6 +152,10 @@ def test_calendar_has_a_bounded_direct_provider_fallback():
     assert "controller.abort(), 10_000" in screen
     assert "calendarLoadPayload()" in screen
     assert "Der lokale Kalenderdienst antwortet nicht." in screen
+    assert "SERIES_CALENDAR_CACHE_MAX_AGE" in screen
+    assert "calendarRestoreSnapshot()" in screen
+    assert "calendarStoreSnapshot(payload)" in screen
+    assert "void seriesCalendarLoad();" in screen
 
 
 def test_series_catalog_checks_jellyfin_before_artwork_hydration():

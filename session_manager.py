@@ -270,6 +270,56 @@ class SessionManager:
 
         return html
 
+    def get_json(
+        self,
+        url: str,
+        *,
+        referer: Optional[str] = None,
+        timeout: int = 8,
+    ) -> object:
+        """Holt ein öffentliches JSON-Dokument ohne Browser-Eskalation.
+
+        Kleine Datenendpunkte wie der SerienStream-Kalender dürfen weder den
+        allgemeinen 25-Sekunden-HTML-Pfad noch eine Chromium-Sitzung starten.
+        Der Aufrufer kann dadurch schnell auf seinen letzten Stand ausweichen.
+        """
+        self._human_delay(fast=True)
+        ref = referer or f"https://{self.TARGET_DOMAIN}/"
+        headers = self._browser_headers(url, ref)
+        headers.update({
+            "Accept": "application/json",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        })
+        headers.pop("Sec-Fetch-User", None)
+        headers.pop("Upgrade-Insecure-Requests", None)
+        try:
+            response = self._curl.get(
+                url,
+                headers=headers,
+                timeout=max(1, min(int(timeout), 20)),
+                allow_redirects=True,
+                proxies={"http": safe_proxy_url(), "https": safe_proxy_url()},
+            )
+        except Exception as exc:
+            raise ConnectionError(f"JSON-Abruf fehlgeschlagen: {url}") from exc
+
+        body = str(getattr(response, "text", "") or "")
+        status = int(getattr(response, "status_code", 0) or 0)
+        if _is_cf_challenge(body, status):
+            reason = "rate_limit" if status == 429 else "captcha_gate"
+            raise ProviderBlockedError(reason, status)
+        if status < 200 or status >= 300:
+            raise ConnectionError(f"JSON-Abruf lieferte HTTP {status or 'unbekannt'}")
+        try:
+            return response.json()
+        except Exception:
+            try:
+                return json.loads(body)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("JSON-Antwort ist ungültig") from exc
+
     def get_redirect_location(self, url: str, referer: Optional[str] = None) -> Optional[str]:
         """Löst eine Weiterleitungs-URL zur finalen externen Ziel-URL auf.
 

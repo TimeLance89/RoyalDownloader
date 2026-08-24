@@ -9,6 +9,7 @@ function createInitialState() {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
       heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
+      refreshing: false, rendered: false,
       layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
       railScrollPositions: {}, railScrollTargets: {},
       jellyfinStatusByKey: new Map(),
@@ -37,7 +38,7 @@ function createInitialState() {
     calendar: {
       days: [], total: 0, loaded: false, loading: false, error: "",
       activeWeek: "", language: "all", query: "", subscribedOnly: false,
-      disabledReason: "", stale: false,
+      disabledReason: "", stale: false, cached: false, updatedAt: 0,
     },
     anime: {
       results: [], mode: null, query: "", page: 1, hasMore: false,
@@ -659,10 +660,8 @@ async function warmDiscoveryReservoirV2() {
       ...newSeries.map(homeSeriesEntry),
     ], null);
     saveHomeCache();
-    if (state.tab === "home") {
-      state.home.heroIndex = 0;
-      renderHome();
-    }
+    // Der größere Reservoir-Stand wird beim nächsten Seitenaufruf sichtbar.
+    // Die bereits aufgebaute Startseite bleibt in dieser Sitzung unverändert.
     return { movies: state.home.discoveryMovies.length, series: state.home.discoverySeries.length };
   })().catch((error) => {
     console.warn("Discovery-Reservoir konnte nicht vollständig erweitert werden:", error);

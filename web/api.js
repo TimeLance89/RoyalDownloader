@@ -373,7 +373,7 @@ document.addEventListener("visibilitychange", () => {
 function loadRoyalDailyTopV2() {
   if (document.querySelector('script[data-daily-top-v2]')) return;
   const script = document.createElement("script");
-  script.src = "/daily_top_v2.js?v=royal-20260809-2";
+  script.src = "/daily_top_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.dailyTopV2 = "true";
   document.body.appendChild(script);
@@ -390,7 +390,7 @@ function loadRoyalHomeExperienceV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/home_experience_v2.js?v=royal-20260811-1";
+  script.src = "/home_experience_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });
@@ -408,7 +408,7 @@ function loadRoyalTasteProfileV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/taste_v2.js?v=royal-20260811-1";
+  script.src = "/taste_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.tasteProfileV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalHomeExperienceV2, 0), { once: true });
