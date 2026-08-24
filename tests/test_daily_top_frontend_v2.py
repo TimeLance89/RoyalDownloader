@@ -14,7 +14,7 @@ def test_daily_top_service_is_part_of_runtime_graph():
 
 
 def test_daily_top_frontend_loads_after_home_experience_v2():
-    assert 'script.src = "/daily_top_v2.js?v=royal-20260809-2"' in API
+    assert 'script.src = "/daily_top_v2.js?v=royal-20260824-1"' in API
     assert "loadRoyalDailyTopV2" in API
     assert "window.setTimeout(loadRoyalDailyTopV2, 0)" in API
 
@@ -59,6 +59,10 @@ def test_daily_top_cards_open_from_their_own_provider_payload():
 
 def test_daily_top_heading_describes_cross_source_popularity():
     assert 'eyebrow.textContent = "Heute über deine Quellen hinweg angesagt"' in DAILY
+
+
+def test_daily_top_does_not_repaint_the_initial_home_screen():
+    assert "void refreshDailyTop(false)" in DAILY
 
 
 def test_daily_top_jellyfin_status_survives_snapshot_rerenders():

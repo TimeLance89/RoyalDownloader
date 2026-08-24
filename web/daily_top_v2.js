@@ -309,7 +309,9 @@
 
   installStyle();
   updateHeading();
-  void refreshDailyTop(true);
+  // Der initiale Snapshot wird gespeichert, aber eine bereits aufgebaute
+  // Startseite nicht nachträglich neu zusammengesetzt.
+  void refreshDailyTop(false);
 
   function refreshAtDayBoundary() {
     if (loadedPeriod === dayKey()) return;

@@ -417,7 +417,7 @@
     // Refresh the already rendered first paint after replacing Discovery v2.
     scoreCache.clear();
     renderTasteSummaryV2(loadDiscoveryProfile());
-    if (state.tab === "home") renderHome();
+    if (state.tab === "home" && !state.home.rendered) renderHome();
     return true;
   }
 

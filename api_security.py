@@ -149,7 +149,12 @@ def harden_http_response(
 ) -> Response:
     """Apply browser and proxy-safe headers consistently to every response."""
     websocket_source = _websocket_csp_source(request, request_is_secure)
-    connect_sources = "'self'" + (f" {websocket_source}" if websocket_source else "")
+    # Der Kalender nutzt den lokalen Proxy. Nur falls dieser nicht erreichbar
+    # ist, darf die Oberfläche den öffentlichen SerienStream-Kalender direkt
+    # lesen. Die Freigabe bleibt auf genau diesen HTTPS-Ursprung begrenzt.
+    connect_sources = "'self' https://serienstream.to" + (
+        f" {websocket_source}" if websocket_source else ""
+    )
     csp = "; ".join((
         "default-src 'self'",
         "base-uri 'none'",

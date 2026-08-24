@@ -233,7 +233,7 @@ function homeArtworkEntriesInLayout() {
     ...currentHomeLayout().rail_order
       .filter((railId) => !hidden.has(railId))
       .flatMap((railId) => lanes[railId] || []),
-    ...homeAllEntries(),
+    ...homeHeroCandidates(),
   ]);
 }
 

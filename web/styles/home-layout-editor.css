@@ -19,19 +19,6 @@
 #tab-home .home-program-layout:focus-visible { outline: 2px solid #f03545; outline-offset: 3px; }
 .home-layout-hidden { display: none !important; }
 
-#tab-home .home-card-art:has(> img.is-poster-fallback) {
-  background: radial-gradient(circle at 50% 34%, rgba(185, 38, 54, .2), transparent 44%), #111217;
-}
-
-#tab-home .home-card-art > img.is-poster-fallback {
-  width: 100%;
-  height: 100%;
-  padding: 0 26%;
-  object-fit: cover;
-  background: linear-gradient(90deg, #0b0c0f, #17131a 50%, #0b0c0f);
-  filter: saturate(.92);
-}
-
 .home-layout-modal[hidden] { display: none; }
 .home-layout-modal {
   position: fixed;

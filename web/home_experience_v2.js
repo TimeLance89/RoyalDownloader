@@ -362,26 +362,26 @@
   function homeExperienceHeroCandidates() {
     let entries = tasteRankedHeroEntries();
     if (entries.length < 2) {
-      // Artwork may still be hydrating during first paint. Stay taste-first, but
-      // permit the existing poster fallback rather than leaving the hero empty.
+      // Artwork may still be hydrating during first paint. The Home hero stays
+      // landscape-only and therefore never falls back to a portrait poster.
       const profile = loadDiscoveryProfile();
       const trendRanks = heroTrendRanks();
       const selectedKeys = new Set(entries.map(logicalKey));
       const fallback = homeAllEntries()
         .filter((entry) => !selectedKeys.has(logicalKey(entry)))
         .map((entry) => heroRecord(entry, profile, trendRanks))
-        .filter(({ entry }) => Boolean(entryMedia(entry).backdrop_url || entryMedia(entry).cover_url))
+        .filter(({ entry }) => Boolean(entryMedia(entry).backdrop_url))
         .sort((left, right) => right.rankingScore - left.rankingScore);
       entries = [...entries, ...fallback.map(({ entry }) => entry)].slice(0, HERO_LIMIT);
     }
     return entries.map((entry) => {
       const media = entryMedia(entry);
-      const artwork = media.backdrop_url || media.cover_url || "";
+      const artwork = media.backdrop_url || "";
       return {
         ...entry,
         media,
         artwork,
-        artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
+        artworkKind: media.backdrop_url ? "backdrop" : "none",
       };
     });
   }
@@ -415,7 +415,7 @@
     // index is reset because the previous 4+3 legacy candidate list no longer
     // has the same semantic ordering.
     state.home.heroIndex = 0;
-    if (state.tab === "home" && typeof renderHome === "function") renderHome();
+    if (state.tab === "home" && !state.home.rendered && typeof renderHome === "function") renderHome();
     return true;
   }
 

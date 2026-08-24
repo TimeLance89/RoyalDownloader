@@ -766,16 +766,6 @@ class AniWorldPosterBody(BaseModel):
 @router.get("/api/series-calendar")
 async def api_series_calendar():
     """Eigener Serienkalender auf Basis der freigegebenen SerienStream-Daten."""
-    if "serienstream" not in provider_priority("series"):
-        return {
-            "days": [], "total": 0, "disabled": True,
-            "disabled_reason": (
-                "Der Kalender benötigt die deutsche SerienStream-Quelle. "
-                "Aktiviere sie in den Einstellungen."
-            ),
-            "provider": "serienstream",
-        }
-
     def _work():
         with state.sto_calendar_lock:
             payload = get_sto_calendar_scraper().series_calendar()

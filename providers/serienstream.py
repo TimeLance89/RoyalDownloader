@@ -219,8 +219,16 @@ class SerienstreamScraper:
         if self._calendar_cache and now - self._calendar_cache[0] < max_age:
             return self._calendar_cache[1]
         try:
-            raw = self.session.get(f"{BASE_URL}/api/calendar", fast=True)
-            document = json.loads(raw)
+            json_get = getattr(self.session, "get_json", None)
+            if callable(json_get):
+                document = json_get(
+                    f"{BASE_URL}/api/calendar",
+                    referer=f"{BASE_URL}/serienkalender",
+                    timeout=8,
+                )
+            else:
+                raw = self.session.get(f"{BASE_URL}/api/calendar", fast=True)
+                document = json.loads(raw)
             if not isinstance(document, dict):
                 raise TypeError("Kalenderantwort ist kein Objekt")
             days: list[dict] = []
@@ -239,6 +247,8 @@ class SerienstreamScraper:
                 entries.sort(key=lambda item: (item["time"], item["title"].casefold()))
                 days.append({"date": str(date), "entries": entries})
                 total += len(entries)
+            if not days:
+                raise ValueError("Kalenderantwort enthält keine gültigen Tage")
             payload = {
                 "days": days,
                 "total": total,
