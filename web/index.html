@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260823-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260824-4">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -28,6 +28,7 @@
       <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Startseite</span></button>
       <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+      <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
       <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
       <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
@@ -136,6 +137,7 @@
     <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
     <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
     <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
+    <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
     <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
     <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
     <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
@@ -226,6 +228,10 @@
           <button id="home-discovery-shuffle" class="home-program-shuffle" type="button">
             <span aria-hidden="true">↻</span>
             Neu mischen
+          </button>
+          <button id="home-layout-open" class="home-program-layout" type="button">
+            <span aria-hidden="true">☷</span>
+            Startseite gestalten
           </button>
         </div>
       </section>
@@ -327,6 +333,45 @@
         </section>
       </div>
     </section>
+
+    <div id="home-layout-modal" class="home-layout-modal" role="dialog" aria-modal="true" aria-labelledby="home-layout-title" hidden>
+      <div class="home-layout-dialog">
+        <header class="home-layout-head">
+          <div>
+            <span class="home-layout-kicker">DEIN PROGRAMMPLAN</span>
+            <h2 id="home-layout-title">Was läuft auf deiner Startseite?</h2>
+            <p>Reihen einblenden, ausblenden und in die gewünschte Reihenfolge ziehen.</p>
+          </div>
+          <button id="home-layout-close" class="home-layout-close" type="button" aria-label="Startseiten-Editor schließen">×</button>
+        </header>
+        <div class="home-layout-stage">
+          <aside class="home-layout-summary">
+            <span class="home-layout-summary-label">LIVE-VORSCHAU</span>
+            <strong id="home-layout-count">7 von 12 Reihen sichtbar</strong>
+            <p>Jede Änderung ist direkt hinter diesem Fenster auf der Startseite sichtbar.</p>
+            <label class="home-layout-hero-option">
+              <input id="home-layout-hero" type="checkbox" checked>
+              <span><strong>Große Empfehlung</strong><small>Das wechselnde Titelbild oben anzeigen</small></span>
+            </label>
+            <button id="home-layout-reset" class="home-layout-reset" type="button">Standard wiederherstellen</button>
+          </aside>
+          <section class="home-layout-workspace" aria-label="Reihenfolge der Startseite">
+            <div class="home-layout-workspace-head">
+              <span>REIHENFOLGE</span>
+              <small>Ziehen oder Pfeile verwenden</small>
+            </div>
+            <div id="home-layout-list" class="home-layout-list"></div>
+          </section>
+        </div>
+        <footer class="home-layout-footer">
+          <span id="home-layout-status" role="status" aria-live="polite">Änderungen erscheinen sofort als Vorschau.</span>
+          <div>
+            <button id="home-layout-cancel" type="button">Abbrechen</button>
+            <button id="home-layout-save" type="button">Startseite speichern</button>
+          </div>
+        </footer>
+      </div>
+    </div>
 
     <section class="tab-content" id="tab-filme">
       <section id="movie-feature" class="movie-feature hidden" aria-label="Aktuelle Kinofilme"
@@ -570,11 +615,27 @@
                   <div><label>Freigabe</label><span id="fp-detail-certification" data-i18n-ignore>—</span></div>
                   <div><label>Sprache · Herkunft</label><span id="fp-detail-origin" data-i18n-ignore>—</span></div>
                 </div>
+                <section id="fp-detail-similar-section" class="detail-similar" aria-labelledby="fp-detail-similar-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
+                    <small>Passend aus dem Filmarchiv</small>
+                  </div>
+                  <div id="fp-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
+                </section>
+                <section id="fp-detail-extras-section" class="detail-extras" aria-labelledby="fp-detail-extras-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-extras-title" class="detail-section-title">Trailer und mehr</span>
+                    <small>Offizielle Vorschau</small>
+                  </div>
+                  <div id="fp-detail-extras" class="detail-extras-grid" data-i18n-ignore></div>
+                </section>
                 <section class="detail-credits" aria-labelledby="fp-detail-credits-title">
-                  <span id="fp-detail-credits-title" class="detail-section-title">Stab & Produktion</span>
+                  <span id="fp-detail-credits-title" class="detail-section-title">Über <b id="fp-detail-about-title" data-i18n-ignore>den Film</b></span>
                   <div class="detail-credit-grid">
                     <div><label>Regie</label><span id="fp-detail-directors" data-i18n-ignore>—</span></div>
+                    <div><label>Besetzung</label><span id="fp-detail-about-cast" data-i18n-ignore>—</span></div>
                     <div><label>Drehbuch</label><span id="fp-detail-writers" data-i18n-ignore>—</span></div>
+                    <div><label>Genres</label><span id="fp-detail-about-genres" data-i18n-ignore>—</span></div>
                     <div><label>Produktion</label><span id="fp-detail-studios" data-i18n-ignore>—</span></div>
                   </div>
                   <div id="fp-detail-insights" class="detail-insights" data-i18n-ignore></div>
@@ -736,6 +797,34 @@
               </div>
               <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
             </div>
+            <section class="series-detail-discovery" aria-label="Mehr über diese Serie">
+              <section id="series-detail-similar-section" class="detail-similar" aria-labelledby="series-detail-similar-title" hidden>
+                <div class="detail-section-head">
+                  <span id="series-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
+                  <small>Passend aus dem Serienarchiv</small>
+                </div>
+                <div id="series-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
+              </section>
+              <div class="series-detail-lower-grid">
+                <section id="series-detail-extras-section" class="detail-extras" aria-labelledby="series-detail-extras-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="series-detail-extras-title" class="detail-section-title">Trailer und mehr</span>
+                    <small>Offizielle Vorschau</small>
+                  </div>
+                  <div id="series-detail-extras" class="detail-extras-grid" data-i18n-ignore></div>
+                </section>
+                <section id="series-detail-about-section" class="detail-credits series-detail-about" aria-labelledby="series-detail-about-heading" hidden>
+                  <span id="series-detail-about-heading" class="detail-section-title">Über <b id="series-detail-about-title" data-i18n-ignore>die Serie</b></span>
+                  <div class="detail-credit-grid">
+                    <div><label>Idee</label><span id="series-detail-creators" data-i18n-ignore>—</span></div>
+                    <div><label>Besetzung</label><span id="series-detail-about-cast" data-i18n-ignore>—</span></div>
+                    <div><label>Genres</label><span id="series-detail-about-genres" data-i18n-ignore>—</span></div>
+                    <div><label>Produktion</label><span id="series-detail-production" data-i18n-ignore>—</span></div>
+                    <div><label>Originaltitel · Status</label><span id="series-detail-original-status" data-i18n-ignore>—</span></div>
+                  </div>
+                </section>
+              </div>
+            </section>
             <section class="series-episode-browser" aria-labelledby="series-episodes-title">
               <header class="series-episodes-head">
                 <div>
@@ -760,6 +849,75 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section class="tab-content" id="tab-kalender">
+      <header class="calendar-masthead">
+        <div class="calendar-masthead-copy">
+          <span class="calendar-kicker">ROYAL SENDEPLAN · SERIENSTREAM</span>
+          <h1>Was läuft wann?</h1>
+          <p>Alle angekündigten und verfügbaren Folgen einer Woche – schnell erfassbar und direkt zur Serie.</p>
+        </div>
+        <div class="calendar-today" aria-label="Heutiges Datum">
+          <span id="calendar-hero-weekday">HEUTE</span>
+          <strong id="calendar-hero-day">—</strong>
+          <small id="calendar-hero-month">—</small>
+        </div>
+        <div class="calendar-overview" aria-label="Kalenderübersicht">
+          <span><small>Gesamt</small><b id="calendar-total">—</b></span>
+          <span><small>Heute</small><b id="calendar-today-count">—</b></span>
+          <span><small>Demnächst</small><b id="calendar-upcoming-count">—</b></span>
+        </div>
+      </header>
+
+      <main class="calendar-workspace" aria-labelledby="calendar-title">
+        <header class="calendar-toolbar">
+          <div>
+            <span class="calendar-section-kicker">WOCHENPROGRAMM</span>
+            <h2 id="calendar-title" tabindex="-1">Sendeplan</h2>
+            <p id="calendar-range" aria-live="polite">Noch nicht synchronisiert</p>
+          </div>
+          <div class="calendar-week-actions" aria-label="Woche wechseln">
+            <button id="calendar-prev-week" type="button" aria-label="Vorherige Woche">←</button>
+            <button id="calendar-today" type="button">Diese Woche</button>
+            <button id="calendar-next-week" type="button" aria-label="Nächste Woche">→</button>
+          </div>
+        </header>
+
+        <div class="calendar-controls">
+          <label class="calendar-search" for="calendar-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="calendar-search" type="search" autocomplete="off" placeholder="Im Sendeplan suchen">
+          </label>
+          <div class="calendar-language-filter" role="group" aria-label="Sprache filtern">
+            <button class="is-active" type="button" data-calendar-language="all" aria-pressed="true">Alle</button>
+            <button type="button" data-calendar-language="1" aria-pressed="false">Deutsch</button>
+            <button type="button" data-calendar-language="3" aria-pressed="false">Ger-Sub</button>
+            <button type="button" data-calendar-language="2" aria-pressed="false">Englisch</button>
+          </div>
+          <button id="calendar-subscribed" class="calendar-subscribed" type="button" aria-pressed="false">
+            <span aria-hidden="true">★</span> Meine Serien
+          </button>
+        </div>
+
+        <nav id="calendar-week-strip" class="calendar-week-strip" aria-label="Wochentage"></nav>
+        <div class="calendar-ledger">
+          <aside class="calendar-legend" aria-label="Legende">
+            <span class="calendar-section-kicker">STATUS</span>
+            <p><i class="is-available"></i><b>Verfügbar</b><small>Folge kann geöffnet werden</small></p>
+            <p><i class="is-scheduled"></i><b>Angekündigt</b><small>Erscheint laut Sendeplan</small></p>
+            <p class="calendar-source-note">Quelle: SerienStream<br>Stand wird alle 5 Minuten erneuert.</p>
+          </aside>
+          <section class="calendar-agenda" aria-label="Folgen dieser Woche">
+            <div id="calendar-status" class="calendar-status" role="status" aria-live="polite">
+              <span class="calendar-status-mark" aria-hidden="true">·</span>
+              <strong>Kalender wird vorbereitet</strong>
+              <small>Die Synchronisierung startet automatisch.</small>
+            </div>
+            <div id="calendar-days" class="calendar-days" hidden></div>
+          </section>
+        </div>
+      </main>
     </section>
 
     <section class="tab-content anime-tab-content" id="tab-anime">
@@ -2015,27 +2173,33 @@
   </div>
 </div>
 
-<script src="/api.js?v=royal-20260823-3"></script>
+<script src="/api.js?v=royal-20260824-2"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
-<script src="/store.js?v=royal-20260811-2"></script>
+<script src="/store.js?v=royal-20260824-3"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260823-2"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/screens/home.js?v=royal-20260822-1"></script>
+<script src="/home_rail_runtime.js?v=royal-20260824-1"></script>
+<script src="/screens/home.js?v=royal-20260824-1"></script>
+<script src="/home_layout_editor.js?v=royal-20260824-1"></script>
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
+<script src="/detail-hero-scroll.js?v=royal-20260824-1"></script>
 <script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
-<script src="/screens/movies.js?v=royal-20260822-1"></script>
+<script src="/screens/movie-detail-discovery.js?v=royal-20260824-1"></script>
+<script src="/screens/movies.js?v=royal-20260824-3"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
-<script src="/screens/series.js?v=royal-20260811-2"></script>
+<script src="/screens/series-detail-discovery.js?v=royal-20260824-1"></script>
+<script src="/screens/series.js?v=royal-20260824-2"></script>
+<script src="/screens/series-calendar.js?v=royal-20260824-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
-<script src="/screens/library.js?v=royal-20260809-1"></script>
+<script src="/screens/library.js?v=royal-20260823-1"></script>
 <script src="/screens/notifications.js?v=royal-20260809-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
-<script src="/app.js?v=royal-20260811-13"></script>
+<script src="/app.js?v=royal-20260824-2"></script>
 </body>
 </html>

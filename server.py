@@ -223,6 +223,7 @@ from media_paths import (
     recover_misplaced_media,
 )
 from runtime_paths import data_dir, in_container, persistent_container_path
+from series_calendar_service import get_series_calendar_service
 from network_guard import is_public_http_url
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
@@ -498,6 +499,9 @@ async def lifespan(app: FastAPI):
     global _main_loop, _telegram_bot
     import asyncio
     _main_loop = asyncio.get_event_loop()
+    # Der Kalender aktualisiert sich unabhängig von Katalog-, Download- und
+    # Browser-Sessions. Ein persistierter Stand ist sofort verfügbar.
+    get_series_calendar_service().refresh_async()
     bind_host = os.environ.get("HOST", "127.0.0.1")
     # Im Fail-closed-Modus bleibt der Prozess für Erstsetup und Migration
     # erreichbar, die Middleware sperrt aber alle fachlichen APIs. So kann eine

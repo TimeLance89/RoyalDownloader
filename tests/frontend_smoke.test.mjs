@@ -9,6 +9,11 @@ const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "u
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
+const homeExperience = readFileSync(new URL("../web/home_experience_v2.js", import.meta.url), "utf8");
+const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", import.meta.url), "utf8");
+const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
+const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
+const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -18,14 +23,20 @@ const accountStyles = readFileSync(
 const appModulePaths = [
   "core.js",
   "home_card_dock.js",
+  "home_rail_runtime.js",
   "screens/home.js",
+  "home_layout_editor.js",
   "screens/mood.js",
   "trailer-runtime.js",
   "catalog-runtime.js",
+  "detail-hero-scroll.js",
   "screens/movie_download_feedback.js",
+  "screens/movie-detail-discovery.js",
   "screens/movies.js",
   "screens/movie_filters.js",
+  "screens/series-detail-discovery.js",
   "screens/series.js",
+  "screens/series-calendar.js",
   "screens/anime.js",
   "screens/library.js",
   "screens/notifications.js",
@@ -38,6 +49,87 @@ const app = appModulePaths
   .map((path) => readFileSync(new URL(`../web/${path}`, import.meta.url), "utf8"))
   .join("\n");
 const frontend = `${login}\n${app}`;
+
+test("series calendar always leaves loading and restores a validated snapshot", () => {
+  assert.match(seriesCalendar, /SERIES_CALENDAR_CACHE_MAX_AGE/);
+  assert.match(seriesCalendar, /calendarRestoreSnapshot\(\)/);
+  assert.match(seriesCalendar, /calendarStoreSnapshot\(payload\)/);
+  assert.match(seriesCalendar, /SERIES_CALENDAR_WATCHDOG_MS = 16_000/);
+  assert.match(seriesCalendar, /calendarNextRequestId\(\)/);
+  assert.match(seriesCalendar, /calendarCheckHardDeadline/);
+  assert.match(seriesCalendar, /calendarInstallSafetyNet\(\)/);
+  assert.match(seriesCalendar, /state\.calendar\.phase = "error"/);
+  assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
+  assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
+  assert.doesNotMatch(html, /Sendeplan wird geladen/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260824-4/);
+  assert.match(stylesheet, /series-calendar\.css\?v=royal-20260824-3/);
+  assert.match(html, /style\.css\?v=royal-20260824-4/);
+  const calendarStyles = readFileSync(
+    new URL("../web/styles/series-calendar.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(calendarStyles, /\.calendar-status\[hidden\][\s\S]*display: none !important/);
+  assert.match(calendarStyles, /\.calendar-days\[hidden\][\s\S]*display: none !important/);
+  const calendarOpenEntry = seriesCalendar.split("function calendarOpenEntry", 2)[1]
+    .split("function initSeriesCalendar", 1)[0];
+  assert.match(calendarOpenEntry, /loadSeries\(\{/);
+  assert.doesNotMatch(calendarOpenEntry, /switchTab\(/);
+});
+
+function calendarTestContext(seriesCalendarApi) {
+  const elements = {
+    "calendar-status": {
+      classList: { toggle() {} }, hidden: false, innerHTML: "",
+    },
+    "calendar-days": { hidden: false },
+    "calendar-range": { textContent: "" },
+  };
+  return vm.createContext({
+    api: { seriesCalendar: seriesCalendarApi },
+    document: {
+      readyState: "loading",
+      addEventListener() {},
+      getElementById(id) { return elements[id] || null; },
+    },
+    escapeHtml(value) { return String(value); },
+    state: {
+      // Absichtlich das Kalenderobjekt einer älteren, bereits geöffneten UI.
+      calendar: { days: [], loaded: false, loading: false, error: "" },
+      wl: { items: [] },
+    },
+    window: { setTimeout, clearTimeout, setInterval },
+    __elements: elements,
+  });
+}
+
+test("series calendar terminates with an older in-memory store", async () => {
+  const context = calendarTestContext(async () => { throw new Error("offline"); });
+  vm.runInContext(seriesCalendar, context);
+
+  await vm.runInContext("seriesCalendarLoad()", context);
+
+  assert.equal(context.state.calendar.loading, false);
+  assert.equal(context.state.calendar.phase, "error");
+  assert.equal(context.state.calendar.requestId, 1);
+  assert.match(context.__elements["calendar-status"].innerHTML, /Kalender nicht erreichbar/);
+});
+
+test("series calendar watchdog terminates a request that never settles", async () => {
+  const context = calendarTestContext(() => new Promise(() => {}));
+  const fastCalendar = seriesCalendar.replace(
+    "const SERIES_CALENDAR_WATCHDOG_MS = 16_000;",
+    "const SERIES_CALENDAR_WATCHDOG_MS = 5;",
+  );
+  vm.runInContext(fastCalendar, context);
+
+  void vm.runInContext("seriesCalendarLoad()", context);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(context.state.calendar.loading, false);
+  assert.equal(context.state.calendar.phase, "error");
+  assert.match(context.__elements["calendar-status"].innerHTML, /Zeitlimit überschritten/);
+});
 
 function requiresIds(...ids) {
   for (const id of ids) {
@@ -54,6 +146,24 @@ test("login flow keeps its browser and API contract", () => {
 
 test("detail, queue, and settings screens remain wired", () => {
   requiresIds("fp-detail-modal", "fp-detail-title", "fp-detail-add");
+  requiresIds(
+    "fp-detail-similar-section", "fp-detail-similar", "fp-detail-extras-section",
+    "fp-detail-extras",
+  );
+  assert.match(html, /id=["']fp-detail-about-title["']/);
+  assert.match(html, /id=["']fp-detail-about-cast["']/);
+  assert.match(app, /function renderFpAbout\(movie\)/);
+  assert.match(app, /function renderFpSimilarTitles\(titles\)/);
+  assert.match(app, /function renderFpExtras\(movie\)/);
+  assert.match(app, /selectFpRow\(slug, \{/);
+  requiresIds(
+    "series-detail-similar-section", "series-detail-similar",
+    "series-detail-extras-section", "series-detail-extras",
+    "series-detail-about-section",
+  );
+  assert.match(html, /id=["']series-detail-about-title["']/);
+  assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
+  assert.match(app, /SERIENAKTE ÖFFNEN →/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
   requiresIds("settings-btn");
   assert.match(html, /id=["']settings-overview["']/);
@@ -106,7 +216,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260811-13/);
+  assert.match(html, /app\.js\?v=royal-20260824-2/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -149,7 +259,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260822-1/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260824-3/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -157,7 +267,7 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
   assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
-  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v3"/);
+  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v4"/);
   assert.match(app, /known\.catalog_identity_version !== 2/);
 });
 
@@ -178,7 +288,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260823-3/);
+  assert.match(html, /api\.js\?v=royal-20260824-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -202,8 +312,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260823-3/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260822-1/);
+  assert.match(html, /api\.js\?v=royal-20260824-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260824-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -307,9 +417,11 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
   assert.equal(result.length, 1);
 });
 
-test("only Top 10 cards may fall back to portrait posters", () => {
+test("only Top 10 cards may use portrait posters", () => {
   assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
-  assert.doesNotMatch(app, /rank \? media\.backdrop_url : media\.cover_url/);
+  assert.doesNotMatch(app, /is-poster-fallback/);
+  assert.match(home, /artwork: media\.backdrop_url \|\| ""/);
+  assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| ""/);
 });
 
 test("series wallpaper hydration updates every duplicate catalog object", async () => {
@@ -412,6 +524,10 @@ test("home load waits for movie Jellyfin truth but never blocks on series Jellyf
       { kind: "movie", item: { slug: "movie", title: "Movie" } },
       { kind: "series", item: { base_slug: "series", title: "Series" } },
     ],
+    homeArtworkEntriesInLayout: () => [
+      { kind: "movie", item: { slug: "movie", title: "Movie" } },
+      { kind: "series", item: { base_slug: "series", title: "Series" } },
+    ],
     renderHome: () => { calls.push("render"); },
     syncFpCatalogFromHome: () => {},
     syncSeriesCatalogFromHome: () => {},
@@ -438,6 +554,7 @@ test("home load waits for movie Jellyfin truth but never blocks on series Jellyf
   await load;
   assert.equal(completed, true);
   assert.equal(state.home.loading, false);
+  assert.equal(calls.filter((call) => call === "render").length, 2);
   assert.ok(calls.includes("jellyfin-series"));
   releaseSeries();
 });
@@ -447,11 +564,74 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   requiresIds("home-program-note", "home-discovery-shuffle");
   assert.match(app, /function homeDiscoveryLanes\(\)/);
   assert.match(app, /function takeDistinctHomeLane\(entries, seen, limit, minimum = 4\)/);
+  assert.match(app, /genre: takeDistinctHomeLane\(homeGenreEntries\(\), seen, 16, 16\)/);
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
   assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
+});
+
+test("home programme planner controls visibility, order, and fast artwork", () => {
+  requiresIds(
+    "home-layout-open", "home-layout-modal", "home-layout-list", "home-layout-hero",
+    "home-layout-reset", "home-layout-cancel", "home-layout-save", "home-layout-status",
+  );
+  assert.match(homeLayoutEditor, /const HOME_RAIL_CATALOG = \[/);
+  for (const rail of ["new_movies", "new_series", "high_rated", "movies", "library"]) {
+    assert.match(homeLayoutEditor, new RegExp(`id: ["']${rail}["']`));
+  }
+  assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
+  assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(home, /image\.loading = "eager"/);
+  assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
+  assert.match(home, /:\s*\[media\.backdrop_url\]/);
+  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260824-1/);
+});
+
+test("home carousel keeps its scroll position across artwork rerenders", () => {
+  const helperStart = homeLayoutEditor.indexOf("function updateHomeRailNavigation(track)");
+  const helperEnd = homeLayoutEditor.indexOf("function defaultHomeLayout()", helperStart);
+  const renderStart = home.indexOf("function renderHomeRail(");
+  const renderEnd = home.indexOf("function renderHome(", renderStart);
+  const animationFrames = [];
+  const track = {
+    id: "home-test-track", scrollLeft: 640, scrollWidth: 1800, clientWidth: 600,
+    children: [], classList: { toggle() {} },
+    replaceChildren() { this.replaceCount = (this.replaceCount || 0) + 1; this.children = []; this.scrollLeft = 0; },
+    appendChild(child) { this.children.push(child); },
+    scrollTo(options) { this.requestedScrollLeft = options.left; },
+  };
+  const context = vm.createContext({
+    state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {}, jellyfinStatusByKey: new Map() } },
+    document: { getElementById: () => track, querySelectorAll: () => [] },
+    requestAnimationFrame: (callback) => animationFrames.push(callback),
+    updateHomeRailNavigation: () => {},
+    createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null }),
+    homeEntryMedia: (entry) => entry.item || entry,
+    homeEntryKey: (entry) => String(entry.index),
+    mediaJellyfinStatus: () => "unknown",
+  });
+  vm.runInContext(homeLayoutEditor.slice(helperStart, helperEnd), context);
+  vm.runInContext(homeRailRuntime, context);
+  vm.runInContext(home.slice(renderStart, renderEnd), context);
+  context.entries = Array.from({ length: 12 }, (_, index) => ({ index }));
+
+  vm.runInContext('renderHomeRail("home-test-track", entries)', context);
+  assert.equal(track.scrollLeft, 640);
+  assert.equal(track.replaceCount || 0, 0);
+  animationFrames.forEach((callback) => callback());
+  assert.equal(track.scrollLeft, 640);
+
+  // Smooth scrolling starts asynchronously. A data refresh in the same frame
+  // must restore the requested target, not the still-current zero position.
+  track.scrollLeft = 0;
+  vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
+  assert.ok(Math.abs(track.requestedScrollLeft - 492) < 0.01);
+  track.scrollLeft = 137;
+  vm.runInContext('renderHomeRail("home-test-track", entries)', context);
+  assert.equal(track.scrollLeft, 137);
+  assert.equal(track.replaceCount || 0, 0);
 });
 
 test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
@@ -645,7 +825,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260823-1/);
+  assert.match(html, /style\.css\?v=royal-20260824-4/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -655,6 +835,54 @@ test("scheduled episodes stay disabled and hero trailers return to artwork", () 
   assert.match(app, /playerState === 0/);
   assert.doesNotMatch(app, /controls=0&loop=1/);
   assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
+});
+
+test("detail hero trailers pause below the header and resume at the top", () => {
+  const messages = [];
+  const classes = new Set();
+  let onReady = null;
+  let onScroll = null;
+  const panel = {
+    scrollTop: 0,
+    dataset: {},
+    addEventListener(type, handler) { if (type === "scroll") onScroll = handler; },
+  };
+  const shell = {
+    hidden: false,
+    clientHeight: 600,
+    dataset: {},
+    classList: {
+      add(value) { classes.add(value); },
+      remove(value) { classes.delete(value); },
+    },
+  };
+  const frame = {
+    getAttribute(name) { return name === "src" ? "https://www.youtube-nocookie.com/embed/test" : ""; },
+    contentWindow: {
+      postMessage(message) { messages.push(JSON.parse(message)); },
+    },
+  };
+  const context = vm.createContext({
+    console,
+    document: {
+      addEventListener(type, handler) { if (type === "DOMContentLoaded") onReady = handler; },
+      querySelector(selector) { return selector === "#fp-detail-panel" ? panel : null; },
+      getElementById(id) {
+        if (id === "fp-detail-hero-trailer") return shell;
+        if (id === "fp-detail-hero-frame") return frame;
+        return null;
+      },
+    },
+    requestAnimationFrame(callback) { callback(); },
+  });
+  vm.runInContext(detailHeroScroll, context);
+  onReady();
+  panel.scrollTop = 300;
+  onScroll();
+  panel.scrollTop = 0;
+  onScroll();
+  assert.deepEqual(messages.map((message) => message.func), ["pauseVideo", "playVideo"]);
+  assert.equal(classes.has("is-scroll-paused"), false);
 });
 
 test("trailer player opens immediately with resilient playback states", () => {

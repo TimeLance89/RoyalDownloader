@@ -528,7 +528,7 @@ async function syncTasteProfile() {
       serverProfile = imported.profile || serverProfile;
     }
     applyServerTasteProfile(serverProfile);
-    if (state.tab === "home") renderHome();
+    if (state.tab === "home" && !state.home.refreshing && !state.home.rendered) renderHome();
   } catch (error) {
     console.warn("Geschmacksprofil konnte nicht synchronisiert werden:", error);
     renderTasteProfileSummary(localProfile, true);
@@ -815,7 +815,12 @@ function homeGenreEntries() {
   const matching = pool.filter((entry) =>
     (homeEntryMedia(entry).genres || []).some((genre) =>
       String(genre).localeCompare(favorite, "de", { sensitivity: "base" }) === 0));
-  return stableDailyOrder(matching.length >= 6 ? matching : pool, `genre-${favorite}`).slice(0, 24);
+  const matchingKeys = new Set(matching.map(homeEntryKey));
+  const adjacent = pool.filter((entry) => !matchingKeys.has(homeEntryKey(entry)));
+  return [
+    ...stableDailyOrder(matching, `genre-${favorite}`),
+    ...stableDailyOrder(adjacent, `genre-${favorite}-adjacent`),
+  ].slice(0, 24);
 }
 
 function homeExploreEntries() {
@@ -858,7 +863,6 @@ function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
   selected.forEach((entry) => seen.add(homeEntryKey(entry)));
   return selected;
 }
-
 function homeDiscoveryLanes() {
   const top = homeTopEntries();
   const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
@@ -868,14 +872,20 @@ function homeDiscoveryLanes() {
     explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
     series: takeDistinctHomeLane(stableDailyOrder(homePopularSeriesEntries(), "series-lane"), seen, 16),
     top,
-    genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16),
+    genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16, 16),
     gems: takeDistinctHomeLane(stableDailyOrder(homeGemEntries(), "gems-lane"), seen, 16),
     // "Neu hinzugefügt" ist eine chronologische Katalogreihe, keine Discovery-Reihe.
     // Titel dürfen hier auch vorkommen, wenn sie bereits weiter oben empfohlen wurden.
     fresh: homeNewEntries(),
+    new_movies: uniqueHomeEntries(state.home.newMovies.map(homeMovieEntry)).slice(0, 24),
+    new_series: uniqueHomeEntries(state.home.newSeries.map(homeSeriesEntry)).slice(0, 24),
+    high_rated: homeRatedEntries(),
+    movies: stableDailyOrder(uniqueHomeEntries([
+      ...state.home.newMovies, ...state.home.topMovies, ...state.home.discoveryMovies,
+    ].map(homeMovieEntry)), "movie-night").slice(0, 24),
+    library: homeLibraryEntries(),
   };
 }
-
 function shuffleHomeDiscovery() {
   state.home.discoveryShuffle = Number(state.home.discoveryShuffle || 0) + 1;
   state.home.heroIndex = 0;
@@ -884,7 +894,6 @@ function shuffleHomeDiscovery() {
   button?.classList.remove("is-shuffling");
   requestAnimationFrame(() => button?.classList.add("is-shuffling"));
 }
-
 function homeHeroCandidates() {
   const entries = uniqueHomeEntries([
     ...homePersonalizedEntries().slice(0, 4),
@@ -898,8 +907,8 @@ function homeHeroCandidates() {
     return {
       ...entry,
       media,
-      artwork: media.backdrop_url || media.cover_url || "",
-      artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
+      artwork: media.backdrop_url || "",
+      artworkKind: media.backdrop_url ? "backdrop" : "none",
     };
   });
 }
@@ -999,18 +1008,6 @@ function openHomeEntry(kind, key) {
 }
 
 
-function updateHomeRailNavigation(track) {
-  if (!track?.id) return;
-  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-  const canScroll = maxScroll > 2;
-  const atStart = track.scrollLeft <= 2;
-  const atEnd = track.scrollLeft >= maxScroll - 2;
-  document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
-    const direction = Number(button.dataset.direction) || 1;
-    button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
-  });
-}
-
 function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1048,9 +1045,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  // Poster gehören ausschließlich in die hochformatige Top-10-Darstellung.
-  // Alle 16:9-Karten warten auf das nachgeladene Wallpaper, statt ein Poster
-  // unpassend auf Landschaftsformat zu beschneiden.
   const artworkCandidates = (rank
     ? [media.cover_url, media.backdrop_url]
     : [media.backdrop_url])
@@ -1061,14 +1055,14 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     let artworkIndex = 0;
     image.src = artworkCandidates[artworkIndex];
     image.alt = "";
-    // Die Startseite zeigt nur kuratierte Rails. Ihre Bilder werden sofort
-    // geladen, damit beim horizontalen Scrollen keine Platzhalter aufblitzen.
     image.loading = "eager";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
     image.addEventListener("error", () => {
       artworkIndex += 1;
-      if (artworkIndex < artworkCandidates.length) image.src = artworkCandidates[artworkIndex];
+      if (artworkIndex < artworkCandidates.length) {
+        image.src = artworkCandidates[artworkIndex];
+      }
       else image.remove();
     });
     art.appendChild(image);
@@ -1112,33 +1106,41 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
   const track = document.getElementById(trackId);
   if (!track) return;
   track.classList.toggle("is-spotlight-track", layout === "spotlight");
-  track.replaceChildren();
-  requestAnimationFrame(() => updateHomeRailNavigation(track));
   if (!entries.length) {
     if (!state.home.loading) {
-      const empty = document.createElement("span");
-      empty.className = "home-rail-empty";
-      empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
-      track.appendChild(empty);
+      reconcileHomeRail(track, [{ signature: "empty", create: () => {
+        const empty = document.createElement("span");
+        empty.className = "home-rail-empty";
+        empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
+        return empty;
+      } }]);
       return;
     }
-    for (let index = 0; index < 6; index += 1) {
-      const skeleton = document.createElement("span");
-      skeleton.className = "home-card-skeleton";
-      skeleton.setAttribute("aria-hidden", "true");
-      track.appendChild(skeleton);
-    }
+    reconcileHomeRail(track, Array.from({ length: 6 }, (_, index) => ({
+      signature: `skeleton:${index}`,
+      create: () => {
+        const skeleton = document.createElement("span");
+        skeleton.className = "home-card-skeleton";
+        skeleton.setAttribute("aria-hidden", "true");
+        return skeleton;
+      },
+    })));
     return;
   }
   const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
-  visibleEntries.forEach((entry, index) => {
-    const eagerCount = ranked ? 5 : 3;
-    const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
-    track.appendChild(createHomeCard(entry, ranked ? index + 1 : 0, index < eagerCount, variant));
-  });
+  reconcileHomeRail(track, visibleEntries.map((entry, index) => {
+      const eagerCount = ranked ? 5 : 3;
+      const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
+      const rank = ranked ? index + 1 : 0;
+      return {
+        signature: homeRailCardSignature(entry, rank, variant),
+        create: () => createHomeCard(entry, rank, index < eagerCount, variant),
+        update: (card) => syncHomeCardContent(card, entry, rank),
+      };
+  }));
 }
-
-function renderHome() {
+function renderHome({ force = false } = {}) {
+  rememberAllHomeRailScroll();
   state.home.discoveryDay = localDateKey();
   const profile = loadDiscoveryProfile();
   const favoriteGenre = favoriteDiscoveryGenre(profile);
@@ -1160,20 +1162,24 @@ function renderHome() {
       ? `Neue Blickwinkel rund um ${favoriteGenre} – ohne dieselben Titel in jeder Reihe.`
       : "Filme und Serien aus verschiedenen Richtungen – ohne dieselben Titel in jeder Reihe.";
   }
-  renderHomeHero();
+  applyHomeLayout();
+  if (state.home.refreshing && state.home.rendered && !force) return;
+  if (currentHomeLayout().hero_visible) renderHomeHero();
   const lanes = homeDiscoveryLanes();
-  renderHomeRail("home-movies-track", lanes.personal, { layout: "spotlight" });
-  renderHomeRail("home-explore-track", lanes.explore);
-  renderHomeRail("home-series-track", lanes.series);
-  renderHomeRail("home-top-track", lanes.top, { ranked: true });
-  renderHomeRail("home-genre-track", lanes.genre);
-  renderHomeRail("home-gems-track", lanes.gems);
-  renderHomeRail("home-new-track", lanes.fresh);
-  scheduleHomeHeroRotation();
+  const hidden = new Set(currentHomeLayout().hidden_rails);
+  currentHomeLayout().rail_order.forEach((railId) => {
+    if (hidden.has(railId)) return;
+    const definition = homeRailDefinition(railId);
+    if (!definition) return;
+    renderHomeRail(definition.trackId, lanes[railId] || [], {
+      ranked: Boolean(definition.ranked), layout: definition.layout || "rail",
+    });
+  });
+  if (currentHomeLayout().hero_visible) scheduleHomeHeroRotation();
+  if (!state.home.loading && homeAllEntries().length) state.home.rendered = true;
 }
-
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
-const HOME_CACHE_KEY = "royal-home-cache-v3";
+const HOME_CACHE_KEY = "royal-home-cache-v4";
 const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function restoreHomeCache() {
@@ -1194,7 +1200,7 @@ function restoreHomeCache() {
     });
     Object.assign(state.fp.metadataCache, cached.movieMetadata || {});
     state.home.loading = false;
-    renderHome();
+    renderHome({ force: true });
     return true;
   } catch {
     return false;
@@ -1607,75 +1613,70 @@ function closeHomeSearch() {
   renderHomeSearchResults();
 }
 async function loadHomeData() {
-  state.home.loading = true;
-  if (!homeAllEntries().length) renderHome();
-  // Sichtbare Startkataloge einzeln uebernehmen, damit ein langsamer
-  // Serienanbieter den Film-Tab nicht bis zum Ende der Startabfrage leer haelt.
-  await Promise.allSettled([
-    api.movies({ mode: "new", page: 1 }).then((data) => {
-      state.home.newMovies = data.results || [];
-      if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
-      renderHome();
-      syncFpCatalogFromHome({ fresh: true });
-    }),
-    api.series({ mode: "trending", page: 1 }).then((data) => {
-      state.home.trendingSeries = data.results || [];
-      if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
-      renderHome();
-      syncSeriesCatalogFromHome({ fresh: true });
-    }),
-  ]);
-  // Die erste sichtbare Serienreihe bekommt ihre Wallpaper sofort. Diese
-  // Hydrierung läuft parallel zu den sekundären Provider-Katalogen und wartet
-  // insbesondere nicht auf den späteren Jellyfin-Abgleich.
-  const primarySeriesArtwork = hydrateHomeSeriesArtwork(
-    state.home.trendingSeries,
-    { render: true },
-  );
-  // Sekundaere Reihen konkurrieren beim Kaltstart nicht um Provider-Sessions.
-  const secondary = await Promise.allSettled([
-    api.movies({ mode: "top", page: 1 }), api.series({ mode: "new", page: 1 }),
-    api.series({ mode: "discover", page: 1 }),
-  ]);
-  if (secondary[0].status === "fulfilled") state.home.topMovies = secondary[0].value.results || [];
-  if (secondary[1].status === "fulfilled") state.home.newSeries = secondary[1].value.results || [];
-  if (secondary[2].status === "fulfilled") state.home.discoverySeries = secondary[2].value.results || [];
-  if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
-  if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
-  renderHome();
-  const remainingSeriesArtwork = primarySeriesArtwork.then(() => hydrateHomeSeriesArtwork([
-    ...state.home.trendingSeries,
-    ...state.home.newSeries,
-    ...state.home.discoverySeries,
-  ], { render: true }));
-  const discoveryMovies = await Promise.allSettled([
-    api.movies({ mode: "new", page: 2 }), api.movies({ mode: "top", page: 2 }),
-  ]);
-  const discovered = discoveryMovies.filter((result) => result.status === "fulfilled")
-    .flatMap((result) => result.value.results || []);
-  if (discovered.length) state.home.discoveryMovies = discovered;
-  renderHome();
-  await Promise.allSettled([
-    hydrateHomeMovieArtwork([
-      ...state.home.newMovies,
-      ...state.home.topMovies,
-      ...state.home.discoveryMovies,
-    ], { render: false }),
-    remainingSeriesArtwork,
-  ]);
-  const currentEntries = homeAllEntries();
-  const movieEntries = currentEntries.filter((entry) => entry.kind === "movie");
-  const seriesEntries = currentEntries.filter((entry) => entry.kind === "series");
-  // Filme behalten die ausdrücklich gewünschte synchrone Gegenprüfung. Serien
-  // sind dagegen bereits vollständig benutzbar; ihr Badge wird nachträglich
-  // aktualisiert und blockiert weder Bilder noch den Abschluss des Startladens.
-  await refreshCatalogJellyfinStatus(movieEntries, null);
-  state.home.loading = false;
-  saveHomeCache(); renderHome();
+  const hadCachedPresentation = state.home.rendered && homeAllEntries().length > 0;
+  state.home.refreshing = true;
+  state.home.loading = !hadCachedPresentation;
+  if (!hadCachedPresentation) renderHome({ force: true });
+  let seriesEntries = [];
+  try {
+    // Alle Katalogdaten werden zuerst vollständig gesammelt. Währenddessen
+    // bleibt entweder der gespeicherte Stand oder genau ein Skeleton sichtbar.
+    const primary = await Promise.allSettled([
+      api.movies({ mode: "new", page: 1 }),
+      api.series({ mode: "trending", page: 1 }),
+    ]);
+    if (primary[0].status === "fulfilled") state.home.newMovies = primary[0].value.results || [];
+    if (primary[1].status === "fulfilled") state.home.trendingSeries = primary[1].value.results || [];
+    if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
+    if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+    syncFpCatalogFromHome({ fresh: true });
+    syncSeriesCatalogFromHome({ fresh: true });
+
+    const secondary = await Promise.allSettled([
+      api.movies({ mode: "top", page: 1 }),
+      api.series({ mode: "new", page: 1 }),
+      api.series({ mode: "discover", page: 1 }),
+      api.movies({ mode: "new", page: 2 }),
+      api.movies({ mode: "top", page: 2 }),
+    ]);
+    if (secondary[0].status === "fulfilled") state.home.topMovies = secondary[0].value.results || [];
+    if (secondary[1].status === "fulfilled") state.home.newSeries = secondary[1].value.results || [];
+    if (secondary[2].status === "fulfilled") state.home.discoverySeries = secondary[2].value.results || [];
+    const discoveredMovies = secondary.slice(3)
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => result.value.results || []);
+    if (discoveredMovies.length) state.home.discoveryMovies = discoveredMovies;
+    if (!state.home.topMovies.length) state.home.topMovies = state.home.newMovies.slice();
+    if (!state.home.newSeries.length) state.home.newSeries = state.home.trendingSeries.slice();
+
+    // Nur die tatsächlich sichtbaren Reihen erhalten vor dem ersten Aufbau
+    // ihre 16:9-Wallpaper. Es gibt keinen zwischenzeitlichen Poster-Render.
+    const artworkEntries = homeArtworkEntriesInLayout();
+    await Promise.allSettled([
+      hydrateHomeMovieArtwork(
+        artworkEntries.filter((entry) => entry.kind === "movie").map((entry) => entry.item),
+        { render: false },
+      ),
+      hydrateHomeSeriesArtwork(
+        artworkEntries.filter((entry) => entry.kind === "series").map((entry) => entry.item),
+        { render: false },
+      ),
+    ]);
+
+    const currentEntries = homeAllEntries();
+    const movieEntries = currentEntries.filter((entry) => entry.kind === "movie");
+    seriesEntries = currentEntries.filter((entry) => entry.kind === "series");
+    await refreshCatalogJellyfinStatus(movieEntries, null);
+    saveHomeCache();
+  } finally {
+    state.home.loading = false;
+    state.home.refreshing = false;
+    if (!hadCachedPresentation) renderHome({ force: true });
+  }
   if (seriesEntries.length) {
-    void refreshCatalogJellyfinStatus(seriesEntries, () => {
-      if (state.tab === "home") renderHome();
-    }).catch((error) => console.warn("Serien-Jellyfin-Status konnte nicht aktualisiert werden:", error));
+    void refreshCatalogJellyfinStatus(seriesEntries, null)
+      .then(() => saveHomeCache())
+      .catch((error) => console.warn("Serien-Jellyfin-Status konnte nicht aktualisiert werden:", error));
   }
 }
 

@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- Film- und Seriendetails erhalten im einheitlichen Royal-Aktenstil eigene
+  Bereiche für ähnliche Titel, offizielle Trailer und kompakte
+  Produktionsinformationen; Empfehlungen verwenden ausschließlich breite
+  16:9-Hintergründe.
+- Ähnliche Serien öffnen direkt die vollständige Serienakte mit unverändertem
+  Staffel- und Episodenbrowser; beim Schließen bleibt der zuvor aktive Kalender
+  erhalten.
+- Laufende Hero-Trailer in Film- und Seriendetails pausieren automatisch,
+  sobald der Kopfbereich aus dem sichtbaren Ausschnitt gescrollt wird, und
+  setzen beim Zurückscrollen fort.
+- Aus dem Kalender geöffnete Seriendetails bleiben als Modal über dem Kalender; Schließen führt nicht mehr in die Serienübersicht.
+- Fertig geladene Kalenderdaten blenden den vorbereitenden Statusblock nun zuverlässig aus; die Kalender-CSS respektiert `hidden` auch gegen ihre eigenen Grid-Regeln.
+- Der Kalender beendet den Ladezustand nun auch bei gemischten Browser-Assets und gedrosselten Hintergrund-Timern sicher; ein zweiter Fristwächter fängt hängende Altzustände ab.
+- Die Startseite verwendet außerhalb der Top 10 ausschließlich 16:9-Hintergründe, füllt „Aus deinen Klicks und Downloads“ auf bis zu 16 Titel auf und hält beim Aktualisieren die einmal geladenen Karten stabil im DOM.
+- Der Serienkalender wird vollständig serverseitig über eine unabhängige SerienStream-Session synchronisiert. Ein atomar gespeicherter, validierter Snapshot übersteht Neustarts und Ausfälle; der Browser ruft die Kalenderdaten nie direkt vom Fremddienst ab.
+- Die Kalenderoberfläche besitzt klar begrenzte Abrufe, einen harten Lade-Wächter und abschließende Erfolgs-, Offline- oder Wiederholen-Zustände. Dadurch kann kein dauerhafter Ladehinweis mehr stehen bleiben.
+- Die Serienübersicht startet den Jellyfin-Liveabgleich für die komplette erste Katalogseite sofort und unabhängig von Postern/TMDB. Doppelte Serien mit widersprüchlichen Staffel-Jahresangaben werden bei identischem Titel und überlappender Quelle zusammengeführt.
+
+- Preserve each home carousel's horizontal scroll position when progressive
+  artwork, Jellyfin status, or discovery data triggers a background rerender.
+- Persist the intended carousel target before smooth scrolling begins and bump
+  the affected browser asset versions so cached clients receive the fix.
+- Keep unchanged carousel sections and cards mounted during background updates;
+  only actually changed cards are reconciled, eliminating the visible jump to
+  zero and the subsequent snap-back.
+- Add a dedicated top-level series calendar with week navigation, day jumps,
+  title and language filters, subscription-only mode, direct provider artwork,
+  release status, and one-click handoff into the regular series workflow.
+- Validate and cache SerienStream calendar data server-side, retain the last
+  valid snapshot during short outages, and reject foreign series or image URLs.
+
+## 2026-08-23 – Custom home programme
+
+- Add a visual start-page editor with live preview, drag-and-drop ordering,
+  keyboard controls, per-row visibility, optional hero visibility, reset, and
+  server-side persistence shared by authenticated browsers.
+- Expand the available programme from seven fixed rows to twelve selectable
+  carousels, including dedicated new-film, new-series, highly rated, movie-night,
+  and Jellyfin-library rows while preserving the established default layout.
+- Prioritize artwork hydration in the user's visible row order, load visible
+  images eagerly, and show provider posters in a framed fallback treatment until
+  wide artwork becomes available.
+
 ## 2026-08-23 – AniWorld archive, faster catalogs, and production-only setup
 
 ### AniWorld archive and downloads

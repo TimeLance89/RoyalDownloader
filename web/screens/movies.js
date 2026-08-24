@@ -1176,6 +1176,7 @@ window.addEventListener("message", (event) => {
       const frame = document.getElementById(frameId);
       if (!frame || event.source !== frame.contentWindow) continue;
       if (playerState === 1) {
+        syncDetailHeroScrollPlayback(frame.closest(".media-modal-panel"), { force: true });
         // Erst nach echtem Videostart einblenden: So bleibt YouTubes großes
         // Start-/Pause-Piktogramm hinter dem bereits sichtbaren Wallpaper.
         window.setTimeout(() => {
@@ -1291,6 +1292,7 @@ function scheduleFpDetailHeroTrailer(movie) {
       listenForHeroTrailerTime(frame);
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+      syncDetailHeroScrollPlayback(panel, { force: true });
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
@@ -1754,9 +1756,7 @@ function showFpDetail(slug, movie, metadataOnly = false) {
     ...(movie.countries || []),
   ].filter(Boolean).join(" · ");
   setFpDetailText("fp-detail-origin", origin);
-  setFpDetailText("fp-detail-directors", (movie.directors || []).join(", "));
-  setFpDetailText("fp-detail-writers", (movie.writers || []).join(", "));
-  setFpDetailText("fp-detail-studios", (movie.production_companies || []).join(", "));
+  renderFpAbout(movie);
   const insights = [];
   const status = movieStatusLabel(movie.status);
   const budget = formatMovieMoney(movie.budget);
@@ -1767,6 +1767,8 @@ function showFpDetail(slug, movie, metadataOnly = false) {
   if (revenue) insights.push(`Einspiel · ${revenue}`);
   renderFpDetailItems("fp-detail-insights", insights);
   renderFpDetailItems("fp-detail-keywords", movie.keywords || []);
+  renderFpSimilarTitles(movie.similar_titles);
+  renderFpExtras(movie);
   renderFpCast(movie.cast, movie.tmdb_url);
   renderFpDownloadSources(slug, movie, metadataOnly);
   document.getElementById("fp-detail-route-card").classList.toggle("is-loading", metadataOnly);

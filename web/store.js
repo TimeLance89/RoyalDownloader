@@ -9,6 +9,9 @@ function createInitialState() {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
       heroIndex: 0, heroTimer: null, loading: true, discoveryDay: "", discoveryShuffle: 0,
+      refreshing: false, rendered: false,
+      layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
+      railScrollPositions: {}, railScrollTargets: {},
       jellyfinStatusByKey: new Map(),
       mood: { step: 0, answers: {}, results: [], open: false },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
@@ -31,6 +34,12 @@ function createInitialState() {
       pendingBaseSlug: "", requestSeq: 0, viewGeneration: 0,
       jellyfinRefreshSeq: 0, jellyfinRefreshByBase: new Map(), searchReturn: null,
       previewFromHome: false, lastCatalogRefreshAt: 0,
+    },
+    calendar: {
+      days: [], total: 0, loaded: false, loading: false, error: "",
+      activeWeek: "", language: "all", query: "", subscribedOnly: false,
+      disabledReason: "", stale: false, cached: false, updatedAt: 0,
+      initialized: false, phase: "idle", requestId: 0, startedAt: 0,
     },
     anime: {
       results: [], mode: null, query: "", page: 1, hasMore: false,
@@ -652,10 +661,8 @@ async function warmDiscoveryReservoirV2() {
       ...newSeries.map(homeSeriesEntry),
     ], null);
     saveHomeCache();
-    if (state.tab === "home") {
-      state.home.heroIndex = 0;
-      renderHome();
-    }
+    // Der größere Reservoir-Stand wird beim nächsten Seitenaufruf sichtbar.
+    // Die bereits aufgebaute Startseite bleibt in dieser Sitzung unverändert.
     return { movies: state.home.discoveryMovies.length, series: state.home.discoverySeries.length };
   })().catch((error) => {
     console.warn("Discovery-Reservoir konnte nicht vollständig erweitert werden:", error);

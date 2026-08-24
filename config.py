@@ -203,6 +203,11 @@ def taste_profile_file() -> Path:
     return _config_dir() / "taste_profile.json"
 
 
+def home_layout_file() -> Path:
+    """Persistente, geräteübergreifende Zusammenstellung der Startseite."""
+    return _config_dir() / "home_layout.json"
+
+
 def _default_path() -> str:
     # Docker/NAS: Zielordner für Downloads per Env vorgeben (Bind-Mount auf den
     # NAS-Medienordner). Ohne die Variable bleibt der bisherige Default.

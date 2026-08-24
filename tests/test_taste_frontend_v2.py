@@ -8,7 +8,7 @@ RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf
 
 
 def test_taste_v2_is_loaded_after_legacy_discovery_installers():
-    assert 'script.src = "/taste_v2.js?v=royal-20260811-1"' in API
+    assert 'script.src = "/taste_v2.js?v=royal-20260824-1"' in API
     assert "window.setTimeout(loadRoyalTasteProfileV2, 0)" in API
 
 

@@ -102,6 +102,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "home") renderHome();
   if (name === "filme" && autoLoad) ensureFpResults();
   if (name === "serien" && autoLoad) ensureSeriesResults();
+  if (name === "kalender" && autoLoad && !state.calendar.loaded) seriesCalendarLoad();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
   if (name === "aniworld" && autoLoad && !state.aniworld.loaded) aniworldBrowse("catalog", 1);
   if (name === "filme") scheduleMovieFeatureRotation();

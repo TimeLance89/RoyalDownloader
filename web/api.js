@@ -4,8 +4,9 @@ const api = {
   onUnauthorized: null,
   _inflightGets: new Map(),
 
-  async _req(method, url, body) {
+  async _req(method, url, body, signal = undefined) {
     const opts = { method, headers: {}, credentials: "same-origin" };
+    if (signal) opts.signal = signal;
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
@@ -88,6 +89,19 @@ const api = {
   jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
+  seriesCalendar(refresh = false) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const query = refresh ? "?refresh=true" : "";
+    return this._req("GET", `/api/series-calendar${query}`, undefined, controller.signal)
+      .catch((error) => {
+        if (error?.name === "AbortError") {
+          throw new Error("Der Kalenderdienst hat nach 15 Sekunden nicht geantwortet.");
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timer));
+  },
   seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
     return this.post("/api/series/load", {
       sample_slug: sampleSlug, base_slug: baseSlug,
@@ -252,6 +266,9 @@ const api = {
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
+  homeLayout() { return this.get("/api/home/layout"); },
+  saveHomeLayout(layout) { return this._req("PUT", "/api/home/layout", layout); },
+
   _upgradeTmdbImageUrl(url) {
     const parsed = new URL(url, location.origin);
     if (parsed.protocol !== "https:" || parsed.hostname !== "image.tmdb.org") return parsed;
@@ -357,7 +374,7 @@ document.addEventListener("visibilitychange", () => {
 function loadRoyalDailyTopV2() {
   if (document.querySelector('script[data-daily-top-v2]')) return;
   const script = document.createElement("script");
-  script.src = "/daily_top_v2.js?v=royal-20260809-2";
+  script.src = "/daily_top_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.dailyTopV2 = "true";
   document.body.appendChild(script);
@@ -374,7 +391,7 @@ function loadRoyalHomeExperienceV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/home_experience_v2.js?v=royal-20260811-1";
+  script.src = "/home_experience_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });
@@ -392,7 +409,7 @@ function loadRoyalTasteProfileV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/taste_v2.js?v=royal-20260811-1";
+  script.src = "/taste_v2.js?v=royal-20260824-1";
   script.async = false;
   script.dataset.tasteProfileV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalHomeExperienceV2, 0), { once: true });

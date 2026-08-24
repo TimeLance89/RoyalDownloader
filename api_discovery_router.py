@@ -86,6 +86,8 @@ get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_aniworld_scraper = _unbound_dependency
+get_series_calendar_service = _unbound_dependency
+get_sto_scraper = _unbound_dependency
 get_series_for_value = _unbound_dependency
 get_tmdb_client = _unbound_dependency
 load_movie_for_slug = _unbound_dependency
@@ -120,6 +122,8 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_series",
     "get_mkissa_scraper",
     "get_aniworld_scraper",
+    "get_series_calendar_service",
+    "get_sto_scraper",
     "get_series_for_value",
     "get_tmdb_client",
     "load_movie_for_slug",
@@ -159,6 +163,28 @@ def create_discovery_router(backend) -> APIRouter:
         "_SeriesCatalogEntry": backend._SeriesCatalogEntry,
     })
     return router
+
+
+# ── Start-page composition ────────────────────────────────────────────────
+class HomeLayoutBody(BaseModel):
+    hero_visible: bool = True
+    rail_order: list[str] = Field(default_factory=list, max_length=12)
+    hidden_rails: list[str] = Field(default_factory=list, max_length=12)
+
+
+@router.get("/api/v1/home/layout")
+@router.get("/api/home/layout")
+async def api_home_layout_get():
+    return state.home_layout.public_layout()
+
+
+@router.put("/api/v1/home/layout")
+@router.put("/api/home/layout")
+async def api_home_layout_put(body: HomeLayoutBody):
+    try:
+        return await run_in_threadpool(state.home_layout.update, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────
@@ -734,6 +760,29 @@ class SeriesJellyfinStatusBody(BaseModel):
 
 class AniWorldPosterBody(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/api/v1/series-calendar")
+@router.get("/api/series-calendar")
+async def api_series_calendar(refresh: bool = False):
+    """Persistenter SerienStream-Sendeplan ohne Abhängigkeit von Provider-Sessions."""
+    def _work():
+        payload = get_series_calendar_service().get(force=refresh)
+        subscribed_slugs = {
+            str(item.get("base_slug") or "")
+            for item in state.watchlist
+            if isinstance(item, dict)
+        }
+        days = []
+        for day in payload.get("days", []):
+            entries = [
+                {**entry, "subscribed": entry["base_slug"] in subscribed_slugs}
+                for entry in day.get("entries", [])
+            ]
+            days.append({"date": day.get("date", ""), "entries": entries})
+        return {**payload, "days": days, "disabled": False}
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/series/jellyfin-status")

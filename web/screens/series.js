@@ -272,16 +272,18 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   }
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();
-  if (artworkPrepared) {
-    void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-  } else {
+  // Jellyfin ist ein eigener Live-Status und darf nie auf Poster/TMDB warten.
+  // Das betrifft insbesondere die komplette erste 32er-Katalogseite.
+  void refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null)
+    .then(() => {
+      if (browseGeneration !== state.series.browseRequestSeq) return;
+      for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
+      renderSeriesCatalogHero();
+    });
+  if (!artworkPrepared) {
     void hydrateHomeSeriesArtwork(incoming, { render: false }).then(async (hydratedBaseSlugs) => {
       for (const baseSlug of hydratedBaseSlugs) updateSeriesResultCard(baseSlug);
       renderSeriesCatalogHero();
-      await refreshCatalogJellyfinStatus(state.series.results.map(homeSeriesEntry), null);
-      if (browseGeneration === state.series.browseRequestSeq) {
-        for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
-      }
     });
   }
   updateSeriesInfiniteState();
@@ -557,6 +559,7 @@ function showSeriesLoading(result) {
   document.getElementById("series-desc").textContent =
     "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
   configureSeriesTrailer(result);
+  renderSeriesDetailDiscovery(result);
   const tiles = document.getElementById("series-tiles");
   tiles.replaceChildren();
   const loading = document.createElement("div");
@@ -662,6 +665,10 @@ function scheduleSeriesDetailHeroTrailer(series) {
       listenForHeroTrailerTime(frame);
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+      syncDetailHeroScrollPlayback(
+        document.querySelector("#series-detail-modal .series-detail-panel"),
+        { force: true },
+      );
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
@@ -710,6 +717,7 @@ function updateSeriesOverview(series) {
   renderSeriesDetailMeta(seriesMeta);
   document.getElementById("series-desc").textContent = series.description || "(keine Beschreibung verfügbar)";
   configureSeriesTrailer(series);
+  renderSeriesDetailDiscovery(series);
 }
 
 function showSeriesDetail(series, sampleSlug) {

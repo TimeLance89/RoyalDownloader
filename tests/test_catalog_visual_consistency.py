@@ -54,6 +54,7 @@ def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
     assert "state.fp?.metadataCache?.[slug]" in library
     assert "leftTmdb && rightTmdb" in library
     assert "leftYear && rightYear && leftYear !== rightYear" in library
+    assert "titleMatches && sharesSource" in library
     assert "reconcileMovieCatalogDuplicates();" in library
     assert "reconcileSeriesCatalogDuplicates();" in library
     assert "merged.source_providers" in library

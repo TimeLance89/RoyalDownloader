@@ -5,6 +5,9 @@ async function initApp() {
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
   await requireLogin();
+  // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
+  // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
+  initSeriesCalendar({ autoLoad: true });
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
   buildAlphaBar();
   connectWs();
@@ -27,6 +30,9 @@ async function initApp() {
   document.getElementById("series-taste-dislike").addEventListener("click", () => setTasteFeedback("series", "dislike"));
 
   // Startseite
+  initHomeLayoutEditor();
+  initHomeRailScrolling();
+  void loadHomeLayout();
   document.getElementById("home-hero-open").addEventListener("click", (event) => {
     const { kind, key } = event.currentTarget.dataset;
     if (kind && key) openHomeEntry(kind, key);
@@ -59,21 +65,7 @@ async function initApp() {
       if (!homeHero.contains(document.activeElement)) scheduleHomeHeroRotation();
     }, 0);
   });
-  document.querySelectorAll("[data-home-scroll]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const track = document.getElementById(button.dataset.homeScroll);
-      const direction = Number(button.dataset.direction) || 1;
-      track?.scrollBy({ left: direction * Math.max(280, track.clientWidth * 0.82), behavior: "smooth" });
-    });
-  });
-  document.querySelectorAll("#tab-home .home-track").forEach((track) => {
-    let navigationFrame = 0;
-    track.addEventListener("scroll", () => {
-      cancelAnimationFrame(navigationFrame);
-      navigationFrame = requestAnimationFrame(() => updateHomeRailNavigation(track));
-    }, { passive: true });
-    updateHomeRailNavigation(track);
-  });
+  document.querySelectorAll("#tab-home .home-track").forEach(updateHomeRailNavigation);
   window.addEventListener("resize", () => {
     document.querySelectorAll("#tab-home .home-track").forEach(updateHomeRailNavigation);
   });

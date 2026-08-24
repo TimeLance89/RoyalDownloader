@@ -29,7 +29,7 @@ import logging
 import re
 import time
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
@@ -41,8 +41,8 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 from series_episode_filter import episode_listings
+from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 
 logger = logging.getLogger(__name__)
 
