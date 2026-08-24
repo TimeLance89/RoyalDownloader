@@ -236,6 +236,35 @@ class TMDBClient:
             "official": bool(best.get("official")),
         }
 
+    def _movie_recommendations(self, details: dict, tmdb_id) -> list[dict]:
+        """Normalisiert TMDB-Empfehlungen als echte 16:9-Filmkarten."""
+        recommendations = (details.get("recommendations") or {}).get("results") or []
+        seen = {str(tmdb_id)}
+        payload = []
+        for item in recommendations:
+            if not isinstance(item, dict) or item.get("adult"):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            title = str(item.get("title") or item.get("original_title") or "").strip()
+            backdrop_url = self._backdrop_url(item.get("backdrop_path") or "")
+            if not item_id.isdigit() or item_id in seen or not title or not backdrop_url:
+                continue
+            seen.add(item_id)
+            payload.append({
+                "tmdb_id": int(item_id),
+                "slug": f"tmdb:{item_id}",
+                "title": title,
+                "year": _year_from_date(item.get("release_date") or ""),
+                "backdrop_url": backdrop_url,
+                "description": str(item.get("overview") or "").strip(),
+                "rating": round(float(item.get("vote_average") or 0), 1),
+                "vote_count": int(item.get("vote_count") or 0),
+                "original_language": str(item.get("original_language") or "").upper(),
+            })
+            if len(payload) >= 6:
+                break
+        return payload
+
     def _movie_payload(
         self, details: dict, fallback: dict, tmdb_id, fallback_title: str,
         details_loaded: bool,
@@ -342,6 +371,7 @@ class TMDBClient:
             "budget": int(details.get("budget") or 0),
             "revenue": int(details.get("revenue") or 0),
             "trailer": trailer,
+            "similar_titles": self._movie_recommendations(details, tmdb_id),
             "tmdb_url": f"https://www.themoviedb.org/movie/{int(tmdb_id)}",
             "details_loaded": details_loaded,
             "metadata_source": "TMDB",
@@ -350,7 +380,7 @@ class TMDBClient:
     def _movie_details(self, tmdb_id) -> Optional[dict]:
         details = self._request(f"/movie/{tmdb_id}", {
             "language": self.language,
-            "append_to_response": "credits,videos,release_dates,keywords",
+            "append_to_response": "credits,videos,release_dates,keywords,recommendations",
         })
         if not details:
             return None
