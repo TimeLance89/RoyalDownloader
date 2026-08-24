@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260824-3">
+<link rel="stylesheet" href="/style.css?v=royal-20260824-4">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -797,6 +797,34 @@
               </div>
               <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
             </div>
+            <section class="series-detail-discovery" aria-label="Mehr über diese Serie">
+              <section id="series-detail-similar-section" class="detail-similar" aria-labelledby="series-detail-similar-title" hidden>
+                <div class="detail-section-head">
+                  <span id="series-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
+                  <small>Passend aus dem Serienarchiv</small>
+                </div>
+                <div id="series-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
+              </section>
+              <div class="series-detail-lower-grid">
+                <section id="series-detail-extras-section" class="detail-extras" aria-labelledby="series-detail-extras-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="series-detail-extras-title" class="detail-section-title">Trailer und mehr</span>
+                    <small>Offizielle Vorschau</small>
+                  </div>
+                  <div id="series-detail-extras" class="detail-extras-grid" data-i18n-ignore></div>
+                </section>
+                <section id="series-detail-about-section" class="detail-credits series-detail-about" aria-labelledby="series-detail-about-heading" hidden>
+                  <span id="series-detail-about-heading" class="detail-section-title">Über <b id="series-detail-about-title" data-i18n-ignore>die Serie</b></span>
+                  <div class="detail-credit-grid">
+                    <div><label>Idee</label><span id="series-detail-creators" data-i18n-ignore>—</span></div>
+                    <div><label>Besetzung</label><span id="series-detail-about-cast" data-i18n-ignore>—</span></div>
+                    <div><label>Genres</label><span id="series-detail-about-genres" data-i18n-ignore>—</span></div>
+                    <div><label>Produktion</label><span id="series-detail-production" data-i18n-ignore>—</span></div>
+                    <div><label>Originaltitel · Status</label><span id="series-detail-original-status" data-i18n-ignore>—</span></div>
+                  </div>
+                </section>
+              </div>
+            </section>
             <section class="series-episode-browser" aria-labelledby="series-episodes-title">
               <header class="series-episodes-head">
                 <div>
@@ -2157,11 +2185,13 @@
 <script src="/screens/mood.js?v=royal-20260805-5"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
+<script src="/detail-hero-scroll.js?v=royal-20260824-1"></script>
 <script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
 <script src="/screens/movie-detail-discovery.js?v=royal-20260824-1"></script>
-<script src="/screens/movies.js?v=royal-20260824-2"></script>
+<script src="/screens/movies.js?v=royal-20260824-3"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
-<script src="/screens/series.js?v=royal-20260823-1"></script>
+<script src="/screens/series-detail-discovery.js?v=royal-20260824-1"></script>
+<script src="/screens/series.js?v=royal-20260824-2"></script>
 <script src="/screens/series-calendar.js?v=royal-20260824-4"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>

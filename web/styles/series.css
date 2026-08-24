@@ -222,6 +222,48 @@
   font-size: 13px;
 }
 
+.media-modal .series-detail-discovery {
+  position: relative;
+  z-index: 2;
+  margin-top: 38px;
+}
+
+.media-modal .series-detail-discovery > .detail-similar {
+  margin-bottom: 28px;
+}
+
+.media-modal .series-detail-discovery .detail-section-head {
+  margin-bottom: 10px;
+}
+
+.media-modal .series-detail-discovery .detail-section-title {
+  color: #fff;
+  font: 750 22px/1 "Archivo", sans-serif;
+  letter-spacing: -.035em;
+}
+
+.media-modal .series-detail-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, .72fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.media-modal .series-detail-lower-grid > .detail-extras,
+.media-modal .series-detail-lower-grid > .series-detail-about {
+  grid-area: auto;
+  min-width: 0;
+}
+
+.media-modal .series-detail-about {
+  padding: 16px;
+}
+
+.media-modal #series-detail-about-heading b {
+  color: rgba(255, 255, 255, .92);
+  font: inherit;
+}
+
 .media-modal .series-episode-browser {
   margin-top: 38px;
 }
@@ -510,6 +552,10 @@
   .media-modal .series-trailer-btn { grid-area: trailer; }
   .media-modal #series-add-btn { grid-area: download; }
 
+  .media-modal .series-detail-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .media-modal .series-episodes-head {
     align-items: flex-start;
     flex-direction: column;
@@ -569,6 +615,8 @@
 
   .media-modal .series-detail-panel .toolbar .btn { flex: 1; }
   .media-modal .series-state-legend { gap: 9px; }
+  .media-modal .series-detail-discovery { margin-top: 30px; }
+  .media-modal .series-detail-discovery .detail-section-title { font-size: 20px; }
   .media-modal .series-detail-panel .ep-tiles {
     grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
   }

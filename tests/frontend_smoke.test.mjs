@@ -13,6 +13,7 @@ const homeExperience = readFileSync(new URL("../web/home_experience_v2.js", impo
 const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", import.meta.url), "utf8");
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
+const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -28,10 +29,12 @@ const appModulePaths = [
   "screens/mood.js",
   "trailer-runtime.js",
   "catalog-runtime.js",
+  "detail-hero-scroll.js",
   "screens/movie_download_feedback.js",
   "screens/movie-detail-discovery.js",
   "screens/movies.js",
   "screens/movie_filters.js",
+  "screens/series-detail-discovery.js",
   "screens/series.js",
   "screens/series-calendar.js",
   "screens/anime.js",
@@ -61,7 +64,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260824-4/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260824-3/);
-  assert.match(html, /style\.css\?v=royal-20260824-3/);
+  assert.match(html, /style\.css\?v=royal-20260824-4/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -153,6 +156,14 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(app, /function renderFpSimilarTitles\(titles\)/);
   assert.match(app, /function renderFpExtras\(movie\)/);
   assert.match(app, /selectFpRow\(slug, \{/);
+  requiresIds(
+    "series-detail-similar-section", "series-detail-similar",
+    "series-detail-extras-section", "series-detail-extras",
+    "series-detail-about-section",
+  );
+  assert.match(html, /id=["']series-detail-about-title["']/);
+  assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
+  assert.match(app, /SERIENAKTE ÖFFNEN →/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
   requiresIds("settings-btn");
   assert.match(html, /id=["']settings-overview["']/);
@@ -248,7 +259,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260824-2/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260824-3/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -814,7 +825,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260824-3/);
+  assert.match(html, /style\.css\?v=royal-20260824-4/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -824,6 +835,54 @@ test("scheduled episodes stay disabled and hero trailers return to artwork", () 
   assert.match(app, /playerState === 0/);
   assert.doesNotMatch(app, /controls=0&loop=1/);
   assert.match(app, /disablekb=1&fs=0&iv_load_policy=3/);
+});
+
+test("detail hero trailers pause below the header and resume at the top", () => {
+  const messages = [];
+  const classes = new Set();
+  let onReady = null;
+  let onScroll = null;
+  const panel = {
+    scrollTop: 0,
+    dataset: {},
+    addEventListener(type, handler) { if (type === "scroll") onScroll = handler; },
+  };
+  const shell = {
+    hidden: false,
+    clientHeight: 600,
+    dataset: {},
+    classList: {
+      add(value) { classes.add(value); },
+      remove(value) { classes.delete(value); },
+    },
+  };
+  const frame = {
+    getAttribute(name) { return name === "src" ? "https://www.youtube-nocookie.com/embed/test" : ""; },
+    contentWindow: {
+      postMessage(message) { messages.push(JSON.parse(message)); },
+    },
+  };
+  const context = vm.createContext({
+    console,
+    document: {
+      addEventListener(type, handler) { if (type === "DOMContentLoaded") onReady = handler; },
+      querySelector(selector) { return selector === "#fp-detail-panel" ? panel : null; },
+      getElementById(id) {
+        if (id === "fp-detail-hero-trailer") return shell;
+        if (id === "fp-detail-hero-frame") return frame;
+        return null;
+      },
+    },
+    requestAnimationFrame(callback) { callback(); },
+  });
+  vm.runInContext(detailHeroScroll, context);
+  onReady();
+  panel.scrollTop = 300;
+  onScroll();
+  panel.scrollTop = 0;
+  onScroll();
+  assert.deepEqual(messages.map((message) => message.func), ["pauseVideo", "playVideo"]);
+  assert.equal(classes.has("is-scroll-paused"), false);
 });
 
 test("trailer player opens immediately with resilient playback states", () => {

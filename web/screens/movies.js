@@ -1176,6 +1176,7 @@ window.addEventListener("message", (event) => {
       const frame = document.getElementById(frameId);
       if (!frame || event.source !== frame.contentWindow) continue;
       if (playerState === 1) {
+        syncDetailHeroScrollPlayback(frame.closest(".media-modal-panel"), { force: true });
         // Erst nach echtem Videostart einblenden: So bleibt YouTubes großes
         // Start-/Pause-Piktogramm hinter dem bereits sichtbaren Wallpaper.
         window.setTimeout(() => {
@@ -1291,6 +1292,7 @@ function scheduleFpDetailHeroTrailer(movie) {
       listenForHeroTrailerTime(frame);
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+      syncDetailHeroScrollPlayback(panel, { force: true });
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
