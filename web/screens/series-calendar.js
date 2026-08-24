@@ -160,12 +160,47 @@ function calendarInitialWeek() {
   return weeks.find((week) => week > todayWeek) || weeks.at(-1) || todayWeek;
 }
 
+function calendarNextRequestId() {
+  const current = Number(state.calendar.requestId);
+  const next = Number.isSafeInteger(current) && current >= 0 ? current + 1 : 1;
+  state.calendar.requestId = next;
+  return next;
+}
+
+function calendarStopStuckLoad(message = "Der Kalenderdienst hat das Zeitlimit überschritten.") {
+  if (!state.calendar.loading) return false;
+  const hadSnapshot = Array.isArray(state.calendar.days) && state.calendar.days.length > 0;
+  state.calendar.loading = false;
+  state.calendar.startedAt = 0;
+  state.calendar.phase = hadSnapshot ? "ready" : "error";
+  state.calendar.error = message;
+  calendarNextRequestId();
+  if (hadSnapshot) {
+    state.calendar.stale = true;
+    state.calendar.cached = true;
+    renderSeriesCalendar();
+  } else {
+    const range = document.getElementById("calendar-range");
+    if (range) range.textContent = "Kalender nicht verfügbar";
+    calendarSetStatus("Kalender nicht erreichbar", message, { error: true, retry: true });
+  }
+  return true;
+}
+
+function calendarCheckHardDeadline() {
+  const startedAt = Number(state.calendar.startedAt || 0);
+  if (!state.calendar.loading || !startedAt) return false;
+  if (Date.now() - startedAt < SERIES_CALENDAR_WATCHDOG_MS) return false;
+  return calendarStopStuckLoad();
+}
+
 async function seriesCalendarLoad(force = false) {
   if (state.calendar.loading || (state.calendar.loaded && !force)) return false;
-  const requestId = ++state.calendar.requestId;
+  const requestId = calendarNextRequestId();
   const hadSnapshot = state.calendar.days.length > 0;
   let watchdog = 0;
   state.calendar.loading = true;
+  state.calendar.startedAt = Date.now();
   state.calendar.phase = "loading";
   state.calendar.error = "";
   try {
@@ -176,11 +211,7 @@ async function seriesCalendarLoad(force = false) {
     }
     watchdog = window.setTimeout(() => {
       if (state.calendar.requestId !== requestId || !state.calendar.loading) return;
-      state.calendar.loading = false;
-      state.calendar.phase = hadSnapshot ? "ready" : "error";
-      state.calendar.error = "Der Kalenderdienst hat das Zeitlimit überschritten.";
-      if (hadSnapshot) renderSeriesCalendar();
-      else calendarSetStatus("Kalender nicht erreichbar", state.calendar.error, { error: true, retry: true });
+      calendarStopStuckLoad();
     }, SERIES_CALENDAR_WATCHDOG_MS);
     const response = await api.seriesCalendar(force);
     if (state.calendar.requestId !== requestId || !state.calendar.loading) return false;
@@ -222,7 +253,10 @@ async function seriesCalendarLoad(force = false) {
     return false;
   } finally {
     window.clearTimeout(watchdog);
-    if (state.calendar.requestId === requestId) state.calendar.loading = false;
+    if (state.calendar.requestId === requestId) {
+      state.calendar.loading = false;
+      state.calendar.startedAt = 0;
+    }
   }
 }
 
@@ -427,6 +461,12 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
 // wenn ein anderes Startmodul ausfällt, bleibt nie ein statischer Loader stehen.
 function calendarInstallSafetyNet() {
   window.setTimeout(() => initSeriesCalendar({ autoLoad: false }), 0);
+  if (!window.__royalCalendarSafetyTimer) {
+    window.__royalCalendarSafetyTimer = window.setInterval(calendarCheckHardDeadline, 1_000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") calendarCheckHardDeadline();
+    });
+  }
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", calendarInstallSafetyNet, { once: true });
