@@ -559,6 +559,7 @@ function showSeriesLoading(result) {
   document.getElementById("series-desc").textContent =
     "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
   configureSeriesTrailer(result);
+  renderSeriesDetailDiscovery(result);
   const tiles = document.getElementById("series-tiles");
   tiles.replaceChildren();
   const loading = document.createElement("div");
@@ -664,6 +665,10 @@ function scheduleSeriesDetailHeroTrailer(series) {
       listenForHeroTrailerTime(frame);
       muteButton.hidden = false;
       setFpDetailHeroTrailerMuted(fpDetailHeroTrailerMuted);
+      syncDetailHeroScrollPlayback(
+        document.querySelector("#series-detail-modal .series-detail-panel"),
+        { force: true },
+      );
     };
     frame.src =
       `https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}`
@@ -712,6 +717,7 @@ function updateSeriesOverview(series) {
   renderSeriesDetailMeta(seriesMeta);
   document.getElementById("series-desc").textContent = series.description || "(keine Beschreibung verfügbar)";
   configureSeriesTrailer(series);
+  renderSeriesDetailDiscovery(series);
 }
 
 function showSeriesDetail(series, sampleSlug) {

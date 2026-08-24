@@ -1147,7 +1147,8 @@ def series_to_dict(
             "title", "year", "first_air_date", "runtime", "cover_url",
             "backdrop_url", "description", "genres", "original_title",
             "rating", "vote_count", "status", "trailer", "cast", "creators",
-            "networks",
+            "networks", "original_language", "countries", "production_companies",
+            "similar_titles", "tmdb_url",
         ):
             if tmdb.get(field):
                 payload[field] = tmdb[field]

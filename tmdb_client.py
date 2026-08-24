@@ -663,6 +663,12 @@ class TMDBClient:
             "rating": round(float(details.get("vote_average") or 0), 1),
             "vote_count": int(details.get("vote_count") or 0),
             "status": str(details.get("status") or ""),
+            "original_language": str(details.get("original_language") or "").upper(),
+            "countries": [
+                str(country.get("name") or "").strip()
+                for country in details.get("production_countries") or []
+                if isinstance(country, dict) and country.get("name")
+            ][:4],
             "creators": [
                 creator.get("name", "")
                 for creator in details.get("created_by", [])
@@ -673,6 +679,11 @@ class TMDBClient:
                 for network in details.get("networks", [])
                 if network.get("name")
             ],
+            "production_companies": [
+                str(company.get("name") or "").strip()
+                for company in details.get("production_companies") or []
+                if isinstance(company, dict) and company.get("name")
+            ][:4],
             "cast": [
                 {
                     "name": member.get("name", ""),
@@ -683,6 +694,8 @@ class TMDBClient:
                 if member.get("name")
             ],
             "trailer": trailer,
+            "similar_titles": self._series_recommendations(details, tmdb_id),
+            "tmdb_url": f"https://www.themoviedb.org/tv/{int(tmdb_id)}",
             "season_episode_counts": {
                 str(int(season.get("season_number"))): int(season.get("episode_count"))
                 for season in details.get("seasons", [])
@@ -691,6 +704,33 @@ class TMDBClient:
             "season_counts_checked_at": fetched_at,
             "metadata_source": "TMDB",
         }
+
+    def _series_recommendations(self, details: dict, tmdb_id) -> list[dict]:
+        recommendations = (details.get("recommendations") or {}).get("results") or []
+        seen = {str(tmdb_id)}
+        payload = []
+        for item in recommendations:
+            if not isinstance(item, dict) or item.get("adult"):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            title = str(item.get("name") or item.get("original_name") or "").strip()
+            backdrop_url = self._backdrop_url(item.get("backdrop_path") or "")
+            if not item_id.isdigit() or item_id in seen or not title or not backdrop_url:
+                continue
+            seen.add(item_id)
+            payload.append({
+                "tmdb_id": int(item_id),
+                "title": title,
+                "year": _year_from_date(item.get("first_air_date") or ""),
+                "backdrop_url": backdrop_url,
+                "description": str(item.get("overview") or "").strip(),
+                "rating": round(float(item.get("vote_average") or 0), 1),
+                "vote_count": int(item.get("vote_count") or 0),
+                "original_language": str(item.get("original_language") or "").upper(),
+            })
+            if len(payload) >= 6:
+                break
+        return payload
 
     def series_by_id(self, tmdb_id, title: str = "", force: bool = False) -> Optional[dict]:
         key = str(tmdb_id or "").strip()
@@ -703,7 +743,7 @@ class TMDBClient:
                 return cached[1]
         details = self._request(f"/tv/{key}", {
             "language": self.language,
-            "append_to_response": "videos,credits",
+            "append_to_response": "videos,credits,recommendations",
         })
         result = None
         if details:
