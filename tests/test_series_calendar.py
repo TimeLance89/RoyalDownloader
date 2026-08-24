@@ -170,6 +170,7 @@ def test_calendar_has_a_terminal_state_and_no_browser_provider_request():
     assert "calendarRestoreSnapshot()" in screen
     assert "calendarStoreSnapshot(payload)" in screen
     assert "Sendeplan wird geladen" not in screen
+    assert ".calendar-status[hidden]" in (ROOT / "web" / "styles" / "series-calendar.css").read_text(encoding="utf-8")
 
 
 def test_series_catalog_checks_jellyfin_before_artwork_hydration():

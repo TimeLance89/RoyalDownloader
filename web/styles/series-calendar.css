@@ -217,6 +217,8 @@
 .calendar-entry-open { color: var(--calendar-red); font-size: 17px; }
 
 .calendar-status { display: grid; min-height: 320px; place-content: center; justify-items: center; gap: 8px; padding: 30px; color: var(--calendar-muted); border: 1px solid var(--calendar-line); border-radius: 9px; background: #101013; text-align: center; }
+.calendar-status[hidden],
+.calendar-days[hidden] { display: none !important; }
 .calendar-status strong { color: #ddd8d4; font-size: 15px; }
 .calendar-status small { max-width: 420px; font-size: 11px; line-height: 1.5; }
 .calendar-status button { margin-top: 8px; color: #fff; border-color: var(--calendar-red); background: var(--calendar-red); }

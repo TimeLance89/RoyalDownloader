@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fertig geladene Kalenderdaten blenden den vorbereitenden Statusblock nun zuverlässig aus; die Kalender-CSS respektiert `hidden` auch gegen ihre eigenen Grid-Regeln.
 - Der Kalender beendet den Ladezustand nun auch bei gemischten Browser-Assets und gedrosselten Hintergrund-Timern sicher; ein zweiter Fristwächter fängt hängende Altzustände ab.
 - Die Startseite verwendet außerhalb der Top 10 ausschließlich 16:9-Hintergründe, füllt „Aus deinen Klicks und Downloads“ auf bis zu 16 Titel auf und hält beim Aktualisieren die einmal geladenen Karten stabil im DOM.
 - Der Serienkalender wird vollständig serverseitig über eine unabhängige SerienStream-Session synchronisiert. Ein atomar gespeicherter, validierter Snapshot übersteht Neustarts und Ausfälle; der Browser ruft die Kalenderdaten nie direkt vom Fremddienst ab.
