@@ -137,7 +137,11 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
         assert contract in index
     assert "api.seriesCalendar(force)" in screen
     assert "data-calendar-retry" in screen
-    assert 'switchTab("serien", { autoLoad: false })' in screen
+    open_entry = screen.split("function calendarOpenEntry", 1)[1].split(
+        "function initSeriesCalendar", 1,
+    )[0]
+    assert "loadSeries({" in open_entry
+    assert "switchTab(" not in open_entry
     assert "loadSeries({" in screen
     assert 'fetchpriority="high"' in screen
     assert "@media (prefers-reduced-motion: reduce)" in css

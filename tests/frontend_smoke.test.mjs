@@ -58,7 +58,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
   assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
-  assert.match(html, /series-calendar\.js\?v=royal-20260824-3/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260824-4/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260824-3/);
   assert.match(html, /style\.css\?v=royal-20260824-2/);
   const calendarStyles = readFileSync(
@@ -67,6 +67,10 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   );
   assert.match(calendarStyles, /\.calendar-status\[hidden\][\s\S]*display: none !important/);
   assert.match(calendarStyles, /\.calendar-days\[hidden\][\s\S]*display: none !important/);
+  const calendarOpenEntry = seriesCalendar.split("function calendarOpenEntry", 2)[1]
+    .split("function initSeriesCalendar", 1)[0];
+  assert.match(calendarOpenEntry, /loadSeries\(\{/);
+  assert.doesNotMatch(calendarOpenEntry, /switchTab\(/);
 });
 
 function calendarTestContext(seriesCalendarApi) {
