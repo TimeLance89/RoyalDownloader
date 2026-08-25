@@ -24,7 +24,7 @@ def test_subscription_center_keeps_existing_notification_contracts():
 
 def test_subscription_center_loads_isolated_styles_without_manifest_changes():
     assert "ensureSubscriptionCenterStyles" in NOTIFICATIONS
-    assert "/styles/subscription-center.css?v=royal-20260807-1" in NOTIFICATIONS
+    assert "/styles/subscription-center.css?v=royal-20260825-1" in NOTIFICATIONS
     assert "data-subscription-center-styles" in NOTIFICATIONS
     assert "Royal Subscription Center" in STYLES
 
@@ -51,9 +51,17 @@ def test_subscription_center_separates_new_items_from_real_issues():
     assert ".notif-item.is-issue" in STYLES
 
 
+def test_subscription_center_surfaces_completed_subscription_downloads():
+    assert "downloadedEpisodeLabel" in NOTIFICATIONS
+    assert 'appendNotificationSection(list, "is-downloaded", "Heruntergeladen", downloadedSorted)' in NOTIFICATIONS
+    assert "api.watchlistDownloadsRead(entry.base_slug)" in NOTIFICATIONS
+    assert 'downloadReceipt.className = "library-download-receipt"' in NOTIFICATIONS
+    assert ".notif-item.is-downloaded" in STYLES
+
+
 def test_subscription_center_exposes_separate_episode_and_issue_badges():
     assert 'issueBadge.id = "notif-issue-badge"' in NOTIFICATIONS
-    assert 'badge.classList.toggle("hidden", total === 0)' in NOTIFICATIONS
+    assert 'badge.classList.toggle("hidden", noticeTotal === 0)' in NOTIFICATIONS
     assert 'issueBadge.classList.toggle("hidden", issueCount === 0)' in NOTIFICATIONS
     assert ".notif-issue-badge" in STYLES
 

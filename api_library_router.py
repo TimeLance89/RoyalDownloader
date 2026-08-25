@@ -807,6 +807,7 @@ async def api_watchlist_add(body: WatchlistAddBody):
                 entry["cleanup_deleted_count"] = 0
                 entry["cleanup_last_error"] = ""
                 entry["failed_downloads"] = {}
+                entry["downloaded_episode_notifications"] = []
                 entry["last_error"] = ""
                 entry["mode_generation"] = 0
                 entry["check_generation"] = 0
@@ -922,6 +923,10 @@ class WatchlistRemoveBody(BaseModel):
     base_slugs: list[str]
 
 
+class WatchlistDownloadsReadBody(BaseModel):
+    base_slug: str
+
+
 @router.post("/api/v1/watchlist/remove")
 @router.post("/api/watchlist/remove")
 async def api_watchlist_remove(body: WatchlistRemoveBody):
@@ -964,6 +969,30 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
 async def api_watchlist_get():
     await run_in_threadpool(hydrate_watchlist_artwork)
     return watchlist_payload()
+
+
+@router.post("/api/v1/watchlist/downloads/read")
+@router.post("/api/watchlist/downloads/read")
+async def api_watchlist_downloads_read(body: WatchlistDownloadsReadBody):
+    def _work():
+        with state.watchlist_lock:
+            previous_watchlist = deepcopy(state.watchlist)
+            entry = watchlist_lookup(body.base_slug)
+            if entry is None:
+                raise HTTPException(404, "Nicht in der Bibliothek.")
+            for notification in entry.get("downloaded_episode_notifications") or []:
+                if isinstance(notification, dict):
+                    notification["read"] = True
+            try:
+                _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+            except HTTPException:
+                state.watchlist = previous_watchlist
+                raise
+        payload = watchlist_payload()
+        broadcast({"type": "watchlist_update", **payload})
+        return payload
+
+    return await run_in_threadpool(_work)
 
 
 class WatchlistCheckBody(BaseModel):

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 import api_queue_router
 import queue_jobs
 import server
+from application_services import download_lifecycle
 from downloader import DownloadQueue
 
 
@@ -312,3 +313,34 @@ def test_migration_preserves_slug_based_telegram_and_seerr_correlations():
 
     assert document["jobs"][0]["slug"] in telegram
     assert document["jobs"][0]["slug"] in seerr
+
+
+def test_completed_subscription_episode_creates_bounded_unread_receipt(monkeypatch):
+    entry = {"downloaded_episode_notifications": [
+        {
+            "slug": f"show-s01e{episode:02d}",
+            "season": 1,
+            "episode": episode,
+            "downloaded_at": float(episode),
+            "read": True,
+        }
+        for episode in range(1, 21)
+    ]}
+    monkeypatch.setattr(download_lifecycle.time, "time", lambda: 1234.0)
+
+    assert download_lifecycle._record_watchlist_download_notification(
+        entry, "show-s02e03",
+    ) is True
+
+    notifications = entry["downloaded_episode_notifications"]
+    assert len(notifications) == 20
+    assert notifications[0] == {
+        "slug": "show-s02e03",
+        "season": 2,
+        "episode": 3,
+        "downloaded_at": 1234.0,
+        "read": False,
+    }
+    assert download_lifecycle._record_watchlist_download_notification(
+        entry, "movie-without-episode",
+    ) is False

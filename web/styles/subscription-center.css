@@ -165,7 +165,7 @@
 .notif-stats {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   margin-top: 2px;
 }
@@ -200,6 +200,7 @@
 }
 
 .notif-stat.is-new strong { color: #ff4f58; }
+.notif-stat.is-downloaded strong { color: var(--subscription-success); }
 .notif-stat.is-issue strong { color: var(--subscription-warning); }
 .notif-stat.is-ok strong { color: var(--subscription-success); }
 
@@ -237,6 +238,10 @@
   color: var(--subscription-warning);
 }
 
+.notif-section.is-downloaded .notif-section-title {
+  color: var(--subscription-success);
+}
+
 .notif-item {
   grid-template-columns: 92px minmax(0, 1fr) auto 12px;
   gap: 11px;
@@ -258,6 +263,10 @@
 
 .notif-item.is-issue {
   background: linear-gradient(90deg, rgba(240, 173, 78, 0.055), rgba(255, 255, 255, 0.015));
+}
+
+.notif-item.is-downloaded {
+  background: linear-gradient(90deg, rgba(89, 200, 120, 0.07), rgba(255, 255, 255, 0.015));
 }
 
 .notif-item-art {
@@ -345,6 +354,14 @@
   border-color: rgba(240, 173, 78, 0.24);
   background: rgba(240, 173, 78, 0.08);
 }
+
+.notif-state.is-downloaded {
+  color: #7fe39a;
+  border-color: rgba(89, 200, 120, 0.25);
+  background: rgba(89, 200, 120, 0.09);
+}
+
+.notif-item.is-downloaded .notif-count strong { color: var(--subscription-success); }
 
 .notif-count {
   min-width: 48px;

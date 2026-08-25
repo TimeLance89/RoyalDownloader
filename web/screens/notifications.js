@@ -3,7 +3,7 @@ function ensureSubscriptionCenterStyles() {
   if (document.querySelector('link[data-subscription-center-styles]')) return;
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = "/styles/subscription-center.css?v=royal-20260807-1";
+  link.href = "/styles/subscription-center.css?v=royal-20260825-1";
   link.dataset.subscriptionCenterStyles = "true";
   document.head.appendChild(link);
 }
@@ -16,6 +16,12 @@ function notificationState(entry) {
   if (notificationHasIssue(entry)) return "issue";
   if (Number(entry.queued_count || 0) > 0 || entry.status === "queued") return "queued";
   return "new";
+}
+
+function downloadedEpisodeLabel(entry) {
+  const episode = entry?.last_downloaded_episode;
+  if (!episode) return "";
+  return `S${String(episode.season || 0).padStart(2, "0")}E${String(episode.episode || 0).padStart(2, "0")}`;
 }
 
 function notificationStateLabel(entry) {
@@ -48,6 +54,7 @@ function ensureSubscriptionCenterChrome() {
     stats.setAttribute("aria-label", "Abo-Status");
     stats.innerHTML = `
       <span class="notif-stat is-new"><strong id="notif-new-count">0</strong><small>Neue Episoden</small></span>
+      <span class="notif-stat is-downloaded"><strong id="notif-downloaded-count">0</strong><small>Heruntergeladen</small></span>
       <span class="notif-stat is-issue"><strong id="notif-issue-count">0</strong><small>Probleme</small></span>
       <span class="notif-stat is-ok"><strong id="notif-center-subscriptions">0</strong><small>Abonnements</small></span>
     `;
@@ -55,10 +62,10 @@ function ensureSubscriptionCenterChrome() {
   }
 }
 
-function buildNotificationItem(entry) {
+function buildNotificationItem(entry, forcedState = "") {
   const item = document.createElement("button");
   item.type = "button";
-  const stateName = notificationState(entry);
+  const stateName = forcedState || notificationState(entry);
   item.className = `notif-item is-${stateName}`;
 
   const art = document.createElement("span");
@@ -87,17 +94,23 @@ function buildNotificationItem(entry) {
   mode.textContent = watchlistStatusText(entry);
   const statePill = document.createElement("span");
   statePill.className = `notif-state is-${stateName}`;
-  statePill.textContent = notificationStateLabel(entry);
+  statePill.textContent = stateName === "downloaded"
+    ? `${downloadedEpisodeLabel(entry)} heruntergeladen`
+    : notificationStateLabel(entry);
   copy.append(title, mode, statePill);
 
   const count = document.createElement("span");
   count.className = "notif-count";
   const countValue = document.createElement("strong");
-  countValue.textContent = notificationHasIssue(entry)
+  countValue.textContent = stateName === "downloaded"
+    ? String(entry.downloaded_count || 1)
+    : notificationHasIssue(entry)
     ? "!"
     : String(entry.failed_count || entry.new_count || entry.queued_count || 0);
   const countLabel = document.createElement("small");
-  countLabel.textContent = notificationHasIssue(entry)
+  countLabel.textContent = stateName === "downloaded"
+    ? "Geladen"
+    : notificationHasIssue(entry)
     ? "Prüfen"
     : (entry.new_count === 1 ? "Episode" : "Episoden");
   count.append(countValue, countLabel);
@@ -108,6 +121,11 @@ function buildNotificationItem(entry) {
   item.append(art, copy, count, arrow);
   item.addEventListener("click", () => {
     closeNotifDropdown();
+    if (stateName === "downloaded") {
+      api.watchlistDownloadsRead(entry.base_slug)
+        .then((data) => applyWatchlist(data.watchlist))
+        .catch(() => {});
+    }
     openWatchlistEntry(entry.base_slug);
   });
   return item;
@@ -125,14 +143,19 @@ function appendNotificationSection(list, className, label, entries) {
   count.textContent = String(entries.length);
   heading.append(title, count);
   section.appendChild(heading);
-  entries.forEach((entry) => section.appendChild(buildNotificationItem(entry)));
+  entries.forEach((entry) => section.appendChild(buildNotificationItem(
+    entry,
+    className === "is-downloaded" ? "downloaded" : "",
+  )));
   list.appendChild(section);
 }
 
 function renderNotifBell() {
   ensureSubscriptionCenterChrome();
-  const withNotice = state.wl.items.filter((e) => e.new_count || notificationHasIssue(e));
+  const withNotice = state.wl.items.filter((e) => e.new_count || e.downloaded_count || notificationHasIssue(e));
   const total = withNotice.reduce((sum, e) => sum + Number(e.new_count || 0), 0);
+  const downloadedTotal = withNotice.reduce((sum, e) => sum + Number(e.downloaded_count || 0), 0);
+  const noticeTotal = total + downloadedTotal;
   const issueEntries = withNotice.filter(notificationHasIssue);
   const issueCount = issueEntries.length;
   const bell = document.getElementById("notif-bell");
@@ -140,24 +163,27 @@ function renderNotifBell() {
   const issueBadge = document.getElementById("notif-issue-badge");
   const triggerLabel = document.getElementById("notif-trigger-label");
 
-  badge.textContent = String(total);
-  badge.classList.toggle("hidden", total === 0);
+  badge.textContent = String(noticeTotal);
+  badge.classList.toggle("hidden", noticeTotal === 0);
   issueBadge.classList.toggle("hidden", issueCount === 0);
-  bell.classList.toggle("is-active", total > 0 || issueCount > 0);
-  bell.setAttribute("aria-label", total || issueCount
-    ? `Abo-Inbox öffnen: ${total} neue Episoden, ${issueCount} Probleme`
+  bell.classList.toggle("is-active", noticeTotal > 0 || issueCount > 0);
+  bell.setAttribute("aria-label", noticeTotal || issueCount
+    ? `Abo-Inbox öffnen: ${total} neue Episoden, ${downloadedTotal} heruntergeladen, ${issueCount} Probleme`
     : "Abo-Inbox öffnen: alles aktuell");
-  triggerLabel.textContent = total
+  triggerLabel.textContent = noticeTotal
+    ? `${noticeTotal} ${noticeTotal === 1 ? "Hinweis" : "Hinweise"}`
+    : total
     ? `${total} ${total === 1 ? "neue Episode" : "neue Episoden"}`
     : (issueCount ? `${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}` : "Alles aktuell");
 
   const summary = document.getElementById("notif-summary");
-  summary.textContent = total || issueCount
-    ? `${total} neu · ${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}`
+  summary.textContent = noticeTotal || issueCount
+    ? `${total} neu · ${downloadedTotal} geladen · ${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}`
     : "Alle abonnierten Serien sind vollständig";
   document.getElementById("notif-subscription-count").textContent =
     `${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo" : "Abos"}`;
   document.getElementById("notif-new-count").textContent = String(total);
+  document.getElementById("notif-downloaded-count").textContent = String(downloadedTotal);
   document.getElementById("notif-issue-count").textContent = String(issueCount);
   document.getElementById("notif-center-subscriptions").textContent = String(state.wl.items.length);
 
@@ -185,7 +211,12 @@ function renderNotifBell() {
       Number(b.queued_count || 0) - Number(a.queued_count || 0)
       || Number(b.new_count || 0) - Number(a.new_count || 0)
       || a.title.localeCompare(b.title, "de"));
+  const downloadedSorted = withNotice
+    .filter((entry) => Number(entry.downloaded_count || 0) > 0)
+    .sort((a, b) => Number(b.last_downloaded_episode?.downloaded_at || 0)
+      - Number(a.last_downloaded_episode?.downloaded_at || 0));
 
+  appendNotificationSection(list, "is-downloaded", "Heruntergeladen", downloadedSorted);
   appendNotificationSection(list, "is-new", "Neu", newSorted);
   appendNotificationSection(list, "is-issue", "Braucht Aufmerksamkeit", issueSorted);
 }
@@ -213,9 +244,10 @@ async function refreshNotifications() {
     const data = await api.watchlistCheck(null);
     applyWatchlist(data.watchlist);
     const total = state.wl.items.reduce((sum, entry) => sum + Number(entry.new_count || 0), 0);
+    const downloaded = state.wl.items.reduce((sum, entry) => sum + Number(entry.downloaded_count || 0), 0);
     const issues = state.wl.items.filter(notificationHasIssue).length;
-    summary.textContent = total || issues
-      ? `Gerade eben geprüft · ${total} neu · ${issues} ${issues === 1 ? "Problem" : "Probleme"}`
+    summary.textContent = total || downloaded || issues
+      ? `Gerade eben geprüft · ${total} neu · ${downloaded} geladen · ${issues} ${issues === 1 ? "Problem" : "Probleme"}`
       : "Gerade eben geprüft · alles vollständig";
   } catch (error) {
     summary.textContent = `Prüfung fehlgeschlagen: ${error.message}`;
@@ -417,6 +449,14 @@ function renderWatchlist() {
         : "Vollständig");
     episodeStatus.append(episodeValue, episodeLabel);
 
+    const downloadReceipt = document.createElement("div");
+    downloadReceipt.className = "library-download-receipt"
+      + (Number(entry.downloaded_count || 0) > 0 ? " is-unread" : "");
+    downloadReceipt.hidden = !entry.last_downloaded_episode;
+    downloadReceipt.textContent = entry.last_downloaded_episode
+      ? `✓ ${downloadedEpisodeLabel(entry)} geladen`
+      : "";
+
     const footer = document.createElement("div");
     footer.className = "library-card-footer";
     const rule = document.createElement("button");
@@ -440,7 +480,7 @@ function renderWatchlist() {
     });
     footer.append(rule, open);
 
-    row.append(top, identity, progress, episodeStatus, footer);
+    row.append(top, identity, progress, episodeStatus, downloadReceipt, footer);
     row.addEventListener("pointerenter", () => showLibraryHero(entry));
     row.addEventListener("focusin", () => showLibraryHero(entry));
     row.addEventListener("click", () => toggleWlSelect(entry.base_slug));
