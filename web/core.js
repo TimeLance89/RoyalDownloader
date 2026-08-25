@@ -193,6 +193,7 @@ async function resyncAfterWsOpen(connectionGeneration) {
   await Promise.allSettled([queueSync, watchlistSync, movieSubscriptionSync]);
   if (connectionGeneration !== wsConnectionGeneration) return;
   await Promise.allSettled([
+    refreshAllCatalogJellyfinStatuses(),
     refreshSeriesJellyfinStatus(true),
     refreshFpJellyfinStatus(),
   ]);

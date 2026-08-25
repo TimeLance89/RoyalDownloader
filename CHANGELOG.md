@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Deutsche Anbieter-Einträge mit eindeutiger englischer Release-Kennzeichnung
+  wie `*ENGLISH*` oder `TS/Englisch` werden nicht länger als deutsche Fassung
+  geführt und bei deaktivierten englischen Inhalten vollständig ausgefiltert.
+- Nach längerer Browser-Inaktivität oder Standby erneuert die Oberfläche den
+  Jellyfin-Status automatisch; festhängende Prüfungen laufen in einen klaren
+  Fehlerzustand und werden bei Tab-, Fenster- oder Netz-Rückkehr neu gestartet.
 - Film- und Seriendetails erhalten im einheitlichen Royal-Aktenstil eigene
   Bereiche für ähnliche Titel, offizielle Trailer und kompakte
   Produktionsinformationen; Empfehlungen verwenden ausschließlich breite

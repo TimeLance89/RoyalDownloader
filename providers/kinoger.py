@@ -70,6 +70,12 @@ _META_LINE_RE = re.compile(
     r"casts?|orginal titel|original titel|land|drehbuch|hauptrolle)\b",
     re.I,
 )
+_RELEASE_LINE_RE = re.compile(
+    r"^(?:WEB(?:Rip|DL)?|BD(?:Rip)?|HD|TS|CAM|DVDRip|HDRip|1080p|720p|4K)\b",
+    re.I,
+)
+_ENGLISH_RELEASE_RE = re.compile(r"(?<![A-Za-z])(?:english|englisch|eng)(?![A-Za-z])", re.I)
+_GERMAN_RELEASE_RE = re.compile(r"(?<![A-Za-z])(?:german|deutsch|ger)(?![A-Za-z])", re.I)
 
 
 @dataclass
@@ -80,6 +86,7 @@ class _Card:
     url: str
     cover_url: str
     is_series: bool
+    content_language: str = ""
 
 
 class KinogerScraper:
@@ -156,6 +163,9 @@ class KinogerScraper:
         soup = self._get_soup(url)
         metadata = self._metadata(soup, url)
         players = self._player_seasons(soup)
+        content_language = metadata["content_language"] or "de"
+        hoster_language = "English" if content_language == "en" else "Deutsch"
+        quality = metadata["quality"] or "HD"
 
         hosters: List[HosterInfo] = []
         seen = set()
@@ -174,8 +184,8 @@ class KinogerScraper:
                 hosters.append(HosterInfo(
                     name=self._hoster_name(play_url),
                     url=play_url,
-                    language="Deutsch",
-                    quality="HD",
+                    language=hoster_language,
+                    quality=quality,
                 ))
 
         title = metadata["title"]
@@ -192,6 +202,7 @@ class KinogerScraper:
             description=metadata["description"],
             genres=metadata["genres"],
             hosters=hosters,
+            content_language=content_language,
         )
 
     def get_series(self, url_or_slug: str) -> Optional[FilmpalastSeries]:
@@ -276,7 +287,17 @@ class KinogerScraper:
                 is_series = True
             image = content.select_one("img[src]") if content else None
             cover = urljoin(BASE_URL + "/", image.get("src", "")) if image else ""
-            cards.append(_Card(title, year, slug, href, cover, is_series))
+            release_hint = ""
+            if content:
+                release_hint = next((
+                    value
+                    for value in list(content.stripped_strings)[:6]
+                    if _RELEASE_LINE_RE.match(value)
+                ), "")
+            cards.append(_Card(
+                title, year, slug, href, cover, is_series,
+                self._title_language_marker(raw_title) or self._release_language(release_hint),
+            ))
         return cards
 
     @staticmethod
@@ -287,6 +308,7 @@ class KinogerScraper:
             url=card.url,
             year=card.year,
             is_movie=True,
+            content_language=card.content_language,
             cover_url=card.cover_url,
         )
 
@@ -336,11 +358,12 @@ class KinogerScraper:
         image = detail.select_one("img[src]") if detail else None
         cover_url = urljoin(page_url, image.get("src", "")) if image else ""
         lines = list(detail.stripped_strings) if detail else []
+        release_line = ""
         if lines and (
             _SERIES_MARKER_RE.search(lines[0])
-            or re.fullmatch(r"(?:WEB|BD|HD|TS|DVDRip|HDRip).*", lines[0], re.I)
+            or _RELEASE_LINE_RE.match(lines[0])
         ):
-            lines.pop(0)
+            release_line = lines.pop(0)
         description_lines: List[str] = []
         for line in lines:
             if _META_LINE_RE.match(line):
@@ -372,7 +395,50 @@ class KinogerScraper:
             "cover_url": cover_url,
             "description": description,
             "genres": genres,
+            "content_language": (
+                KinogerScraper._release_language(release_line)
+                if release_line
+                else KinogerScraper._title_language_marker(raw_title)
+            ),
+            "quality": KinogerScraper._release_quality(release_line),
         }
+
+    @staticmethod
+    def _title_language_marker(value: str) -> str:
+        text = str(value or "").strip()
+        wrapped = re.search(
+            r"[*\[\({]\s*(english|englisch|german|deutsch)\s*[*\]\)}]",
+            text,
+            re.I,
+        )
+        if wrapped:
+            return "en" if wrapped.group(1).casefold() in {"english", "englisch"} else "de"
+        uppercase = re.search(
+            r"(?:^|[\\/|:_-]|\s)(ENGLISH|ENGLISCH|GERMAN|DEUTSCH)\s*$",
+            text,
+        )
+        if uppercase:
+            return "en" if uppercase.group(1) in {"ENGLISH", "ENGLISCH"} else "de"
+        return ""
+
+    @staticmethod
+    def _release_language(value: str) -> str:
+        text = str(value or "")
+        if _ENGLISH_RELEASE_RE.search(text):
+            return "en"
+        if _GERMAN_RELEASE_RE.search(text):
+            return "de"
+        return ""
+
+    @staticmethod
+    def _release_quality(value: str) -> str:
+        match = re.search(
+            r"(?<![A-Za-z0-9])(?:4K|2160p|1080p|720p|WEB(?:Rip|DL)?|"
+            r"BD(?:Rip)?|HD|TS|CAM|DVDRip|HDRip)(?![A-Za-z0-9])",
+            str(value or ""),
+            re.I,
+        )
+        return match.group(0).upper() if match else ""
 
     @staticmethod
     def _hoster_name(url: str) -> str:

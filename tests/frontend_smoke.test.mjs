@@ -14,6 +14,7 @@ const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", impo
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
 const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
+const jellyfinResume = readFileSync(new URL("../web/jellyfin-resume.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -43,6 +44,7 @@ const appModulePaths = [
   "screens/settings.js",
   "screens/account.js",
   "screens/setup.js",
+  "jellyfin-resume.js",
   "app.js",
 ];
 const app = appModulePaths
@@ -267,8 +269,36 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
   assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
-  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v4"/);
+  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v5"/);
   assert.match(app, /known\.catalog_identity_version !== 2/);
+});
+
+test("Jellyfin status recovers after a long browser idle", async () => {
+  let now = 1_000;
+  const windowListeners = {};
+  const calls = [];
+  const context = vm.createContext({
+    console,
+    Date: { now: () => now },
+    document: {
+      hidden: false,
+      addEventListener() {},
+    },
+    window: {
+      addEventListener(type, handler) { windowListeners[type] = handler; },
+    },
+    setInterval() {},
+    refreshAllCatalogJellyfinStatuses() { calls.push("catalog"); },
+    refreshFpJellyfinStatus() { calls.push("movies"); },
+    refreshSeriesJellyfinStatus(force) { calls.push(force ? "series-force" : "series"); },
+  });
+  vm.runInContext(jellyfinResume, context);
+  windowListeners.blur();
+  now += 3_600_001;
+  windowListeners.focus();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(calls.sort(), ["catalog", "movies", "series-force"]);
 });
 
 test("deep movie pagination hydrates only the newly appended page", () => {
@@ -288,7 +318,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260824-2/);
+  assert.match(html, /api\.js\?v=royal-20260825-1/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -312,8 +342,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260824-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260824-1/);
+  assert.match(html, /api\.js\?v=royal-20260825-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260825-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -656,7 +686,7 @@ test("mood mode asks for the moment, protects family picks, and nudges taste", (
   assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260823-2/);
+  assert.match(html, /core\.js\?v=royal-20260825-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
   assert.match(app, /source: "mood-session"/);
   assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
