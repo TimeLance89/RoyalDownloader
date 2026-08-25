@@ -60,6 +60,12 @@ def _provider_language(provider: str) -> str:
     return normalize_content_language(provider_content_language(provider))
 
 
+def _result_language(provider: str, result) -> str:
+    return _title_release_language(getattr(result, "title", "")) or normalize_content_language(
+        str(getattr(result, "content_language", "") or "")
+    ) or _provider_language(provider)
+
+
 def _ordered_languages(values) -> list[str]:
     normalized = {
         normalize_content_language(value)
@@ -147,9 +153,9 @@ def _mix_movie_provider_results(
             continue
         already_claimed.add(identity)
         languages = {
-            _provider_language(provider)
-            for provider, _result in matches
-            if _provider_language(provider)
+            _result_language(provider, result)
+            for provider, result in matches
+            if _result_language(provider, result)
         }
         groups.append({
             "identity": identity,
@@ -164,13 +170,13 @@ def _mix_movie_provider_results(
             (
                 (provider, result)
                 for provider, result in matches
-                if lane and _provider_language(provider) == lane
+                if lane and _result_language(provider, result) == lane
             ),
             matches[0],
         )
         visible = _movie_result_with_languages(primary_result, group["languages"])
         visible.provider = primary_provider
-        visible.content_language = _provider_language(primary_provider)
+        visible.content_language = _result_language(primary_provider, primary_result)
         mixed.append((primary_provider, visible))
     return mixed
 

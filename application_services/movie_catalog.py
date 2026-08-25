@@ -66,12 +66,28 @@ def clean_movie_title(title: str) -> str:
         # Ein alleinstehender, großgeschriebener Release-Marker am Ende ist
         # ebenfalls kein Titelbestandteil. Normales „English Movie“ bleibt.
         value = re.sub(
-            r"\s+(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI|OV|O-TON)"
-            r"(?:\s+(?:DUB|SUB|DL))?\s*$",
+            r"\s+[*\[\({]?\s*(?:ENGLISH|ENGLISCH|GERMAN|DEUTSCH|MULTI|OV|O-TON)"
+            r"(?:\s+(?:DUB|SUB|DL))?\s*[*\]\)}]?\s*$",
             "",
             value,
         ).strip()
     return value
+
+
+def _title_release_language(title: str) -> str:
+    """Erkennt nur eindeutige Release-Marker, nicht normale Filmtitel."""
+    value = str(title or "").strip()
+    wrapped = re.search(
+        r"[*\[\({]\s*(ENGLISH|ENGLISCH|GERMAN|DEUTSCH)\s*[*\]\)}]",
+        value,
+        re.I,
+    )
+    if wrapped:
+        return "en" if wrapped.group(1).casefold() in {"english", "englisch"} else "de"
+    uppercase = re.search(r"(?:^|[\\/|:_-]|\s)(ENGLISH|ENGLISCH|GERMAN|DEUTSCH)\s*$", value)
+    if uppercase:
+        return "en" if uppercase.group(1) in {"ENGLISH", "ENGLISCH"} else "de"
+    return ""
 
 
 def provider_order(media_type: str) -> List[str]:
@@ -116,16 +132,32 @@ def _apply_provider_metadata(item, provider: str):
     if hasattr(item, "provider"):
         item.provider = key
     if hasattr(item, "content_language"):
-        item.content_language = provider_content_language(key)
+        explicit = _title_release_language(getattr(item, "title", "")) or normalize_content_language(
+            str(getattr(item, "content_language", "") or "")
+        )
+        item.content_language = explicit or provider_content_language(key)
     return item
 
 
 def _apply_provider_metadata_many(items, provider: str) -> list:
-    return [
-        _apply_provider_metadata(item, provider)
-        for item in (items or [])
-        if item is not None
-    ]
+    with state.provider_priority_lock:
+        enabled_languages = {
+            normalize_content_language(language)
+            for language in state.content_languages
+            if normalize_content_language(language)
+        }
+    results = []
+    for item in items or []:
+        normalized = _apply_provider_metadata(item, provider)
+        if normalized is None:
+            continue
+        language = normalize_content_language(
+            str(getattr(normalized, "content_language", "") or "")
+        )
+        if enabled_languages and language and language not in enabled_languages:
+            continue
+        results.append(normalized)
+    return results
 
 
 def _movie_provider(movie: Optional[FilmpalastMovie], fallback: str = "") -> str:
@@ -266,7 +298,24 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         scraper = get_fp_scraper()
         with state.fp_lock:
             movie = scraper.get_movie(slug)
-    return _apply_provider_metadata(movie, provider)
+    movie = _apply_provider_metadata(movie, provider)
+    if movie is None:
+        return None
+    language = _movie_content_language(movie, fallback=slug)
+    with state.provider_priority_lock:
+        enabled_languages = {
+            normalize_content_language(value)
+            for value in state.content_languages
+            if normalize_content_language(value)
+        }
+    if enabled_languages and language and language not in enabled_languages:
+        log(
+            f"{PROVIDER_LABELS.get(provider, provider)} übersprungen: "
+            f"Release-Sprache {language.upper()} ist nicht aktiviert.",
+            "info",
+        )
+        return None
+    return movie
 
 
 def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
@@ -815,8 +864,19 @@ def _mix_movie_provider_results(
 
     filtered: Dict[str, List[FilmpalastSearchResult]] = {provider: [] for provider in priority}
     seen_identities = claimed_identities if claimed_identities is not None else set()
+    with state.provider_priority_lock:
+        enabled_languages = {
+            normalize_content_language(value)
+            for value in state.content_languages
+            if normalize_content_language(value)
+        }
     for provider in priority:
         for result in provider_results.get(provider, []):
+            language = _title_release_language(result.title) or normalize_content_language(
+                str(getattr(result, "content_language", "") or "")
+            ) or provider_content_language(provider)
+            if enabled_languages and language not in enabled_languages:
+                continue
             identity = _movie_result_identity(result, provider, years_by_title)
             if identity in seen_identities:
                 continue
@@ -1009,6 +1069,7 @@ def warm_home_movie_cache():
 _SERVICE_EXPORTS = (
     "strip_source_suffix",
     "clean_movie_title",
+    "_title_release_language",
     "provider_order",
     "provider_priority",
     "provider_for_value",

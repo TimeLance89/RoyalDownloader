@@ -1179,7 +1179,7 @@ function renderHome({ force = false } = {}) {
   if (!state.home.loading && homeAllEntries().length) state.home.rendered = true;
 }
 const SEARCH_HISTORY_KEY = "royal-search-history-v1";
-const HOME_CACHE_KEY = "royal-home-cache-v4";
+const HOME_CACHE_KEY = "royal-home-cache-v5";
 const HOME_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function restoreHomeCache() {
