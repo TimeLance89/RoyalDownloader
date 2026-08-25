@@ -37,7 +37,7 @@ function createInitialState() {
     },
     calendar: {
       days: [], total: 0, loaded: false, loading: false, error: "",
-      activeWeek: "", language: "all", query: "", subscribedOnly: false,
+      activeWeek: "", language: "all", status: "all", query: "", subscribedOnly: false,
       disabledReason: "", stale: false, cached: false, updatedAt: 0,
       initialized: false, phase: "idle", requestId: 0, startedAt: 0,
     },
