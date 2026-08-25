@@ -6,7 +6,7 @@
 <title>Royal Downloader</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
 <link rel="stylesheet" href="/style.css?v=royal-20260825-1">
 </head>
@@ -102,34 +102,88 @@
   </section>
 
   <div id="mood-modal" class="mood-modal hidden" role="dialog" aria-modal="true"
-      aria-labelledby="mood-title" aria-describedby="mood-copy">
+      aria-labelledby="mood-dialog-label" aria-describedby="mood-dialog-description">
     <button class="mood-backdrop" type="button" data-mood-close aria-label="Abendmodus schließen"></button>
     <section class="mood-panel">
       <header class="mood-head">
-        <div class="mood-brand"><span aria-hidden="true">R</span><strong>ABENDMODUS</strong></div>
+        <div class="mood-brand">
+          <span class="mood-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong id="mood-dialog-label">ROYAL ABENDREGIE</strong><small id="mood-dialog-description">Ein Programm für genau jetzt</small></span>
+        </div>
+        <div class="mood-progress-shell">
+          <ol id="mood-journey" class="mood-journey" aria-label="Schritte im Abendmodus"></ol>
+          <div class="mood-progress" aria-hidden="true"><span id="mood-progress-bar"></span></div>
+        </div>
         <button id="mood-close" class="mood-close" type="button" data-mood-close aria-label="Abendmodus schließen">×</button>
       </header>
-      <div class="mood-progress" aria-hidden="true"><span id="mood-progress-bar"></span></div>
       <div class="mood-stage">
-        <aside class="mood-atmosphere" aria-hidden="true">
-          <span id="mood-stage-number">01</span>
-          <strong id="mood-stage-word">JETZT</strong>
-        </aside>
-        <div class="mood-content">
-          <span id="mood-step-label" class="mood-step-label">1 von 4</span>
-          <h2 id="mood-title">Wie soll sich der Abend anfühlen?</h2>
-          <p id="mood-copy">Nicht was du sonst schaust – was du jetzt brauchst.</p>
-          <div id="mood-options" class="mood-options" role="group"></div>
-          <div id="mood-results" class="mood-results" hidden>
-            <div id="mood-result-summary" class="mood-result-summary"></div>
+        <div class="mood-content" role="document">
+          <section id="mood-question" class="mood-question">
+            <div class="mood-question-meta">
+              <span id="mood-step-label" class="mood-step-label">FORMAT · 1 VON 3</span>
+              <span>Jede Antwort schärft den Schnitt.</span>
+            </div>
+            <h2 id="mood-title">Was soll heute laufen?</h2>
+            <p id="mood-copy">Wähle das Gefühl. Genres übersetzen wir daraus.</p>
+            <div id="mood-options" class="mood-options" role="group" aria-labelledby="mood-title"></div>
+          </section>
+
+          <section id="mood-results" class="mood-results" hidden aria-live="polite">
+            <header class="mood-results-head">
+              <div>
+                <span class="mood-step-label">DEIN SCHNITT FÜR HEUTE</span>
+                <h2 id="mood-results-title">Ein Titel bleibt im Licht.</h2>
+              </div>
+              <div id="mood-result-summary" class="mood-result-summary" aria-label="Gewählte Kriterien"></div>
+            </header>
+            <div id="mood-lead" class="mood-lead"></div>
+            <div class="mood-alternatives-head">
+              <h3>Knapp dahinter</h3>
+              <span id="mood-alternatives-copy">Andere starke Schnitte desselben Abends</span>
+            </div>
             <div id="mood-result-grid" class="mood-result-grid"></div>
-          </div>
-          <footer class="mood-actions">
-            <button id="mood-back" class="mood-back" type="button">Zurück</button>
-            <button id="mood-next" class="mood-next" type="button" disabled>Weiter <span aria-hidden="true">→</span></button>
-          </footer>
+            <div id="mood-empty" class="mood-empty" hidden></div>
+          </section>
+
+          <section id="mood-refine" class="mood-refine" hidden aria-labelledby="mood-refine-title">
+            <header>
+              <span class="mood-step-label">FEINSCHNITT · OPTIONAL</span>
+              <h2 id="mood-refine-title">Wie genau darf es werden?</h2>
+              <p>Nur die Regler öffnen, die heute wirklich zählen.</p>
+            </header>
+            <div id="mood-refine-options" class="mood-refine-options"></div>
+            <footer class="mood-refine-actions">
+              <button id="mood-refine-reset" type="button">Regler zurücksetzen</button>
+              <span id="mood-refine-count" aria-live="polite"></span>
+              <button id="mood-refine-apply" type="button">Feinschnitt anwenden <span aria-hidden="true">→</span></button>
+            </footer>
+          </section>
         </div>
+
+        <aside class="mood-atmosphere">
+          <div class="mood-focus-visual" aria-hidden="true">
+            <span class="mood-focus-beam"></span>
+            <span class="mood-focus-ring is-outer"></span>
+            <span class="mood-focus-ring is-middle"></span>
+            <span class="mood-focus-ring is-inner"></span>
+            <strong id="mood-stage-number">01</strong>
+            <small id="mood-stage-word">FORMAT</small>
+          </div>
+          <div class="mood-live">
+            <span class="mood-live-kicker">LIVE-AUSWAHL</span>
+            <strong id="mood-live-count">Katalog wird gelesen</strong>
+            <p id="mood-live-status" role="status" aria-live="polite">Mit jeder Antwort bleibt weniger Zufall und mehr Passung.</p>
+          </div>
+          <div id="mood-recipe" class="mood-recipe" aria-label="Bisherige Auswahl"></div>
+          <div id="mood-preview-stack" class="mood-preview-stack" aria-hidden="true"></div>
+        </aside>
       </div>
+      <footer class="mood-actions">
+        <button id="mood-back" class="mood-back" type="button">Zurück</button>
+        <button id="mood-quick" class="mood-quick" type="button" hidden>Direkt kuratieren</button>
+        <button id="mood-refine-toggle" class="mood-refine-toggle" type="button" hidden>Feinschnitt öffnen <span aria-hidden="true">⌁</span></button>
+        <button id="mood-next" class="mood-next" type="button" disabled>Weiter schärfen <span aria-hidden="true">→</span></button>
+      </footer>
     </section>
   </div>
 
@@ -2196,7 +2250,7 @@
 <script src="/home_rail_runtime.js?v=royal-20260824-1"></script>
 <script src="/screens/home.js?v=royal-20260825-1"></script>
 <script src="/home_layout_editor.js?v=royal-20260824-1"></script>
-<script src="/screens/mood.js?v=royal-20260805-5"></script>
+<script src="/screens/mood.js?v=royal-20260825-1"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
 <script src="/detail-hero-scroll.js?v=royal-20260824-1"></script>
@@ -2215,6 +2269,6 @@
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260824-2"></script>
+<script src="/app.js?v=royal-20260825-1"></script>
 </body>
 </html>

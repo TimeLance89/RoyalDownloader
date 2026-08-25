@@ -218,7 +218,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260824-2/);
+  assert.match(html, /app\.js\?v=royal-20260825-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -664,38 +664,39 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   assert.equal(track.replaceCount || 0, 0);
 });
 
-test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
-  requiresIds("mood-modal", "mood-options", "mood-results", "mood-back", "mood-next");
+test("evening direction is progressive, explainable, and optionally deep", () => {
+  requiresIds(
+    "mood-modal", "mood-journey", "mood-options", "mood-results", "mood-lead",
+    "mood-back", "mood-quick", "mood-refine", "mood-refine-toggle", "mood-next",
+  );
   assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);
   assert.match(html, /id="home-program-mood"[^>]*data-mood-open/);
   assert.match(app, /const MOOD_MATCH_STEPS = \[/);
-  assert.match(app, /Dunkel & brutal/);
-  assert.match(app, /Mit der Familie/);
+  assert.match(app, /Was soll heute laufen/);
+  assert.match(app, /Was soll der Titel mit dir machen/);
+  assert.match(app, /function moodMatchQuickResult\(\)/);
+  assert.match(app, /function openMoodRefinement\(\)/);
   assert.match(app, /function moodFamilyPool\(entries\)/);
-  assert.match(app, /function moodMatchResults\(answers\)/);
-  assert.match(app, /const MOOD_MATCH_RULES = \{/);
-  assert.match(app, /pool = pool\.filter\(\(entry\) => moodMatchesIntent\(entry, answers\)\)/);
-  assert.match(app, /horror:[\s\S]*?required: \["Horror", "Slasher", "Splatter"\]/);
-  assert.match(app, /fallback: \["Thriller", "Mystery", "Krimi", "Crime"\]/);
-  assert.match(app, /hardExcluded: \["Komödie", "Comedy", "Animation", "Romanze", "Musik"\]/);
-  assert.match(app, /left\.tier - right\.tier \|\| right\.score - left\.score/);
+  assert.match(app, /function moodMatchResults\(answers,/);
+  assert.match(app, /const MOOD_MATCH_RULES = MOOD_MATCH_PROFILES/);
+  assert.match(app, /function moodMatchesRefinements\(entry, refinements/);
+  assert.match(app, /Unbekannte Laufzeiten zählen bei einem Limit nicht als Treffer/);
+  assert.match(app, /Diese Kombination wird nicht mit unpassenden oder unbekannten Titeln aufgefüllt/);
   assert.match(app, /function prepareMoodCandidates\(\)/);
-  assert.match(app, /await prepareMoodCandidates\(\)/);
-  assert.match(app, /return moodIntentTier\(entry, answers\) < 3/);
-  assert.match(app, /Genres und Metadaten werden vervollständigt/);
-  assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
+  assert.match(app, /await Promise\.race\(\[prepareMoodCandidates\(\), timeout\]\)/);
+  assert.match(app, /return moodIntentTier\(entry, answers\) < 2/);
+  assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
   assert.match(html, /core\.js\?v=royal-20260825-1/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
-  assert.match(app, /source: "mood-session"/);
-  assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260825-1/);
+  assert.doesNotMatch(mood, /source: "mood-session"/);
 });
 
-test("mood recommendations remain useful without admitting contradictory filler", () => {
+test("evening recommendations keep hard constraints and unknown metadata out", () => {
   const entries = [
-    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"] } },
-    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"] } },
+    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"], runtime: "82 min", year: "2024" } },
+    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"], runtime: "112 min", year: "2015" } },
     { kind: "movie", item: { slug: "unknown", title: "Unknown", genres: [] } },
     { kind: "movie", item: { slug: "comedy", title: "Horror Comedy", genres: ["Horror", "Komödie"] } },
     { kind: "movie", item: { slug: "family", title: "Family Adventure", genres: ["Animation", "Abenteuer"] } },
@@ -713,13 +714,24 @@ test("mood recommendations remain useful without admitting contradictory filler"
     localDateKey: () => "2026-08-05",
   });
   vm.runInContext(mood, context);
+  context.entries = entries;
   const results = vm.runInContext(`moodMatchResults({
-    mood: "horror", company: "alone", intensity: "hard", format: "movie"
+    mood: "shadow", company: "alone", format: "movie"
   })`, context);
   assert.deepEqual(
     Array.from(results, (entry) => entry.item.title),
-    ["Slasher", "Dark Thriller", "Unknown"],
+    ["Slasher", "Dark Thriller"],
   );
+
+  const short = vm.runInContext(`moodMatchResults(
+    { mood: "open", company: "alone", format: "movie" },
+    { ...createMoodRefinements(), duration: "90" }
+  )`, context);
+  assert.deepEqual(Array.from(short, (entry) => entry.item.title), ["Slasher"]);
+
+  const family = vm.runInContext("moodFamilyPool(entries)", context);
+  assert.deepEqual(Array.from(family, (entry) => entry.item.title), ["Family Adventure"]);
+  assert.equal(vm.runInContext('moodHasGenre(new Set(["Drama"]), "a")', context), false);
 });
 
 test("feature modules load in dependency order before bootstrap", () => {

@@ -13,7 +13,11 @@ function createInitialState() {
       layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
       railScrollPositions: {}, railScrollTargets: {},
       jellyfinStatusByKey: new Map(),
-      mood: { step: 0, answers: {}, results: [], open: false },
+      mood: {
+        step: 0, answers: {}, inferred: [], refinements: null, draftRefinements: null,
+        results: [], analysis: [], dismissed: [], open: false, view: "question",
+        returnAfterDetail: false, requestId: 0,
+      },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
     fp: {
