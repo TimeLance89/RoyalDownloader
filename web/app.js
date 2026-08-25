@@ -46,6 +46,10 @@ async function initApp() {
     button.addEventListener("click", () => closeMoodMatch());
   });
   document.getElementById("mood-back").addEventListener("click", moodMatchBack);
+  document.getElementById("mood-quick").addEventListener("click", moodMatchQuickResult);
+  document.getElementById("mood-refine-toggle").addEventListener("click", openMoodRefinement);
+  document.getElementById("mood-refine-reset").addEventListener("click", resetMoodRefinement);
+  document.getElementById("mood-refine-apply").addEventListener("click", () => closeMoodRefinement(true));
   document.getElementById("mood-next").addEventListener("click", moodMatchNext);
   document.getElementById("mood-modal").addEventListener("keydown", handleMoodMatchKeydown);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
