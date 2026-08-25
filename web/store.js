@@ -16,7 +16,7 @@ function createInitialState() {
       mood: {
         step: 0, answers: {}, inferred: [], refinements: null, draftRefinements: null,
         results: [], analysis: [], dismissed: [], open: false, view: "question",
-        returnAfterDetail: false, requestId: 0,
+        returnAfterDetail: false, requestId: 0, genreOpen: false,
       },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },

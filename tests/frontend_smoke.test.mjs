@@ -66,7 +66,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260825-1/);
+  assert.match(html, /style\.css\?v=royal-20260825-2/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -218,7 +218,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260825-1/);
+  assert.match(html, /app\.js\?v=royal-20260825-2/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -668,12 +668,17 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   requiresIds(
     "mood-modal", "mood-journey", "mood-options", "mood-results", "mood-lead",
     "mood-back", "mood-quick", "mood-refine", "mood-refine-toggle", "mood-next",
+    "mood-genre-compass", "mood-genre-toggle", "mood-genre-panel", "mood-genre-options",
   );
   assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);
   assert.match(html, /id="home-program-mood"[^>]*data-mood-open/);
   assert.match(app, /const MOOD_MATCH_STEPS = \[/);
   assert.match(app, /Was soll heute laufen/);
   assert.match(app, /Was soll der Titel mit dir machen/);
+  assert.match(app, /const MOOD_GENRE_COMPASS = \[/);
+  assert.match(app, /function toggleMoodGenreCompass\(\)/);
+  assert.match(app, /function moodMatchesGenreFocus\(entry, answers/);
+  assert.match(html, /Bis zu zwei Genres[^<]*muss jeder Treffer beide tragen/);
   assert.match(app, /function moodMatchQuickResult\(\)/);
   assert.match(app, /function openMoodRefinement\(\)/);
   assert.match(app, /function moodFamilyPool\(entries\)/);
@@ -689,7 +694,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
   assert.match(html, /core\.js\?v=royal-20260825-1/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260825-1/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
 
@@ -700,6 +705,8 @@ test("evening recommendations keep hard constraints and unknown metadata out", (
     { kind: "movie", item: { slug: "unknown", title: "Unknown", genres: [] } },
     { kind: "movie", item: { slug: "comedy", title: "Horror Comedy", genres: ["Horror", "Komödie"] } },
     { kind: "movie", item: { slug: "family", title: "Family Adventure", genres: ["Animation", "Abenteuer"] } },
+    { kind: "movie", item: { slug: "documentary", title: "True Story", genres: ["Dokumentation"], runtime: 88 } },
+    { kind: "movie", item: { slug: "western", title: "Open Range", genres: ["Western"], runtime: 120 } },
   ];
   const context = vm.createContext({
     console,
@@ -727,11 +734,22 @@ test("evening recommendations keep hard constraints and unknown metadata out", (
     { mood: "open", company: "alone", format: "movie" },
     { ...createMoodRefinements(), duration: "90" }
   )`, context);
-  assert.deepEqual(Array.from(short, (entry) => entry.item.title), ["Slasher"]);
+  assert.deepEqual(Array.from(short, (entry) => entry.item.title), ["Slasher", "True Story"]);
 
   const family = vm.runInContext("moodFamilyPool(entries)", context);
   assert.deepEqual(Array.from(family, (entry) => entry.item.title), ["Family Adventure"]);
   assert.equal(vm.runInContext('moodHasGenre(new Set(["Drama"]), "a")', context), false);
+
+  const genreBlend = vm.runInContext(`moodMatchResults({
+    mood: "laugh", company: "alone", format: "movie", genres: ["Horror", "Komödie"]
+  })`, context);
+  assert.deepEqual(Array.from(genreBlend, (entry) => entry.item.title), ["Horror Comedy"]);
+  const documentary = vm.runInContext(`moodMatchResults({
+    mood: "real", company: "alone", format: "movie", genres: ["Dokumentation"]
+  })`, context);
+  assert.deepEqual(Array.from(documentary, (entry) => entry.item.title), ["True Story"]);
+  assert.equal(vm.runInContext("MOOD_GENRE_COMPASS.length", context), 24);
+  assert.equal(vm.runInContext('moodHasGenre(normalizedMoodGenres({ genres: ["Sci-Fi & Fantasy"] }), "Fantasy")', context), true);
 });
 
 test("feature modules load in dependency order before bootstrap", () => {
@@ -867,7 +885,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260825-1/);
+  assert.match(html, /style\.css\?v=royal-20260825-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

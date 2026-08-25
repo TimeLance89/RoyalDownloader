@@ -11,7 +11,7 @@ const MOOD_MATCH_STEPS = [
   },
   {
     key: "mood", word: "WIRKUNG", title: "Was soll der Titel mit dir machen?",
-    copy: "Keine Genreprüfung. Wähle die Wirkung, die nach dem Abspann bleiben soll.",
+    copy: "Wähle eine Wirkung – oder lass nur den Genre-Kompass entscheiden. Dort kannst du bis in jedes Genre hinein schärfen.",
     options: [
       { value: "pulse", icon: "↗", title: "Mich fesseln", copy: "Druck, Tempo und keine Leerlaufminute" },
       { value: "shadow", icon: "◐", title: "Dunkel abtauchen", copy: "Unbehagen, Rätsel und Gänsehaut" },
@@ -19,6 +19,9 @@ const MOOD_MATCH_STEPS = [
       { value: "wonder", icon: "✦", title: "Mich staunen lassen", copy: "Große Welten und starke Bilder" },
       { value: "heart", icon: "♥", title: "Mich berühren", copy: "Nähe, Gefühl und Figuren, die bleiben" },
       { value: "comfort", icon: "≈", title: "Mich runterbringen", copy: "Warm, zugänglich und ohne schwere Kante" },
+      { value: "real", icon: "◎", title: "Wirklichkeit sehen", copy: "Dokumentarisch, historisch und nah an echten Welten" },
+      { value: "raw", icon: "◆", title: "Kante spüren", copy: "Konflikt, Moral und Geschichten mit rauer Oberfläche" },
+      { value: "rhythm", icon: "♫", title: "Im Rhythmus bleiben", copy: "Musik, Bewegung und Bilder mit eigenem Puls" },
     ],
   },
   {
@@ -73,10 +76,28 @@ const MOOD_MATCH_PROFILES = {
     excluded: ["Horror", "Thriller", "Krimi", "Krieg"],
     weights: { Komödie: 14, Familie: 12, Animation: 10, Romanze: 8, Abenteuer: 4 },
   },
+  real: {
+    title: "Die Wirklichkeit schreibt den stärksten Schnitt.",
+    direct: ["Dokumentation", "Geschichte"], related: ["Drama", "Musik", "Krieg"],
+    excluded: ["Fantasy", "Horror"],
+    weights: { Dokumentation: 18, Geschichte: 14, Drama: 7, Musik: 4, Krieg: 3 },
+  },
+  raw: {
+    title: "Ein Abend mit Ecken und Nachhall.",
+    direct: ["Krimi", "Krieg", "Western"], related: ["Drama", "Thriller", "Action", "Geschichte"],
+    excluded: ["Familie", "Kinder"],
+    weights: { Krimi: 15, Krieg: 14, Western: 14, Drama: 8, Thriller: 6, Action: 4 },
+  },
+  rhythm: {
+    title: "Dieser Abend bewegt sich im eigenen Takt.",
+    direct: ["Musik"], related: ["Animation", "Komödie", "Romanze", "Drama", "Dokumentation"],
+    excluded: ["Horror", "Krieg"],
+    weights: { Musik: 18, Animation: 8, Komödie: 6, Romanze: 5, Drama: 4, Dokumentation: 3 },
+  },
 };
 
 const MOOD_MATCH_RULES = MOOD_MATCH_PROFILES;
-const MOOD_DEFAULT_ANSWERS = { format: "any", mood: "open", company: "alone" };
+const MOOD_DEFAULT_ANSWERS = { format: "any", mood: "open", company: "alone", genres: [] };
 const MOOD_REFINEMENT_GROUPS = [
   {
     key: "duration", title: "Zeitfenster", copy: "Unbekannte Laufzeiten zählen bei einem Limit nicht als Treffer.",
@@ -125,6 +146,20 @@ const MOOD_REFINEMENT_GROUPS = [
 const MOOD_AVOID_GENRES = [
   "Horror", "Thriller", "Action", "Krimi", "Drama", "Romanze", "Komödie", "Animation", "Dokumentation",
 ];
+const MOOD_GENRE_COMPASS = [
+  { name: "Action", code: "ACT" }, { name: "Abenteuer", code: "ADV" },
+  { name: "Animation", code: "ANI" }, { name: "Dokumentation", code: "DOC" },
+  { name: "Drama", code: "DRA" }, { name: "Familie", code: "FAM" },
+  { name: "Fantasy", code: "FAN" }, { name: "Geschichte", code: "HIS" },
+  { name: "Horror", code: "HOR" }, { name: "Kinder", code: "KID" },
+  { name: "Komödie", code: "COM" }, { name: "Krimi", code: "CRI" },
+  { name: "Krieg", code: "WAR" }, { name: "Musik", code: "MUS" },
+  { name: "Mystery", code: "MYS" }, { name: "Nachrichten", code: "NEW" },
+  { name: "Reality", code: "REA" }, { name: "Romanze", code: "ROM" },
+  { name: "Science-Fiction", code: "SCI" }, { name: "Soap", code: "SOA" },
+  { name: "Talk", code: "TLK" }, { name: "Thriller", code: "THR" },
+  { name: "TV-Film", code: "TV" }, { name: "Western", code: "WES" },
+];
 const MOOD_GENRE_ALIASES = {
   action: "Action", adventure: "Abenteuer", abenteuer: "Abenteuer", animation: "Animation",
   comedy: "Komödie", komödie: "Komödie", crime: "Krimi", krimi: "Krimi",
@@ -132,8 +167,10 @@ const MOOD_GENRE_ALIASES = {
   drama: "Drama", family: "Familie", familie: "Familie", kids: "Kinder", kinder: "Kinder",
   fantasy: "Fantasy", history: "Geschichte", geschichte: "Geschichte", horror: "Horror",
   music: "Musik", musik: "Musik", mystery: "Mystery", romance: "Romanze", romanze: "Romanze",
+  news: "Nachrichten", nachrichten: "Nachrichten", reality: "Reality", soap: "Soap", talk: "Talk",
   "science fiction": "Science-Fiction", "science-fiction": "Science-Fiction", "sci-fi": "Science-Fiction",
-  thriller: "Thriller", war: "Krieg", krieg: "Krieg", western: "Western",
+  thriller: "Thriller", "tv movie": "TV-Film", "tv-film": "TV-Film",
+  war: "Krieg", krieg: "Krieg", western: "Western",
 };
 
 let moodMatchReturnFocus = null;
@@ -150,7 +187,7 @@ function createMoodState() {
   return {
     step: 0, answers: {}, inferred: [], refinements: createMoodRefinements(),
     draftRefinements: null, results: [], analysis: [], dismissed: [], open: true,
-    view: "question", returnAfterDetail: false, requestId: 0,
+    view: "question", returnAfterDetail: false, requestId: 0, genreOpen: false,
   };
 }
 
@@ -164,7 +201,13 @@ function normalizedMoodGenres(media) {
     .flatMap((value) => Array.isArray(value) ? value : (value ? String(value).split(/[,;/|]/) : []));
   return new Set(rawGenres
     .map((genre) => typeof genre === "object" ? (genre.name || genre.title || "") : genre)
-    .map(canonicalMoodGenre).filter(Boolean));
+    .flatMap((genre) => {
+      const clean = String(genre || "").trim().toLocaleLowerCase("de-DE");
+      if (clean === "action & adventure") return ["Action", "Abenteuer"];
+      if (clean === "sci-fi & fantasy") return ["Science-Fiction", "Fantasy"];
+      if (clean === "war & politics") return ["Krieg", "Geschichte"];
+      return [canonicalMoodGenre(genre)];
+    }).filter(Boolean));
 }
 
 function moodHasGenre(genres, name) {
@@ -201,7 +244,22 @@ function moodLibraryStatus(entry) {
 }
 
 function moodEffectiveAnswers(answers = {}) {
-  return { ...MOOD_DEFAULT_ANSWERS, ...answers };
+  return {
+    ...MOOD_DEFAULT_ANSWERS,
+    ...answers,
+    genres: Array.isArray(answers.genres) ? answers.genres.map(canonicalMoodGenre).filter(Boolean).slice(0, 2) : [],
+  };
+}
+
+function moodFocusedGenres(answers = {}) {
+  return moodEffectiveAnswers(answers).genres;
+}
+
+function moodMatchesGenreFocus(entry, answers = {}) {
+  const focused = moodFocusedGenres(answers);
+  if (!focused.length) return true;
+  const genres = normalizedMoodGenres(homeEntryMedia(entry));
+  return focused.every((genre) => moodHasGenre(genres, genre));
 }
 
 function moodFamilyPool(entries) {
@@ -219,9 +277,12 @@ function moodIntentTier(entry, answers) {
   if (effective.mood === "open") return 0;
   const genres = normalizedMoodGenres(homeEntryMedia(entry));
   const rules = MOOD_MATCH_RULES[effective.mood];
-  if (!rules || !genres.size || moodHasAnyGenre(genres, rules.excluded)) return 3;
+  const focused = new Set(effective.genres);
+  const hardExclusions = (rules?.excluded || []).filter((genre) => !focused.has(canonicalMoodGenre(genre)));
+  if (!rules || !genres.size || moodHasAnyGenre(genres, hardExclusions)) return 3;
   if (moodHasAnyGenre(genres, rules.direct)) return 0;
   if (moodHasAnyGenre(genres, rules.related)) return 1;
+  if (focused.size) return 1;
   return 2;
 }
 
@@ -296,6 +357,9 @@ function moodMatchScore(entry, answers, profile = loadDiscoveryProfile(), refine
       if (moodHasGenre(genres, genre)) score += weight;
     });
   }
+  effective.genres.forEach((genre) => {
+    if (moodHasGenre(genres, genre)) score += 18;
+  });
   score += moodCompanyScore(genres, effective.company);
   score += moodTempoScore(genres, refinements.tempo);
   score += moodDiscoveryScore(media, refinements.discovery, homeEntryKey(entry));
@@ -323,6 +387,7 @@ function moodBasePool(answers, refinements = createMoodRefinements()) {
   if (effective.format === "movie") entries = entries.filter((entry) => entry.kind === "movie");
   if (effective.format === "series") entries = entries.filter((entry) => entry.kind === "series");
   if (effective.company === "family") entries = moodFamilyPool(entries);
+  if (effective.genres.length) entries = entries.filter((entry) => moodMatchesGenreFocus(entry, effective));
   entries = entries.filter((entry) => moodMatchesRefinements(entry, refinements));
   if (effective.mood !== "open") entries = entries.filter((entry) => moodMatchesIntent(entry, effective));
   return entries;
@@ -420,6 +485,95 @@ function renderMoodJourney() {
   });
 }
 
+function renderMoodGenreCompass() {
+  const moodState = state.home.mood;
+  const compass = document.getElementById("mood-genre-compass");
+  const isMoodStep = moodState.view === "question" && MOOD_MATCH_STEPS[moodState.step]?.key === "mood";
+  compass.hidden = !isMoodStep;
+  if (!isMoodStep) return;
+
+  const selected = moodFocusedGenres(moodState.answers);
+  moodState.answers.genres = [...selected];
+  if (selected.length) moodState.genreOpen = true;
+  const toggle = document.getElementById("mood-genre-toggle");
+  const panel = document.getElementById("mood-genre-panel");
+  toggle.setAttribute("aria-expanded", String(Boolean(moodState.genreOpen)));
+  toggle.querySelector("i").textContent = moodState.genreOpen ? "−" : "＋";
+  panel.hidden = !moodState.genreOpen;
+  moodSetText("mood-genre-toggle-meta", selected.length
+    ? selected.join(" + ") : (moodState.genreOpen ? "Bis zu zwei auswählen" : "Alle 24 Genres öffnen"));
+  if (!moodState.genreOpen) return;
+
+  const options = document.getElementById("mood-genre-options");
+  options.replaceChildren(...MOOD_GENRE_COMPASS.map(({ name, code }) => {
+    const active = selected.includes(name);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mood-genre-choice";
+    button.dataset.value = name;
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = selected.length >= 2 && !active;
+    const marker = document.createElement("small");
+    marker.textContent = code;
+    marker.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = name;
+    button.append(marker, label);
+    button.addEventListener("click", () => selectMoodGenre(name));
+    return button;
+  }));
+  const count = moodBasePool(moodEffectiveAnswers(moodState.answers), moodState.refinements).length;
+  const selectionCopy = selected.length
+    ? `${selected.join(" + ")} · ${count} ${count === 1 ? "Treffer trägt" : "Treffer tragen"} ${selected.length === 2 ? "beide Genres" : "diesen Fokus"}`
+    : "Kein Genre festgelegt. Die Wirkung führt den Schnitt.";
+  moodSetText("mood-genre-status", selectionCopy);
+  document.getElementById("mood-genre-clear").disabled = !selected.length;
+}
+
+function toggleMoodGenreCompass() {
+  state.home.mood.genreOpen = !state.home.mood.genreOpen;
+  renderMoodGenreCompass();
+  if (state.home.mood.genreOpen) {
+    requestAnimationFrame(() => document.querySelector("#mood-genre-options button:not([disabled])")?.focus());
+  }
+}
+
+function selectMoodGenre(genre) {
+  const moodState = state.home.mood;
+  const selected = new Set(moodFocusedGenres(moodState.answers));
+  if (selected.has(genre)) selected.delete(genre);
+  else if (selected.size < 2) selected.add(genre);
+  moodState.answers.genres = [...selected];
+  if (selected.size && !moodState.answers.mood) {
+    moodState.answers.mood = "open";
+    if (!moodState.inferred.includes("mood")) moodState.inferred.push("mood");
+  }
+  if (!selected.size && moodState.answers.mood === "open" && moodState.inferred.includes("mood")) {
+    delete moodState.answers.mood;
+    moodState.inferred = moodState.inferred.filter((key) => key !== "mood");
+  }
+  moodState.dismissed = [];
+  renderMoodGenreCompass();
+  renderMoodLive();
+  document.getElementById("mood-next").disabled = !moodState.answers.mood;
+  requestAnimationFrame(() => document.querySelector(
+    `#mood-genre-options button[data-value="${CSS.escape(genre)}"]`,
+  )?.focus());
+}
+
+function clearMoodGenreFocus() {
+  state.home.mood.answers.genres = [];
+  if (state.home.mood.answers.mood === "open" && state.home.mood.inferred.includes("mood")) {
+    delete state.home.mood.answers.mood;
+    state.home.mood.inferred = state.home.mood.inferred.filter((key) => key !== "mood");
+  }
+  state.home.mood.dismissed = [];
+  renderMoodGenreCompass();
+  renderMoodLive();
+  document.getElementById("mood-next").disabled = !state.home.mood.answers.mood;
+  requestAnimationFrame(() => document.getElementById("mood-genre-toggle")?.focus());
+}
+
 function moodArtworkCandidates(entry, portrait = false) {
   const media = homeEntryMedia(entry);
   const raw = portrait ? [media.cover_url, media.backdrop_url] : [media.backdrop_url, media.cover_url];
@@ -473,6 +627,13 @@ function renderMoodLive() {
     button.addEventListener("click", () => jumpMoodStep(index));
     recipe.appendChild(button);
   });
+  if (effective.genres.length) {
+    const genreButton = document.createElement("button");
+    genreButton.type = "button";
+    genreButton.textContent = effective.genres.join(" + ");
+    genreButton.addEventListener("click", () => jumpMoodStep(1));
+    recipe.appendChild(genreButton);
+  }
 
   const preview = document.getElementById("mood-preview-stack");
   preview.replaceChildren();
@@ -540,6 +701,7 @@ function renderMoodQuestion() {
   document.getElementById("mood-progress-bar").style.width = `${((moodState.step + 1) / MOOD_MATCH_STEPS.length) * 100}%`;
   const options = document.getElementById("mood-options");
   options.replaceChildren(...step.options.map((option, index) => renderMoodOption(step, option, index)));
+  renderMoodGenreCompass();
   const selected = Boolean(moodState.answers[step.key]);
   const back = document.getElementById("mood-back");
   back.hidden = moodState.step === 0;
@@ -565,6 +727,7 @@ function moodReasons(analysis, answers, refinements) {
   const media = homeEntryMedia(analysis.entry);
   const genres = normalizedMoodGenres(media);
   const reasons = [];
+  if (effective.genres.length) reasons.push(`Genre-Fokus · ${effective.genres.join(" + ")}`);
   if (effective.mood !== "open") {
     const profile = MOOD_MATCH_PROFILES[effective.mood];
     const matched = [...profile.direct, ...profile.related].find((genre) => moodHasGenre(genres, genre));
@@ -696,6 +859,18 @@ function moodRelaxationSuggestion(answers, refinements) {
     const count = moodBasePool(answers, relaxed).length;
     if (count) return { key: "avoid", value: [], label: `No-Gos öffnen · ${count} Treffer` };
   }
+  const focused = moodFocusedGenres(answers);
+  if (focused.length) {
+    const reduced = focused.length > 1 ? focused.slice(0, 1) : [];
+    const relaxedAnswers = { ...answers, genres: reduced };
+    const count = moodBasePool(relaxedAnswers, refinements).length;
+    if (count) {
+      return {
+        target: "answer", key: "genres", value: reduced,
+        label: reduced.length ? `Nur ${reduced[0]} fokussieren · ${count} Treffer` : `Genre-Fokus lösen · ${count} Treffer`,
+      };
+    }
+  }
   if (answers.mood !== "open") {
     const relaxedAnswers = { ...answers, mood: "open" };
     const count = moodBasePool(relaxedAnswers, refinements).length;
@@ -726,7 +901,8 @@ function renderMoodEmpty() {
     if (suggestion) {
       if (suggestion.target === "answer") {
         moodState.answers[suggestion.key] = suggestion.value;
-        if (!moodState.inferred.includes(suggestion.key)) moodState.inferred.push(suggestion.key);
+        if (MOOD_MATCH_STEPS.some((step) => step.key === suggestion.key)
+            && !moodState.inferred.includes(suggestion.key)) moodState.inferred.push(suggestion.key);
       } else {
         moodState.refinements[suggestion.key] = suggestion.value;
       }
@@ -751,6 +927,14 @@ function renderMoodResultSummary() {
     button.addEventListener("click", () => jumpMoodStep(index));
     summary.appendChild(button);
   });
+  const genres = moodFocusedGenres(moodState.answers);
+  if (genres.length) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Genre · ${genres.join(" + ")}`;
+    button.addEventListener("click", () => jumpMoodStep(1));
+    summary.appendChild(button);
+  }
 }
 
 function renderMoodMatchResults({ focus = false } = {}) {

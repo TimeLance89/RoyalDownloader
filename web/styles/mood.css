@@ -323,6 +323,8 @@ body.mood-open { overflow: hidden; }
 .mood-empty[hidden],
 .mood-quick[hidden],
 .mood-refine-toggle[hidden] { display: none !important; }
+.mood-genre-compass[hidden],
+.mood-genre-panel[hidden] { display: none !important; }
 
 .mood-question-meta {
   display: flex;
@@ -376,6 +378,14 @@ body.mood-open { overflow: hidden; }
 }
 
 .mood-modal[data-step="company"] .mood-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mood-modal[data-step="mood"] .mood-content { padding-block: 24px; }
+.mood-modal[data-step="mood"] .mood-question { justify-content: flex-start; }
+.mood-modal[data-step="mood"] .mood-question h2 { margin-block: 9px 7px; font-size: clamp(38px, 3.8vw, 56px); }
+.mood-modal[data-step="mood"] .mood-question > p { font-size: clamp(12px, .9vw, 14px); line-height: 1.42; }
+.mood-modal[data-step="mood"] .mood-options { gap: 7px; margin-top: 16px; }
+.mood-modal[data-step="mood"] .mood-option { min-height: 70px; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 11px 12px 9px; }
+.mood-modal[data-step="mood"] .mood-option-icon { font-size: 19px; }
+.mood-modal[data-step="mood"] .mood-option small { margin-top: 4px; font-size: 9px; line-height: 1.25; }
 
 .mood-option {
   position: relative;
@@ -428,6 +438,90 @@ body.mood-open { overflow: hidden; }
 }
 
 .mood-option:focus-visible { outline: 2px solid var(--mood-accent); outline-offset: 2px; }
+
+.mood-genre-compass {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 3px;
+  background: linear-gradient(110deg, rgba(var(--mood-accent-rgb), .055), rgba(255, 255, 255, .018) 46%);
+}
+
+.mood-genre-toggle {
+  display: grid;
+  width: 100%;
+  min-height: 56px;
+  grid-template-columns: minmax(150px, 1fr) auto 24px;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 14px;
+  color: var(--mood-paper);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mood-genre-toggle > span:first-child { display: grid; gap: 4px; }
+.mood-genre-toggle small { color: var(--mood-accent); font: 700 7px/1 "JetBrains Mono", monospace; letter-spacing: .14em; }
+.mood-genre-toggle strong { font: 750 20px/1 "Barlow Condensed", "Archivo", sans-serif; letter-spacing: .01em; }
+.mood-genre-toggle > span:nth-child(2) { color: rgba(244, 240, 232, .5); font: 600 9px/1.2 "DM Sans", sans-serif; text-align: right; }
+.mood-genre-toggle i { color: var(--mood-accent); font: 300 22px/1 "DM Sans", sans-serif; font-style: normal; text-align: center; }
+.mood-genre-toggle:hover { background: rgba(255, 255, 255, .035); }
+.mood-genre-toggle:focus-visible { outline: 2px solid var(--mood-accent); outline-offset: 2px; }
+
+.mood-genre-panel {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, .09);
+  animation: mood-cut-in .24s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.mood-genre-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 13px;
+}
+
+.mood-genre-panel > header p,
+.mood-genre-status { margin: 0; color: rgba(244, 240, 232, .48); font: 500 9px/1.45 "DM Sans", sans-serif; }
+.mood-genre-panel > header button {
+  padding: 0;
+  color: rgba(244, 240, 232, .64);
+  background: transparent;
+  border: 0;
+  font: 700 8px/1 "JetBrains Mono", monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mood-genre-panel > header button:disabled { opacity: .28; cursor: default; }
+.mood-genre-panel > header button:focus-visible { outline: 2px solid var(--mood-accent); outline-offset: 4px; }
+
+.mood-genre-options { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.mood-genre-choice {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  color: rgba(244, 240, 232, .72);
+  background: rgba(255, 255, 255, .025);
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 2px;
+  text-align: left;
+  cursor: pointer;
+}
+.mood-genre-choice small { color: rgba(var(--mood-accent-rgb), .72); font: 700 7px/1 "JetBrains Mono", monospace; letter-spacing: .06em; }
+.mood-genre-choice span { overflow: visible; font: 650 9px/1.1 "DM Sans", sans-serif; white-space: normal; }
+.mood-genre-choice:hover:not(:disabled),
+.mood-genre-choice:focus-visible { color: #fff; border-color: rgba(var(--mood-accent-rgb), .65); }
+.mood-genre-choice:focus-visible { outline: 2px solid var(--mood-accent); outline-offset: 2px; }
+.mood-genre-choice[aria-pressed="true"] { color: var(--mood-ink); background: var(--mood-accent); border-color: var(--mood-accent); }
+.mood-genre-choice[aria-pressed="true"] small { color: rgba(5, 7, 11, .62); }
+.mood-genre-choice:disabled { opacity: .24; cursor: not-allowed; }
+.mood-genre-status { min-height: 13px; margin-top: 11px; color: rgba(244, 240, 232, .62); }
 
 .mood-option[aria-pressed="true"] {
   background:
@@ -905,6 +999,7 @@ body.mood-open { overflow: hidden; }
   .mood-modal[data-step="format"] .mood-options,
   .mood-modal[data-step="energy"] .mood-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mood-result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mood-genre-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mood-lead-copy { width: min(68%, 600px); }
 }
 
@@ -945,6 +1040,14 @@ body.mood-open { overflow: hidden; }
   .mood-modal[data-step="format"] .mood-options,
   .mood-modal[data-step="company"] .mood-options,
   .mood-modal[data-step="energy"] .mood-options { grid-template-columns: 1fr; gap: 7px; margin-top: 23px; }
+  .mood-modal[data-step="mood"] .mood-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .mood-modal[data-step="mood"] .mood-option { min-height: 92px; grid-template-columns: 27px minmax(0, 1fr); padding: 12px; }
+  .mood-modal[data-step="mood"] .mood-option-icon { font-size: 14px; }
+  .mood-modal[data-step="mood"] .mood-option small { font-size: 9px; }
+  .mood-genre-toggle { grid-template-columns: 1fr 24px; }
+  .mood-genre-toggle > span:nth-child(2) { display: none; }
+  .mood-genre-panel > header { align-items: flex-start; }
+  .mood-genre-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mood-option { min-height: 79px; grid-template-columns: 33px minmax(0, 1fr); padding: 14px; }
   .mood-option small { margin-top: 5px; }
   .mood-actions { min-height: 70px; padding-inline: 12px; }

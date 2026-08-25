@@ -50,6 +50,8 @@ async function initApp() {
   document.getElementById("mood-refine-toggle").addEventListener("click", openMoodRefinement);
   document.getElementById("mood-refine-reset").addEventListener("click", resetMoodRefinement);
   document.getElementById("mood-refine-apply").addEventListener("click", () => closeMoodRefinement(true));
+  document.getElementById("mood-genre-toggle").addEventListener("click", toggleMoodGenreCompass);
+  document.getElementById("mood-genre-clear").addEventListener("click", clearMoodGenreFocus);
   document.getElementById("mood-next").addEventListener("click", moodMatchNext);
   document.getElementById("mood-modal").addEventListener("keydown", handleMoodMatchKeydown);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
