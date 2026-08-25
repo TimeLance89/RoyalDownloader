@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260825-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260825-2">
 </head>
 <body>
 <div class="bg-decor" aria-hidden="true">
@@ -126,6 +126,21 @@
             <h2 id="mood-title">Was soll heute laufen?</h2>
             <p id="mood-copy">Wähle das Gefühl. Genres übersetzen wir daraus.</p>
             <div id="mood-options" class="mood-options" role="group" aria-labelledby="mood-title"></div>
+            <section id="mood-genre-compass" class="mood-genre-compass" hidden aria-labelledby="mood-genre-title">
+              <button id="mood-genre-toggle" class="mood-genre-toggle" type="button" aria-expanded="false" aria-controls="mood-genre-panel">
+                <span><small>OPTIONALE TIEFE</small><strong id="mood-genre-title">Genre-Kompass</strong></span>
+                <span id="mood-genre-toggle-meta">Alle Genres öffnen</span>
+                <i aria-hidden="true">＋</i>
+              </button>
+              <div id="mood-genre-panel" class="mood-genre-panel" hidden>
+                <header>
+                  <p>Bis zu zwei Genres. Wählst du zwei, muss jeder Treffer beide tragen.</p>
+                  <button id="mood-genre-clear" type="button">Fokus lösen</button>
+                </header>
+                <div id="mood-genre-options" class="mood-genre-options" role="group" aria-label="Genre-Fokus"></div>
+                <p id="mood-genre-status" class="mood-genre-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
           </section>
 
           <section id="mood-results" class="mood-results" hidden aria-live="polite">
@@ -2243,14 +2258,14 @@
 
 <script src="/api.js?v=royal-20260825-2"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
-<script src="/store.js?v=royal-20260825-1"></script>
+<script src="/store.js?v=royal-20260825-2"></script>
 <script src="/screens/login.js?v=royal-20260801-1"></script>
 <script src="/core.js?v=royal-20260825-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
 <script src="/home_rail_runtime.js?v=royal-20260824-1"></script>
 <script src="/screens/home.js?v=royal-20260825-1"></script>
 <script src="/home_layout_editor.js?v=royal-20260824-1"></script>
-<script src="/screens/mood.js?v=royal-20260825-1"></script>
+<script src="/screens/mood.js?v=royal-20260825-2"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260811-1"></script>
 <script src="/detail-hero-scroll.js?v=royal-20260824-1"></script>
@@ -2269,6 +2284,6 @@
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260825-1"></script>
+<script src="/app.js?v=royal-20260825-2"></script>
 </body>
 </html>
