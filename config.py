@@ -49,6 +49,36 @@ def _is_season_zero_slug(slug: str) -> bool:
     return bool(parsed and parsed[1] <= 0)
 
 
+def _normalize_download_notifications(value) -> List[dict]:
+    by_slug = {}
+    for notification in value if isinstance(value, list) else []:
+        if not isinstance(notification, dict):
+            continue
+        slug = str(notification.get("slug") or "")
+        parsed = parse_episode_slug(slug)
+        if not parsed or parsed[1] <= 0:
+            continue
+        try:
+            downloaded_at = max(0.0, float(notification.get("downloaded_at") or 0))
+        except (TypeError, ValueError):
+            downloaded_at = 0.0
+        normalized = {
+            "slug": slug,
+            "season": parsed[1],
+            "episode": parsed[2],
+            "downloaded_at": downloaded_at,
+            "read": bool(notification.get("read")),
+        }
+        previous = by_slug.get(slug)
+        if previous is None or downloaded_at > previous["downloaded_at"]:
+            by_slug[slug] = normalized
+    return sorted(
+        by_slug.values(),
+        key=lambda notification: notification["downloaded_at"],
+        reverse=True,
+    )[:20]
+
+
 def _env_positive_int(name: str, default: int) -> int:
     try:
         return max(1, int(os.environ.get(name, str(default))))
@@ -1107,6 +1137,9 @@ def load_watchlist() -> List[dict]:
                 for slug, failure in (failures.items() if isinstance(failures, dict) else [])
                 if not _is_season_zero_slug(slug)
             }
+            entry["downloaded_episode_notifications"] = _normalize_download_notifications(
+                entry.get("downloaded_episode_notifications")
+            )
             counts = entry.get("season_episode_counts")
             entry["season_episode_counts"] = {
                 str(season): count

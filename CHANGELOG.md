@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Erfolgreich automatisch geladene Episoden abonnierter Serien erscheinen
+  dauerhaft mit Staffel/Folge im Medienregal und als ungelesener Hinweis in
+  der Notificationbox; beim Öffnen der Serienmeldung wird sie quittiert.
 - Deutsche Anbieter-Einträge mit eindeutiger englischer Release-Kennzeichnung
   wie `*ENGLISH*` oder `TS/Englisch` werden nicht länger als deutsche Fassung
   geführt und bei deaktivierten englischen Inhalten vollständig ausgefiltert.

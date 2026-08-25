@@ -684,6 +684,15 @@ def watchlist_payload() -> dict:
             mode = normalize_watch_mode(w.get("download_mode"))
             cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
             error = str(w.get("last_error") or "")
+            download_notifications = [
+                notification
+                for notification in (w.get("downloaded_episode_notifications") or [])
+                if isinstance(notification, dict)
+            ]
+            download_notifications.sort(
+                key=lambda notification: float(notification.get("downloaded_at") or 0),
+                reverse=True,
+            )
             if error:
                 status = "blocked"
             elif failed_count:
@@ -728,6 +737,13 @@ def watchlist_payload() -> dict:
                 "waiting_release_count": len(waiting_release),
                 "queued_count": queued_count,
                 "failed_count": failed_count,
+                "downloaded_count": sum(
+                    not bool(notification.get("read"))
+                    for notification in download_notifications
+                ),
+                "last_downloaded_episode": (
+                    deepcopy(download_notifications[0]) if download_notifications else None
+                ),
                 "status": status,
             })
     return {

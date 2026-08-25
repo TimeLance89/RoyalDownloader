@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from types import SimpleNamespace
 
@@ -108,6 +109,11 @@ def test_persisted_season_zero_state_is_removed_on_load(monkeypatch, tmp_path):
           "known_slugs": ["series-s00e01", "series-s01e01"],
           "waiting_release_slugs": ["series-s00e02", "series-s01e02"],
           "failed_downloads": {"series-s00e03": {}, "series-s01e03": {}},
+          "downloaded_episode_notifications": [
+            {"slug": "series-s00e04", "downloaded_at": 3, "read": false},
+            {"slug": "series-s01e04", "downloaded_at": 2, "read": false},
+            {"slug": "series-s01e04", "downloaded_at": 1, "read": true}
+          ],
           "cleanup_history": ["0:4", "1:4"],
           "season_episode_counts": {"0": 4, "1": 4}
         }]""",
@@ -120,6 +126,13 @@ def test_persisted_season_zero_state_is_removed_on_load(monkeypatch, tmp_path):
     assert entry["known_slugs"] == ["series-s01e01"]
     assert entry["waiting_release_slugs"] == ["series-s01e02"]
     assert set(entry["failed_downloads"]) == {"series-s01e03"}
+    assert entry["downloaded_episode_notifications"] == [{
+        "slug": "series-s01e04",
+        "season": 1,
+        "episode": 4,
+        "downloaded_at": 2.0,
+        "read": False,
+    }]
     assert entry["cleanup_history"] == ["1:4"]
     assert entry["season_episode_counts"] == {"1": 4}
 
@@ -144,3 +157,42 @@ def test_persisted_season_zero_queue_and_history_are_removed(monkeypatch, tmp_pa
     assert [job["slug"] for job in loaded["jobs"]] == ["series-s01e01"]
     assert loaded["history"] == []
     assert migrated is True
+
+
+def test_download_notification_is_marked_read_and_persisted(monkeypatch):
+    entry = {
+        "base_slug": "series",
+        "downloaded_episode_notifications": [
+            {"slug": "series-s01e02", "read": False},
+            {"slug": "series-s01e03", "read": False},
+        ],
+    }
+    fake_state = SimpleNamespace(
+        watchlist=[entry],
+        watchlist_lock=threading.RLock(),
+    )
+    snapshots = []
+    events = []
+    monkeypatch.setattr(api_library_router, "state", fake_state)
+    monkeypatch.setattr(
+        api_library_router, "watchlist_lookup",
+        lambda base_slug: entry if base_slug == "series" else None,
+    )
+    monkeypatch.setattr(
+        api_library_router, "_require_persistent_snapshot",
+        lambda resource, value: snapshots.append((resource, value)),
+    )
+    monkeypatch.setattr(
+        api_library_router, "watchlist_payload",
+        lambda: {"watchlist": fake_state.watchlist},
+    )
+    monkeypatch.setattr(api_library_router, "broadcast", events.append)
+
+    response = asyncio.run(api_library_router.api_watchlist_downloads_read(
+        api_library_router.WatchlistDownloadsReadBody(base_slug="series"),
+    ))
+
+    assert all(item["read"] for item in entry["downloaded_episode_notifications"])
+    assert snapshots[0][0] == "watchlist"
+    assert response["watchlist"] == [entry]
+    assert events[-1]["type"] == "watchlist_update"

@@ -269,6 +269,9 @@ const api = {
   watchlistRemove(baseSlugs) { return this.post("/api/watchlist/remove", { base_slugs: baseSlugs }); },
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },
   watchlistOpen(baseSlug) { return this.post("/api/watchlist/open", { base_slug: baseSlug }); },
+  watchlistDownloadsRead(baseSlug) {
+    return this.post("/api/watchlist/downloads/read", { base_slug: baseSlug });
+  },
 
   movieSubscriptionsGet() { return this.get("/api/movie-subscriptions"); },
   movieSubscriptionSave(entry) { return this.post("/api/movie-subscriptions", entry); },

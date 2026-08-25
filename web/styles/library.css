@@ -843,6 +843,27 @@
 .library-card-progress i { display: block; height: 100%; background: var(--archive-red); }
 
 #tab-bibliothek .library-episode-status { top: 10px; right: 10px; }
+.library-download-receipt {
+  position: absolute;
+  z-index: 5;
+  top: 43px;
+  right: 10px;
+  padding: 5px 7px;
+  color: #b8eec4;
+  background: rgba(9, 17, 11, .76);
+  border: 1px solid rgba(89, 200, 120, .28);
+  border-radius: 3px;
+  backdrop-filter: blur(8px);
+  font: 700 6.5px/1 "DM Sans", sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.library-download-receipt.is-unread {
+  color: #fff;
+  background: rgba(25, 126, 56, .88);
+  border-color: rgba(184, 238, 196, .55);
+}
+.library-download-receipt[hidden] { display: none; }
 #tab-bibliothek .library-card-footer { right: 13px; bottom: 10px; left: 13px; }
 
 #tab-bibliothek .library-empty.is-filtered { grid-column: 1 / -1; }
