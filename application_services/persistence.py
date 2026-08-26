@@ -753,7 +753,7 @@ def watchlist_payload() -> dict:
 
 
 def hydrate_watchlist_artwork() -> None:
-    """Ergänzt Bilder alter Abo-Einträge unabhängig von Jellyfin-Prüfungen."""
+    """Ergänzt lokalisierte TMDB-Metadaten alter Abo-Einträge."""
     if not get_tmdb_client().configured:
         return
     with state.watchlist_lock:
@@ -764,7 +764,11 @@ def hydrate_watchlist_artwork() -> None:
                 "tmdb_id": entry.get("tmdb_id") or "",
             }
             for entry in state.watchlist
-            if not entry.get("backdrop_url") or not entry.get("cover_url")
+            if (
+                not entry.get("metadata_title_hydrated")
+                or not entry.get("backdrop_url")
+                or not entry.get("cover_url")
+            )
         ]
     if not missing:
         return
@@ -776,8 +780,11 @@ def hydrate_watchlist_artwork() -> None:
             continue
         artwork[item["base_slug"]] = {
             "tmdb_id": metadata.get("tmdb_id"),
+            "title": str(metadata.get("title") or "").strip(),
+            "original_title": str(metadata.get("original_title") or "").strip(),
             "cover_url": metadata.get("cover_url") or "",
             "backdrop_url": metadata.get("backdrop_url") or "",
+            "metadata_title_hydrated": True,
         }
 
     changed = False
@@ -786,8 +793,25 @@ def hydrate_watchlist_artwork() -> None:
             images = artwork.get(str(entry.get("base_slug") or ""))
             if not images:
                 continue
+            previous_title = str(entry.get("title") or "").strip()
+            localized_title = images.get("title") or previous_title
+            aliases = list(dict.fromkeys(filter(None, (
+                previous_title,
+                *(entry.get("aliases") or []),
+                images.get("original_title"),
+            ))))
+            if localized_title and entry.get("title") != localized_title:
+                entry["title"] = localized_title
+                changed = True
+            if entry.get("aliases") != aliases:
+                entry["aliases"] = aliases
+                changed = True
             for field in ("tmdb_id", "cover_url", "backdrop_url"):
                 if not entry.get(field) and images.get(field):
+                    entry[field] = images[field]
+                    changed = True
+            for field in ("original_title", "metadata_title_hydrated"):
+                if images.get(field) and entry.get(field) != images[field]:
                     entry[field] = images[field]
                     changed = True
         if changed:
