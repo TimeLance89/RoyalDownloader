@@ -7,6 +7,7 @@ const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8")
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
+const loader = readFileSync(new URL("../web/loading.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
 const homeExperience = readFileSync(new URL("../web/home_experience_v2.js", import.meta.url), "utf8");
@@ -52,6 +53,16 @@ const app = appModulePaths
   .join("\n");
 const frontend = `${login}\n${app}`;
 
+test("royal startup loader is branded, accessible, and wired to every exit path", () => {
+  assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
+  assert.match(html, /class="royal-loader-crown"/);
+  assert.match(html, /loading\.js\?v=royal-20260827-1/);
+  assert.match(loader, /prefers-reduced-motion: reduce/);
+  assert.match(loader, /window\.royalLoader = \{ finish \}/);
+  assert.match(app, /window\.royalLoader\?\.finish\(\)/);
+  assert.match(login, /window\.royalLoader\?\.finish\(\)/);
+});
+
 test("series calendar always leaves loading and restores a validated snapshot", () => {
   assert.match(seriesCalendar, /SERIES_CALENDAR_CACHE_MAX_AGE/);
   assert.match(seriesCalendar, /calendarRestoreSnapshot\(\)/);
@@ -66,7 +77,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260825-2/);
+  assert.match(html, /style\.css\?v=royal-20260827-1/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -218,7 +229,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260825-2/);
+  assert.match(html, /app\.js\?v=royal-20260827-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -885,7 +896,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260825-2/);
+  assert.match(html, /style\.css\?v=royal-20260827-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

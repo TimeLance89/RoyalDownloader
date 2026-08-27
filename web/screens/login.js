@@ -15,6 +15,7 @@ function showLoginScreen({ expired = false } = {}) {
   loginVisible = true;
   document.body.classList.add("login-open");
   screen.classList.remove("hidden");
+  window.royalLoader?.finish();
   setLoginStatus(expired ? "Die Sitzung ist abgelaufen. Bitte erneut anmelden." : "", expired);
   const username = document.getElementById("login-username");
   const password = document.getElementById("login-password");

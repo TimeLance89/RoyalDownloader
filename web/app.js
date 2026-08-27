@@ -672,6 +672,12 @@ async function initApp() {
   }
   const needsSetup = await initSetupWizard();
   if (!needsSetup) startInitialData();
+  window.royalLoader?.finish();
 }
 
-document.addEventListener("DOMContentLoaded", initApp);
+document.addEventListener("DOMContentLoaded", () => {
+  initApp().catch((error) => {
+    window.royalLoader?.finish();
+    console.error("Royal Downloader konnte nicht initialisiert werden:", error);
+  });
+});

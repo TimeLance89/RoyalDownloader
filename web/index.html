@@ -8,9 +8,31 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260825-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260827-1">
 </head>
 <body>
+<div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
+  <div class="royal-loader-light" aria-hidden="true"></div>
+  <div class="royal-loader-stage" aria-hidden="true">
+    <div class="royal-loader-orbit">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="royal-loader-seal">
+      <svg class="royal-loader-crown" viewBox="0 0 120 88" focusable="false">
+        <path d="M17 30 39 49 60 16l21 33 22-19-9 39H26Z"/>
+        <path d="M28 74h64"/>
+        <circle cx="17" cy="27" r="4"/><circle cx="60" cy="12" r="4"/><circle cx="103" cy="27" r="4"/>
+      </svg>
+      <span class="royal-loader-arrow">↓</span>
+    </div>
+  </div>
+  <div class="royal-loader-copy">
+    <strong>ROYAL</strong>
+    <span>DOWNLOADER</span>
+  </div>
+  <div class="royal-loader-progress" aria-hidden="true"><i></i></div>
+  <p>Der Vorhang hebt sich</p>
+</div>
 <div class="bg-decor" aria-hidden="true">
   <div class="orb orb-a"></div>
   <div class="orb orb-b"></div>
@@ -2256,10 +2278,11 @@
   </div>
 </div>
 
+<script src="/loading.js?v=royal-20260827-1"></script>
 <script src="/api.js?v=royal-20260825-2"></script>
 <script src="/i18n.js?v=royal-20260823-1"></script>
 <script src="/store.js?v=royal-20260825-2"></script>
-<script src="/screens/login.js?v=royal-20260801-1"></script>
+<script src="/screens/login.js?v=royal-20260827-1"></script>
 <script src="/core.js?v=royal-20260825-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
 <script src="/home_rail_runtime.js?v=royal-20260824-1"></script>
@@ -2284,6 +2307,6 @@
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260825-2"></script>
+<script src="/app.js?v=royal-20260827-1"></script>
 </body>
 </html>
