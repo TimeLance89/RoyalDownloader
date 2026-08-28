@@ -34,6 +34,6 @@ jobs:
           queries: security-extended
 
       - name: Analyze
-        uses: github/codeql-action/analyze@9ee088e13615f8d1eaef4766f9dde95d3356a8f6
+        uses: github/codeql-action/analyze@6f530319d8c989665d0835536ec9571735fd2008
         with:
           category: "/language:python"
