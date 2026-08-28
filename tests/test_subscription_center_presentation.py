@@ -24,7 +24,7 @@ def test_subscription_center_keeps_existing_notification_contracts():
 
 def test_subscription_center_loads_isolated_styles_without_manifest_changes():
     assert "ensureSubscriptionCenterStyles" in NOTIFICATIONS
-    assert "/styles/subscription-center.css?v=royal-20260825-1" in NOTIFICATIONS
+    assert "/styles/subscription-center.css?v=royal-20260828-1" in NOTIFICATIONS
     assert "data-subscription-center-styles" in NOTIFICATIONS
     assert "Royal Subscription Center" in STYLES
 
@@ -41,9 +41,9 @@ def test_subscription_center_uses_artwork_with_monogram_fallback():
 
 def test_subscription_center_separates_new_items_from_real_issues():
     assert "function notificationHasIssue(entry)" in NOTIFICATIONS
-    assert 'appendNotificationSection(list, "is-new", "Neu", newSorted)' in NOTIFICATIONS
+    assert 'appendNotificationSection(list, "is-new", "Neue Folgen", newSorted)' in NOTIFICATIONS
     assert (
-        'appendNotificationSection(list, "is-issue", "Braucht Aufmerksamkeit", issueSorted)'
+        'appendNotificationSection(list, "is-issue", "Probleme", issueSorted)'
         in NOTIFICATIONS
     )
     assert 'item.className = `notif-item is-${stateName}`' in NOTIFICATIONS
@@ -87,3 +87,15 @@ def test_subscription_center_remains_responsive_on_mobile():
     assert "@media (max-width: 520px)" in STYLES
     assert "env(safe-area-inset-bottom)" in STYLES
     assert "width: auto;" in STYLES
+
+
+def test_subscription_center_supports_filters_and_single_subscription_checks():
+    for filter_name in ("all", "new", "issue"):
+        assert f'data-notif-filter="{filter_name}"' in (
+            ROOT / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+
+    assert "state.wl.notifFilter" in NOTIFICATIONS
+    assert "api.watchlistCheck([entry.base_slug])" in NOTIFICATIONS
+    assert 'check.className = "notif-item-check"' in NOTIFICATIONS
+    assert ".notif-item-check" in STYLES

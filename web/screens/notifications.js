@@ -3,7 +3,7 @@ function ensureSubscriptionCenterStyles() {
   if (document.querySelector('link[data-subscription-center-styles]')) return;
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = "/styles/subscription-center.css?v=royal-20260825-1";
+  link.href = "/styles/subscription-center.css?v=royal-20260828-1";
   link.dataset.subscriptionCenterStyles = "true";
   document.head.appendChild(link);
 }
@@ -58,15 +58,20 @@ function ensureSubscriptionCenterChrome() {
       <span class="notif-stat is-issue"><strong id="notif-issue-count">0</strong><small>Probleme</small></span>
       <span class="notif-stat is-ok"><strong id="notif-center-subscriptions">0</strong><small>Abonnements</small></span>
     `;
-    document.querySelector(".notif-head")?.appendChild(stats);
+    const head = document.querySelector(".notif-head");
+    head?.insertBefore(stats, head.querySelector(".notif-filters"));
   }
 }
 
 function buildNotificationItem(entry, forcedState = "") {
-  const item = document.createElement("button");
-  item.type = "button";
+  const item = document.createElement("article");
   const stateName = forcedState || notificationState(entry);
   item.className = `notif-item is-${stateName}`;
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "notif-item-open";
+  open.setAttribute("aria-label", `${entry.title} öffnen`);
 
   const art = document.createElement("span");
   art.className = "notif-item-art";
@@ -118,8 +123,8 @@ function buildNotificationItem(entry, forcedState = "") {
   const arrow = document.createElement("span");
   arrow.className = "notif-item-arrow";
   arrow.textContent = "›";
-  item.append(art, copy, count, arrow);
-  item.addEventListener("click", () => {
+  open.append(art, copy, count, arrow);
+  open.addEventListener("click", () => {
     closeNotifDropdown();
     if (stateName === "downloaded") {
       api.watchlistDownloadsRead(entry.base_slug)
@@ -128,6 +133,26 @@ function buildNotificationItem(entry, forcedState = "") {
     }
     openWatchlistEntry(entry.base_slug);
   });
+
+  const check = document.createElement("button");
+  check.type = "button";
+  check.className = "notif-item-check";
+  check.textContent = "Prüfen";
+  check.setAttribute("aria-label", `${entry.title} jetzt prüfen`);
+  check.addEventListener("click", async () => {
+    check.disabled = true;
+    check.textContent = "Prüft …";
+    try {
+      const data = await api.watchlistCheck([entry.base_slug]);
+      applyWatchlist(data.watchlist);
+    } catch (error) {
+      document.getElementById("notif-summary").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    } finally {
+      check.disabled = false;
+      check.textContent = "Prüfen";
+    }
+  });
+  item.append(open, check);
   return item;
 }
 
@@ -187,6 +212,12 @@ function renderNotifBell() {
   document.getElementById("notif-issue-count").textContent = String(issueCount);
   document.getElementById("notif-center-subscriptions").textContent = String(state.wl.items.length);
 
+  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
+    const active = button.dataset.notifFilter === state.wl.notifFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+
   const list = document.getElementById("notif-list");
   list.innerHTML = "";
   if (!withNotice.length) {
@@ -216,14 +247,26 @@ function renderNotifBell() {
     .sort((a, b) => Number(b.last_downloaded_episode?.downloaded_at || 0)
       - Number(a.last_downloaded_episode?.downloaded_at || 0));
 
-  appendNotificationSection(list, "is-downloaded", "Heruntergeladen", downloadedSorted);
-  appendNotificationSection(list, "is-new", "Neu", newSorted);
-  appendNotificationSection(list, "is-issue", "Braucht Aufmerksamkeit", issueSorted);
+  const filter = state.wl.notifFilter || "all";
+  if (filter === "all") appendNotificationSection(list, "is-downloaded", "Heruntergeladen", downloadedSorted);
+  if (filter !== "issue") appendNotificationSection(list, "is-new", "Neue Folgen", newSorted);
+  if (filter !== "new") appendNotificationSection(list, "is-issue", "Probleme", issueSorted);
+  if (!list.children.length) {
+    const label = filter === "issue" ? "Keine Probleme" : "Keine neuen Folgen";
+    list.innerHTML = `
+      <div class="notif-empty is-filtered">
+        <span class="notif-empty-seal">✓</span>
+        <strong>${label}</strong>
+        <small>In diesem Bereich gibt es gerade nichts zu bearbeiten.</small>
+      </div>
+    `;
+  }
 }
 
 function toggleNotifDropdown() {
   const dropdown = document.getElementById("notif-dropdown");
   const open = dropdown.classList.contains("hidden");
+  if (open) renderNotifBell();
   dropdown.classList.toggle("hidden", !open);
   document.getElementById("notif-bell").setAttribute("aria-expanded", String(open));
 }
@@ -231,6 +274,36 @@ function toggleNotifDropdown() {
 function closeNotifDropdown() {
   document.getElementById("notif-dropdown").classList.add("hidden");
   document.getElementById("notif-bell").setAttribute("aria-expanded", "false");
+}
+
+function bindLibraryEnhancementControls() {
+  document.getElementById("wl-search-clear").addEventListener("click", () => {
+    state.wl.query = "";
+    state.wl.draftQuery = "";
+    document.getElementById("wl-search").value = "";
+    document.getElementById("wl-search-clear").hidden = true;
+    renderWatchlist();
+    document.getElementById("wl-search").focus();
+  });
+  document.querySelectorAll("[data-library-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wl.view = button.dataset.libraryView || "grid";
+      renderWatchlist();
+    });
+  });
+  document.getElementById("wl-select-visible").addEventListener("click", () => {
+    const visible = libraryVisibleItems().map((entry) => entry.base_slug);
+    const allSelected = visible.length > 0 && visible.every((slug) => state.wl.selected.has(slug));
+    visible.forEach((slug) => allSelected ? state.wl.selected.delete(slug) : state.wl.selected.add(slug));
+    renderWatchlist();
+  });
+  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.wl.notifFilter = button.dataset.notifFilter || "all";
+      renderNotifBell();
+    });
+  });
 }
 
 async function refreshNotifications() {
@@ -290,10 +363,23 @@ function showLibraryHero(entry) {
   heroArt.classList.toggle("has-artwork", Boolean(heroArtwork));
   document.getElementById("library-hero-title").textContent = entry?.title || "Meine Liste";
   document.getElementById("library-hero-description").textContent = entry
-    ? watchlistStatusText(entry)
-    : "Füge Serien hinzu und baue dein persönliches Royal Archiv auf.";
+    ? `${watchlistStatusText(entry)} · ${libraryCheckedLabel(entry)}`
+    : "Neue Folgen erkennen, Regeln ändern und deine Serien an einem Ort steuern.";
   document.getElementById("wl-hero-open").disabled = !entry;
   document.getElementById("wl-hero-check").disabled = !entry;
+}
+
+function libraryCheckedLabel(entry) {
+  const timestamp = Number(entry?.last_checked || 0);
+  if (!timestamp) return "Noch nicht geprüft";
+  const elapsed = Math.max(0, Date.now() - timestamp * 1000);
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return "Gerade geprüft";
+  if (minutes < 60) return `Vor ${minutes} Min. geprüft`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Vor ${hours} Std. geprüft`;
+  const days = Math.floor(hours / 24);
+  return `Vor ${days} ${days === 1 ? "Tag" : "Tagen"} geprüft`;
 }
 
 function renderWatchlist() {
@@ -316,6 +402,15 @@ function renderWatchlist() {
   document.getElementById("wl-queued-count").textContent = String(
     state.wl.items.reduce((sum, entry) => sum + Number(entry.queued_count || 0), 0),
   );
+  const filterCounts = {
+    all: state.wl.items.length,
+    attention: state.wl.items.filter(watchlistNeedsAttention).length,
+    current: state.wl.items.filter((entry) => entry.status === "current").length,
+    queued: state.wl.items.filter((entry) => entry.status === "queued" || Number(entry.queued_count) > 0).length,
+  };
+  Object.entries(filterCounts).forEach(([filter, count]) => {
+    document.getElementById(`wl-filter-${filter}-count`).textContent = String(count);
+  });
   document.getElementById("wl-selected-count").textContent = String(state.wl.selected.size);
   const heroEntry = state.wl.items.find((entry) => entry.base_slug === state.wl.heroBaseSlug)
     || state.wl.items.find(watchlistNeedsAttention) || state.wl.items[0];
@@ -323,9 +418,21 @@ function renderWatchlist() {
   const visibleItems = libraryVisibleItems();
   document.getElementById("wl-visible-count").textContent = String(visibleItems.length);
   document.querySelectorAll("[data-library-filter]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.libraryFilter === state.wl.filter);
+    const active = button.dataset.libraryFilter === state.wl.filter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+  document.querySelectorAll("[data-library-view]").forEach((button) => {
+    const active = button.dataset.libraryView === state.wl.view;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  container.classList.toggle("is-list-view", state.wl.view === "list");
   document.getElementById("wl-check-all").disabled = state.wl.items.length === 0;
+  document.getElementById("wl-select-visible").disabled = visibleItems.length === 0;
+  document.getElementById("wl-select-visible").querySelector("span").textContent =
+    visibleItems.length > 0 && visibleItems.every((entry) => state.wl.selected.has(entry.base_slug))
+      ? "Auswahl lösen" : "Sichtbare wählen";
   for (const id of ["wl-check-selected", "wl-open", "wl-remove"]) {
     document.getElementById(id).disabled = state.wl.selected.size === 0;
   }
@@ -418,7 +525,10 @@ function renderWatchlist() {
     const statusText = document.createElement("span");
     statusText.className = "library-card-status";
     statusText.textContent = watchlistStatusText(entry);
-    copy.append(title, statusText);
+    const checked = document.createElement("span");
+    checked.className = "library-card-checked";
+    checked.textContent = libraryCheckedLabel(entry);
+    copy.append(title, statusText, checked);
     identity.append(artwork, copy);
 
     const knownEpisodes = Array.isArray(entry.known_slugs) ? entry.known_slugs.length : 0;

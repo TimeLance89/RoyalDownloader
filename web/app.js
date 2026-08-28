@@ -431,6 +431,9 @@ async function initApp() {
   });
   document.getElementById("wl-search").addEventListener("input", (event) => {
     state.wl.draftQuery = event.currentTarget.value;
+    state.wl.query = String(state.wl.draftQuery || "").trim();
+    document.getElementById("wl-search-clear").hidden = !state.wl.query;
+    renderWatchlist();
   });
   document.getElementById("wl-search-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -441,6 +444,7 @@ async function initApp() {
     state.wl.sort = event.currentTarget.value || "attention";
     renderWatchlist();
   });
+  bindLibraryEnhancementControls();
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
     const data = await api.watchlistCheck(null);

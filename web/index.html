@@ -83,14 +83,19 @@
       </button>
       <div id="notif-dropdown" class="notif-dropdown hidden" role="dialog" aria-label="Fehlende Episoden">
         <header class="notif-head">
-          <div>
-            <span class="notif-kicker">ABONNEMENTS</span>
-            <strong>Fehlende Episoden</strong>
-            <small id="notif-summary">Alles vollständig</small>
+          <div class="notif-head-copy">
+            <span class="notif-kicker">SIGNAL-CENTER</span>
+            <strong>Abo-Inbox</strong>
+            <small id="notif-summary" aria-live="polite">Alles vollständig</small>
           </div>
           <button id="notif-refresh" class="notif-refresh" type="button" aria-label="Abonnements jetzt prüfen" title="Jetzt prüfen">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
           </button>
+          <div class="notif-filters" role="group" aria-label="Meldungen filtern">
+            <button class="is-active" type="button" data-notif-filter="all" aria-pressed="true">Alle</button>
+            <button type="button" data-notif-filter="new" aria-pressed="false">Neu</button>
+            <button type="button" data-notif-filter="issue" aria-pressed="false">Probleme</button>
+          </div>
         </header>
         <div id="notif-list" class="notif-list"></div>
         <footer class="notif-footer">
@@ -1120,33 +1125,33 @@
       <header class="library-hero">
         <div id="library-hero-art" class="library-hero-art" aria-hidden="true"></div>
         <div class="library-hero-copy">
-          <span class="library-kicker"><i aria-hidden="true"></i> ROYAL ARCHIV · DEINE SERIEN</span>
+          <span class="library-kicker"><i aria-hidden="true"></i> ABO-STEUERUNG · LIVE</span>
           <h1 id="library-hero-title">Meine Liste</h1>
-          <p id="library-hero-description">Alles, was du verfolgst – bereit, wenn du es bist.</p>
+          <p id="library-hero-description">Neue Folgen erkennen, Regeln ändern und deine Serien an einem Ort steuern.</p>
           <div class="library-hero-actions">
-            <button id="wl-hero-open" class="library-hero-action is-primary" type="button">▶ Jetzt öffnen</button>
-            <button id="wl-hero-check" class="library-hero-action" type="button">↻ Status prüfen</button>
+            <button id="wl-hero-open" class="library-hero-action is-primary" type="button"><span aria-hidden="true">▶</span> Serie öffnen</button>
+            <button id="wl-hero-check" class="library-hero-action" type="button"><span aria-hidden="true">↻</span> Jetzt prüfen</button>
           </div>
-          <div class="library-hero-meta" aria-label="Status deiner Liste">
-            <span><strong id="wl-total-count">0</strong> Serien</span>
-            <span><strong id="wl-attention-count">0</strong> offen</span>
-            <span><strong id="wl-current-count">0</strong> vollständig</span>
-            <span><strong id="wl-queued-count">0</strong> in Queue</span>
-          </div>
+        </div>
+        <div class="library-signal-board" aria-label="Status deiner Liste">
+          <span class="is-total"><small>Abonniert</small><strong id="wl-total-count">0</strong></span>
+          <span class="is-attention"><small>Offene Folgen</small><strong id="wl-attention-count">0</strong></span>
+          <span class="is-current"><small>Vollständig</small><strong id="wl-current-count">0</strong></span>
+          <span class="is-queued"><small>In der Queue</small><strong id="wl-queued-count">0</strong></span>
         </div>
       </header>
       <div class="library-panel">
-        <div class="library-index" aria-label="Bibliothek filtern">
+        <div class="library-index" aria-label="Meine Liste filtern">
           <div class="library-filter-tabs" role="group" aria-label="Statusfilter">
-            <button type="button" class="is-active" data-library-filter="all">Alles</button>
-            <button type="button" data-library-filter="attention">Handlungsbedarf</button>
-            <button type="button" data-library-filter="current">Vollständig</button>
-            <button type="button" data-library-filter="queued">Queue</button>
+            <button type="button" class="is-active" data-library-filter="all" aria-pressed="true">Alle <span id="wl-filter-all-count">0</span></button>
+            <button type="button" data-library-filter="attention" aria-pressed="false">Offen <span id="wl-filter-attention-count">0</span></button>
+            <button type="button" data-library-filter="current" aria-pressed="false">Aktuell <span id="wl-filter-current-count">0</span></button>
+            <button type="button" data-library-filter="queued" aria-pressed="false">Queue <span id="wl-filter-queued-count">0</span></button>
           </div>
           <form id="wl-search-form" class="library-search" role="search">
             <span aria-hidden="true">⌕</span>
-            <input id="wl-search" type="search" placeholder="Archiv durchsuchen · Enter" autocomplete="off">
-            <button type="submit">Suchen</button>
+            <input id="wl-search" type="search" placeholder="Serien durchsuchen" autocomplete="off" aria-label="Meine Liste durchsuchen">
+            <button id="wl-search-clear" type="button" aria-label="Suche leeren" hidden>×</button>
           </form>
           <label class="library-sort">
             <span>Sortierung</span>
@@ -1156,16 +1161,21 @@
               <option value="recent">Zuletzt geprüft</option>
             </select>
           </label>
+          <div class="library-view-switch" role="group" aria-label="Ansicht wählen">
+            <button class="is-active" type="button" data-library-view="grid" aria-label="Kartenansicht" aria-pressed="true">▦</button>
+            <button type="button" data-library-view="list" aria-label="Listenansicht" aria-pressed="false">☷</button>
+          </div>
         </div>
         <div class="library-commandbar">
           <div class="library-command-copy">
-            <span class="library-section-code">ARCHIV / <b id="wl-visible-count">0</b></span>
-            <h2>Dein Medienregal</h2>
+            <span class="library-section-code">LIVE-ÜBERSICHT / <b id="wl-visible-count">0</b></span>
+            <h2>Deine Abonnements</h2>
             <span id="wl-status" class="dim" role="status" aria-live="polite">Bereit zur Prüfung</span>
           </div>
           <div class="library-actions">
             <span class="library-selection-count"><strong id="wl-selected-count">0</strong> ausgewählt</span>
-            <button id="wl-check-all" class="library-action is-primary">↻ <span>Alle prüfen</span></button>
+            <button id="wl-select-visible" class="library-action"><span>Sichtbare wählen</span></button>
+            <button id="wl-check-all" class="library-action is-primary"><span aria-hidden="true">↻</span> <span>Alle prüfen</span></button>
             <button id="wl-check-selected" class="library-action"><span>Auswahl prüfen</span></button>
             <button id="wl-open" class="library-action"><span>Öffnen</span></button>
             <button id="wl-remove" class="library-action library-remove"><span>Entfernen</span></button>
