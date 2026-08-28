@@ -62,7 +62,8 @@ function createInitialState() {
     },
     wl: {
       items: [], selected: new Set(), loaded: false,
-      filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",
+      filter: "all", notifFilter: "all", query: "", draftQuery: "", sort: "attention",
+      view: "grid", heroBaseSlug: "",
     },
     movieSubscriptions: { items: [], loaded: false },
     queue: { count: 0, groups: [], loaded: false },

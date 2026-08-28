@@ -431,14 +431,37 @@ async function initApp() {
   });
   document.getElementById("wl-search").addEventListener("input", (event) => {
     state.wl.draftQuery = event.currentTarget.value;
+    state.wl.query = String(state.wl.draftQuery || "").trim();
+    document.getElementById("wl-search-clear").hidden = !state.wl.query;
+    renderWatchlist();
   });
   document.getElementById("wl-search-form").addEventListener("submit", (event) => {
     event.preventDefault();
     state.wl.query = String(state.wl.draftQuery || "").trim();
     renderWatchlist();
   });
+  document.getElementById("wl-search-clear").addEventListener("click", () => {
+    state.wl.query = "";
+    state.wl.draftQuery = "";
+    document.getElementById("wl-search").value = "";
+    document.getElementById("wl-search-clear").hidden = true;
+    renderWatchlist();
+    document.getElementById("wl-search").focus();
+  });
   document.getElementById("wl-sort").addEventListener("change", (event) => {
     state.wl.sort = event.currentTarget.value || "attention";
+    renderWatchlist();
+  });
+  document.querySelectorAll("[data-library-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wl.view = button.dataset.libraryView || "grid";
+      renderWatchlist();
+    });
+  });
+  document.getElementById("wl-select-visible").addEventListener("click", () => {
+    const visible = libraryVisibleItems().map((entry) => entry.base_slug);
+    const allSelected = visible.length > 0 && visible.every((slug) => state.wl.selected.has(slug));
+    visible.forEach((slug) => allSelected ? state.wl.selected.delete(slug) : state.wl.selected.add(slug));
     renderWatchlist();
   });
   document.getElementById("wl-check-all").addEventListener("click", async () => {
@@ -476,6 +499,13 @@ async function initApp() {
     if (!e.target.closest(".bell-wrap")) closeNotifDropdown();
   });
   document.getElementById("notif-refresh").addEventListener("click", refreshNotifications);
+  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.wl.notifFilter = button.dataset.notifFilter || "all";
+      renderNotifBell();
+    });
+  });
   document.getElementById("notif-library").addEventListener("click", () => {
     closeNotifDropdown();
     switchTab("bibliothek");
