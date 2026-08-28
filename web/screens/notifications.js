@@ -276,6 +276,36 @@ function closeNotifDropdown() {
   document.getElementById("notif-bell").setAttribute("aria-expanded", "false");
 }
 
+function bindLibraryEnhancementControls() {
+  document.getElementById("wl-search-clear").addEventListener("click", () => {
+    state.wl.query = "";
+    state.wl.draftQuery = "";
+    document.getElementById("wl-search").value = "";
+    document.getElementById("wl-search-clear").hidden = true;
+    renderWatchlist();
+    document.getElementById("wl-search").focus();
+  });
+  document.querySelectorAll("[data-library-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wl.view = button.dataset.libraryView || "grid";
+      renderWatchlist();
+    });
+  });
+  document.getElementById("wl-select-visible").addEventListener("click", () => {
+    const visible = libraryVisibleItems().map((entry) => entry.base_slug);
+    const allSelected = visible.length > 0 && visible.every((slug) => state.wl.selected.has(slug));
+    visible.forEach((slug) => allSelected ? state.wl.selected.delete(slug) : state.wl.selected.add(slug));
+    renderWatchlist();
+  });
+  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.wl.notifFilter = button.dataset.notifFilter || "all";
+      renderNotifBell();
+    });
+  });
+}
+
 async function refreshNotifications() {
   ensureSubscriptionCenterChrome();
   const button = document.getElementById("notif-refresh");
