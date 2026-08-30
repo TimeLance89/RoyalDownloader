@@ -260,11 +260,16 @@ function refreshSeriesCatalogInBackground() {
     || state.series.browseMode !== "discover"
   ) return;
   seriesCatalogRefreshPromise = api.series({ mode: "discover", page: 1 })
-    .then((data) => {
+    .then(async (data) => {
+      if (state.series.browseMode !== "discover" || state.series.page > 1) return;
+      // Wie im Filmkatalog bleibt die sichtbare Seite stehen, bis die Poster
+      // der neuen Katalogseite im Browsercache liegen. Der Abruf bleibt dabei
+      // vollständig im Hintergrund.
+      await preloadSeriesPosterImages(data.results || [], 6000);
       if (state.series.browseMode !== "discover" || state.series.page > 1) return;
       state.series.previewFromHome = false;
       state.series.lastCatalogRefreshAt = Date.now();
-      applySeriesResults(data);
+      applySeriesResults(data, { backgroundRefresh: true });
     })
     .catch((error) => console.warn("Serienkatalog konnte nicht im Hintergrund aktualisiert werden:", error))
     .finally(() => { seriesCatalogRefreshPromise = null; });

@@ -106,8 +106,9 @@ function updateSeriesInfiniteState() {
 function updateSeriesFeatureArtwork(featureArt, artwork) {
   const source = artwork ? api.coverUrl(artwork) : "";
   if (!source) {
+    const requestId = String(Number(featureArt.dataset.artworkRequest || 0) + 1);
     featureArt.dataset.artworkSource = "";
-    featureArt.dataset.artworkRequest = "";
+    featureArt.dataset.artworkRequest = requestId;
     featureArt.style.backgroundImage = "";
     return;
   }
@@ -164,7 +165,7 @@ function renderSeriesCatalogHero() {
   document.getElementById("series-feature-open").onclick = () => loadSeries(candidate);
 }
 
-function createSeriesResultRow(result) {
+function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) {
   const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
   const selected = selectedBase === result.base_slug;
   const loading = state.series.pendingBaseSlug === result.base_slug;
@@ -176,6 +177,7 @@ function createSeriesResultRow(result) {
 
   const row = document.createElement("div");
   row.className = "series-row result-card" + (selected ? " selected" : "") + (loading ? " loading" : "");
+  if (suppressEntryAnimation) row.style.animation = "none";
   row.dataset.baseSlug = result.base_slug;
   row.setAttribute("aria-current", String(selected));
   row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
@@ -212,39 +214,45 @@ function createSeriesResultRow(result) {
   return row;
 }
 
-function renderSeriesResults(appendFrom = 0) {
+function renderSeriesResults(appendFrom = 0, { suppressEntryAnimation = false } = {}) {
   const container = document.getElementById("series-results");
   const fragment = document.createDocumentFragment();
   if (appendFrom > 0) {
     for (const result of state.series.results.slice(appendFrom)) {
-      fragment.append(createSeriesResultRow(result));
+      fragment.append(createSeriesResultRow(result, { suppressEntryAnimation }));
     }
     container.append(fragment);
     return;
   }
 
-  // Hintergrundaktualisierungen dürfen die sichtbaren Karten nicht zerstören:
-  // vorhandene Rows werden anhand ihres Slugs wiederverwendet und nur einmal
-  // am Ende in der neuen Reihenfolge eingesetzt. Dadurch bleibt das aktuelle
-  // Bild verbunden, während neue Daten und Poster im Hintergrund eintreffen.
+  // Vorhandene Karten bleiben durchgehend mit dem Dokument verbunden. Ein
+  // Umweg über ein Fragment würde die alte row-in-Animation erneut starten
+  // und die komplette Serienfläche kurz auf opacity: 0 setzen.
   const existingRows = new Map(
     [...container.querySelectorAll(".series-row")]
       .map((row) => [row.dataset.baseSlug, row]),
   );
   const retainedSlugs = new Set();
+  let insertionPoint = container.firstElementChild;
   for (const result of state.series.results) {
-    const existing = existingRows.get(result.base_slug);
-    if (existing) {
+    let row = existingRows.get(result.base_slug);
+    if (row) {
       retainedSlugs.add(result.base_slug);
-      fragment.append(existing);
     } else {
-      fragment.append(createSeriesResultRow(result));
+      row = createSeriesResultRow(result, { suppressEntryAnimation });
+    }
+    if (suppressEntryAnimation) row.style.animation = "none";
+    if (row === insertionPoint) {
+      insertionPoint = insertionPoint.nextElementSibling;
+    } else {
+      container.insertBefore(row, insertionPoint);
     }
   }
   for (const [baseSlug, row] of existingRows) {
-    if (!retainedSlugs.has(baseSlug)) discardObservedResultPosters(row);
+    if (retainedSlugs.has(baseSlug)) continue;
+    discardObservedResultPosters(row);
+    row.remove();
   }
-  container.replaceChildren(fragment);
   for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
   updateSeriesResultSelection();
 }
@@ -294,7 +302,11 @@ function updateSeriesResultSelection() {
   });
 }
 
-function applySeriesResults(data, { append = false, artworkPrepared = false } = {}) {
+function applySeriesResults(data, {
+  append = false,
+  artworkPrepared = false,
+  backgroundRefresh = false,
+} = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   const renderedCards = document.querySelectorAll("#series-results .series-row");
   const preserveRenderedCards = !append
@@ -316,10 +328,13 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
   state.series.loadError = "";
   if (preserveRenderedCards) {
+    if (backgroundRefresh) {
+      renderedCards.forEach((row) => { row.style.animation = "none"; });
+    }
     for (const result of incoming) updateSeriesResultCard(result.base_slug);
     updateSeriesResultSelection();
   } else {
-    renderSeriesResults(appendFrom);
+    renderSeriesResults(appendFrom, { suppressEntryAnimation: backgroundRefresh });
   }
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();

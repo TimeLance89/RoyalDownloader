@@ -176,6 +176,11 @@ test("detail, queue, and settings screens remain wired", () => {
     "series-detail-about-section",
   );
   assert.match(html, /id=["']series-detail-about-title["']/);
+  assert.ok(
+    html.indexOf('id="series-episodes-title"')
+      < html.indexOf('id="series-detail-similar-section"'),
+    "Serienepisoden müssen vor ähnlichen Titeln stehen",
+  );
   assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
   assert.match(app, /SERIENAKTE ÖFFNEN →/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
@@ -379,6 +384,8 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
   assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
   assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(app, /await preloadSeriesPosterImages\(data\.results \|\| \[\], 6000\)/);
+  assert.match(app, /applySeriesResults\(data, \{ backgroundRefresh: true \}\)/);
   assert.match(app, /function updateSeriesResultCard\(baseSlug\)/);
   assert.match(app, /syncResultCardPoster\(visual, result\)/);
   assert.doesNotMatch(app, /updateSeriesResultArtwork/);
@@ -386,11 +393,13 @@ test("movie and series catalogs show cached content immediately and refresh in t
   const seriesRenderer = seriesScreen.split("function renderSeriesResults")[1].split(
     "function findSeriesResultCard",
   )[0];
-  assert.match(seriesScreen, /function createSeriesResultRow\(result\)/);
+  assert.match(seriesScreen, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false \} = \{\}\)/);
   assert.match(seriesScreen, /function updateSeriesFeatureArtwork\(featureArt, artwork\)/);
   assert.match(seriesScreen, /featureArt\.dataset\.artworkRequest/);
   assert.match(seriesRenderer, /const existingRows = new Map/);
-  assert.match(seriesRenderer, /container\.replaceChildren\(fragment\)/);
+  assert.match(seriesRenderer, /container\.insertBefore\(row, insertionPoint\)/);
+  assert.match(seriesRenderer, /row\.style\.animation = "none"/);
+  assert.doesNotMatch(seriesRenderer, /container\.replaceChildren\(fragment\)/);
   assert.doesNotMatch(seriesRenderer, /container\.innerHTML = ""/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
