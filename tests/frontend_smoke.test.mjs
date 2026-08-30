@@ -13,6 +13,7 @@ const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "u
 const homeExperience = readFileSync(new URL("../web/home_experience_v2.js", import.meta.url), "utf8");
 const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", import.meta.url), "utf8");
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
+const seriesScreen = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
 const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
 const jellyfinResume = readFileSync(new URL("../web/jellyfin-resume.js", import.meta.url), "utf8");
@@ -382,6 +383,15 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /syncResultCardPoster\(visual, result\)/);
   assert.doesNotMatch(app, /updateSeriesResultArtwork/);
   assert.match(app, /for \(const result of state\.series\.results\) updateSeriesResultCard\(result\.base_slug\)/);
+  const seriesRenderer = seriesScreen.split("function renderSeriesResults")[1].split(
+    "function findSeriesResultCard",
+  )[0];
+  assert.match(seriesScreen, /function createSeriesResultRow\(result\)/);
+  assert.match(seriesScreen, /function updateSeriesFeatureArtwork\(featureArt, artwork\)/);
+  assert.match(seriesScreen, /featureArt\.dataset\.artworkRequest/);
+  assert.match(seriesRenderer, /const existingRows = new Map/);
+  assert.match(seriesRenderer, /container\.replaceChildren\(fragment\)/);
+  assert.doesNotMatch(seriesRenderer, /container\.innerHTML = ""/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
