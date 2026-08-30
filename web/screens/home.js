@@ -850,7 +850,6 @@ function homeGemEntries() {
     .map(({ entry }) => entry);
   return candidates.slice(0, 24);
 }
-
 function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
   const unique = uniqueHomeEntries(entries);
   const selected = unique.filter((entry) => !seen.has(homeEntryKey(entry))).slice(0, limit);
@@ -912,7 +911,6 @@ function homeHeroCandidates() {
     };
   });
 }
-
 function stopHomeHeroRotation() {
   if (!state.home.heroTimer) return;
   window.clearInterval(state.home.heroTimer);
@@ -935,7 +933,6 @@ function scheduleHomeHeroRotation() {
     showHomeHero(state.home.heroIndex + 1);
   }, 9000);
 }
-
 function renderHomeHero() {
   const hero = document.getElementById("home-hero");
   if (!hero) return;
@@ -976,7 +973,6 @@ function renderHomeHero() {
   document.getElementById("home-hero-position").textContent =
     `${state.home.heroIndex + 1} / ${candidates.length}`;
 }
-
 function showHomeHero(index, userInitiated = false) {
   const count = homeHeroCandidates().length;
   if (!count) return;
@@ -988,7 +984,6 @@ function showHomeHero(index, userInitiated = false) {
   }
   renderHomeHero();
 }
-
 function openHomeEntry(kind, key) {
   if (kind === "movie") {
     const movie = homeMovieBySlug(key);
@@ -1006,8 +1001,6 @@ function openHomeEntry(kind, key) {
   closeGlobalSearch();
   if (series) loadSeries(series);
 }
-
-
 function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1030,7 +1023,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   primaryAction.type = "button";
   primaryAction.className = "home-card-primary-action";
   primaryAction.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
-
   if (rank) {
     const number = document.createElement("span");
     number.className = "home-card-rank";
@@ -1038,7 +1030,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     number.setAttribute("aria-hidden", "true");
     card.appendChild(number);
   }
-
   const art = document.createElement("span");
   art.className = "home-card-art";
   const fallback = document.createElement("span");
@@ -1094,7 +1085,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     media.rating ? `★ ${media.rating}` : "",
   ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
   overlay.append(title, meta);
-
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
   if (!rank) {
