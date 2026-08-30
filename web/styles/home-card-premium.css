@@ -11,8 +11,8 @@
 #tab-home .home-track,
 #tab-home .home-top-track {
   gap: clamp(14px, 1vw, 20px);
-  padding-top: 8px;
-  padding-bottom: 25px;
+  margin-block: 0;
+  padding: 8px var(--home-gutter) 25px 1px;
 }
 
 #tab-home .home-card,
@@ -178,9 +178,9 @@
 
 /* Top 10: editorial numbering, not a sticker attached to a normal card. */
 #tab-home .home-card.is-ranked {
-  flex-basis: clamp(326px, 26vw, 472px);
-  width: clamp(326px, 26vw, 472px);
-  grid-template-columns: minmax(100px, .44fr) minmax(196px, 1fr);
+  flex: 0 0 clamp(244px, 15.5vw, 300px);
+  width: clamp(244px, 15.5vw, 300px);
+  grid-template-columns: minmax(92px, .43fr) minmax(142px, .57fr);
 }
 
 #tab-home .home-card.is-ranked .home-card-art {
@@ -192,7 +192,7 @@
   z-index: 0;
   margin-right: -10px;
   color: var(--card-ink);
-  font: 800 clamp(150px, 13vw, 224px)/.71 "Archivo", sans-serif;
+  font: 800 clamp(154px, 10.4vw, 202px)/.71 "Archivo", sans-serif;
   letter-spacing: -.1em;
   text-shadow: 5px 6px 18px rgba(0, 0, 0, .78);
   -webkit-text-stroke: 1.5px rgba(216, 183, 102, .66);
@@ -286,8 +286,9 @@
   }
 
   #tab-home .home-card.is-ranked {
-    flex-basis: clamp(300px, 41vw, 390px);
-    width: clamp(300px, 41vw, 390px);
+    flex-basis: clamp(238px, 34vw, 286px);
+    width: clamp(238px, 34vw, 286px);
+    grid-template-columns: minmax(88px, .42fr) minmax(140px, .58fr);
   }
 }
 
@@ -323,12 +324,12 @@
   #tab-home .home-card-art > .catalog-jellyfin-badge { left: 9px; }
 
   #tab-home .home-card.is-ranked {
-    flex-basis: min(92vw, 386px);
-    width: min(92vw, 386px);
-    grid-template-columns: minmax(92px, .42fr) minmax(186px, 1fr);
+    flex-basis: min(82vw, 294px);
+    width: min(82vw, 294px);
+    grid-template-columns: minmax(92px, .42fr) minmax(142px, .58fr);
   }
 
-  #tab-home .home-card-rank { font-size: clamp(132px, 38vw, 176px); }
+  #tab-home .home-card-rank { font-size: clamp(148px, 46vw, 190px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
