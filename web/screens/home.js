@@ -907,8 +907,8 @@ function homeHeroCandidates() {
     return {
       ...entry,
       media,
-      artwork: media.backdrop_url || "",
-      artworkKind: media.backdrop_url ? "backdrop" : "none",
+      artwork: media.backdrop_url || media.cover_url || "",
+      artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
     };
   });
 }
@@ -1045,15 +1045,26 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  const artworkCandidates = (rank
-    ? [media.cover_url, media.backdrop_url]
-    : [media.backdrop_url])
-    .flatMap((url) => api.coverCandidates(url))
-    .filter((url, index, urls) => url && urls.indexOf(url) === index);
+  const artworkSources = rank
+    ? [{ url: media.cover_url, posterFallback: false }, { url: media.backdrop_url, posterFallback: false }]
+    : [{ url: media.backdrop_url, posterFallback: false }, { url: media.cover_url, posterFallback: true }];
+  const seenArtworkCandidates = new Set();
+  const artworkCandidates = artworkSources.flatMap(({ url, posterFallback }) =>
+    api.coverCandidates(url).map((candidateUrl) => ({ url: candidateUrl, posterFallback })))
+    .filter((candidate) => {
+      if (!candidate.url || seenArtworkCandidates.has(candidate.url)) return false;
+      seenArtworkCandidates.add(candidate.url);
+      return true;
+    });
   if (artworkCandidates.length) {
     const image = document.createElement("img");
     let artworkIndex = 0;
-    image.src = artworkCandidates[artworkIndex];
+    const showArtworkCandidate = () => {
+      const candidate = artworkCandidates[artworkIndex];
+      image.classList.toggle("is-poster-fallback", candidate.posterFallback);
+      image.src = candidate.url;
+    };
+    showArtworkCandidate();
     image.alt = "";
     image.loading = "eager";
     image.fetchPriority = eager ? "high" : "auto";
@@ -1061,7 +1072,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     image.addEventListener("error", () => {
       artworkIndex += 1;
       if (artworkIndex < artworkCandidates.length) {
-        image.src = artworkCandidates[artworkIndex];
+        showArtworkCandidate();
       }
       else image.remove();
     });

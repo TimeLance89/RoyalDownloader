@@ -2,7 +2,7 @@ function homeRailCardSignature(entry, rank = 0, variant = "") {
   const media = homeEntryMedia(entry);
   const artwork = rank
     ? (media.cover_url || media.backdrop_url || "")
-    : (media.backdrop_url || "");
+    : (media.backdrop_url || media.cover_url || "");
   return JSON.stringify([
     homeEntryKey(entry), rank, variant, artwork,
   ]);

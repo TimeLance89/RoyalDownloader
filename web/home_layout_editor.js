@@ -191,9 +191,13 @@ function applyHomeLayout() {
   const hidden = new Set(layout.hidden_rails);
   const container = document.querySelector("#tab-home .home-rails");
   let cursor = container?.firstElementChild || null;
-  layout.rail_order.forEach((railId) => {
+  layout.rail_order.forEach((railId, index) => {
     const section = document.querySelector(`[data-home-rail="${railId}"]`);
     if (!section) return;
+    // Die gespeicherte Reihenfolge ist die einzige Quelle der Wahrheit. Ein
+    // expliziter Wert verhindert, dass alte oder spezifischere Styles einzelne
+    // Reihen (insbesondere dynamisch erzeugte) vor die gewählte Position setzen.
+    section.style.order = String(index);
     section.classList.toggle("home-layout-hidden", hidden.has(railId));
     section.setAttribute("aria-hidden", String(hidden.has(railId)));
     // Ein bereits korrekt einsortierter Abschnitt darf bei Daten-Updates nicht
