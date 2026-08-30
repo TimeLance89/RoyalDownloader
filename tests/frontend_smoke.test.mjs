@@ -78,7 +78,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260830-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-2/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -918,7 +918,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260830-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

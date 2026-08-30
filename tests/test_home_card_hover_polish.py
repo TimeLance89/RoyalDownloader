@@ -4,17 +4,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STYLE_MANIFEST = (ROOT / "web" / "style.css").read_text(encoding="utf-8")
 HOVER = (ROOT / "web" / "styles" / "home-card-hover.css").read_text(encoding="utf-8")
+PREMIUM = (ROOT / "web" / "styles" / "home-card-premium.css").read_text(encoding="utf-8")
 HOME = (ROOT / "web" / "screens" / "home.js").read_text(encoding="utf-8")
 DOCK = (ROOT / "web" / "home_card_dock.js").read_text(encoding="utf-8")
 TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
 
 
-def test_cinema_dock_is_loaded_last_with_fresh_cache_key():
+def test_cinema_dock_and_premium_card_finish_are_loaded_last():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-1] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
+    assert imports[-2] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
+    assert imports[-1] == "@import url('/styles/home-card-premium.css?v=royal-20260830-1');"
     assert '<script src="/home_card_dock.js?v=royal-20260811-10"></script>' in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")
+
+
+def test_premium_cards_use_the_royal_material_and_focus_rail():
+    for token in (
+        "--card-ink: #0b0d10",
+        "--card-surface: #161a20",
+        "--card-gold: #d8b766",
+        "--card-paper: #f3efe4",
+        "--card-signal: #e32636",
+    ):
+        assert token in PREMIUM
+    assert "#tab-home .home-card-art::before" in PREMIUM
+    assert "transform: scaleX(1)" in PREMIUM
+    assert "#tab-home .home-card.is-spotlight-lead" in PREMIUM
+    ranked_hover = PREMIUM.split("#tab-home .home-card.is-ranked:hover {", 1)[1].split("}", 1)[0]
+    assert "transform: none" in ranked_hover
+    assert "@media (prefers-reduced-motion: reduce)" in PREMIUM
 
 
 def test_cinema_dock_escapes_rail_clipping_and_stays_inside_the_viewport():
