@@ -77,7 +77,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260827-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-1/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -354,7 +354,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260825-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260825-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260830-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -458,11 +458,12 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
   assert.equal(result.length, 1);
 });
 
-test("only Top 10 cards may use portrait posters", () => {
-  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
-  assert.doesNotMatch(app, /is-poster-fallback/);
-  assert.match(home, /artwork: media\.backdrop_url \|\| ""/);
-  assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| ""/);
+test("home cards and hero fall back to available posters when wallpapers are missing", () => {
+  assert.match(home, /\{ url: media\.backdrop_url, posterFallback: false \}, \{ url: media\.cover_url, posterFallback: true \}/);
+  assert.match(home, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
+  assert.match(home, /artwork: media\.backdrop_url \|\| media\.cover_url \|\| ""/);
+  assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
+  assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
 test("series wallpaper hydration updates every duplicate catalog object", async () => {
@@ -609,7 +610,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260830-1/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
 
@@ -624,10 +625,12 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   }
   assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
+  assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
   assert.match(home, /image\.loading = "eager"/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
-  assert.match(home, /:\s*\[media\.backdrop_url\]/);
-  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260824-1/);
+  assert.match(home, /posterFallback: true/);
+  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
 });
 
 test("home carousel keeps its scroll position across artwork rerenders", () => {
@@ -896,7 +899,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260827-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -981,5 +984,5 @@ test("taste feedback is a compact accessible two-way control", () => {
   assert.match(app, /pendingTasteFeedbackKeys\.add\(target\.key\)/);
   assert.match(app, /applyLocalTasteFeedback\(target\.key, action\)/);
   assert.match(app, /pendingTasteFeedbackKeys\.delete\(target\.key\)/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260830-1/);
 });

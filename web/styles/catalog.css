@@ -959,13 +959,6 @@
 }
 
 #tab-home .home-rail { padding-left: var(--home-gutter); }
-#tab-home .home-rail-spotlight { order: 1; }
-#tab-home .home-rail-explore { order: 2; }
-#tab-home .home-rail-series { order: 3; }
-#tab-home .home-rail-top { order: 4; }
-#tab-home .home-rail-genre { order: 5; }
-#tab-home .home-rail-gems { order: 6; }
-#tab-home .home-rail-new { order: 7; }
 
 #tab-home .home-rail-head {
   min-height: 44px;

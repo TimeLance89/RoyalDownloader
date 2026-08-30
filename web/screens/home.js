@@ -850,7 +850,6 @@ function homeGemEntries() {
     .map(({ entry }) => entry);
   return candidates.slice(0, 24);
 }
-
 function takeDistinctHomeLane(entries, seen, limit, minimum = 4) {
   const unique = uniqueHomeEntries(entries);
   const selected = unique.filter((entry) => !seen.has(homeEntryKey(entry))).slice(0, limit);
@@ -907,12 +906,11 @@ function homeHeroCandidates() {
     return {
       ...entry,
       media,
-      artwork: media.backdrop_url || "",
-      artworkKind: media.backdrop_url ? "backdrop" : "none",
+      artwork: media.backdrop_url || media.cover_url || "",
+      artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
     };
   });
 }
-
 function stopHomeHeroRotation() {
   if (!state.home.heroTimer) return;
   window.clearInterval(state.home.heroTimer);
@@ -935,7 +933,6 @@ function scheduleHomeHeroRotation() {
     showHomeHero(state.home.heroIndex + 1);
   }, 9000);
 }
-
 function renderHomeHero() {
   const hero = document.getElementById("home-hero");
   if (!hero) return;
@@ -976,7 +973,6 @@ function renderHomeHero() {
   document.getElementById("home-hero-position").textContent =
     `${state.home.heroIndex + 1} / ${candidates.length}`;
 }
-
 function showHomeHero(index, userInitiated = false) {
   const count = homeHeroCandidates().length;
   if (!count) return;
@@ -988,7 +984,6 @@ function showHomeHero(index, userInitiated = false) {
   }
   renderHomeHero();
 }
-
 function openHomeEntry(kind, key) {
   if (kind === "movie") {
     const movie = homeMovieBySlug(key);
@@ -1006,8 +1001,6 @@ function openHomeEntry(kind, key) {
   closeGlobalSearch();
   if (series) loadSeries(series);
 }
-
-
 function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   const { kind, item } = entry;
   const metadata = kind === "movie" ? (state.fp.metadataCache[item.slug] || {}) : {};
@@ -1030,7 +1023,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   primaryAction.type = "button";
   primaryAction.className = "home-card-primary-action";
   primaryAction.setAttribute("aria-label", `${rank ? `Platz ${rank}: ` : ""}${media.title}, ${kindLabel}, ${jellyfinStatusText(mediaJellyfinStatus(media))}`);
-
   if (rank) {
     const number = document.createElement("span");
     number.className = "home-card-rank";
@@ -1038,22 +1030,32 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     number.setAttribute("aria-hidden", "true");
     card.appendChild(number);
   }
-
   const art = document.createElement("span");
   art.className = "home-card-art";
   const fallback = document.createElement("span");
   fallback.className = "home-card-fallback";
   fallback.textContent = mediaCardInitials(media.title);
   art.appendChild(fallback);
-  const artworkCandidates = (rank
-    ? [media.cover_url, media.backdrop_url]
-    : [media.backdrop_url])
-    .flatMap((url) => api.coverCandidates(url))
-    .filter((url, index, urls) => url && urls.indexOf(url) === index);
+  const artworkSources = rank
+    ? [{ url: media.cover_url, posterFallback: false }, { url: media.backdrop_url, posterFallback: false }]
+    : [{ url: media.backdrop_url, posterFallback: false }, { url: media.cover_url, posterFallback: true }];
+  const seenArtworkCandidates = new Set();
+  const artworkCandidates = artworkSources.flatMap(({ url, posterFallback }) =>
+    api.coverCandidates(url).map((candidateUrl) => ({ url: candidateUrl, posterFallback })))
+    .filter((candidate) => {
+      if (!candidate.url || seenArtworkCandidates.has(candidate.url)) return false;
+      seenArtworkCandidates.add(candidate.url);
+      return true;
+    });
   if (artworkCandidates.length) {
     const image = document.createElement("img");
     let artworkIndex = 0;
-    image.src = artworkCandidates[artworkIndex];
+    const showArtworkCandidate = () => {
+      const candidate = artworkCandidates[artworkIndex];
+      image.classList.toggle("is-poster-fallback", candidate.posterFallback);
+      image.src = candidate.url;
+    };
+    showArtworkCandidate();
     image.alt = "";
     image.loading = "eager";
     image.fetchPriority = eager ? "high" : "auto";
@@ -1061,7 +1063,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     image.addEventListener("error", () => {
       artworkIndex += 1;
       if (artworkIndex < artworkCandidates.length) {
-        image.src = artworkCandidates[artworkIndex];
+        showArtworkCandidate();
       }
       else image.remove();
     });
@@ -1083,7 +1085,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     media.rating ? `★ ${media.rating}` : "",
   ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
   overlay.append(title, meta);
-
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
   if (!rank) {
