@@ -21,4 +21,3 @@
   window.royalLoader = { finish };
   window.setTimeout(finish, 12000);
 })();
-
