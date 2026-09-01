@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Die Startseite erhält neu gestaltete Premium-Karten mit stabilen Abständen,
+  kollisionsfreien Reihen und zuverlässigen Poster-/Hintergrund-Fallbacks; ihre
+  Reihenfolge bleibt auch während nachgeladener Bilder erhalten.
+- Serienkatalog und Seriendetails aktualisieren Inhalte ohne sichtbares Flackern.
+  In der Serienakte folgen auf **Staffeln & Folgen** nun **Trailer und mehr**,
+  **Über die Serie** und abschließend **Ähnliche Titel**.
+- Abo-Inbox und Medienregal wurden als gemeinsames Subscription Center neu
+  gestaltet; der Frontend-Einstieg bleibt dabei innerhalb seiner Modulgrenzen.
+- Der neue Royal-Startloader überbrückt den Anwendungsstart konsistent und
+  behält die korrekte Stylesheet-Priorität des Cinema-Docks bei.
+- Serientitel in Abos und Watchlist werden lokalisiert angezeigt.
+- Die Abendregie bietet eine neu gestaltete, stärker erklärbare Auswahl und
+  berücksichtigt Genres bei der Empfehlung deutlich tiefer.
 - Erfolgreich automatisch geladene Episoden abonnierter Serien erscheinen
   dauerhaft mit Staffel/Folge im Medienregal und als ungelesener Hinweis in
   der Notificationbox; beim Öffnen der Serienmeldung wird sie quittiert.
