@@ -588,7 +588,9 @@ function setQueueDockExpanded(expanded) {
   drawer.setAttribute("aria-hidden", String(!expanded));
   drawer.inert = !expanded;
   toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.querySelector(".queue-toggle-label").textContent = expanded ? "Queue schließen" : "Queue öffnen";
+  toggle.querySelector(".queue-toggle-label").textContent = expanded
+    ? "Downloadplan schließen"
+    : "Downloadplan öffnen";
 }
 
 function toggleDesktopQueue() {
