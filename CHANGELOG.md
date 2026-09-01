@@ -7,7 +7,7 @@
   Reihenfolge bleibt auch während nachgeladener Bilder erhalten.
 - Serienkatalog und Seriendetails aktualisieren Inhalte ohne sichtbares Flackern.
   In der Serienakte folgen auf **Staffeln & Folgen** nun **Trailer und mehr**,
-  **Über die Serie** und abschließend **Ähnliche Titel**.
+  daneben **Über die Serie** und abschließend darunter **Ähnliche Titel**.
 - Abo-Inbox und Medienregal wurden als gemeinsames Subscription Center neu
   gestaltet; der Frontend-Einstieg bleibt dabei innerhalb seiner Modulgrenzen.
 - Der neue Royal-Startloader überbrückt den Anwendungsstart konsistent und
