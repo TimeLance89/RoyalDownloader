@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Der untere Downloadbereich wird zum kompakten Royal-Transferdeck mit klarer
+  Titelhierarchie, segmentierter Fortschrittsschiene, großem Prozentwert,
+  eigener „Als Nächstes“-Anzeige und responsiver Downloadplan-Steuerung.
 - Die Startseite erhält neu gestaltete Premium-Karten mit stabilen Abständen,
   kollisionsfreien Reihen und zuverlässigen Poster-/Hintergrund-Fallbacks; ihre
   Reihenfolge bleibt auch während nachgeladener Bilder erhalten.
