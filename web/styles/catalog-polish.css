@@ -1191,7 +1191,11 @@
   }
 
   #queue-dock .queue-dock-bar {
-    position: relative;
+    position: absolute;
+    z-index: 5;
+    right: 0;
+    bottom: 0;
+    left: 0;
     isolation: isolate;
     height: 96px;
     grid-template-columns: minmax(430px, 1fr) minmax(150px, .22fr) auto;
