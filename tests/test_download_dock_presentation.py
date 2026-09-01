@@ -47,6 +47,13 @@ def test_collapsed_dock_reads_as_a_modern_transfer_deck():
     assert "border-radius: 24px 24px 0 0" in CSS
 
 
+def test_transfer_deck_stays_anchored_above_the_hidden_drawer():
+    transfer_deck = CSS.split("/* ── Royal Transfer Deck", 1)[1]
+    dock_bar = transfer_deck.split("#queue-dock .queue-dock-bar {", 1)[1].split("}", 1)[0]
+    assert "position: absolute" in dock_bar
+    assert "bottom: 0" in dock_bar
+
+
 def test_queue_rows_expose_status_progress_and_actions_as_cards():
     for selector in (
         "#queue-dock .queue-item",
