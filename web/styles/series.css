@@ -251,6 +251,7 @@
 
 .media-modal .series-detail-lower-grid > .detail-extras,
 .media-modal .series-detail-lower-grid > .series-detail-about {
+  grid-area: auto;
   min-width: 0;
 }
 

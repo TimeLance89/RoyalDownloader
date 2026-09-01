@@ -23,6 +23,7 @@ const accountStyles = readFileSync(
   new URL("../web/styles/legacy-account.css", import.meta.url),
   "utf8",
 );
+const seriesStyles = readFileSync(new URL("../web/styles/series.css", import.meta.url), "utf8");
 const appModulePaths = [
   "core.js",
   "home_card_dock.js",
@@ -180,6 +181,11 @@ test("detail, queue, and settings screens remain wired", () => {
     html.indexOf('id="series-episodes-title"')
       < html.indexOf('id="series-detail-similar-section"'),
     "Serienepisoden müssen vor ähnlichen Titeln stehen",
+  );
+  assert.match(
+    seriesStyles,
+    /\.series-detail-lower-grid > \.detail-extras,[\s\S]*?\.series-detail-lower-grid > \.series-detail-about \{[\s\S]*?grid-area: auto;/,
+    "Trailer und Serieninformationen dürfen keine geerbten Grid-Flächen überlagern",
   );
   assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
   assert.match(app, /SERIENAKTE ÖFFNEN →/);
