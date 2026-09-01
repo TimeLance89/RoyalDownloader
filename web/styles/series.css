@@ -228,8 +228,7 @@
   margin-top: 38px;
 }
 
-.media-modal .series-detail-discovery > .detail-extras,
-.media-modal .series-detail-discovery > .series-detail-about {
+.media-modal .series-detail-discovery > .series-detail-lower-grid {
   margin-bottom: 28px;
 }
 
@@ -241,6 +240,18 @@
   color: #fff;
   font: 750 22px/1 "Archivo", sans-serif;
   letter-spacing: -.035em;
+}
+
+.media-modal .series-detail-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, .72fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.media-modal .series-detail-lower-grid > .detail-extras,
+.media-modal .series-detail-lower-grid > .series-detail-about {
+  min-width: 0;
 }
 
 .media-modal .series-detail-about {
@@ -539,6 +550,10 @@
   .media-modal #series-watch-btn { grid-area: watch; }
   .media-modal .series-trailer-btn { grid-area: trailer; }
   .media-modal #series-add-btn { grid-area: download; }
+
+  .media-modal .series-detail-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
   .media-modal .series-episodes-head {
     align-items: flex-start;
