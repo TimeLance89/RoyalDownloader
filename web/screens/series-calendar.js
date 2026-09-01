@@ -129,6 +129,9 @@ function calendarEntryMatches(entry) {
   if (query && !entry.title.toLocaleLowerCase("de").includes(query)) return false;
   if (state.calendar.language !== "all"
       && String(entry.language_id) !== state.calendar.language) return false;
+  const status = state.calendar.status || "all";
+  if (status === "released" && !entry.released) return false;
+  if (status === "upcoming" && entry.released) return false;
   if (state.calendar.subscribedOnly && !entry.subscribed) return false;
   return true;
 }
@@ -275,13 +278,16 @@ function renderCalendarHero() {
   document.getElementById("calendar-hero-month").textContent = new Intl.DateTimeFormat(
     i18n.locale(), { month: "long", year: "numeric" },
   ).format(today);
-  const entries = state.calendar.days.flatMap((day) => day.entries || []);
+  const activeDates = new Set(calendarWeekDates(state.calendar.activeWeek || calendarInitialWeek()));
+  const entries = state.calendar.days
+    .filter((day) => activeDates.has(day.date))
+    .flatMap((day) => day.entries || []);
   document.getElementById("calendar-total").textContent = String(entries.length);
   document.getElementById("calendar-today-count").textContent = String(
     state.calendar.days.find((day) => day.date === calendarTodayKey())?.entries?.length || 0,
   );
   document.getElementById("calendar-upcoming-count").textContent = String(
-    entries.filter((entry) => !entry.released).length,
+    entries.filter((entry) => entry.subscribed).length,
   );
 }
 
@@ -291,17 +297,20 @@ function renderCalendarWeekStrip(dates) {
   document.getElementById("calendar-week-strip").innerHTML = dates.map((date) => {
     const count = calendarEntriesForDate(date).length;
     const isToday = date === today;
-    return `<button type="button" data-calendar-date="${date}" class="${isToday ? "is-today" : ""}">
+    return `<button type="button" data-calendar-date="${date}" class="${isToday ? "is-today" : ""}"
+        ${isToday ? 'aria-current="date"' : ""} aria-label="${escapeHtml(weekday.format(calendarDate(date)))}, ${count} ${count === 1 ? "Folge" : "Folgen"}">
       <span>${escapeHtml(weekday.format(calendarDate(date)))}</span>
-      <strong>${calendarDate(date).getDate()}</strong>
+      <strong>${String(calendarDate(date).getDate()).padStart(2, "0")}</strong>
       <small>${count} ${count === 1 ? "Folge" : "Folgen"}</small>
+      <i aria-hidden="true"></i>
     </button>`;
   }).join("");
 }
 
 function calendarCard(entry, date, index, eager) {
-  const code = `S${String(entry.season).padStart(2, "0")} · E${String(entry.episode).padStart(2, "0")}`;
+  const code = `S${String(entry.season).padStart(2, "0")} E${String(entry.episode).padStart(2, "0")}`;
   const stateLabel = entry.released ? "Verfügbar" : "Angekündigt";
+  const timeLabel = entry.time !== "00:00" ? `${entry.time} Uhr` : "Zeit offen";
   return `<button class="calendar-entry ${entry.released ? "is-released" : "is-upcoming"}" type="button"
       data-calendar-entry="${date}:${index}" aria-label="${escapeHtml(entry.title)}, ${code} öffnen">
     <span class="calendar-entry-art">
@@ -310,11 +319,11 @@ function calendarCard(entry, date, index, eager) {
       <i aria-hidden="true">${escapeHtml(entry.title.slice(0, 2).toLocaleUpperCase("de"))}</i>
     </span>
     <span class="calendar-entry-copy">
+      <span class="calendar-entry-eyebrow"><time>${escapeHtml(timeLabel)}</time><i>${escapeHtml(stateLabel)}</i></span>
       <strong translate="no">${escapeHtml(entry.title)}</strong>
-      <span><b>${code}</b><i>${escapeHtml(entry.language)}</i>${entry.time !== "00:00" ? `<i>${escapeHtml(entry.time)} Uhr</i>` : ""}${entry.subscribed ? "<i>★ Meine Serie</i>" : ""}</span>
+      <span class="calendar-entry-meta"><b>${code}</b><i>${escapeHtml(entry.language)}</i>${entry.subscribed ? '<i class="is-mine">★ Meine Serie</i>' : ""}</span>
     </span>
-    <span class="calendar-entry-state"><i></i>${stateLabel}</span>
-    <span class="calendar-entry-open" aria-hidden="true">→</span>
+    <span class="calendar-entry-open" aria-hidden="true"><i></i>→</span>
   </button>`;
 }
 
@@ -333,13 +342,13 @@ function renderCalendarDays(dates) {
     }).join("");
     return `<section class="calendar-day ${date === today ? "is-today" : ""}" id="calendar-day-${date}">
       <header>
-        <span class="calendar-day-date"><b>${calendarDate(date).getDate()}</b><span>
+        <span class="calendar-day-date"><b>${String(calendarDate(date).getDate()).padStart(2, "0")}</b><span>
           <strong>${date === today ? "Heute" : escapeHtml(weekday.format(calendarDate(date)))}</strong>
           <small>${escapeHtml(month.format(calendarDate(date)))}</small>
         </span></span>
-        <em>${entries.length} ${entries.length === 1 ? "Folge" : "Folgen"}</em>
+        <em><b>${entries.length}</b> ${entries.length === 1 ? "Folge" : "Folgen"}</em>
       </header>
-      <div>${cards || '<p class="calendar-day-empty">Keine Veröffentlichung</p>'}</div>
+      <div>${cards || '<p class="calendar-day-empty"><span>—</span> Keine Veröffentlichung</p>'}</div>
     </section>`;
   }).join("");
   const days = document.getElementById("calendar-days");
@@ -404,6 +413,13 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
   }
   state.calendar.initialized = true;
   const restored = calendarRestoreSnapshot();
+  if (!restored) {
+    state.calendar.activeWeek = calendarInitialWeek();
+    renderCalendarHero();
+    renderCalendarWeekStrip(calendarWeekDates(state.calendar.activeWeek));
+    document.getElementById("calendar-prev-week").disabled = true;
+    document.getElementById("calendar-next-week").disabled = true;
+  }
   document.getElementById("calendar-prev-week")?.addEventListener("click", () => calendarMoveWeek(-1));
   document.getElementById("calendar-next-week")?.addEventListener("click", () => calendarMoveWeek(1));
   document.getElementById("calendar-today")?.addEventListener("click", () => {
@@ -420,6 +436,17 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
     button.addEventListener("click", () => {
       state.calendar.language = button.dataset.calendarLanguage;
       document.querySelectorAll("[data-calendar-language]").forEach((candidate) => {
+        const active = candidate === button;
+        candidate.classList.toggle("is-active", active);
+        candidate.setAttribute("aria-pressed", String(active));
+      });
+      renderSeriesCalendar();
+    });
+  });
+  document.querySelectorAll("[data-calendar-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.calendar.status = button.dataset.calendarStatus;
+      document.querySelectorAll("[data-calendar-status]").forEach((candidate) => {
         const active = candidate === button;
         candidate.classList.toggle("is-active", active);
         candidate.setAttribute("aria-pressed", String(active));

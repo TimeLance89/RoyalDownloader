@@ -13,7 +13,11 @@ function createInitialState() {
       layout: null, layoutDraft: null, layoutLoaded: false, layoutSaving: false,
       railScrollPositions: {}, railScrollTargets: {},
       jellyfinStatusByKey: new Map(),
-      mood: { step: 0, answers: {}, results: [], open: false },
+      mood: {
+        step: 0, answers: {}, inferred: [], refinements: null, draftRefinements: null,
+        results: [], analysis: [], dismissed: [], open: false, view: "question",
+        returnAfterDetail: false, requestId: 0, genreOpen: false,
+      },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
     fp: {
@@ -37,7 +41,7 @@ function createInitialState() {
     },
     calendar: {
       days: [], total: 0, loaded: false, loading: false, error: "",
-      activeWeek: "", language: "all", query: "", subscribedOnly: false,
+      activeWeek: "", language: "all", status: "all", query: "", subscribedOnly: false,
       disabledReason: "", stale: false, cached: false, updatedAt: 0,
       initialized: false, phase: "idle", requestId: 0, startedAt: 0,
     },
@@ -58,7 +62,8 @@ function createInitialState() {
     },
     wl: {
       items: [], selected: new Set(), loaded: false,
-      filter: "all", query: "", draftQuery: "", sort: "attention", heroBaseSlug: "",
+      filter: "all", notifFilter: "all", query: "", draftQuery: "", sort: "attention",
+      view: "grid", heroBaseSlug: "",
     },
     movieSubscriptions: { items: [], loaded: false },
     queue: { count: 0, groups: [], loaded: false },

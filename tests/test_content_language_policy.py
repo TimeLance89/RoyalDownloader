@@ -99,6 +99,25 @@ def test_bilingual_movie_is_one_card_with_both_languages(monkeypatch):
     assert result.content_languages == ["de", "en"]
 
 
+def test_explicit_release_language_overrides_german_provider_lane(monkeypatch):
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    provider_results = {
+        "kinoger": [
+            _movie_result("English Release", "kinoger-en", "kinoger", "en"),
+        ],
+        "filmpalast": [
+            _movie_result("Deutsche Fassung", "fp-de", "filmpalast", "de"),
+        ],
+    }
+
+    mixed = content_language_policy._mix_movie_provider_results(
+        provider_results,
+        ["kinoger", "filmpalast"],
+    )
+
+    assert [item.content_language for _provider, item in mixed] == ["en", "de"]
+
+
 def test_series_catalog_balances_by_language_not_provider_count(monkeypatch):
     monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
     provider_results = {

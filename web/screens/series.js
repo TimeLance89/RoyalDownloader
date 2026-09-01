@@ -103,6 +103,31 @@ function updateSeriesInfiniteState() {
   sentinel.title = sourceSummary;
 }
 
+function updateSeriesFeatureArtwork(featureArt, artwork) {
+  const source = artwork ? api.coverUrl(artwork) : "";
+  if (!source) {
+    const requestId = String(Number(featureArt.dataset.artworkRequest || 0) + 1);
+    featureArt.dataset.artworkSource = "";
+    featureArt.dataset.artworkRequest = requestId;
+    featureArt.style.backgroundImage = "";
+    return;
+  }
+  if (featureArt.dataset.artworkSource === source) return;
+
+  const requestId = String(Number(featureArt.dataset.artworkRequest || 0) + 1);
+  featureArt.dataset.artworkSource = source;
+  featureArt.dataset.artworkRequest = requestId;
+  const nextBackground = `url("${source.replace(/"/g, "%22")}")`;
+  const image = new Image();
+  image.decoding = "async";
+  image.onload = async () => {
+    try { await image.decode(); } catch (e) { /* bereits im Browser-Cache */ }
+    if (featureArt.dataset.artworkRequest !== requestId) return;
+    featureArt.style.backgroundImage = nextBackground;
+  };
+  image.src = source;
+}
+
 function renderSeriesCatalogHero() {
   const feature = document.getElementById("series-feature");
   if (!feature) return;
@@ -126,12 +151,7 @@ function renderSeriesCatalogHero() {
   feature.classList.toggle("is-poster-art", posterArtwork);
   feature.setAttribute("aria-label", `Serie im Fokus: ${candidate.title}`);
   const featureArt = document.getElementById("series-feature-art");
-  const nextBackground = artwork
-    ? `url("${api.coverUrl(artwork).replace(/"/g, "%22")}")`
-    : "";
-  if (featureArt.style.backgroundImage !== nextBackground) {
-    featureArt.style.backgroundImage = nextBackground;
-  }
+  updateSeriesFeatureArtwork(featureArt, artwork);
   document.getElementById("series-feature-title").textContent = candidate.title;
   const sources = Array.isArray(candidate.sources) ? candidate.sources : [];
   document.getElementById("series-feature-meta").textContent = [
@@ -145,57 +165,96 @@ function renderSeriesCatalogHero() {
   document.getElementById("series-feature-open").onclick = () => loadSeries(candidate);
 }
 
-function renderSeriesResults(appendFrom = 0) {
+function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) {
+  const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
+  const selected = selectedBase === result.base_slug;
+  const loading = state.series.pendingBaseSlug === result.base_slug;
+  const resultSources = Array.isArray(result.sources) ? result.sources : [];
+  const sourceLabels = resultSources.map((source) => source.label).filter(Boolean);
+  const sourceSummary = sourceLabels.length > 1
+    ? `${sourceLabels.length} Quellen`
+    : (sourceLabels[0] || result.provider_label || "Quelle offen");
+
+  const row = document.createElement("div");
+  row.className = "series-row result-card" + (selected ? " selected" : "") + (loading ? " loading" : "");
+  if (suppressEntryAnimation) row.style.animation = "none";
+  row.dataset.baseSlug = result.base_slug;
+  row.setAttribute("aria-current", String(selected));
+  row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
+  if (loading) row.setAttribute("aria-busy", "true");
+
+  const visual = createResultCardVisual(result, result.title, "series", mediaJellyfinStatus(result));
+  const copy = document.createElement("span");
+  copy.className = "result-card-copy";
+  const title = document.createElement("strong");
+  title.className = "result-card-title";
+  title.translate = false;
+  title.textContent = result.title;
+  const subtitle = document.createElement("span");
+  subtitle.className = "result-card-subtitle";
+  subtitle.textContent = sourceSummary;
+  subtitle.title = sourceLabels.join(" · ");
+  const meta = document.createElement("span");
+  meta.className = "result-card-meta";
+  const year = document.createElement("span");
+  year.textContent = result.year || "Jahr offen";
+  const stateLabel = document.createElement("span");
+  stateLabel.className = "result-card-state status-ready";
+  stateLabel.textContent = loading ? "Öffnet …" : "Staffeln öffnen";
+  const jellyfin = document.createElement("span");
+  setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
+  meta.append(year, stateLabel, jellyfin);
+  copy.append(title, subtitle, meta);
+
+  row.append(visual, copy);
+  const baseSlug = result.base_slug;
+  activateResultCard(row, () => loadSeries(
+    state.series.results.find((item) => item.base_slug === baseSlug) || result,
+  ));
+  return row;
+}
+
+function renderSeriesResults(appendFrom = 0, { suppressEntryAnimation = false } = {}) {
   const container = document.getElementById("series-results");
-  if (appendFrom <= 0) {
-    discardObservedResultPosters(container);
-    container.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  if (appendFrom > 0) {
+    for (const result of state.series.results.slice(appendFrom)) {
+      fragment.append(createSeriesResultRow(result, { suppressEntryAnimation }));
+    }
+    container.append(fragment);
+    return;
   }
 
-  for (const result of state.series.results.slice(appendFrom)) {
-    const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
-    const selected = selectedBase === result.base_slug;
-    const loading = state.series.pendingBaseSlug === result.base_slug;
-    const resultSources = Array.isArray(result.sources) ? result.sources : [];
-    const sourceLabels = resultSources.map((source) => source.label).filter(Boolean);
-    const sourceSummary = sourceLabels.length > 1
-      ? `${sourceLabels.length} Quellen`
-      : (sourceLabels[0] || result.provider_label || "Quelle offen");
-
-    const row = document.createElement("div");
-    row.className = "series-row result-card" + (selected ? " selected" : "") + (loading ? " loading" : "");
-    row.dataset.baseSlug = result.base_slug;
-    row.setAttribute("aria-current", String(selected));
-    row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
-    if (loading) row.setAttribute("aria-busy", "true");
-
-    const visual = createResultCardVisual(result, result.title, "series", mediaJellyfinStatus(result));
-    const copy = document.createElement("span");
-    copy.className = "result-card-copy";
-    const title = document.createElement("strong");
-    title.className = "result-card-title";
-    title.translate = false;
-    title.textContent = result.title;
-    const subtitle = document.createElement("span");
-    subtitle.className = "result-card-subtitle";
-    subtitle.textContent = sourceSummary;
-    subtitle.title = sourceLabels.join(" · ");
-    const meta = document.createElement("span");
-    meta.className = "result-card-meta";
-    const year = document.createElement("span");
-    year.textContent = result.year || "Jahr offen";
-    const stateLabel = document.createElement("span");
-    stateLabel.className = "result-card-state status-ready";
-    stateLabel.textContent = loading ? "Öffnet …" : "Staffeln öffnen";
-    const jellyfin = document.createElement("span");
-    setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
-    meta.append(year, stateLabel, jellyfin);
-    copy.append(title, subtitle, meta);
-
-    row.append(visual, copy);
-    activateResultCard(row, () => loadSeries(result));
-    container.appendChild(row);
+  // Vorhandene Karten bleiben durchgehend mit dem Dokument verbunden. Ein
+  // Umweg über ein Fragment würde die alte row-in-Animation erneut starten
+  // und die komplette Serienfläche kurz auf opacity: 0 setzen.
+  const existingRows = new Map(
+    [...container.querySelectorAll(".series-row")]
+      .map((row) => [row.dataset.baseSlug, row]),
+  );
+  const retainedSlugs = new Set();
+  let insertionPoint = container.firstElementChild;
+  for (const result of state.series.results) {
+    let row = existingRows.get(result.base_slug);
+    if (row) {
+      retainedSlugs.add(result.base_slug);
+    } else {
+      row = createSeriesResultRow(result, { suppressEntryAnimation });
+    }
+    if (suppressEntryAnimation) row.style.animation = "none";
+    if (row === insertionPoint) {
+      insertionPoint = insertionPoint.nextElementSibling;
+    } else {
+      container.insertBefore(row, insertionPoint);
+    }
   }
+  for (const [baseSlug, row] of existingRows) {
+    if (retainedSlugs.has(baseSlug)) continue;
+    discardObservedResultPosters(row);
+    row.remove();
+  }
+  for (const result of state.series.results) updateSeriesResultCard(result.base_slug);
+  updateSeriesResultSelection();
 }
 
 function findSeriesResultCard(baseSlug) {
@@ -243,7 +302,11 @@ function updateSeriesResultSelection() {
   });
 }
 
-function applySeriesResults(data, { append = false, artworkPrepared = false } = {}) {
+function applySeriesResults(data, {
+  append = false,
+  artworkPrepared = false,
+  backgroundRefresh = false,
+} = {}) {
   const incoming = Array.isArray(data.results) ? data.results : [];
   const renderedCards = document.querySelectorAll("#series-results .series-row");
   const preserveRenderedCards = !append
@@ -265,10 +328,13 @@ function applySeriesResults(data, { append = false, artworkPrepared = false } = 
   state.series.sources = mergeCatalogSources(state.series.sources, data.sources, append);
   state.series.loadError = "";
   if (preserveRenderedCards) {
+    if (backgroundRefresh) {
+      renderedCards.forEach((row) => { row.style.animation = "none"; });
+    }
     for (const result of incoming) updateSeriesResultCard(result.base_slug);
     updateSeriesResultSelection();
   } else {
-    renderSeriesResults(appendFrom);
+    renderSeriesResults(appendFrom, { suppressEntryAnimation: backgroundRefresh });
   }
   const browseGeneration = state.series.browseRequestSeq;
   renderSeriesCatalogHero();

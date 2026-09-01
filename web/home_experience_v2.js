@@ -370,18 +370,18 @@
       const fallback = homeAllEntries()
         .filter((entry) => !selectedKeys.has(logicalKey(entry)))
         .map((entry) => heroRecord(entry, profile, trendRanks))
-        .filter(({ entry }) => Boolean(entryMedia(entry).backdrop_url))
+        .filter(({ entry }) => Boolean(entryMedia(entry).backdrop_url || entryMedia(entry).cover_url))
         .sort((left, right) => right.rankingScore - left.rankingScore);
       entries = [...entries, ...fallback.map(({ entry }) => entry)].slice(0, HERO_LIMIT);
     }
     return entries.map((entry) => {
       const media = entryMedia(entry);
-      const artwork = media.backdrop_url || "";
+      const artwork = media.backdrop_url || media.cover_url || "";
       return {
         ...entry,
         media,
         artwork,
-        artworkKind: media.backdrop_url ? "backdrop" : "none",
+        artworkKind: media.backdrop_url ? "backdrop" : (media.cover_url ? "poster" : "none"),
       };
     });
   }

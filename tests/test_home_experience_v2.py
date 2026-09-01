@@ -8,7 +8,7 @@ API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
 
 def test_home_experience_loads_after_taste_profile_v2():
     assert 'script.src = "/taste_v2.js?v=royal-20260824-1"' in API
-    assert 'script.src = "/home_experience_v2.js?v=royal-20260824-1"' in API
+    assert 'script.src = "/home_experience_v2.js?v=royal-20260830-1"' in API
     assert "window.setTimeout(loadRoyalHomeExperienceV2, 0)" in API
 
 
@@ -36,8 +36,7 @@ def test_hero_requires_quality_and_reuses_exposure_history():
     assert 'discoveryV2ExposurePenalty(entry, "hero")' in EXPERIENCE
     assert "HERO_MAX_SAME_KIND = 4" in EXPERIENCE
     assert "HERO_MAX_OWNED = 4" in EXPERIENCE
-    assert 'const artwork = media.backdrop_url || ""' in EXPERIENCE
-    assert "media.backdrop_url || media.cover_url" not in EXPERIENCE
+    assert 'const artwork = media.backdrop_url || media.cover_url || ""' in EXPERIENCE
 
 
 def test_trained_hero_requires_positive_taste_affinity():

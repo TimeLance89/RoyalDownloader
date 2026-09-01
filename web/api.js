@@ -48,6 +48,20 @@ const api = {
     });
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   },
+  _postWithin(url, body, timeoutMs, message) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return this._req("POST", url, body, controller.signal)
+      .catch((error) => {
+        if (error?.name === "AbortError") {
+          const timeoutError = new Error(message);
+          timeoutError.code = "request_timeout";
+          throw timeoutError;
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timer));
+  },
   post(url, body) { return this._req("POST", url, body === undefined ? {} : body); },
 
   authStatus() { return this.get("/api/auth/status"); },
@@ -86,7 +100,12 @@ const api = {
   },
   tmdbMovie(item) { return this.post("/api/tmdb/movie", item); },
   tmdbSeries(items) { return this.post("/api/tmdb/series", { items }); },
-  jellyfinMatches(items) { return this.post("/api/jellyfin/matches", { items }); },
+  jellyfinMatches(items) {
+    return this._postWithin(
+      "/api/jellyfin/matches", { items }, 15_000,
+      "Die Jellyfin-Statusprüfung hat nicht rechtzeitig geantwortet.",
+    );
+  },
 
   series(params) { return this.get("/api/series?" + new URLSearchParams(params)); },
   seriesCalendar(refresh = false) {
@@ -109,7 +128,7 @@ const api = {
     });
   },
   seriesJellyfinStatus(series, force = false) {
-    return this.post("/api/series/jellyfin-status", {
+    return this._postWithin("/api/series/jellyfin-status", {
       title: series.title,
       tmdb_id: series.tmdb_id || null,
       aliases: series.aliases || [],
@@ -118,7 +137,7 @@ const api = {
           slug: episode.slug, season: episode.season, episode: episode.episode,
         }))),
       force,
-    });
+    }, 15_000, "Die Jellyfin-Serienprüfung hat nicht rechtzeitig geantwortet.");
   },
 
   anime(params) { return this.get("/api/anime?" + new URLSearchParams(params)); },
@@ -250,6 +269,9 @@ const api = {
   watchlistRemove(baseSlugs) { return this.post("/api/watchlist/remove", { base_slugs: baseSlugs }); },
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },
   watchlistOpen(baseSlug) { return this.post("/api/watchlist/open", { base_slug: baseSlug }); },
+  watchlistDownloadsRead(baseSlug) {
+    return this.post("/api/watchlist/downloads/read", { base_slug: baseSlug });
+  },
 
   movieSubscriptionsGet() { return this.get("/api/movie-subscriptions"); },
   movieSubscriptionSave(entry) { return this.post("/api/movie-subscriptions", entry); },
@@ -391,7 +413,7 @@ function loadRoyalHomeExperienceV2() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/home_experience_v2.js?v=royal-20260824-1";
+  script.src = "/home_experience_v2.js?v=royal-20260830-1";
   script.async = false;
   script.dataset.homeExperienceV2 = "true";
   script.addEventListener("load", () => window.setTimeout(loadRoyalDailyTopV2, 0), { once: true });

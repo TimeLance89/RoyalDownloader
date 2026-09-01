@@ -7,13 +7,16 @@ const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8")
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
 const localization = readFileSync(new URL("../web/i18n.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/screens/login.js", import.meta.url), "utf8");
+const loader = readFileSync(new URL("../web/loading.js", import.meta.url), "utf8");
 const mood = readFileSync(new URL("../web/screens/mood.js", import.meta.url), "utf8");
 const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
 const homeExperience = readFileSync(new URL("../web/home_experience_v2.js", import.meta.url), "utf8");
 const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", import.meta.url), "utf8");
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
+const seriesScreen = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
 const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
+const jellyfinResume = readFileSync(new URL("../web/jellyfin-resume.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
 const stylesheet = readFileSync(new URL("../web/style.css", import.meta.url), "utf8");
 const accountStyles = readFileSync(
@@ -43,12 +46,23 @@ const appModulePaths = [
   "screens/settings.js",
   "screens/account.js",
   "screens/setup.js",
+  "jellyfin-resume.js",
   "app.js",
 ];
 const app = appModulePaths
   .map((path) => readFileSync(new URL(`../web/${path}`, import.meta.url), "utf8"))
   .join("\n");
 const frontend = `${login}\n${app}`;
+
+test("royal startup loader is branded, accessible, and wired to every exit path", () => {
+  assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
+  assert.match(html, /class="royal-loader-crown"/);
+  assert.match(html, /loading\.js\?v=royal-20260827-1/);
+  assert.match(loader, /prefers-reduced-motion: reduce/);
+  assert.match(loader, /window\.royalLoader = \{ finish \}/);
+  assert.match(app, /window\.royalLoader\?\.finish\(\)/);
+  assert.match(login, /window\.royalLoader\?\.finish\(\)/);
+});
 
 test("series calendar always leaves loading and restores a validated snapshot", () => {
   assert.match(seriesCalendar, /SERIES_CALENDAR_CACHE_MAX_AGE/);
@@ -62,9 +76,9 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
   assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
-  assert.match(html, /series-calendar\.js\?v=royal-20260824-4/);
-  assert.match(stylesheet, /series-calendar\.css\?v=royal-20260824-3/);
-  assert.match(html, /style\.css\?v=royal-20260824-4/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
+  assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-3/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -162,6 +176,11 @@ test("detail, queue, and settings screens remain wired", () => {
     "series-detail-about-section",
   );
   assert.match(html, /id=["']series-detail-about-title["']/);
+  assert.ok(
+    html.indexOf('id="series-episodes-title"')
+      < html.indexOf('id="series-detail-similar-section"'),
+    "Serienepisoden müssen vor ähnlichen Titeln stehen",
+  );
   assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
   assert.match(app, /SERIENAKTE ÖFFNEN →/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
@@ -216,7 +235,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260824-2/);
+  assert.match(html, /app\.js\?v=royal-20260827-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -267,8 +286,36 @@ test("movie detail refreshes stale Jellyfin state for Home selections", () => {
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
   assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null\)/);
-  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v4"/);
+  assert.match(app, /HOME_CACHE_KEY = "royal-home-cache-v5"/);
   assert.match(app, /known\.catalog_identity_version !== 2/);
+});
+
+test("Jellyfin status recovers after a long browser idle", async () => {
+  let now = 1_000;
+  const windowListeners = {};
+  const calls = [];
+  const context = vm.createContext({
+    console,
+    Date: { now: () => now },
+    document: {
+      hidden: false,
+      addEventListener() {},
+    },
+    window: {
+      addEventListener(type, handler) { windowListeners[type] = handler; },
+    },
+    setInterval() {},
+    refreshAllCatalogJellyfinStatuses() { calls.push("catalog"); },
+    refreshFpJellyfinStatus() { calls.push("movies"); },
+    refreshSeriesJellyfinStatus(force) { calls.push(force ? "series-force" : "series"); },
+  });
+  vm.runInContext(jellyfinResume, context);
+  windowListeners.blur();
+  now += 3_600_001;
+  windowListeners.focus();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(calls.sort(), ["catalog", "movies", "series-force"]);
 });
 
 test("deep movie pagination hydrates only the newly appended page", () => {
@@ -288,7 +335,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260824-2/);
+  assert.match(html, /api\.js\?v=royal-20260825-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -312,8 +359,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260824-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260824-1/);
+  assert.match(html, /api\.js\?v=royal-20260825-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260830-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -337,10 +384,23 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.doesNotMatch(app, /await prepareSeriesCatalogPage\(data\)/);
   assert.match(app, /applySeriesResults\(data, \{ append \}\)/);
   assert.match(app, /void preloadSeriesPosterImages\(data\.results \|\| \[\], 2000\)/);
+  assert.match(app, /await preloadSeriesPosterImages\(data\.results \|\| \[\], 6000\)/);
+  assert.match(app, /applySeriesResults\(data, \{ backgroundRefresh: true \}\)/);
   assert.match(app, /function updateSeriesResultCard\(baseSlug\)/);
   assert.match(app, /syncResultCardPoster\(visual, result\)/);
   assert.doesNotMatch(app, /updateSeriesResultArtwork/);
   assert.match(app, /for \(const result of state\.series\.results\) updateSeriesResultCard\(result\.base_slug\)/);
+  const seriesRenderer = seriesScreen.split("function renderSeriesResults")[1].split(
+    "function findSeriesResultCard",
+  )[0];
+  assert.match(seriesScreen, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false \} = \{\}\)/);
+  assert.match(seriesScreen, /function updateSeriesFeatureArtwork\(featureArt, artwork\)/);
+  assert.match(seriesScreen, /featureArt\.dataset\.artworkRequest/);
+  assert.match(seriesRenderer, /const existingRows = new Map/);
+  assert.match(seriesRenderer, /container\.insertBefore\(row, insertionPoint\)/);
+  assert.match(seriesRenderer, /row\.style\.animation = "none"/);
+  assert.doesNotMatch(seriesRenderer, /container\.replaceChildren\(fragment\)/);
+  assert.doesNotMatch(seriesRenderer, /container\.innerHTML = ""/);
   assert.match(api, /_inflightGets: new Map\(\)/);
   assert.match(api, /15_000/);
   assert.match(api, /Filmkatalog antwortet zu langsam/);
@@ -417,11 +477,12 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
   assert.equal(result.length, 1);
 });
 
-test("only Top 10 cards may use portrait posters", () => {
-  assert.match(app, /rank\s*\? \[media\.cover_url, media\.backdrop_url\]\s*:\s*\[media\.backdrop_url\]/);
-  assert.doesNotMatch(app, /is-poster-fallback/);
-  assert.match(home, /artwork: media\.backdrop_url \|\| ""/);
-  assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| ""/);
+test("home cards and hero fall back to available posters when wallpapers are missing", () => {
+  assert.match(home, /\{ url: media\.backdrop_url, posterFallback: false \}, \{ url: media\.cover_url, posterFallback: true \}/);
+  assert.match(home, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
+  assert.match(home, /artwork: media\.backdrop_url \|\| media\.cover_url \|\| ""/);
+  assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
+  assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
 test("series wallpaper hydration updates every duplicate catalog object", async () => {
@@ -568,7 +629,7 @@ test("home discovery is larger, shuffleable, and avoids repetitive rails", () =>
   assert.match(app, /fresh: homeNewEntries\(\)/);
   assert.match(app, /function shuffleHomeDiscovery\(\)/);
   assert.match(app, /layout === "spotlight"/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260830-1/);
   assert.match(app, /addBtn\.hidden = owned && !queued/);
 });
 
@@ -583,10 +644,12 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   }
   assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
+  assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
   assert.match(home, /image\.loading = "eager"/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
-  assert.match(home, /:\s*\[media\.backdrop_url\]/);
-  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260824-1/);
+  assert.match(home, /posterFallback: true/);
+  assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
 });
 
 test("home carousel keeps its scroll position across artwork rerenders", () => {
@@ -634,41 +697,49 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   assert.equal(track.replaceCount || 0, 0);
 });
 
-test("mood mode asks for the moment, protects family picks, and nudges taste", () => {
-  requiresIds("mood-modal", "mood-options", "mood-results", "mood-back", "mood-next");
+test("evening direction is progressive, explainable, and optionally deep", () => {
+  requiresIds(
+    "mood-modal", "mood-journey", "mood-options", "mood-results", "mood-lead",
+    "mood-back", "mood-quick", "mood-refine", "mood-refine-toggle", "mood-next",
+    "mood-genre-compass", "mood-genre-toggle", "mood-genre-panel", "mood-genre-options",
+  );
   assert.match(html, /id="mood-nav-open"[^>]*data-mood-open/);
   assert.match(html, /id="home-program-mood"[^>]*data-mood-open/);
   assert.match(app, /const MOOD_MATCH_STEPS = \[/);
-  assert.match(app, /Dunkel & brutal/);
-  assert.match(app, /Mit der Familie/);
+  assert.match(app, /Was soll heute laufen/);
+  assert.match(app, /Was soll der Titel mit dir machen/);
+  assert.match(app, /const MOOD_GENRE_COMPASS = \[/);
+  assert.match(app, /function toggleMoodGenreCompass\(\)/);
+  assert.match(app, /function moodMatchesGenreFocus\(entry, answers/);
+  assert.match(html, /Bis zu zwei Genres[^<]*muss jeder Treffer beide tragen/);
+  assert.match(app, /function moodMatchQuickResult\(\)/);
+  assert.match(app, /function openMoodRefinement\(\)/);
   assert.match(app, /function moodFamilyPool\(entries\)/);
-  assert.match(app, /function moodMatchResults\(answers\)/);
-  assert.match(app, /const MOOD_MATCH_RULES = \{/);
-  assert.match(app, /pool = pool\.filter\(\(entry\) => moodMatchesIntent\(entry, answers\)\)/);
-  assert.match(app, /horror:[\s\S]*?required: \["Horror", "Slasher", "Splatter"\]/);
-  assert.match(app, /fallback: \["Thriller", "Mystery", "Krimi", "Crime"\]/);
-  assert.match(app, /hardExcluded: \["Komödie", "Comedy", "Animation", "Romanze", "Musik"\]/);
-  assert.match(app, /left\.tier - right\.tier \|\| right\.score - left\.score/);
+  assert.match(app, /function moodMatchResults\(answers,/);
+  assert.match(app, /const MOOD_MATCH_RULES = MOOD_MATCH_PROFILES/);
+  assert.match(app, /function moodMatchesRefinements\(entry, refinements/);
+  assert.match(app, /Unbekannte Laufzeiten zählen bei einem Limit nicht als Treffer/);
+  assert.match(app, /Diese Kombination wird nicht mit unpassenden oder unbekannten Titeln aufgefüllt/);
   assert.match(app, /function prepareMoodCandidates\(\)/);
-  assert.match(app, /await prepareMoodCandidates\(\)/);
-  assert.match(app, /return moodIntentTier\(entry, answers\) < 3/);
-  assert.match(app, /Genres und Metadaten werden vervollständigt/);
-  assert.match(app, /card\.addEventListener\("click", suspendMoodMatchForDetail/);
+  assert.match(app, /await Promise\.race\(\[prepareMoodCandidates\(\), timeout\]\)/);
+  assert.match(app, /return moodIntentTier\(entry, answers\) < 2/);
+  assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260823-2/);
-  assert.match(html, /screens\/mood\.js\?v=royal-20260805-5/);
-  assert.match(app, /source: "mood-session"/);
-  assert.match(app, /profile\.genres\[genre\].*\+ \.2/);
+  assert.match(html, /core\.js\?v=royal-20260825-1/);
+  assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
+  assert.doesNotMatch(mood, /source: "mood-session"/);
 });
 
-test("mood recommendations remain useful without admitting contradictory filler", () => {
+test("evening recommendations keep hard constraints and unknown metadata out", () => {
   const entries = [
-    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"] } },
-    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"] } },
+    { kind: "movie", item: { slug: "slasher", title: "Slasher", genres: ["Horror"], runtime: "82 min", year: "2024" } },
+    { kind: "movie", item: { slug: "thriller", title: "Dark Thriller", genres: ["Thriller"], runtime: "112 min", year: "2015" } },
     { kind: "movie", item: { slug: "unknown", title: "Unknown", genres: [] } },
     { kind: "movie", item: { slug: "comedy", title: "Horror Comedy", genres: ["Horror", "Komödie"] } },
     { kind: "movie", item: { slug: "family", title: "Family Adventure", genres: ["Animation", "Abenteuer"] } },
+    { kind: "movie", item: { slug: "documentary", title: "True Story", genres: ["Dokumentation"], runtime: 88 } },
+    { kind: "movie", item: { slug: "western", title: "Open Range", genres: ["Western"], runtime: 120 } },
   ];
   const context = vm.createContext({
     console,
@@ -683,13 +754,35 @@ test("mood recommendations remain useful without admitting contradictory filler"
     localDateKey: () => "2026-08-05",
   });
   vm.runInContext(mood, context);
+  context.entries = entries;
   const results = vm.runInContext(`moodMatchResults({
-    mood: "horror", company: "alone", intensity: "hard", format: "movie"
+    mood: "shadow", company: "alone", format: "movie"
   })`, context);
   assert.deepEqual(
     Array.from(results, (entry) => entry.item.title),
-    ["Slasher", "Dark Thriller", "Unknown"],
+    ["Slasher", "Dark Thriller"],
   );
+
+  const short = vm.runInContext(`moodMatchResults(
+    { mood: "open", company: "alone", format: "movie" },
+    { ...createMoodRefinements(), duration: "90" }
+  )`, context);
+  assert.deepEqual(Array.from(short, (entry) => entry.item.title), ["Slasher", "True Story"]);
+
+  const family = vm.runInContext("moodFamilyPool(entries)", context);
+  assert.deepEqual(Array.from(family, (entry) => entry.item.title), ["Family Adventure"]);
+  assert.equal(vm.runInContext('moodHasGenre(new Set(["Drama"]), "a")', context), false);
+
+  const genreBlend = vm.runInContext(`moodMatchResults({
+    mood: "laugh", company: "alone", format: "movie", genres: ["Horror", "Komödie"]
+  })`, context);
+  assert.deepEqual(Array.from(genreBlend, (entry) => entry.item.title), ["Horror Comedy"]);
+  const documentary = vm.runInContext(`moodMatchResults({
+    mood: "real", company: "alone", format: "movie", genres: ["Dokumentation"]
+  })`, context);
+  assert.deepEqual(Array.from(documentary, (entry) => entry.item.title), ["True Story"]);
+  assert.equal(vm.runInContext("MOOD_GENRE_COMPASS.length", context), 24);
+  assert.equal(vm.runInContext('moodHasGenre(normalizedMoodGenres({ genres: ["Sci-Fi & Fantasy"] }), "Fantasy")', context), true);
 });
 
 test("feature modules load in dependency order before bootstrap", () => {
@@ -824,8 +917,8 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /getElementById\("wl-search-form"\)\.addEventListener\("submit"/);
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
-  assert.match(stylesheet, /library\.css\?v=royal-20260805-2/);
-  assert.match(html, /style\.css\?v=royal-20260824-4/);
+  assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
+  assert.match(html, /style\.css\?v=royal-20260830-3/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
@@ -910,5 +1003,5 @@ test("taste feedback is a compact accessible two-way control", () => {
   assert.match(app, /pendingTasteFeedbackKeys\.add\(target\.key\)/);
   assert.match(app, /applyLocalTasteFeedback\(target\.key, action\)/);
   assert.match(app, /pendingTasteFeedbackKeys\.delete\(target\.key\)/);
-  assert.match(stylesheet, /catalog\.css\?v=royal-20260810-8/);
+  assert.match(stylesheet, /catalog\.css\?v=royal-20260830-1/);
 });

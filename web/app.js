@@ -46,6 +46,12 @@ async function initApp() {
     button.addEventListener("click", () => closeMoodMatch());
   });
   document.getElementById("mood-back").addEventListener("click", moodMatchBack);
+  document.getElementById("mood-quick").addEventListener("click", moodMatchQuickResult);
+  document.getElementById("mood-refine-toggle").addEventListener("click", openMoodRefinement);
+  document.getElementById("mood-refine-reset").addEventListener("click", resetMoodRefinement);
+  document.getElementById("mood-refine-apply").addEventListener("click", () => closeMoodRefinement(true));
+  document.getElementById("mood-genre-toggle").addEventListener("click", toggleMoodGenreCompass);
+  document.getElementById("mood-genre-clear").addEventListener("click", clearMoodGenreFocus);
   document.getElementById("mood-next").addEventListener("click", moodMatchNext);
   document.getElementById("mood-modal").addEventListener("keydown", handleMoodMatchKeydown);
   document.getElementById("home-hero-prev").addEventListener("click", () => {
@@ -425,6 +431,9 @@ async function initApp() {
   });
   document.getElementById("wl-search").addEventListener("input", (event) => {
     state.wl.draftQuery = event.currentTarget.value;
+    state.wl.query = String(state.wl.draftQuery || "").trim();
+    document.getElementById("wl-search-clear").hidden = !state.wl.query;
+    renderWatchlist();
   });
   document.getElementById("wl-search-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -435,6 +444,7 @@ async function initApp() {
     state.wl.sort = event.currentTarget.value || "attention";
     renderWatchlist();
   });
+  bindLibraryEnhancementControls();
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
     const data = await api.watchlistCheck(null);
@@ -666,6 +676,12 @@ async function initApp() {
   }
   const needsSetup = await initSetupWizard();
   if (!needsSetup) startInitialData();
+  window.royalLoader?.finish();
 }
 
-document.addEventListener("DOMContentLoaded", initApp);
+document.addEventListener("DOMContentLoaded", () => {
+  initApp().catch((error) => {
+    window.royalLoader?.finish();
+    console.error("Royal Downloader konnte nicht initialisiert werden:", error);
+  });
+});
