@@ -20,6 +20,10 @@ function createInitialState() {
       },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
+    ai: {
+      enabled: false, configured: false, model: "", loading: false,
+      recommendations: [], lastFingerprint: "", requestSeq: 0,
+    },
     fp: {
       results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
       activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,

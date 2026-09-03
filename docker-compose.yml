@@ -89,6 +89,11 @@ services:
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       TMDB_API_KEY_FILE: ${TMDB_API_KEY_FILE:-}
       TMDB_LANGUAGE: ${TMDB_LANGUAGE:-de-DE}
+      # Optional Ollama instance on this network or elsewhere in the LAN.
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+      OLLAMA_URL: ${OLLAMA_URL:-http://127.0.0.1:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-20}
       UI_LANGUAGE: ${UI_LANGUAGE:-de}
       UI_TRANSLATOR_URL: ${UI_TRANSLATOR_URL:-}
       UI_TRANSLATOR_API_KEY: ${UI_TRANSLATOR_API_KEY:-}

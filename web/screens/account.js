@@ -571,6 +571,7 @@ async function saveAllSettings() {
       document.getElementById("tmdb-api-key").value.trim(),
     );
     applyTmdbCfg(tmdb);
+    await saveAiSettings();
     const auto = await api.automationConfigSet({
       auto_download: document.getElementById("auto-download").checked,
       check_interval_min: Math.max(5, parseInt(document.getElementById("check-interval").value, 10) || 30),

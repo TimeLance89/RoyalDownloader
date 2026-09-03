@@ -526,6 +526,8 @@ async function initApp() {
   });
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
+  document.getElementById("ai-test").addEventListener("click", testAiConnection);
+  document.getElementById("ai-enabled").addEventListener("change", syncAiSettingsState);
   document.getElementById("taste-profile-reset").addEventListener("click", async () => {
     if (!window.confirm("Geschmacksprofil wirklich vollständig zurücksetzen?")) return;
     try {

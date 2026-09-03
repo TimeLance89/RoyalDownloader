@@ -398,6 +398,7 @@ async function initSettings() {
     : "Für „Nächste Staffel“ und automatische Löschregeln erforderlich.";
   const tmdb = await api.tmdbConfigGet();
   applyTmdbCfg(tmdb);
+  applyAiConfig(await api.aiConfigGet());
   const auto = await api.automationConfigGet();
   applyAutomationCfg(auto);
   applyUpdaterConfig(await api.updaterConfigGet());

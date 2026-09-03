@@ -1279,9 +1279,10 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 8px clamp(22px, 4vw, 64px) 20px 2px;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
+  touch-action: pan-y;
 }
 .home-track::-webkit-scrollbar { display: none; }
 .home-card {
