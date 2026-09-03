@@ -333,6 +333,21 @@
       </section>
 
       <div class="home-rails" aria-live="polite">
+        <section id="home-ai-rail" class="home-rail home-ai-rail" aria-labelledby="home-ai-title" hidden>
+          <header class="home-rail-head home-ai-head">
+            <div>
+              <span class="home-ai-signal"><i aria-hidden="true"></i> Lokal kuratiert</span>
+              <h2 id="home-ai-title">Royal Auswahl</h2>
+              <p id="home-ai-note">Ollama verbindet deinen Geschmack mit dem aktuellen Katalog.</p>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-ai-track" data-direction="-1" aria-label="KI-Auswahl nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-ai-track" class="home-track home-ai-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
+        </section>
+
         <section class="home-rail home-rail-spotlight" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
             <div>
@@ -1263,7 +1278,7 @@
               </button>
               <button class="settings-launch-card is-service" type="button" data-settings-open="settings-media">
                 <span class="settings-launch-symbol" aria-hidden="true">◫</span>
-                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Jellyfin, Seerr, TMDB und Telegram</em></span>
+                <span class="settings-launch-copy"><small>VERBINDUNGEN</small><strong>Externe Dienste</strong><em>Jellyfin, Ollama, Seerr, TMDB und Telegram</em></span>
                 <i aria-hidden="true">→</i>
               </button>
               <button class="settings-launch-card is-auto" type="button" data-settings-open="settings-automation">
@@ -1531,6 +1546,34 @@
             <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB">
             <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
           </a>
+        </div>
+
+        <div class="settings-group settings-card ai-settings-card">
+          <div class="ai-settings-heading">
+            <div>
+              <h3>Royal KI · Ollama</h3>
+              <p class="dim settings-hint">Kuratiert vorhandene Titel lokal. Downloads, Provider und Queue bleiben vollständig unabhängig.</p>
+            </div>
+            <span class="ai-local-badge">LOKAL</span>
+          </div>
+          <label class="auto-toggle-row">
+            <input id="ai-enabled" type="checkbox">
+            <span>Intelligente Discovery aktivieren</span>
+          </label>
+          <div class="ai-settings-grid">
+            <label class="auto-lbl" for="ai-url">Ollama-Adresse
+              <input id="ai-url" type="url" autocomplete="off" placeholder="http://ollama:11434">
+            </label>
+            <label class="auto-lbl" for="ai-model">Modell
+              <input id="ai-model" type="text" list="ai-models" autocomplete="off" placeholder="llama3.2:3b">
+              <datalist id="ai-models"></datalist>
+            </label>
+          </div>
+          <div class="ai-settings-actions">
+            <p id="ai-status" class="dim small-status" role="status">Deaktiviert · Royal nutzt das klassische Ranking.</p>
+            <button id="ai-test" class="btn btn-ghost btn-sm" type="button">Verbindung testen</button>
+          </div>
+          <p class="ai-privacy-note"><span aria-hidden="true">⌂</span> Metadaten und dein kompaktes Geschmacksprofil bleiben in deinem Heimnetz.</p>
         </div>
 
         <div class="settings-group settings-card telegram-settings">
@@ -2314,6 +2357,7 @@
 <script src="/screens/library.js?v=royal-20260823-1"></script>
 <script src="/screens/notifications.js?v=royal-20260825-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
+<script src="/ai-discovery.js?v=royal-20260903-1"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>

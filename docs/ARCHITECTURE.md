@@ -26,6 +26,7 @@ backpressure remain independent from HTTP authentication policy.
 |---|---|---|
 | Auth and setup | `api_auth_router.py`, `api_setup_router.py` | sessions, first-run transaction |
 | Discovery | `api_discovery_router.py` | provider catalogs and metadata |
+| Optional AI discovery | `api_ai_router.py` | Ollama presentation ranking over existing catalog candidates |
 | Queue | `api_queue_router.py` | job controls; persistent model in `queue_jobs.py`, lifecycle in application services |
 | Library | `api_library_router.py` | subscriptions, watchlist, cleanup |
 | Jellyfin settings | `api_administration_router.py` | library snapshots and matching |

@@ -13,16 +13,74 @@ const HOME_RAIL_CATALOG = [
   { id: "library", trackId: "home-library-track", title: "Schon in deiner Mediathek", eyebrow: "Jellyfin", description: "Direkter Zugriff auf bereits vorhandene Titel." },
 ];
 const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "top", "series", "genre", "explore", "gems", "fresh"];
+const HOME_RAIL_SCROLL_DURATION_MS = 760;
+const HOME_RAIL_GESTURE_FACTOR = 0.72;
+const homeRailAnimations = new WeakMap();
+const homeRailGestures = new WeakMap();
+
+function setHomeRailCycleAccessibility(element, cycle) {
+  const interactive = element.querySelectorAll?.("a, button, input, select, textarea, [tabindex]") || [];
+  const duplicate = cycle !== 1;
+  if (duplicate) element.setAttribute?.("aria-hidden", "true");
+  else element.removeAttribute?.("aria-hidden");
+  interactive.forEach((control) => {
+    if (duplicate) {
+      if (!control.hasAttribute("data-home-loop-tabindex")) {
+        control.setAttribute("data-home-loop-tabindex", control.getAttribute("tabindex") ?? "");
+      }
+      control.setAttribute("tabindex", "-1");
+    } else if (control.hasAttribute("data-home-loop-tabindex")) {
+      const previous = control.getAttribute("data-home-loop-tabindex");
+      if (previous) control.setAttribute("tabindex", previous);
+      else control.removeAttribute("tabindex");
+      control.removeAttribute("data-home-loop-tabindex");
+    }
+  });
+}
+
+function homeRailLoopSize(track) {
+  const count = Number(track?.dataset?.homeLoopCount || 0);
+  if (!track || count < 2) return 0;
+  const first = track.children[0];
+  const repeated = track.children[count];
+  const measured = Number(repeated?.offsetLeft) - Number(first?.offsetLeft);
+  return measured > 0 ? measured : track.scrollWidth / 3;
+}
+
+function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
+  const size = homeRailLoopSize(track);
+  if (!size) return 0;
+  let next = track.scrollLeft;
+  if (forceMiddle && next < size * 0.5) next += size;
+  while (next < size * 0.45) next += size;
+  while (next > size * 1.55) next -= size;
+  if (Math.abs(next - track.scrollLeft) > 1) track.scrollLeft = next;
+  return size;
+}
+
+function prepareHomeRailLoop(track, logicalCount) {
+  if (!track) return;
+  track.dataset ||= {};
+  track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
+  if (logicalCount < 2) return;
+  const position = () => {
+    if (track.dataset.homeLoopReady !== "true") {
+      normalizeHomeRailLoop(track, { forceMiddle: true });
+      track.dataset.homeLoopReady = "true";
+    } else {
+      normalizeHomeRailLoop(track);
+    }
+  };
+  position();
+  requestAnimationFrame(position);
+}
 
 function updateHomeRailNavigation(track) {
   if (!track?.id) return;
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
-  const atStart = track.scrollLeft <= 2;
-  const atEnd = track.scrollLeft >= maxScroll - 2;
   document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
-    const direction = Number(button.dataset.direction) || 1;
-    button.hidden = !canScroll || (direction < 0 ? atStart : atEnd);
+    button.hidden = !canScroll;
   });
 }
 
@@ -66,17 +124,47 @@ function restoreHomeRailScroll(track, scrollLeft = 0) {
 function moveHomeRail(button) {
   const track = document.getElementById(button.dataset.homeScroll);
   if (!track) return;
+  normalizeHomeRailLoop(track, { forceMiddle: true });
   const direction = Number(button.dataset.direction) || 1;
   const distance = Math.max(280, track.clientWidth * 0.82);
-  const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
-  const target = Math.max(0, Math.min(track.scrollLeft + direction * distance, maximum));
+  const target = track.scrollLeft + direction * distance;
   state.home.railScrollTargets ||= {};
   state.home.railScrollPositions ||= {};
   // Das Ziel muss vor dem asynchronen Smooth-Scroll feststehen. Andernfalls
   // kann ein Poster-Update im selben Frame noch den alten Wert 0 konservieren.
   state.home.railScrollTargets[track.id] = target;
   state.home.railScrollPositions[track.id] = target;
-  track.scrollTo({ left: target, behavior: "smooth" });
+  animateHomeRail(track, target);
+}
+
+function animateHomeRail(track, target) {
+  const previous = homeRailAnimations.get(track);
+  if (previous) cancelAnimationFrame(previous);
+  if (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    track.scrollLeft = target;
+    normalizeHomeRailLoop(track);
+    delete state.home.railScrollTargets?.[track.id];
+    rememberHomeRailScroll(track, { force: true });
+    return;
+  }
+  const start = track.scrollLeft;
+  const startedAt = globalThis.performance?.now?.() ?? Date.now();
+  track.dataset.homeLoopAnimating = "true";
+  const step = (now) => {
+    const progress = Math.min(1, (now - startedAt) / HOME_RAIL_SCROLL_DURATION_MS);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    track.scrollLeft = start + (target - start) * eased;
+    if (progress < 1) {
+      homeRailAnimations.set(track, requestAnimationFrame(step));
+      return;
+    }
+    homeRailAnimations.delete(track);
+    delete track.dataset.homeLoopAnimating;
+    normalizeHomeRailLoop(track);
+    delete state.home.railScrollTargets?.[track.id];
+    rememberHomeRailScroll(track, { force: true });
+  };
+  homeRailAnimations.set(track, requestAnimationFrame(step));
 }
 
 function initHomeRailScrolling() {
@@ -88,6 +176,9 @@ function initHomeRailScrolling() {
   home.addEventListener("scroll", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track) return;
+    if (track.dataset.homeLoopAnimating !== "true" && track.dataset.homeLoopDragging !== "true") {
+      normalizeHomeRailLoop(track);
+    }
     rememberHomeRailScroll(track);
     updateHomeRailNavigation(track);
   }, true);
@@ -95,12 +186,69 @@ function initHomeRailScrolling() {
     const track = event.target.closest?.(".home-track");
     if (!track?.id) return;
     delete state.home.railScrollTargets?.[track.id];
-  }, { passive: true, capture: true });
+    const horizontalDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.shiftKey ? event.deltaY : 0;
+    if (!horizontalDelta) return;
+    event.preventDefault();
+    track.scrollLeft += horizontalDelta * HOME_RAIL_GESTURE_FACTOR;
+    normalizeHomeRailLoop(track);
+  }, { passive: false, capture: true });
   home.addEventListener("pointerdown", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track?.id || event.target.closest?.("[data-home-scroll]")) return;
     delete state.home.railScrollTargets?.[track.id];
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    normalizeHomeRailLoop(track, { forceMiddle: true });
+    homeRailGestures.set(track, {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: track.scrollLeft,
+      moved: false,
+    });
+    track.dataset.homeLoopDragging = "true";
+    track.setPointerCapture?.(event.pointerId);
   }, true);
+  home.addEventListener("pointermove", (event) => {
+    const track = event.target.closest?.(".home-track");
+    const gesture = track && homeRailGestures.get(track);
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.moved && Math.abs(deltaX) < 7) return;
+    if (!gesture.moved && Math.abs(deltaY) > Math.abs(deltaX)) {
+      homeRailGestures.delete(track);
+      delete track.dataset.homeLoopDragging;
+      track.releasePointerCapture?.(event.pointerId);
+      return;
+    }
+    gesture.moved = true;
+    event.preventDefault();
+    const intended = gesture.scrollLeft - deltaX * HOME_RAIL_GESTURE_FACTOR;
+    track.scrollLeft = intended;
+    normalizeHomeRailLoop(track);
+    gesture.scrollLeft += track.scrollLeft - intended;
+  }, { passive: false, capture: true });
+  const finishGesture = (event) => {
+    const track = event.target.closest?.(".home-track");
+    const gesture = track && homeRailGestures.get(track);
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    homeRailGestures.delete(track);
+    delete track.dataset.homeLoopDragging;
+    track.releasePointerCapture?.(event.pointerId);
+    if (!gesture.moved) return;
+    const suppressAccidentalClick = (clickEvent) => {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+    };
+    track.addEventListener("click", suppressAccidentalClick, { capture: true, once: true });
+    window.setTimeout(() => track.removeEventListener("click", suppressAccidentalClick, true), 350);
+    normalizeHomeRailLoop(track);
+    rememberHomeRailScroll(track, { force: true });
+  };
+  home.addEventListener("pointerup", finishGesture, true);
+  home.addEventListener("pointercancel", finishGesture, true);
 }
 
 function defaultHomeLayout() {

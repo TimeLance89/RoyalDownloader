@@ -1135,7 +1135,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: () => createHomeCard(entry, rank, index < eagerCount, variant),
+        create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }));

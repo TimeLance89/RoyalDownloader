@@ -15,4 +15,5 @@
 | [Dependency updates](DEPENDENCY_UPDATES.md) | Reviewed dependency and image update policy |
 | [Jellyfin recommendations](JELLYFIN_RECOMMENDER.md) | Automatically maintained recommendation collection |
 | [Personalization](PERSONALIZATION.md) | Cross-device taste signals, ranking, privacy, and controls |
+| [Local AI discovery](OLLAMA_DISCOVERY.md) | Optional Ollama ranking, privacy, configuration, and fallback behavior |
 | [Repository migration](REPOSITORY_RENAME.md) | Move existing clones and installations to `RoyalDownloader` |

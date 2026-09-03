@@ -659,7 +659,11 @@ test("home programme planner controls visibility, order, and fast artwork", () =
 });
 
 test("home carousel keeps its scroll position across artwork rerenders", () => {
-  const helperStart = homeLayoutEditor.indexOf("function updateHomeRailNavigation(track)");
+  assert.match(homeRailRuntime, /\[0, 1, 2\]\.flatMap/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_SCROLL_DURATION_MS = 760/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_GESTURE_FACTOR = 0\.72/);
+  assert.match(homeLayoutEditor, /normalizeHomeRailLoop\(track/);
+  const helperStart = homeLayoutEditor.indexOf("const HOME_RAIL_SCROLL_DURATION_MS");
   const helperEnd = homeLayoutEditor.indexOf("function defaultHomeLayout()", helperStart);
   const renderStart = home.indexOf("function renderHomeRail(");
   const renderEnd = home.indexOf("function renderHome(", renderStart);
@@ -696,10 +700,11 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   // must restore the requested target, not the still-current zero position.
   track.scrollLeft = 0;
   vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
-  assert.ok(Math.abs(track.requestedScrollLeft - 492) < 0.01);
+  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 1092) < 0.01);
   track.scrollLeft = 137;
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
-  assert.equal(track.scrollLeft, 137);
+  assert.equal(track.scrollLeft % 600, 137);
+  assert.equal(track.children.length, 36);
   assert.equal(track.replaceCount || 0, 0);
 });
 

@@ -25,6 +25,7 @@ from runtime_cache import BoundedTTLCache
 from runtime_paths import data_dir
 from taste_profile import TasteProfileStore
 from tmdb_client import TMDBClient
+from ai_discovery import AiDiscoveryService
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class AppState:
         self.hoster_intel = HosterIntel()
         self.taste_profile = TasteProfileStore(appconfig.taste_profile_file())
         self.home_layout = HomeLayoutStore(appconfig.home_layout_file())
+        self.ai_discovery = AiDiscoveryService(appconfig.load_ai())
 
         self.jellyfin_cfg: dict = appconfig.load_jellyfin()
         self.tmdb_cfg: dict = appconfig.load_tmdb()
