@@ -60,8 +60,14 @@ function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
 function prepareHomeRailLoop(track, logicalCount) {
   if (!track) return;
   track.dataset ||= {};
+  const wasLooping = Number(track.dataset.homeLoopCount || 0) > 1;
   track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
   if (logicalCount < 2) {
+    if (wasLooping) {
+      track.scrollLeft = 0;
+      delete state.home.railScrollPositions?.[track.id];
+      delete state.home.railScrollTargets?.[track.id];
+    }
     delete track.dataset.homeLoopReady;
     return;
   }
@@ -81,8 +87,12 @@ function updateHomeRailNavigation(track) {
   if (!track?.id) return;
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
+  const looping = Number(track.dataset.homeLoopCount || 0) > 1;
+  const atStart = track.scrollLeft <= 2;
+  const atEnd = track.scrollLeft >= maxScroll - 2;
   document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
-    button.hidden = !canScroll;
+    const direction = Number(button.dataset.direction) || 1;
+    button.hidden = !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
   });
 }
 
@@ -129,7 +139,11 @@ function moveHomeRail(button) {
   normalizeHomeRailLoop(track, { forceMiddle: true });
   const direction = Number(button.dataset.direction) || 1;
   const distance = Math.max(260, track.clientWidth * HOME_RAIL_SCROLL_STEP_RATIO);
-  const target = track.scrollLeft + direction * distance;
+  const requested = track.scrollLeft + direction * distance;
+  const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+  const target = homeRailLoopSize(track)
+    ? requested
+    : Math.max(0, Math.min(requested, maximum));
   state.home.railScrollTargets ||= {};
   state.home.railScrollPositions ||= {};
   // Das Ziel muss vor dem asynchronen Smooth-Scroll feststehen. Andernfalls

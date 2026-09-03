@@ -1138,7 +1138,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
         create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
-  }), { loop: layout !== "spotlight" });
+  }), { loop: layout !== "spotlight" && !ranked });
 }
 function renderHome({ force = false } = {}) {
   rememberAllHomeRailScroll();

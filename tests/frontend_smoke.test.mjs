@@ -660,7 +660,7 @@ test("home programme planner controls visibility, order, and fast artwork", () =
 
 test("home carousels loop naturally without duplicating the spotlight grid", () => {
   assert.match(homeRailRuntime, /loop && logicalCount > 1/);
-  assert.match(home, /\{ loop: layout !== "spotlight" \}/);
+  assert.match(home, /\{ loop: layout !== "spotlight" && !ranked \}/);
   assert.match(homeLayoutEditor, /HOME_RAIL_SCROLL_STEP_RATIO = 0\.68/);
   assert.match(homeLayoutEditor, /HOME_RAIL_WHEEL_FACTOR = 0\.78/);
   assert.match(homeLayoutEditor, /behavior: reducedMotion \? "auto" : "smooth"/);
@@ -716,6 +716,12 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
   track.scrollLeft = 0;
   vm.runInContext('renderHomeRail("home-test-track", entries, { layout: "spotlight" })', context);
   assert.equal(track.children.length, 7);
+  assert.equal(track.dataset.homeLoopCount, "0");
+
+  track.children = [];
+  track.scrollLeft = 0;
+  vm.runInContext('renderHomeRail("home-test-track", entries.slice(0, 10), { ranked: true })', context);
+  assert.equal(track.children.length, 10);
   assert.equal(track.dataset.homeLoopCount, "0");
 });
 
