@@ -32,9 +32,9 @@ function syncHomeCardContent(card, entry, rank = 0) {
   }
 }
 
-function reconcileHomeRail(track, specs) {
+function reconcileHomeRail(track, specs, { loop = true } = {}) {
   const logicalCount = specs.length;
-  const renderedSpecs = logicalCount > 1
+  const renderedSpecs = loop && logicalCount > 1
     ? [0, 1, 2].flatMap((cycle) => specs.map((spec) => ({ ...spec, cycle })))
     : specs.map((spec) => ({ ...spec, cycle: 1 }));
   renderedSpecs.forEach((spec, index) => {
@@ -53,6 +53,6 @@ function reconcileHomeRail(track, specs) {
     else track.appendChild(replacement);
   });
   while (track.children.length > renderedSpecs.length) track.lastElementChild.remove();
-  prepareHomeRailLoop(track, logicalCount);
+  prepareHomeRailLoop(track, loop ? logicalCount : 0);
   updateHomeRailNavigation(track);
 }

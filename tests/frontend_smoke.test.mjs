@@ -658,12 +658,16 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
 });
 
-test("home carousel keeps its scroll position across artwork rerenders", () => {
-  assert.match(homeRailRuntime, /\[0, 1, 2\]\.flatMap/);
-  assert.match(homeLayoutEditor, /HOME_RAIL_SCROLL_DURATION_MS = 760/);
-  assert.match(homeLayoutEditor, /HOME_RAIL_GESTURE_FACTOR = 0\.72/);
+test("home carousels loop naturally without duplicating the spotlight grid", () => {
+  assert.match(homeRailRuntime, /loop && logicalCount > 1/);
+  assert.match(home, /const loop = layout !== "spotlight"/);
+  assert.match(home, /\}\), \{ loop \}\);/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_SCROLL_STEP_RATIO = 0\.68/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_WHEEL_FACTOR = 0\.78/);
+  assert.match(homeLayoutEditor, /behavior: reducedMotion \? "auto" : "smooth"/);
+  assert.doesNotMatch(homeLayoutEditor, /pointermove/);
   assert.match(homeLayoutEditor, /normalizeHomeRailLoop\(track/);
-  const helperStart = homeLayoutEditor.indexOf("const HOME_RAIL_SCROLL_DURATION_MS");
+  const helperStart = homeLayoutEditor.indexOf("const HOME_RAIL_SCROLL_STEP_RATIO");
   const helperEnd = homeLayoutEditor.indexOf("function defaultHomeLayout()", helperStart);
   const renderStart = home.indexOf("function renderHomeRail(");
   const renderEnd = home.indexOf("function renderHome(", renderStart);
@@ -679,6 +683,8 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
     state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {}, jellyfinStatusByKey: new Map() } },
     document: { getElementById: () => track, querySelectorAll: () => [] },
     requestAnimationFrame: (callback) => animationFrames.push(callback),
+    clearTimeout: () => {},
+    window: { setTimeout: () => 1 },
     updateHomeRailNavigation: () => {},
     createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null }),
     homeEntryMedia: (entry) => entry.item || entry,
@@ -700,12 +706,18 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   // must restore the requested target, not the still-current zero position.
   track.scrollLeft = 0;
   vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
-  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 1092) < 0.01);
+  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 1008) < 0.01);
   track.scrollLeft = 137;
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
   assert.equal(track.scrollLeft % 600, 137);
   assert.equal(track.children.length, 36);
   assert.equal(track.replaceCount || 0, 0);
+
+  track.children = [];
+  track.scrollLeft = 0;
+  vm.runInContext('renderHomeRail("home-test-track", entries, { layout: "spotlight" })', context);
+  assert.equal(track.children.length, 7);
+  assert.equal(track.dataset.homeLoopCount, "0");
 });
 
 test("evening direction is progressive, explainable, and optionally deep", () => {
