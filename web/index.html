@@ -345,6 +345,14 @@
               <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
             </div>
           </header>
+          <div id="home-ai-state" class="home-ai-state" role="status" hidden>
+            <span class="home-ai-state-mark" aria-hidden="true">✦</span>
+            <div>
+              <strong id="home-ai-state-title">Royal KI wird vorbereitet</strong>
+              <span id="home-ai-state-message">Ollama wartet auf Katalogdaten.</span>
+            </div>
+            <button id="home-ai-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
+          </div>
           <div id="home-ai-track" class="home-track home-ai-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
         </section>
 
@@ -1568,6 +1576,9 @@
               <input id="ai-model" type="text" list="ai-models" autocomplete="off" placeholder="llama3.2:3b">
               <datalist id="ai-models"></datalist>
             </label>
+            <label class="auto-lbl" for="ai-timeout">Zeitlimit
+              <span class="ai-timeout-input"><input id="ai-timeout" type="number" min="30" max="300" value="180"><span>Sek.</span></span>
+            </label>
           </div>
           <div class="ai-settings-actions">
             <p id="ai-status" class="dim small-status" role="status">Deaktiviert · Royal nutzt das klassische Ranking.</p>
@@ -2357,7 +2368,7 @@
 <script src="/screens/library.js?v=royal-20260823-1"></script>
 <script src="/screens/notifications.js?v=royal-20260825-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
-<script src="/ai-discovery.js?v=royal-20260903-2"></script>
+<script src="/ai-discovery.js?v=royal-20260903-3"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>

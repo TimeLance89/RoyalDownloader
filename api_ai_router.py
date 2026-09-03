@@ -19,7 +19,7 @@ class AiConfigBody(BaseModel):
         default="llama3.2:3b", min_length=1, max_length=120,
         pattern=r"^[A-Za-z0-9._:/-]+$",
     )
-    timeout_seconds: int = Field(default=20, ge=5, le=90)
+    timeout_seconds: int = Field(default=180, ge=30, le=300)
 
 
 class AiCandidate(BaseModel):
@@ -42,7 +42,7 @@ def _public_config(config: dict) -> dict:
         "provider": "ollama",
         "url": config.get("url", "http://127.0.0.1:11434"),
         "model": config.get("model", "llama3.2:3b"),
-        "timeout_seconds": int(config.get("timeout_seconds", 20)),
+        "timeout_seconds": int(config.get("timeout_seconds", 180)),
         "configured": bool(config.get("enabled") and config.get("url") and config.get("model")),
         "privacy": "An Ollama werden nur Metadaten und ein kompaktes Geschmacksprofil gesendet.",
     }
@@ -121,7 +121,10 @@ def create_ai_router(state) -> APIRouter:
                 "enabled": True,
                 "available": False,
                 "recommendations": [],
-                "message": "Die KI-Empfehlungen sind vorübergehend nicht verfügbar.",
+                "message": (
+                    "Ollama konnte keine gültige Auswahl liefern. Verbindung prüfen, "
+                    "Zeitlimit erhöhen oder ein kleineres Modell wählen."
+                ),
             }
         return {
             "enabled": True,
