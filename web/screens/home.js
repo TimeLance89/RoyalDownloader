@@ -1106,8 +1106,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
 function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
   const track = document.getElementById(trackId);
   if (!track) return;
-  const loop = layout !== "spotlight";
-  track.classList.toggle("is-spotlight-track", !loop);
+  track.classList.toggle("is-spotlight-track", layout === "spotlight");
   if (!entries.length) {
     if (!state.home.loading) {
       reconcileHomeRail(track, [{ signature: "empty", create: () => {
@@ -1139,7 +1138,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
         create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
-  }), { loop });
+  }), { loop: layout !== "spotlight" });
 }
 function renderHome({ force = false } = {}) {
   rememberAllHomeRailScroll();
