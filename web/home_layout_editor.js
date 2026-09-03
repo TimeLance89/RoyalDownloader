@@ -13,10 +13,9 @@ const HOME_RAIL_CATALOG = [
   { id: "library", trackId: "home-library-track", title: "Schon in deiner Mediathek", eyebrow: "Jellyfin", description: "Direkter Zugriff auf bereits vorhandene Titel." },
 ];
 const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "top", "series", "genre", "explore", "gems", "fresh"];
-const HOME_RAIL_SCROLL_DURATION_MS = 760;
-const HOME_RAIL_GESTURE_FACTOR = 0.72;
-const homeRailAnimations = new WeakMap();
-const homeRailGestures = new WeakMap();
+const HOME_RAIL_SCROLL_STEP_RATIO = 0.68;
+const HOME_RAIL_WHEEL_FACTOR = 0.78;
+const homeRailSettleTimers = new WeakMap();
 
 function setHomeRailCycleAccessibility(element, cycle) {
   const interactive = element.querySelectorAll?.("a, button, input, select, textarea, [tabindex]") || [];
@@ -52,8 +51,8 @@ function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
   if (!size) return 0;
   let next = track.scrollLeft;
   if (forceMiddle && next < size * 0.5) next += size;
-  while (next < size * 0.45) next += size;
-  while (next > size * 1.55) next -= size;
+  while (next < size * 0.2) next += size;
+  while (next > size * 1.8) next -= size;
   if (Math.abs(next - track.scrollLeft) > 1) track.scrollLeft = next;
   return size;
 }
@@ -61,8 +60,17 @@ function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
 function prepareHomeRailLoop(track, logicalCount) {
   if (!track) return;
   track.dataset ||= {};
+  const wasLooping = Number(track.dataset.homeLoopCount || 0) > 1;
   track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
-  if (logicalCount < 2) return;
+  if (logicalCount < 2) {
+    if (wasLooping) {
+      track.scrollLeft = 0;
+      delete state.home.railScrollPositions?.[track.id];
+      delete state.home.railScrollTargets?.[track.id];
+    }
+    delete track.dataset.homeLoopReady;
+    return;
+  }
   const position = () => {
     if (track.dataset.homeLoopReady !== "true") {
       normalizeHomeRailLoop(track, { forceMiddle: true });
@@ -79,8 +87,12 @@ function updateHomeRailNavigation(track) {
   if (!track?.id) return;
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
+  const looping = Number(track.dataset.homeLoopCount || 0) > 1;
+  const atStart = track.scrollLeft <= 2;
+  const atEnd = track.scrollLeft >= maxScroll - 2;
   document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
-    button.hidden = !canScroll;
+    const direction = Number(button.dataset.direction) || 1;
+    button.hidden = !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
   });
 }
 
@@ -126,45 +138,35 @@ function moveHomeRail(button) {
   if (!track) return;
   normalizeHomeRailLoop(track, { forceMiddle: true });
   const direction = Number(button.dataset.direction) || 1;
-  const distance = Math.max(280, track.clientWidth * 0.82);
-  const target = track.scrollLeft + direction * distance;
+  const distance = Math.max(260, track.clientWidth * HOME_RAIL_SCROLL_STEP_RATIO);
+  const requested = track.scrollLeft + direction * distance;
+  const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+  const target = homeRailLoopSize(track)
+    ? requested
+    : Math.max(0, Math.min(requested, maximum));
   state.home.railScrollTargets ||= {};
   state.home.railScrollPositions ||= {};
   // Das Ziel muss vor dem asynchronen Smooth-Scroll feststehen. Andernfalls
   // kann ein Poster-Update im selben Frame noch den alten Wert 0 konservieren.
   state.home.railScrollTargets[track.id] = target;
   state.home.railScrollPositions[track.id] = target;
-  animateHomeRail(track, target);
+  track.dataset.homeLoopAnimating = "true";
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  track.scrollTo({ left: target, behavior: reducedMotion ? "auto" : "smooth" });
+  scheduleHomeRailSettle(track, 700);
 }
 
-function animateHomeRail(track, target) {
-  const previous = homeRailAnimations.get(track);
-  if (previous) cancelAnimationFrame(previous);
-  if (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-    track.scrollLeft = target;
-    normalizeHomeRailLoop(track);
-    delete state.home.railScrollTargets?.[track.id];
-    rememberHomeRailScroll(track, { force: true });
-    return;
-  }
-  const start = track.scrollLeft;
-  const startedAt = globalThis.performance?.now?.() ?? Date.now();
-  track.dataset.homeLoopAnimating = "true";
-  const step = (now) => {
-    const progress = Math.min(1, (now - startedAt) / HOME_RAIL_SCROLL_DURATION_MS);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    track.scrollLeft = start + (target - start) * eased;
-    if (progress < 1) {
-      homeRailAnimations.set(track, requestAnimationFrame(step));
-      return;
-    }
-    homeRailAnimations.delete(track);
+function scheduleHomeRailSettle(track, delay = 140) {
+  const previous = homeRailSettleTimers.get(track);
+  if (previous) clearTimeout(previous);
+  const timer = window.setTimeout(() => {
+    homeRailSettleTimers.delete(track);
     delete track.dataset.homeLoopAnimating;
     normalizeHomeRailLoop(track);
     delete state.home.railScrollTargets?.[track.id];
     rememberHomeRailScroll(track, { force: true });
-  };
-  homeRailAnimations.set(track, requestAnimationFrame(step));
+  }, delay);
+  homeRailSettleTimers.set(track, timer);
 }
 
 function initHomeRailScrolling() {
@@ -176,9 +178,8 @@ function initHomeRailScrolling() {
   home.addEventListener("scroll", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track) return;
-    if (track.dataset.homeLoopAnimating !== "true" && track.dataset.homeLoopDragging !== "true") {
-      normalizeHomeRailLoop(track);
-    }
+    if (track.dataset.homeLoopAnimating === "true") scheduleHomeRailSettle(track);
+    else normalizeHomeRailLoop(track);
     rememberHomeRailScroll(track);
     updateHomeRailNavigation(track);
   }, true);
@@ -191,64 +192,15 @@ function initHomeRailScrolling() {
       : event.shiftKey ? event.deltaY : 0;
     if (!horizontalDelta) return;
     event.preventDefault();
-    track.scrollLeft += horizontalDelta * HOME_RAIL_GESTURE_FACTOR;
+    track.scrollLeft += horizontalDelta * HOME_RAIL_WHEEL_FACTOR;
     normalizeHomeRailLoop(track);
   }, { passive: false, capture: true });
   home.addEventListener("pointerdown", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track?.id || event.target.closest?.("[data-home-scroll]")) return;
     delete state.home.railScrollTargets?.[track.id];
-    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
     normalizeHomeRailLoop(track, { forceMiddle: true });
-    homeRailGestures.set(track, {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      scrollLeft: track.scrollLeft,
-      moved: false,
-    });
-    track.dataset.homeLoopDragging = "true";
-    track.setPointerCapture?.(event.pointerId);
   }, true);
-  home.addEventListener("pointermove", (event) => {
-    const track = event.target.closest?.(".home-track");
-    const gesture = track && homeRailGestures.get(track);
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - gesture.startX;
-    const deltaY = event.clientY - gesture.startY;
-    if (!gesture.moved && Math.abs(deltaX) < 7) return;
-    if (!gesture.moved && Math.abs(deltaY) > Math.abs(deltaX)) {
-      homeRailGestures.delete(track);
-      delete track.dataset.homeLoopDragging;
-      track.releasePointerCapture?.(event.pointerId);
-      return;
-    }
-    gesture.moved = true;
-    event.preventDefault();
-    const intended = gesture.scrollLeft - deltaX * HOME_RAIL_GESTURE_FACTOR;
-    track.scrollLeft = intended;
-    normalizeHomeRailLoop(track);
-    gesture.scrollLeft += track.scrollLeft - intended;
-  }, { passive: false, capture: true });
-  const finishGesture = (event) => {
-    const track = event.target.closest?.(".home-track");
-    const gesture = track && homeRailGestures.get(track);
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    homeRailGestures.delete(track);
-    delete track.dataset.homeLoopDragging;
-    track.releasePointerCapture?.(event.pointerId);
-    if (!gesture.moved) return;
-    const suppressAccidentalClick = (clickEvent) => {
-      clickEvent.preventDefault();
-      clickEvent.stopPropagation();
-    };
-    track.addEventListener("click", suppressAccidentalClick, { capture: true, once: true });
-    window.setTimeout(() => track.removeEventListener("click", suppressAccidentalClick, true), 350);
-    normalizeHomeRailLoop(track);
-    rememberHomeRailScroll(track, { force: true });
-  };
-  home.addEventListener("pointerup", finishGesture, true);
-  home.addEventListener("pointercancel", finishGesture, true);
 }
 
 function defaultHomeLayout() {

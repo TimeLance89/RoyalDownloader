@@ -136,7 +136,7 @@ function relayHomeCardDockWheel(event) {
   event.preventDefault();
   hideHomeCardDock({ immediate: true });
   if (horizontal) {
-    const speed = typeof HOME_RAIL_GESTURE_FACTOR === "number" ? HOME_RAIL_GESTURE_FACTOR : 0.72;
+    const speed = typeof HOME_RAIL_WHEEL_FACTOR === "number" ? HOME_RAIL_WHEEL_FACTOR : 0.78;
     track.scrollLeft += (event.deltaX || event.deltaY) * lineFactor * speed;
     if (typeof normalizeHomeRailLoop === "function") normalizeHomeRailLoop(track);
   } else {

@@ -1114,7 +1114,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
         empty.className = "home-rail-empty";
         empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
         return empty;
-      } }]);
+      } }], { loop: false });
       return;
     }
     reconcileHomeRail(track, Array.from({ length: 6 }, (_, index) => ({
@@ -1125,7 +1125,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
         skeleton.setAttribute("aria-hidden", "true");
         return skeleton;
       },
-    })));
+    })), { loop: false });
     return;
   }
   const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
@@ -1138,7 +1138,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
         create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
-  }));
+  }), { loop: layout !== "spotlight" && !ranked });
 }
 function renderHome({ force = false } = {}) {
   rememberAllHomeRailScroll();
