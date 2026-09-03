@@ -766,7 +766,11 @@ def load_ai() -> dict:
     )
     timeout = _opt_int(values.get("ai_timeout_seconds", ""))
     if timeout is None:
-        timeout = _env_int("OLLAMA_TIMEOUT_SECONDS") or 20
+        timeout = _env_int("OLLAMA_TIMEOUT_SECONDS") or 180
+    elif timeout == 20:
+        # Migration des ersten KI-Releases: 20 Sekunden waren für CPU-basierte
+        # NAS-Modelle zu knapp und ließen die Discovery scheinbar verschwinden.
+        timeout = 180
     return {
         "enabled": enabled,
         "provider": "ollama",
@@ -780,16 +784,16 @@ def load_ai() -> dict:
             or os.environ.get("OLLAMA_MODEL", "").strip()
             or "llama3.2:3b"
         ),
-        "timeout_seconds": max(5, min(90, int(timeout))),
+        "timeout_seconds": max(30, min(300, int(timeout))),
     }
 
 
-def save_ai(enabled: bool, url: str, model: str, timeout_seconds: int = 20) -> bool:
+def save_ai(enabled: bool, url: str, model: str, timeout_seconds: int = 180) -> bool:
     return _update_all({
         "ai_enabled": "true" if enabled else "false",
         "ai_url": str(url or "").strip().rstrip("/"),
         "ai_model": str(model or "").strip(),
-        "ai_timeout_seconds": str(max(5, min(90, int(timeout_seconds or 20)))),
+        "ai_timeout_seconds": str(max(30, min(300, int(timeout_seconds or 180)))),
     })
 
 

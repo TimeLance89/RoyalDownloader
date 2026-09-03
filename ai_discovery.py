@@ -29,7 +29,7 @@ class AiDiscoveryService:
     def test(self) -> dict:
         cfg = self.config()
         models = OllamaClient(
-            cfg["url"], cfg.get("model", ""), cfg.get("timeout_seconds", 20)
+            cfg["url"], cfg.get("model", ""), cfg.get("timeout_seconds", 180)
         ).models()
         return {
             "connected": True,
@@ -64,8 +64,8 @@ class AiDiscoveryService:
             "year": item.get("year"),
             "rating": item.get("rating"),
             "genres": item.get("genres", [])[:10],
-            "description": str(item.get("description") or "")[:420],
-        } for item in candidates[:48]]
+            "description": str(item.get("description") or "")[:180],
+        } for item in candidates[:24]]
         fingerprint = hashlib.sha256(json.dumps(
             {"model": cfg.get("model"), "profile": self._profile_summary(profile), "items": compact},
             ensure_ascii=False, sort_keys=True,
@@ -76,12 +76,12 @@ class AiDiscoveryService:
                 return list(cached[1])
 
         prompt = json.dumps({
-            "task": "Wähle bis zu 10 interessante Downloads, vielfältig über Typ und Genre.",
+            "task": "Wähle bis zu 8 interessante Downloads, vielfältig über Typ und Genre.",
             "taste_profile": self._profile_summary(profile),
             "candidates": compact,
         }, ensure_ascii=False)
         raw = OllamaClient(
-            cfg["url"], cfg.get("model", ""), cfg.get("timeout_seconds", 20)
+            cfg["url"], cfg.get("model", ""), cfg.get("timeout_seconds", 180)
         ).recommend(prompt)
         allowed = {item["key"] for item in compact}
         recommendations = []
@@ -109,7 +109,7 @@ class AiDiscoveryService:
                 "reason": str(item.get("reason") or "Passt zu deinem Royal-Profil.").strip()[:180],
                 "angle": angle,
             })
-            if len(recommendations) >= 10:
+            if len(recommendations) >= 8:
                 break
         if not recommendations:
             raise OllamaError("Ollama hat keine gültigen Kandidaten ausgewählt.")

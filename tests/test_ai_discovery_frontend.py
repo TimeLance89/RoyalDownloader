@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -20,3 +21,23 @@ def test_ai_ui_reuses_royal_home_cards_and_never_calls_queue_api():
     assert "api.aiRecommendations(candidates)" in script
     assert "queueAdd" not in script
     assert "download" not in script.casefold()
+
+
+def test_ai_status_distinguishes_saved_and_unsaved_activation():
+    index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "web" / "ai-discovery.js").read_text(encoding="utf-8")
+    assert "enabled !== state.ai.enabled" in script
+    assert "Aktivierung noch speichern." in script
+    assert "Aktiviert · ${state.ai.model" in script
+    assert 'ai-discovery.js?v=royal-20260903-3' in index
+
+
+def test_enabled_ai_discovery_exposes_loading_and_failure_states():
+    index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "web" / "ai-discovery.js").read_text(encoding="utf-8")
+    assert 'id="home-ai-state"' in index
+    assert 'id="home-ai-retry"' in index
+    assert 'id="ai-timeout"' in index
+    assert re.search(r'setAiDiscoveryState\(\s*"loading"', script)
+    assert 'setAiDiscoveryState("error"' in script
+    assert 'rail.hidden = !state.ai.enabled' in script
