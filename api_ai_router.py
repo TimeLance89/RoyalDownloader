@@ -97,7 +97,9 @@ def create_ai_router(state) -> APIRouter:
                     "model_available": body.model.strip() in models,
                 }
         except (OllamaError, ValueError) as exc:
-            raise HTTPException(502, str(exc)) from exc
+            raise HTTPException(
+                502, "Ollama ist nicht erreichbar oder antwortet ungültig."
+            ) from exc
         return {**result, "provider": "ollama"}
 
     @router.post("/api/v1/ai/recommendations")
@@ -112,14 +114,14 @@ def create_ai_router(state) -> APIRouter:
                 [candidate.model_dump() for candidate in body.candidates],
                 state.taste_profile.public_profile(),
             )
-        except (OllamaError, ValueError) as exc:
+        except (OllamaError, ValueError):
             # AI failure is a presentation-level degradation, not an API-wide
             # or downloader failure. The UI keeps the classic Royal ranking.
             return {
                 "enabled": True,
                 "available": False,
                 "recommendations": [],
-                "message": str(exc),
+                "message": "Die KI-Empfehlungen sind vorübergehend nicht verfügbar.",
             }
         return {
             "enabled": True,
