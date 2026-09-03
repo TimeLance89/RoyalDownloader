@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -37,6 +38,6 @@ def test_enabled_ai_discovery_exposes_loading_and_failure_states():
     assert 'id="home-ai-state"' in index
     assert 'id="home-ai-retry"' in index
     assert 'id="ai-timeout"' in index
-    assert 'setAiDiscoveryState("loading"' in script
+    assert re.search(r'setAiDiscoveryState\(\s*"loading"', script)
     assert 'setAiDiscoveryState("error"' in script
     assert 'rail.hidden = !state.ai.enabled' in script
