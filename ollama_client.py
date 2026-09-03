@@ -34,7 +34,7 @@ class OllamaClient:
         try:
             response = requests.get(
                 f"{self.base_url}/api/tags",
-                timeout=min(self.timeout_seconds, 15),
+                timeout=15,
                 allow_redirects=False,
             )
             response.raise_for_status()
