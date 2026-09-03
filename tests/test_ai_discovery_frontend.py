@@ -20,3 +20,12 @@ def test_ai_ui_reuses_royal_home_cards_and_never_calls_queue_api():
     assert "api.aiRecommendations(candidates)" in script
     assert "queueAdd" not in script
     assert "download" not in script.casefold()
+
+
+def test_ai_status_distinguishes_saved_and_unsaved_activation():
+    index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "web" / "ai-discovery.js").read_text(encoding="utf-8")
+    assert "enabled !== state.ai.enabled" in script
+    assert "Aktivierung noch speichern." in script
+    assert "Aktiviert · ${state.ai.model" in script
+    assert 'ai-discovery.js?v=royal-20260903-2' in index

@@ -16,7 +16,16 @@ function syncAiSettingsState() {
     if (element) element.disabled = !enabled;
   });
   const status = document.getElementById("ai-status");
-  if (status && !enabled) status.textContent = "Deaktiviert · Royal nutzt das klassische Ranking.";
+  if (!status) return;
+  if (enabled !== state.ai.enabled) {
+    status.textContent = enabled
+      ? "Aktivierung noch speichern."
+      : "Deaktivierung noch speichern.";
+  } else if (enabled) {
+    status.textContent = `Aktiviert · ${state.ai.model || "Ollama"} kuratiert die Discovery.`;
+  } else {
+    status.textContent = "Deaktiviert · Royal nutzt das klassische Ranking.";
+  }
 }
 
 function applyAiConfig(config = {}) {
@@ -52,10 +61,13 @@ async function testAiConnection() {
     status.textContent = result.model_available
       ? `Verbunden · ${models.length} Modell(e) verfügbar.`
       : `Verbunden · Modell noch nicht geladen (${models.length} verfügbar).`;
+    if (Boolean(document.getElementById("ai-enabled")?.checked) !== state.ai.enabled) {
+      status.textContent += " · Aktivierung noch speichern.";
+    }
   } catch (error) {
     status.textContent = `Nicht erreichbar · ${error.message}`;
   } finally {
-    button.disabled = false;
+    button.disabled = !document.getElementById("ai-enabled")?.checked;
   }
 }
 
