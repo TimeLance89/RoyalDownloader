@@ -310,6 +310,7 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
         "category": data["category"],
         "page": data["page"],
         "page_complete": data.get("page_complete", True),
+        "refresh_pending": data.get("refresh_pending", False),
         "has_more": data["has_more"],
         # Rückwärtskompatibel für ältere Web-Builds. Semantisch ist dies jetzt
         # korrekt: Eine weitere globale Seite ist tatsächlich vorhanden.

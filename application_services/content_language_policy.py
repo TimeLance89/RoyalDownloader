@@ -124,11 +124,14 @@ def _mix_movie_provider_results(
     provider_results,
     priority,
     claimed_identities: Optional[set[tuple]] = None,
+    newest_first: bool = False,
 ):
     """Deduplicate movies by identity, then balance visible DE/EN language lanes."""
 
     if not _mixed_german_english_enabled():
-        return _ORIGINAL_MIX_MOVIES(provider_results, priority, claimed_identities)
+        return _ORIGINAL_MIX_MOVIES(
+            provider_results, priority, claimed_identities, newest_first=newest_first,
+        )
 
     years_by_title = defaultdict(set)
     for results in provider_results.values():
@@ -162,6 +165,15 @@ def _mix_movie_provider_results(
             "matches": matches,
             "languages": languages,
         })
+
+    if newest_first:
+        ranks = {}
+        for provider_index, provider in enumerate(priority):
+            for index, result in enumerate(provider_results.get(provider, [])):
+                identity = _movie_result_identity(result, provider, years_by_title)
+                rank = (index, provider_index)
+                ranks[identity] = min(rank, ranks.get(identity, rank))
+        groups.sort(key=lambda group: ranks[group["identity"]])
 
     mixed = []
     for group, lane in _language_lane_order(groups):
