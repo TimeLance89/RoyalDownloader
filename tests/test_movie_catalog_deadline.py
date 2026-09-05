@@ -125,3 +125,39 @@ def test_partial_movie_page_is_marked_for_same_page_retry(monkeypatch):
     assert len(page["results"]) == 14
     assert page["has_more"] is True
     assert page["page_complete"] is False
+
+
+def test_full_page_still_reports_missing_active_provider(monkeypatch):
+    monkeypatch.setattr(movie_catalog, "provider_priority", lambda _: ["filmpalast", "kinoger"])
+    movies = [
+        FilmpalastSearchResult(title=f"Film {i}", slug=f"film-{i}", url=f"https://example.test/{i}")
+        for i in range(server.MOVIE_BROWSE_PAGE_SIZE + 1)
+    ]
+
+    def load(*_args):
+        _args[-1][0] = True
+        return {("filmpalast", 1): movies}
+
+    monkeypatch.setattr(movie_catalog, "_load_movie_provider_pages", load)
+    page = movie_catalog.movie_catalog_page("new", 1)
+    assert len(page["results"]) == server.MOVIE_BROWSE_PAGE_SIZE
+    assert page["refresh_pending"] is True
+    assert page["page_complete"] is False
+
+
+def test_new_movie_keeps_best_provider_position_and_preferred_source():
+    def movie(title, provider):
+        return FilmpalastSearchResult(
+            title=title, slug=f"{provider}:{title}", url=f"https://example.test/{title}",
+            provider=provider, content_language="de",
+        )
+
+    preferred = [movie(f"Film {i}", "filmpalast") for i in range(20)]
+    preferred.append(movie("Neuheit", "filmpalast"))
+    mixed = movie_catalog._mix_movie_provider_results(
+        {"filmpalast": preferred, "kinoger": [movie("Neuheit", "kinoger")]},
+        ["filmpalast", "kinoger"], newest_first=True,
+    )
+    assert mixed[1][1].title == "Neuheit"
+    assert mixed[1][0] == "filmpalast"
+    assert sum(result.title == "Neuheit" for _, result in mixed) == 1

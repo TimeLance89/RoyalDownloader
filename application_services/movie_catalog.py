@@ -17,6 +17,7 @@ globals().update(import_backend_namespace())
 # Eine Katalogantwort ist interaktiv. Langsame Anbieter duerfen ihre Futures
 # weiter im Hintergrund fuellen, aber nicht den sichtbaren Film-Tab blockieren.
 MOVIE_CATALOG_PAGE_BUDGET_SECONDS = 4.0
+MOVIE_NEW_FIRST_PAGE_CACHE_TTL = 60
 _MOVIE_PROVIDER_LOAD_POOL = ThreadPoolExecutor(
     max_workers=16,
     thread_name_prefix="movie-catalog",
@@ -696,7 +697,11 @@ def _load_movie_provider_pages(
                 cache_key, results, ttl=MOVIE_LIST_FAILURE_CACHE_TTL,
             )
         else:
-            _cache_movie_provider_page(cache_key, results)
+            ttl = (
+                min(MOVIE_LIST_CACHE_TTL, MOVIE_NEW_FIRST_PAGE_CACHE_TTL)
+                if mode == "new" and source_page == 1 else MOVIE_LIST_CACHE_TTL
+            )
+            _cache_movie_provider_page(cache_key, results, ttl=ttl)
         finally:
             with _MOVIE_PROVIDER_INFLIGHT_LOCK:
                 if _MOVIE_PROVIDER_INFLIGHT.get(cache_key) is future:
@@ -852,6 +857,7 @@ def _mix_movie_provider_results(
     provider_results: Dict[str, List[FilmpalastSearchResult]],
     priority: List[str],
     claimed_identities: Optional[set[tuple]] = None,
+    newest_first: bool = False,
 ) -> List[tuple[str, FilmpalastSearchResult]]:
     """Dedupliziert eine Quellwelle und mischt sie fair im Round-Robin."""
     years_by_title: Dict[str, set[str]] = defaultdict(set)
@@ -890,6 +896,18 @@ def _mix_movie_provider_results(
             results = filtered[provider]
             if index < len(results):
                 mixed.append((provider, results[index]))
+    if newest_first:
+        # Eine Neuheit darf nicht nach hinten rutschen, nur weil die bevorzugte
+        # Quelle denselben Film weiter unten führt. Die Downloadquelle bleibt
+        # dabei weiterhin durch die Anbieterpriorität bestimmt.
+        ranks = {}
+        for provider in priority:
+            for index, result in enumerate(provider_results.get(provider, [])):
+                identity = _movie_result_identity(result, provider, years_by_title)
+                ranks[identity] = min(index, ranks.get(identity, index))
+        mixed.sort(key=lambda entry: ranks[
+            _movie_result_identity(entry[1], entry[0], years_by_title)
+        ])
     return mixed
 
 
@@ -939,7 +957,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     # Filme werden von späteren Wellen nicht ersetzt; sonst würden Seiten springen.
     claimed_identities: set[tuple] = set()
     catalog_entries = _mix_movie_provider_results(
-        first_wave, priority, claimed_identities,
+        first_wave, priority, claimed_identities, newest_first=mode == "new",
     )
 
     paginated = [provider for provider in active if provider in MOVIE_PAGINATED_PROVIDERS]
@@ -1011,7 +1029,18 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
     has_more = page < MOVIE_MAX_GLOBAL_PAGE and (
         len(catalog_entries) > target_end or has_more_unverified
     )
-    page_complete = len(page_entries) >= MOVIE_BROWSE_PAGE_SIZE or not has_more
+    with _MOVIE_PROVIDER_INFLIGHT_LOCK:
+        refresh_pending = any(
+            ("provider", mode, clean_genre(genre).casefold(), provider, 1)
+            in _MOVIE_PROVIDER_INFLIGHT
+            for provider in active
+        )
+    refresh_pending = refresh_pending or any(
+        (provider, 1) not in first_pages for provider in active
+    )
+    page_complete = not timed_out[0] and (
+        len(page_entries) >= MOVIE_BROWSE_PAGE_SIZE or not has_more
+    )
     if has_more and not timed_out[0]:
         _schedule_movie_provider_prefetch(
             mode,
@@ -1026,6 +1055,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
         "results": [result for _provider, result in page_entries],
         "page": page,
         "page_complete": page_complete,
+        "refresh_pending": refresh_pending,
         "has_more": has_more,
         "sources": sources,
     }

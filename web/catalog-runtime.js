@@ -1,5 +1,14 @@
 const CATALOG_REFRESH_INTERVAL_MS = 60 * 1000;
 let fpCatalogRefreshPromise = null;
+let fpCatalogRefreshTimer = null;
+
+function scheduleFpCatalogRefresh(pending = false) {
+  clearTimeout(fpCatalogRefreshTimer);
+  fpCatalogRefreshTimer = setTimeout(() => {
+    if (state.tab === "filme" && !document.hidden) refreshFpCatalogInBackground(true);
+    else scheduleFpCatalogRefresh();
+  }, pending ? 5000 : CATALOG_REFRESH_INTERVAL_MS);
+}
 let seriesCatalogRefreshPromise = null;
 
 const resultPosterObserver = typeof IntersectionObserver === "function"
@@ -193,8 +202,8 @@ function syncFpCatalogFromHome({ fresh = false } = {}) {
   state.fp.lastPageFull = true;
   state.fp.loadingMore = false;
   state.fp.loadError = "";
-  state.fp.previewFromHome = !fresh;
-  if (fresh) state.fp.lastCatalogRefreshAt = Date.now();
+  state.fp.previewFromHome = true;
+  state.fp.lastCatalogRefreshAt = 0;
   for (const result of incoming) {
     if (result?.tmdb_id) state.fp.metadataCache[result.slug] = mergeFpMetadata(
       state.fp.metadataCache[result.slug], result,
@@ -215,17 +224,31 @@ function syncFpCatalogFromHome({ fresh = false } = {}) {
   return true;
 }
 
-function refreshFpCatalogInBackground() {
+function refreshFpCatalogInBackground(force = false) {
   const stillFresh = Date.now() - state.fp.lastCatalogRefreshAt < CATALOG_REFRESH_INTERVAL_MS;
-  if (stillFresh || fpCatalogRefreshPromise || state.fp.searchActive || state.fp.category !== "new") return;
+  if ((!force && stillFresh && !state.fp.previewFromHome) || fpCatalogRefreshPromise
+    || state.fp.loadingMore || state.fp.searchActive || state.fp.category !== "new") {
+    scheduleFpCatalogRefresh();
+    return;
+  }
+  const requestSeq = state.fp.requestSeq;
   fpCatalogRefreshPromise = api.movies({ mode: "new", page: 1 })
     .then((data) => {
-      if (state.fp.searchActive || state.fp.category !== "new" || state.fp.page > 1) return;
+      if (state.fp.searchActive || state.fp.category !== "new" || requestSeq !== state.fp.requestSeq) return;
       state.fp.previewFromHome = false;
       state.fp.lastCatalogRefreshAt = Date.now();
-      applyFpResults(data);
+      if (state.fp.page > 1) {
+        data.results = mergeCatalogItems(data.results, state.fp.results, (item) => item.slug);
+        data.page = state.fp.page;
+        data.has_more = state.fp.lastPageFull;
+        data.sources = state.fp.sources;
+      }
+      applyFpResults(data, { backgroundRefresh: true });
     })
-    .catch((error) => console.warn("Filmkatalog konnte nicht im Hintergrund aktualisiert werden:", error))
+    .catch((error) => {
+      console.warn("Filmkatalog konnte nicht im Hintergrund aktualisiert werden:", error);
+      scheduleFpCatalogRefresh();
+    })
     .finally(() => { fpCatalogRefreshPromise = null; });
 }
 
