@@ -25,16 +25,16 @@ def normalize_ollama_url(value: str) -> str:
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, timeout_seconds: int = 20):
+    def __init__(self, base_url: str, model: str, timeout_seconds: int = 180):
         self.base_url = normalize_ollama_url(base_url)
         self.model = str(model or "").strip()
-        self.timeout_seconds = max(5, min(90, int(timeout_seconds)))
+        self.timeout_seconds = max(30, min(300, int(timeout_seconds)))
 
     def models(self) -> list[str]:
         try:
             response = requests.get(
                 f"{self.base_url}/api/tags",
-                timeout=min(self.timeout_seconds, 15),
+                timeout=15,
                 allow_redirects=False,
             )
             response.raise_for_status()
@@ -56,7 +56,7 @@ class OllamaClient:
             "model": self.model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0.25, "num_predict": 1100},
+            "options": {"temperature": 0.2, "num_ctx": 4096, "num_predict": 500},
             "messages": [
                 {
                     "role": "system",

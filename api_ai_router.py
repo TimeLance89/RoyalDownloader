@@ -19,7 +19,7 @@ class AiConfigBody(BaseModel):
         default="llama3.2:3b", min_length=1, max_length=120,
         pattern=r"^[A-Za-z0-9._:/-]+$",
     )
-    timeout_seconds: int = Field(default=20, ge=5, le=90)
+    timeout_seconds: int = Field(default=180, ge=30, le=300)
 
 
 class AiCandidate(BaseModel):
@@ -42,7 +42,7 @@ def _public_config(config: dict) -> dict:
         "provider": "ollama",
         "url": config.get("url", "http://127.0.0.1:11434"),
         "model": config.get("model", "llama3.2:3b"),
-        "timeout_seconds": int(config.get("timeout_seconds", 20)),
+        "timeout_seconds": int(config.get("timeout_seconds", 180)),
         "configured": bool(config.get("enabled") and config.get("url") and config.get("model")),
         "privacy": "An Ollama werden nur Metadaten und ein kompaktes Geschmacksprofil gesendet.",
     }
@@ -97,7 +97,9 @@ def create_ai_router(state) -> APIRouter:
                     "model_available": body.model.strip() in models,
                 }
         except (OllamaError, ValueError) as exc:
-            raise HTTPException(502, str(exc)) from exc
+            raise HTTPException(
+                502, "Ollama ist nicht erreichbar oder antwortet ungültig."
+            ) from exc
         return {**result, "provider": "ollama"}
 
     @router.post("/api/v1/ai/recommendations")
@@ -112,14 +114,17 @@ def create_ai_router(state) -> APIRouter:
                 [candidate.model_dump() for candidate in body.candidates],
                 state.taste_profile.public_profile(),
             )
-        except (OllamaError, ValueError) as exc:
+        except (OllamaError, ValueError):
             # AI failure is a presentation-level degradation, not an API-wide
             # or downloader failure. The UI keeps the classic Royal ranking.
             return {
                 "enabled": True,
                 "available": False,
                 "recommendations": [],
-                "message": str(exc),
+                "message": (
+                    "Ollama konnte keine gültige Auswahl liefern. Verbindung prüfen, "
+                    "Zeitlimit erhöhen oder ein kleineres Modell wählen."
+                ),
             }
         return {
             "enabled": True,
