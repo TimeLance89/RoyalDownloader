@@ -100,6 +100,7 @@ jobs:
             .
 
       - name: Scan container for high and critical CVEs
+        timeout-minutes: 5
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # trivy 0.74 line
         with:
           image-ref: royal-downloader:quality
@@ -108,14 +109,21 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          timeout: 3m0s
 
       - name: Generate container SBOM
+        timeout-minutes: 5
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297
         with:
           image-ref: royal-downloader:quality
           format: cyclonedx
           output: container-sbom.cdx.json
           exit-code: "0"
+          # The preceding scan already installed Trivy and populated its DB.
+          # Re-entering actions/cache here can hang while restoring the same DB.
+          skip-setup-trivy: "true"
+          cache: "false"
+          timeout: 3m0s
 
       - name: Smoke-test isolated SerienStream browser boundary
         shell: bash
