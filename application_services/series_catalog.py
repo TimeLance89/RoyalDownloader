@@ -716,7 +716,9 @@ def _sto_find_by_title(value: str) -> Optional[FilmpalastSeries]:
     return _find_series_by_title(value, ["serienstream"])
 
 
-def get_series_for_value(value: str) -> Optional[FilmpalastSeries]:
+def get_series_for_value(
+    value: str, fallback_title: str = "",
+) -> Optional[FilmpalastSeries]:
     """Lädt eine explizite Quelle direkt, danach greifen die Prioritäts-Fallbacks."""
     provider = provider_for_value(value)
     try:
@@ -729,7 +731,7 @@ def get_series_for_value(value: str) -> Optional[FilmpalastSeries]:
     fallbacks = [key for key in provider_priority("series") if key != provider]
     if provider in appconfig.SERIES_PROVIDER_DEFAULTS:
         fallbacks.append(provider)
-    return _find_series_by_title(value, fallbacks)
+    return _find_series_by_title(fallback_title or value, fallbacks)
 
 
 def merge_series_snapshots(

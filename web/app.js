@@ -419,19 +419,24 @@ async function initApp() {
   document.getElementById("wl-hero-check").addEventListener("click", async () => {
     if (!state.wl.heroBaseSlug) return;
     document.getElementById("wl-status").textContent = "Archivstück wird geprüft …";
-    const data = await api.watchlistCheck([state.wl.heroBaseSlug]);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = "Status aktualisiert";
+    try {
+      const data = await performWatchlistCheck([state.wl.heroBaseSlug]);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.querySelectorAll("[data-library-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       state.wl.filter = button.dataset.libraryFilter || "all";
+      state.wl.selected.clear();
       renderWatchlist();
     });
   });
   document.getElementById("wl-search").addEventListener("input", (event) => {
     state.wl.draftQuery = event.currentTarget.value;
     state.wl.query = String(state.wl.draftQuery || "").trim();
+    state.wl.selected.clear();
     document.getElementById("wl-search-clear").hidden = !state.wl.query;
     renderWatchlist();
   });
@@ -447,17 +452,23 @@ async function initApp() {
   bindLibraryEnhancementControls();
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
-    const data = await api.watchlistCheck(null);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = `${data.checked}/${data.total} geprüft`;
+    try {
+      const data = await performWatchlistCheck(null);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.getElementById("wl-check-selected").addEventListener("click", async () => {
     if (!state.wl.selected.size) { alert("Bitte zuerst Serien in der Liste auswählen."); return; }
     const slugs = [...state.wl.selected];
     document.getElementById("wl-status").textContent = `Prüfe ${slugs.length} Serie(n) …`;
-    const data = await api.watchlistCheck(slugs);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = `${data.checked}/${data.total} geprüft`;
+    try {
+      const data = await performWatchlistCheck(slugs);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.getElementById("wl-open").addEventListener("click", () => {
     const first = [...state.wl.selected][0];
@@ -465,10 +476,20 @@ async function initApp() {
   });
   document.getElementById("wl-remove").addEventListener("click", async () => {
     if (!state.wl.selected.size) return;
-    const data = await api.watchlistRemove([...state.wl.selected]);
-    state.wl.selected.clear();
-    applyWatchlist(data.watchlist);
-    await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
+    const count = state.wl.selected.size;
+    if (!window.confirm(`${count} ${count === 1 ? "Abo" : "Abos"} wirklich entfernen?`)) return;
+    const button = document.getElementById("wl-remove");
+    button.disabled = true;
+    try {
+      const data = await api.watchlistRemove([...state.wl.selected]);
+      state.wl.selected.clear();
+      applyWatchlist(data.watchlist, data.health || null);
+      await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Entfernen fehlgeschlagen: ${error.message}`;
+    } finally {
+      renderWatchlist();
+    }
   });
 
   // Benachrichtigungs-Glocke

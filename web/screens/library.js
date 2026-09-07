@@ -1,7 +1,9 @@
 // ── Bibliothek-Tab ─────────────────────────────────────────────────────────
-function applyWatchlist(items) {
+function applyWatchlist(items, health = null) {
   watchlistSnapshotGeneration += 1;
+  const previousHealthError = String(state.wl.health?.error || "");
   state.wl.items = items;
+  if (health) state.wl.health = health;
   state.wl.loaded = true;
   for (const series of Object.values(state.series.cache)) {
     const entry = watchlistEntryForSeries(series, items);
@@ -19,6 +21,11 @@ function applyWatchlist(items) {
   renderWatchlist();
   renderSeriesSubscriptions();
   renderNotifBell();
+  const status = document.getElementById("wl-status");
+  if (
+    status && previousHealthError && !state.wl.health?.error
+    && status.textContent === previousHealthError
+  ) status.textContent = "Bereit zur Prüfung";
 }
 
 function subscriptionMonogram(title) {
@@ -27,6 +34,7 @@ function subscriptionMonogram(title) {
 }
 
 function watchlistStatusText(entry) {
+  if (entry.checking) return "wird geprüft";
   if (entry.status === "blocked") return entry.last_error || "Prüfung blockiert";
   if (entry.status === "failed") return `${entry.failed_count || 1} fehlgeschlagen · Retry geplant`;
   if (entry.cleanup_last_error) return `Löschen pausiert · ${entry.cleanup_last_error}`;
@@ -90,6 +98,32 @@ function renderSeriesSubscriptions() {
 
 async function refreshWatchlist() {
   return syncWatchlistSnapshot("Abo-Aktualisierung");
+}
+
+let activeWatchlistCheck = null;
+
+async function performWatchlistCheck(baseSlugs = null) {
+  if (activeWatchlistCheck) return activeWatchlistCheck;
+  state.wl.checkRunning = true;
+  renderWatchlist();
+  renderNotifBell();
+  activeWatchlistCheck = api.watchlistCheck(baseSlugs)
+    .then((data) => {
+      applyWatchlist(data.watchlist || [], data.health || null);
+      return data;
+    })
+    .finally(() => {
+      state.wl.checkRunning = false;
+      activeWatchlistCheck = null;
+      renderWatchlist();
+      renderNotifBell();
+    });
+  return activeWatchlistCheck;
+}
+
+function watchlistCheckResultText(data) {
+  return String(data?.health?.error || "")
+    || `${Number(data?.checked || 0)}/${Number(data?.total || 0)} geprüft`;
 }
 
 // ── Cross-catalog consistency: logical media identities ────────────────────

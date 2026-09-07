@@ -1271,6 +1271,12 @@
 #tab-bibliothek .library-state.is-queued { background: rgba(178, 80, 25, .84); }
 #tab-bibliothek .library-state.is-failed,
 #tab-bibliothek .library-state.is-blocked { background: rgba(191, 32, 63, .9); }
+#tab-bibliothek .library-state.is-checking {
+  color: #071016;
+  background: #72dcf4;
+  border-color: rgba(114, 220, 244, .65);
+}
+#tab-bibliothek .library-card-progress[hidden] { display: none; }
 #tab-bibliothek .library-episode-status { top: 40px; border-radius: 8px; }
 #tab-bibliothek .library-card-footer { bottom: 10px; }
 #tab-bibliothek .library-card .wl-rule-btn,

@@ -88,6 +88,17 @@ class AppState:
         self.setup_completion_lock = threading.Lock()
         self.watchlist: list[dict] = appconfig.load_watchlist()
         self.watchlist_lock = threading.RLock()
+        self.watchlist_check_lock = threading.Lock()
+        self.watchlist_hydration_lock = threading.Lock()
+        self.watchlist_global_error = ""
+        for entry in self.watchlist:
+            error = str(entry.get("last_error") or "")
+            if error.startswith((
+                "Jellyfin nicht erreichbar",
+                "Jellyfin-Serienindex nicht verfügbar",
+            )):
+                self.watchlist_global_error = self.watchlist_global_error or error
+                entry["last_error"] = ""
         self.movie_subscriptions: list[dict] = appconfig.load_movie_subscriptions()
         self.movie_subscriptions_lock = threading.RLock()
         self.persistence_status_lock = threading.RLock()
