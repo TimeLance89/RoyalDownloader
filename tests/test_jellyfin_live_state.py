@@ -402,4 +402,7 @@ def test_live_service_preserves_automation_ownership_and_is_installed_last():
     )
     assert "def wake_watchlist_auto_check()" in automation
     assert "_watchlist_wake_event.wait" in automation
+    assert "_WAIT_FOR_WATCHLIST_AUTO_CHECK" in (
+        app_dir / "application_services" / "movie_subscription_runtime_hardening.py"
+    ).read_text(encoding="utf-8")
     assert server.watchlist_auto_check_loop.__module__ == "application_services.automation"

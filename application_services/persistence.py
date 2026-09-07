@@ -711,6 +711,7 @@ def watchlist_payload() -> dict:
                 **w,
                 "download_mode": mode,
                 "download_mode_label": WATCH_MODE_LABELS[mode],
+                "checking": bool(w.get("check_in_progress")),
                 "cleanup_mode": cleanup_mode,
                 "cleanup_mode_label": CLEANUP_MODE_LABELS[cleanup_mode],
                 "cleanup_mode_ready": (
@@ -748,6 +749,10 @@ def watchlist_payload() -> dict:
             })
     return {
         "watchlist": items,
+        "health": {
+            "error": str(getattr(state, "watchlist_global_error", "") or ""),
+            "checking_count": sum(bool(item.get("checking")) for item in items),
+        },
         "persistence": _persistence_status("watchlist"),
     }
 

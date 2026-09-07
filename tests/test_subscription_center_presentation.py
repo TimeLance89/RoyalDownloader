@@ -18,7 +18,7 @@ def test_subscription_center_keeps_existing_notification_contracts():
     ):
         assert f'getElementById("{element_id}")' in NOTIFICATIONS
 
-    assert "api.watchlistCheck(null)" in NOTIFICATIONS
+    assert "performWatchlistCheck(null)" in NOTIFICATIONS
     assert "openWatchlistEntry(entry.base_slug)" in NOTIFICATIONS
 
 
@@ -96,6 +96,6 @@ def test_subscription_center_supports_filters_and_single_subscription_checks():
         ).read_text(encoding="utf-8")
 
     assert "state.wl.notifFilter" in NOTIFICATIONS
-    assert "api.watchlistCheck([entry.base_slug])" in NOTIFICATIONS
+    assert "performWatchlistCheck([entry.base_slug])" in NOTIFICATIONS
     assert 'check.className = "notif-item-check"' in NOTIFICATIONS
     assert ".notif-item-check" in STYLES
