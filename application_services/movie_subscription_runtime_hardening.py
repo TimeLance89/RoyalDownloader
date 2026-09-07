@@ -21,6 +21,7 @@ _ORIGINAL_CHECK_MOVIE_SUBSCRIPTIONS = backend_value("check_movie_subscriptions")
 _ORIGINAL_MOVIE_SUBSCRIPTIONS_PAYLOAD = backend_value("movie_subscriptions_payload")
 _ORIGINAL_WATCHLIST_CHECK_ONCE = backend_value("_watchlist_auto_check_once")
 _ORIGINAL_WATCHLIST_CHECK_DELAY = backend_value("_watchlist_auto_check_delay")
+_WAIT_FOR_WATCHLIST_AUTO_CHECK = backend_value("wait_for_watchlist_auto_check")
 _BACKEND_GET_JELLYFIN_LIBRARY = backend_value("get_jellyfin_library")
 
 _check_gate = threading.RLock()
@@ -172,11 +173,23 @@ def watchlist_auto_check_loop():
     while True:
         interval_min = state.automation.get("check_interval_min", 30)
         checked = total = 0
-        try:
-            checked, total = _ORIGINAL_WATCHLIST_CHECK_ONCE()
-        except Exception as exc:
-            log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
-        time.sleep(_ORIGINAL_WATCHLIST_CHECK_DELAY(checked, total, interval_min))
+        jf_configured = get_jellyfin_client().configured
+        if jf_configured and getattr(state, "jellyfin_live_stale", False):
+            with state.watchlist_lock:
+                total = len(state.watchlist)
+            log(
+                "Automatische Bibliotheks-Prüfung wartet auf aktuellen "
+                "Jellyfin-Livestatus.",
+                "warn",
+            )
+        else:
+            try:
+                checked, total = _ORIGINAL_WATCHLIST_CHECK_ONCE()
+            except Exception as exc:
+                log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
+        _WAIT_FOR_WATCHLIST_AUTO_CHECK(
+            _ORIGINAL_WATCHLIST_CHECK_DELAY(checked, total, interval_min)
+        )
 
 
 # Preserve the established service-ownership contract for diagnostics/tests.

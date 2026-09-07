@@ -816,6 +816,7 @@ async def api_watchlist_add(body: WatchlistAddBody):
                 entry["failed_downloads"] = {}
                 entry["downloaded_episode_notifications"] = []
                 entry["last_error"] = ""
+                entry["check_in_progress"] = False
                 entry["mode_generation"] = 0
                 entry["check_generation"] = 0
                 state.watchlist.append(entry)
@@ -891,7 +892,8 @@ async def api_watchlist_mode(body: WatchlistModeBody):
             if mode_changed:
                 entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
             entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-            entry["last_error"] = "Abo-Regel wird geprüft – Auto-Download pausiert"
+            entry["last_error"] = ""
+            entry["check_in_progress"] = True
             try:
                 _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
             except HTTPException:
@@ -974,7 +976,22 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
 @router.get("/api/v1/watchlist")
 @router.get("/api/watchlist")
 async def api_watchlist_get():
-    await run_in_threadpool(hydrate_watchlist_artwork)
+    def _hydrate_background():
+        lock = getattr(state, "watchlist_hydration_lock", None)
+        if lock is not None and not lock.acquire(blocking=False):
+            return
+        try:
+            hydrate_watchlist_artwork()
+            broadcast({"type": "watchlist_update", **watchlist_payload()})
+        finally:
+            if lock is not None:
+                lock.release()
+
+    threading.Thread(
+        target=_hydrate_background,
+        name="watchlist-metadata-hydration",
+        daemon=True,
+    ).start()
     return watchlist_payload()
 
 
@@ -1138,6 +1155,7 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     entry["waiting_release_slugs"] = sorted(waiting_release)
     entry["last_checked"] = time.time()
     entry["last_error"] = ""
+    entry["check_in_progress"] = False
     return previous_slugs - missing_slugs
 
 
@@ -1243,7 +1261,9 @@ def _execute_watchlist_cleanup(
     return deleted_total
 
 
-def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False) -> int:
+def _check_watchlist_entries_impl(
+    entries: list[dict], refresh_jellyfin: bool = False,
+) -> int:
     """Prüft die übergebenen Watchlist-Einträge auf fehlende Episoden und
     aktualisiert state.watchlist_new_slugs. Gibt die Anzahl erfolgreich
     geprüfter Einträge zurück. Wird sowohl vom manuellen Check-Endpoint
@@ -1258,10 +1278,19 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
             if not any(current is entry for current in state.watchlist):
                 continue
             entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-            entry["last_error"] = "Prüfung läuft – Auto-Download pausiert"
+            entry["check_in_progress"] = True
             tracked.append((entry, entry["check_generation"]))
     if not tracked:
         return 0
+
+    def _finish_tracking() -> None:
+        with state.watchlist_lock:
+            for tracked_entry, revision in tracked:
+                if (
+                    any(current is tracked_entry for current in state.watchlist)
+                    and int(tracked_entry.get("check_generation", 0)) == revision
+                ):
+                    tracked_entry["check_in_progress"] = False
 
     with state.jellyfin_cache_lock:
         jellyfin_generation = state.jellyfin_config_generation
@@ -1271,6 +1300,7 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
     jf_series = get_jellyfin_series(force=refresh_jellyfin) if jf_client.configured else None
     with state.jellyfin_cache_lock:
         if jellyfin_generation != state.jellyfin_config_generation:
+            _finish_tracking()
             return 0
         episodes_available = state.jellyfin_episodes_available
         series_available = state.jellyfin_series_available
@@ -1291,22 +1321,28 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
                     return False
                 entry["last_checked"] = time.time()
                 entry["last_error"] = message[:240]
+                entry["check_in_progress"] = False
                 return True
 
     if jf_client.configured and (jf_episodes is None or not episodes_available):
-        for entry, revision in tracked:
-            _set_error(entry, revision, "Jellyfin nicht erreichbar – Auto-Download pausiert")
+        with state.watchlist_lock:
+            state.watchlist_global_error = "Jellyfin nicht erreichbar – Auto-Download pausiert"
+        _finish_tracking()
         with state.watchlist_lock:
             _persist_watchlist_background()
         log("Watchlist-Prüfung pausiert: Jellyfin ist nicht erreichbar.", "warn")
         return 0
     if jf_client.configured and (jf_series is None or not series_available):
-        for entry, revision in tracked:
-            _set_error(entry, revision, "Jellyfin-Serienindex nicht verfügbar")
+        with state.watchlist_lock:
+            state.watchlist_global_error = "Jellyfin-Serienindex nicht verfügbar"
+        _finish_tracking()
         with state.watchlist_lock:
             _persist_watchlist_background()
         log("Watchlist-Prüfung pausiert: Jellyfin-Serienindex nicht verfügbar.", "warn")
         return 0
+
+    with state.watchlist_lock:
+        state.watchlist_global_error = ""
 
     needs_watched_status = any(
         normalize_watch_mode(entry.get("download_mode")) == WATCH_MODE_NEXT_SEASON
@@ -1316,6 +1352,7 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
     jf_user_episodes = get_jellyfin_user_episodes(force=refresh_jellyfin) if needs_watched_status else None
     with state.jellyfin_cache_lock:
         if jellyfin_generation != state.jellyfin_config_generation:
+            _finish_tracking()
             return 0
         user_available = state.jellyfin_user_episodes_available
         jellyfin_data_generation = state.jellyfin_episode_data_generation
@@ -1347,7 +1384,9 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
             _set_error(entry, revision, "Jellyfin-Benutzerstatus nicht verfügbar")
             continue
         try:
-            series = get_series_for_value(entry_snapshot["sample_url"])
+            series = get_series_for_value(
+                entry_snapshot["sample_url"], entry_snapshot.get("title", ""),
+            )
             if series is None:
                 _set_error(entry, revision, "Serie beim Anbieter nicht abrufbar")
                 log(f"«{entry_snapshot['title']}»: konnte nicht geprüft werden.", "warn")
@@ -1435,7 +1474,17 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
         )
     if data_is_current and cleanup_jobs:
         _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
+    _finish_tracking()
     return checked
+
+
+def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False) -> int:
+    """Serialize checks so two clients cannot invalidate each other's results."""
+    lock = getattr(state, "watchlist_check_lock", None)
+    if lock is None:
+        return _check_watchlist_entries_impl(entries, refresh_jellyfin)
+    with lock:
+        return _check_watchlist_entries_impl(entries, refresh_jellyfin)
 
 
 @router.post("/api/v1/watchlist/check")
@@ -1469,14 +1518,14 @@ async def api_watchlist_open(body: WatchlistOpenBody):
         if not entry:
             raise HTTPException(404, "Nicht in der Bibliothek.")
         entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-        entry["last_error"] = "Prüfung läuft – Auto-Download pausiert"
+        entry["check_in_progress"] = True
         open_revision = entry["check_generation"]
 
     def _work():
         series = state.series_cache.get(body.base_slug)
         if series is None:
             try:
-                series = get_series_for_value(entry["sample_url"])
+                series = get_series_for_value(entry["sample_url"], entry.get("title", ""))
             except Exception as exc:
                 log(f"Fehler beim Laden von «{entry['title']}»: {exc}", "warn")
                 series = None
@@ -1484,6 +1533,15 @@ async def api_watchlist_open(body: WatchlistOpenBody):
 
     series = await run_in_threadpool(_work)
     if series is None:
+        with state.watchlist_lock:
+            if (
+                any(current is entry for current in state.watchlist)
+                and int(entry.get("check_generation", 0)) == open_revision
+            ):
+                entry["check_in_progress"] = False
+                entry["last_checked"] = time.time()
+                entry["last_error"] = "Serie beim Anbieter nicht abrufbar"
+                _persist_watchlist_background()
         raise HTTPException(500, "Serie konnte nicht geladen werden.")
 
     with state.watchlist_lock:
@@ -1594,6 +1652,7 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                             "cleanup_mode": cleanup_mode,
                             "items": calculated["cleanup_items"],
                         })
+                entry["check_in_progress"] = False
                 _persist_watchlist_background()
         if withdrawn_slugs:
             _cancel_withdrawn_watchlist_slugs(

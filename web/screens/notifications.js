@@ -128,7 +128,7 @@ function buildNotificationItem(entry, forcedState = "") {
     closeNotifDropdown();
     if (stateName === "downloaded") {
       api.watchlistDownloadsRead(entry.base_slug)
-        .then((data) => applyWatchlist(data.watchlist))
+        .then((data) => applyWatchlist(data.watchlist, data.health || null))
         .catch(() => {});
     }
     openWatchlistEntry(entry.base_slug);
@@ -138,13 +138,13 @@ function buildNotificationItem(entry, forcedState = "") {
   check.type = "button";
   check.className = "notif-item-check";
   check.textContent = "Prüfen";
+  check.disabled = state.wl.checkRunning;
   check.setAttribute("aria-label", `${entry.title} jetzt prüfen`);
   check.addEventListener("click", async () => {
     check.disabled = true;
     check.textContent = "Prüft …";
     try {
-      const data = await api.watchlistCheck([entry.base_slug]);
-      applyWatchlist(data.watchlist);
+      await performWatchlistCheck([entry.base_slug]);
     } catch (error) {
       document.getElementById("notif-summary").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
     } finally {
@@ -177,12 +177,13 @@ function appendNotificationSection(list, className, label, entries) {
 
 function renderNotifBell() {
   ensureSubscriptionCenterChrome();
+  const globalError = String(state.wl.health?.error || "");
   const withNotice = state.wl.items.filter((e) => e.new_count || e.downloaded_count || notificationHasIssue(e));
   const total = withNotice.reduce((sum, e) => sum + Number(e.new_count || 0), 0);
   const downloadedTotal = withNotice.reduce((sum, e) => sum + Number(e.downloaded_count || 0), 0);
   const noticeTotal = total + downloadedTotal;
   const issueEntries = withNotice.filter(notificationHasIssue);
-  const issueCount = issueEntries.length;
+  const issueCount = issueEntries.length + (globalError ? 1 : 0);
   const bell = document.getElementById("notif-bell");
   const badge = document.getElementById("notif-badge");
   const issueBadge = document.getElementById("notif-issue-badge");
@@ -221,6 +222,17 @@ function renderNotifBell() {
   const list = document.getElementById("notif-list");
   list.innerHTML = "";
   if (!withNotice.length) {
+    if (globalError) {
+      const problem = document.createElement("div");
+      problem.className = "notif-empty is-filtered";
+      const title = document.createElement("strong");
+      title.textContent = "Prüfung derzeit blockiert";
+      const detail = document.createElement("small");
+      detail.textContent = globalError;
+      problem.append(title, detail);
+      list.appendChild(problem);
+      return;
+    }
     list.innerHTML = `
       <div class="notif-empty">
         <span class="notif-empty-seal">✓</span>
@@ -280,6 +292,7 @@ function bindLibraryEnhancementControls() {
   document.getElementById("wl-search-clear").addEventListener("click", () => {
     state.wl.query = "";
     state.wl.draftQuery = "";
+    state.wl.selected.clear();
     document.getElementById("wl-search").value = "";
     document.getElementById("wl-search-clear").hidden = true;
     renderWatchlist();
@@ -314,8 +327,11 @@ async function refreshNotifications() {
   const summary = document.getElementById("notif-summary");
   summary.textContent = "Abonnements werden geprüft …";
   try {
-    const data = await api.watchlistCheck(null);
-    applyWatchlist(data.watchlist);
+    const data = await performWatchlistCheck(null);
+    if (data.health?.error) {
+      summary.textContent = data.health.error;
+      return;
+    }
     const total = state.wl.items.reduce((sum, entry) => sum + Number(entry.new_count || 0), 0);
     const downloaded = state.wl.items.reduce((sum, entry) => sum + Number(entry.downloaded_count || 0), 0);
     const issues = state.wl.items.filter(notificationHasIssue).length;
@@ -412,6 +428,8 @@ function renderWatchlist() {
     document.getElementById(`wl-filter-${filter}-count`).textContent = String(count);
   });
   document.getElementById("wl-selected-count").textContent = String(state.wl.selected.size);
+  const globalError = String(state.wl.health?.error || "");
+  if (globalError) document.getElementById("wl-status").textContent = globalError;
   const heroEntry = state.wl.items.find((entry) => entry.base_slug === state.wl.heroBaseSlug)
     || state.wl.items.find(watchlistNeedsAttention) || state.wl.items[0];
   showLibraryHero(heroEntry);
@@ -428,13 +446,13 @@ function renderWatchlist() {
     button.setAttribute("aria-pressed", String(active));
   });
   container.classList.toggle("is-list-view", state.wl.view === "list");
-  document.getElementById("wl-check-all").disabled = state.wl.items.length === 0;
-  document.getElementById("wl-select-visible").disabled = visibleItems.length === 0;
+  document.getElementById("wl-check-all").disabled = state.wl.items.length === 0 || state.wl.checkRunning;
+  document.getElementById("wl-select-visible").disabled = visibleItems.length === 0 || state.wl.checkRunning;
   document.getElementById("wl-select-visible").querySelector("span").textContent =
     visibleItems.length > 0 && visibleItems.every((entry) => state.wl.selected.has(entry.base_slug))
       ? "Auswahl lösen" : "Sichtbare wählen";
   for (const id of ["wl-check-selected", "wl-open", "wl-remove"]) {
-    document.getElementById(id).disabled = state.wl.selected.size === 0;
+    document.getElementById(id).disabled = state.wl.selected.size === 0 || state.wl.checkRunning;
   }
 
   if (!state.wl.items.length) {
@@ -469,8 +487,8 @@ function renderWatchlist() {
       + (isSelected ? " selected" : "")
       + (needsAttention ? " has-new" : "");
     row.tabIndex = 0;
-    row.setAttribute("role", "checkbox");
-    row.setAttribute("aria-checked", String(isSelected));
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", `${entry.title} öffnen oder auswählen`);
 
     const top = document.createElement("div");
     top.className = "library-card-top";
@@ -486,8 +504,10 @@ function renderWatchlist() {
     select.append(cb, archiveNumber);
 
     const stateBadge = document.createElement("span");
-    stateBadge.className = `library-state is-${entry.status || "current"}`;
+    const visibleStatus = entry.checking ? "checking" : (entry.status || "current");
+    stateBadge.className = `library-state is-${visibleStatus}`;
     stateBadge.textContent = ({
+      checking: "Prüft …",
       blocked: "Blockiert",
       failed: "Fehler",
       queued: "In Queue",
@@ -495,7 +515,7 @@ function renderWatchlist() {
       waiting_release: "Noch nicht erschienen",
       missing: "Offen",
       current: "Aktuell",
-    })[entry.status] || "Aktuell";
+    })[visibleStatus] || "Aktuell";
     top.append(select, stateBadge);
 
     const identity = document.createElement("div");
@@ -533,14 +553,20 @@ function renderWatchlist() {
 
     const knownEpisodes = Array.isArray(entry.known_slugs) ? entry.known_slugs.length : 0;
     const missingEpisodes = Number(entry.new_count || 0);
-    const archivePercent = knownEpisodes
+    const archivePercent = entry.download_mode === "all" && knownEpisodes
       ? Math.max(0, Math.min(100, ((knownEpisodes - missingEpisodes) / knownEpisodes) * 100))
-      : (needsAttention ? 18 : 100);
+      : null;
     const progress = document.createElement("span");
     progress.className = "library-card-progress";
-    progress.setAttribute("aria-label", `Archivstand ${Math.round(archivePercent)} Prozent`);
+    progress.hidden = archivePercent === null;
+    progress.setAttribute(
+      "aria-label",
+      archivePercent === null
+        ? "Fortschritt für diese Abo-Regel nicht berechenbar"
+        : `Archivstand ${Math.round(archivePercent)} Prozent`,
+    );
     const progressFill = document.createElement("i");
-    progressFill.style.width = `${archivePercent}%`;
+    progressFill.style.width = `${archivePercent || 0}%`;
     progress.appendChild(progressFill);
 
     const episodeStatus = document.createElement("div");
@@ -591,14 +617,13 @@ function renderWatchlist() {
     footer.append(rule, open);
 
     row.append(top, identity, progress, episodeStatus, downloadReceipt, footer);
-    row.addEventListener("pointerenter", () => showLibraryHero(entry));
     row.addEventListener("focusin", () => showLibraryHero(entry));
-    row.addEventListener("click", () => toggleWlSelect(entry.base_slug));
-    row.addEventListener("dblclick", () => openWatchlistEntry(entry.base_slug));
+    row.addEventListener("click", () => openWatchlistEntry(entry.base_slug));
     row.addEventListener("keydown", (event) => {
       if (event.target !== row || (event.key !== " " && event.key !== "Enter")) return;
       event.preventDefault();
-      toggleWlSelect(entry.base_slug);
+      if (event.key === "Enter") openWatchlistEntry(entry.base_slug);
+      else toggleWlSelect(entry.base_slug);
     });
     container.appendChild(row);
   });

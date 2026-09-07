@@ -1164,6 +1164,8 @@ def load_watchlist() -> List[dict]:
                 continue
             entry["download_mode"] = normalize_watch_mode(entry.get("download_mode"))
             entry["cleanup_mode"] = normalize_cleanup_mode(entry.get("cleanup_mode"))
+            # Laufende Arbeit ist Prozesszustand und darf keinen Neustart überleben.
+            entry["check_in_progress"] = False
             entry["cleanup_history"] = serialize_episode_history(
                 {
                     pair for pair in normalize_episode_history(entry.get("cleanup_history"))

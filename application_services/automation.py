@@ -75,6 +75,9 @@ def _auto_download_new_episodes():
     try:
         if not state.automation.get("auto_download"):
             return
+        if getattr(state, "watchlist_global_error", ""):
+            log("Auto-Download: Serienprüfung ist global blockiert.", "warn")
+            return
         if not is_within_download_window():
             log("Auto-Download: außerhalb des Zeitfensters – warte.")
             broadcast({"type": "watchlist_update", **watchlist_payload()})
@@ -84,7 +87,7 @@ def _auto_download_new_episodes():
                 {
                     slug
                     for entry in state.watchlist
-                    if not entry.get("last_error")
+                    if not entry.get("last_error") and not entry.get("check_in_progress")
                     for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
                 },
                 key=episode_sort_key,
@@ -98,7 +101,7 @@ def _auto_download_new_episodes():
                 continue
             with state.watchlist_lock:
                 if not any(
-                    not entry.get("last_error")
+                    not entry.get("last_error") and not entry.get("check_in_progress")
                     and slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
                     for entry in state.watchlist
                 ):
@@ -188,7 +191,7 @@ def _auto_download_new_episodes():
             still_pending = {
                 slug
                 for entry in state.watchlist
-                if not entry.get("last_error")
+                if not entry.get("last_error") and not entry.get("check_in_progress")
                 for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
             }
         withdrawn = set(prepared_slugs) - still_pending
@@ -241,6 +244,12 @@ def wake_watchlist_auto_check() -> None:
     _watchlist_wake_event.set()
 
 
+def wait_for_watchlist_auto_check(timeout: float) -> None:
+    """Wait interruptibly so configuration/live-state changes take effect now."""
+    _watchlist_wake_event.wait(max(0.0, float(timeout)))
+    _watchlist_wake_event.clear()
+
+
 def _watchlist_auto_check_once() -> tuple[int, int]:
     with state.watchlist_lock:
         entries = list(state.watchlist)
@@ -264,7 +273,7 @@ def _watchlist_auto_check_once() -> tuple[int, int]:
 def _watchlist_auto_check_delay(checked: int, total: int, interval_min: int) -> int:
     if checked < total:
         with state.watchlist_lock:
-            retry_jellyfin = any(
+            retry_jellyfin = bool(getattr(state, "watchlist_global_error", "")) or any(
                 any(
                     str(entry.get("last_error") or "").startswith(prefix)
                     for prefix in WATCHLIST_QUICK_RETRY_ERRORS
@@ -301,8 +310,9 @@ def watchlist_auto_check_loop():
                 check_movie_subscriptions()
             except Exception as exc:
                 log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
-        _watchlist_wake_event.wait(_watchlist_auto_check_delay(checked, total, interval_min))
-        _watchlist_wake_event.clear()
+        wait_for_watchlist_auto_check(
+            _watchlist_auto_check_delay(checked, total, interval_min)
+        )
 
 
 _SERVICE_EXPORTS = (
@@ -312,6 +322,7 @@ _SERVICE_EXPORTS = (
     "WATCHLIST_JELLYFIN_RETRY_SECONDS",
     "WATCHLIST_QUICK_RETRY_ERRORS",
     "wake_watchlist_auto_check",
+    "wait_for_watchlist_auto_check",
     "_watchlist_auto_check_once",
     "_watchlist_auto_check_delay",
     "watchlist_auto_check_loop",

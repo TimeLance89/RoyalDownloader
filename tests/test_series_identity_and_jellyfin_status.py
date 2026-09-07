@@ -36,6 +36,26 @@ def test_watchlist_matches_same_series_across_provider_slugs(monkeypatch):
     ) is stored
 
 
+def test_series_fallback_uses_stored_title_instead_of_provider_url(monkeypatch):
+    requested = []
+    expected = _series("serienstream:house-of-the-dragon")
+    monkeypatch.setattr(server, "provider_for_value", lambda _value: "huhu")
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *_args: None)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["huhu", "serienstream"])
+    monkeypatch.setattr(
+        server, "_find_series_by_title",
+        lambda title, providers: requested.append((title, providers)) or expected,
+    )
+
+    result = server.get_series_for_value(
+        "https://huhu.to/item?type=series&id=94997",
+        "House of the Dragon",
+    )
+
+    assert result is expected
+    assert requested == [("House of the Dragon", ["serienstream", "huhu"])]
+
+
 def test_deferred_series_detail_is_already_marked_subscribed(monkeypatch):
     stored = {
         "base_slug": "serienstream:house-of-the-dragon",
