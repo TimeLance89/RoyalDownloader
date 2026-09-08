@@ -273,8 +273,12 @@ const api = {
   watchlistRemove(baseSlugs) { return this.post("/api/watchlist/remove", { base_slugs: baseSlugs }); },
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },
   watchlistOpen(baseSlug) { return this.post("/api/watchlist/open", { base_slug: baseSlug }); },
-  watchlistDownloadsRead(baseSlug) {
-    return this.post("/api/watchlist/downloads/read", { base_slug: baseSlug });
+  watchlistDownloadsRead(baseSlug, downloadedBefore = 0) {
+    const cutoff = Number(downloadedBefore);
+    return this.post("/api/watchlist/downloads/read", {
+      base_slug: baseSlug,
+      downloaded_before: Number.isFinite(cutoff) && cutoff > 0 ? cutoff : 0,
+    });
   },
 
   movieSubscriptionsGet() { return this.get("/api/movie-subscriptions"); },

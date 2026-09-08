@@ -81,26 +81,32 @@
         </span>
         <span id="notif-badge" class="notif-badge hidden">0</span>
       </button>
-      <div id="notif-dropdown" class="notif-dropdown hidden" role="dialog" aria-label="Fehlende Episoden">
+      <div id="notif-dropdown" class="notif-dropdown hidden" role="dialog" aria-labelledby="notif-title">
         <header class="notif-head">
           <div class="notif-head-copy">
-            <span class="notif-kicker">SIGNAL-CENTER</span>
-            <strong>Abo-Inbox</strong>
-            <small id="notif-summary" aria-live="polite">Alles vollständig</small>
+            <h2 id="notif-title">Abo-Inbox</h2>
+            <small id="notif-summary" aria-live="polite">Abonnements werden geladen …</small>
           </div>
-          <button id="notif-refresh" class="notif-refresh" type="button" aria-label="Abonnements jetzt prüfen" title="Jetzt prüfen">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
-          </button>
+          <div class="notif-head-actions">
+            <button id="notif-refresh" class="notif-refresh" type="button" aria-label="Alle Abonnements jetzt prüfen" title="Alle Abonnements prüfen">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+              <span>Alle prüfen</span>
+            </button>
+            <button id="notif-close" class="notif-close" type="button" aria-label="Abo-Inbox schließen">×</button>
+          </div>
           <div class="notif-filters" role="group" aria-label="Meldungen filtern">
-            <button class="is-active" type="button" data-notif-filter="all" aria-pressed="true">Alle</button>
-            <button type="button" data-notif-filter="new" aria-pressed="false">Neu</button>
-            <button type="button" data-notif-filter="issue" aria-pressed="false">Probleme</button>
+            <button class="is-active" type="button" data-notif-filter="all" aria-pressed="true"><span class="notif-filter-label">Alle</span><span class="notif-filter-count">0</span></button>
+            <button type="button" data-notif-filter="new" aria-pressed="false"><span class="notif-filter-label">Offen</span><span class="notif-filter-count">0</span></button>
+            <button type="button" data-notif-filter="queued" aria-pressed="false"><span class="notif-filter-label">Geplant</span><span class="notif-filter-count">0</span></button>
+            <button type="button" data-notif-filter="downloaded" aria-pressed="false"><span class="notif-filter-label">Geladen</span><span class="notif-filter-count">0</span></button>
+            <button type="button" data-notif-filter="issue" aria-pressed="false"><span class="notif-filter-label">Probleme</span><span class="notif-filter-count">0</span></button>
           </div>
+          <p id="notif-feedback" class="notif-feedback" role="status" hidden></p>
         </header>
         <div id="notif-list" class="notif-list"></div>
         <footer class="notif-footer">
           <span id="notif-subscription-count">0 Abos</span>
-          <button id="notif-library" type="button">Bibliothek öffnen <span aria-hidden="true">→</span></button>
+          <button id="notif-library" type="button">Abos verwalten</button>
         </footer>
       </div>
     </div>
@@ -2366,7 +2372,7 @@
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
 <script src="/screens/library.js?v=royal-20260823-1"></script>
-<script src="/screens/notifications.js?v=royal-20260825-1"></script>
+<script src="/screens/notifications.js?v=royal-20260908-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/ai-discovery.js?v=royal-20260903-3"></script>
 <script src="/screens/account.js?v=royal-20260805-3"></script>

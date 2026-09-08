@@ -1,293 +1,3 @@
-// ── Benachrichtigungs-Glocke ─────────────────────────────────────────────
-function ensureSubscriptionCenterStyles() {
-  if (document.querySelector('link[data-subscription-center-styles]')) return;
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = "/styles/subscription-center.css?v=royal-20260828-1";
-  link.dataset.subscriptionCenterStyles = "true";
-  document.head.appendChild(link);
-}
-
-function notificationHasIssue(entry) {
-  return Boolean(entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed");
-}
-
-function notificationState(entry) {
-  if (notificationHasIssue(entry)) return "issue";
-  if (Number(entry.queued_count || 0) > 0 || entry.status === "queued") return "queued";
-  return "new";
-}
-
-function downloadedEpisodeLabel(entry) {
-  const episode = entry?.last_downloaded_episode;
-  if (!episode) return "";
-  return `S${String(episode.season || 0).padStart(2, "0")}E${String(episode.episode || 0).padStart(2, "0")}`;
-}
-
-function notificationStateLabel(entry) {
-  if (entry.status === "blocked") return "Quelle blockiert";
-  if (entry.status === "failed") return "Prüfung fehlgeschlagen";
-  if (entry.cleanup_last_error) return "Bereinigung prüfen";
-  const queued = Number(entry.queued_count || 0);
-  if (queued > 0 || entry.status === "queued") return `${queued || entry.new_count || 1} im Downloadplan`;
-  return `${Number(entry.new_count || 0)} neu`;
-}
-
-function ensureSubscriptionCenterChrome() {
-  ensureSubscriptionCenterStyles();
-  const bell = document.getElementById("notif-bell");
-  let issueBadge = document.getElementById("notif-issue-badge");
-  if (!issueBadge) {
-    issueBadge = document.createElement("span");
-    issueBadge.id = "notif-issue-badge";
-    issueBadge.className = "notif-issue-badge hidden";
-    issueBadge.textContent = "!";
-    issueBadge.setAttribute("aria-hidden", "true");
-    bell.appendChild(issueBadge);
-  }
-
-  let stats = document.getElementById("notif-stats");
-  if (!stats) {
-    stats = document.createElement("div");
-    stats.id = "notif-stats";
-    stats.className = "notif-stats";
-    stats.setAttribute("aria-label", "Abo-Status");
-    stats.innerHTML = `
-      <span class="notif-stat is-new"><strong id="notif-new-count">0</strong><small>Neue Episoden</small></span>
-      <span class="notif-stat is-downloaded"><strong id="notif-downloaded-count">0</strong><small>Heruntergeladen</small></span>
-      <span class="notif-stat is-issue"><strong id="notif-issue-count">0</strong><small>Probleme</small></span>
-      <span class="notif-stat is-ok"><strong id="notif-center-subscriptions">0</strong><small>Abonnements</small></span>
-    `;
-    const head = document.querySelector(".notif-head");
-    head?.insertBefore(stats, head.querySelector(".notif-filters"));
-  }
-}
-
-function buildNotificationItem(entry, forcedState = "") {
-  const item = document.createElement("article");
-  const stateName = forcedState || notificationState(entry);
-  item.className = `notif-item is-${stateName}`;
-
-  const open = document.createElement("button");
-  open.type = "button";
-  open.className = "notif-item-open";
-  open.setAttribute("aria-label", `${entry.title} öffnen`);
-
-  const art = document.createElement("span");
-  art.className = "notif-item-art";
-  if (entry.backdrop_url) {
-    const image = document.createElement("img");
-    image.src = api.coverUrl(entry.backdrop_url);
-    image.alt = "";
-    image.loading = "lazy";
-    image.addEventListener("error", () => art.classList.add("is-fallback"), { once: true });
-    art.appendChild(image);
-  } else {
-    art.classList.add("is-fallback");
-  }
-  const monogram = document.createElement("span");
-  monogram.className = "notif-item-monogram";
-  monogram.textContent = subscriptionMonogram(entry.title);
-  art.appendChild(monogram);
-
-  const copy = document.createElement("span");
-  copy.className = "notif-item-copy";
-  const title = document.createElement("strong");
-  title.translate = false;
-  title.textContent = entry.title;
-  const mode = document.createElement("small");
-  mode.textContent = watchlistStatusText(entry);
-  const statePill = document.createElement("span");
-  statePill.className = `notif-state is-${stateName}`;
-  statePill.textContent = stateName === "downloaded"
-    ? `${downloadedEpisodeLabel(entry)} heruntergeladen`
-    : notificationStateLabel(entry);
-  copy.append(title, mode, statePill);
-
-  const count = document.createElement("span");
-  count.className = "notif-count";
-  const countValue = document.createElement("strong");
-  countValue.textContent = stateName === "downloaded"
-    ? String(entry.downloaded_count || 1)
-    : notificationHasIssue(entry)
-    ? "!"
-    : String(entry.failed_count || entry.new_count || entry.queued_count || 0);
-  const countLabel = document.createElement("small");
-  countLabel.textContent = stateName === "downloaded"
-    ? "Geladen"
-    : notificationHasIssue(entry)
-    ? "Prüfen"
-    : (entry.new_count === 1 ? "Episode" : "Episoden");
-  count.append(countValue, countLabel);
-
-  const arrow = document.createElement("span");
-  arrow.className = "notif-item-arrow";
-  arrow.textContent = "›";
-  open.append(art, copy, count, arrow);
-  open.addEventListener("click", () => {
-    closeNotifDropdown();
-    if (stateName === "downloaded") {
-      api.watchlistDownloadsRead(entry.base_slug)
-        .then((data) => applyWatchlist(data.watchlist, data.health || null))
-        .catch(() => {});
-    }
-    openWatchlistEntry(entry.base_slug);
-  });
-
-  const check = document.createElement("button");
-  check.type = "button";
-  check.className = "notif-item-check";
-  check.textContent = "Prüfen";
-  check.disabled = state.wl.checkRunning;
-  check.setAttribute("aria-label", `${entry.title} jetzt prüfen`);
-  check.addEventListener("click", async () => {
-    check.disabled = true;
-    check.textContent = "Prüft …";
-    try {
-      await performWatchlistCheck([entry.base_slug]);
-    } catch (error) {
-      document.getElementById("notif-summary").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
-    } finally {
-      check.disabled = false;
-      check.textContent = "Prüfen";
-    }
-  });
-  item.append(open, check);
-  return item;
-}
-
-function appendNotificationSection(list, className, label, entries) {
-  if (!entries.length) return;
-  const section = document.createElement("section");
-  section.className = `notif-section ${className}`;
-  const heading = document.createElement("div");
-  heading.className = "notif-section-title";
-  const title = document.createElement("span");
-  title.textContent = label;
-  const count = document.createElement("span");
-  count.textContent = String(entries.length);
-  heading.append(title, count);
-  section.appendChild(heading);
-  entries.forEach((entry) => section.appendChild(buildNotificationItem(
-    entry,
-    className === "is-downloaded" ? "downloaded" : "",
-  )));
-  list.appendChild(section);
-}
-
-function renderNotifBell() {
-  ensureSubscriptionCenterChrome();
-  const globalError = String(state.wl.health?.error || "");
-  const withNotice = state.wl.items.filter((e) => e.new_count || e.downloaded_count || notificationHasIssue(e));
-  const total = withNotice.reduce((sum, e) => sum + Number(e.new_count || 0), 0);
-  const downloadedTotal = withNotice.reduce((sum, e) => sum + Number(e.downloaded_count || 0), 0);
-  const noticeTotal = total + downloadedTotal;
-  const issueEntries = withNotice.filter(notificationHasIssue);
-  const issueCount = issueEntries.length + (globalError ? 1 : 0);
-  const bell = document.getElementById("notif-bell");
-  const badge = document.getElementById("notif-badge");
-  const issueBadge = document.getElementById("notif-issue-badge");
-  const triggerLabel = document.getElementById("notif-trigger-label");
-
-  badge.textContent = String(noticeTotal);
-  badge.classList.toggle("hidden", noticeTotal === 0);
-  issueBadge.classList.toggle("hidden", issueCount === 0);
-  bell.classList.toggle("is-active", noticeTotal > 0 || issueCount > 0);
-  bell.setAttribute("aria-label", noticeTotal || issueCount
-    ? `Abo-Inbox öffnen: ${total} neue Episoden, ${downloadedTotal} heruntergeladen, ${issueCount} Probleme`
-    : "Abo-Inbox öffnen: alles aktuell");
-  triggerLabel.textContent = noticeTotal
-    ? `${noticeTotal} ${noticeTotal === 1 ? "Hinweis" : "Hinweise"}`
-    : total
-    ? `${total} ${total === 1 ? "neue Episode" : "neue Episoden"}`
-    : (issueCount ? `${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}` : "Alles aktuell");
-
-  const summary = document.getElementById("notif-summary");
-  summary.textContent = noticeTotal || issueCount
-    ? `${total} neu · ${downloadedTotal} geladen · ${issueCount} ${issueCount === 1 ? "Problem" : "Probleme"}`
-    : "Alle abonnierten Serien sind vollständig";
-  document.getElementById("notif-subscription-count").textContent =
-    `${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo" : "Abos"}`;
-  document.getElementById("notif-new-count").textContent = String(total);
-  document.getElementById("notif-downloaded-count").textContent = String(downloadedTotal);
-  document.getElementById("notif-issue-count").textContent = String(issueCount);
-  document.getElementById("notif-center-subscriptions").textContent = String(state.wl.items.length);
-
-  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
-    const active = button.dataset.notifFilter === state.wl.notifFilter;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-pressed", String(active));
-  });
-
-  const list = document.getElementById("notif-list");
-  list.innerHTML = "";
-  if (!withNotice.length) {
-    if (globalError) {
-      const problem = document.createElement("div");
-      problem.className = "notif-empty is-filtered";
-      const title = document.createElement("strong");
-      title.textContent = "Prüfung derzeit blockiert";
-      const detail = document.createElement("small");
-      detail.textContent = globalError;
-      problem.append(title, detail);
-      list.appendChild(problem);
-      return;
-    }
-    list.innerHTML = `
-      <div class="notif-empty">
-        <span class="notif-empty-seal">✓</span>
-        <strong>Alles auf dem neuesten Stand</strong>
-        <small>Royal überwacht deine abonnierten Serien weiter automatisch. Momentan fehlen keine Episoden und es gibt nichts zu prüfen.</small>
-        <span class="notif-empty-meta">${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo wird" : "Abos werden"} überwacht</span>
-      </div>
-    `;
-    return;
-  }
-
-  const issueSorted = [...issueEntries].sort((a, b) =>
-    (b.failed_count || 0) - (a.failed_count || 0)
-    || (b.new_count || 0) - (a.new_count || 0)
-    || a.title.localeCompare(b.title, "de"));
-  const newSorted = withNotice
-    .filter((entry) => !notificationHasIssue(entry) && Number(entry.new_count || 0) > 0)
-    .sort((a, b) =>
-      Number(b.queued_count || 0) - Number(a.queued_count || 0)
-      || Number(b.new_count || 0) - Number(a.new_count || 0)
-      || a.title.localeCompare(b.title, "de"));
-  const downloadedSorted = withNotice
-    .filter((entry) => Number(entry.downloaded_count || 0) > 0)
-    .sort((a, b) => Number(b.last_downloaded_episode?.downloaded_at || 0)
-      - Number(a.last_downloaded_episode?.downloaded_at || 0));
-
-  const filter = state.wl.notifFilter || "all";
-  if (filter === "all") appendNotificationSection(list, "is-downloaded", "Heruntergeladen", downloadedSorted);
-  if (filter !== "issue") appendNotificationSection(list, "is-new", "Neue Folgen", newSorted);
-  if (filter !== "new") appendNotificationSection(list, "is-issue", "Probleme", issueSorted);
-  if (!list.children.length) {
-    const label = filter === "issue" ? "Keine Probleme" : "Keine neuen Folgen";
-    list.innerHTML = `
-      <div class="notif-empty is-filtered">
-        <span class="notif-empty-seal">✓</span>
-        <strong>${label}</strong>
-        <small>In diesem Bereich gibt es gerade nichts zu bearbeiten.</small>
-      </div>
-    `;
-  }
-}
-
-function toggleNotifDropdown() {
-  const dropdown = document.getElementById("notif-dropdown");
-  const open = dropdown.classList.contains("hidden");
-  if (open) renderNotifBell();
-  dropdown.classList.toggle("hidden", !open);
-  document.getElementById("notif-bell").setAttribute("aria-expanded", String(open));
-}
-
-function closeNotifDropdown() {
-  document.getElementById("notif-dropdown").classList.add("hidden");
-  document.getElementById("notif-bell").setAttribute("aria-expanded", "false");
-}
-
 function bindLibraryEnhancementControls() {
   document.getElementById("wl-search-clear").addEventListener("click", () => {
     state.wl.query = "";
@@ -317,33 +27,6 @@ function bindLibraryEnhancementControls() {
       renderNotifBell();
     });
   });
-}
-
-async function refreshNotifications() {
-  ensureSubscriptionCenterChrome();
-  const button = document.getElementById("notif-refresh");
-  button.disabled = true;
-  button.classList.add("is-loading");
-  const summary = document.getElementById("notif-summary");
-  summary.textContent = "Abonnements werden geprüft …";
-  try {
-    const data = await performWatchlistCheck(null);
-    if (data.health?.error) {
-      summary.textContent = data.health.error;
-      return;
-    }
-    const total = state.wl.items.reduce((sum, entry) => sum + Number(entry.new_count || 0), 0);
-    const downloaded = state.wl.items.reduce((sum, entry) => sum + Number(entry.downloaded_count || 0), 0);
-    const issues = state.wl.items.filter(notificationHasIssue).length;
-    summary.textContent = total || downloaded || issues
-      ? `Gerade eben geprüft · ${total} neu · ${downloaded} geladen · ${issues} ${issues === 1 ? "Problem" : "Probleme"}`
-      : "Gerade eben geprüft · alles vollständig";
-  } catch (error) {
-    summary.textContent = `Prüfung fehlgeschlagen: ${error.message}`;
-  } finally {
-    button.disabled = false;
-    button.classList.remove("is-loading");
-  }
 }
 
 function watchlistNeedsAttention(entry) {
@@ -658,4 +341,409 @@ async function openWatchlistEntry(baseSlug) {
     document.getElementById("series-status").textContent =
       `Serie konnte nicht geöffnet werden: ${error.message}`;
   }
+}
+
+// ── Abo-Inbox v2 ─────────────────────────────────────────────────────────
+// Statusmengen sind orthogonal: Ein Abo kann zugleich offene, geplante,
+// geladene und fehlgeschlagene Folgen besitzen. Die Inbox zeigt es nur einmal.
+function notificationCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+}
+
+function notificationHasIssue(entry) {
+  return Boolean(
+    entry.cleanup_last_error || entry.last_error
+    || notificationCount(entry.failed_count) > 0
+    || entry.status === "blocked" || entry.status === "failed"
+  );
+}
+
+function buildSubscriptionInbox(items, health = {}) {
+  const entries = (Array.isArray(items) ? items : []).map((entry) => ({
+    entry,
+    // Alte Server kennen open_count noch nicht. new_count darf dann nicht um
+    // queued/failed reduziert werden, weil diese Mengen überlappen konnten.
+    openCount: notificationCount(entry.open_count ?? entry.new_count),
+    queuedCount: notificationCount(entry.queued_count),
+    downloadedCount: notificationCount(entry.downloaded_count),
+    hasIssue: notificationHasIssue(entry),
+  })).filter((item) => (
+    item.openCount || item.queuedCount || item.downloadedCount || item.hasIssue
+  ));
+  const globalError = String(health?.error || "").trim();
+  const counts = {
+    all: entries.length + (globalError ? 1 : 0),
+    new: entries.filter((item) => item.openCount > 0).length,
+    queued: entries.filter((item) => item.queuedCount > 0).length,
+    downloaded: entries.filter((item) => item.downloadedCount > 0).length,
+    issue: entries.filter((item) => item.hasIssue).length + (globalError ? 1 : 0),
+  };
+  const totals = entries.reduce((sum, item) => ({
+    open: sum.open + item.openCount,
+    queued: sum.queued + item.queuedCount,
+    downloaded: sum.downloaded + item.downloadedCount,
+  }), { open: 0, queued: 0, downloaded: 0 });
+  return { entries, counts, totals, globalError };
+}
+
+function inboxEntriesForFilter(model, filter = "all") {
+  return model.entries.filter((item) => {
+    if (filter === "new") return item.openCount > 0;
+    if (filter === "queued") return item.queuedCount > 0;
+    if (filter === "downloaded") return item.downloadedCount > 0;
+    if (filter === "issue") return item.hasIssue;
+    return true;
+  }).sort((left, right) => {
+    if (filter === "downloaded") {
+      const timestamp = (item) => Number(
+        (item.entry.last_unread_downloaded_episode
+          || item.entry.last_downloaded_episode)?.downloaded_at || 0
+      );
+      return timestamp(right) - timestamp(left)
+        || String(left.entry.title || "").localeCompare(String(right.entry.title || ""), "de");
+    }
+    return Number(right.hasIssue) - Number(left.hasIssue)
+      || right.openCount - left.openCount
+      || right.queuedCount - left.queuedCount
+      || String(left.entry.title || "").localeCompare(String(right.entry.title || ""), "de");
+  });
+}
+
+function downloadedEpisodeLabel(entry) {
+  const episode = entry?.last_unread_downloaded_episode || entry?.last_downloaded_episode;
+  if (!episode) return "";
+  return `S${String(episode.season || 0).padStart(2, "0")}E${String(episode.episode || 0).padStart(2, "0")}`;
+}
+
+function inboxCheckBusy() {
+  return Boolean(
+    state.wl.checkRunning || notificationCount(state.wl.health?.checking_count)
+    || state.wl.items.some((entry) => entry.checking)
+  );
+}
+
+function ensureSubscriptionCenterStyles() {
+  if (document.querySelector('link[data-subscription-center-styles]')) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/styles/subscription-center.css?v=royal-20260908-1";
+  link.dataset.subscriptionCenterStyles = "true";
+  document.head.appendChild(link);
+}
+
+function ensureSubscriptionCenterChrome() {
+  ensureSubscriptionCenterStyles();
+  const bell = document.getElementById("notif-bell");
+  if (!document.getElementById("notif-issue-badge")) {
+    const badge = document.createElement("span");
+    badge.id = "notif-issue-badge";
+    badge.className = "notif-issue-badge hidden";
+    badge.textContent = "!";
+    badge.setAttribute("aria-hidden", "true");
+    bell.appendChild(badge);
+  }
+  const close = document.getElementById("notif-close");
+  if (close && !close.dataset.bound) {
+    close.dataset.bound = "true";
+    close.addEventListener("click", () => closeNotifDropdown(true));
+  }
+  if (!document.getElementById("notif-feedback")) {
+    const feedback = document.createElement("p");
+    feedback.id = "notif-feedback";
+    feedback.className = "notif-feedback";
+    feedback.hidden = true;
+    feedback.setAttribute("role", "status");
+    (document.querySelector(".notif-head") || document.body).appendChild(feedback);
+  }
+}
+
+function inboxIssueDetail(entry) {
+  const parts = [];
+  const failed = notificationCount(entry.failed_count);
+  if (failed) parts.push(`${failed} ${failed === 1 ? "Download ist" : "Downloads sind"} fehlgeschlagen.`);
+  if (entry.last_error) parts.push(String(entry.last_error));
+  else if (entry.status === "blocked") parts.push("Die Quelle konnte nicht geprüft werden.");
+  else if (entry.status === "failed" && !failed) parts.push("Ein Download ist fehlgeschlagen.");
+  if (entry.cleanup_last_error) parts.push(`Bereinigung pausiert: ${entry.cleanup_last_error}`);
+  return parts.join(" ");
+}
+
+function inboxDownloadDetail(entry) {
+  const episode = entry.last_unread_downloaded_episode || entry.last_downloaded_episode;
+  const timestamp = Number(episode?.downloaded_at || 0);
+  const when = timestamp ? new Date(timestamp * 1000).toLocaleString("de-DE", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  }) : "";
+  return [`Zuletzt geladen: ${downloadedEpisodeLabel(entry) || "Folge"}`, when]
+    .filter(Boolean).join(" · ");
+}
+
+function buildNotificationItem(item) {
+  const { entry, openCount, queuedCount, downloadedCount, hasIssue } = item;
+  const stateName = hasIssue ? "issue" : openCount ? "new" : queuedCount ? "queued" : "downloaded";
+  const row = document.createElement("article");
+  row.className = `notif-item is-${stateName}`;
+  row.dataset.baseSlug = entry.base_slug;
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "notif-item-open";
+  open.setAttribute("aria-label", `${entry.title} öffnen`);
+  const art = document.createElement("span");
+  art.className = "notif-item-art";
+  if (entry.backdrop_url) {
+    const image = document.createElement("img");
+    image.src = api.coverUrl(entry.backdrop_url);
+    image.alt = "";
+    image.loading = "lazy";
+    image.addEventListener("error", () => art.classList.add("is-fallback"), { once: true });
+    art.appendChild(image);
+  } else {
+    art.classList.add("is-fallback");
+  }
+  const monogram = document.createElement("span");
+  monogram.className = "notif-item-monogram";
+  monogram.textContent = subscriptionMonogram(entry.title);
+  art.appendChild(monogram);
+
+  const copy = document.createElement("span");
+  copy.className = "notif-item-copy";
+  const title = document.createElement("strong");
+  title.translate = false;
+  title.textContent = entry.title;
+  const meta = document.createElement("small");
+  meta.className = "notif-item-meta";
+  meta.textContent = entry.checking ? "Wird gerade geprüft …" : libraryCheckedLabel(entry);
+  const signals = document.createElement("span");
+  signals.className = "notif-item-signals";
+  const signal = (kind, text) => {
+    const pill = document.createElement("span");
+    pill.className = `notif-state is-${kind}`;
+    pill.textContent = text;
+    signals.appendChild(pill);
+  };
+  if (openCount) signal("new", `${openCount} ${openCount === 1 ? "Folge offen" : "Folgen offen"}`);
+  if (queuedCount) signal("queued", `${queuedCount} im Downloadplan`);
+  if (downloadedCount) signal("downloaded", `${downloadedCount} ${downloadedCount === 1 ? "Folge geladen" : "Folgen geladen"}`);
+  if (hasIssue) signal("issue", "Problem");
+  copy.append(title, meta, signals);
+  const arrow = document.createElement("span");
+  arrow.className = "notif-item-arrow";
+  arrow.textContent = "›";
+  open.append(art, copy, arrow);
+  open.addEventListener("click", () => {
+    closeNotifDropdown();
+    openWatchlistEntry(entry.base_slug);
+  });
+  row.appendChild(open);
+
+  const detailText = hasIssue ? inboxIssueDetail(entry)
+    : entry.status === "waiting_window" && openCount
+      ? "Der automatische Download wartet auf das nächste Zeitfenster."
+      : openCount ? "Serie öffnen, um die offenen Folgen auszuwählen."
+        : queuedCount ? "Diese Folgen stehen im Downloadplan." : "";
+  if (detailText) {
+    const detail = document.createElement("p");
+    detail.className = "notif-item-detail";
+    detail.textContent = detailText;
+    row.appendChild(detail);
+  }
+  if (downloadedCount) {
+    const receipt = document.createElement("small");
+    receipt.className = "notif-item-download";
+    receipt.textContent = inboxDownloadDetail(entry);
+    row.appendChild(receipt);
+  }
+  const actions = document.createElement("div");
+  actions.className = "notif-item-actions";
+  if (openCount || hasIssue) {
+    const check = document.createElement("button");
+    check.type = "button";
+    check.className = "notif-item-check";
+    check.textContent = entry.checking ? "Prüft …" : "Erneut prüfen";
+    check.disabled = inboxCheckBusy();
+    check.addEventListener("click", async () => {
+      check.disabled = true;
+      try { await runNotificationCheck([entry.base_slug]); }
+      finally { check.disabled = false; }
+    });
+    actions.appendChild(check);
+  }
+  if (downloadedCount) {
+    const read = document.createElement("button");
+    read.type = "button";
+    read.className = "notif-item-read";
+    read.textContent = state.wl.notifReading === entry.base_slug ? "Wird gespeichert …" : "Als gelesen";
+    read.disabled = Boolean(state.wl.notifReading);
+    read.addEventListener("click", async () => {
+      read.disabled = true;
+      try { await markNotificationDownloadsRead(entry); }
+      finally { read.disabled = false; }
+    });
+    actions.appendChild(read);
+  }
+  if (actions.children.length) row.appendChild(actions);
+  return row;
+}
+
+function inboxContext(model, filter) {
+  if (filter === "new") return `${model.totals.open} Folgen offen. Fehlgeschlagene Downloads bleiben hier sichtbar.`;
+  if (filter === "queued") return `${model.totals.queued} Folgen im Downloadplan.`;
+  if (filter === "downloaded") return `${model.totals.downloaded} Downloads sind noch ungelesen.`;
+  if (filter === "issue") return "Download-, Prüf- und Bereinigungsfehler.";
+  return "Ein Eintrag pro Abo. Ein Abo kann mehrere Zustände haben.";
+}
+
+function appendInboxEmpty(list, filter) {
+  const empty = document.createElement("div");
+  empty.className = "notif-empty";
+  const seal = document.createElement("span");
+  seal.className = "notif-empty-seal";
+  const title = document.createElement("strong");
+  const detail = document.createElement("small");
+  if (!state.wl.loaded) {
+    seal.textContent = "…";
+    title.textContent = "Abonnements werden geladen";
+    detail.textContent = "Der Status wird abgerufen.";
+  } else if (!state.wl.items.length) {
+    seal.textContent = "+";
+    title.textContent = "Noch keine Abonnements";
+    detail.textContent = "Abonniere eine Serie, damit Meldungen hier erscheinen.";
+  } else if (inboxCheckBusy()) {
+    seal.textContent = "…";
+    title.textContent = "Abonnements werden geprüft";
+    detail.textContent = "Die Meldungen werden gleich aktualisiert.";
+  } else {
+    const messages = {
+      all: ["Keine aktuellen Meldungen", "Neue Funde, Downloads und Probleme erscheinen hier."],
+      new: ["Keine offenen Folgen", "Zurzeit ist keine Folge zur Auswahl offen."],
+      queued: ["Keine geplanten Downloads", "Keine Abo-Folge steht im Downloadplan."],
+      downloaded: ["Keine ungelesenen Downloads", "Geladene Folgen wurden bereits bestätigt."],
+      issue: ["Keine Probleme gemeldet", "Aktuell liegt kein Abo-Fehler vor."],
+    }[filter];
+    seal.textContent = "✓";
+    title.textContent = messages[0];
+    detail.textContent = messages[1];
+  }
+  empty.append(seal, title, detail);
+  list.appendChild(empty);
+}
+
+function renderNotifBell() {
+  ensureSubscriptionCenterChrome();
+  const model = buildSubscriptionInbox(state.wl.items, state.wl.health);
+  const filter = Object.hasOwn(model.counts, state.wl.notifFilter) ? state.wl.notifFilter : "all";
+  state.wl.notifFilter = filter;
+  const badge = document.getElementById("notif-badge");
+  const issueBadge = document.getElementById("notif-issue-badge");
+  const bell = document.getElementById("notif-bell");
+  const summary = model.counts.all
+    ? `${model.counts.all} ${model.counts.all === 1 ? "Eintrag" : "Einträge"}`
+    : state.wl.loaded ? "Keine Meldungen" : "Wird geladen …";
+  badge.textContent = String(model.counts.all);
+  badge.classList.toggle("hidden", model.counts.all === 0);
+  issueBadge.classList.toggle("hidden", model.counts.issue === 0);
+  bell.classList.toggle("is-active", model.counts.all > 0);
+  bell.setAttribute("aria-label", `Abo-Inbox öffnen: ${summary}`);
+  document.getElementById("notif-trigger-label").textContent = summary;
+  document.getElementById("notif-summary").textContent = inboxCheckBusy()
+    ? "Abonnements werden geprüft …" : summary;
+  document.getElementById("notif-subscription-count").textContent =
+    `${state.wl.items.length} ${state.wl.items.length === 1 ? "Abo" : "Abos"}`;
+  const refresh = document.getElementById("notif-refresh");
+  refresh.disabled = inboxCheckBusy() || !state.wl.loaded || !state.wl.items.length;
+  refresh.classList.toggle("is-loading", inboxCheckBusy());
+  const feedback = document.getElementById("notif-feedback");
+  if (feedback) {
+    feedback.textContent = state.wl.notifFeedback || "";
+    feedback.hidden = !feedback.textContent;
+    feedback.classList.toggle("is-error", Boolean(state.wl.notifFeedbackError));
+  }
+  document.querySelectorAll("[data-notif-filter]").forEach((button) => {
+    const kind = button.dataset.notifFilter;
+    const active = kind === filter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    const count = button.querySelector(".notif-filter-count");
+    if (count) count.textContent = String(model.counts[kind]);
+  });
+
+  const list = document.getElementById("notif-list");
+  list.replaceChildren();
+  const visible = inboxEntriesForFilter(model, filter);
+  const showGlobalError = Boolean(model.globalError && (filter === "all" || filter === "issue"));
+  if (visible.length || showGlobalError) {
+    const context = document.createElement("p");
+    context.className = "notif-context";
+    context.textContent = inboxContext(model, filter);
+    list.appendChild(context);
+  }
+  if (showGlobalError) {
+    const problem = document.createElement("div");
+    problem.className = "notif-global-issue";
+    const title = document.createElement("strong");
+    title.textContent = "Abonnements konnten nicht geprüft werden";
+    const detail = document.createElement("small");
+    detail.textContent = model.globalError;
+    problem.append(title, detail);
+    list.appendChild(problem);
+  }
+  visible.forEach((item) => list.appendChild(buildNotificationItem(item)));
+  if (!visible.length && !showGlobalError) appendInboxEmpty(list, filter);
+}
+
+function toggleNotifDropdown() {
+  const dropdown = document.getElementById("notif-dropdown");
+  const open = dropdown.classList.contains("hidden");
+  if (open) renderNotifBell();
+  dropdown.classList.toggle("hidden", !open);
+  document.getElementById("notif-bell").setAttribute("aria-expanded", String(open));
+}
+
+function closeNotifDropdown(restoreFocus = false) {
+  const dropdown = document.getElementById("notif-dropdown");
+  dropdown.classList.add("hidden");
+  document.getElementById("notif-bell").setAttribute("aria-expanded", "false");
+  if (restoreFocus && typeof document.getElementById("notif-bell").focus === "function") {
+    document.getElementById("notif-bell").focus({ preventScroll: true });
+  }
+}
+
+async function runNotificationCheck(baseSlugs) {
+  if (inboxCheckBusy()) return;
+  state.wl.notifFeedback = "";
+  try {
+    const data = await performWatchlistCheck(baseSlugs || null);
+    state.wl.notifFeedback = data?.health?.error
+      ? String(data.health.error) : "Prüfung abgeschlossen. Meldungen wurden aktualisiert.";
+    state.wl.notifFeedbackError = Boolean(data?.health?.error);
+  } catch (error) {
+    state.wl.notifFeedback = `Prüfung fehlgeschlagen: ${error.message || error}`;
+    state.wl.notifFeedbackError = true;
+  }
+  renderNotifBell();
+}
+
+async function markNotificationDownloadsRead(entry) {
+  if (state.wl.notifReading) return;
+  state.wl.notifReading = entry.base_slug;
+  state.wl.notifFeedback = "";
+  try {
+    const receipt = entry.last_unread_downloaded_episode || entry.last_downloaded_episode;
+    await api.watchlistDownloadsRead(entry.base_slug, Number(receipt?.downloaded_at || 0));
+    await refreshWatchlist();
+    state.wl.notifFeedback = `Download-Meldungen für ${entry.title} als gelesen markiert.`;
+    state.wl.notifFeedbackError = false;
+  } catch (error) {
+    state.wl.notifFeedback = `Lesestatus konnte nicht aktualisiert werden: ${error.message || error}`;
+    state.wl.notifFeedbackError = true;
+  } finally {
+    state.wl.notifReading = "";
+    renderNotifBell();
+  }
+}
+
+async function refreshNotifications() {
+  return runNotificationCheck(null);
 }
