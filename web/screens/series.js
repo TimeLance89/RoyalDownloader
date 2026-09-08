@@ -165,6 +165,18 @@ function renderSeriesCatalogHero() {
   document.getElementById("series-feature-open").onclick = () => loadSeries(candidate);
 }
 
+function seriesCardSeasonSummary(result) {
+  const detail = state.series.cache?.[result.base_slug] || result;
+  const seasons = Array.isArray(detail.seasons)
+    ? detail.seasons.filter((season) => Number(season.season) > 0)
+    : [];
+  if (!seasons.length) return "Staffeln & Episoden öffnen";
+  const episodes = seasons.reduce((total, season) => total + (Array.isArray(season.episodes) ? season.episodes.length : 0), 0);
+  const parts = [`${seasons.length} ${seasons.length === 1 ? "Staffel" : "Staffeln"}`];
+  if (episodes) parts.push(`${episodes} ${episodes === 1 ? "Episode" : "Episoden"}`);
+  return parts.join(" · ");
+}
+
 function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) {
   const selectedBase = state.series.pendingBaseSlug || state.series.current?.base_slug;
   const selected = selectedBase === result.base_slug;
@@ -204,7 +216,11 @@ function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) 
   const jellyfin = document.createElement("span");
   setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
   meta.append(year, stateLabel, jellyfin);
-  copy.append(title, subtitle, meta);
+  const seasons = document.createElement("span");
+  seasons.className = "series-card-seasons";
+  seasons.textContent = seriesCardSeasonSummary(result);
+  seasons.title = "Verfügbare Staffeln und Episoden öffnen";
+  copy.append(title, subtitle, meta, seasons);
 
   row.append(visual, copy);
   const baseSlug = result.base_slug;
@@ -266,6 +282,8 @@ function updateSeriesResultCard(baseSlug) {
   const result = state.series.results.find((item) => item.base_slug === baseSlug);
   const row = findSeriesResultCard(baseSlug);
   if (!result || !row) return;
+  const seasons = row.querySelector(".series-card-seasons");
+  if (seasons) seasons.textContent = seriesCardSeasonSummary(result);
   const visual = row.querySelector(".result-card-visual");
   if (visual) {
     syncResultCardPoster(visual, result);
@@ -792,6 +810,7 @@ function showSeriesDetail(series, sampleSlug) {
   state.series.current = series;
   state.series.currentSampleSlug = sampleSlug;
   state.series.cache[series.base_slug] = series;
+  updateSeriesResultCard(series.base_slug);
   state.series.pendingBaseSlug = "";
   state.series.epPicked = new Set();
   updateSeriesResultSelection();

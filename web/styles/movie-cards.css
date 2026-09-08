@@ -1,11 +1,11 @@
 /* Movie catalog: quiet poster frames and readable, aligned information. */
-#tab-filme #fp-results.result-shelf {
+:is(#tab-filme #fp-results, #tab-serien #series-results).result-shelf {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 30px 22px;
   align-items: stretch;
 }
 
-#tab-filme #fp-results .result-card {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -20,7 +20,7 @@
   transform: none;
 }
 
-#tab-filme #fp-results .result-card .result-card-visual {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-visual {
   width: 100%;
   height: auto;
   aspect-ratio: 2 / 3;
@@ -33,16 +33,16 @@
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
-#tab-filme #fp-results .result-card-visual::after {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-visual::after {
   border-radius: inherit;
   background: linear-gradient(180deg, #00000020, transparent 28%, transparent 68%, #000000b3);
 }
 
-#tab-filme #fp-results .result-card-poster {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-poster {
   border-radius: 0;
 }
 
-#tab-filme #fp-results .result-card-fallback {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-fallback {
   display: grid;
   place-items: center;
   width: 100%;
@@ -53,35 +53,35 @@
   letter-spacing: -.04em;
 }
 
-#tab-filme #fp-results .result-card-kind,
-#tab-filme #fp-results .result-card-open {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-kind,
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-open {
   display: none;
 }
 
-#tab-filme #fp-results .result-card .result-card-copy {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-copy {
   justify-content: flex-start;
   gap: 5px;
   padding: 0 3px;
 }
 
-#tab-filme #fp-results .result-card .result-card-title {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-title {
   min-height: 2.7em;
   color: #f0f2f5;
   font: 600 14px/1.35 "DM Sans", "Segoe UI", sans-serif;
   letter-spacing: -.015em;
 }
 
-#tab-filme #fp-results .result-card .result-card-subtitle {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-subtitle {
   color: #a1a7af;
   font: 400 11px/1.5 "DM Sans", "Segoe UI", sans-serif;
 }
 
-#tab-filme #fp-results .result-card .result-card-added {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-added {
   color: #929aa4;
   font-size: 10px;
 }
 
-#tab-filme #fp-results .result-card .result-card-meta {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-meta {
   gap: 8px;
   margin-top: 2px;
   color: #a1a7af;
@@ -89,11 +89,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-#tab-filme #fp-results .result-card-rating {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-rating {
   color: #e4c077;
 }
 
-#tab-filme #fp-results .result-card .result-card-library-badge {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-library-badge {
   inset: auto auto 10px 10px;
   max-width: calc(100% - 20px);
   min-height: 28px;
@@ -110,7 +110,7 @@
   text-transform: none;
 }
 
-#tab-filme #fp-results .result-card-library-badge::before {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge::before {
   flex: 0 0 14px;
   width: 14px;
   height: 14px;
@@ -120,17 +120,17 @@
   font-size: 11px;
 }
 
-#tab-filme #fp-results .result-card-library-badge.is-owned {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge.is-owned {
   color: #a4e4bd;
   border-color: #8ad7a540;
   background: #10251de8;
 }
 
-#tab-filme #fp-results .result-card-library-badge:is(.is-unavailable, .is-blocked, .is-ambiguous) {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge:is(.is-unavailable, .is-blocked, .is-ambiguous) {
   color: #e4c077;
 }
 
-#tab-filme #fp-results .result-card .result-queue-toggle {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-queue-toggle {
   position: absolute;
   z-index: 6;
   inset: 10px 10px auto auto;
@@ -147,49 +147,49 @@
   transform: none;
 }
 
-#tab-filme #fp-results .result-card .result-queue-toggle:is(:hover, .is-queued) {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-queue-toggle:is(:hover, .is-queued) {
   color: #11161d;
   border-color: #f0f2f5;
   background: #f0f2f5;
 }
 
-#tab-filme #fp-results .result-card:hover .result-card-visual {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card:hover .result-card-visual {
   border-color: #ffffff66;
   box-shadow: 0 12px 28px #00000055;
   transform: none;
 }
 
-#tab-filme #fp-results .result-card:is(.selected, .queued) .result-card-visual {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card:is(.selected, .queued) .result-card-visual {
   border-color: #a4e4bd;
   box-shadow: 0 0 0 2px #a4e4bd33;
 }
 
-#tab-filme #fp-results .result-card:focus-visible,
-#tab-filme #fp-results .result-card .result-queue-toggle:focus-visible {
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card:focus-visible,
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-queue-toggle:focus-visible {
   outline: 3px solid #f0f2f5;
   outline-offset: 4px;
 }
 
 @media (min-width: 1800px) {
-  #tab-filme #fp-results.result-shelf {
+  :is(#tab-filme #fp-results, #tab-serien #series-results).result-shelf {
     grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
     gap: 36px 26px;
   }
 }
 
 @media (max-width: 600px) {
-  #tab-filme #fp-results.result-shelf {
+  :is(#tab-filme #fp-results, #tab-serien #series-results).result-shelf {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 24px 12px;
   }
-  #tab-filme #fp-results .result-card .result-card-title { font-size: 13px; }
-  #tab-filme #fp-results .result-card .result-card-library-badge {
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-title { font-size: 13px; }
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-library-badge {
     left: 6px;
     bottom: 6px;
     max-width: calc(100% - 12px);
     padding: 5px 6px;
   }
-  #tab-filme #fp-results .result-card .result-queue-toggle {
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-queue-toggle {
     top: 7px;
     right: 7px;
     width: 40px;
@@ -198,6 +198,25 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #tab-filme #fp-results .result-card *,
-  #tab-filme #fp-results .result-card *::after { transition: none; }
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card *,
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card *::after { transition: none; }
+}
+
+#tab-serien #series-results .series-card-seasons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-top: 7px;
+  padding-top: 9px;
+  border-top: 1px solid #ffffff18;
+  color: #bbcddf;
+  font: 500 11px/1.4 "DM Sans", "Segoe UI", sans-serif;
+}
+#tab-serien #series-results .series-card-seasons::before {
+  content: "▤";
+  font-size: 17px;
+}
+#tab-serien #series-results .result-card:hover .series-card-seasons {
+  color: #f0f2f5;
 }
