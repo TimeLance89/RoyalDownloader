@@ -66,7 +66,9 @@ function createInitialState() {
     },
     wl: {
       items: [], selected: new Set(), loaded: false,
-      filter: "all", notifFilter: "all", query: "", draftQuery: "", sort: "attention",
+      filter: "all", notifFilter: "all", notifReading: "",
+      notifFeedback: "", notifFeedbackError: false,
+      query: "", draftQuery: "", sort: "attention",
       view: "grid", heroBaseSlug: "", checkRunning: false,
       health: { error: "", checking_count: 0 },
     },

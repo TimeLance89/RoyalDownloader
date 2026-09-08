@@ -676,11 +676,15 @@ def watchlist_payload() -> dict:
     with state.queue_claim_lock, state.watchlist_lock:
         for w in state.watchlist:
             pending = set(state.watchlist_new_slugs.get(w["base_slug"], set()))
-            waiting_release = set(w.get("waiting_release_slugs") or []) & pending
+            queued = pending & state.picked
+            # A new attempt supersedes older release/failure markers, including
+            # manual retries which deliberately retain their failure history.
+            waiting_release = (set(w.get("waiting_release_slugs") or []) & pending) - queued
             actionable_pending = pending - waiting_release
-            queued_count = len(pending & state.picked)
+            open_pending = actionable_pending - queued
+            queued_count = len(queued)
             failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}
-            failed_count = len(set(failures) & actionable_pending)
+            failed_count = len(set(failures) & open_pending)
             mode = normalize_watch_mode(w.get("download_mode"))
             cleanup_mode = normalize_cleanup_mode(w.get("cleanup_mode"))
             error = str(w.get("last_error") or "")
@@ -693,6 +697,10 @@ def watchlist_payload() -> dict:
                 key=lambda notification: float(notification.get("downloaded_at") or 0),
                 reverse=True,
             )
+            unread_download_notifications = [
+                notification for notification in download_notifications
+                if not bool(notification.get("read"))
+            ]
             if error:
                 status = "blocked"
             elif failed_count:
@@ -734,16 +742,20 @@ def watchlist_payload() -> dict:
                         and not error
                     )
                 ),
+                # Preserve the historical total for existing clients. Inbox
+                # clients use open_count + queued_count as distinct buckets.
                 "new_count": len(actionable_pending),
+                "open_count": len(open_pending),
                 "waiting_release_count": len(waiting_release),
                 "queued_count": queued_count,
                 "failed_count": failed_count,
-                "downloaded_count": sum(
-                    not bool(notification.get("read"))
-                    for notification in download_notifications
-                ),
+                "downloaded_count": len(unread_download_notifications),
                 "last_downloaded_episode": (
                     deepcopy(download_notifications[0]) if download_notifications else None
+                ),
+                "last_unread_downloaded_episode": (
+                    deepcopy(unread_download_notifications[0])
+                    if unread_download_notifications else None
                 ),
                 "status": status,
             })

@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from jellyfin_client import JellyfinClient
@@ -934,6 +934,7 @@ class WatchlistRemoveBody(BaseModel):
 
 class WatchlistDownloadsReadBody(BaseModel):
     base_slug: str
+    downloaded_before: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 @router.post("/api/v1/watchlist/remove")
@@ -1005,8 +1006,18 @@ async def api_watchlist_downloads_read(body: WatchlistDownloadsReadBody):
             if entry is None:
                 raise HTTPException(404, "Nicht in der Bibliothek.")
             for notification in entry.get("downloaded_episode_notifications") or []:
-                if isinstance(notification, dict):
-                    notification["read"] = True
+                if not isinstance(notification, dict):
+                    continue
+                if body.downloaded_before is not None:
+                    try:
+                        downloaded_at = float(notification.get("downloaded_at") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    # The client acknowledges only events it could have seen.
+                    # Unknown timestamps cannot safely match that snapshot.
+                    if not 0 < downloaded_at <= body.downloaded_before:
+                        continue
+                notification["read"] = True
             try:
                 _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
             except HTTPException:
@@ -1542,6 +1553,7 @@ async def api_watchlist_open(body: WatchlistOpenBody):
                 entry["last_checked"] = time.time()
                 entry["last_error"] = "Serie beim Anbieter nicht abrufbar"
                 _persist_watchlist_background()
+        broadcast({"type": "watchlist_update", **watchlist_payload()})
         raise HTTPException(500, "Serie konnte nicht geladen werden.")
 
     with state.watchlist_lock:
@@ -1668,4 +1680,5 @@ async def api_watchlist_open(body: WatchlistOpenBody):
     known_now = {episode.slug for episode in series.all_episodes}
     preselect = sorted(new_slugs & known_now)
     payload["preselect_slugs"] = preselect
+    broadcast({"type": "watchlist_update", **watchlist_payload()})
     return payload
