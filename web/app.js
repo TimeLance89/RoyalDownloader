@@ -14,9 +14,7 @@ async function initApp() {
   initSettingsNavigation();
   initCatalogInfiniteScroll();
   initializeTrailerExperience();
-
   document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
-
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
   document.getElementById("mobile-queue-backdrop").addEventListener("click", closeMobileQueue);
@@ -28,7 +26,6 @@ async function initApp() {
   document.getElementById("fp-taste-dislike").addEventListener("click", () => setTasteFeedback("movie", "dislike"));
   document.getElementById("series-taste-like").addEventListener("click", () => setTasteFeedback("series", "like"));
   document.getElementById("series-taste-dislike").addEventListener("click", () => setTasteFeedback("series", "dislike"));
-
   // Startseite
   initHomeLayoutEditor();
   initHomeRailScrolling();
@@ -156,7 +153,6 @@ async function initApp() {
       });
     });
   });
-
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
   document.getElementById("fp-search-clear").addEventListener("click", async () => {
@@ -411,7 +407,6 @@ async function initApp() {
   document.getElementById("watch-mode-modal").addEventListener("click", (event) => {
     if (event.target.id === "watch-mode-modal") closeWatchModeModal();
   });
-
   // Bibliothek
   document.getElementById("wl-hero-open").addEventListener("click", () => {
     if (state.wl.heroBaseSlug) openWatchlistEntry(state.wl.heroBaseSlug);
@@ -491,7 +486,6 @@ async function initApp() {
       renderWatchlist();
     }
   });
-
   // Benachrichtigungs-Glocke
   document.getElementById("notif-bell").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -522,7 +516,6 @@ async function initApp() {
     setQueueDockExpanded(false);
     closeMobileQueue();
   });
-
   // Warteschlange / Downloads / Einstellungen
   document.getElementById("queue-clear").addEventListener("click", async () => {
     const resp = await api.queueClear();
@@ -644,7 +637,6 @@ async function initApp() {
     document.getElementById(dirModalTarget).value = dirModalPath;
     document.getElementById("dir-modal").classList.add("hidden");
   });
-
   // Ersteinrichtung
   document.getElementById("setup-browse-movies").addEventListener("click", () => {
     dirModalTarget = "setup-save-path";
@@ -687,11 +679,9 @@ async function initApp() {
       finishSetup();
     }
   });
-
   document.getElementById("account-save").addEventListener("click", saveAccount);
   document.getElementById("account-logout").addEventListener("click", logoutAccount);
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
-
   try {
     await initSettings();
   } catch (e) {
@@ -701,7 +691,6 @@ async function initApp() {
   if (!needsSetup) startInitialData();
   window.royalLoader?.finish();
 }
-
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
     window.royalLoader?.finish();
