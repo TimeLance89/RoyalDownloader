@@ -21,6 +21,7 @@ Pricing reference, verified September 9, 2026: https://www.movieofthenight.com/a
 - Up to six pages per category are fetched per refresh. Incomplete pagination is visibly labelled as partial coverage.
 - Refresh runs on demand at most daily. Connection tests may refresh after a five-minute cooldown. Network or quota failures retain the last saved data, with an explicit warning.
 - No source guarantees a complete future release schedule. An empty selection means no supplied dates, not that the platform has no releases.
+- Movie metadata is requested in English because the provider currently accepts only `en`, `es`, `tr` and `fr` for this endpoint. Interface controls remain localized by Royal.
 
 ## RD checks
 
