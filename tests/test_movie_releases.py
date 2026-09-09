@@ -3,7 +3,14 @@ import time
 
 import pytest
 
-from movie_releases import DAY, MONTH_LIMIT, ReleaseService, can_check, normalize_changes
+from movie_releases import (
+    API_CONTRACT_VERSION,
+    DAY,
+    MONTH_LIMIT,
+    ReleaseService,
+    can_check,
+    normalize_changes,
+)
 
 
 NOW = 1800000000
@@ -33,6 +40,10 @@ class Response:
 
     def json(self):
         return self.data
+
+
+class UnauthorizedResponse(Response):
+    status_code = 401
 
 
 def test_unknown_and_future_dates_never_allow_rd():
@@ -78,6 +89,36 @@ def test_snapshot_survives_outage_and_region_isolation(tmp_path):
     assert restarted.get({"api_key": "", "region": "us"})["entries"] == []
 
 
+def test_changed_api_contract_retries_old_failure_immediately(tmp_path):
+    started = threading.Event()
+
+    def request(*_args, **_kwargs):
+        started.set()
+        return Response(payload())
+
+    service = ReleaseService(tmp_path / "cache.json", request=request, clock=lambda: NOW)
+    service.doc["snapshots"] = {"de": {
+        "attempted_at": NOW,
+        "api_contract_version": API_CONTRACT_VERSION - 1,
+        "error": "old contract failure",
+    }}
+    assert service.get(CONFIG)["loading"]
+    assert started.wait(2)
+    assert service.doc["snapshots"]["de"]["api_contract_version"] == API_CONTRACT_VERSION
+
+
+def test_auth_failure_keeps_a_safe_actionable_error(tmp_path):
+    service = ReleaseService(
+        tmp_path / "cache.json",
+        request=lambda *_args, **_kwargs: UnauthorizedResponse({}),
+        clock=lambda: NOW,
+    )
+    service.refresh(CONFIG)
+    error = service.doc["snapshots"]["de"]["error"]
+    assert "API-Key" in error
+    assert CONFIG["api_key"] not in error
+
+
 def test_pagination_bounded_and_duplicates_coalesced(tmp_path):
     calls = []
     def request(url, **kwargs):
@@ -91,6 +132,7 @@ def test_pagination_bounded_and_duplicates_coalesced(tmp_path):
     assert len(calls) == 12 and partial
     assert len(rows) == 1 and rows[0]["date_kind"] == "observed"
     assert all(c["allow_redirects"] is False for c in calls)
+    assert all(c["params"]["output_language"] == "en" for c in calls)
 
 
 def test_future_check_rejected_server_side(tmp_path):

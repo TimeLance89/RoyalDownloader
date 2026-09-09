@@ -21,6 +21,7 @@ API_URL = "https://api.movieofthenight.com/v4/changes"
 DAY = 86400
 MONTH_LIMIT = 900
 PAGES_PER_KIND = 6
+API_CONTRACT_VERSION = 2
 
 
 def safe_image(value: str) -> str:
@@ -115,7 +116,9 @@ class ReleaseService:
         for kind in ("upcoming", "new"):
             params = {"country": config["region"], "change_type": kind,
                       "item_type": "show", "show_type": "movie",
-                      "include_unknown_dates": "true", "output_language": "de",
+                      # The provider currently supports en/es/tr/fr here. The
+                      # UI itself remains localized independently.
+                      "include_unknown_dates": "true", "output_language": "en",
                       "order_direction": "asc" if kind == "upcoming" else "desc"}
             for _ in range(PAGES_PER_KIND):
                 self._reserve()
@@ -147,11 +150,20 @@ class ReleaseService:
                 snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
                 snapshot.update(entries=rows, updated_at=self.clock(), error="", partial=partial)
                 self._save()
-        except (requests.RequestException, OSError, ValueError, TypeError, KeyError, AttributeError):
+        except ValueError as error:
+            # ValueError messages originate only from the controlled checks above.
+            with self.lock:
+                snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
+                snapshot["error"] = str(error)
+                try:
+                    self._save()
+                except OSError:
+                    pass
+        except (requests.RequestException, OSError, TypeError, KeyError, AttributeError):
             # Never forward upstream bodies or exception strings containing credentials.
             with self.lock:
                 snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
-                snapshot["error"] = "Release-Abruf fehlgeschlagen. API-Key, Gratis-Kontingent und Verbindung prüfen. Gespeicherte Termine können veraltet sein."
+                snapshot["error"] = "Release-Dienst derzeit nicht erreichbar. Gespeicherte Termine können veraltet sein."
                 try:
                     self._save()
                 except OSError:
@@ -164,9 +176,11 @@ class ReleaseService:
         with self.lock:
             now = self.clock()
             snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
-            due = now - snapshot.get("attempted_at", 0) >= (300 if refresh else DAY)
+            due = (snapshot.get("api_contract_version") != API_CONTRACT_VERSION
+                   or now - snapshot.get("attempted_at", 0) >= (300 if refresh else DAY))
             if config["api_key"] and due and not self.running:
                 snapshot["attempted_at"] = now
+                snapshot["api_contract_version"] = API_CONTRACT_VERSION
                 try:
                     self._save()
                 except OSError:
