@@ -323,6 +323,19 @@ def _update_all(updates: dict, ensure_save_path: bool = True) -> bool:
         return _write_all(values)
 
 
+def load_releases() -> dict:
+    values = _read_all()
+    return {"api_key": values.get("releases_api_key", ""),
+            "region": values.get("releases_region", "de")}
+
+
+def save_releases(api_key: str, region: str) -> bool:
+    if region not in {"de", "at", "ch", "us", "gb"} or any(c.isspace() for c in api_key):
+        return False
+    return _update_all({"releases_api_key": api_key, "releases_region": region},
+                       ensure_save_path=False)
+
+
 def load() -> str:
     """
     Lädt den gespeicherten Download-Pfad. Fallback: ~/Downloads/Filme.

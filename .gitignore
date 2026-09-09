@@ -87,3 +87,5 @@ captures/
 .DS_Store
 Thumbs.db
 Desktop.ini
+movie_releases_cache.json
+movie_releases_cache.tmp
