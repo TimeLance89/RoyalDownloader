@@ -553,7 +553,7 @@ async function initApp() {
     }
   });
   document.getElementById("ui-language").addEventListener("change", (event) => {
-    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+    i18n.changeLanguage(event.target.value, { userInitiated: true, persist: true }).catch((error) => {
       console.warn("Sprache konnte nicht gewechselt werden:", error);
     });
   });

@@ -1,5 +1,7 @@
 const i18n = (() => {
   const SOURCE_LANGUAGE = "de";
+  const LANGUAGE_STORAGE_KEY = "royal.ui.language";
+  const TRANSLATION_STORAGE_PREFIX = "royal.ui.translations.";
   const FALLBACK_LANGUAGES = {
     de: "Deutsch",
     en: "English",
@@ -82,6 +84,22 @@ const i18n = (() => {
   const attributeEntries = new WeakMap();
   const allEntries = new Set();
   const translations = new Map();
+
+  function readStorage(key, fallback = "") {
+    try {
+      return window.localStorage?.getItem(key) || fallback;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      window.localStorage?.setItem(key, value);
+    } catch (error) {
+      // Private browsing and full storage must not block language changes.
+    }
+  }
 
   function normalizeLanguage(value) {
     const code = String(value || "").trim().replaceAll("_", "-").toLowerCase();
@@ -226,9 +244,47 @@ const i18n = (() => {
 
   function translationCache(target) {
     if (!translations.has(target)) {
-      translations.set(target, new Map(LOCAL_TRANSLATIONS[target] || []));
+      let persisted = {};
+      try {
+        persisted = JSON.parse(readStorage(`${TRANSLATION_STORAGE_PREFIX}${target}`, "{}"));
+      } catch (error) {
+        persisted = {};
+      }
+      const cache = new Map(Object.entries(persisted || {}));
+      for (const [source, translated] of LOCAL_TRANSLATIONS[target] || []) {
+        cache.set(source, translated);
+      }
+      translations.set(target, cache);
     }
     return translations.get(target);
+  }
+
+  function persistTranslationCache(target) {
+    writeStorage(
+      `${TRANSLATION_STORAGE_PREFIX}${target}`,
+      JSON.stringify(Object.fromEntries(translationCache(target))),
+    );
+  }
+
+  function rememberTranslations(target, sources, results) {
+    const cache = translationCache(target);
+    let changed = false;
+    sources.forEach((source, index) => {
+      const translated = String(results[index] || "").trim();
+      if (!translated || translated === source) return;
+      cache.set(source, translated);
+      changed = true;
+    });
+    if (changed) persistTranslationCache(target);
+  }
+
+  function renderCachedEntries(entries, target) {
+    const cache = translationCache(target);
+    for (const entry of entries) {
+      renderEntry(entry, target === SOURCE_LANGUAGE
+        ? entry.source
+        : (cache.get(entry.source) || entry.source));
+    }
   }
 
   async function getBrowserTranslator(target, userInitiated, onProgress) {
@@ -277,63 +333,56 @@ const i18n = (() => {
     return results;
   }
 
-  async function serverTranslate(target, values) {
+  async function serverTranslate(target, values, onChunk = null) {
     const translated = [];
     for (let index = 0; index < values.length; index += 80) {
       const chunk = values.slice(index, index + 80);
       const response = await api.uiTranslate(target, chunk);
-      translated.push(...(response.translations || chunk));
+      const results = response.translations || chunk;
+      translated.push(...results);
+      onChunk?.(chunk, results);
       lastEngine = response.engine || "server";
     }
     return translated;
   }
 
-  async function resolveTranslations(target, sources, { userInitiated = false } = {}) {
+  async function resolveTranslations(target, sources, {
+    userInitiated = false,
+    onResolved = null,
+  } = {}) {
     const cache = translationCache(target);
     const unique = [...new Set(sources)].filter((source) => !cache.has(source));
     if (!unique.length) return cache;
 
-    const translator = await getBrowserTranslator(
-      target,
-      userInitiated,
-      (progress) => setStatus(`Sprachmodell wird geladen … ${progress}%`),
-    );
     let translated;
-    if (translator) {
-      lastEngine = "browser";
-      translated = await mapWithConcurrency(unique, 4, async (source) => {
-        try {
-          return await translator.translate(source);
-        } catch (error) {
-          return "";
-        }
+    try {
+      translated = await serverTranslate(target, unique, (chunk, results) => {
+        rememberTranslations(target, chunk, results);
+        onResolved?.(new Set(chunk));
       });
-      const failedIndexes = translated
-        .map((value, index) => value ? -1 : index)
-        .filter((index) => index >= 0);
-      if (failedIndexes.length) {
-        try {
-          const fallback = await serverTranslate(
-            target,
-            failedIndexes.map((index) => unique[index]),
-          );
-          failedIndexes.forEach((sourceIndex, fallbackIndex) => {
-            translated[sourceIndex] = fallback[fallbackIndex];
-          });
-        } catch (error) {
-          console.warn("Server-Übersetzer nicht verfügbar:", error);
-        }
-      }
-    } else {
-      try {
-        translated = await serverTranslate(target, unique);
-      } catch (error) {
-        console.warn("Automatische Übersetzung nicht verfügbar:", error);
+    } catch (serverError) {
+      const translator = await getBrowserTranslator(
+        target,
+        userInitiated,
+        (progress) => setStatus(`Sprachmodell wird geladen … ${progress}%`),
+      );
+      if (!translator) {
+        console.warn("Automatische Übersetzung nicht verfügbar:", serverError);
         translated = unique;
         lastEngine = "fallback";
+      } else {
+        lastEngine = "browser";
+        translated = await mapWithConcurrency(unique, 4, async (source) => {
+          try {
+            return await translator.translate(source);
+          } catch (error) {
+            return "";
+          }
+        });
       }
     }
-    unique.forEach((source, index) => cache.set(source, translated[index] || source));
+    rememberTranslations(target, unique, translated);
+    onResolved?.(new Set(unique));
     return cache;
   }
 
@@ -350,7 +399,15 @@ const i18n = (() => {
     const cache = await resolveTranslations(
       language,
       connected.map((entry) => entry.source),
-      options,
+      {
+        ...options,
+        onResolved(resolvedSources) {
+          if (activeGeneration !== generation) return;
+          connected
+            .filter((entry) => resolvedSources.has(entry.source))
+            .forEach((entry) => renderEntry(entry, translationCache(language).get(entry.source)));
+        },
+      },
     );
     if (activeGeneration !== generation) return;
     connected.forEach((entry) => renderEntry(entry, cache.get(entry.source) || entry.source));
@@ -364,14 +421,24 @@ const i18n = (() => {
   }
 
   function queueTranslation(entries) {
-    for (const entry of entries) pendingEntries.add(entry);
+    const cache = translationCache(language);
+    for (const entry of entries) {
+      if (language === SOURCE_LANGUAGE) {
+        renderEntry(entry, entry.source);
+      } else if (cache.has(entry.source)) {
+        renderEntry(entry, cache.get(entry.source));
+      } else {
+        pendingEntries.add(entry);
+      }
+    }
+    if (!pendingEntries.size) return;
     if (pendingTimer) clearTimeout(pendingTimer);
     pendingTimer = setTimeout(async () => {
       const batch = pendingEntries;
       pendingEntries = new Set();
       pendingTimer = null;
       await translateEntries(batch);
-    }, 60);
+    }, 0);
   }
 
   function observe() {
@@ -431,11 +498,17 @@ const i18n = (() => {
     const target = normalizeLanguage(value);
     generation += 1;
     language = target;
+    if (persist || userInitiated) writeStorage(LANGUAGE_STORAGE_KEY, target);
     document.documentElement.lang = target;
     document.documentElement.dir = "ltr";
     syncSelectors();
-    restoreGerman();
     const entries = collect(document.documentElement);
+    renderCachedEntries(entries, target);
+    const persistRequest = persist
+      ? api.uiConfigSet(target).then((response) => {
+        configured = !!response.configured;
+      })
+      : null;
     if (target === SOURCE_LANGUAGE) {
       lastEngine = "source";
       setStatus("Deutsch · Ausgangssprache");
@@ -462,21 +535,19 @@ const i18n = (() => {
         });
       }
     }
-    if (persist) {
-      const response = await api.uiConfigSet(target);
-      configured = !!response.configured;
-    }
+    if (persistRequest) await persistRequest;
     return target;
   }
 
   async function initialize() {
     if (initialized) return { language, languages, configured };
+    const storedLanguage = readStorage(LANGUAGE_STORAGE_KEY);
     let response = null;
     try {
       response = await api.uiConfigGet();
       languages = { ...FALLBACK_LANGUAGES, ...(response.languages || {}) };
       configured = !!response.configured;
-      language = normalizeLanguage(response.language);
+      language = normalizeLanguage(storedLanguage || response.language);
     } catch (error) {
       console.warn("Sprachkonfiguration nicht verfügbar:", error);
     }
@@ -487,8 +558,18 @@ const i18n = (() => {
     return { language, languages, configured };
   }
 
+  function primeStoredInterface() {
+    const storedLanguage = readStorage(LANGUAGE_STORAGE_KEY);
+    if (!storedLanguage) return;
+    language = normalizeLanguage(storedLanguage);
+    document.documentElement.lang = language;
+    renderCachedEntries(collect(document.documentElement), language);
+    syncSelectors();
+  }
+
   return {
     initialize,
+    primeStoredInterface,
     changeLanguage,
     translateTexts,
     browserDefaultLanguage,
@@ -500,3 +581,4 @@ const i18n = (() => {
 })();
 
 window.i18n = i18n;
+i18n.primeStoredInterface?.();
