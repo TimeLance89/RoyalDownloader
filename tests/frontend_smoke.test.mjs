@@ -230,8 +230,10 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(localization, /LANGUAGE_STORAGE_KEY = "royal\.ui\.language"/);
   assert.match(localization, /primeStoredInterface/);
   assert.match(localization, /persistTranslationCache/);
+  assert.doesNotMatch(localization, /await changeLanguage\(language\)/);
+  assert.match(localization, /changeLanguage\(language\)\.catch/);
   assert.match(app, /userInitiated: true, persist: true/);
-  assert.match(html, /i18n\.js\?v=royal-20260909-1/);
+  assert.match(html, /i18n\.js\?v=royal-20260909-2/);
   assert.match(html, /screens\/setup\.js\?v=royal-20260823-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
