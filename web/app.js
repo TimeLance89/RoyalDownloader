@@ -14,9 +14,7 @@ async function initApp() {
   initSettingsNavigation();
   initCatalogInfiniteScroll();
   initializeTrailerExperience();
-
   document.querySelectorAll(".tab-btn[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
-
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
   document.getElementById("mobile-queue-backdrop").addEventListener("click", closeMobileQueue);
@@ -28,7 +26,6 @@ async function initApp() {
   document.getElementById("fp-taste-dislike").addEventListener("click", () => setTasteFeedback("movie", "dislike"));
   document.getElementById("series-taste-like").addEventListener("click", () => setTasteFeedback("series", "like"));
   document.getElementById("series-taste-dislike").addEventListener("click", () => setTasteFeedback("series", "dislike"));
-
   // Startseite
   initHomeLayoutEditor();
   initHomeRailScrolling();
@@ -156,7 +153,6 @@ async function initApp() {
       });
     });
   });
-
   // Filme
   document.getElementById("fp-search-btn").addEventListener("click", fpSearch);
   document.getElementById("fp-search-clear").addEventListener("click", async () => {
@@ -411,7 +407,6 @@ async function initApp() {
   document.getElementById("watch-mode-modal").addEventListener("click", (event) => {
     if (event.target.id === "watch-mode-modal") closeWatchModeModal();
   });
-
   // Bibliothek
   document.getElementById("wl-hero-open").addEventListener("click", () => {
     if (state.wl.heroBaseSlug) openWatchlistEntry(state.wl.heroBaseSlug);
@@ -419,19 +414,24 @@ async function initApp() {
   document.getElementById("wl-hero-check").addEventListener("click", async () => {
     if (!state.wl.heroBaseSlug) return;
     document.getElementById("wl-status").textContent = "Archivstück wird geprüft …";
-    const data = await api.watchlistCheck([state.wl.heroBaseSlug]);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = "Status aktualisiert";
+    try {
+      const data = await performWatchlistCheck([state.wl.heroBaseSlug]);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.querySelectorAll("[data-library-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       state.wl.filter = button.dataset.libraryFilter || "all";
+      state.wl.selected.clear();
       renderWatchlist();
     });
   });
   document.getElementById("wl-search").addEventListener("input", (event) => {
     state.wl.draftQuery = event.currentTarget.value;
     state.wl.query = String(state.wl.draftQuery || "").trim();
+    state.wl.selected.clear();
     document.getElementById("wl-search-clear").hidden = !state.wl.query;
     renderWatchlist();
   });
@@ -447,17 +447,23 @@ async function initApp() {
   bindLibraryEnhancementControls();
   document.getElementById("wl-check-all").addEventListener("click", async () => {
     document.getElementById("wl-status").textContent = `Prüfe ${state.wl.items.length} Serie(n) …`;
-    const data = await api.watchlistCheck(null);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = `${data.checked}/${data.total} geprüft`;
+    try {
+      const data = await performWatchlistCheck(null);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.getElementById("wl-check-selected").addEventListener("click", async () => {
     if (!state.wl.selected.size) { alert("Bitte zuerst Serien in der Liste auswählen."); return; }
     const slugs = [...state.wl.selected];
     document.getElementById("wl-status").textContent = `Prüfe ${slugs.length} Serie(n) …`;
-    const data = await api.watchlistCheck(slugs);
-    applyWatchlist(data.watchlist);
-    document.getElementById("wl-status").textContent = `${data.checked}/${data.total} geprüft`;
+    try {
+      const data = await performWatchlistCheck(slugs);
+      document.getElementById("wl-status").textContent = watchlistCheckResultText(data);
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Prüfung fehlgeschlagen: ${error.message}`;
+    }
   });
   document.getElementById("wl-open").addEventListener("click", () => {
     const first = [...state.wl.selected][0];
@@ -465,12 +471,21 @@ async function initApp() {
   });
   document.getElementById("wl-remove").addEventListener("click", async () => {
     if (!state.wl.selected.size) return;
-    const data = await api.watchlistRemove([...state.wl.selected]);
-    state.wl.selected.clear();
-    applyWatchlist(data.watchlist);
-    await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
+    const count = state.wl.selected.size;
+    if (!window.confirm(`${count} ${count === 1 ? "Abo" : "Abos"} wirklich entfernen?`)) return;
+    const button = document.getElementById("wl-remove");
+    button.disabled = true;
+    try {
+      const data = await api.watchlistRemove([...state.wl.selected]);
+      state.wl.selected.clear();
+      applyWatchlist(data.watchlist, data.health || null);
+      await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
+    } catch (error) {
+      document.getElementById("wl-status").textContent = `Entfernen fehlgeschlagen: ${error.message}`;
+    } finally {
+      renderWatchlist();
+    }
   });
-
   // Benachrichtigungs-Glocke
   document.getElementById("notif-bell").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -501,7 +516,6 @@ async function initApp() {
     setQueueDockExpanded(false);
     closeMobileQueue();
   });
-
   // Warteschlange / Downloads / Einstellungen
   document.getElementById("queue-clear").addEventListener("click", async () => {
     const resp = await api.queueClear();
@@ -526,6 +540,8 @@ async function initApp() {
   });
   document.getElementById("settings-btn").addEventListener("click", () => switchTab("einstellungen"));
   document.getElementById("settings-save").addEventListener("click", saveAllSettings);
+  document.getElementById("ai-test").addEventListener("click", testAiConnection);
+  document.getElementById("ai-enabled").addEventListener("change", syncAiSettingsState);
   document.getElementById("taste-profile-reset").addEventListener("click", async () => {
     if (!window.confirm("Geschmacksprofil wirklich vollständig zurücksetzen?")) return;
     try {
@@ -537,7 +553,7 @@ async function initApp() {
     }
   });
   document.getElementById("ui-language").addEventListener("change", (event) => {
-    i18n.changeLanguage(event.target.value, { userInitiated: true }).catch((error) => {
+    i18n.changeLanguage(event.target.value, { userInitiated: true, persist: true }).catch((error) => {
       console.warn("Sprache konnte nicht gewechselt werden:", error);
     });
   });
@@ -621,7 +637,6 @@ async function initApp() {
     document.getElementById(dirModalTarget).value = dirModalPath;
     document.getElementById("dir-modal").classList.add("hidden");
   });
-
   // Ersteinrichtung
   document.getElementById("setup-browse-movies").addEventListener("click", () => {
     dirModalTarget = "setup-save-path";
@@ -664,11 +679,9 @@ async function initApp() {
       finishSetup();
     }
   });
-
   document.getElementById("account-save").addEventListener("click", saveAccount);
   document.getElementById("account-logout").addEventListener("click", logoutAccount);
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
-
   try {
     await initSettings();
   } catch (e) {
@@ -678,7 +691,6 @@ async function initApp() {
   if (!needsSetup) startInitialData();
   window.royalLoader?.finish();
 }
-
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
     window.royalLoader?.finish();

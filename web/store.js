@@ -20,6 +20,10 @@ function createInitialState() {
       },
       search: { scope: "all", query: "", results: [], active: false, loading: false, requestSeq: 0 },
     },
+    ai: {
+      enabled: false, configured: false, model: "", loading: false,
+      recommendations: [], lastFingerprint: "", requestSeq: 0,
+    },
     fp: {
       results: [], moviesCache: {}, category: null, page: 1, lastPageFull: false,
       activeGenre: "Alle Genres", selectedSlug: null, pendingPreload: null,
@@ -62,8 +66,11 @@ function createInitialState() {
     },
     wl: {
       items: [], selected: new Set(), loaded: false,
-      filter: "all", notifFilter: "all", query: "", draftQuery: "", sort: "attention",
-      view: "grid", heroBaseSlug: "",
+      filter: "all", notifFilter: "all", notifReading: "",
+      notifFeedback: "", notifFeedbackError: false,
+      query: "", draftQuery: "", sort: "attention",
+      view: "grid", heroBaseSlug: "", checkRunning: false,
+      health: { error: "", checking_count: 0 },
     },
     movieSubscriptions: { items: [], loaded: false },
     queue: { count: 0, groups: [], loaded: false },

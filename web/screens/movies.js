@@ -580,7 +580,8 @@ function renderFpResults(appendFrom = 0) {
   applyFpSmartFilters();
 }
 
-function applyFpResults(data, { append = false, metadataPrepared = false } = {}) {
+function applyFpResults(data, { append = false, metadataPrepared = false, backgroundRefresh = false } = {}) {
+  scheduleFpCatalogRefresh(Boolean(data.refresh_pending));
   const incoming = Array.isArray(data.results) ? data.results : [];
   const renderedCards = document.querySelectorAll("#fp-results .result-card");
   const preserveRenderedCards = !append
@@ -611,7 +612,7 @@ function applyFpResults(data, { append = false, metadataPrepared = false } = {})
   state.fp.sources = mergeCatalogSources(state.fp.sources, data.sources, append);
   state.fp.loadingMore = false;
   state.fp.loadError = "";
-  if (!append) state.fp.selectedSlug = null;
+  if (!append && !backgroundRefresh) state.fp.selectedSlug = null;
   if (!append) state.fp.metadataRequestSeq += 1;
   const metadataItems = fpMetadataPreloadItems(incoming);
   const pendingSlugs = new Set(

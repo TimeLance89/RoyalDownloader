@@ -116,6 +116,7 @@ def test_persisted_season_zero_state_is_removed_on_load(monkeypatch, tmp_path):
           ],
           "cleanup_history": ["0:4", "1:4"],
           "season_episode_counts": {"0": 4, "1": 4}
+          ,"check_in_progress": true
         }]""",
         encoding="utf-8",
     )
@@ -135,6 +136,7 @@ def test_persisted_season_zero_state_is_removed_on_load(monkeypatch, tmp_path):
     }]
     assert entry["cleanup_history"] == ["1:4"]
     assert entry["season_episode_counts"] == {"1": 4}
+    assert entry["check_in_progress"] is False
 
 
 def test_persisted_season_zero_queue_and_history_are_removed(monkeypatch, tmp_path):

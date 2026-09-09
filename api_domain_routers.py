@@ -23,6 +23,7 @@ for supplemental_router in (
 
 DOMAIN_ROUTERS = {
     "discovery": APIRouter(tags=["discovery"]),
+    "ai-discovery": APIRouter(tags=["ai-discovery"]),
     "queue": APIRouter(tags=["queue"]),
     "library": APIRouter(tags=["library"]),
     "administration": storage_router,
@@ -30,6 +31,7 @@ DOMAIN_ROUTERS = {
 }
 
 _PREFIXES = {
+    "ai-discovery": ("/api/ai", "/api/v1/ai"),
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
         "/api/taste", "/api/v1/taste",

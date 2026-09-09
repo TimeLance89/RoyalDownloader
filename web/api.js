@@ -234,6 +234,10 @@ const api = {
   jellyfinUsers(url, apiKey) { return this.post("/api/jellyfin/users", { url, api_key: apiKey }); },
   tmdbConfigGet() { return this.get("/api/tmdb/config"); },
   tmdbConfigSet(apiKey) { return this.post("/api/tmdb/config", { api_key: apiKey }); },
+  aiConfigGet() { return this.get("/api/ai/config"); },
+  aiConfigSet(cfg) { return this.post("/api/ai/config", cfg); },
+  aiTest(cfg) { return this.post("/api/ai/test", cfg); },
+  aiRecommendations(candidates) { return this.post("/api/ai/recommendations", { candidates }); },
   automationConfigGet() { return this.get("/api/automation/config"); },
   automationConfigSet(cfg) { return this.post("/api/automation/config", cfg); },
   telegramConfigGet() { return this.get("/api/telegram/config"); },
@@ -269,8 +273,12 @@ const api = {
   watchlistRemove(baseSlugs) { return this.post("/api/watchlist/remove", { base_slugs: baseSlugs }); },
   watchlistCheck(baseSlugs) { return this.post("/api/watchlist/check", { base_slugs: baseSlugs || null }); },
   watchlistOpen(baseSlug) { return this.post("/api/watchlist/open", { base_slug: baseSlug }); },
-  watchlistDownloadsRead(baseSlug) {
-    return this.post("/api/watchlist/downloads/read", { base_slug: baseSlug });
+  watchlistDownloadsRead(baseSlug, downloadedBefore = 0) {
+    const cutoff = Number(downloadedBefore);
+    return this.post("/api/watchlist/downloads/read", {
+      base_slug: baseSlug,
+      downloaded_before: Number.isFinite(cutoff) && cutoff > 0 ? cutoff : 0,
+    });
   },
 
   movieSubscriptionsGet() { return this.get("/api/movie-subscriptions"); },

@@ -76,6 +76,7 @@ from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 from resolved_link_cache import ResolvedLinkCache
 from runtime_cache import BoundedTTLCache
 from api_system_router import create_system_router
+from api_ai_router import create_ai_router
 from api_domain_routers import install_domain_routers, register_domain_router
 from api_auth_router import (
     ApiV1LoginBody,
@@ -611,6 +612,7 @@ def _capabilities_payload():
             "queue": True,
             "watchlist": True,
             "taste_profile": True,
+            "local_ai_discovery": True,
             "jellyfin_matching": True,
             "tmdb_metadata": True,
             "cover_proxy": True,
@@ -720,6 +722,10 @@ app.include_router(create_auth_router(AuthDependencies(
 discovery_router = create_discovery_router(sys.modules[__name__])
 register_domain_router("discovery", discovery_router)
 app.router.routes.extend(discovery_router.routes)
+
+ai_router = create_ai_router(state)
+register_domain_router("ai-discovery", ai_router)
+app.router.routes.extend(ai_router.routes)
 
 
 queue_router = create_queue_router(sys.modules[__name__])

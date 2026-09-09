@@ -25,6 +25,7 @@ from runtime_cache import BoundedTTLCache
 from runtime_paths import data_dir
 from taste_profile import TasteProfileStore
 from tmdb_client import TMDBClient
+from ai_discovery import AiDiscoveryService
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,17 @@ class AppState:
         self.setup_completion_lock = threading.Lock()
         self.watchlist: list[dict] = appconfig.load_watchlist()
         self.watchlist_lock = threading.RLock()
+        self.watchlist_check_lock = threading.Lock()
+        self.watchlist_hydration_lock = threading.Lock()
+        self.watchlist_global_error = ""
+        for entry in self.watchlist:
+            error = str(entry.get("last_error") or "")
+            if error.startswith((
+                "Jellyfin nicht erreichbar",
+                "Jellyfin-Serienindex nicht verfügbar",
+            )):
+                self.watchlist_global_error = self.watchlist_global_error or error
+                entry["last_error"] = ""
         self.movie_subscriptions: list[dict] = appconfig.load_movie_subscriptions()
         self.movie_subscriptions_lock = threading.RLock()
         self.persistence_status_lock = threading.RLock()
@@ -104,6 +116,7 @@ class AppState:
         self.hoster_intel = HosterIntel()
         self.taste_profile = TasteProfileStore(appconfig.taste_profile_file())
         self.home_layout = HomeLayoutStore(appconfig.home_layout_file())
+        self.ai_discovery = AiDiscoveryService(appconfig.load_ai())
 
         self.jellyfin_cfg: dict = appconfig.load_jellyfin()
         self.tmdb_cfg: dict = appconfig.load_tmdb()

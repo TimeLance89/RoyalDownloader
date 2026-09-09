@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+import "./movie_catalog_refresh.test.mjs";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const api = readFileSync(new URL("../web/api.js", import.meta.url), "utf8");
@@ -23,6 +24,7 @@ const accountStyles = readFileSync(
   new URL("../web/styles/legacy-account.css", import.meta.url),
   "utf8",
 );
+const seriesStyles = readFileSync(new URL("../web/styles/series.css", import.meta.url), "utf8");
 const appModulePaths = [
   "core.js",
   "home_card_dock.js",
@@ -78,7 +80,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260830-3/);
+  assert.match(html, /style\.css\?v=royal-20260908-2/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -181,6 +183,11 @@ test("detail, queue, and settings screens remain wired", () => {
       < html.indexOf('id="series-detail-similar-section"'),
     "Serienepisoden müssen vor ähnlichen Titeln stehen",
   );
+  assert.match(
+    seriesStyles,
+    /\.series-detail-lower-grid > \.detail-extras,[\s\S]*?\.series-detail-lower-grid > \.series-detail-about \{[\s\S]*?grid-area: auto;/,
+    "Trailer und Serieninformationen dürfen keine geerbten Grid-Flächen überlagern",
+  );
   assert.match(app, /function renderSeriesDetailDiscovery\(series\)/);
   assert.match(app, /SERIENAKTE ÖFFNEN →/);
   requiresIds("queue-drawer", "queue-list", "queue-count");
@@ -220,7 +227,16 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260823-1/);
+  assert.match(localization, /LANGUAGE_STORAGE_KEY = "royal\.ui\.language"/);
+  assert.match(localization, /primeStoredInterface/);
+  assert.match(localization, /persistTranslationCache/);
+  for (const label of ["Übersicht", "Betrieb", "Speicher", "Automatik", "Zugang"]) {
+    assert.match(localization, new RegExp(`"${label}":`));
+  }
+  assert.doesNotMatch(localization, /await changeLanguage\(language\)/);
+  assert.match(localization, /changeLanguage\(language\)\.catch/);
+  assert.match(app, /userInitiated: true, persist: true/);
+  assert.match(html, /i18n\.js\?v=royal-20260909-3/);
   assert.match(html, /screens\/setup\.js\?v=royal-20260823-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
@@ -235,7 +251,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260827-1/);
+  assert.match(html, /app\.js\?v=royal-20260909-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -278,7 +294,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260824-3/);
+  assert.match(html, /screens\/movies\.js\?v=royal-20260905-1/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\(state\.fp\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /state\.home\.jellyfinStatusByKey\.set\(`movie:\$\{slug\}`, status\)/);
@@ -652,8 +668,15 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
 });
 
-test("home carousel keeps its scroll position across artwork rerenders", () => {
-  const helperStart = homeLayoutEditor.indexOf("function updateHomeRailNavigation(track)");
+test("home carousels loop naturally without duplicating the spotlight grid", () => {
+  assert.match(homeRailRuntime, /loop && logicalCount > 1/);
+  assert.match(home, /\{ loop: layout !== "spotlight" && !ranked \}/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_SCROLL_STEP_RATIO = 0\.68/);
+  assert.match(homeLayoutEditor, /HOME_RAIL_WHEEL_FACTOR = 0\.78/);
+  assert.match(homeLayoutEditor, /behavior: reducedMotion \? "auto" : "smooth"/);
+  assert.doesNotMatch(homeLayoutEditor, /pointermove/);
+  assert.match(homeLayoutEditor, /normalizeHomeRailLoop\(track/);
+  const helperStart = homeLayoutEditor.indexOf("const HOME_RAIL_SCROLL_STEP_RATIO");
   const helperEnd = homeLayoutEditor.indexOf("function defaultHomeLayout()", helperStart);
   const renderStart = home.indexOf("function renderHomeRail(");
   const renderEnd = home.indexOf("function renderHome(", renderStart);
@@ -669,6 +692,8 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
     state: { home: { loading: false, railScrollPositions: {}, railScrollTargets: {}, jellyfinStatusByKey: new Map() } },
     document: { getElementById: () => track, querySelectorAll: () => [] },
     requestAnimationFrame: (callback) => animationFrames.push(callback),
+    clearTimeout: () => {},
+    window: { setTimeout: () => 1 },
     updateHomeRailNavigation: () => {},
     createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null }),
     homeEntryMedia: (entry) => entry.item || entry,
@@ -690,11 +715,24 @@ test("home carousel keeps its scroll position across artwork rerenders", () => {
   // must restore the requested target, not the still-current zero position.
   track.scrollLeft = 0;
   vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
-  assert.ok(Math.abs(track.requestedScrollLeft - 492) < 0.01);
+  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 1008) < 0.01);
   track.scrollLeft = 137;
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
-  assert.equal(track.scrollLeft, 137);
+  assert.equal(track.scrollLeft % 600, 137);
+  assert.equal(track.children.length, 36);
   assert.equal(track.replaceCount || 0, 0);
+
+  track.children = [];
+  track.scrollLeft = 0;
+  vm.runInContext('renderHomeRail("home-test-track", entries, { layout: "spotlight" })', context);
+  assert.equal(track.children.length, 7);
+  assert.equal(track.dataset.homeLoopCount, "0");
+
+  track.children = [];
+  track.scrollLeft = 0;
+  vm.runInContext('renderHomeRail("home-test-track", entries.slice(0, 10), { ranked: true })', context);
+  assert.equal(track.children.length, 10);
+  assert.equal(track.dataset.homeLoopCount, "0");
 });
 
 test("evening direction is progressive, explainable, and optionally deep", () => {
@@ -918,7 +956,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260830-3/);
+  assert.match(html, /style\.css\?v=royal-20260908-2/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

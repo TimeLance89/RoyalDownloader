@@ -305,7 +305,7 @@ def _refresh_jellyfin_after_download_once():
                 snapshots = []
                 for entry in state.watchlist:
                     entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-                    entry["last_error"] = "Prüfung läuft – Auto-Download pausiert"
+                    entry["check_in_progress"] = True
                     snapshots.append((
                         entry,
                         dict(entry),
@@ -313,12 +313,17 @@ def _refresh_jellyfin_after_download_once():
                         entry["check_generation"],
                     ))
             calculated_updates = []
+            global_error = ""
+            if global_episodes is None or not global_available:
+                global_error = "Jellyfin nicht erreichbar – Auto-Download pausiert"
+            elif global_series is None or not global_series_available:
+                global_error = "Jellyfin-Serienindex nicht verfügbar"
+            with state.watchlist_lock:
+                state.watchlist_global_error = global_error
             for entry, snapshot, series, revision in snapshots:
                 needs_user = normalize_watch_mode(snapshot.get("download_mode")) == WATCH_MODE_NEXT_SEASON
-                if global_episodes is None or not global_available:
-                    calculated_updates.append((entry, revision, None, "Jellyfin nicht erreichbar – Auto-Download pausiert"))
-                elif global_series is None or not global_series_available:
-                    calculated_updates.append((entry, revision, None, "Jellyfin-Serienindex nicht verfügbar"))
+                if global_error:
+                    calculated_updates.append((entry, revision, None, ""))
                 elif needs_user and (not user_id or user_episodes is None or not user_available):
                     calculated_updates.append((entry, revision, None, "Jellyfin-Benutzerstatus nicht verfügbar"))
                 elif series is not None:
@@ -330,6 +335,8 @@ def _refresh_jellyfin_after_download_once():
                         calculated_updates.append((entry, revision, calculated, ""))
                     except Exception as exc:
                         calculated_updates.append((entry, revision, None, str(exc)[:240]))
+                else:
+                    calculated_updates.append((entry, revision, None, ""))
             with state.jellyfin_cache_lock:
                 data_is_current = (
                     generation == state.jellyfin_config_generation
@@ -349,6 +356,14 @@ def _refresh_jellyfin_after_download_once():
                                 withdrawn_slugs.update(
                                     _apply_watchlist_entry_state(entry, calculated)
                                 )
+                            entry["check_in_progress"] = False
+                    else:
+                        for entry, _snapshot, _series, revision in snapshots:
+                            if (
+                                any(current is entry for current in state.watchlist)
+                                and int(entry.get("check_generation", 0)) == revision
+                            ):
+                                entry["check_in_progress"] = False
                     _persist_watchlist_background()
             if withdrawn_slugs:
                 _cancel_withdrawn_watchlist_slugs(

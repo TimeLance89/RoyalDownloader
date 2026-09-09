@@ -750,6 +750,53 @@ def save_tmdb(api_key: str, language: str = "de-DE") -> bool:
     })
 
 
+def load_ai() -> dict:
+    """Load the optional local discovery assistant configuration.
+
+    Ollama is deliberately disabled by default. Environment variables make the
+    feature convenient in container deployments without changing the existing
+    zero-AI runtime path.
+    """
+    values = _read_all()
+    enabled_raw = values.get("ai_enabled")
+    enabled = (
+        _env_bool("OLLAMA_ENABLED") or False
+        if enabled_raw is None
+        else enabled_raw.strip().lower() in ("1", "true", "yes", "on", "ja")
+    )
+    timeout = _opt_int(values.get("ai_timeout_seconds", ""))
+    if timeout is None:
+        timeout = _env_int("OLLAMA_TIMEOUT_SECONDS") or 180
+    elif timeout == 20:
+        # Migration des ersten KI-Releases: 20 Sekunden waren für CPU-basierte
+        # NAS-Modelle zu knapp und ließen die Discovery scheinbar verschwinden.
+        timeout = 180
+    return {
+        "enabled": enabled,
+        "provider": "ollama",
+        "url": (
+            values.get("ai_url")
+            or os.environ.get("OLLAMA_URL", "").strip()
+            or "http://127.0.0.1:11434"
+        ).rstrip("/"),
+        "model": (
+            values.get("ai_model")
+            or os.environ.get("OLLAMA_MODEL", "").strip()
+            or "llama3.2:3b"
+        ),
+        "timeout_seconds": max(30, min(300, int(timeout))),
+    }
+
+
+def save_ai(enabled: bool, url: str, model: str, timeout_seconds: int = 180) -> bool:
+    return _update_all({
+        "ai_enabled": "true" if enabled else "false",
+        "ai_url": str(url or "").strip().rstrip("/"),
+        "ai_model": str(model or "").strip(),
+        "ai_timeout_seconds": str(max(30, min(300, int(timeout_seconds or 180)))),
+    })
+
+
 def load_telegram() -> dict:
     """Telegram-Bot-Konfiguration; ohne erlaubte Chat-ID nur Einrichtungsmodus."""
     values = _read_all()
@@ -1117,6 +1164,8 @@ def load_watchlist() -> List[dict]:
                 continue
             entry["download_mode"] = normalize_watch_mode(entry.get("download_mode"))
             entry["cleanup_mode"] = normalize_cleanup_mode(entry.get("cleanup_mode"))
+            # Laufende Arbeit ist Prozesszustand und darf keinen Neustart überleben.
+            entry["check_in_progress"] = False
             entry["cleanup_history"] = serialize_episode_history(
                 {
                     pair for pair in normalize_episode_history(entry.get("cleanup_history"))

@@ -32,19 +32,27 @@ function syncHomeCardContent(card, entry, rank = 0) {
   }
 }
 
-function reconcileHomeRail(track, specs) {
-  specs.forEach((spec, index) => {
+function reconcileHomeRail(track, specs, { loop = true } = {}) {
+  const logicalCount = specs.length;
+  const renderedSpecs = loop && logicalCount > 1
+    ? [0, 1, 2].flatMap((cycle) => specs.map((spec) => ({ ...spec, cycle })))
+    : specs.map((spec) => ({ ...spec, cycle: 1 }));
+  renderedSpecs.forEach((spec, index) => {
     const current = track.children[index];
-    if (current?.dataset?.renderSignature === spec.signature) {
+    const signature = `loop:${spec.cycle}:${spec.signature}`;
+    if (current?.dataset?.renderSignature === signature) {
       spec.update?.(current);
+      setHomeRailCycleAccessibility(current, spec.cycle);
       return;
     }
-    const replacement = spec.create();
-    replacement.dataset.renderSignature = spec.signature;
+    const replacement = spec.create(spec.cycle);
+    replacement.dataset.renderSignature = signature;
     spec.update?.(replacement);
+    setHomeRailCycleAccessibility(replacement, spec.cycle);
     if (current) current.replaceWith(replacement);
     else track.appendChild(replacement);
   });
-  while (track.children.length > specs.length) track.lastElementChild.remove();
+  while (track.children.length > renderedSpecs.length) track.lastElementChild.remove();
+  prepareHomeRailLoop(track, loop ? logicalCount : 0);
   updateHomeRailNavigation(track);
 }

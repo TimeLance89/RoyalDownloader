@@ -38,6 +38,22 @@ def test_desktop_dock_is_a_single_slide_up_surface():
     assert "border-radius: 18px 18px 0 0" in CSS
 
 
+def test_collapsed_dock_reads_as_a_modern_transfer_deck():
+    assert "/* ── Royal Transfer Deck" in CSS
+    assert "Transferstatus" in HTML
+    assert "ALS NÄCHSTES" in HTML
+    assert "repeating-linear-gradient" in CSS
+    assert "@keyframes transfer-deck-pulse" in CSS
+    assert "border-radius: 24px 24px 0 0" in CSS
+
+
+def test_transfer_deck_stays_anchored_above_the_hidden_drawer():
+    transfer_deck = CSS.split("/* ── Royal Transfer Deck", 1)[1]
+    dock_bar = transfer_deck.split("#queue-dock .queue-dock-bar {", 1)[1].split("}", 1)[0]
+    assert "position: absolute" in dock_bar
+    assert "bottom: 0" in dock_bar
+
+
 def test_queue_rows_expose_status_progress_and_actions_as_cards():
     for selector in (
         "#queue-dock .queue-item",

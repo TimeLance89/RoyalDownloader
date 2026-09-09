@@ -159,7 +159,7 @@ async function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApp
     const response = await api.watchlistGet();
     if (snapshotGeneration !== watchlistSnapshotGeneration || (shouldApply && !shouldApply())) return false;
     showPersistenceWarning("Serien-Abos", response.persistence);
-    applyWatchlist(response.watchlist || []);
+    applyWatchlist(response.watchlist || [], response.health || null);
     return true;
   } catch (error) {
     console.warn(`${context} fehlgeschlagen:`, error);
@@ -293,10 +293,10 @@ function connectWs() {
       refreshSeriesJellyfinStatus();
       refreshAllCatalogJellyfinStatuses();
       showPersistenceWarning("Serien-Abos", data.persistence);
-      if (data.watchlist) applyWatchlist(data.watchlist);
+      if (data.watchlist) applyWatchlist(data.watchlist, data.health || null);
       } else if (data.type === "watchlist_update") {
         showPersistenceWarning("Serien-Abos", data.persistence);
-        applyWatchlist(data.watchlist || []);
+        applyWatchlist(data.watchlist || [], data.health || null);
       } else if (data.type === "movie_subscriptions_update") {
         showPersistenceWarning("Film-Abos", data.persistence);
         applyMovieSubscriptions(data.movie_subscriptions || []);
@@ -588,7 +588,9 @@ function setQueueDockExpanded(expanded) {
   drawer.setAttribute("aria-hidden", String(!expanded));
   drawer.inert = !expanded;
   toggle.setAttribute("aria-expanded", String(expanded));
-  toggle.querySelector(".queue-toggle-label").textContent = expanded ? "Queue schließen" : "Queue öffnen";
+  toggle.querySelector(".queue-toggle-label").textContent = expanded
+    ? "Downloadplan schließen"
+    : "Downloadplan öffnen";
 }
 
 function toggleDesktopQueue() {

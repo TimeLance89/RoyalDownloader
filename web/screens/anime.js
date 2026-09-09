@@ -498,7 +498,7 @@ async function saveWatchMode() {
       state.series.current.watch_mode = selected;
       state.series.current.cleanup_mode = cleanupSelected;
     }
-    applyWatchlist(data.watchlist);
+    applyWatchlist(data.watchlist, data.health || null);
     closeWatchModeModal();
   } catch (error) {
     document.getElementById("watch-mode-status").textContent = error.message;
@@ -509,8 +509,17 @@ async function saveWatchMode() {
 
 async function removeWatchModeSubscription() {
   if (!watchModeContext?.tracked) return;
-  const data = await api.watchlistRemove([watchModeContext.baseSlug]);
-  applyWatchlist(data.watchlist);
-  await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
-  closeWatchModeModal();
+  if (!window.confirm(`Abo für „${watchModeContext.title}“ wirklich entfernen?`)) return;
+  const button = document.getElementById("watch-mode-remove");
+  button.disabled = true;
+  try {
+    const data = await api.watchlistRemove([watchModeContext.baseSlug]);
+    applyWatchlist(data.watchlist, data.health || null);
+    await syncQueueSnapshot("Queue-Synchronisierung nach Abo-Entfernung");
+    closeWatchModeModal();
+  } catch (error) {
+    document.getElementById("watch-mode-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
