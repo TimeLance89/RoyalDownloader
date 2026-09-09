@@ -18,10 +18,21 @@ import requests
 from runtime_paths import data_dir
 
 API_URL = "https://api.movieofthenight.com/v4/changes"
+COUNTRY_URL = "https://api.movieofthenight.com/v4/countries/{region}"
 DAY = 86400
 MONTH_LIMIT = 900
 PAGES_PER_KIND = 6
-API_CONTRACT_VERSION = 2
+API_CONTRACT_VERSION = 3
+PREFERRED_SERVICES = (
+    "netflix", "disney", "prime", "apple", "hbo", "paramount", "mubi",
+    "hulu", "peacock", "skyshowtime", "wow", "plutotv", "crunchyroll",
+    "rtl", "tubi", "iplayer", "itvx", "stan",
+)
+UPCOMING_SERVICES = frozenset({"netflix", "disney", "prime", "apple", "hbo", "mubi"})
+
+
+class ReleaseAPIError(ValueError):
+    """A safe provider error that can be shown without leaking response data."""
 
 
 def safe_image(value: str) -> str:
@@ -34,7 +45,7 @@ def safe_image(value: str) -> str:
 
 def normalize_changes(payload: dict, region: str, kind: str) -> list[dict]:
     if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list) or not isinstance(payload.get("shows"), dict):
-        raise ValueError("Invalid release response")
+        raise ValueError("Release-Dienst lieferte ungültige Filmdaten.")
     entries = {}
     for change in payload["changes"]:
         if not isinstance(change, dict):
@@ -74,6 +85,31 @@ def can_check(entry: dict, now: float) -> bool:
     return bool(entry.get("timestamp") and entry["timestamp"] < now)
 
 
+def catalogs_for_country(payload: dict, kind: str) -> str:
+    services = payload.get("services") if isinstance(payload, dict) else None
+    if not isinstance(services, list):
+        raise ValueError("Release-Dienst lieferte ungültige Länderdaten.")
+    by_id = {
+        str(service.get("id")): service
+        for service in services
+        if isinstance(service, dict) and service.get("id")
+    }
+    catalogs = []
+    for service_id in PREFERRED_SERVICES:
+        if kind == "upcoming" and service_id not in UPCOMING_SERVICES:
+            continue
+        service = by_id.get(service_id)
+        options = service.get("streamingOptionTypes") if service else None
+        if not isinstance(options, dict):
+            continue
+        for option_type in ("subscription", "free"):
+            if options.get(option_type) is True:
+                catalogs.append(f"{service_id}.{option_type}")
+    if not catalogs:
+        raise ValueError("Keine unterstützten Streamingdienste für diese Region gefunden.")
+    return ",".join(catalogs[:32])
+
+
 class ReleaseService:
     def __init__(self, path: Path | None = None, request=None, clock=time.time):
         self.path = path or data_dir() / "movie_releases_cache.json"
@@ -110,36 +146,59 @@ class ReleaseService:
             self.doc["requests"].append(now)
             self._save()  # Fail closed: no request if quota cannot be persisted.
 
+    def _request_json(self, url, config, params=None):
+        self._reserve()
+        with self.request(url, params=params, headers={"X-API-Key": config["api_key"]},
+                          timeout=(5, 20), allow_redirects=False) as response:
+            if response.status_code in (401, 403):
+                raise ReleaseAPIError("API-Key oder Free-Tarif beim Release-Anbieter prüfen.")
+            if response.status_code == 429:
+                raise ReleaseAPIError("API-Kontingent ausgeschöpft. Nächster Versuch frühestens morgen.")
+            if response.status_code == 400:
+                raise ReleaseAPIError("Release-Anfrage wurde vom Anbieter abgelehnt. App-Version prüfen.")
+            if response.status_code != 200:
+                raise ReleaseAPIError("Release-Dienst derzeit nicht erreichbar.")
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Release-Dienst lieferte eine ungültige Antwort.")
+        return payload
+
     def _fetch(self, config):
         rows = []
         partial = False
+        country = self._request_json(COUNTRY_URL.format(region=config["region"]), config)
+        completed_categories = 0
+        successful_pages = 0
+        failures = []
         for kind in ("upcoming", "new"):
             params = {"country": config["region"], "change_type": kind,
                       "item_type": "show", "show_type": "movie",
                       # The provider currently supports en/es/tr/fr here. The
                       # UI itself remains localized independently.
                       "include_unknown_dates": "true", "output_language": "en",
-                      "order_direction": "asc" if kind == "upcoming" else "desc"}
-            for _ in range(PAGES_PER_KIND):
-                self._reserve()
-                with self.request(API_URL, params=params, headers={"X-API-Key": config["api_key"]},
-                                  timeout=(4, 10), allow_redirects=False) as response:
-                    if response.status_code in (401, 403):
-                        raise ValueError("API-Key oder Endpunktzugriff prüfen. Kein kostenpflichtiger Wechsel erfolgt.")
-                    if response.status_code == 429:
-                        raise ValueError("API-Kontingent ausgeschöpft. Nächster Versuch frühestens morgen.")
-                    if response.status_code != 200:
-                        raise ValueError("Release-Dienst derzeit nicht erreichbar.")
-                    payload = response.json()
-                rows.extend(normalize_changes(payload, config["region"], kind))
-                if not payload.get("hasMore"):
-                    break
-                cursor = payload.get("nextCursor")
-                if not isinstance(cursor, str) or not cursor or cursor == params.get("cursor"):
-                    raise ValueError("Unvollständige Antwort des Release-Diensts.")
-                params["cursor"] = cursor
-            else:
+                      "order_direction": "asc" if kind == "upcoming" else "desc",
+                      "catalogs": catalogs_for_country(country, kind)}
+            try:
+                for _ in range(PAGES_PER_KIND):
+                    payload = self._request_json(API_URL, config, params)
+                    rows.extend(normalize_changes(payload, config["region"], kind))
+                    successful_pages += 1
+                    if not payload.get("hasMore"):
+                        break
+                    cursor = payload.get("nextCursor")
+                    if not isinstance(cursor, str) or not cursor or cursor == params.get("cursor"):
+                        raise ValueError("Unvollständige Antwort des Release-Diensts.")
+                    params["cursor"] = cursor
+                else:
+                    partial = True
+                completed_categories += 1
+            except ReleaseAPIError:
+                raise
+            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as error:
+                failures.append(error)
                 partial = True
+        if not completed_categories and not successful_pages:
+            raise ValueError("Release-Dienst konnte keine Filmkategorie vollständig laden.") from failures[0]
         # Upcoming and new can overlap; observed availability takes precedence.
         return list({entry["id"]: entry for entry in rows}.values()), partial
 
