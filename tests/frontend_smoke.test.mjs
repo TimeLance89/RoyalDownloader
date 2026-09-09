@@ -227,7 +227,11 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   assert.match(app, /#setup-wizard \.setup-stage-head/);
   assert.match(localization, /priorityRoot = null/);
   assert.match(localization, /translateTexts/);
-  assert.match(html, /i18n\.js\?v=royal-20260823-1/);
+  assert.match(localization, /LANGUAGE_STORAGE_KEY = "royal\.ui\.language"/);
+  assert.match(localization, /primeStoredInterface/);
+  assert.match(localization, /persistTranslationCache/);
+  assert.match(app, /userInitiated: true, persist: true/);
+  assert.match(html, /i18n\.js\?v=royal-20260909-1/);
   assert.match(html, /screens\/setup\.js\?v=royal-20260823-1/);
   assert.match(html, /id="setup-tmdb-key"[^>]+required[^>]+aria-required="true"/);
   assert.match(app, /TMDB ist erforderlich/);
@@ -242,7 +246,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260827-1/);
+  assert.match(html, /app\.js\?v=royal-20260909-1/);
 });
 
 test("searches run only after an explicit submit", () => {
