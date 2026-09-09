@@ -764,7 +764,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260825-1/);
+  assert.match(html, /core\.js\?v=royal-20260909-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config as appconfig
+from movie_releases import release_service
 from providers.aniworld import aniworld_episode_page
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
@@ -761,6 +762,54 @@ class SeriesJellyfinStatusBody(BaseModel):
 
 class AniWorldPosterBody(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ReleasesConfigBody(BaseModel):
+    api_key: str = Field(default="", max_length=512, pattern=r"^[^\s]*$")
+    region: str = Field(default="de", pattern=r"^(de|at|ch|us|gb)$")
+    remove_key: bool = False
+
+
+@router.get("/api/releases/config")
+async def api_releases_config():
+    cfg = await run_in_threadpool(appconfig.load_releases)
+    return {"has_api_key": bool(cfg["api_key"]), "region": cfg["region"]}
+
+
+@router.post("/api/releases/config")
+async def api_releases_config_save(body: ReleasesConfigBody):
+    cfg = await run_in_threadpool(appconfig.load_releases)
+    key = "" if body.remove_key else body.api_key or cfg["api_key"]
+    if not await run_in_threadpool(appconfig.save_releases, key, body.region):
+        raise HTTPException(500, "Release-Einstellungen konnten nicht gespeichert werden.")
+    return {"has_api_key": bool(key), "region": body.region}
+
+
+@router.get("/api/releases")
+async def api_movie_releases():
+    cfg = await run_in_threadpool(appconfig.load_releases)
+    return await run_in_threadpool(release_service().get, cfg)
+
+
+@router.post("/api/releases/test")
+async def api_releases_test():
+    cfg = await run_in_threadpool(appconfig.load_releases)
+    return await run_in_threadpool(release_service().get, cfg, True)
+
+
+class ReleaseCheckBody(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/api/releases/check")
+async def api_release_check(body: ReleaseCheckBody):
+    cfg = await run_in_threadpool(appconfig.load_releases)
+    if not cfg["api_key"]:
+        raise HTTPException(400, "Release-Datenquelle zuerst einrichten.")
+    try:
+        return release_service().check(cfg, body.id, _tmdb_search_results)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @router.get("/api/v1/series-calendar")
