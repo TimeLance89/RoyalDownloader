@@ -18,7 +18,7 @@ Pricing reference, verified September 9, 2026: https://www.movieofthenight.com/a
 - Recent catalog additions can include other services. These are labelled **observed on the platform**, not confirmed premiere dates.
 - Only subscription and free movie entries are included; rentals, purchases and episodes are excluded.
 - Missing dates are displayed as unknown. Dates are never inferred from cinema releases or current streaming availability.
-- Up to six pages per category are fetched per refresh. Incomplete pagination is visibly labelled as partial coverage.
+- Up to six pages per category are fetched per refresh. Queries are limited to supported subscription and free catalogs of common services in the selected country. Incomplete pagination or a category timeout is visibly labelled as partial coverage while successful results remain available.
 - Refresh runs on demand at most daily. Connection tests may refresh after a five-minute cooldown. Network or quota failures retain the last saved data, with an explicit warning.
 - No source guarantees a complete future release schedule. An empty selection means no supplied dates, not that the platform has no releases.
 - Movie metadata is requested in English because the provider currently accepts only `en`, `es`, `tr` and `fr` for this endpoint. Interface controls remain localized by Royal.

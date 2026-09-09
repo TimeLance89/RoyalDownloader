@@ -2,6 +2,7 @@ import threading
 import time
 
 import pytest
+import requests
 
 from movie_releases import (
     API_CONTRACT_VERSION,
@@ -9,6 +10,7 @@ from movie_releases import (
     MONTH_LIMIT,
     ReleaseService,
     can_check,
+    catalogs_for_country,
     normalize_changes,
 )
 
@@ -24,6 +26,17 @@ def payload(kind="upcoming", timestamp=NOW + DAY):
                          "streamingOptionType": "subscription"}],
             "shows": {"1": {"showType": "movie", "title": "Example film", "tmdbId": "movie/123"}},
             "hasMore": False}
+
+
+def country_payload():
+    return {"countryCode": "de", "services": [
+        {"id": "netflix", "streamingOptionTypes": {
+            "subscription": True, "free": False, "rent": False, "buy": False,
+        }},
+        {"id": "prime", "streamingOptionTypes": {
+            "subscription": True, "free": True, "rent": True, "buy": True,
+        }},
+    ]}
 
 
 class Response:
@@ -67,6 +80,12 @@ def test_only_movie_subscription_or_free_rows_are_shown():
         data = payload()
         data["changes"][0][field] = value
         assert normalize_changes(data, "de", "upcoming") == []
+
+
+def test_catalog_filter_uses_only_supported_free_and_subscription_catalogs():
+    upcoming = catalogs_for_country(country_payload(), "upcoming").split(",")
+    assert upcoming == ["netflix.subscription", "prime.subscription", "prime.free"]
+    assert all("rent" not in catalog and "buy" not in catalog for catalog in upcoming)
 
 
 def test_quota_survives_restart_and_key_change(tmp_path):
@@ -122,17 +141,57 @@ def test_auth_failure_keeps_a_safe_actionable_error(tmp_path):
 def test_pagination_bounded_and_duplicates_coalesced(tmp_path):
     calls = []
     def request(url, **kwargs):
-        calls.append(kwargs)
+        calls.append((url, kwargs))
+        if "/countries/" in url:
+            return Response(country_payload())
         kind = kwargs["params"]["change_type"]
         data = payload(kind, NOW - 1 if kind == "new" else NOW + DAY)
         data.update(hasMore=True, nextCursor=str(len(calls)))
         return Response(data)
     service = ReleaseService(tmp_path / "cache.json", request=request, clock=lambda: NOW)
     rows, partial = service._fetch(CONFIG)
-    assert len(calls) == 12 and partial
+    change_calls = [kwargs for url, kwargs in calls if "/changes" in url]
+    assert len(calls) == 13 and partial
     assert len(rows) == 1 and rows[0]["date_kind"] == "observed"
-    assert all(c["allow_redirects"] is False for c in calls)
-    assert all(c["params"]["output_language"] == "en" for c in calls)
+    assert all(kwargs["allow_redirects"] is False for _, kwargs in calls)
+    assert all(c["params"]["output_language"] == "en" for c in change_calls)
+    assert all(c["params"]["catalogs"] for c in change_calls)
+
+
+def test_completed_category_survives_another_category_timeout(tmp_path):
+    def request(url, **kwargs):
+        if "/countries/" in url:
+            return Response(country_payload())
+        if kwargs["params"]["change_type"] == "new":
+            raise requests.ReadTimeout("provider too slow")
+        return Response(payload("upcoming"))
+
+    service = ReleaseService(tmp_path / "cache.json", request=request, clock=lambda: NOW)
+    rows, partial = service._fetch(CONFIG)
+    assert partial
+    assert len(rows) == 1
+    assert rows[0]["date_kind"] == "announced"
+
+
+def test_successful_page_survives_later_timeouts_in_both_categories(tmp_path):
+    upcoming_calls = 0
+
+    def request(url, **kwargs):
+        nonlocal upcoming_calls
+        if "/countries/" in url:
+            return Response(country_payload())
+        if kwargs["params"]["change_type"] == "upcoming":
+            upcoming_calls += 1
+            if upcoming_calls == 1:
+                data = payload("upcoming")
+                data.update(hasMore=True, nextCursor="next")
+                return Response(data)
+        raise requests.ReadTimeout("provider too slow")
+
+    service = ReleaseService(tmp_path / "cache.json", request=request, clock=lambda: NOW)
+    rows, partial = service._fetch(CONFIG)
+    assert partial
+    assert len(rows) == 1
 
 
 def test_future_check_rejected_server_side(tmp_path):
