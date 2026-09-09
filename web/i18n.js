@@ -554,7 +554,9 @@ const i18n = (() => {
     collect(document.documentElement);
     observe();
     initialized = true;
-    await changeLanguage(language);
+    changeLanguage(language).catch((error) => {
+      console.warn("Oberfläche konnte nicht vollständig übersetzt werden:", error);
+    });
     return { language, languages, configured };
   }
 
