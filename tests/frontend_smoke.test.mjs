@@ -16,6 +16,7 @@ const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", impo
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const seriesScreen = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
+const movieReleases = readFileSync(new URL("../web/screens/movie-releases.js", import.meta.url), "utf8");
 const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
 const jellyfinResume = readFileSync(new URL("../web/jellyfin-resume.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
@@ -55,6 +56,13 @@ const app = appModulePaths
   .map((path) => readFileSync(new URL(`../web/${path}`, import.meta.url), "utf8"))
   .join("\n");
 const frontend = `${login}\n${app}`;
+
+test("release calendar routes movies and series and unlocks past dates", () => {
+  assert.match(movieReleases, /entry\.media_type === "series"/);
+  assert.match(movieReleases, /switchTab\("serien"\);loadSeries\(match\)/);
+  assert.match(movieReleases, /period === "past"/);
+  assert.match(movieReleases, /e\.can_check/);
+});
 
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {
   assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);

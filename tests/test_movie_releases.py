@@ -19,12 +19,19 @@ NOW = 1800000000
 CONFIG = {"api_key": "test-only-key", "region": "de"}
 
 
-def payload(kind="upcoming", timestamp=NOW + DAY):
-    return {"changes": [{"showId": "1", "showType": "movie", "itemType": "show",
+def payload(kind="upcoming", timestamp=NOW + DAY, show_type="movie"):
+    tmdb_prefix = "tv" if show_type == "series" else "movie"
+    show = {
+        "showType": show_type,
+        "title": "Example series" if show_type == "series" else "Example film",
+        "tmdbId": f"{tmdb_prefix}/123",
+    }
+    show["firstAirYear" if show_type == "series" else "releaseYear"] = 2026
+    return {"changes": [{"showId": "1", "showType": show_type, "itemType": "show",
                          "changeType": kind, "timestamp": timestamp,
                          "service": {"id": "netflix", "name": "Netflix"},
                          "streamingOptionType": "subscription"}],
-            "shows": {"1": {"showType": "movie", "title": "Example film", "tmdbId": "movie/123"}},
+            "shows": {"1": show},
             "hasMore": False}
 
 
@@ -74,8 +81,16 @@ def test_observation_is_not_a_premiere():
     assert row["region"] == "de"
 
 
-def test_only_movie_subscription_or_free_rows_are_shown():
-    for field, value in (("showType", "series"), ("itemType", "episode"),
+def test_series_are_normalized_with_tv_identity_and_first_air_year():
+    row = normalize_changes(payload(show_type="series"), "de", "upcoming")[0]
+
+    assert row["media_type"] == "series"
+    assert row["tmdb_id"] == 123
+    assert row["year"] == "2026"
+
+
+def test_only_supported_shows_with_subscription_or_free_rows_are_shown():
+    for field, value in (("showType", "person"), ("itemType", "episode"),
                          ("streamingOptionType", "rent"), ("changeType", "removed")):
         data = payload()
         data["changes"][0][field] = value
@@ -200,6 +215,29 @@ def test_future_check_rejected_server_side(tmp_path):
     service.doc["snapshots"] = {"de": {"entries": [row]}}
     with pytest.raises(ValueError):
         service.check(CONFIG, row["id"], lambda _: pytest.fail("Must not search"))
+
+
+def test_past_announced_series_is_checkable_like_already_started(tmp_path):
+    service = ReleaseService(tmp_path / "cache.json", clock=lambda: NOW)
+    row = normalize_changes(
+        payload(timestamp=NOW - 1, show_type="series"), "de", "upcoming"
+    )[0]
+    service.doc["snapshots"] = {"de": {"entries": [row]}}
+    searched = threading.Event()
+
+    def search(entry):
+        assert entry["media_type"] == "series"
+        searched.set()
+        return [{"title": entry["title"], "tmdb_id": entry["tmdb_id"]}]
+
+    assert service.get(CONFIG)["entries"][0]["can_check"] is True
+    assert service.check(CONFIG, row["id"], search)["status"] == "checking"
+    assert searched.wait(2)
+    for _ in range(100):
+        if row["id"] in service.checks:
+            break
+        time.sleep(.01)
+    assert service.checks[row["id"]]["status"] == "catalog"
 
 
 def test_expired_results_and_slow_checks_do_not_claim_availability(tmp_path):

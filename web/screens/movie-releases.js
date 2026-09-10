@@ -1,4 +1,4 @@
-/* Regional streaming dates. The server alone decides when RD checks unlock. */
+/* Regional streaming dates for movies and series. The server decides when RD checks unlock. */
 (() => {
   "use strict";
   const root = document.getElementById("tab-releases");
@@ -42,12 +42,13 @@
   function card(entry) {
     const image = entry.poster ? `<img src="${esc(entry.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="release-no-poster" aria-hidden="true">◷</span>';
     const catalog = entry.rd?.status === "catalog";
+    const isSeries = entry.media_type === "series";
     return `<article class="release-card"><div class="release-art">${image}</div><div class="release-copy">
-      <span class="release-platform" translate="no">${esc(entry.platform)}</span>
+      <div class="release-card-labels"><span class="release-platform" translate="no">${esc(entry.platform)}</span><span class="release-media-type">${isSeries ? t("Serie", "Series") : t("Film", "Movie")}</span></div>
       <h3 data-i18n-ignore>${esc(entry.title)}</h3><small>${esc(entry.year)}</small>
       <p data-i18n-ignore>${esc(entry.overview)}</p>
       <div class="release-card-foot"><span class="release-state ${catalog ? "is-found" : ""}">${status(entry)}</span>
-      ${entry.can_check ? `<button type="button" data-check="${esc(entry.id)}" ${entry.rd?.status === "checking" ? "disabled" : ""}>${catalog ? t("Film öffnen", "Open movie") : t("RD prüfen", "Check RD")}</button>` : ""}</div>
+      ${entry.can_check ? `<button type="button" data-check="${esc(entry.id)}" ${entry.rd?.status === "checking" ? "disabled" : ""}>${catalog ? (isSeries ? t("Serie öffnen", "Open series") : t("Film öffnen", "Open movie")) : t("RD prüfen", "Check RD")}</button>` : ""}</div>
       <small class="release-kind">${entry.date_kind === "observed" ? t("Auf der Plattform entdeckt — kein bestätigtes Erstveröffentlichungsdatum", "Observed on the platform — not a confirmed premiere date") : t("Angekündigter Plattformstart", "Announced platform release")}</small>
     </div></article>`;
   }
@@ -57,15 +58,17 @@
     const entries = (data?.entries || []).filter(e => (platform === "all" || e.platform_id === platform)
       && (!query || e.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
       && (period === "all" || (period === "upcoming" ? !e.can_check : e.can_check)))
-      .sort((a,b)=>(a.timestamp || Infinity)-(b.timestamp || Infinity));
+      .sort((a,b)=>period === "past"
+        ? (b.timestamp || 0) - (a.timestamp || 0)
+        : (a.timestamp || Infinity) - (b.timestamp || Infinity));
     const groups = new Map();
     entries.forEach(e => { const key=dayKey(e.timestamp); if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(e); });
-    root.innerHTML = `<header class="releases-heading"><div><h1>${t("Dem Filmstart voraus.", "Ahead of movie night.")}</h1>
+    root.innerHTML = `<header class="releases-heading"><div><h1>${t("Dem Streamingstart voraus.", "Ahead of streaming.")}</h1>
       <p>${t("Was als Nächstes streamt. Und wann du es in Royal findest.", "What streams next. And when you can find it in Royal.")}</p></div>
       <button type="button" data-release-settings>${t("Datenquelle einrichten", "Configure data source")}</button></header>
       <div class="release-toolbar"><div class="release-period" role="group" aria-label="${t("Zeitraum", "Period")}">
       ${[["upcoming",t("Demnächst", "Coming soon")],["past",t("Bereits gestartet", "Already streaming")],["all",t("Alle Termine", "All dates")]].map(([id,label])=>`<button type="button" data-period="${id}" aria-pressed="${period===id}">${label}</button>`).join("")}</div>
-      <label>${t("Film suchen", "Find a movie")}<input id="release-search" type="search" value="${esc(query)}" placeholder="${t("Titel eingeben", "Enter a title")}"></label></div>
+      <label>${t("Film oder Serie suchen", "Find a movie or series")}<input id="release-search" type="search" value="${esc(query)}" placeholder="${t("Titel eingeben", "Enter a title")}"></label></div>
       <div class="release-platforms" role="group" aria-label="${t("Streamingplattform", "Streaming service")}"><button type="button" data-platform="all" aria-pressed="${platform==='all'}">${t("Alle Plattformen", "All platforms")}</button>
       ${platforms.map(([id,name])=>`<button type="button" translate="no" data-platform="${esc(id)}" aria-pressed="${platform===id}">${esc(name)}</button>`).join("")}</div>
       <div class="release-sync" role="status">${esc(message || (data?.loading ? t("Termine werden im Hintergrund abgeglichen …", "Syncing dates in the background …") : data?.error || ""))}
@@ -97,7 +100,12 @@
     if(button.dataset.platform) {platform=button.dataset.platform; render(); return;}
     if(button.dataset.check) {
       const entry=data.entries.find(e=>e.id===button.dataset.check);
-      if(entry?.rd?.status === "catalog" && entry.rd.matches?.[0]) {const movie=entry.rd.matches[0]; selectFpRow(movie.slug,movie); return;}
+      if(entry?.rd?.status === "catalog" && entry.rd.matches?.[0]) {
+        const match=entry.rd.matches[0];
+        if(entry.media_type === "series") {switchTab("serien");loadSeries(match);}
+        else selectFpRow(match.slug,match);
+        return;
+      }
       button.disabled=true;
       try { await request("/api/releases/check", {method:"POST",body:JSON.stringify({id:button.dataset.check})}); pollUntil=0; await load(); }
       catch (_) { message=t("Prüfung nicht möglich. Bitte später erneut versuchen.", "Check unavailable. Please try again later."); render(); }
@@ -108,7 +116,7 @@
   function mountSettings() {
     const grid=document.querySelector(".settings-service-grid"); if(!grid)return;
     const settings=document.createElement("div"); settings.id="release-settings";settings.className="settings-group settings-card";
-    settings.innerHTML=`<h3>${t("Film-Releases", "Movie releases")}</h3><p>${t("Kostenloser Direktzugang von Movie of the Night. Wähle beim Anbieter den Free-Tarif ohne Zahlungsdaten.", "Free direct access from Movie of the Night. Choose the provider’s Free plan without payment details.")}</p>
+    settings.innerHTML=`<h3>${t("Film- & Serien-Releases", "Movie & series releases")}</h3><p>${t("Kostenloser Direktzugang von Movie of the Night. Wähle beim Anbieter den Free-Tarif ohne Zahlungsdaten.", "Free direct access from Movie of the Night. Choose the provider’s Free plan without payment details.")}</p>
       <a href="https://developers.movieofthenight.com/" target="_blank" rel="noopener noreferrer">${t("Kostenlosen API-Key erstellen", "Get a free API key")}</a>
       <label for="releases-key">API-Key</label><input id="releases-key" type="password" autocomplete="off" placeholder="${t("API-Key eingeben", "Enter API key")}">
       <label for="releases-region">${t("Release-Region", "Release region")}</label><select id="releases-region">${Object.entries(regionNames).map(([id,name])=>`<option value="${id}">${name}</option>`).join("")}</select>
