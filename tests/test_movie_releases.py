@@ -11,6 +11,7 @@ from movie_releases import (
     ReleaseService,
     can_check,
     catalogs_for_country,
+    has_started,
     normalize_changes,
 )
 
@@ -19,14 +20,14 @@ NOW = 1800000000
 CONFIG = {"api_key": "test-only-key", "region": "de"}
 
 
-def payload(kind="upcoming", timestamp=NOW + DAY, show_type="movie"):
+def payload(kind="upcoming", timestamp=NOW + DAY, show_type="movie", release_year=2027):
     tmdb_prefix = "tv" if show_type == "series" else "movie"
     show = {
         "showType": show_type,
         "title": "Example series" if show_type == "series" else "Example film",
         "tmdbId": f"{tmdb_prefix}/123",
     }
-    show["firstAirYear" if show_type == "series" else "releaseYear"] = 2026
+    show["firstAirYear" if show_type == "series" else "releaseYear"] = release_year
     return {"changes": [{"showId": "1", "showType": show_type, "itemType": "show",
                          "changeType": kind, "timestamp": timestamp,
                          "service": {"id": "netflix", "name": "Netflix"},
@@ -82,11 +83,20 @@ def test_observation_is_not_a_premiere():
 
 
 def test_series_are_normalized_with_tv_identity_and_first_air_year():
-    row = normalize_changes(payload(show_type="series"), "de", "upcoming")[0]
+    row = normalize_changes(payload(show_type="series", release_year=2026), "de", "upcoming")[0]
 
     assert row["media_type"] == "series"
     assert row["tmdb_id"] == 123
     assert row["year"] == "2026"
+
+
+def test_old_catalog_year_allows_check_without_moving_platform_date_to_started():
+    row = normalize_changes(
+        payload(timestamp=NOW + DAY, release_year=2022), "de", "upcoming"
+    )[0]
+
+    assert can_check(row, NOW)
+    assert not has_started(row, NOW)
 
 
 def test_only_supported_shows_with_subscription_or_free_rows_are_shown():

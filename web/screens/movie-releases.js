@@ -57,7 +57,7 @@
     const platforms = [...new Map((data?.entries || []).map(e => [e.platform_id,e.platform])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
     const entries = (data?.entries || []).filter(e => (platform === "all" || e.platform_id === platform)
       && (!query || e.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-      && (period === "all" || (period === "upcoming" ? !e.can_check : e.can_check)))
+      && (period === "all" || (period === "upcoming" ? !e.has_started : e.has_started)))
       .sort((a,b)=>period === "past"
         ? (b.timestamp || 0) - (a.timestamp || 0)
         : (a.timestamp || Infinity) - (b.timestamp || Infinity));

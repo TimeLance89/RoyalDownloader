@@ -22,7 +22,7 @@ COUNTRY_URL = "https://api.movieofthenight.com/v4/countries/{region}"
 DAY = 86400
 MONTH_LIMIT = 900
 PAGES_PER_KIND = 6
-API_CONTRACT_VERSION = 4
+API_CONTRACT_VERSION = 5
 PREFERRED_SERVICES = (
     "netflix", "disney", "prime", "apple", "hbo", "paramount", "mubi",
     "hulu", "peacock", "skyshowtime", "wow", "plutotv", "crunchyroll",
@@ -85,9 +85,17 @@ def normalize_changes(payload: dict, region: str, kind: str) -> list[dict]:
     return list(entries.values())
 
 
-def can_check(entry: dict, now: float) -> bool:
-    # Unknown dates never release the RD check. Use the exact supplied instant.
+def has_started(entry: dict, now: float) -> bool:
+    """Whether the observed/announced platform date itself is in the past."""
     return bool(entry.get("timestamp") and entry["timestamp"] < now)
+
+
+def can_check(entry: dict, now: float) -> bool:
+    """Older catalog titles can already exist in RD before a new platform date."""
+    if has_started(entry, now):
+        return True
+    year = str(entry.get("year") or "")
+    return year.isdigit() and int(year) < time.gmtime(now).tm_year
 
 
 def catalogs_for_country(payload: dict, kind: str) -> str:
@@ -207,12 +215,24 @@ class ReleaseService:
         # Upcoming and new can overlap; observed availability takes precedence.
         return list({entry["id"]: entry for entry in rows}.values()), partial
 
-    def refresh(self, config):
+    def refresh(self, config, localize=None, localization_key=""):
         try:
             rows, partial = self._fetch(config)
+            if localize is not None:
+                try:
+                    rows = localize(rows)
+                except Exception:
+                    # Release dates remain useful when optional metadata fails.
+                    partial = True
             with self.lock:
                 snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
-                snapshot.update(entries=rows, updated_at=self.clock(), error="", partial=partial)
+                snapshot.update(
+                    entries=rows,
+                    updated_at=self.clock(),
+                    error="",
+                    partial=partial,
+                    localization_key=localization_key,
+                )
                 self._save()
         except ValueError as error:
             # ValueError messages originate only from the controlled checks above.
@@ -236,11 +256,12 @@ class ReleaseService:
             with self.lock:
                 self.running = False
 
-    def get(self, config, refresh=False):
+    def get(self, config, refresh=False, localize=None, localization_key=""):
         with self.lock:
             now = self.clock()
             snapshot = self.doc.setdefault("snapshots", {}).setdefault(config["region"], {})
             due = (snapshot.get("api_contract_version") != API_CONTRACT_VERSION
+                   or snapshot.get("localization_key", "") != localization_key
                    or now - snapshot.get("attempted_at", 0) >= (300 if refresh else DAY))
             if config["api_key"] and due and not self.running:
                 snapshot["attempted_at"] = now
@@ -251,9 +272,14 @@ class ReleaseService:
                     snapshot["error"] = "Release-Cache konnte nicht gespeichert werden."
                 else:
                     self.running = True
-                    threading.Thread(target=self.refresh, args=(dict(config),), daemon=True).start()
+                    threading.Thread(
+                        target=self.refresh,
+                        args=(dict(config), localize, localization_key),
+                        daemon=True,
+                    ).start()
             rows = copy.deepcopy(snapshot.get("entries", [])) if config["api_key"] else []
             for entry in rows:
+                entry["has_started"] = has_started(entry, now)
                 entry["can_check"] = can_check(entry, now)
                 cached = self.checks.get(entry["id"], {})
                 if now - cached.get("checked_at", 0) >= 900:
