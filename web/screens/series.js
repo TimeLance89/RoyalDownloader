@@ -26,9 +26,6 @@ function isEpisodeQueued(episode) {
 function isEpisodeSelectable(episode) {
   return Boolean(
     episode
-    && state.series.current?.availability_pending !== true
-    && state.series.current?.jellyfin_pending !== true
-    && state.series.current?.jellyfin_available !== false
     && !episode.downloaded
     && !episode.in_jellyfin
     && !episode.unreleased
@@ -846,11 +843,11 @@ function episodeReleaseText(ep) {
 function seriesAvailabilityNotice(series) {
   if (series.availability_pending) {
     return series.availability_error
-      ? "Auswahl pausiert: Die Verfügbarkeit konnte noch nicht geprüft werden."
+      ? "Verfügbarkeitsprüfung fehlgeschlagen · Auswahl und Download bleiben möglich."
       : "Staffeln sind da · Bestand und Metadaten werden im Hintergrund geprüft …";
   }
   if (series.jellyfin_available === false) {
-    return "Auswahl pausiert: Jellyfin konnte nicht eindeutig abgeglichen werden.";
+    return "Jellyfin konnte nicht eindeutig abgeglichen werden · Auswahl und Download bleiben möglich.";
   }
   return "";
 }
