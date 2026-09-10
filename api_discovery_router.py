@@ -100,6 +100,7 @@ provider_for_value = _unbound_dependency
 provider_priority = _unbound_dependency
 series_catalog_page = _unbound_dependency
 series_payload_missing_seasons = _unbound_dependency
+search_series_candidates = _unbound_dependency
 series_search_catalog = _unbound_dependency
 series_to_dict = _unbound_dependency
 strip_source_suffix = _unbound_dependency
@@ -136,6 +137,7 @@ _DYNAMIC_CALLS = (
     "provider_priority",
     "series_catalog_page",
     "series_payload_missing_seasons",
+    "search_series_candidates",
     "series_search_catalog",
     "series_to_dict",
     "strip_source_suffix",
@@ -806,8 +808,30 @@ async def api_release_check(body: ReleaseCheckBody):
     cfg = await run_in_threadpool(appconfig.load_releases)
     if not cfg["api_key"]:
         raise HTTPException(400, "Release-Datenquelle zuerst einrichten.")
+
+    def _search(entry: dict) -> list[dict]:
+        if entry.get("media_type") != "series":
+            return _tmdb_search_results(entry["title"])
+        tmdb_id = entry.get("tmdb_id")
+        if not tmdb_id:
+            return []
+        client = get_tmdb_client()
+        matches = []
+        for candidate in search_series_candidates(entry["title"]):
+            title = strip_source_suffix(candidate.title)
+            year = str(candidate.year or entry.get("year") or "")
+            if not client.series_matches_id(title, tmdb_id, year):
+                continue
+            matches.append({
+                **asdict(candidate),
+                "title": title,
+                "tmdb_id": tmdb_id,
+                "media_type": "series",
+            })
+        return matches
+
     try:
-        return release_service().check(cfg, body.id, _tmdb_search_results)
+        return release_service().check(cfg, body.id, _search)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 

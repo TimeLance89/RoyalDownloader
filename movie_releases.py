@@ -22,7 +22,7 @@ COUNTRY_URL = "https://api.movieofthenight.com/v4/countries/{region}"
 DAY = 86400
 MONTH_LIMIT = 900
 PAGES_PER_KIND = 6
-API_CONTRACT_VERSION = 3
+API_CONTRACT_VERSION = 4
 PREFERRED_SERVICES = (
     "netflix", "disney", "prime", "apple", "hbo", "paramount", "mubi",
     "hulu", "peacock", "skyshowtime", "wow", "plutotv", "crunchyroll",
@@ -45,14 +45,15 @@ def safe_image(value: str) -> str:
 
 def normalize_changes(payload: dict, region: str, kind: str) -> list[dict]:
     if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list) or not isinstance(payload.get("shows"), dict):
-        raise ValueError("Release-Dienst lieferte ungültige Filmdaten.")
+        raise ValueError("Release-Dienst lieferte ungültige Inhaltsdaten.")
     entries = {}
     for change in payload["changes"]:
         if not isinstance(change, dict):
             continue
         show = payload["shows"].get(str(change.get("showId"))) or {}
-        if (change.get("showType") != "movie" or change.get("itemType") != "show"
-                or change.get("changeType") != kind or show.get("showType") != "movie"
+        media_type = str(change.get("showType") or "")
+        if (media_type not in {"movie", "series"} or change.get("itemType") != "show"
+                or change.get("changeType") != kind or show.get("showType") != media_type
                 or change.get("streamingOptionType") not in {"subscription", "free"}):
             continue
         service = change.get("service") or {}
@@ -60,7 +61,8 @@ def normalize_changes(payload: dict, region: str, kind: str) -> list[dict]:
         title = str(show.get("title") or "")[:240]
         if not title or not service_id:
             continue
-        raw_id = str(show.get("tmdbId") or "").removeprefix("movie/")
+        tmdb_prefix = "tv/" if media_type == "series" else "movie/"
+        raw_id = str(show.get("tmdbId") or "").removeprefix(tmdb_prefix)
         tmdb_id = int(raw_id) if raw_id.isdigit() else None
         timestamp = change.get("timestamp")
         if not isinstance(timestamp, (int, float)) or not 946684800 < timestamp < 7258118400:
@@ -70,7 +72,10 @@ def normalize_changes(payload: dict, region: str, kind: str) -> list[dict]:
         poster = images.get("verticalPoster") or {}
         entries[identity] = {
             "id": identity, "title": title, "tmdb_id": tmdb_id,
-            "year": str(show.get("releaseYear") or "")[:4],
+            "media_type": media_type,
+            "year": str(show.get(
+                "firstAirYear" if media_type == "series" else "releaseYear"
+            ) or "")[:4],
             "overview": str(show.get("overview") or "")[:1200],
             "poster": safe_image(poster.get("w360") or poster.get("w240") or ""),
             "platform": str(service.get("name") or service_id)[:80],
@@ -172,7 +177,7 @@ class ReleaseService:
         failures = []
         for kind in ("upcoming", "new"):
             params = {"country": config["region"], "change_type": kind,
-                      "item_type": "show", "show_type": "movie",
+                      "item_type": "show",
                       # The provider currently supports en/es/tr/fr here. The
                       # UI itself remains localized independently.
                       "include_unknown_dates": "true", "output_language": "en",
@@ -198,7 +203,7 @@ class ReleaseService:
                 failures.append(error)
                 partial = True
         if not completed_categories and not successful_pages:
-            raise ValueError("Release-Dienst konnte keine Filmkategorie vollständig laden.") from failures[0]
+            raise ValueError("Release-Dienst konnte keine Inhaltskategorie vollständig laden.") from failures[0]
         # Upcoming and new can overlap; observed availability takes precedence.
         return list({entry["id"]: entry for entry in rows}.values()), partial
 
@@ -280,7 +285,7 @@ class ReleaseService:
             self.checking[identity] = self.clock()
         def work():
             try:
-                results = search(entry["title"])
+                results = search(entry)
                 exact = [r for r in results if entry["tmdb_id"] and str(r.get("tmdb_id")) == str(entry["tmdb_id"])]
                 result = {"status": ("catalog" if exact else "not_found") if entry["tmdb_id"] else "unknown", "matches": exact[:3],
                           "checked_at": self.clock()}
