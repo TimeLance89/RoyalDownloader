@@ -82,6 +82,7 @@ class TMDBClient:
         self._movie_summary_cache: dict = {}
         self._movie_summary_id_cache: dict = {}
         self._series_summary_cache: dict = {}
+        self._release_summary_cache: dict = {}
         self._movie_search_cache: dict = {}
         self._movie_cache: dict = {}
         self._movie_id_cache: dict = {}
@@ -481,6 +482,31 @@ class TMDBClient:
             }
             with self._lock:
                 self._movie_summary_id_cache[key] = dict(result)
+        return result
+
+    def release_summary_by_id(self, media_type: str, tmdb_id) -> Optional[dict]:
+        """Localized release-card metadata without an English fallback."""
+        kind = "series" if media_type == "series" else "movie"
+        key = str(tmdb_id or "").strip()
+        if not key.isdigit():
+            return None
+        cache_key = (kind, key, self.language)
+        with self._lock:
+            if cache_key in self._release_summary_cache:
+                cached = self._release_summary_cache[cache_key]
+                return dict(cached) if cached is not None else None
+        item = self._request(
+            f"/{'tv' if kind == 'series' else 'movie'}/{key}",
+            {"language": self.language},
+        )
+        result = None
+        if item:
+            result = {
+                "description": str(item.get("overview") or ""),
+                "cover_url": self._poster_url(item.get("poster_path") or ""),
+            }
+        with self._lock:
+            self._release_summary_cache[cache_key] = dict(result) if result else None
         return result
 
     def now_playing_ids(self, force: bool = False) -> set[int]:

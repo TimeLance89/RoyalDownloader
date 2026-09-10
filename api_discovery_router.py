@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import config as appconfig
-from movie_releases import release_service
+from movie_releases import release_service, safe_image
 from providers.aniworld import aniworld_episode_page
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
@@ -787,16 +787,62 @@ async def api_releases_config_save(body: ReleasesConfigBody):
     return {"has_api_key": bool(key), "region": body.region}
 
 
+def _release_localization():
+    client = get_tmdb_client()
+    ui_language = appconfig.load_ui_language()
+    localization_key = f"{ui_language}:{'tmdb' if client.configured else 'none'}"
+
+    def localize(entries: list[dict]) -> list[dict]:
+        if ui_language != "de":
+            return entries
+        localized = {}
+        futures = {}
+        if client.configured:
+            for entry in entries:
+                identity = (entry.get("media_type"), entry.get("tmdb_id"))
+                if identity[1] and identity not in futures:
+                    futures[identity] = _TMDB_METADATA_POOL.submit(
+                        client.release_summary_by_id, *identity,
+                    )
+            for identity, future in futures.items():
+                try:
+                    localized[identity] = future.result()
+                except Exception:
+                    localized[identity] = None
+        for entry in entries:
+            metadata = localized.get((entry.get("media_type"), entry.get("tmdb_id")))
+            # Never show the provider's explicitly English overview in German.
+            entry["overview"] = str((metadata or {}).get("description") or "")[:1200]
+            if metadata and metadata.get("cover_url"):
+                entry["poster"] = safe_image(metadata["cover_url"])
+            entry["overview_language"] = "de"
+        return entries
+
+    return localize, localization_key
+
+
+def _release_response(cfg: dict, refresh: bool = False) -> dict:
+    localize, localization_key = _release_localization()
+    payload = release_service().get(
+        cfg, refresh, localize, localization_key,
+    )
+    if localization_key.startswith("de:"):
+        for entry in payload.get("entries", []):
+            if entry.get("overview_language") != "de":
+                entry["overview"] = ""
+    return payload
+
+
 @router.get("/api/releases")
 async def api_movie_releases():
     cfg = await run_in_threadpool(appconfig.load_releases)
-    return await run_in_threadpool(release_service().get, cfg)
+    return await run_in_threadpool(_release_response, cfg)
 
 
 @router.post("/api/releases/test")
 async def api_releases_test():
     cfg = await run_in_threadpool(appconfig.load_releases)
-    return await run_in_threadpool(release_service().get, cfg, True)
+    return await run_in_threadpool(_release_response, cfg, True)
 
 
 class ReleaseCheckBody(BaseModel):

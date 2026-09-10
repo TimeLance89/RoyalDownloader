@@ -61,7 +61,7 @@ test("release calendar routes movies and series and unlocks past dates", () => {
   assert.match(movieReleases, /entry\.media_type === "series"/);
   assert.match(movieReleases, /switchTab\("serien"\);loadSeries\(match\)/);
   assert.match(movieReleases, /period === "past"/);
-  assert.match(movieReleases, /e\.can_check/);
+  assert.match(movieReleases, /e\.has_started/);
 });
 
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {

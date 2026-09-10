@@ -110,6 +110,17 @@ def test_movie_summary_by_id_uses_exact_tmdb_artwork():
     assert summary["genres"] == ["Drama"]
 
 
+def test_release_summary_uses_requested_language_without_fallback():
+    client = FakeTMDBClient()
+
+    movie = client.release_summary_by_id("movie", 99)
+    series = client.release_summary_by_id("series", 42)
+
+    assert movie["description"] == "Filmbeschreibung"
+    assert series["description"] == "Beschreibung"
+    assert series["cover_url"].endswith("/poster.jpg")
+
+
 def test_movie_details_include_landscape_recommendations_only():
     movie = FakeTMDBClient().movie_by_id(99)
 
