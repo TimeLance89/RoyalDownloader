@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba # immutable v6 line
+        uses: actions/setup-python@ad3497abcd142e169a10aac37abd5175c44f33c4 # immutable v6 line
         with:
           python-version: "3.12"
           cache: pip
