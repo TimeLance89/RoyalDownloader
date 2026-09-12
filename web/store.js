@@ -46,6 +46,7 @@ function createInitialState() {
     calendar: {
       days: [], total: 0, loaded: false, loading: false, error: "",
       activeWeek: "", language: "all", status: "all", query: "", subscribedOnly: false,
+      selectedDate: "", view: "day",
       disabledReason: "", stale: false, cached: false, updatedAt: 0,
       initialized: false, phase: "idle", requestId: 0, startedAt: 0,
     },
