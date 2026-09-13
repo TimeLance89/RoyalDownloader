@@ -140,6 +140,7 @@
 .movie-collection-counts .is-owned { color: #d9ffe1; border-color: rgba(111, 214, 122, .52); }
 .movie-collection-counts .is-available { color: #8ce9aa; }
 .movie-collection-counts .is-unavailable { color: #ffb6b6; }
+.movie-collection-counts .is-library-open { color: #ffd18a; border-color: rgba(255, 178, 71, .52); }
 .movie-collection-counts .is-future { color: #ddcfff; }
 
 .movie-collection-films {
@@ -164,6 +165,7 @@
 .movie-collection-film.is-owned { box-shadow: inset 3px 0 #6fd67a; }
 .movie-collection-film.is-queued { box-shadow: inset 3px 0 #e50914; }
 .movie-collection-film.is-unavailable,
+.movie-collection-film.is-blocked,
 .movie-collection-film.is-error { opacity: .62; }
 
 .movie-collection-selection {
@@ -255,6 +257,7 @@
 .movie-collection-film-statuses .is-library-missing { color: rgba(255, 255, 255, .72); }
 .movie-collection-film-statuses .is-provider-available { color: #8ce9aa; }
 .movie-collection-film-statuses .is-provider-unavailable,
+.movie-collection-film-statuses .is-provider-blocked,
 .movie-collection-film-statuses .is-provider-error,
 .movie-collection-film-statuses .is-queue-error,
 .movie-collection-film-statuses .is-queue-skipped { color: #ffb6b6; }

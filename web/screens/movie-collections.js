@@ -146,6 +146,7 @@ function collectionProviderLabel(record) {
     unavailable: "Bei keinem Anbieter gefunden",
     error: "Anbieterprüfung fehlgeschlagen",
     skipped: "Anbieterprüfung nicht nötig",
+    blocked: "Download bis zur Jellyfin-Prüfung gesperrt",
     future: "Noch nicht veröffentlicht",
   };
   return labels[record.providerStatus] || "Anbieterstatus offen";
@@ -161,9 +162,13 @@ function collectionQueueLabel(record) {
   return labels[record.queueStatus] || "";
 }
 
+function collectionLibraryAllowsDownload(status) {
+  return ["missing", "unconfigured"].includes(status);
+}
+
 function collectionSelectable(record) {
   return record.providerStatus === "available"
-    && record.libraryStatus !== "owned"
+    && collectionLibraryAllowsDownload(record.libraryStatus)
     && !["adding", "queued"].includes(record.queueStatus);
 }
 
@@ -238,7 +243,11 @@ function renderMovieCollectionFilm(part, index) {
   download.className = "is-primary";
   download.textContent = record.queueStatus === "queued" ? "Eingeplant" : "Einzeln laden";
   download.disabled = !collectionSelectable(record) || state.movieCollections.queuePending;
-  if (["unavailable", "error"].includes(record.providerStatus)) {
+  if (record.providerStatus === "blocked") {
+    download.textContent = "Jellyfin prüfen";
+    download.disabled = record.libraryStatus === "checking" || state.movieCollections.queuePending;
+    download.addEventListener("click", () => void retryMovieCollectionJellyfinPart(part));
+  } else if (["unavailable", "error"].includes(record.providerStatus)) {
     download.textContent = "Erneut prüfen";
     download.disabled = state.movieCollections.resolving;
     download.addEventListener("click", () => void retryMovieCollectionPart(part));
@@ -261,6 +270,9 @@ function renderMovieCollection() {
     (record) => !["waiting", "checking"].includes(record.providerStatus),
   ).length;
   const owned = records.filter((record) => record.libraryStatus === "owned").length;
+  const libraryUncertain = records.filter(
+    (record) => ["unavailable", "blocked", "ambiguous"].includes(record.libraryStatus),
+  ).length;
   const available = records.filter(collectionSelectable).length;
   const selected = records.filter((record) => record.selected && collectionSelectable(record)).length;
   const queued = records.filter((record) => record.queueStatus === "queued").length;
@@ -272,11 +284,15 @@ function renderMovieCollection() {
     || providerCandidates.some((record) => ["waiting", "checking"].includes(record.providerStatus));
   document.getElementById("movie-collection-status").textContent = libraryPending
     ? `Jellyfin-Status für ${collection.parts.length} Filme wird geprüft`
+    : libraryUncertain
+      ? `${libraryUncertain} ${libraryUncertain === 1 ? "Jellyfin-Prüfung ist" : "Jellyfin-Prüfungen sind"} noch offen`
     : state.movieCollections.resolving
       ? `${providerChecked} von ${providerCandidates.length} Anbieterprüfungen abgeschlossen`
       : `${collection.parts.length} Filme vollständig geprüft`;
   document.getElementById("movie-collection-progress").textContent = libraryPending
     ? "Vorhandene Filme werden nicht erneut bei den Anbietern gesucht."
+    : libraryUncertain
+      ? "Betroffene Filme bleiben gesperrt, bis Jellyfin ihren Bestand sicher bestätigt hat."
     : state.movieCollections.resolving
       ? "Gefundene Filme werden sofort auswählbar; Fehler bleiben auf den einzelnen Titel begrenzt."
       : "Nur ausgewählte, verfügbare und noch nicht vorhandene Filme gehen in die Queue.";
@@ -285,6 +301,7 @@ function renderMovieCollection() {
   counts.replaceChildren();
   [
     [owned, "in Jellyfin", "owned"],
+    [libraryUncertain, "Jellyfin offen", "library-open"],
     [available, "downloadbar", "available"],
     [queued, "eingeplant", "queued"],
     [unavailable, "nicht gefunden", "unavailable"],
@@ -353,13 +370,7 @@ async function resolveMovieCollectionParts(parts, requestId) {
 }
 
 async function checkMovieCollectionJellyfin(collection, requestId) {
-  const requests = collection.parts.map((part) => ({
-      slug: part.slug,
-      title: part.title,
-      year: part.year || "",
-      tmdb_id: part.tmdb_id,
-      media_type: "movie",
-  }));
+  const requests = collection.parts.map(movieCollectionJellyfinRequest);
   const batches = [];
   for (let index = 0; index < requests.length; index += 100) {
     batches.push(requests.slice(index, index + 100));
@@ -378,9 +389,7 @@ async function checkMovieCollectionJellyfin(collection, requestId) {
     }
     const response = result.value;
     batch.forEach((item) => libraryStatusBySlug.set(
-      item.slug,
-      response.statuses?.[item.slug]
-        || (response.configured === false ? "unconfigured" : "unavailable"),
+      item.slug, movieCollectionJellyfinResponseStatus(response, item),
     ));
   });
   const resolvable = [];
@@ -391,14 +400,77 @@ async function checkMovieCollectionJellyfin(collection, requestId) {
     applyMovieJellyfinStatus(part.slug, status);
     updateCollectionRecord(part.slug, {
       libraryStatus: status,
-      providerStatus: queued || status === "owned" ? "skipped" : future ? "future" : "waiting",
+      providerStatus: queued || status === "owned"
+        ? "skipped"
+        : future
+          ? "future"
+          : collectionLibraryAllowsDownload(status) ? "waiting" : "blocked",
       queueStatus: queued ? "queued" : "idle",
       selected: false,
     });
-    if (!queued && status !== "owned" && !future) resolvable.push(part);
+    if (!queued && collectionLibraryAllowsDownload(status) && !future) resolvable.push(part);
   });
   renderMovieCollection();
   return resolvable;
+}
+
+function movieCollectionJellyfinRequest(part) {
+  return {
+    slug: part.slug,
+    title: part.title,
+    year: part.year || "",
+    tmdb_id: part.tmdb_id,
+    media_type: "movie",
+  };
+}
+
+function movieCollectionJellyfinResponseStatus(response, part) {
+  if (response.statuses?.[part.slug]) return response.statuses[part.slug];
+  if (Object.hasOwn(response.matches || {}, part.slug)) {
+    return response.matches[part.slug] ? "owned" : "missing";
+  }
+  return response.configured === false ? "unconfigured" : "unavailable";
+}
+
+async function retryMovieCollectionJellyfinPart(part) {
+  const requestId = state.movieCollections.requestSeq;
+  const current = collectionAvailabilityRecord(part);
+  updateCollectionRecord(part.slug, {
+    libraryStatus: "checking", providerStatus: "blocked", selected: false, message: "",
+  });
+  renderMovieCollection();
+  let status;
+  try {
+    const response = await api.jellyfinMatches([movieCollectionJellyfinRequest(part)]);
+    status = movieCollectionJellyfinResponseStatus(response, part);
+  } catch (error) {
+    status = [401, 403].includes(Number(error?.status)) ? "blocked" : "unavailable";
+  }
+  if (requestId !== state.movieCollections.requestSeq) return;
+  applyMovieJellyfinStatus(part.slug, status);
+  if (status === "owned") {
+    updateCollectionRecord(part.slug, {
+      libraryStatus: status, providerStatus: "skipped", queueStatus: "idle", selected: false,
+    });
+    renderMovieCollection();
+    return;
+  }
+  if (!collectionLibraryAllowsDownload(status)) {
+    updateCollectionRecord(part.slug, {
+      libraryStatus: status, providerStatus: "blocked", queueStatus: "idle", selected: false,
+    });
+    renderMovieCollection();
+    return;
+  }
+  const providerKnown = current.providerCount > 0 || Boolean(state.fp.moviesCache[part.slug]);
+  updateCollectionRecord(part.slug, {
+    libraryStatus: status,
+    providerStatus: providerKnown ? "available" : "waiting",
+    queueStatus: "idle",
+    selected: providerKnown,
+  });
+  renderMovieCollection();
+  if (!providerKnown) await resolveMovieCollectionPart(part, requestId);
 }
 
 async function retryMovieCollectionPart(part) {
@@ -487,6 +559,17 @@ async function queueCollectionMovies(slugs) {
         updateCollectionRecord(slug, {
           providerStatus: "unavailable", queueStatus: "idle",
           selected: false, message,
+        });
+      } else if (normalized.includes("jellyfin") && (
+        normalized.includes("nicht erreichbar")
+        || normalized.includes("sicherheitsprüfung")
+        || normalized.includes("statusanfrage blockiert")
+      )) {
+        const status = normalized.includes("blockiert") ? "blocked" : "unavailable";
+        applyMovieJellyfinStatus(slug, status);
+        updateCollectionRecord(slug, {
+          libraryStatus: status, providerStatus: "blocked",
+          queueStatus: "idle", selected: false, message,
         });
       } else {
         updateCollectionRecord(slug, {
