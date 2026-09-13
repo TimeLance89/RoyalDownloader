@@ -1,0 +1,298 @@
+.movie-collection-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .12);
+  pointer-events: none;
+}
+
+.movie-collection-type { background: #e50914; }
+
+.movie-collection-mark {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+}
+
+.movie-collection-mark i {
+  display: block;
+  width: 5px;
+  height: 18px;
+  background: #f7f7f7;
+  border: 1px solid rgba(0, 0, 0, .35);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, .46);
+}
+
+.movie-collection-mark i:nth-child(2) { height: 22px; }
+.movie-collection-mark i:nth-child(3) { height: 15px; }
+
+.movie-collection-panel {
+  width: min(1180px, calc(100vw - 34px));
+  max-height: min(900px, calc(100vh - 34px));
+  overflow: auto;
+  color: #f7f7f7;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 10px;
+}
+
+.movie-collection-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: clamp(22px, 4vw, 54px);
+  min-height: 360px;
+  align-items: end;
+  padding: clamp(58px, 7vw, 92px) clamp(24px, 5vw, 68px) 42px;
+  overflow: hidden;
+  background: #181819;
+}
+
+.movie-collection-hero::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background-image: var(--collection-backdrop, none);
+  background-position: center 24%;
+  background-size: cover;
+  opacity: .32;
+}
+
+.movie-collection-hero::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgba(8, 8, 8, .58);
+  box-shadow: inset 0 -150px 110px #111;
+}
+
+#movie-collection-cover {
+  width: 180px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 5px;
+  box-shadow: 0 22px 52px rgba(0, 0, 0, .55);
+}
+
+.movie-collection-copy { max-width: 700px; }
+
+.movie-collection-kicker {
+  color: #ff3943;
+  font: 700 10px/1 "JetBrains Mono", monospace;
+  letter-spacing: .17em;
+}
+
+.movie-collection-copy h2 {
+  margin: 10px 0 12px;
+  font: 800 clamp(32px, 5vw, 64px)/.95 "Archivo", sans-serif;
+  letter-spacing: -.055em;
+}
+
+.movie-collection-copy > p {
+  display: -webkit-box;
+  max-width: 64ch;
+  margin: 0 0 20px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .72);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.movie-collection-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 18px;
+}
+
+.movie-collection-summary strong { font-size: 14px; }
+.movie-collection-summary span { color: rgba(255, 255, 255, .56); font-size: 12px; }
+
+.movie-collection-counts,
+.movie-collection-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.movie-collection-counts { margin: 0 0 14px; }
+
+.movie-collection-counts span {
+  padding: 6px 9px;
+  color: rgba(255, 255, 255, .74);
+  background: rgba(0, 0, 0, .34);
+  border: 1px solid rgba(255, 255, 255, .17);
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.movie-collection-counts .is-owned { color: #d9ffe1; border-color: rgba(111, 214, 122, .52); }
+.movie-collection-counts .is-available { color: #8ce9aa; }
+.movie-collection-counts .is-unavailable { color: #ffb6b6; }
+.movie-collection-counts .is-library-open { color: #ffd18a; border-color: rgba(255, 178, 71, .52); }
+.movie-collection-counts .is-future { color: #ddcfff; }
+
+.movie-collection-films {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  background: rgba(255, 255, 255, .08);
+}
+
+.movie-collection-film {
+  display: grid;
+  grid-template-columns: 24px 28px 58px minmax(0, 1fr) auto;
+  gap: 14px;
+  min-height: 112px;
+  align-items: center;
+  padding: 14px 16px;
+  background: #151515;
+}
+
+.movie-collection-film.is-available { box-shadow: inset 3px 0 #2fbd68; }
+.movie-collection-film.is-owned { box-shadow: inset 3px 0 #6fd67a; }
+.movie-collection-film.is-queued { box-shadow: inset 3px 0 #e50914; }
+.movie-collection-film.is-unavailable,
+.movie-collection-film.is-blocked,
+.movie-collection-film.is-error { opacity: .62; }
+
+.movie-collection-selection {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.movie-collection-selection input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.movie-collection-selection span {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, .34);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.movie-collection-selection input:checked + span {
+  background: #e50914;
+  border-color: #e50914;
+}
+
+.movie-collection-selection input:checked + span::after {
+  content: "✓";
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.movie-collection-selection input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
+.movie-collection-selection input:disabled + span { opacity: .28; cursor: default; }
+
+.movie-collection-order {
+  color: rgba(255, 255, 255, .28);
+  font: 500 11px/1 "JetBrains Mono", monospace;
+}
+
+.movie-collection-poster {
+  width: 58px;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: #252525;
+  border-radius: 3px;
+}
+
+.movie-collection-poster img { width: 100%; height: 100%; object-fit: cover; }
+
+.movie-collection-film-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.movie-collection-film-copy strong {
+  overflow: hidden;
+  font: 700 14px/1.15 "Archivo", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movie-collection-film-copy > span { color: rgba(255, 255, 255, .5); font-size: 11px; }
+
+.movie-collection-film-statuses {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.movie-collection-film-statuses span {
+  padding: 3px 6px;
+  color: rgba(255, 255, 255, .7);
+  background: rgba(255, 255, 255, .07);
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.movie-collection-film-statuses .is-library-owned { color: #baf5ca; background: rgba(47, 189, 104, .16); }
+.movie-collection-film-statuses .is-library-missing { color: rgba(255, 255, 255, .72); }
+.movie-collection-film-statuses .is-provider-available { color: #8ce9aa; }
+.movie-collection-film-statuses .is-provider-unavailable,
+.movie-collection-film-statuses .is-provider-blocked,
+.movie-collection-film-statuses .is-provider-error,
+.movie-collection-film-statuses .is-queue-error,
+.movie-collection-film-statuses .is-queue-skipped { color: #ffb6b6; }
+.movie-collection-film-statuses .is-queue-queued { color: #fff; background: rgba(229, 9, 20, .72); }
+
+.movie-collection-film-actions { display: flex; gap: 6px; flex-direction: column; }
+.movie-collection-film-actions button {
+  min-width: 96px;
+  min-height: 30px;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 3px;
+  font: 700 9px/1 "JetBrains Mono", monospace;
+  cursor: pointer;
+}
+.movie-collection-film-actions button.is-primary { background: #e50914; border-color: #e50914; }
+.movie-collection-film-actions button:disabled { opacity: .38; cursor: default; }
+.movie-collection-film-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+@media (max-width: 900px) {
+  .movie-collection-films { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .movie-collection-panel { width: 100vw; max-height: 100vh; border-radius: 0; }
+  .movie-collection-hero { grid-template-columns: 90px minmax(0, 1fr); min-height: 300px; padding: 70px 16px 30px; gap: 17px; }
+  #movie-collection-cover { width: 90px; }
+  .movie-collection-copy h2 { font-size: 30px; }
+  .movie-collection-copy > p { -webkit-line-clamp: 2; }
+  .movie-collection-film { grid-template-columns: 22px 22px 48px minmax(0, 1fr); gap: 8px; padding: 12px 10px; }
+  .movie-collection-poster { width: 48px; }
+  .movie-collection-film-actions { grid-column: 3 / -1; flex-direction: row; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .movie-collection-card *, .movie-collection-panel * { scroll-behavior: auto !important; }
+}

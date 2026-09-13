@@ -5,6 +5,10 @@ function createInitialState() {
       query: "", results: [], active: false, loading: false,
       requestSeq: 0, scope: "all", jellyfinOnly: false, submitted: false,
     },
+    movieCollections: {
+      activeId: null, requestSeq: 0, collection: null,
+      availability: new Map(), resolving: false, queuePending: false,
+    },
     home: {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
       discoveryMovies: [], discoverySeries: [],
@@ -46,6 +50,7 @@ function createInitialState() {
     calendar: {
       days: [], total: 0, loaded: false, loading: false, error: "",
       activeWeek: "", language: "all", status: "all", query: "", subscribedOnly: false,
+      selectedDate: "", view: "day",
       disabledReason: "", stale: false, cached: false, updatedAt: 0,
       initialized: false, phase: "idle", requestId: 0, startedAt: 0,
     },

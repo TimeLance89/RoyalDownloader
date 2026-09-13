@@ -16,6 +16,7 @@ const homeRailRuntime = readFileSync(new URL("../web/home_rail_runtime.js", impo
 const homeLayoutEditor = readFileSync(new URL("../web/home_layout_editor.js", import.meta.url), "utf8");
 const seriesScreen = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
 const seriesCalendar = readFileSync(new URL("../web/screens/series-calendar.js", import.meta.url), "utf8");
+const movieReleases = readFileSync(new URL("../web/screens/movie-releases.js", import.meta.url), "utf8");
 const detailHeroScroll = readFileSync(new URL("../web/detail-hero-scroll.js", import.meta.url), "utf8");
 const jellyfinResume = readFileSync(new URL("../web/jellyfin-resume.js", import.meta.url), "utf8");
 const workflow = readFileSync(new URL("../.github/workflows/quality.yml", import.meta.url), "utf8");
@@ -56,6 +57,13 @@ const app = appModulePaths
   .join("\n");
 const frontend = `${login}\n${app}`;
 
+test("release calendar routes movies and series and unlocks past dates", () => {
+  assert.match(movieReleases, /entry\.media_type === "series"/);
+  assert.match(movieReleases, /switchTab\("serien"\);loadSeries\(match\)/);
+  assert.match(movieReleases, /period === "past"/);
+  assert.match(movieReleases, /e\.has_started/);
+});
+
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {
   assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
   assert.match(html, /class="royal-loader-crown"/);
@@ -78,8 +86,8 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.match(seriesCalendar, /Aktualisierung fehlgeschlagen/);
   assert.doesNotMatch(seriesCalendar, /https:\/\/serienstream\.to\/api\/calendar/);
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
-  assert.match(html, /series-calendar\.js\?v=royal-20260825-1/);
-  assert.match(stylesheet, /series-calendar\.css\?v=royal-20260825-1/);
+  assert.match(html, /series-calendar\.js\?v=royal-20260912-1/);
+  assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
   assert.match(html, /style\.css\?v=royal-20260908-2/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
@@ -251,7 +259,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260909-1/);
+  assert.match(html, /app\.js\?v=royal-20260913-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -764,7 +772,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260825-1/);
+  assert.match(html, /core\.js\?v=royal-20260913-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
@@ -847,6 +855,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/library.css",
     "styles/movie-home.css",
     "styles/search.css",
+    "styles/movie-collections.css",
     "styles/series.css",
     "styles/catalog.css",
     "styles/catalog-polish.css",

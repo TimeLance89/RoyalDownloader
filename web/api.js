@@ -76,6 +76,12 @@ const api = {
   authSessionsRevoke() { return this.post("/api/auth/sessions/revoke"); },
 
   genres() { return this.get("/api/genres"); },
+  movieCollections(query) {
+    return this.get(`/api/movie-collections?${new URLSearchParams({ query })}`);
+  },
+  movieCollection(collectionId) {
+    return this.get(`/api/movie-collections/${encodeURIComponent(collectionId)}`);
+  },
   movies(params) {
     const request = this.get("/api/movies?" + new URLSearchParams(params));
     // Die provider-first Filmsuche fragt bewusst alle aktiven Quellen ab. Sie

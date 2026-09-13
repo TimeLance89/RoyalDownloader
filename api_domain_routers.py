@@ -43,11 +43,13 @@ _PREFIXES = {
     ),
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
+        "/api/movie-collections", "/api/v1/movie-collections",
         "/api/movie", "/api/v1/movie", "/api/series", "/api/v1/series",
         "/api/series-calendar", "/api/v1/series-calendar",
         "/api/anime", "/api/v1/anime", "/api/home", "/api/v1/home",
         "/api/aniworld", "/api/v1/aniworld",
         "/api/daily-top", "/api/v1/daily-top", "/api/search", "/api/v1/search",
+        "/api/releases", "/api/v1/releases",
         "/api/tmdb/movie", "/api/v1/tmdb/movie", "/api/tmdb/movies",
         "/api/v1/tmdb/movies", "/api/tmdb/series", "/api/v1/tmdb/series",
         "/api/jellyfin/matches", "/api/v1/jellyfin/matches",

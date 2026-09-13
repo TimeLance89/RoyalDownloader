@@ -86,12 +86,75 @@ function syncAniworldNavigationVisibility() {
   if (!visible && state.tab === "aniworld") switchTab("filme");
 }
 
+function setNavigationMenuOpen(menu, open, { restoreFocus = false } = {}) {
+  const trigger = menu.querySelector(".nav-menu-trigger");
+  const popover = menu.querySelector(".nav-menu-popover");
+  if (!trigger || !popover) return;
+  menu.classList.toggle("is-open", open);
+  trigger.classList.toggle("is-open", open);
+  trigger.setAttribute("aria-expanded", String(open));
+  popover.hidden = !open;
+  popover.inert = !open;
+  if (!open && restoreFocus) trigger.focus();
+}
+
+function closeNavigationMenus({ restoreFocus = false, except = null } = {}) {
+  document.querySelectorAll("[data-nav-menu]").forEach((menu) => {
+    if (menu !== except) setNavigationMenuOpen(menu, false, { restoreFocus });
+  });
+  const anyMobileMenuOpen = Boolean(document.querySelector('[data-nav-menu="mobile"].is-open'));
+  const scrim = document.querySelector("[data-nav-menu-scrim]");
+  if (scrim) scrim.hidden = !anyMobileMenuOpen;
+}
+
+function initNavigationMenus() {
+  document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+  });
+  document.querySelectorAll("[data-nav-menu]").forEach((menu) => {
+    const trigger = menu.querySelector(".nav-menu-trigger");
+    const popover = menu.querySelector(".nav-menu-popover");
+    if (!trigger || !popover) return;
+    popover.inert = true;
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = !menu.classList.contains("is-open");
+      closeNavigationMenus({ except: menu });
+      setNavigationMenuOpen(menu, open);
+      const scrim = document.querySelector("[data-nav-menu-scrim]");
+      if (scrim) scrim.hidden = !open || menu.dataset.navMenu !== "mobile";
+    });
+    popover.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-tab], [data-mood-open]")) return;
+      closeNavigationMenus();
+    });
+  });
+  document.querySelector("[data-nav-menu-scrim]")?.addEventListener("click", () => closeNavigationMenus());
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("[data-nav-menu], [data-nav-menu-scrim]")) return;
+    closeNavigationMenus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const openMenu = document.querySelector("[data-nav-menu].is-open");
+    if (!openMenu) return;
+    event.preventDefault();
+    closeNavigationMenus({ restoreFocus: true });
+  });
+  window.addEventListener("resize", () => closeNavigationMenus());
+}
+
 function switchTab(name, { autoLoad = true } = {}) {
   if (name === "anime" && !animeNavigationAvailable()) name = "filme";
   if (name === "aniworld" && !aniworldNavigationAvailable()) name = "filme";
   if (state.globalSearch.active) closeGlobalSearch();
   closeAllMediaModals(false);
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((b) => {
+    const active = b.dataset.tab === name;
+    b.classList.toggle("active", active);
+    if (active) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
   document.querySelectorAll(".tab-content").forEach((s) => s.classList.toggle("active", s.id === `tab-${name}`));
   // Im Einstellungen-Bereich die Download-Sidebar ausblenden (eigener Vollbereich).
   document.body.classList.toggle("settings-active", name === "einstellungen");
@@ -103,6 +166,7 @@ function switchTab(name, { autoLoad = true } = {}) {
   if (name === "filme" && autoLoad) ensureFpResults();
   if (name === "serien" && autoLoad) ensureSeriesResults();
   if (name === "kalender" && autoLoad && !state.calendar.loaded) seriesCalendarLoad();
+  if (name === "releases" && autoLoad) window.movieReleases?.load();
   if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
   if (name === "aniworld" && autoLoad && !state.aniworld.loaded) aniworldBrowse("catalog", 1);
   if (name === "filme") scheduleMovieFeatureRotation();

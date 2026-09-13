@@ -2,74 +2,39 @@
 
 ## Unreleased
 
-- Turn the lower download area into a compact Royal transfer deck with a clear
-  hierarchy, segmented progress track, prominent percentage, dedicated
-  “Up next” display, and responsive download-plan controls.
-- Redesign the home page with premium cards, stable spacing, collision-free rows,
-  and reliable poster/background fallbacks; preserve their order while artwork
-  loads in the background.
-- Update series catalogs and details without visible flicker. In the series
-  record, **Seasons & Episodes** is followed by **Trailers & more**, **About the
-  Series**, and **Similar Titles**.
-- Redesign the subscription inbox and media shelf as a shared Subscription
-  Center while keeping the frontend entry point within its module boundaries.
-- Add the Royal startup loader to bridge application startup consistently while
-  preserving the Cinema Dock stylesheet priority.
-- Localize series titles in subscriptions and the watchlist.
-- Redesign Evening Director with clearer reasoning and deeper genre-aware
+- Add a compact Royal transfer deck with clearer download hierarchy, segmented
+  progress, a next-up view, and responsive queue controls.
+- Redesign home cards and carousels with stable layout, reliable poster and
+  backdrop fallbacks, preserved scroll position, and incremental reconciliation
+  that prevents visual jumps during background updates.
+- Refresh the series catalog and detail views without flicker; expand details
+  with trailers, production information, similar titles, and persistent season
+  and episode context when opened from the calendar.
+- Introduce a server-synchronised series calendar with validated snapshots,
+  week navigation, filters, subscription mode, clear final loading states, and
+  resilient retry and offline handling.
+- Add a redesigned Releases view for movies and series, including localized
+  content, older titles, bounded provider requests, and resilient timeouts.
+- Restore Releases as the first item in the Discover menu on desktop and mobile.
+- Add TMDB movie collections to search. Collection views check Jellyfin before
+  providers, show per-movie library, provider, and queue state, and allow safe
+  partial selection and download of the available titles.
+- Make movie collections ready on first open by waiting for the initial
+  Jellyfin identity snapshot; downloads no longer require closing and reopening
+  the collection.
+- Keep Jellyfin availability current after browser idle, standby, tab changes,
+  and network recovery while failing closed when ownership cannot be verified.
+- Redesign the subscription inbox and media archive as a unified subscription
+  center, including persistent notifications for automatically downloaded
+  episodes.
+- Localize subscription and watchlist series titles, improve personalised
+  evening recommendations, and filter explicitly English provider releases when
+  English content is disabled.
+- Add consistent Royal startup loading and richer movie and series detail
+  presentation, including scroll-aware trailer playback and 16:9 artwork for
   recommendations.
-- Keep successfully downloaded subscribed episodes visible with season/episode
-  details in the media shelf and as unread notifications; opening the notice
-  marks it as read.
-- Exclude German provider entries with unambiguous English release markers such
-  as `*ENGLISH*` or `TS/English` from German results and filter them completely
-  when English content is disabled.
-- Refresh Jellyfin status after extended browser inactivity or standby; stalled
-  checks now end in a clear error state and restart when the tab, window, or
-  network becomes available again.
-- Give movie and series details a unified Royal record style with dedicated
-  similar-title, official-trailer, and production-information sections; use
-  wide 16:9 backgrounds for recommendations.
-- Open similar series directly in the complete series record with the existing
-  season and episode browser; closing preserves the previously active calendar.
-- Pause hero trailers in movie and series details when the header scrolls out of
-  view and resume them when the user scrolls back.
-- Keep series details opened from the calendar as a modal over the calendar;
-  closing no longer navigates to the series overview.
-- Hide the calendar's preparatory status block reliably after data loads, and
-  ensure the calendar stylesheet respects `hidden` against its own grid rules.
-- Make the calendar leave its loading state safely with mixed browser assets and
-  throttled background timers; a second watchdog catches stale hanging states.
-- Use 16:9 backgrounds everywhere outside Top 10, fill “From your clicks and
-  downloads” with up to 16 titles, and keep loaded home cards stable in the DOM
-  during refreshes.
-- Synchronize the series calendar entirely server-side through an independent
-  SerienStream session. An atomically stored, validated snapshot survives
-  restarts and outages; the browser never contacts the external service.
-- Bound calendar requests with a hard loading watchdog and explicit success,
-  offline, and retry states so a permanent loading indicator cannot remain.
-- Start the Jellyfin live sync for the complete first series catalog page
-  immediately and independently of posters/TMDB; merge duplicate series with
-  conflicting season-year data when titles and sources overlap.
-- Make language switching immediate and persistent by applying cached
-  translations synchronously and continuing uncached translation in the
-  background without blocking catalog startup.
-- Localize every settings navigation area, including dynamically inserted
-  storage navigation, with deterministic English labels and reload-safe cache
-  entries.
-
-- Preserve each home carousel's horizontal scroll position when progressive
-  artwork, Jellyfin status, or discovery data triggers a background rerender.
-- Persist the intended carousel target before smooth scrolling begins and bump
-  the affected browser asset versions so cached clients receive the fix.
-- Keep unchanged carousel sections and cards mounted during background updates;
-  only actually changed cards are reconciled, eliminating the visible jump to
-  zero and the subsequent snap-back.
-- Add a dedicated top-level series calendar with week navigation, day jumps,
-  title and language filters, subscription-only mode, direct provider artwork,
-  release status, and one-click handoff into the regular series workflow.
-- Validate and cache SerienStream calendar data server-side, retain the last
-  valid snapshot during short outages, and reject foreign series or image URLs.
+- Make language switching immediate and persistent, including dynamically
+  inserted settings and storage navigation, without blocking catalog startup.
 
 ## 2026-08-23 – Custom home programme
 

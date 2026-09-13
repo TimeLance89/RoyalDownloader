@@ -82,7 +82,10 @@ class TMDBClient:
         self._movie_summary_cache: dict = {}
         self._movie_summary_id_cache: dict = {}
         self._series_summary_cache: dict = {}
+        self._release_summary_cache: dict = {}
         self._movie_search_cache: dict = {}
+        self._collection_search_cache: dict = {}
+        self._collection_cache: dict = {}
         self._movie_cache: dict = {}
         self._movie_id_cache: dict = {}
         self._series_cache: dict = {}
@@ -483,6 +486,31 @@ class TMDBClient:
                 self._movie_summary_id_cache[key] = dict(result)
         return result
 
+    def release_summary_by_id(self, media_type: str, tmdb_id) -> Optional[dict]:
+        """Localized release-card metadata without an English fallback."""
+        kind = "series" if media_type == "series" else "movie"
+        key = str(tmdb_id or "").strip()
+        if not key.isdigit():
+            return None
+        cache_key = (kind, key, self.language)
+        with self._lock:
+            if cache_key in self._release_summary_cache:
+                cached = self._release_summary_cache[cache_key]
+                return dict(cached) if cached is not None else None
+        item = self._request(
+            f"/{'tv' if kind == 'series' else 'movie'}/{key}",
+            {"language": self.language},
+        )
+        result = None
+        if item:
+            result = {
+                "description": str(item.get("overview") or ""),
+                "cover_url": self._poster_url(item.get("poster_path") or ""),
+            }
+        with self._lock:
+            self._release_summary_cache[cache_key] = dict(result) if result else None
+        return result
+
     def now_playing_ids(self, force: bool = False) -> set[int]:
         """Aktuell im Kino laufende TMDB-Filme der konfigurierten Region."""
         now = time.time()
@@ -600,6 +628,95 @@ class TMDBClient:
         with self._lock:
             self._movie_search_cache[cache_key] = [dict(item) for item in results]
         return results
+
+    def search_movie_collections(self, query: str, max_results: int = 12) -> list[dict]:
+        """Sucht TMDB-Filmreihen, ohne dabei Filmanbieter anzufragen."""
+        query = " ".join(str(query or "").split()).strip()
+        if not query or not self.configured:
+            return []
+        limit = max(1, min(int(max_results), 20))
+        cache_key = (_normalize(query), limit)
+        with self._lock:
+            cached = self._collection_search_cache.get(cache_key)
+            if cached is not None:
+                return [dict(item) for item in cached]
+
+        response = self._request("/search/collection", {
+            "query": query,
+            "language": self.language,
+            "include_adult": "false",
+            "page": "1",
+        }) or {}
+        results = []
+        for item in response.get("results") or []:
+            try:
+                collection_id = int(item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            results.append({
+                "collection_id": collection_id,
+                "title": item.get("name") or item.get("original_name") or query,
+                "original_title": item.get("original_name") or "",
+                "description": item.get("overview") or "",
+                "cover_url": self._poster_url(item.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(item.get("backdrop_path") or ""),
+                "kind": "collection",
+            })
+            if len(results) >= limit:
+                break
+        with self._lock:
+            self._collection_search_cache[cache_key] = [dict(item) for item in results]
+        return results
+
+    def movie_collection(self, collection_id) -> Optional[dict]:
+        """Lädt die Filme einer TMDB-Reihe in Veröffentlichungsreihenfolge."""
+        key = str(collection_id or "").strip()
+        if not key.isdigit() or not self.configured:
+            return None
+        with self._lock:
+            cached = self._collection_cache.get(key)
+            if cached is not None:
+                return json.loads(json.dumps(cached))
+
+        details = self._request(f"/collection/{int(key)}", {"language": self.language})
+        if not details:
+            return None
+        parts = []
+        for item in details.get("parts") or []:
+            try:
+                tmdb_id = int(item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            release_date = item.get("release_date") or ""
+            parts.append({
+                "tmdb_id": tmdb_id,
+                "slug": f"tmdb:{tmdb_id}",
+                "title": item.get("title") or item.get("original_title") or "Film",
+                "original_title": item.get("original_title") or "",
+                "year": _year_from_date(release_date),
+                "release_date": release_date,
+                "description": item.get("overview") or "",
+                "cover_url": self._poster_url(item.get("poster_path") or ""),
+                "backdrop_url": self._backdrop_url(item.get("backdrop_path") or ""),
+                "rating": round(float(item.get("vote_average") or 0), 1),
+                "vote_count": int(item.get("vote_count") or 0),
+            })
+        parts.sort(key=lambda item: (
+            not bool(item["release_date"]), item["release_date"] or "9999", item["tmdb_id"],
+        ))
+        result = {
+            "collection_id": int(key),
+            "title": details.get("name") or "Filmreihe",
+            "description": details.get("overview") or "",
+            "cover_url": self._poster_url(details.get("poster_path") or ""),
+            "backdrop_url": self._backdrop_url(details.get("backdrop_path") or ""),
+            "parts": parts,
+            "part_count": len(parts),
+            "tmdb_url": f"https://www.themoviedb.org/collection/{int(key)}",
+        }
+        with self._lock:
+            self._collection_cache[key] = json.loads(json.dumps(result))
+        return result
 
     def movie(self, title: str, year: str = "") -> Optional[dict]:
         query_title = _clean_movie_query_title(title)

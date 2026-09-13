@@ -95,7 +95,8 @@ function calendarRestoreSnapshot() {
     state.calendar.cached = true;
     state.calendar.stale = true;
     state.calendar.updatedAt = savedAt;
-    state.calendar.activeWeek = calendarInitialWeek();
+    state.calendar.activeWeek = calendarAvailableWeeks().includes(state.calendar.activeWeek)
+      ? state.calendar.activeWeek : calendarInitialWeek();
     renderSeriesCalendar();
     return true;
   } catch (_error) {
@@ -231,7 +232,8 @@ async function seriesCalendarLoad(force = false) {
     state.calendar.updatedAt = Number(response.updated_at || 0) * 1_000 || Date.now();
     state.calendar.loaded = true;
     state.calendar.phase = "ready";
-    state.calendar.activeWeek = calendarInitialWeek();
+    state.calendar.activeWeek = calendarAvailableWeeks().includes(state.calendar.activeWeek)
+      ? state.calendar.activeWeek : calendarInitialWeek();
     calendarStoreSnapshot(payload);
     renderSeriesCalendar();
     return true;
@@ -273,7 +275,7 @@ function renderCalendarHero() {
   const today = new Date();
   document.getElementById("calendar-hero-weekday").textContent = new Intl.DateTimeFormat(
     i18n.locale(), { weekday: "long" },
-  ).format(today).toLocaleUpperCase("de");
+  ).format(today);
   document.getElementById("calendar-hero-day").textContent = String(today.getDate()).padStart(2, "0");
   document.getElementById("calendar-hero-month").textContent = new Intl.DateTimeFormat(
     i18n.locale(), { month: "long", year: "numeric" },
@@ -297,12 +299,13 @@ function renderCalendarWeekStrip(dates) {
   document.getElementById("calendar-week-strip").innerHTML = dates.map((date) => {
     const count = calendarEntriesForDate(date).length;
     const isToday = date === today;
-    return `<button type="button" data-calendar-date="${date}" class="${isToday ? "is-today" : ""}"
-        ${isToday ? 'aria-current="date"' : ""} aria-label="${escapeHtml(weekday.format(calendarDate(date)))}, ${count} ${count === 1 ? "Folge" : "Folgen"}">
+    const selected = state.calendar.view !== "week" && state.calendar.selectedDate === date;
+    return `<button type="button" data-calendar-date="${date}" class="${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""}"
+        aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ""} aria-label="${escapeHtml(new Intl.DateTimeFormat(i18n.locale(), { dateStyle: "full" }).format(calendarDate(date)))}, ${count} ${count === 1 ? "Folge" : "Folgen"}">
       <span>${escapeHtml(weekday.format(calendarDate(date)))}</span>
       <strong>${String(calendarDate(date).getDate()).padStart(2, "0")}</strong>
       <small>${count} ${count === 1 ? "Folge" : "Folgen"}</small>
-      <i aria-hidden="true"></i>
+      <i aria-hidden="true">${isToday ? "Heute" : ""}</i>
     </button>`;
   }).join("");
 }
@@ -358,8 +361,8 @@ function renderCalendarDays(dates) {
   status.hidden = visible > 0;
   if (!visible) {
     calendarSetStatus(
-      state.calendar.disabledReason ? "Kalender pausiert" : "Keine Treffer in dieser Woche",
-      state.calendar.disabledReason || "Passe Suche oder Filter an.",
+      state.calendar.disabledReason ? "Kalender pausiert" : dates.length === 1 ? "Keine Folgen an diesem Tag" : "Keine Treffer in dieser Woche",
+      state.calendar.disabledReason || "Wähle einen anderen Tag oder passe die Filter an.",
       { error: !!state.calendar.disabledReason },
     );
   }
@@ -373,19 +376,30 @@ function renderCalendarDays(dates) {
 function renderSeriesCalendar() {
   renderCalendarHero();
   const dates = calendarWeekDates(state.calendar.activeWeek || calendarInitialWeek());
+  if (!dates.includes(state.calendar.selectedDate)) {
+    state.calendar.selectedDate = dates.includes(calendarTodayKey()) ? calendarTodayKey()
+      : dates.find((date) => calendarEntriesForDate(date).length) || dates[0];
+  }
   document.getElementById("calendar-range").textContent = `${calendarFormatRange(dates)}${state.calendar.stale ? " · letzter verfügbarer Stand" : ""}`;
   renderCalendarWeekStrip(dates);
-  renderCalendarDays(dates);
+  const visibleDates = state.calendar.view === "week" ? dates : [state.calendar.selectedDate];
+  renderCalendarDays(visibleDates);
+  const count = visibleDates.reduce((sum, date) => sum + calendarEntriesForDate(date).length, 0);
+  document.getElementById("calendar-results").textContent = `${count} ${count === 1 ? "Folge" : "Folgen"} ${state.calendar.view === "week" ? "in dieser Woche" : "am ausgewählten Tag"}`;
+  document.querySelectorAll("[data-calendar-view]").forEach((button) => {
+    const active = button.dataset.calendarView === (state.calendar.view || "day");
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   const weeks = calendarAvailableWeeks();
-  const position = weeks.indexOf(state.calendar.activeWeek);
-  document.getElementById("calendar-prev-week").disabled = position <= 0;
-  document.getElementById("calendar-next-week").disabled = position < 0 || position >= weeks.length - 1;
+  document.getElementById("calendar-prev-week").disabled = !weeks.some((week) => week < state.calendar.activeWeek);
+  document.getElementById("calendar-next-week").disabled = !weeks.some((week) => week > state.calendar.activeWeek);
 }
 
 function calendarMoveWeek(direction) {
   const weeks = calendarAvailableWeeks();
-  const position = weeks.indexOf(state.calendar.activeWeek);
-  const target = weeks[position + direction];
+  const target = direction < 0 ? weeks.filter((week) => week < state.calendar.activeWeek).at(-1)
+    : weeks.find((week) => week > state.calendar.activeWeek);
   if (!target) return;
   state.calendar.activeWeek = target;
   renderSeriesCalendar();
@@ -424,9 +438,10 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
   document.getElementById("calendar-next-week")?.addEventListener("click", () => calendarMoveWeek(1));
   document.getElementById("calendar-today")?.addEventListener("click", () => {
     const week = calendarWeekKey(calendarTodayKey());
-    if (calendarAvailableWeeks().includes(week)) state.calendar.activeWeek = week;
+    state.calendar.activeWeek = week;
+    state.calendar.selectedDate = calendarTodayKey();
+    state.calendar.view = "day";
     renderSeriesCalendar();
-    document.getElementById(`calendar-day-${calendarTodayKey()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   document.getElementById("calendar-search")?.addEventListener("input", (event) => {
     state.calendar.query = event.currentTarget.value;
@@ -463,7 +478,16 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
   document.getElementById("calendar-week-strip")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-calendar-date]");
     if (!button) return;
-    document.getElementById(`calendar-day-${button.dataset.calendarDate}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    state.calendar.selectedDate = button.dataset.calendarDate;
+    state.calendar.view = "day";
+    renderSeriesCalendar();
+    document.querySelector(`[data-calendar-date="${state.calendar.selectedDate}"]`)?.focus({ preventScroll: true });
+  });
+  document.querySelectorAll("[data-calendar-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.calendar.view = button.dataset.calendarView;
+      renderSeriesCalendar();
+    });
   });
   document.getElementById("calendar-days")?.addEventListener("click", (event) => {
     const entry = event.target.closest("[data-calendar-entry]");
