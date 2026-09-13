@@ -7,7 +7,7 @@ function createInitialState() {
     },
     movieCollections: {
       activeId: null, requestSeq: 0, collection: null,
-      availability: new Map(), resolving: false,
+      availability: new Map(), resolving: false, queuePending: false,
     },
     home: {
       newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],

@@ -94,23 +94,104 @@ function createMovieCollectionSearchCard(collection, eager = false) {
 }
 
 function collectionAvailabilityRecord(part) {
-  return state.movieCollections.availability.get(part.slug) || { status: "checking" };
+  return state.movieCollections.availability.get(part.slug) || {
+    libraryStatus: "checking",
+    providerStatus: "waiting",
+    queueStatus: "idle",
+    selected: false,
+    providerCount: 0,
+    message: "",
+  };
 }
 
-function collectionStatusLabel(record) {
-  if (record.status === "available") return `${record.providerCount || 1} Anbieter gefunden`;
-  if (record.status === "queued") return "Zur Queue hinzugefügt";
-  if (record.status === "unavailable") return "Bei keinem Anbieter gefunden";
-  if (record.status === "error") return "Prüfung fehlgeschlagen";
-  return "Alle Anbieter werden geprüft";
+function updateCollectionRecord(slug, changes) {
+  const current = collectionAvailabilityRecord({ slug });
+  state.movieCollections.availability.set(slug, { ...current, ...changes });
+}
+
+function collectionReleaseIsFuture(part) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part.release_date || "")) return false;
+  return new Date(`${part.release_date}T23:59:59`).getTime() > Date.now();
+}
+
+function collectionPrimaryStatus(record) {
+  if (record.queueStatus === "adding") return "adding";
+  if (record.queueStatus === "queued") return "queued";
+  if (record.queueStatus === "skipped") return "skipped";
+  if (record.queueStatus === "error") return "error";
+  if (record.libraryStatus === "owned") return "owned";
+  return record.providerStatus;
+}
+
+function collectionLibraryLabel(status) {
+  const labels = {
+    checking: "Jellyfin wird geprüft",
+    owned: "In Jellyfin",
+    missing: "Fehlt in Jellyfin",
+    unavailable: "Jellyfin nicht erreichbar",
+    blocked: "Jellyfin-Prüfung blockiert",
+    unconfigured: "Jellyfin nicht verbunden",
+    ambiguous: "Jellyfin-Zuordnung unklar",
+  };
+  return labels[status] || labels.unavailable;
+}
+
+function collectionProviderLabel(record) {
+  if (record.providerStatus === "available") {
+    return `${record.providerCount || 1} Anbieter`;
+  }
+  const labels = {
+    waiting: "Wartet auf Jellyfin-Prüfung",
+    checking: "Alle Anbieter werden geprüft",
+    unavailable: "Bei keinem Anbieter gefunden",
+    error: "Anbieterprüfung fehlgeschlagen",
+    skipped: "Anbieterprüfung nicht nötig",
+    future: "Noch nicht veröffentlicht",
+  };
+  return labels[record.providerStatus] || "Anbieterstatus offen";
+}
+
+function collectionQueueLabel(record) {
+  const labels = {
+    adding: "Wird eingeplant",
+    queued: "Download eingeplant",
+    skipped: record.message || "Nicht eingeplant",
+    error: record.message || "Queue-Anfrage fehlgeschlagen",
+  };
+  return labels[record.queueStatus] || "";
+}
+
+function collectionSelectable(record) {
+  return record.providerStatus === "available"
+    && record.libraryStatus !== "owned"
+    && !["adding", "queued"].includes(record.queueStatus);
+}
+
+function setCollectionSelected(slug, selected) {
+  const record = collectionAvailabilityRecord({ slug });
+  if (!collectionSelectable(record)) return;
+  updateCollectionRecord(slug, { selected: Boolean(selected), queueStatus: "idle", message: "" });
+  renderMovieCollection();
 }
 
 function renderMovieCollectionFilm(part, index) {
   const record = collectionAvailabilityRecord(part);
+  const primaryStatus = collectionPrimaryStatus(record);
   const card = document.createElement("article");
-  card.className = `movie-collection-film is-${record.status}`;
+  card.className = `movie-collection-film is-${primaryStatus}`;
   card.dataset.slug = part.slug;
 
+  const selection = document.createElement("label");
+  selection.className = "movie-collection-selection";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = Boolean(record.selected);
+  checkbox.disabled = !collectionSelectable(record);
+  checkbox.setAttribute("aria-label", `${part.title} für den Download auswählen`);
+  checkbox.addEventListener("change", () => setCollectionSelected(part.slug, checkbox.checked));
+  const selectionMark = document.createElement("span");
+  selectionMark.setAttribute("aria-hidden", "true");
+  selection.append(checkbox, selectionMark);
   const order = document.createElement("span");
   order.className = "movie-collection-order";
   order.textContent = String(index + 1).padStart(2, "0");
@@ -127,26 +208,43 @@ function renderMovieCollectionFilm(part, index) {
   title.translate = false;
   const meta = document.createElement("span");
   meta.textContent = [part.year, part.rating ? `★ ${part.rating}` : ""].filter(Boolean).join(" · ") || "Jahr unbekannt";
-  const status = document.createElement("span");
-  status.className = "movie-collection-film-status";
-  status.textContent = collectionStatusLabel(record);
-  copy.append(title, meta, status);
+  const statuses = document.createElement("span");
+  statuses.className = "movie-collection-film-statuses";
+  const library = document.createElement("span");
+  library.className = `is-library-${record.libraryStatus}`;
+  library.textContent = collectionLibraryLabel(record.libraryStatus);
+  const provider = document.createElement("span");
+  provider.className = `is-provider-${record.providerStatus}`;
+  provider.textContent = collectionProviderLabel(record);
+  statuses.append(library, provider);
+  const queueMessage = collectionQueueLabel(record);
+  if (queueMessage) {
+    const queue = document.createElement("span");
+    queue.className = `is-queue-${record.queueStatus}`;
+    queue.textContent = queueMessage;
+    statuses.appendChild(queue);
+  }
+  copy.append(title, meta, statuses);
 
   const actions = document.createElement("span");
   actions.className = "movie-collection-film-actions";
   const open = document.createElement("button");
   open.type = "button";
   open.textContent = "Details";
-  open.disabled = record.status !== "available" && record.status !== "queued";
+  open.disabled = record.providerStatus !== "available";
   open.addEventListener("click", () => selectFpRow(part.slug, part));
   const download = document.createElement("button");
   download.type = "button";
   download.className = "is-primary";
-  download.textContent = record.status === "queued" ? "Eingeplant" : "Herunterladen";
-  download.disabled = record.status !== "available";
-  download.addEventListener("click", () => queueCollectionMovies([part.slug]));
+  download.textContent = record.queueStatus === "queued" ? "Eingeplant" : "Einzeln laden";
+  download.disabled = !collectionSelectable(record) || state.movieCollections.queuePending;
+  if (["unavailable", "error"].includes(record.providerStatus)) {
+    download.textContent = "Erneut prüfen";
+    download.disabled = state.movieCollections.resolving;
+    download.addEventListener("click", () => void retryMovieCollectionPart(part));
+  } else download.addEventListener("click", () => queueCollectionMovies([part.slug]));
   actions.append(open, download);
-  card.append(order, poster, copy, actions);
+  card.append(selection, order, poster, copy, actions);
   return card;
 }
 
@@ -157,59 +255,155 @@ function renderMovieCollection() {
   list.replaceChildren(...collection.parts.map(renderMovieCollectionFilm));
 
   const records = collection.parts.map(collectionAvailabilityRecord);
-  const checked = records.filter((record) => record.status !== "checking").length;
-  const available = records.filter((record) => record.status === "available").length;
-  const queued = records.filter((record) => record.status === "queued").length;
-  const unavailable = records.filter((record) => ["unavailable", "error"].includes(record.status)).length;
-  document.getElementById("movie-collection-status").textContent = state.movieCollections.resolving
-    ? `${checked} von ${collection.parts.length} Filmen geprüft`
-    : `${available} downloadbar · ${queued} eingeplant · ${unavailable} nicht gefunden`;
-  document.getElementById("movie-collection-progress").textContent = state.movieCollections.resolving
-    ? "Jeder Film wird unabhängig bei allen aktiven Anbietern gesucht."
-    : "Nicht gefundene Teile blockieren die verfügbaren Filme nicht.";
+  const libraryPending = records.filter((record) => record.libraryStatus === "checking").length;
+  const providerCandidates = records.filter((record) => !["skipped", "future"].includes(record.providerStatus));
+  const providerChecked = providerCandidates.filter(
+    (record) => !["waiting", "checking"].includes(record.providerStatus),
+  ).length;
+  const owned = records.filter((record) => record.libraryStatus === "owned").length;
+  const available = records.filter(collectionSelectable).length;
+  const selected = records.filter((record) => record.selected && collectionSelectable(record)).length;
+  const queued = records.filter((record) => record.queueStatus === "queued").length;
+  const unavailable = records.filter(
+    (record) => ["unavailable", "error"].includes(record.providerStatus),
+  ).length;
+  const future = records.filter((record) => record.providerStatus === "future").length;
+  state.movieCollections.resolving = libraryPending > 0
+    || providerCandidates.some((record) => ["waiting", "checking"].includes(record.providerStatus));
+  document.getElementById("movie-collection-status").textContent = libraryPending
+    ? `Jellyfin-Status für ${collection.parts.length} Filme wird geprüft`
+    : state.movieCollections.resolving
+      ? `${providerChecked} von ${providerCandidates.length} Anbieterprüfungen abgeschlossen`
+      : `${collection.parts.length} Filme vollständig geprüft`;
+  document.getElementById("movie-collection-progress").textContent = libraryPending
+    ? "Vorhandene Filme werden nicht erneut bei den Anbietern gesucht."
+    : state.movieCollections.resolving
+      ? "Gefundene Filme werden sofort auswählbar; Fehler bleiben auf den einzelnen Titel begrenzt."
+      : "Nur ausgewählte, verfügbare und noch nicht vorhandene Filme gehen in die Queue.";
+
+  const counts = document.getElementById("movie-collection-counts");
+  counts.replaceChildren();
+  [
+    [owned, "in Jellyfin", "owned"],
+    [available, "downloadbar", "available"],
+    [queued, "eingeplant", "queued"],
+    [unavailable, "nicht gefunden", "unavailable"],
+    [future, "noch nicht erschienen", "future"],
+  ].filter(([count]) => count > 0).forEach(([count, label, kind]) => {
+    const badge = document.createElement("span");
+    badge.className = `is-${kind}`;
+    badge.textContent = `${count} ${label}`;
+    counts.appendChild(badge);
+  });
+
+  const selectAll = document.getElementById("movie-collection-select-all");
+  const everyAvailableSelected = available > 0 && available === selected;
+  selectAll.disabled = available === 0 || state.movieCollections.queuePending;
+  selectAll.textContent = everyAvailableSelected ? "Auswahl aufheben" : "Verfügbare auswählen";
   const allButton = document.getElementById("movie-collection-download-all");
-  allButton.disabled = state.movieCollections.resolving || available === 0;
-  allButton.textContent = state.movieCollections.resolving
-    ? "Anbieterprüfung läuft …"
-    : available
-      ? `${available} verfügbare ${available === 1 ? "Film" : "Filme"} herunterladen`
-      : "Keine Filme downloadbar";
+  allButton.disabled = selected === 0 || state.movieCollections.queuePending;
+  allButton.textContent = state.movieCollections.queuePending
+    ? "Wird eingeplant …"
+    : selected
+      ? `${selected} ${selected === 1 ? "Film" : "Filme"} herunterladen`
+      : "Auswahl herunterladen";
 }
 
-async function resolveMovieCollectionParts(collection, requestId) {
-  state.movieCollections.resolving = true;
+async function resolveMovieCollectionPart(part, requestId) {
+  updateCollectionRecord(part.slug, {
+    providerStatus: "checking", selected: false, queueStatus: "idle", message: "",
+  });
   renderMovieCollection();
+  try {
+    const movie = await api.movie(part.slug, part.tmdb_id);
+    if (requestId !== state.movieCollections.requestSeq) return;
+    state.fp.moviesCache[part.slug] = movie;
+    state.fp.metadataCache[part.slug] = { ...part, ...movie };
+    updateCollectionRecord(part.slug, {
+      providerStatus: "available",
+      providerCount: Math.max(1, Number(movie.source_count || movie.provider_count || 1)),
+      selected: true,
+    });
+  } catch (error) {
+    if (requestId !== state.movieCollections.requestSeq) return;
+    updateCollectionRecord(part.slug, {
+      providerStatus: error?.code === "movie_hoster_unavailable" ? "unavailable" : "error",
+      selected: false,
+      message: error?.message || "Anbieterprüfung fehlgeschlagen",
+    });
+  }
+  renderMovieCollection();
+}
+
+async function resolveMovieCollectionParts(parts, requestId) {
   let cursor = 0;
   async function worker() {
-    while (cursor < collection.parts.length && requestId === state.movieCollections.requestSeq) {
-      const part = collection.parts[cursor];
+    while (cursor < parts.length && requestId === state.movieCollections.requestSeq) {
+      const part = parts[cursor];
       cursor += 1;
-      try {
-        const movie = await api.movie(part.slug, part.tmdb_id);
-        if (requestId !== state.movieCollections.requestSeq) return;
-        state.fp.moviesCache[part.slug] = movie;
-        state.fp.metadataCache[part.slug] = { ...part, ...movie };
-        state.movieCollections.availability.set(part.slug, {
-          status: "available",
-          providerCount: Math.max(1, Number(movie.source_count || movie.provider_count || 1)),
-        });
-      } catch (error) {
-        if (requestId !== state.movieCollections.requestSeq) return;
-        state.movieCollections.availability.set(part.slug, {
-          status: error?.code === "movie_hoster_unavailable" ? "unavailable" : "error",
-          message: error?.message || "Anbieterprüfung fehlgeschlagen",
-        });
-      }
-      renderMovieCollection();
+      await resolveMovieCollectionPart(part, requestId);
     }
   }
   await Promise.all(Array.from(
-    { length: Math.min(COLLECTION_RESOLVE_WORKERS, collection.parts.length) },
+    { length: Math.min(COLLECTION_RESOLVE_WORKERS, parts.length) },
     () => worker(),
   ));
   if (requestId !== state.movieCollections.requestSeq) return;
-  state.movieCollections.resolving = false;
   renderMovieCollection();
+}
+
+async function checkMovieCollectionJellyfin(collection, requestId) {
+  const requests = collection.parts.map((part) => ({
+      slug: part.slug,
+      title: part.title,
+      year: part.year || "",
+      tmdb_id: part.tmdb_id,
+      media_type: "movie",
+  }));
+  const batches = [];
+  for (let index = 0; index < requests.length; index += 100) {
+    batches.push(requests.slice(index, index + 100));
+  }
+  const responses = await Promise.allSettled(
+    batches.map((batch) => api.jellyfinMatches(batch)),
+  );
+  if (requestId !== state.movieCollections.requestSeq) return [];
+  const libraryStatusBySlug = new Map();
+  responses.forEach((result, batchIndex) => {
+    const batch = batches[batchIndex];
+    if (result.status !== "fulfilled") {
+      console.warn("Jellyfin-Prüfung der Filmreihe fehlgeschlagen:", result.reason);
+      batch.forEach((item) => libraryStatusBySlug.set(item.slug, "unavailable"));
+      return;
+    }
+    const response = result.value;
+    batch.forEach((item) => libraryStatusBySlug.set(
+      item.slug,
+      response.statuses?.[item.slug]
+        || (response.configured === false ? "unconfigured" : "unavailable"),
+    ));
+  });
+  const resolvable = [];
+  collection.parts.forEach((part) => {
+    const status = libraryStatusBySlug.get(part.slug) || "unavailable";
+    const queued = state.queuedSlugs.has(part.slug);
+    const future = collectionReleaseIsFuture(part);
+    applyMovieJellyfinStatus(part.slug, status);
+    updateCollectionRecord(part.slug, {
+      libraryStatus: status,
+      providerStatus: queued || status === "owned" ? "skipped" : future ? "future" : "waiting",
+      queueStatus: queued ? "queued" : "idle",
+      selected: false,
+    });
+    if (!queued && status !== "owned" && !future) resolvable.push(part);
+  });
+  renderMovieCollection();
+  return resolvable;
+}
+
+async function retryMovieCollectionPart(part) {
+  const requestId = state.movieCollections.requestSeq;
+  await resolveMovieCollectionPart(part, requestId);
 }
 
 async function openMovieCollection(collectionId, trigger = null) {
@@ -218,11 +412,14 @@ async function openMovieCollection(collectionId, trigger = null) {
   state.movieCollections.collection = null;
   state.movieCollections.availability = new Map();
   state.movieCollections.resolving = false;
+  state.movieCollections.queuePending = false;
   document.getElementById("movie-collection-title").textContent = "Filmreihe wird geladen";
   document.getElementById("movie-collection-description").textContent = "";
   document.getElementById("movie-collection-status").textContent = "TMDB-Daten werden geladen …";
   document.getElementById("movie-collection-progress").textContent = "";
   document.getElementById("movie-collection-films").replaceChildren();
+  document.getElementById("movie-collection-counts").replaceChildren();
+  document.getElementById("movie-collection-select-all").disabled = true;
   document.getElementById("movie-collection-download-all").disabled = true;
   openMediaModal("movie-collection-modal", trigger);
   try {
@@ -240,11 +437,20 @@ async function openMovieCollection(collectionId, trigger = null) {
     const backdrop = api.coverUrl(collection.backdrop_url || "");
     hero.style.setProperty("--collection-backdrop", backdrop ? `url("${backdrop.replace(/"/g, "%22")}")` : "none");
     collection.parts.forEach((part) => {
-      state.movieCollections.availability.set(part.slug, { status: "checking" });
+      state.movieCollections.availability.set(part.slug, {
+        libraryStatus: "checking",
+        providerStatus: "waiting",
+        queueStatus: state.queuedSlugs.has(part.slug) ? "queued" : "idle",
+        selected: false,
+        providerCount: 0,
+        message: "",
+      });
       state.fp.metadataCache[part.slug] = { ...part, details_loaded: false };
     });
     renderMovieCollection();
-    void resolveMovieCollectionParts(collection, requestId);
+    const resolvable = await checkMovieCollectionJellyfin(collection, requestId);
+    if (requestId !== state.movieCollections.requestSeq) return;
+    void resolveMovieCollectionParts(resolvable, requestId);
   } catch (error) {
     if (requestId !== state.movieCollections.requestSeq) return;
     document.getElementById("movie-collection-title").textContent = "Filmreihe nicht verfügbar";
@@ -254,28 +460,71 @@ async function openMovieCollection(collectionId, trigger = null) {
 
 async function queueCollectionMovies(slugs) {
   const available = slugs.filter(
-    (slug) => collectionAvailabilityRecord({ slug }).status === "available",
+    (slug) => collectionSelectable(collectionAvailabilityRecord({ slug })),
   );
   if (!available.length) return;
-  const button = document.getElementById("movie-collection-download-all");
-  button.disabled = true;
+  state.movieCollections.queuePending = true;
+  available.forEach((slug) => updateCollectionRecord(slug, {
+    queueStatus: "adding", message: "",
+  }));
+  renderMovieCollection();
   try {
     const response = await api.queueAdd(available, {}, "collection");
     refreshQueueUiAfterChange(response);
+    const queued = state.queuedSlugs;
     available.forEach((slug) => {
-      if (state.queuedSlugs.has(slug)) {
-        state.movieCollections.availability.set(slug, { status: "queued" });
+      const message = response.skipped_details?.[slug] || "Der Film wurde nicht eingeplant.";
+      const normalized = message.toLocaleLowerCase("de-DE");
+      if (queued.has(slug) || normalized.includes("bereits eingeplant")) {
+        updateCollectionRecord(slug, { queueStatus: "queued", selected: false, message: "" });
+      } else if (normalized.includes("in jellyfin vorhanden")) {
+        applyMovieJellyfinStatus(slug, "owned", true);
+        updateCollectionRecord(slug, {
+          libraryStatus: "owned", providerStatus: "skipped",
+          queueStatus: "idle", selected: false, message: "",
+        });
+      } else if (normalized.includes("kein hoster verfügbar")) {
+        updateCollectionRecord(slug, {
+          providerStatus: "unavailable", queueStatus: "idle",
+          selected: false, message,
+        });
+      } else {
+        updateCollectionRecord(slug, {
+          queueStatus: "skipped", selected: false, message,
+        });
       }
     });
   } catch (error) {
-    document.getElementById("movie-collection-progress").textContent =
-      `Download konnte nicht eingeplant werden: ${error?.message || "Unbekannter Fehler"}`;
+    available.forEach((slug) => updateCollectionRecord(slug, {
+      queueStatus: "error",
+      selected: true,
+      message: error?.message || "Queue-Anfrage fehlgeschlagen",
+    }));
   }
+  state.movieCollections.queuePending = false;
   renderMovieCollection();
 }
+
+document.getElementById("movie-collection-select-all")?.addEventListener("click", () => {
+  const collection = state.movieCollections.collection;
+  if (!collection) return;
+  const selectable = collection.parts.filter(
+    (part) => collectionSelectable(collectionAvailabilityRecord(part)),
+  );
+  const shouldSelect = selectable.some(
+    (part) => !collectionAvailabilityRecord(part).selected,
+  );
+  selectable.forEach((part) => updateCollectionRecord(part.slug, {
+    selected: shouldSelect,
+    ...(shouldSelect ? { queueStatus: "idle", message: "" } : {}),
+  }));
+  renderMovieCollection();
+});
 
 document.getElementById("movie-collection-download-all")?.addEventListener("click", () => {
   const collection = state.movieCollections.collection;
   if (!collection) return;
-  void queueCollectionMovies(collection.parts.map((part) => part.slug));
+  void queueCollectionMovies(collection.parts
+    .filter((part) => collectionAvailabilityRecord(part).selected)
+    .map((part) => part.slug));
 });
