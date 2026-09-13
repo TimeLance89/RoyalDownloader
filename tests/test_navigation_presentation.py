@@ -43,6 +43,8 @@ def test_primary_navigation_has_a_clear_task_order_and_groups_discovery():
     assert positions == sorted(positions)
     assert 'data-nav-menu="desktop"' in topbar
     assert 'id="desktop-discovery-menu"' in topbar
+    assert 'data-tab="releases"' in topbar
+    assert topbar.index('data-tab="releases"') < topbar.index('data-tab="kalender"')
     assert 'data-tab="kalender"' in topbar
     assert 'data-tab="anime"' in topbar
     assert 'data-tab="aniworld"' in topbar
@@ -55,6 +57,7 @@ def test_mobile_navigation_keeps_five_touch_targets_and_moves_secondary_areas_to
     assert mobile.count('class="tab-btn') == 4
     assert 'data-nav-menu="mobile"' in mobile
     assert 'id="mobile-more-menu"' in mobile
+    assert 'data-tab="releases"' in mobile
     assert 'data-tab="einstellungen"' in mobile
     assert 'data-tab="kalender"' in mobile
 

@@ -106,6 +106,7 @@ def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
     monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
     monkeypatch.setattr(api_discovery_router, "get_jellyfin_movie_identities", lambda: [{}])
     monkeypatch.setattr(api_discovery_router, "get_jellyfin_series", lambda: [{}])
+    monkeypatch.setattr(api_discovery_router, "wait_for_jellyfin_live_ready", lambda **_kwargs: True)
     monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
         jellyfin_cache_lock=threading.RLock(),
         jellyfin_movie_identities_available=True,
@@ -127,6 +128,45 @@ def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
         "anime:frieren": "owned",
         "series:missing": "missing",
     }
+
+
+def test_first_catalog_movie_check_waits_for_initial_jellyfin_snapshot(monkeypatch):
+    identities = {"value": None}
+    waits = []
+    fake_state = SimpleNamespace(
+        jellyfin_cache_lock=threading.RLock(),
+        jellyfin_movie_identities_available=False,
+        jellyfin_series_available=False,
+    )
+
+    class FakeClient:
+        configured = True
+
+        def match_many(self, queries, **_kwargs):
+            return [query["title"] == "Owned" for query in queries]
+
+    def wait_until_ready(*, timeout):
+        waits.append(timeout)
+        identities["value"] = [{"id": "movie-1"}]
+        fake_state.jellyfin_movie_identities_available = True
+        return True
+
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_client", lambda: FakeClient())
+    monkeypatch.setattr(api_discovery_router, "clean_movie_title", lambda title: title)
+    monkeypatch.setattr(
+        api_discovery_router, "get_jellyfin_movie_identities", lambda: identities["value"],
+    )
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_series", lambda: [])
+    monkeypatch.setattr(api_discovery_router, "wait_for_jellyfin_live_ready", wait_until_ready)
+    monkeypatch.setattr(api_discovery_router, "state", fake_state)
+    body = api_discovery_router.MovieMetadataBody(items=[
+        {"slug": "movie:owned", "title": "Owned", "media_type": "movie"},
+    ])
+
+    result = asyncio.run(api_discovery_router.api_jellyfin_matches(body))
+
+    assert waits == [api_discovery_router.JELLYFIN_BADGE_WAIT_SECONDS]
+    assert result["statuses"] == {"movie:owned": "owned"}
 
 
 def test_yearless_catalog_movies_use_provider_detail_to_separate_same_titles(monkeypatch):

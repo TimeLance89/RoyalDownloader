@@ -34,6 +34,7 @@ from providers.xcine import XcineScraper
 router = APIRouter(tags=["discovery"])
 
 TMDB_METADATA_BATCH_BUDGET_SECONDS = 3.0
+JELLYFIN_BADGE_WAIT_SECONDS = 12.0
 _TMDB_METADATA_POOL = ThreadPoolExecutor(
     max_workers=8,
     thread_name_prefix="tmdb-metadata",
@@ -85,6 +86,7 @@ get_jellyfin_client = _unbound_dependency
 get_jellyfin_library = _unbound_dependency
 get_jellyfin_movie_identities = _unbound_dependency
 get_jellyfin_series = _unbound_dependency
+wait_for_jellyfin_live_ready = _unbound_dependency
 get_mkissa_scraper = _unbound_dependency
 get_aniworld_scraper = _unbound_dependency
 get_series_calendar_service = _unbound_dependency
@@ -122,6 +124,7 @@ _DYNAMIC_CALLS = (
     "get_jellyfin_library",
     "get_jellyfin_movie_identities",
     "get_jellyfin_series",
+    "wait_for_jellyfin_live_ready",
     "get_mkissa_scraper",
     "get_aniworld_scraper",
     "get_series_calendar_service",
@@ -462,6 +465,8 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
         requested = body.items[:100]
         needs_movies = any(item.media_type == "movie" for item in requested)
         needs_series = any(item.media_type != "movie" for item in requested)
+        if needs_movies:
+            wait_for_jellyfin_live_ready(timeout=JELLYFIN_BADGE_WAIT_SECONDS)
         movie_items = get_jellyfin_movie_identities() if needs_movies else []
         series_items = get_jellyfin_series() if needs_series else []
         with state.jellyfin_cache_lock:
