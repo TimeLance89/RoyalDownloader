@@ -46,18 +46,32 @@
       <span class="brand-title">ROYAL</span>
       <span class="brand-sub">Cinema</span>
     </div>
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Startseite</span></button>
+    <nav class="tabs" aria-label="Hauptnavigation">
+      <button class="tab-btn active" data-tab="home" aria-current="page"><span class="tab-icon" aria-hidden="true">⌂</span><span>Startseite</span></button>
       <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
       <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
-      <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
-      <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
-      <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
       <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Meine Liste</span></button>
-      <button id="mood-nav-open" class="mood-nav-open" type="button" data-mood-open>
-        <span class="tab-icon" aria-hidden="true">✦</span><span>Abendmodus</span>
-      </button>
-      <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
+      <div class="nav-menu nav-menu--desktop" data-nav-menu="desktop">
+        <button id="desktop-discovery-toggle" class="nav-menu-trigger" type="button"
+            aria-expanded="false" aria-controls="desktop-discovery-menu">
+          <span>Entdecken</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
+        </button>
+        <div id="desktop-discovery-menu" class="nav-menu-popover" aria-label="Entdecken" hidden>
+          <button class="nav-menu-item" type="button" data-tab="kalender">
+            <span class="nav-menu-icon" aria-hidden="true">▦</span><span><strong>Kalender</strong><small>Neue Folgen auf einen Blick</small></span>
+          </button>
+          <button class="nav-menu-item anime-tab-button" type="button" data-tab="anime">
+            <span class="nav-menu-icon" aria-hidden="true">◉</span><span><strong>Anime</strong><small>Aktuelle Anime-Entdeckungen</small></span>
+          </button>
+          <button class="nav-menu-item aniworld-tab-button" type="button" data-tab="aniworld">
+            <span class="nav-menu-icon" aria-hidden="true">◎</span><span><strong>AniWorld</strong><small>Deutscher Anime-Katalog</small></span>
+          </button>
+          <span class="nav-menu-divider" aria-hidden="true"></span>
+          <button id="mood-nav-open" class="nav-menu-item nav-menu-item--mood" type="button" data-mood-open>
+            <span class="nav-menu-icon" aria-hidden="true">✦</span><span><strong>Abendmodus</strong><small>Eine Auswahl für genau jetzt</small></span>
+          </button>
+        </div>
+      </div>
     </nav>
     <div id="global-search-shell" class="global-search-shell">
       <button id="global-search-toggle" class="global-search-toggle" type="button"
@@ -236,15 +250,35 @@
   </div>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
-    <button class="tab-btn active" data-tab="home"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
+    <button class="tab-btn active" data-tab="home" aria-current="page"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
     <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
     <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
-    <button class="tab-btn" data-tab="kalender"><span class="tab-icon" aria-hidden="true">▦</span><span>Kalender</span></button>
-    <button class="tab-btn anime-tab-button" data-tab="anime"><span class="tab-icon" aria-hidden="true">◉</span><span>Anime</span></button>
-    <button class="tab-btn aniworld-tab-button" data-tab="aniworld"><span class="tab-icon" aria-hidden="true">◎</span><span>AniWorld</span></button>
     <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
-    <button class="tab-btn mobile-settings-tab" data-tab="einstellungen"><span class="tab-icon" aria-hidden="true">⚙</span><span>Setup</span></button>
+    <div class="nav-menu nav-menu--mobile" data-nav-menu="mobile">
+      <button id="mobile-more-toggle" class="nav-menu-trigger" type="button"
+          aria-expanded="false" aria-controls="mobile-more-menu">
+        <span class="tab-icon" aria-hidden="true">⋯</span><span>Mehr</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
+      </button>
+      <div id="mobile-more-menu" class="nav-menu-popover" aria-label="Weitere Bereiche" hidden>
+        <button class="nav-menu-item" type="button" data-tab="kalender">
+          <span class="nav-menu-icon" aria-hidden="true">▦</span><span><strong>Kalender</strong><small>Neue Folgen</small></span>
+        </button>
+        <button class="nav-menu-item anime-tab-button" type="button" data-tab="anime">
+          <span class="nav-menu-icon" aria-hidden="true">◉</span><span><strong>Anime</strong><small>Entdecken</small></span>
+        </button>
+        <button class="nav-menu-item aniworld-tab-button" type="button" data-tab="aniworld">
+          <span class="nav-menu-icon" aria-hidden="true">◎</span><span><strong>AniWorld</strong><small>Deutscher Katalog</small></span>
+        </button>
+        <button class="nav-menu-item nav-menu-item--mood" type="button" data-mood-open>
+          <span class="nav-menu-icon" aria-hidden="true">✦</span><span><strong>Abendmodus</strong><small>Für genau jetzt</small></span>
+        </button>
+        <button class="nav-menu-item" type="button" data-tab="einstellungen">
+          <span class="nav-menu-icon" aria-hidden="true">⚙</span><span><strong>Einstellungen</strong><small>Royal konfigurieren</small></span>
+        </button>
+      </div>
+    </div>
   </nav>
+  <button class="nav-menu-scrim" type="button" data-nav-menu-scrim aria-label="Menü schließen" hidden></button>
 
   <main class="layout">
     <section class="tab-content active" id="tab-home">
@@ -2357,7 +2391,7 @@
 <script src="/i18n.js?v=royal-20260909-3"></script>
 <script src="/store.js?v=royal-20260825-2"></script>
 <script src="/screens/login.js?v=royal-20260827-1"></script>
-<script src="/core.js?v=royal-20260909-1"></script>
+<script src="/core.js?v=royal-20260913-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
 <script src="/home_rail_runtime.js?v=royal-20260830-1"></script>
 <script src="/screens/home.js?v=royal-20260830-1"></script>
@@ -2383,6 +2417,6 @@
 <script src="/screens/account.js?v=royal-20260805-3"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260909-1"></script>
+<script src="/app.js?v=royal-20260913-1"></script>
 </body>
 </html>
