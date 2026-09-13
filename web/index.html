@@ -166,9 +166,15 @@
             <strong id="movie-collection-status">Reihe wird geladen …</strong>
             <span id="movie-collection-progress"></span>
           </div>
-          <button id="movie-collection-download-all" class="btn btn-accent" type="button" disabled>
-            Verfügbare Filme herunterladen
-          </button>
+          <div id="movie-collection-counts" class="movie-collection-counts" aria-label="Status der Filmreihe"></div>
+          <div class="movie-collection-controls">
+            <button id="movie-collection-select-all" class="btn btn-ghost" type="button" disabled>
+              Verfügbare auswählen
+            </button>
+            <button id="movie-collection-download-all" class="btn btn-accent" type="button" disabled>
+              Auswahl herunterladen
+            </button>
+          </div>
         </div>
       </header>
       <div id="movie-collection-films" class="movie-collection-films" aria-live="polite"></div>
