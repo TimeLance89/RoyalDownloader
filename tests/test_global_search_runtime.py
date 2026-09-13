@@ -59,6 +59,21 @@ def test_global_search_still_uses_all_three_catalog_endpoints():
     assert 'api.anime({ mode: "search", query, page: 1 })' in source
 
 
+def test_global_search_exposes_tmdb_collections_without_resolving_providers():
+    runtime = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
+    collection_ui = (ROOT / "web" / "screens" / "movie-collections.js").read_text(
+        encoding="utf-8",
+    )
+    assert 'label: "Filmreihen"' in runtime
+    assert "api.movieCollections(query)" in runtime
+    assert "openMovieCollection(key)" in runtime
+    assert "await api.movieCollection(collectionId)" in collection_ui
+    assert "await api.movie(part.slug, part.tmdb_id)" in collection_ui
+    assert "COLLECTION_RESOLVE_WORKERS = 2" in collection_ui
+    assert '"unavailable" : "error"' in collection_ui
+    assert 'api.queueAdd(available, {}, "collection")' in collection_ui
+
+
 def test_opening_global_search_result_keeps_search_behind_detail_modal():
     source = (ROOT / "web" / "global-search-runtime.js").read_text(encoding="utf-8")
     start = source.index("window.openHomeEntry = function openHomeEntryKeepingGlobalSearch")

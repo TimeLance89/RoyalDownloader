@@ -4,6 +4,12 @@
 
   const CATALOGS = [
     {
+      key: "collection",
+      label: "Filmreihen",
+      load: (query) => api.movieCollections(query)
+        .then((data) => (data.results || []).map(homeCollectionEntry)),
+    },
+    {
       key: "movie",
       label: "Filme",
       load: (query) => api.movies({ mode: "search", query })
@@ -140,7 +146,10 @@
     // Deshalb nach der Metadatenphase noch einmal über dieselben Rohgruppen
     // deduplizieren, bevor Jellyfin abgefragt und final gerendert wird.
     state.globalSearch.results = mergeCatalogGroups(groups);
-    await refreshCatalogJellyfinStatus(state.globalSearch.results, null);
+    await refreshCatalogJellyfinStatus(
+      state.globalSearch.results.filter((entry) => entry.kind !== "collection"),
+      null,
+    );
     if (requestId !== state.globalSearch.requestSeq) return;
     renderGlobalSearchResults();
   };
@@ -149,6 +158,10 @@
   // Die Suchseite wird dabei NICHT geschlossen; Query, Filter, Treffer und
   // Scrollposition bleiben dadurch unverändert hinter dem Modal erhalten.
   window.openHomeEntry = function openHomeEntryKeepingGlobalSearch(kind, key) {
+    if (kind === "collection") {
+      openMovieCollection(key);
+      return;
+    }
     if (kind === "movie") {
       const movie = homeMovieBySlug(key);
       if (movie) selectFpRow(movie.slug, movie);

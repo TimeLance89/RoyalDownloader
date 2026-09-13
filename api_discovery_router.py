@@ -264,6 +264,35 @@ async def api_genres():
 
 
 # ── Filme: Suche / Listen / Genre ───────────────────────────────────────────
+@router.get("/api/v1/movie-collections")
+@router.get("/api/movie-collections")
+async def api_movie_collections(query: str = ""):
+    """TMDB-Filmreihen suchen; Anbieter werden hier bewusst nicht berührt."""
+    q = " ".join(str(query or "").split()).strip()
+    if not q:
+        return {"results": []}
+    client = get_tmdb_client()
+    if not client.configured:
+        raise HTTPException(503, "Für Filmreihen muss TMDB konfiguriert sein.")
+    results = await run_in_threadpool(client.search_movie_collections, q)
+    return {"results": results}
+
+
+@router.get("/api/v1/movie-collections/{collection_id}")
+@router.get("/api/movie-collections/{collection_id}")
+async def api_movie_collection(collection_id: int):
+    """Reihendetails liefern; die Anbieterprüfung startet erst im Client danach."""
+    if collection_id <= 0:
+        raise HTTPException(400, "Ungültige TMDB-Kollektions-ID.")
+    client = get_tmdb_client()
+    if not client.configured:
+        raise HTTPException(503, "Für Filmreihen muss TMDB konfiguriert sein.")
+    collection = await run_in_threadpool(client.movie_collection, collection_id)
+    if not collection:
+        raise HTTPException(404, "Filmreihe wurde bei TMDB nicht gefunden.")
+    return {"collection": collection}
+
+
 @router.get("/api/v1/movies")
 @router.get("/api/movies")
 async def api_movies(mode: str = "search", query: str = "", genre: str = "", page: int = 1):

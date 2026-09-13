@@ -140,6 +140,7 @@
       <div class="global-search-filters" aria-label="Suchergebnisse filtern">
         <button class="is-active" type="button" data-global-search-scope="all" aria-pressed="true">Alles</button>
         <button type="button" data-global-search-scope="movie" aria-pressed="false">Filme</button>
+        <button type="button" data-global-search-scope="collection" aria-pressed="false">Filmreihen</button>
         <button type="button" data-global-search-scope="series" aria-pressed="false">Serien</button>
         <button type="button" data-global-search-scope="anime" aria-pressed="false">Anime</button>
         <button id="global-search-jellyfin" type="button" aria-pressed="false">✓ In Jellyfin</button>
@@ -147,6 +148,32 @@
     </header>
     <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
   </section>
+
+  <div id="movie-collection-modal" class="media-modal movie-collection-modal" role="dialog"
+      aria-modal="true" aria-labelledby="movie-collection-title" hidden>
+    <button class="media-modal-backdrop" type="button" data-modal-close="movie-collection-modal"
+        aria-label="Filmreihe schließen"></button>
+    <section id="movie-collection-panel" class="media-modal-panel movie-collection-panel" tabindex="-1">
+      <button class="media-modal-close" type="button" data-modal-close="movie-collection-modal"
+          aria-label="Filmreihe schließen">×</button>
+      <header id="movie-collection-hero" class="movie-collection-hero">
+        <img id="movie-collection-cover" alt="">
+        <div class="movie-collection-copy">
+          <span class="movie-collection-kicker">TMDB · FILMREIHE</span>
+          <h2 id="movie-collection-title">Filmreihe</h2>
+          <p id="movie-collection-description"></p>
+          <div class="movie-collection-summary" aria-live="polite">
+            <strong id="movie-collection-status">Reihe wird geladen …</strong>
+            <span id="movie-collection-progress"></span>
+          </div>
+          <button id="movie-collection-download-all" class="btn btn-accent" type="button" disabled>
+            Verfügbare Filme herunterladen
+          </button>
+        </div>
+      </header>
+      <div id="movie-collection-films" class="movie-collection-films" aria-live="polite"></div>
+    </section>
+  </div>
 
   <div id="mood-modal" class="mood-modal hidden" role="dialog" aria-modal="true"
       aria-labelledby="mood-dialog-label" aria-describedby="mood-dialog-description">
@@ -2403,6 +2430,7 @@
 <script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
 <script src="/screens/movie-detail-discovery.js?v=royal-20260824-1"></script>
 <script src="/screens/movies.js?v=royal-20260905-1"></script>
+<script src="/screens/movie-collections.js?v=royal-20260913-1"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
 <script src="/screens/series-detail-discovery.js?v=royal-20260824-1"></script>
 <script src="/screens/series.js?v=royal-20260908-1"></script>
