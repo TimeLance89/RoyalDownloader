@@ -344,6 +344,40 @@ def test_movie_download_waits_for_running_live_refresh(monkeypatch):
     assert waits == [0.25]
 
 
+def test_first_movie_check_waits_for_initial_identity_snapshot(monkeypatch):
+    fake_state = _state(
+        jellyfin_live_stale=False,
+        jellyfin_movie_identities=None,
+        jellyfin_movie_identities_available=False,
+    )
+    waits = []
+    refreshes = []
+
+    class CompletingEvent:
+        def clear(self):
+            return None
+
+        def wait(self, timeout):
+            waits.append(timeout)
+            fake_state.jellyfin_movie_identities = [{"id": "ready"}]
+            fake_state.jellyfin_movie_identities_available = True
+            return True
+
+    monkeypatch.setattr(live, "state", fake_state)
+    monkeypatch.setattr(live, "_live_ready_event", CompletingEvent())
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **kwargs: refreshes.append(kwargs))
+    monkeypatch.setattr(
+        live,
+        "backend_value",
+        lambda name: (lambda: SimpleNamespace(configured=True))
+        if name == "get_jellyfin_client" else None,
+    )
+
+    assert live.wait_for_jellyfin_live_ready(timeout=0.25) is True
+    assert refreshes == [{"force_full": True}]
+    assert waits == [0.25]
+
+
 def test_movie_download_wait_fails_closed_after_timeout(monkeypatch):
     fake_state = _state(jellyfin_live_stale=True)
     monkeypatch.setattr(live, "state", fake_state)
