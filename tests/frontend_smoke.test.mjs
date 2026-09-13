@@ -259,7 +259,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260909-1/);
+  assert.match(html, /app\.js\?v=royal-20260913-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -772,7 +772,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260909-1/);
+  assert.match(html, /core\.js\?v=royal-20260913-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
