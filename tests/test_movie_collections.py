@@ -62,6 +62,10 @@ def test_collection_flow_checks_jellyfin_before_providers_and_uses_queue_truth()
     assert "requests.length; index += 100" in source
     assert 'collectionLibraryAllowsDownload(record.libraryStatus)' in source
     assert 'providerStatus: "blocked"' in source
-    assert 'download.textContent = "Jellyfin prüfen"' in source
+    assert 'download.textContent = "Prüfen & laden"' in source
     assert 'normalized.includes("sicherheitsprüfung")' in source
     assert "retryMovieCollectionJellyfinPart(part)" in source
+    retry_flow = source[source.index("async function retryMovieCollectionJellyfinPart"):]
+    assert retry_flow.index("await api.jellyfinMatches") < retry_flow.index(
+        "await queueCollectionMovies([part.slug])",
+    )
