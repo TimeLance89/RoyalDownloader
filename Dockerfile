@@ -24,6 +24,7 @@ RUN set -eux; \
         xvfb \
         ffmpeg \
         ca-certificates \
+        libpcre2-8-0 \
         fonts-liberation; \
     architecture="$(dpkg --print-architecture)"; \
     if [ "${architecture}" = "amd64" ]; then \
