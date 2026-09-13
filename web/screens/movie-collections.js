@@ -244,7 +244,7 @@ function renderMovieCollectionFilm(part, index) {
   download.textContent = record.queueStatus === "queued" ? "Eingeplant" : "Einzeln laden";
   download.disabled = !collectionSelectable(record) || state.movieCollections.queuePending;
   if (record.providerStatus === "blocked") {
-    download.textContent = "Jellyfin prüfen";
+    download.textContent = "Prüfen & laden";
     download.disabled = record.libraryStatus === "checking" || state.movieCollections.queuePending;
     download.addEventListener("click", () => void retryMovieCollectionJellyfinPart(part));
   } else if (["unavailable", "error"].includes(record.providerStatus)) {
@@ -471,6 +471,10 @@ async function retryMovieCollectionJellyfinPart(part) {
   });
   renderMovieCollection();
   if (!providerKnown) await resolveMovieCollectionPart(part, requestId);
+  if (requestId !== state.movieCollections.requestSeq) return;
+  if (collectionSelectable(collectionAvailabilityRecord(part))) {
+    await queueCollectionMovies([part.slug]);
+  }
 }
 
 async function retryMovieCollectionPart(part) {
