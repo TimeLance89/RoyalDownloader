@@ -108,6 +108,9 @@ function closeNavigationMenus({ restoreFocus = false, except = null } = {}) {
 }
 
 function initNavigationMenus() {
+  document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+  });
   document.querySelectorAll("[data-nav-menu]").forEach((menu) => {
     const trigger = menu.querySelector(".nav-menu-trigger");
     const popover = menu.querySelector(".nav-menu-popover");

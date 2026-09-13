@@ -14,9 +14,6 @@ async function initApp() {
   initSettingsNavigation();
   initCatalogInfiniteScroll();
   initializeTrailerExperience();
-  document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((b) => {
-    b.addEventListener("click", () => switchTab(b.dataset.tab));
-  });
   initNavigationMenus();
   document.getElementById("mobile-queue-btn").addEventListener("click", openMobileQueue);
   document.getElementById("mobile-queue-close").addEventListener("click", closeMobileQueue);
