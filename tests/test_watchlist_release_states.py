@@ -3,12 +3,12 @@ import threading
 from types import SimpleNamespace
 
 import server  # noqa: F401
-import api_library_router
-import api_queue_router
-import config
+import api.api_library_router as api_library_router
+import api.api_queue_router as api_queue_router
+import core.config as config
 from application_services import automation
 from providers.models import FilmpalastMovie, FilmpalastSeries, SeriesEpisode
-from queue_jobs import new_job
+from core.queue_jobs import new_job
 
 
 class _JellyfinClient:

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import api_discovery_router
-from home_layout import HOME_RAIL_IDS, HomeLayoutStore
+import api.api_discovery_router as api_discovery_router
+from core.home_layout import HOME_RAIL_IDS, HomeLayoutStore
 
 
 def test_home_layout_defaults_keep_existing_rails_and_offer_more(tmp_path):

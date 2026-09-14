@@ -3,7 +3,7 @@ import time
 import asyncio
 
 import server  # noqa: F401 - registers the application service backend
-import api_discovery_router
+import api.api_discovery_router as api_discovery_router
 from application_services import movie_catalog
 from providers.models import FilmpalastSearchResult
 

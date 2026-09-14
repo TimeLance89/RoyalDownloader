@@ -17,14 +17,14 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 import application_services.movie_subscription_quality as quality_service
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,
     publish_service,
 )
-from media_quality import (
+from media.media_quality import (
     media_profile_complete,
     media_profile_from_height,
     media_profile_from_jellyfin_item,

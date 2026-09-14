@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-import storage_manager as sm
+import storage.storage_manager as sm
 
 
 def _write(path: Path, size: int):

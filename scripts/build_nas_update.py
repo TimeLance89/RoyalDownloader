@@ -18,10 +18,10 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 REQUIRED_FILES = (
     "Dockerfile",
     "docker-compose.yml",
-    "docker_bootstrap.py",
+    "updates/docker_bootstrap.py",
     "server.py",
-    "self_updater.py",
-    "update_checker.py",
+    "updates/self_updater.py",
+    "updates/update_checker.py",
     "scripts/nas_update_install.sh",
 )
 

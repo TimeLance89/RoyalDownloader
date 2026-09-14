@@ -2,11 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import config
+import core.config as config
 import server
 from providers.huhu import HuhuScraper
 from providers.models import FilmpalastMovie, HosterInfo
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
 
 
 class Response:

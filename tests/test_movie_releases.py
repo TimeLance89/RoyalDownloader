@@ -4,7 +4,7 @@ import time
 import pytest
 import requests
 
-from movie_releases import (
+from features.movie_releases import (
     API_CONTRACT_VERSION,
     DAY,
     MONTH_LIMIT,
@@ -261,7 +261,7 @@ def test_expired_results_and_slow_checks_do_not_claim_availability(tmp_path):
 
 
 def test_release_settings_persist_without_replacing_other_settings(tmp_path, monkeypatch):
-    import config
+    import core.config as config
     monkeypatch.setattr(config, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(config, "_config_file", lambda: tmp_path / "settings.ini")
     assert config._update_all({"unrelated": "keep"}, ensure_save_path=False)

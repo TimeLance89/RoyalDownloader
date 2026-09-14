@@ -369,14 +369,17 @@ flowchart LR
 ```text
 RoyalDownloader/
 ├─ application_services/    catalogs, downloads, automation, and integrations
+├─ api/                     FastAPI and WebSocket endpoint modules
+├─ core/                    configuration, state, security, and runtime primitives
+├─ features/                movie, series, taste, and automation policies
+├─ integrations/            Jellyfin, TMDB, Seerr, Telegram, and AI clients
+├─ media/                   downloading, extraction, and provider sessions
+├─ storage/                 media-location and storage-management helpers
+├─ updates/                 release detection and versioned runtime updates
 ├─ providers/               isolated movie, series, and anime adapters
 ├─ web/                     responsive framework-free web application
 ├─ docs/                    operations, API, and architecture documentation
-├─ api_*_router.py          FastAPI and WebSocket endpoints
 ├─ server.py                composition, lifecycle, and web hosting
-├─ downloader.py            queue, transfer, fallback, and integrity verification
-├─ jellyfin_client.py       library matching and de-duplication
-├─ environment_file.py      safe .env generation and operating-mode management
 ├─ start_windows.cmd        Windows launcher
 ├─ start.sh                 NAS and mounted-source bootstrap
 ├─ docker-compose.yml       Docker deployment

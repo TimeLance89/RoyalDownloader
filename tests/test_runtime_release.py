@@ -3,9 +3,9 @@ import os
 
 import pytest
 
-import docker_bootstrap
-import runtime_release
-from self_updater import SelfUpdater
+import updates.docker_bootstrap as docker_bootstrap
+import updates.runtime_release as runtime_release
+from updates.self_updater import SelfUpdater
 
 
 requires_directory_symlinks = pytest.mark.skipif(
@@ -141,7 +141,7 @@ def test_active_release_verification_rejects_wrong_target_marker(monkeypatch, tm
     release = _release(tmp_path, "new", "v2")
     (release / ".app_commit_sha").write_text("a" * 40 + "\n", encoding="utf-8")
     monkeypatch.setattr(runtime_release, "read_release_link", lambda *_args: release)
-    monkeypatch.setattr("self_updater.read_release_link", lambda *_args: release)
+    monkeypatch.setattr("updates.self_updater.read_release_link", lambda *_args: release)
 
     with pytest.raises(RuntimeError, match="Update-Ziel"):
         SelfUpdater._verify_active_release(tmp_path, release, "b" * 40)

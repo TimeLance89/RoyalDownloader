@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY_JS = ROOT / "web" / "automation-policy.js"
 POLICY_CSS = ROOT / "web" / "styles" / "automation-policy.css"
 GLOBAL_RUNTIME = ROOT / "web" / "global-search-runtime.js"
-DOMAIN_ROUTER = ROOT / "api_domain_routers.py"
+DOMAIN_ROUTER = ROOT / "api" / "api_domain_routers.py"
 RUNTIME = ROOT / "application_services" / "runtime.py"
 
 

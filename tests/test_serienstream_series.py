@@ -3,7 +3,7 @@ import pytest
 
 from providers.models import SeriesEpisode
 from providers.serienstream import SerienstreamScraper
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
 
 
 def _episode(slug: str, season: int, episode: int) -> SeriesEpisode:

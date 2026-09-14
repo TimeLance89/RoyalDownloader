@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import config
-import storage_locations as sl
+import core.config as config
+import storage.storage_locations as sl
 
 
 @pytest.fixture

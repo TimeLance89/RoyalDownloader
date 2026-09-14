@@ -4,9 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
-import auth
+import core.auth as auth
 import server
-from ui_translator import MAX_GLOBAL_OUTBOUND_REQUESTS, UITranslator
+from integrations.ui_translator import MAX_GLOBAL_OUTBOUND_REQUESTS, UITranslator
 
 
 def test_rate_limiter_charges_work_units_and_caps_tracked_keys():

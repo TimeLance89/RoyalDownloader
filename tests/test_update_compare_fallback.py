@@ -1,7 +1,7 @@
 import requests
 
-import update_checker
-from update_checker import UpdateChecker
+import updates.update_checker as update_checker
+from updates.update_checker import UpdateChecker
 
 
 def _http_error(status: int) -> requests.HTTPError:

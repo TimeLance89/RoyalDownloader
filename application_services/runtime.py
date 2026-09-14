@@ -116,7 +116,7 @@ def refresh_services() -> None:
     # persistence, lifecycle callbacks, and physical scheduler), so install it
     # only after every runtime dependency has been published.  The installer is
     # idempotent and uses the same dynamic backend seam as the service modules.
-    from queue_performance import install_queue_performance
+    from core.queue_performance import install_queue_performance
 
     backend = _registered_backend()
     controller = install_queue_performance(backend)

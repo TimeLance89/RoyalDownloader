@@ -1,7 +1,7 @@
 import json
 import threading
 
-from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
+from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 
 
 class Clock:

@@ -34,10 +34,10 @@ SANDBOX_BYPASS = "--no-" + "sandbox"
 # exact inventory here so skipping that generic rule never permits a new call
 # site silently. Each client has a separate endpoint/scheme invariant below.
 EXPECTED_URLOPEN_CALLS = {
-    "jellyfin_client.py": 4,
-    "telegram_bot.py": 2,
-    "tmdb_client.py": 1,
-    "smart_automation.py": 1,
+    "integrations/jellyfin_client.py": 4,
+    "integrations/telegram_bot.py": 2,
+    "integrations/tmdb_client.py": 1,
+    "features/smart_automation.py": 1,
 }
 
 
@@ -118,13 +118,13 @@ def scan() -> list[str]:
         if expected and ROOT / relative not in texts:
             failures.append(f"{relative}: audited urllib client missing from scan")
 
-    telegram_text = texts.get(ROOT / "telegram_bot.py", "")
-    tmdb_text = texts.get(ROOT / "tmdb_client.py", "")
+    telegram_text = texts.get(ROOT / "integrations" / "telegram_bot.py", "")
+    tmdb_text = texts.get(ROOT / "integrations" / "tmdb_client.py", "")
     jellyfin_guard = texts.get(ROOT / "application_services/security_hardening.py", "")
     if "https://api.telegram.org/" not in telegram_text:
-        failures.append("telegram_bot.py: Telegram urlopen endpoint is no longer fixed HTTPS")
+        failures.append("integrations/telegram_bot.py: Telegram urlopen endpoint is no longer fixed HTTPS")
     if 'API_BASE = "https://api.themoviedb.org/3"' not in tmdb_text:
-        failures.append("tmdb_client.py: TMDB urlopen endpoint is no longer fixed HTTPS")
+        failures.append("integrations/tmdb_client.py: TMDB urlopen endpoint is no longer fixed HTTPS")
     if (
         'parsed.scheme.casefold() not in {"http", "https"}' not in jellyfin_guard
         or "not parsed.hostname" not in jellyfin_guard
@@ -136,9 +136,9 @@ def scan() -> list[str]:
     # allowed to reference it because that module removes the flag for every
     # non-sidecar Chromium launch; its enforcement seam is asserted separately.
     allowed_browser_bypass_files = {
-        "serienstream_shared_session.py",
-        "serienstream_verification.py",
-        "security_runtime.py",
+        "integrations/serienstream_shared_session.py",
+        "integrations/serienstream_verification.py",
+        "core/security_runtime.py",
         "docker-compose.yml",
         ".github/workflows/quality.yml",
     }
@@ -152,10 +152,10 @@ def scan() -> list[str]:
         ):
             failures.append(f"{relative}: Chromium sandbox bypass outside approved isolation boundary")
 
-    runtime_text = texts.get(ROOT / "security_runtime.py", "")
+    runtime_text = texts.get(ROOT / "core" / "security_runtime.py", "")
     compose_text = texts.get(ROOT / "docker-compose.yml", "")
     if "ROYAL_BROWSER_CDP_URL" not in runtime_text or "_ChromiumSubprocessProxy" not in runtime_text:
-        failures.append("security_runtime.py: browser isolation/native sandbox enforcement missing")
+        failures.append("core/security_runtime.py: browser isolation/native sandbox enforcement missing")
     if "royal-browser:" not in compose_text or "ROYAL_BROWSER_CDP_URL: http://royal-browser:9222" not in compose_text:
         failures.append("docker-compose.yml: isolated provider browser boundary missing")
 

@@ -20,7 +20,7 @@ def test_frontend_reloads_when_backend_build_changes():
 
 
 def test_public_health_contract_remains_unchanged():
-    source = (ROOT / "api_system_router.py").read_text(encoding="utf-8")
+    source = (ROOT / "api" / "api_system_router.py").read_text(encoding="utf-8")
 
     assert 'return {"status": "ok"}' in source
     assert 'return {"status": "ok", "api_version": 1}' in source

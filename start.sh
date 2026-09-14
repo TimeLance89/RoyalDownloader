@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 
 # The application loads .env itself. Read only the mode here without sourcing
 # the file as shell code; secrets and paths therefore remain literal data.
-deployment_mode="${ROYAL_DEPLOYMENT_MODE:-$(python -c "from environment_file import read_env; print(read_env().get('ROYAL_DEPLOYMENT_MODE', 'nas'))")}"
+deployment_mode="${ROYAL_DEPLOYMENT_MODE:-$(python -c "from core.environment_file import read_env; print(read_env().get('ROYAL_DEPLOYMENT_MODE', 'nas'))")}"
 if [ "$deployment_mode" = "desktop" ]; then
     echo "[start.sh] Desktop mode selected; starting the normal local application."
     export HOST="${HOST:-127.0.0.1}"
@@ -78,7 +78,7 @@ pip install --no-cache-dir -r requirements.lock
 
 # Repair the invalid UTF-8 byte shipped in nodriver 0.50.3 cdp/network.py.
 echo "[start.sh] Checking nodriver encoding …"
-python -c "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()" || true
+python -c "import core.nodriver_patch; core.nodriver_patch.ensure_cdp_utf8()" || true
 
 # --- Container runtime; docker-compose and .env may override these values ---
 export HOST="${HOST:-0.0.0.0}"                       # reachable on the container network
@@ -96,4 +96,4 @@ fi
 echo "[start.sh] Chromium: ${CHROME_PATH} ($("$CHROME_PATH" --version))"
 
 echo "[start.sh] Starting Royal Downloader on ${HOST}:${PORT} …"
-exec python docker_bootstrap.py
+exec python -m updates.docker_bootstrap

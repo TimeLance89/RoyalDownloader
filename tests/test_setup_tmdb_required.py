@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-import api_administration_router as administration
+import api.api_administration_router as administration
 
 
 def test_setup_rejects_missing_tmdb_key():

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import server
-from api_queue_router import MovieDownloadPreference
+from api.api_queue_router import MovieDownloadPreference
 from application_services import content_language_policy
 from providers.models import (
     FilmpalastMovie,

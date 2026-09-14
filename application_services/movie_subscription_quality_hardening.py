@@ -17,14 +17,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import api_library_router as library_router
-import downloader
-import media_quality
+import api.api_library_router as library_router
+import media.downloader as downloader
+import media.media_quality as media_quality
 import application_services.movie_subscription_commit_guard as commit_guard
 import application_services.movie_subscription_probe_optimizer as optimizer
 import application_services.movie_subscription_probe_targeting as targeting
 import application_services.movie_subscription_stream_quality as stream_quality
-from network_guard import UnsafeNetworkTarget, ensure_public_http_url, safe_proxy_url
+from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url, safe_proxy_url
 
 _LANGUAGE_ALIASES = {
     "de": "de",

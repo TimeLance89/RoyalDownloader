@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-import api_library_router
+import api.api_library_router as api_library_router
 import server  # noqa: F401
 from application_services import persistence
 

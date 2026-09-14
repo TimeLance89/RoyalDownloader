@@ -146,7 +146,7 @@ dependency set through **Settings → Updates → Rollback** or:
 
 ```bash
 docker compose run --rm seriendownloader \
-  python /opt/seriendownloader/docker_bootstrap.py --rollback
+  cd /opt/seriendownloader && python -m updates.docker_bootstrap --rollback
 docker compose up -d
 ```
 

@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from ai_discovery import AiDiscoveryService
-from ollama_client import OllamaClient, OllamaError, normalize_ollama_url
+from integrations.ai_discovery import AiDiscoveryService
+from integrations.ollama_client import OllamaClient, OllamaError, normalize_ollama_url
 
 
 def _candidate(key: str = "movie:1") -> dict:

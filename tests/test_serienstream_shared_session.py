@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import serienstream_shared_session as shared
+import integrations.serienstream_shared_session as shared
 
 
 class FakeCdp:

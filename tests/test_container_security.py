@@ -7,7 +7,7 @@ import threading
 import pytest
 
 import container_entrypoint
-from browser_cdp_proxy import create_proxy_server
+from integrations.browser_cdp_proxy import create_proxy_server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +86,7 @@ def test_browser_runtime_routes_loopback_cdp_through_isolated_proxy():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
     for content in (compose, workflow):
-        assert "python browser_cdp_proxy.py --listen-host 0.0.0.0 &" in content
+        assert "python -m integrations.browser_cdp_proxy --listen-host 0.0.0.0 &" in content
         assert "--remote-debugging-port=9223" in content
         assert "--remote-debugging-address=0.0.0.0" not in content
 

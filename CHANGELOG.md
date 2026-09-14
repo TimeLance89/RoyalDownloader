@@ -33,6 +33,8 @@
 - Add consistent Royal startup loading and richer movie and series detail
   presentation, including scroll-aware trailer playback and 16:9 artwork for
   recommendations.
+- Make language switching immediate and persistent, including dynamically
+  inserted settings and storage navigation, without blocking catalog startup.
 
 ## 2026-08-23 – Custom home programme
 

@@ -1,7 +1,7 @@
 import server  # noqa: F401
 from application_services import movie_subscription_probe_optimizer as optimizer
 from application_services import movie_subscription_probe_targeting as targeting
-from media_quality import normalize_media_profile
+from media.media_quality import normalize_media_profile
 
 
 def _profile(height: int, *, codec="h264", audio="aac"):
