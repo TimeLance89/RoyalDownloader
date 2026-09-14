@@ -170,9 +170,9 @@ def _unpack_packer_scripts(html: str) -> List[str]:
     unpacked = []
     pattern = re.compile(
         r"eval\(function\(p,a,c,k,e,d\).*?\(\s*"
-        r"(?P<p>'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\")\s*,\s*"
+        r"(?P<p>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")\s*,\s*"
         r"(?P<a>\d+)\s*,\s*(?P<c>\d+)\s*,\s*"
-        r"(?P<k>'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\")\.split\('\|'\)",
+        r"(?P<k>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")\.split\('\|'\)",
         re.S,
     )
     for m in pattern.finditer(html):
