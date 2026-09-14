@@ -13,7 +13,7 @@ import hashlib
 import json
 import time
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,

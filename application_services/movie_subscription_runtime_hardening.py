@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 import application_services.movie_subscription_quality as quality_service
 from application_services.runtime import (
     backend_value,

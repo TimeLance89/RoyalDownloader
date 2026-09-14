@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import application_services.movie_subscription_probe_optimizer as optimizer
 import application_services.movie_subscription_stream_quality as stream_quality
-from media_quality import (
+from media.media_quality import (
     media_profile_complete,
     media_profile_within_target,
     normalize_media_profile,

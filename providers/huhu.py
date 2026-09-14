@@ -23,7 +23,7 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
 
 
 BASE_URL = "https://huhu.to"

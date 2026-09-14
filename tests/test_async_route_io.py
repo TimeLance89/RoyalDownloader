@@ -2,7 +2,7 @@ import asyncio
 import threading
 
 import server
-from api_system_router import legacy_health
+from api.api_system_router import legacy_health
 
 
 def test_slow_config_persistence_does_not_stall_health(monkeypatch):

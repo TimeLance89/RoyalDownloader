@@ -2,7 +2,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-import config
+import core.config as config
 from providers.aniworld import (
     AniWorldAnime,
     AniWorldEpisode,

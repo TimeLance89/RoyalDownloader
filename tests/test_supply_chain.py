@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ytdlp_updater import YtDlpRuntimeUpdater
+from updates.ytdlp_updater import YtDlpRuntimeUpdater
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,14 +75,14 @@ def test_legacy_updater_dependency_sentinel_stays_compatible():
 
 
 def test_update_and_native_start_install_from_lock():
-    assert "requirements.lock" in _content("self_updater.py")
-    assert '"app_version.py"' in _content("self_updater.py")
-    assert '"update_channels.py"' in _content("self_updater.py")
-    assert '"application_services/runtime.py"' in _content("self_updater.py")
-    assert "self_updater, server" in _content("self_updater.py")
+    assert "requirements.lock" in _content("updates/self_updater.py")
+    assert '"core/app_version.py"' in _content("updates/self_updater.py")
+    assert '"updates/update_channels.py"' in _content("updates/self_updater.py")
+    assert '"application_services/runtime.py"' in _content("updates/self_updater.py")
+    assert "updates.self_updater, server" in _content("updates/self_updater.py")
     assert "-r requirements.lock" in _content("start.sh")
     assert 'APP_RUNTIME_DIR="${APP_RUNTIME_DIR:-$(pwd)/runtime}"' in _content("start.sh")
-    assert "exec python docker_bootstrap.py" in _content("start.sh")
+    assert "exec python -m updates.docker_bootstrap" in _content("start.sh")
 
 
 def test_runtime_revision_comes_from_active_release_not_stale_image_environment():

@@ -4,9 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-import api_discovery_router
-
-
+import api.api_discovery_router as api_discovery_router
 def _movie(hosters):
     return SimpleNamespace(hosters=hosters)
 

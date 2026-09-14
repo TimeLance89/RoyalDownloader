@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from taste_model import score_profile_dimensions
-from taste_profile import (
+from features.taste_model import score_profile_dimensions
+from features.taste_profile import (
     TasteProfileStore,
     jellyfin_taste_signal,
     normalize_metadata,
 )
-from taste_recommender import rank_with_taste_profile
+from features.taste_recommender import rank_with_taste_profile
 
 
 def test_genre_aliases_are_canonicalized():

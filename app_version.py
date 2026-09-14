@@ -1,5 +1,3 @@
-"""Single source of truth for the Royal Downloader application version."""
+"""Compatibility facade for :mod:`core.app_version`."""
 
-__all__ = ("APP_VERSION",)
-
-APP_VERSION = "1.0.0"
+from core.app_version import *  # noqa: F403

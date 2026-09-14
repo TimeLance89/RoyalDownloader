@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import server as app
-from jellyfin_client import JellyfinClient
-from tmdb_client import TMDBClient
+from integrations.jellyfin_client import JellyfinClient
+from integrations.tmdb_client import TMDBClient
 
 
 def _movie_result(movie_id, title, year):

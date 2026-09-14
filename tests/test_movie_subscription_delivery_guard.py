@@ -2,11 +2,11 @@ import threading
 from types import SimpleNamespace
 
 import server  # noqa: F401
-import api_library_router
+import api.api_library_router as api_library_router
 import application_services.source_resolution as source_resolution
 from application_services import movie_subscription_delivery_guard as guard
 from application_services import movie_subscription_commit_guard as commit_guard
-from media_quality import normalize_media_profile
+from media.media_quality import normalize_media_profile
 
 
 def _profile(height: int) -> dict:

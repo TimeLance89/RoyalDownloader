@@ -22,7 +22,7 @@ PROJECT_ROOT = next(
     (
         candidate
         for candidate in (_SCRIPT_PROJECT_ROOT, Path.cwd().resolve())
-        if (candidate / "app_version.py").is_file()
+        if (candidate / "core" / "app_version.py").is_file()
     ),
     _SCRIPT_PROJECT_ROOT,
 )
@@ -74,7 +74,7 @@ def _response_json(response, expected_status: int, label: str) -> Any:
 
 
 def _patch_deterministic_http_runtime():
-    import api_administration_router
+    import api.api_administration_router as api_administration_router
     import server
 
     async def _accept_fixture_tmdb(_api_key: str, _ui_language: str) -> None:
@@ -194,7 +194,7 @@ def _install_queue_fakes(server, slug: str, title: str) -> None:
 def queue_seed_flow() -> None:
     """E2E 2a: create a durable queue claim through the authenticated web API."""
     from fastapi.testclient import TestClient
-    import config as appconfig
+    import core.config as appconfig
     import server
 
     client = TestClient(server.app)
@@ -238,7 +238,7 @@ def queue_seed_flow() -> None:
 
 def queue_restart_verify_flow() -> None:
     """E2E 2b: a new process restores the same durable job and claim exactly once."""
-    import config as appconfig
+    import core.config as appconfig
     import server
 
     marker = json.loads(QUEUE_MARKER.read_text(encoding="utf-8"))
@@ -315,9 +315,9 @@ def _auth_matches(appauth, account: dict, password: str) -> bool:
 
 def seed_upgrade_rc() -> None:
     """Create realistic RC settings/auth/queue state using the old image's code."""
-    import auth as appauth
-    import config as appconfig
-    from app_version import APP_VERSION
+    import core.auth as appauth
+    import core.config as appconfig
+    from core.app_version import APP_VERSION
 
     movie_dir = DATA_DIR / "upgrade-movies"
     series_dir = DATA_DIR / "upgrade-series"
@@ -382,10 +382,10 @@ def seed_upgrade_rc() -> None:
 
 def verify_upgrade_current() -> None:
     """Verify old RC data on candidate code and through AppState restart loading."""
-    import auth as appauth
-    import config as appconfig
+    import core.auth as appauth
+    import core.config as appconfig
     import server
-    from app_version import APP_VERSION
+    from core.app_version import APP_VERSION
 
     marker = json.loads(UPGRADE_MARKER.read_text(encoding="utf-8"))
     account = appconfig.load_auth()
@@ -421,9 +421,9 @@ def verify_upgrade_current() -> None:
 
 def verify_rollback_or_recovery_rc() -> None:
     """Verify the old RC can still read candidate-touched or restored persistent data."""
-    import auth as appauth
-    import config as appconfig
-    from app_version import APP_VERSION
+    import core.auth as appauth
+    import core.config as appconfig
+    from core.app_version import APP_VERSION
 
     marker = json.loads(UPGRADE_MARKER.read_text(encoding="utf-8"))
     account = appconfig.load_auth()

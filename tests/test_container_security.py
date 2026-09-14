@@ -7,7 +7,7 @@ import threading
 import pytest
 
 import container_entrypoint
-from browser_cdp_proxy import create_proxy_server
+from integrations.browser_cdp_proxy import create_proxy_server
 
 
 ROOT = Path(__file__).resolve().parents[1]

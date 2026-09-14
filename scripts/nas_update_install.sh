@@ -89,7 +89,7 @@ trap rollback ERR
 trap cleanup EXIT
 
 tar -xzf "$bundle_dir/payload.tar.gz" -C "$staging"
-for required in Dockerfile docker-compose.yml server.py self_updater.py update_checker.py .app_commit_sha .nas_managed_files; do
+for required in Dockerfile docker-compose.yml server.py updates/self_updater.py updates/update_checker.py .app_commit_sha .nas_managed_files; do
     if [ ! -f "$staging/$required" ]; then
         echo "Payload unvollständig: $required fehlt" >&2
         false

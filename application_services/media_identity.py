@@ -22,9 +22,9 @@ import unicodedata
 from pathlib import Path
 from typing import Optional
 
-import downloader as _downloader_module
-import jellyfin_client as _jellyfin_module
-import tmdb_client as _tmdb_module
+import media.downloader as _downloader_module
+import integrations.jellyfin_client as _jellyfin_module
+import integrations.tmdb_client as _tmdb_module
 
 from application_services.runtime import import_backend_namespace, publish_service
 

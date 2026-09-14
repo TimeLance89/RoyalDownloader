@@ -4,16 +4,16 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-import config
+import core.config as config
 import server
-import update_checker
-from update_channels import (
+import updates.update_checker as update_checker
+from updates.update_channels import (
     DEFAULT_UPDATE_CHANNEL,
     UPDATE_CHANNEL_BRANCHES,
     normalize_update_channel,
     update_branch_for_channel,
 )
-from update_checker import UpdateChecker
+from updates.update_checker import UpdateChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]

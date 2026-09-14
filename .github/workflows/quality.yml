@@ -172,12 +172,12 @@ jobs:
             --entrypoint python \
             royal-downloader:quality -c '
           import time
-          import auth
-          import config
-          from security_runtime import install_pre_state_security
+          import core.auth as auth
+          import core.config as config
+          from core.security_runtime import install_pre_state_security
           install_pre_state_security(config, auth)
-          from serienstream_verification import SERIESSTREAM_VERIFICATION
-          from serienstream_shared_session import _BrowserRuntime
+          from integrations.serienstream_verification import SERIESSTREAM_VERIFICATION
+          from integrations.serienstream_shared_session import _BrowserRuntime
 
           manager = SERIESSTREAM_VERIFICATION
           with manager._lock:

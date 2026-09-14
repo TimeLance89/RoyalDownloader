@@ -4,8 +4,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import api_discovery_router
-from series_calendar_service import SeriesCalendarService, normalize_calendar_document
+import api.api_discovery_router as api_discovery_router
+from features.series_calendar_service import SeriesCalendarService, normalize_calendar_document
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -148,8 +148,8 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
 
 
 def test_calendar_uses_an_independent_provider_session_and_client_timeout():
-    router = (ROOT / "api_discovery_router.py").read_text(encoding="utf-8")
-    service = (ROOT / "series_calendar_service.py").read_text(encoding="utf-8")
+    router = (ROOT / "api" / "api_discovery_router.py").read_text(encoding="utf-8")
+    service = (ROOT / "features" / "series_calendar_service.py").read_text(encoding="utf-8")
     server = (ROOT / "server.py").read_text(encoding="utf-8")
     api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
 

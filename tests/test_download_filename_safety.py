@@ -2,7 +2,7 @@ import stat
 from pathlib import Path
 
 import server as app
-from downloader import DownloadJob
+from media.downloader import DownloadJob
 
 
 def test_normal_filenames_remain_readable_and_compatible():

@@ -1,6 +1,6 @@
 import json
 
-from resolved_link_cache import ResolvedLinkCache
+from media.resolved_link_cache import ResolvedLinkCache
 
 
 class Clock:

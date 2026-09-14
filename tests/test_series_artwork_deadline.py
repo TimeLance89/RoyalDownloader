@@ -2,9 +2,7 @@ import asyncio
 import threading
 import time
 
-import api_discovery_router
-
-
+import api.api_discovery_router as api_discovery_router
 def test_series_artwork_batch_returns_fast_results_without_waiting_for_slow_title(
     monkeypatch,
 ):

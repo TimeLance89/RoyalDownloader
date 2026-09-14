@@ -1,4 +1,4 @@
-from media_quality import (
+from media.media_quality import (
     media_profile_from_ffprobe,
     media_profile_from_jellyfin_item,
     media_profile_from_height,

@@ -4,8 +4,8 @@ import pytest
 
 from providers.models import FilmpalastMovie, HosterInfo
 from providers.serienstream import SerienstreamScraper
-from serienstream_session_identity import SERIESSTREAM_USER_AGENT
-from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
+from integrations.serienstream_session_identity import SERIESSTREAM_USER_AGENT
+from media.session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 
 
 class RedirectSession:
@@ -250,7 +250,7 @@ def test_shared_browser_cookie_sync_preserves_domain_and_persists(monkeypatch):
 
 def test_extract_stops_after_first_still_blocked_redirect(monkeypatch, tmp_path):
     import server
-    from provider_health import ProviderHealth
+    from media.provider_health import ProviderHealth
 
     server.state.provider_health = ProviderHealth(
         tmp_path / "health.json", initial_cooldown=10, maximum_cooldown=40,

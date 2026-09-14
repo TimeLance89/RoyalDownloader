@@ -5,9 +5,9 @@ import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
-import api_discovery_router
-import jellyfin_client
-from jellyfin_client import JellyfinClient
+import api.api_discovery_router as api_discovery_router
+import integrations.jellyfin_client as jellyfin_client
+from integrations.jellyfin_client import JellyfinClient
 
 
 class _Response:

@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 import application_services.source_resolution as source_resolution
 import application_services.movie_subscription_quality_hardening as hardening
 import application_services.movie_subscription_stream_quality as stream_quality
@@ -15,7 +15,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from media_quality import (
+from media.media_quality import (
     media_profile_complete,
     media_profile_is_better,
     normalize_media_profile,

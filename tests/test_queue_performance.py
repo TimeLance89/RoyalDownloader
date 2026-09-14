@@ -4,10 +4,10 @@ from collections import OrderedDict
 
 import pytest
 
-import queue_jobs
+import core.queue_jobs as queue_jobs
 import server
-from downloader import DownloadQueue
-from queue_performance import (
+from media.downloader import DownloadQueue
+from core.queue_performance import (
     get_queue_performance_controller,
     install_queue_performance,
 )

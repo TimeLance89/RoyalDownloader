@@ -4,9 +4,9 @@ import os
 import pytest
 from fastapi import HTTPException
 
-import config
-import api_administration_router
-import runtime_paths
+import core.config as config
+import api.api_administration_router as api_administration_router
+import core.runtime_paths as runtime_paths
 import server
 
 

@@ -1,5 +1,5 @@
 import server
-from jellyfin_client import JellyfinClient
+from integrations.jellyfin_client import JellyfinClient
 from providers.models import FilmpalastMovie, FilmpalastSeries, SeriesEpisode
 
 

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 import server
-from api_domain_routers import DOMAIN_ROUTERS
+from api.api_domain_routers import DOMAIN_ROUTERS
 
 
 def test_every_target_domain_owns_routes():

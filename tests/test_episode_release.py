@@ -1,5 +1,5 @@
 from providers.serienstream import SerienstreamScraper
-from series_episode_filter import available_episode_numbers, episode_listings
+from features.series_episode_filter import available_episode_numbers, episode_listings
 
 
 UPCOMING_PAGE = """
