@@ -1057,7 +1057,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     };
     showArtworkCandidate();
     image.alt = "";
-    image.loading = "eager";
+    image.loading = eager ? "eager" : "lazy";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
     image.addEventListener("error", () => {
