@@ -148,7 +148,7 @@ jobs:
             --entrypoint /bin/sh \
             royal-downloader:quality -c '
               Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
-              python browser_cdp_proxy.py --listen-host 0.0.0.0 &
+              python -m integrations.browser_cdp_proxy --listen-host 0.0.0.0 &
               export DISPLAY=:99
               exec chromium --no-sandbox --disable-dev-shm-usage \
                 --disable-background-networking --disable-client-side-phishing-detection \
