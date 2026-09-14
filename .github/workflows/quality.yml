@@ -77,12 +77,12 @@ jobs:
 
       - name: Run tests with critical-module coverage
         run: |
-          coverage run --source=application_services,app_state,auth,config,media_quality,network_guard,proxy_security,queue_jobs,queue_performance,runtime_cache,security_runtime,self_updater,setup_bootstrap,update_channels,update_checker,websocket_manager,ytdlp_updater,serienstream_shared_session,session_manager -m pytest -q
+          coverage run --source=application_services,core.app_state,core.auth,core.config,media.media_quality,core.network_guard,core.proxy_security,core.queue_jobs,core.queue_performance,core.runtime_cache,core.security_runtime,updates.self_updater,core.setup_bootstrap,updates.update_channels,updates.update_checker,core.websocket_manager,updates.ytdlp_updater,integrations.serienstream_shared_session,media.session_manager -m pytest -q
           coverage report --skip-covered --fail-under=45
           coverage report \
             --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
             --fail-under=65
-          coverage report --include='serienstream_shared_session.py' --fail-under=70
+          coverage report --include='integrations/serienstream_shared_session.py' --fail-under=70
           coverage report --include='application_services/auth.py' --fail-under=75
           coverage report --include='application_services/security_hardening.py' --fail-under=90
           coverage xml -o coverage.xml
