@@ -69,8 +69,14 @@ function isEpisodeEligible(episode) {
 }
 
 function isEpisodeSelectable(episode) {
-  return isEpisodeEligible(episode)
-    && episodeHasEnabledStreamLanguage(episode);
+  return Boolean(
+    episode
+    && !episode.downloaded
+    && !episode.in_jellyfin
+    && !episode.unreleased
+    && !isEpisodeQueued(episode)
+    && episodeHasEnabledStreamLanguage(episode)
+  );
 }
 
 function isEpisodeActionable(episode, series = state.series.current) {
