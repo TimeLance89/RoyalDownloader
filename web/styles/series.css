@@ -447,6 +447,19 @@
   opacity: 1;
 }
 
+.media-modal .series-detail-panel .ep-tile.wrong-language {
+  color: rgba(255, 255, 255, .46);
+  background: #242424;
+  border-color: rgba(255, 255, 255, .08);
+  cursor: not-allowed;
+}
+
+.media-modal .series-detail-panel .ep-tile.language-pending {
+  color: rgba(255, 255, 255, .68);
+  background: #292929;
+  border-color: rgba(255, 255, 255, .2);
+}
+
 .media-modal .series-detail-panel .ep-tile.scheduled::before {
   content: "";
   position: absolute;

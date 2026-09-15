@@ -113,6 +113,7 @@ class SeriesEpisode:
     release_name: str = ""
     release_at: str = ""
     release_label: str = ""
+    content_languages: tuple[str, ...] = ()
 
     @property
     def is_released(self) -> bool:

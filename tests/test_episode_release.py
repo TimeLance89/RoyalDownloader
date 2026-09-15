@@ -2,6 +2,27 @@ from providers.serienstream import SerienstreamScraper
 from features.series_episode_filter import available_episode_numbers, episode_listings
 
 
+def test_serienstream_english_only_flags_disable_german_episode_selection():
+    from bs4 import BeautifulSoup
+
+    page = """
+    <tr class="episode-row" onclick="window.location='/serie/9-1-1/staffel-9/episode-15'">
+      <td><svg class="watch-language svg-flag-german"></svg>
+          <svg class="watch-language svg-flag-english"></svg></td>
+    </tr>
+    <tr class="episode-row" onclick="window.location='/serie/9-1-1/staffel-9/episode-17'">
+      <td><svg class="watch-language svg-flag-english"></svg></td>
+    </tr>
+    """
+    listings = episode_listings(page, "9-1-1", 9)
+    episodes = SerienstreamScraper._episodes_from_soup(
+        BeautifulSoup(page, "lxml"), "9-1-1", 9,
+    )
+
+    assert [item.content_languages for item in listings] == [("de", "en"), ("en",)]
+    assert [item.content_languages for item in episodes] == [("de", "en"), ("en",)]
+
+
 UPCOMING_PAGE = """
 <table>
   <tr class="episode-row" onclick="window.location='/serie/lucky/staffel-1/episode-5'">

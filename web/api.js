@@ -133,6 +133,9 @@ const api = {
       refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
     });
   },
+  huhuEpisodeLanguages(slugs) {
+    return this.post("/api/series/huhu-episode-languages", { slugs });
+  },
   seriesJellyfinStatus(series, force = false) {
     return this._postWithin("/api/series/jellyfin-status", {
       title: series.title,

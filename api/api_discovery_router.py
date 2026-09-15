@@ -25,7 +25,7 @@ from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
-from providers.models import FilmpalastSeriesResult
+from providers.models import FilmpalastSeriesResult, parse_episode_slug
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
 from providers.sflix import SflixScraper
@@ -782,6 +782,10 @@ class SeriesLoadBody(BaseModel):
     defer_checks: bool = False
 
 
+class HuhuEpisodeLanguagesBody(BaseModel):
+    slugs: list[str] = Field(min_length=1, max_length=30)
+
+
 class SeriesJellyfinEpisodeBody(BaseModel):
     slug: str = Field(min_length=1, max_length=240)
     season: int = Field(ge=0, le=100)
@@ -993,6 +997,41 @@ async def api_series_load(body: SeriesLoadBody):
     if series is None:
         raise HTTPException(404, "Serie nicht gefunden.")
     return payload
+
+
+@router.post("/api/v1/series/huhu-episode-languages")
+@router.post("/api/series/huhu-episode-languages")
+async def api_huhu_episode_languages(body: HuhuEpisodeLanguagesBody):
+    if "huhu" not in provider_priority("series"):
+        raise HTTPException(409, "HUHU ist in den Serienquellen deaktiviert.")
+    slugs = list(dict.fromkeys(body.slugs))
+    if any(
+        not slug.startswith("huhu:") or parse_episode_slug(slug) is None
+        for slug in slugs
+    ):
+        raise HTTPException(400, "Nur HUHU-Episoden können hier geprüft werden.")
+    if "de" not in appconfig.normalize_content_languages(state.content_languages):
+        return {"available": {slug: False for slug in slugs}}
+
+    def _work():
+        available = {}
+        scraper = get_huhu_scraper()
+        for slug in slugs:
+            with state.huhu_lock:
+                movie = scraper.get_movie(slug)
+            available[slug] = bool(
+                movie and any(
+                    str(hoster.language or "").casefold() == "de"
+                    for hoster in movie.hosters
+                )
+            )
+        return {"available": available}
+
+    try:
+        return await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"HUHU-Episodensprachen konnten nicht geprüft werden: {exc}", "warn")
+        raise HTTPException(502, "HUHU-Sprachprüfung ist gerade nicht verfügbar.") from exc
 
 
 # ── Anime ───────────────────────────────────────────────────────────────────
