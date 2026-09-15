@@ -1010,22 +1010,18 @@ async def api_huhu_episode_languages(body: HuhuEpisodeLanguagesBody):
         for slug in slugs
     ):
         raise HTTPException(400, "Nur HUHU-Episoden können hier geprüft werden.")
-    if "de" not in appconfig.normalize_content_languages(state.content_languages):
-        return {"available": {slug: False for slug in slugs}}
-
     def _work():
         available = {}
+        languages = {}
         scraper = get_huhu_scraper()
         for slug in slugs:
             with state.huhu_lock:
-                movie = scraper.get_movie(slug)
-            available[slug] = bool(
-                movie and any(
-                    str(hoster.language or "").casefold() == "de"
-                    for hoster in movie.hosters
-                )
-            )
-        return {"available": available}
+                source_languages = scraper.get_episode_languages(slug)
+            languages[slug] = list(source_languages)
+            # HUHU wird als deutsche Quelle geführt. Deshalb ist nur eine
+            # ausdrücklich als deutsch gemeldete Quelle auswählbar.
+            available[slug] = "de" in source_languages
+        return {"available": available, "languages": languages}
 
     try:
         return await run_in_threadpool(_work)

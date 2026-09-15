@@ -36,6 +36,16 @@ function episodeHasEnabledStreamLanguage(episode, series = state.series.current)
   return offered.some((language) => enabled.includes(language));
 }
 
+function episodeLanguageLockLabel(episode, series = state.series.current) {
+  if (episodeHasEnabledStreamLanguage(episode, series)) return "";
+  const offered = episode?.content_languages || [];
+  if (offered.length === 1) return `NUR ${String(offered[0]).toUpperCase()}`;
+  if (series?.provider === "huhu" && episode?.huhu_language_checked) {
+    return "KEIN DE-STREAM";
+  }
+  return offered.length ? "SPRACHE GESPERRT" : "";
+}
+
 async function verifyHuhuEpisodeLanguages(episodes, series = state.series.current) {
   if (series?.provider !== "huhu") return;
   const pending = episodes.filter((episode) => !episode.huhu_language_checked);
@@ -50,6 +60,7 @@ async function verifyHuhuEpisodeLanguages(episodes, series = state.series.curren
     for (const episode of chunk) {
       episode.huhu_language_checked = true;
       episode.huhu_language_available = result.available?.[episode.slug] === true;
+      episode.content_languages = result.languages?.[episode.slug] || [];
     }
   }
   status.textContent = pending.some((episode) => !episode.huhu_language_available)
@@ -942,13 +953,16 @@ function applySeriesEpisodeTileState(tile, episode, series) {
   tile.className = "ep-tile " + tileClass(episode) + (episode.in_jellyfin ? " in-jellyfin" : "");
   tile.disabled = !isEpisodeActionable(episode, series);
   const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
+  const languageLock = episodeLanguageLockLabel(episode, series);
   if (series.provider === "huhu" && !episode.huhu_language_checked
       && isEpisodeEligible(episode)) {
     tile.title = "Deutsche Quelle vor der Auswahl prüfen";
   }
   else if (!episodeHasEnabledStreamLanguage(episode, series)
       && isEpisodeEligible(episode)) {
-    tile.title = "Keine Episode in den aktivierten Stream-Sprachen verfügbar";
+    tile.title = languageLock === "NUR EN"
+      ? "Nur auf Englisch verfügbar · Download mit deutscher Sprachwahl gesperrt"
+      : "Keine Episode in den aktivierten Stream-Sprachen verfügbar";
   }
   else if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
   else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
@@ -1027,15 +1041,24 @@ function renderSeriesTiles() {
       tile.dataset.episodeSlug = ep.slug;
       applySeriesEpisodeTileState(tile, ep, series);
       const releaseText = ep.unreleased ? episodeReleaseText(ep) : "";
+      const languageLock = episodeLanguageLockLabel(ep, series);
       tile.setAttribute(
         "aria-label",
-        ep.unreleased ? `Folge ${ep.episode}, verfügbar ab ${releaseText}` : `Folge ${ep.episode}`,
+        ep.unreleased ? `Folge ${ep.episode}, verfügbar ab ${releaseText}`
+          : languageLock ? `Folge ${ep.episode}, ${languageLock} verfügbar, Download gesperrt`
+            : `Folge ${ep.episode}`,
       );
       const episodeLabel = document.createElement("span");
       episodeLabel.textContent = "FOLGE";
       const episodeNumber = document.createElement("strong");
       episodeNumber.textContent = String(ep.episode).padStart(2, "0");
       tile.append(episodeLabel, episodeNumber);
+      if (languageLock) {
+        const languageNotice = document.createElement("small");
+        languageNotice.className = "ep-language-lock";
+        languageNotice.textContent = languageLock;
+        tile.appendChild(languageNotice);
+      }
       if (ep.unreleased) {
         const release = document.createElement("small");
         release.className = "ep-release";
