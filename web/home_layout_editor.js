@@ -62,7 +62,6 @@ function prepareHomeRailLoop(track, logicalCount) {
   track.dataset ||= {};
   const wasLooping = Number(track.dataset.homeLoopCount || 0) > 1;
   track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
-  if (track.closest?.(".home-rail.is-expanded")) return;
   if (logicalCount < 2) {
     if (wasLooping) {
       track.scrollLeft = 0;
@@ -86,7 +85,6 @@ function prepareHomeRailLoop(track, logicalCount) {
 
 function updateHomeRailNavigation(track) {
   if (!track?.id) return;
-  const expanded = Boolean(track.closest?.(".home-rail.is-expanded"));
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
   const looping = Number(track.dataset.homeLoopCount || 0) > 1;
@@ -94,7 +92,7 @@ function updateHomeRailNavigation(track) {
   const atEnd = track.scrollLeft >= maxScroll - 2;
   document.querySelectorAll(`[data-home-scroll="${track.id}"]`).forEach((button) => {
     const direction = Number(button.dataset.direction) || 1;
-    button.hidden = expanded || !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
+    button.hidden = !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
   });
 }
 
@@ -174,28 +172,12 @@ function scheduleHomeRailSettle(track, delay = 140) {
 function initHomeRailScrolling() {
   const home = document.getElementById("tab-home");
   home.addEventListener("click", (event) => {
-    const showAll = event.target.closest("[data-home-show-all]");
-    if (showAll) {
-      const track = document.getElementById(showAll.dataset.homeShowAll);
-      const rail = track?.closest(".home-rail");
-      if (!rail) return;
-      const expanded = rail.classList.toggle("is-expanded");
-      showAll.setAttribute("aria-expanded", String(expanded));
-      showAll.innerHTML = expanded
-        ? 'Weniger anzeigen <span aria-hidden="true">↑</span>'
-        : 'Alle anzeigen <span aria-hidden="true">→</span>';
-      track.scrollLeft = 0;
-      if (!expanded) normalizeHomeRailLoop(track, { forceMiddle: true });
-      updateHomeRailNavigation(track);
-      return;
-    }
     const button = event.target.closest("[data-home-scroll]");
     if (button) moveHomeRail(button);
   });
   home.addEventListener("scroll", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track) return;
-    if (track.closest(".home-rail.is-expanded")) return;
     if (track.dataset.homeLoopAnimating === "true") scheduleHomeRailSettle(track);
     else normalizeHomeRailLoop(track);
     rememberHomeRailScroll(track);
@@ -204,7 +186,6 @@ function initHomeRailScrolling() {
   home.addEventListener("wheel", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track?.id) return;
-    if (track.closest(".home-rail.is-expanded")) return;
     delete state.home.railScrollTargets?.[track.id];
     const horizontalDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
       ? event.deltaX
@@ -217,7 +198,6 @@ function initHomeRailScrolling() {
   home.addEventListener("pointerdown", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track?.id || event.target.closest?.("[data-home-scroll]")) return;
-    if (track.closest(".home-rail.is-expanded")) return;
     delete state.home.railScrollTargets?.[track.id];
     normalizeHomeRailLoop(track, { forceMiddle: true });
   }, true);

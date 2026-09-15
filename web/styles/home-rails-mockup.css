@@ -53,36 +53,6 @@
   display: none;
 }
 
-#tab-home .home-rail-show-all {
-  flex: 0 0 auto;
-  padding: 5px 0 5px 12px;
-  color: #c9d0da;
-  background: none;
-  border: 0;
-  font: 650 clamp(12px, .8vw, 15px)/1 "Archivo", sans-serif;
-  cursor: pointer;
-}
-
-#tab-home .home-rail-show-all span {
-  margin-left: 8px;
-  font-size: 20px;
-  vertical-align: -1px;
-}
-
-#tab-home .home-rail-show-all:hover,
-#tab-home .home-rail-show-all:focus-visible {
-  color: #fff;
-}
-
-#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new).is-expanded .home-rail-controls button {
-  display: none;
-}
-
-#tab-home .home-rail-show-all:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 4px;
-}
-
 #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-controls {
   flex-basis: 0;
   width: 0;
@@ -193,17 +163,6 @@
   }
 }
 
-#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new).is-expanded .home-track {
-  flex-wrap: wrap;
-  overflow: visible;
-  scroll-snap-type: none;
-  padding-right: var(--home-gutter);
-}
-
-#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new).is-expanded .home-track > [aria-hidden="true"] {
-  display: none;
-}
-
 @media (max-width: 820px) {
   #tab-home .home-rail-heading {
     flex-wrap: wrap;
@@ -219,25 +178,14 @@
     font-size: 11px;
   }
 
-  #tab-home .home-rail-show-all {
-    align-self: flex-start;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
   #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) :is(.home-card, .home-card-skeleton) {
     flex-basis: min(74vw, 320px);
     width: min(74vw, 320px);
   }
 
-  #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new).is-expanded .home-track > :not([aria-hidden="true"]) {
-    flex-basis: calc(50% - 6px);
-    width: calc(50% - 6px);
-  }
 }
 
 @media (max-width: 500px) {
   #tab-home .home-rail-heading p { display: none; }
   #tab-home .home-rail-heading h2 { font-size: 16px; }
-  #tab-home .home-rail-show-all { font-size: 10px; }
 }

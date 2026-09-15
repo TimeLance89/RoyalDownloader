@@ -77,6 +77,9 @@ test("episode selection requires an enabled stream language", () => {
   assert.equal(selectable({ slug: "e15", content_languages: ["de", "en"] }), true);
   assert.equal(selectable({ slug: "e17", content_languages: ["en"] }), false);
   assert.equal(actionable({ slug: "e17", content_languages: ["en"] }), false);
+  assert.equal(vm.runInContext(
+    'episodeLanguageLockLabel({ slug: "e17", content_languages: ["en"] })', context,
+  ), "NUR EN");
   state.series.current = { provider: "huhu", enabled_content_languages: ["de"] };
   assert.equal(selectable({ slug: "huhu17" }), false);
   assert.equal(actionable({ slug: "huhu17" }), true);
@@ -89,6 +92,15 @@ test("episode selection requires an enabled stream language", () => {
   assert.equal(actionable({
     slug: "huhu17", huhu_language_checked: true, huhu_language_available: false,
   }), false);
+  assert.equal(vm.runInContext(
+    'episodeLanguageLockLabel({ slug: "huhu17", huhu_language_checked: true, huhu_language_available: false, content_languages: ["en"] })', context,
+  ), "NUR EN");
+});
+
+test("home rails use carousel controls only, without a meaningless show-all action", () => {
+  assert.doesNotMatch(html, /data-home-show-all/);
+  assert.doesNotMatch(homeLayoutEditor, /data-home-show-all/);
+  assert.doesNotMatch(homeLayoutEditor, /home-rail\\.is-expanded/);
 });
 
 test("release calendar routes movies and series and unlocks past dates", () => {
@@ -122,7 +134,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260912-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20260915-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-3/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -398,7 +410,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260915-1/);
+  assert.match(html, /api\.js\?v=royal-20260915-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -422,7 +434,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260915-1/);
+  assert.match(html, /api\.js\?v=royal-20260915-2/);
   assert.match(html, /screens\/home\.js\?v=royal-20260915-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
@@ -1004,7 +1016,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260915-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-3/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
