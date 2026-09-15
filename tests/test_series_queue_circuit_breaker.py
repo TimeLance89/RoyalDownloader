@@ -494,6 +494,31 @@ def test_cached_redirect_works_during_provider_cooldown(monkeypatch):
     assert result.gated
 
 
+def test_dead_cached_redirect_is_invalidated_for_a_fresh_provider_probe(monkeypatch):
+    redirect = "https://serienstream.to/r?t=stale"
+    target = "https://hoster.invalid/embed/stale"
+    movie = FilmpalastMovie(
+        title="Exact Show S02E04",
+        url="https://serienstream.to/episode",
+        provider="serienstream",
+        hosters=[HosterInfo("Generic", redirect, "Deutsch")],
+    )
+    server.state.content_languages = {"de"}
+    server.state.resolved_link_cache.put(redirect, target)
+    monkeypatch.setattr(
+        server,
+        "get_sto_scraper",
+        lambda: (_ for _ in ()).throw(AssertionError("cached redirect only")),
+    )
+    monkeypatch.setattr(server, "probe_stream_url", lambda *_args, **_kwargs: (False, "404"))
+
+    result = server._extract_from_movie(movie, set())
+
+    assert result.stream_info is None
+    assert result.gated
+    assert server.state.resolved_link_cache.get(redirect) is None
+
+
 def test_redirect_is_resolved_once_then_reused(monkeypatch):
     redirect = "https://serienstream.to/r?t=once"
     target = "https://hoster.invalid/embed/once"
