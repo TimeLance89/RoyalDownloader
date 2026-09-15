@@ -29,7 +29,7 @@ from providers.models import (
     parse_episode_slug,
     strip_episode_suffix,
 )
-from session_manager import SessionManager
+from media.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 

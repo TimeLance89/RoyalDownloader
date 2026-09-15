@@ -24,6 +24,7 @@ RUN set -eux; \
         xvfb \
         ffmpeg \
         ca-certificates \
+        libpcre2-8-0 \
         fonts-liberation; \
     architecture="$(dpkg --print-architecture)"; \
     if [ "${architecture}" = "amd64" ]; then \
@@ -72,7 +73,7 @@ ARG APP_COMMIT_SHA
 COPY --from=source --chown=royal:royal /opt/seriendownloader /opt/seriendownloader
 
 # Repair invalid UTF-8 shipped in nodriver 0.50.3 cdp/network.py.
-RUN python -c "import nodriver_patch; nodriver_patch.ensure_cdp_utf8()" || true
+RUN python -c "import core.nodriver_patch; core.nodriver_patch.ensure_cdp_utf8()" || true
 
 # Container runtime:
 #  - SERIENDL_DATA_DIR: persistent settings, cookies, browser profile, subscriptions, and queue state.

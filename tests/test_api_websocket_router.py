@@ -1,6 +1,6 @@
 from starlette.websockets import WebSocket
 
-from api_websocket_router import websocket_origin_allowed
+from api.api_websocket_router import websocket_origin_allowed
 
 
 async def _receive():

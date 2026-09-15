@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import auth as appauth
-from api_auth_router import AuthDependencies, create_auth_router
+import core.auth as appauth
+from api.api_auth_router import AuthDependencies, create_auth_router
 
 
 class FakeLoginGuard:

@@ -14,9 +14,9 @@ from pathlib import Path
 
 from application_services.runtime import backend_value, import_backend_namespace, publish_service
 import application_services.source_resolution as source_resolution
-from downloader import DownloadJob
-from hoster_intel import HosterIntel
-from media_quality import (
+from media.downloader import DownloadJob
+from media.hoster_intel import HosterIntel
+from media.media_quality import (
     media_profile_complete,
     media_profile_is_better,
     media_profile_label,

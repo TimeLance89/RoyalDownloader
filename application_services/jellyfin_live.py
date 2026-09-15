@@ -356,18 +356,33 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
     if not backend_value("get_jellyfin_client")().configured:
         return True
     with state.jellyfin_cache_lock:
-        if not bool(getattr(state, "jellyfin_live_stale", False)):
+        missing_movie_snapshot = (
+            getattr(state, "jellyfin_movie_identities", None) is None
+            or not bool(getattr(state, "jellyfin_movie_identities_available", False))
+        )
+        if (
+            not bool(getattr(state, "jellyfin_live_stale", False))
+            and not missing_movie_snapshot
+        ):
             return True
         # Clear while holding the state lock so a concurrent successful monitor
         # cycle cannot publish freshness immediately before this reset.
         _live_ready_event.clear()
     # A successful lightweight revision probe is enough when the library did
     # not change; the monitor escalates to a full snapshot only when needed.
-    request_jellyfin_live_refresh()
+    if missing_movie_snapshot:
+        request_jellyfin_live_refresh(force_full=True)
+    else:
+        request_jellyfin_live_refresh()
     wait_seconds = _download_wait_seconds() if timeout is None else max(0.0, float(timeout))
     if wait_seconds:
         _live_ready_event.wait(wait_seconds)
-    return not _live_stale()
+    with state.jellyfin_cache_lock:
+        return bool(
+            not getattr(state, "jellyfin_live_stale", False)
+            and getattr(state, "jellyfin_movie_identities", None) is not None
+            and getattr(state, "jellyfin_movie_identities_available", False)
+        )
 
 
 def _consume_force_refresh() -> bool:

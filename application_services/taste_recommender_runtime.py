@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from application_services.runtime import backend_value, publish_service
-from taste_recommender import run_unified_recommender_once
+from features.taste_recommender import run_unified_recommender_once
 
 
 def _run_recommender_once() -> bool:

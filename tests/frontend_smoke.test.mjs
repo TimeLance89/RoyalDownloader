@@ -88,7 +88,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260912-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20260908-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-1/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -180,6 +180,11 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(app, /function renderFpSimilarTitles\(titles\)/);
   assert.match(app, /function renderFpExtras\(movie\)/);
   assert.match(app, /selectFpRow\(slug, \{/);
+  assert.ok(
+    html.indexOf('class="detail-queue-note"')
+      < html.indexOf('id="fp-detail-similar-section"'),
+    "Filmempfehlungen müssen am Ende der Detailansicht stehen",
+  );
   requiresIds(
     "series-detail-similar-section", "series-detail-similar",
     "series-detail-extras-section", "series-detail-extras",
@@ -259,7 +264,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260909-1/);
+  assert.match(html, /app\.js\?v=royal-20260913-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -384,7 +389,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260825-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260830-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260915-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -670,7 +675,7 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
   assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
   assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
-  assert.match(home, /image\.loading = "eager"/);
+  assert.match(home, /image\.loading = eager \? "eager" : "lazy"/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
   assert.match(home, /posterFallback: true/);
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
@@ -772,7 +777,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260909-1/);
+  assert.match(html, /core\.js\?v=royal-20260913-1/);
   assert.match(html, /screens\/mood\.js\?v=royal-20260825-2/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
@@ -855,6 +860,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/library.css",
     "styles/movie-home.css",
     "styles/search.css",
+    "styles/movie-collections.css",
     "styles/series.css",
     "styles/catalog.css",
     "styles/catalog-polish.css",
@@ -964,7 +970,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260908-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

@@ -6,7 +6,7 @@ from scripts import release_readiness_gate as gate
 
 
 def test_release_gate_resolves_the_project_root():
-    assert (gate.PROJECT_ROOT / "app_version.py").is_file()
+    assert (gate.PROJECT_ROOT / "core" / "app_version.py").is_file()
     assert gate.PROJECT_ROOT == Path(__file__).resolve().parents[1]
 
 

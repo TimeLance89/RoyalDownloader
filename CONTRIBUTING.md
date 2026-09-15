@@ -51,7 +51,7 @@ python -m compileall -q providers application_services tests
 find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 node --test tests/frontend_smoke.test.mjs
 ruff check --select E9,F63,F7,F82 .
-bandit -q -ll -r application_services api_*.py app_state.py auth.py config.py media_paths.py network_guard.py runtime_cache.py self_updater.py update_channels.py update_checker.py websocket_manager.py ytdlp_updater.py
+bandit -q -ll -r application_services api core features integrations media storage updates
 pip-audit -r requirements.lock
 docker compose config --quiet
 coverage run --source=application_services,app_state,auth,config,network_guard,runtime_cache,self_updater,update_channels,update_checker,websocket_manager,ytdlp_updater -m pytest -q

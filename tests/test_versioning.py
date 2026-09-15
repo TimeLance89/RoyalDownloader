@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import server
-from app_version import APP_VERSION
+from core.app_version import APP_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,7 +109,7 @@ def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():
     assert "workflow_call:" in quality
     assert 'branches:\n      - main' in release
     assert 'tags:\n      - "v*"' in release
-    assert 'paths:\n      - app_version.py' in release
+    assert 'paths:\n      - core/app_version.py' in release
     assert "workflow_dispatch:" in release
     assert 'git merge-base --is-ancestor "${GITHUB_SHA}" origin/main' in release
     assert "issues:" not in release

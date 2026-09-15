@@ -22,12 +22,12 @@ from urllib.parse import urljoin
 
 from curl_cffi import requests as cr
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 import application_services.movie_subscription_stream_quality as stream_quality
 import application_services.source_resolution as source_resolution
-import downloader
+import media.downloader as downloader
 from application_services.runtime import publish_service
-from media_quality import (
+from media.media_quality import (
     media_profile_is_better,
     media_profile_label,
     media_profile_within_target,
@@ -35,7 +35,7 @@ from media_quality import (
     normalize_media_profile,
     probe_media_profile,
 )
-from network_guard import UnsafeNetworkTarget, request_proxy_kwargs
+from core.network_guard import UnsafeNetworkTarget, request_proxy_kwargs
 
 _MANIFEST_MAX_BYTES = 256 * 1024
 _MANIFEST_TIMEOUT_SECONDS = 8

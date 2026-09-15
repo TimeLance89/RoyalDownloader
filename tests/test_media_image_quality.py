@@ -31,8 +31,7 @@ def test_catalog_artwork_is_not_softened_by_css_filters():
 
 def test_setup_is_not_part_of_desktop_primary_navigation():
     css = (ROOT / "web" / "styles" / "catalog-polish.css").read_text(encoding="utf-8")
-    navigation = css.split("Desktop navigation: calmer streaming hierarchy", 1)[1]
-    assert ".topbar .tabs .mobile-settings-tab" in navigation
-    assert "display: none !important;" in navigation
+    navigation = css.split("Navigation: four destinations, focused discovery", 1)[1]
+    assert ".mobile-settings-tab" not in navigation
     # The actual settings control remains available outside the content tabs.
     assert ".topbar #settings-btn" in navigation

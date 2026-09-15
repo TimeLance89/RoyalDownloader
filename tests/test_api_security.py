@@ -1,7 +1,7 @@
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api_security import harden_http_response, is_mobile_legacy_path, is_public_path
+from api.api_security import harden_http_response, is_mobile_legacy_path, is_public_path
 
 
 def test_public_api_policy_is_method_aware():

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
-import smart_automation as smart_policy
+import features.smart_automation as smart_policy
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,

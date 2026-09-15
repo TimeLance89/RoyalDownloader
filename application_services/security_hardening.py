@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from application_services.runtime import _registered_backend
-from security_runtime import install_post_state_security
+from core.security_runtime import install_post_state_security
 
 
 @dataclass(frozen=True)

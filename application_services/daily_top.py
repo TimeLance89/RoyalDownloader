@@ -15,7 +15,7 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from application_services.runtime import backend_value
-from api_discovery_router import router as discovery_router
+from api.api_discovery_router import router as discovery_router
 
 
 DAILY_TOP_PROVIDER_LIMIT = 30

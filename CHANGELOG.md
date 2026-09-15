@@ -2,61 +2,39 @@
 
 ## Unreleased
 
-- Der untere Downloadbereich wird zum kompakten Royal-Transferdeck mit klarer
-  Titelhierarchie, segmentierter Fortschrittsschiene, großem Prozentwert,
-  eigener „Als Nächstes“-Anzeige und responsiver Downloadplan-Steuerung.
-- Die Startseite erhält neu gestaltete Premium-Karten mit stabilen Abständen,
-  kollisionsfreien Reihen und zuverlässigen Poster-/Hintergrund-Fallbacks; ihre
-  Reihenfolge bleibt auch während nachgeladener Bilder erhalten.
-- Serienkatalog und Seriendetails aktualisieren Inhalte ohne sichtbares Flackern.
-  In der Serienakte folgen auf **Staffeln & Folgen** nun **Trailer und mehr**,
-  daneben **Über die Serie** und abschließend darunter **Ähnliche Titel**.
-- Abo-Inbox und Medienregal wurden als gemeinsames Subscription Center neu
-  gestaltet; der Frontend-Einstieg bleibt dabei innerhalb seiner Modulgrenzen.
-- Der neue Royal-Startloader überbrückt den Anwendungsstart konsistent und
-  behält die korrekte Stylesheet-Priorität des Cinema-Docks bei.
-- Serientitel in Abos und Watchlist werden lokalisiert angezeigt.
-- Die Abendregie bietet eine neu gestaltete, stärker erklärbare Auswahl und
-  berücksichtigt Genres bei der Empfehlung deutlich tiefer.
-- Erfolgreich automatisch geladene Episoden abonnierter Serien erscheinen
-  dauerhaft mit Staffel/Folge im Medienregal und als ungelesener Hinweis in
-  der Notificationbox; beim Öffnen der Serienmeldung wird sie quittiert.
-- Deutsche Anbieter-Einträge mit eindeutiger englischer Release-Kennzeichnung
-  wie `*ENGLISH*` oder `TS/Englisch` werden nicht länger als deutsche Fassung
-  geführt und bei deaktivierten englischen Inhalten vollständig ausgefiltert.
-- Nach längerer Browser-Inaktivität oder Standby erneuert die Oberfläche den
-  Jellyfin-Status automatisch; festhängende Prüfungen laufen in einen klaren
-  Fehlerzustand und werden bei Tab-, Fenster- oder Netz-Rückkehr neu gestartet.
-- Film- und Seriendetails erhalten im einheitlichen Royal-Aktenstil eigene
-  Bereiche für ähnliche Titel, offizielle Trailer und kompakte
-  Produktionsinformationen; Empfehlungen verwenden ausschließlich breite
-  16:9-Hintergründe.
-- Ähnliche Serien öffnen direkt die vollständige Serienakte mit unverändertem
-  Staffel- und Episodenbrowser; beim Schließen bleibt der zuvor aktive Kalender
-  erhalten.
-- Laufende Hero-Trailer in Film- und Seriendetails pausieren automatisch,
-  sobald der Kopfbereich aus dem sichtbaren Ausschnitt gescrollt wird, und
-  setzen beim Zurückscrollen fort.
-- Aus dem Kalender geöffnete Seriendetails bleiben als Modal über dem Kalender; Schließen führt nicht mehr in die Serienübersicht.
-- Fertig geladene Kalenderdaten blenden den vorbereitenden Statusblock nun zuverlässig aus; die Kalender-CSS respektiert `hidden` auch gegen ihre eigenen Grid-Regeln.
-- Der Kalender beendet den Ladezustand nun auch bei gemischten Browser-Assets und gedrosselten Hintergrund-Timern sicher; ein zweiter Fristwächter fängt hängende Altzustände ab.
-- Die Startseite verwendet außerhalb der Top 10 ausschließlich 16:9-Hintergründe, füllt „Aus deinen Klicks und Downloads“ auf bis zu 16 Titel auf und hält beim Aktualisieren die einmal geladenen Karten stabil im DOM.
-- Der Serienkalender wird vollständig serverseitig über eine unabhängige SerienStream-Session synchronisiert. Ein atomar gespeicherter, validierter Snapshot übersteht Neustarts und Ausfälle; der Browser ruft die Kalenderdaten nie direkt vom Fremddienst ab.
-- Die Kalenderoberfläche besitzt klar begrenzte Abrufe, einen harten Lade-Wächter und abschließende Erfolgs-, Offline- oder Wiederholen-Zustände. Dadurch kann kein dauerhafter Ladehinweis mehr stehen bleiben.
-- Die Serienübersicht startet den Jellyfin-Liveabgleich für die komplette erste Katalogseite sofort und unabhängig von Postern/TMDB. Doppelte Serien mit widersprüchlichen Staffel-Jahresangaben werden bei identischem Titel und überlappender Quelle zusammengeführt.
-
-- Preserve each home carousel's horizontal scroll position when progressive
-  artwork, Jellyfin status, or discovery data triggers a background rerender.
-- Persist the intended carousel target before smooth scrolling begins and bump
-  the affected browser asset versions so cached clients receive the fix.
-- Keep unchanged carousel sections and cards mounted during background updates;
-  only actually changed cards are reconciled, eliminating the visible jump to
-  zero and the subsequent snap-back.
-- Add a dedicated top-level series calendar with week navigation, day jumps,
-  title and language filters, subscription-only mode, direct provider artwork,
-  release status, and one-click handoff into the regular series workflow.
-- Validate and cache SerienStream calendar data server-side, retain the last
-  valid snapshot during short outages, and reject foreign series or image URLs.
+- Add a compact Royal transfer deck with clearer download hierarchy, segmented
+  progress, a next-up view, and responsive queue controls.
+- Redesign home cards and carousels with stable layout, reliable poster and
+  backdrop fallbacks, preserved scroll position, and incremental reconciliation
+  that prevents visual jumps during background updates.
+- Refresh the series catalog and detail views without flicker; expand details
+  with trailers, production information, similar titles, and persistent season
+  and episode context when opened from the calendar.
+- Introduce a server-synchronised series calendar with validated snapshots,
+  week navigation, filters, subscription mode, clear final loading states, and
+  resilient retry and offline handling.
+- Add a redesigned Releases view for movies and series, including localized
+  content, older titles, bounded provider requests, and resilient timeouts.
+- Restore Releases as the first item in the Discover menu on desktop and mobile.
+- Add TMDB movie collections to search. Collection views check Jellyfin before
+  providers, show per-movie library, provider, and queue state, and allow safe
+  partial selection and download of the available titles.
+- Make movie collections ready on first open by waiting for the initial
+  Jellyfin identity snapshot; downloads no longer require closing and reopening
+  the collection.
+- Keep Jellyfin availability current after browser idle, standby, tab changes,
+  and network recovery while failing closed when ownership cannot be verified.
+- Redesign the subscription inbox and media archive as a unified subscription
+  center, including persistent notifications for automatically downloaded
+  episodes.
+- Localize subscription and watchlist series titles, improve personalised
+  evening recommendations, and filter explicitly English provider releases when
+  English content is disabled.
+- Add consistent Royal startup loading and richer movie and series detail
+  presentation, including scroll-aware trailer playback and 16:9 artwork for
+  recommendations.
+- Make language switching immediate and persistent, including dynamically
+  inserted settings and storage navigation, without blocking catalog startup.
 
 ## 2026-08-23 – Custom home programme
 

@@ -1057,7 +1057,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     };
     showArtworkCandidate();
     image.alt = "";
-    image.loading = "eager";
+    image.loading = eager ? "eager" : "lazy";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
     image.addEventListener("error", () => {
@@ -1080,10 +1080,8 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   title.translate = false;
   title.textContent = media.title;
   const meta = document.createElement("span");
-  meta.textContent = [
-    media.year || "",
-    media.rating ? `★ ${media.rating}` : "",
-  ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
+  meta.className = "home-card-meta";
+  setHomeCardMeta(meta, media, kind);
   overlay.append(title, meta);
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);

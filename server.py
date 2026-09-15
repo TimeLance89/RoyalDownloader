@@ -10,7 +10,7 @@ Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht darüber.
 Start: python server.py  (öffnet automatisch den Browser)
 """
 
-from environment_file import load_project_env
+from core.environment_file import load_project_env
 
 load_project_env()
 
@@ -60,33 +60,33 @@ from providers.catalog import (
     provider_for_source,
     provider_language_payload,
 )
-from extractor import (
+from media.extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
     extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
 )
-from downloader import (
+from media.downloader import (
     DownloadJob, DownloadQueue, build_filename, build_movie_filename,
     probe_stream_url, validate_media_file, cleanup_stale_staging,
     _sanitize as sanitize_filename,
 )
-from queue_jobs import HISTORY_LIMIT, new_job
-from session_manager import ProviderBlockedError, _cookie_file_for
-from hoster_intel import HosterIntel
-from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
-from resolved_link_cache import ResolvedLinkCache
-from runtime_cache import BoundedTTLCache
-from api_system_router import create_system_router
-from api_ai_router import create_ai_router
-from api_domain_routers import install_domain_routers, register_domain_router
-from api_auth_router import (
+from core.queue_jobs import HISTORY_LIMIT, new_job
+from media.session_manager import ProviderBlockedError, _cookie_file_for
+from media.hoster_intel import HosterIntel
+from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
+from media.resolved_link_cache import ResolvedLinkCache
+from core.runtime_cache import BoundedTTLCache
+from api.api_system_router import create_system_router
+from api.api_ai_router import create_ai_router
+from api.api_domain_routers import install_domain_routers, register_domain_router
+from api.api_auth_router import (
     ApiV1LoginBody,
     AuthConfigBody,
     AuthDependencies,
     LoginBody,
     create_auth_router,
 )
-from api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
-from api_discovery_router import (
+from api.api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
+from api.api_discovery_router import (
     MovieMetadataBody,
     MovieMetadataItem,
     PreloadBody,
@@ -97,7 +97,7 @@ from api_discovery_router import (
     SeriesMetadataItem,
     create_discovery_router,
 )
-from api_queue_router import (
+from api.api_queue_router import (
     MovieDownloadPreference,
     QueueAddBody,
     QueueRemoveBody,
@@ -126,7 +126,7 @@ from api_queue_router import (
     create_queue_router,
     restore_persisted_queue,
 )
-from api_library_router import (
+from api.api_library_router import (
     MovieSubscriptionBody,
     MovieSubscriptionKeysBody,
     WatchlistAddBody,
@@ -159,7 +159,7 @@ from api_library_router import (
     movie_subscription_lookup,
     movie_subscriptions_payload,
 )
-from api_administration_router import (
+from api.api_administration_router import (
     AutomationConfigBody,
     ConfigBody,
     JellyfinConfigBody,
@@ -211,21 +211,21 @@ from api_administration_router import (
     api_updater_status,
     create_administration_router,
 )
-from api_security import SecurityDependencies, install_authentication_middleware
-from app_state import AppState, _PreparationSlots
-from websocket_manager import WSManager, _WSClient
-from api_websocket_router import (
+from api.api_security import SecurityDependencies, install_authentication_middleware
+from core.app_state import AppState, _PreparationSlots
+from core.websocket_manager import WSManager, _WSClient
+from api.api_websocket_router import (
     WebSocketDependencies,
     create_websocket_router,
     websocket_origin_allowed as _websocket_origin_allowed,
 )
-from media_paths import (
+from storage.media_paths import (
     prepare_media_directory,
     recover_misplaced_media,
 )
-from runtime_paths import data_dir, in_container, persistent_container_path
-from series_calendar_service import get_series_calendar_service
-from network_guard import is_public_http_url
+from core.runtime_paths import data_dir, in_container, persistent_container_path
+from features.series_calendar_service import get_series_calendar_service
+from core.network_guard import is_public_http_url
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
     FilmFrei24Scraper,
@@ -264,25 +264,25 @@ from providers.aniworld import (
     SOURCE_PREFIX as ANIWORLD_PREFIX,
 )
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
-from jellyfin_client import JellyfinClient
-from jellyfin_recommender import (
+from integrations.jellyfin_client import JellyfinClient
+from integrations.jellyfin_recommender import (
     Config as JellyfinRecommenderConfig,
     ConfigurationError as JellyfinRecommenderConfigurationError,
     RecommenderError as JellyfinRecommenderError,
     run_once as run_jellyfin_recommender_once,
 )
-from tmdb_client import SERIES_CACHE_TTL, TMDBClient
-from telegram_bot import TelegramBot
-from seerr_client import SeerrClient, SeerrRequest
-from update_checker import UpdateChecker, detect_local_commit
-from self_updater import SelfUpdater
-from ytdlp_updater import YtDlpRuntimeUpdater
-from ui_translator import (
+from integrations.tmdb_client import SERIES_CACHE_TTL, TMDBClient
+from integrations.telegram_bot import TelegramBot
+from integrations.seerr_client import SeerrClient, SeerrRequest
+from updates.update_checker import UpdateChecker, detect_local_commit
+from updates.self_updater import SelfUpdater
+from updates.ytdlp_updater import YtDlpRuntimeUpdater
+from integrations.ui_translator import (
     SUPPORTED_UI_LANGUAGES,
     UITranslator,
     normalize_ui_language,
 )
-from watchlist_policy import (
+from features.watchlist_policy import (
     CLEANUP_MODE_KEEP,
     CLEANUP_MODE_LABELS,
     WATCH_MODE_DEFAULT,
@@ -295,7 +295,7 @@ from watchlist_policy import (
     select_missing_episode_slugs,
     serialize_episode_history,
 )
-from movie_subscription_policy import (
+from features.movie_subscription_policy import (
     MOVIE_CLEANUP_DEFAULT,
     MOVIE_CLEANUP_LABELS,
     MOVIE_CLEANUP_WATCHED,
@@ -307,11 +307,11 @@ from movie_subscription_policy import (
     normalize_movie_quality,
     select_upgrade_quality,
 )
-from taste_profile import TasteProfileStore
-import config as appconfig
-import auth as appauth
-from app_version import APP_VERSION
-from update_channels import UPDATE_CHANNEL_BRANCHES
+from features.taste_profile import TasteProfileStore
+import core.config as appconfig
+import core.auth as appauth
+from core.app_version import APP_VERSION
+from updates.update_channels import UPDATE_CHANNEL_BRANCHES
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -322,7 +322,7 @@ logger = logging.getLogger(__name__)
 # nodriver_patch). Auf frischen Installationen (Docker/NAS) scheitert sonst
 # schon `import nodriver` → VOE-Extraktion tot. Einmal beim Start reparieren,
 # BEVOR irgendein Codepfad nodriver importiert.
-import nodriver_patch  # noqa: E402 - Reparatur muss vor dem ersten nodriver-Import laufen.
+import core.nodriver_patch as nodriver_patch  # noqa: E402 - Reparatur muss vor dem ersten nodriver-Import laufen.
 nodriver_patch.ensure_cdp_utf8()
 
 APP_DIR = Path(__file__).parent

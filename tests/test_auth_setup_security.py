@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
-import api_setup_router
+import api.api_setup_router as api_setup_router
 import server
 
 

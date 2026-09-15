@@ -41,8 +41,8 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from series_episode_filter import episode_listings
-from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
+from features.series_episode_filter import episode_listings
+from media.session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 
 logger = logging.getLogger(__name__)
 

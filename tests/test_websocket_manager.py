@@ -1,6 +1,6 @@
 import asyncio
 
-from websocket_manager import WSManager
+from core.websocket_manager import WSManager
 
 
 class FakeWebSocket:

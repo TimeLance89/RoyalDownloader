@@ -11,35 +11,35 @@ locking. Provider and persistence modules do blocking I/O and never import a
 router. `server.py` is the composition root and contains no provider, catalog,
 download, persistence, Telegram, Seerr, or automation implementation.
 
-`app_state.py` is the single owner of mutable process state and its associated
+`core/app_state.py` is the single owner of mutable process state and its associated
 locks. The composition root creates one `AppState`; routers and services receive
 that instance and must not create parallel state containers.
-Bounded per-client event delivery is owned by `websocket_manager.py`; producers
+Bounded per-client event delivery is owned by `core/websocket_manager.py`; producers
 publish structural events without waiting on a slow browser connection.
 The authenticated WebSocket handshake, origin validation, route aliases, and
-initial snapshot live in `api_websocket_router.py`; delivery and transport
+initial snapshot live in `api/api_websocket_router.py`; delivery and transport
 backpressure remain independent from HTTP authentication policy.
 
 ## Target modules
 
 | Area | Router | Service ownership |
 |---|---|---|
-| Auth and setup | `api_auth_router.py`, `api_setup_router.py` | sessions, first-run transaction |
-| Discovery | `api_discovery_router.py` | provider catalogs and metadata |
-| Optional AI discovery | `api_ai_router.py` | Ollama presentation ranking over existing catalog candidates |
-| Queue | `api_queue_router.py` | job controls; persistent model in `queue_jobs.py`, lifecycle in application services |
-| Library | `api_library_router.py` | subscriptions, watchlist, cleanup |
-| Jellyfin settings | `api_administration_router.py` | library snapshots and matching |
-| Integration settings | `api_administration_router.py` | Telegram, Seerr, TMDB |
-| Administration | `api_administration_router.py`, `api_system_router.py` | config, health, diagnostics, updates |
-| Live updates | `api_websocket_router.py` | authentication, snapshots, bounded delivery |
-| HTTP security | `api_security.py` | public routes, origin checks, response headers |
+| Auth and setup | `api/api_auth_router.py`, `api/api_setup_router.py` | sessions, first-run transaction |
+| Discovery | `api/api_discovery_router.py` | provider catalogs and metadata |
+| Optional AI discovery | `api/api_ai_router.py` | Ollama presentation ranking over existing catalog candidates |
+| Queue | `api/api_queue_router.py` | job controls; persistent model in `core/queue_jobs.py`, lifecycle in application services |
+| Library | `api/api_library_router.py` | subscriptions, watchlist, cleanup |
+| Jellyfin settings | `api/api_administration_router.py` | library snapshots and matching |
+| Integration settings | `api/api_administration_router.py` | Telegram, Seerr, TMDB |
+| Administration | `api/api_administration_router.py`, `api/api_system_router.py` | config, health, diagnostics, updates |
+| Live updates | `api/api_websocket_router.py` | authentication, snapshots, bounded delivery |
+| HTTP security | `api/api_security.py` | public routes, origin checks, response headers |
 
 The administration, authentication, and setup routers plus the HTTP security
 boundary are the first extracted production modules. Authentication storage
 and the atomic setup transaction remain in the composition root and are
 injected into their HTTP modules. Persistent media-path validation lives in
-`media_paths.py`. These modules therefore own their policy without importing
+`storage/media_paths.py`. These modules therefore own their policy without importing
 server globals. Frontend API transport, mutable store, and design tokens now
 live in `api.js`, `store.js`, and `style-tokens.css`. Shared navigation, live
 updates, and queue UI live in `core.js`; individual feature areas live below
@@ -51,12 +51,12 @@ The discovery router is physically extracted and receives a migration facade
 from the composition root. Calls are resolved dynamically to retain provider
 test seams. New discovery services should be injected explicitly; they must not
 add reverse imports from the router into `server.py`.
-The same transitional facade pattern is used by `api_queue_router.py`, whose
+The same transitional facade pattern is used by `api/api_queue_router.py`, whose
 service helpers remain re-exported by the composition root for Telegram, Seerr,
 watchlist, and compatibility tests.
-`api_library_router.py` owns the cover proxy, movie subscriptions, watchlist,
+`api/api_library_router.py` owns the cover proxy, movie subscriptions, watchlist,
 and watched-media cleanup as one persistence and queue-coordination boundary.
-`api_administration_router.py` owns all runtime configuration mutations and
+`api/api_administration_router.py` owns all runtime configuration mutations and
 their validation, including setup completion and integration settings.
 
 Application behavior is grouped below `application_services/`: authentication,

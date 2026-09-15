@@ -9,12 +9,12 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-import auth as appauth
-import config as appconfig
+import core.auth as appauth
+import core.config as appconfig
 from application_services.runtime import backend_value, publish_service
-from proxy_security import client_ip as secure_client_ip
-from proxy_security import request_is_secure as trusted_request_is_secure
-from security_runtime import install_pre_state_security, maybe_upgrade_password_hash
+from core.proxy_security import client_ip as secure_client_ip
+from core.proxy_security import request_is_secure as trusted_request_is_secure
+from core.security_runtime import install_pre_state_security, maybe_upgrade_password_hash
 
 logger = logging.getLogger(__name__)
 

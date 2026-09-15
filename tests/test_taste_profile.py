@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from jellyfin_recommender import Config, SyncResult, run_once
-from taste_profile import TasteProfileStore, normalize_metadata
+from integrations.jellyfin_recommender import Config, SyncResult, run_once
+from features.taste_profile import TasteProfileStore, normalize_metadata
 
 
 def test_profile_persists_and_aggregates_multiple_dimensions(tmp_path):

@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import proxy_security
-import security_runtime
-import setup_bootstrap
-
-
+import core.proxy_security as proxy_security
+import core.security_runtime as security_runtime
+import core.setup_bootstrap as setup_bootstrap
 def _connection(peer: str, host: str = "royal-nas:8765", **headers):
     normalized = {"host": host}
     normalized.update({key.replace("_", "-"): value for key, value in headers.items()})

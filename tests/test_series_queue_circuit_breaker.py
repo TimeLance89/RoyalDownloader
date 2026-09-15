@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 import server
-from hoster_intel import HosterIntel
-from provider_health import ProviderHealth
-from resolved_link_cache import ResolvedLinkCache
+from media.hoster_intel import HosterIntel
+from media.provider_health import ProviderHealth
+from media.resolved_link_cache import ResolvedLinkCache
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSeries,

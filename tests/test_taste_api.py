@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 import server
 from providers.models import FilmpalastMovie
-from taste_profile import TasteProfileStore
+from features.taste_profile import TasteProfileStore
 
 
 def _use_store(monkeypatch, tmp_path):
