@@ -88,7 +88,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260912-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20260908-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-1/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -180,6 +180,11 @@ test("detail, queue, and settings screens remain wired", () => {
   assert.match(app, /function renderFpSimilarTitles\(titles\)/);
   assert.match(app, /function renderFpExtras\(movie\)/);
   assert.match(app, /selectFpRow\(slug, \{/);
+  assert.ok(
+    html.indexOf('class="detail-queue-note"')
+      < html.indexOf('id="fp-detail-similar-section"'),
+    "Filmempfehlungen müssen am Ende der Detailansicht stehen",
+  );
   requiresIds(
     "series-detail-similar-section", "series-detail-similar",
     "series-detail-extras-section", "series-detail-extras",
@@ -384,7 +389,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260825-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260830-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260915-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -965,7 +970,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260908-2/);
+  assert.match(html, /style\.css\?v=royal-20260915-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
