@@ -528,6 +528,20 @@ def _extract_from_movie(
                 log(f"  {hoster.name} nicht nutzbar: {probe_msg}", "warn")
                 if "unsupported url" in probe_msg.lower():
                     unsupported_domains.add(play_url)
+                if was_sto and res.resolved_from_cache:
+                    # Das gecachte Redirect-Ziel kann früher ablaufen als sein
+                    # kurzer Cache-Eintrag. Ohne Invalidierung würden weitere
+                    # Versuche denselben toten Hoster verwenden und die
+                    # Episode endgültig als nicht extrahierbar markieren.
+                    # Stattdessen einmal kontrolliert über die Provider-Probe
+                    # ein frisches SerienStream-Redirect-Ziel anfordern.
+                    if state.resolved_link_cache.invalidate(hoster.url, play_url):
+                        log(
+                            f"  {hoster.name}: gecachter Hoster-Link ist abgelaufen – "
+                            "SerienStream-Probe wird vorgemerkt.",
+                            "warn",
+                        )
+                        res.gated = True
                 res.stream_info = None
                 continue
             break
