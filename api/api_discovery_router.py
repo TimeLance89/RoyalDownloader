@@ -1208,14 +1208,22 @@ async def api_aniworld_detail(
     def _work():
         with state.aniworld_lock:
             anime = get_aniworld_scraper().get_anime(anime_id)
-        available = anime.translations
+        enabled_languages = set(appconfig.normalize_content_languages(
+            state.content_languages,
+        ))
+        available = {
+            track: count for track, count in anime.translations.items()
+            if ("en" if track == "eng" else "de") in enabled_languages
+        }
         track = requested_track if requested_track in available else (
             "dub" if available.get("dub") else
             "sub" if available.get("sub") else
             "eng" if available.get("eng") else ""
         )
         if not track:
-            raise LookupError("AniWorld meldet keine verfügbaren Episoden.")
+            raise LookupError(
+                "AniWorld meldet keine Episoden in den aktivierten Stream-Sprachen."
+            )
         episodes = aniworld_episode_page(
             anime,
             track,
@@ -1229,14 +1237,20 @@ async def api_aniworld_detail(
             episode["downloaded"] = bool(_existing_valid_episode_path(
                 anime.title, int(episode["season"]), int(episode["number"]),
             ))
+        payload = anime.public_dict()
+        payload["translations"] = available
+        payload["episode_count"] = max(available.values(), default=0)
+        payload["latest_tracks"] = [
+            track for track in payload["latest_tracks"] if track in available
+        ]
         return {
-            **anime.public_dict(),
+            **payload,
             "translation": track,
-            "translation_labels": {
+            "translation_labels": {track: label for track, label in {
                 "dub": "Deutsch Dub",
                 "sub": "Deutsch Sub",
                 "eng": "Englisch",
-            },
+            }.items() if track in available},
             **episodes,
         }
 
