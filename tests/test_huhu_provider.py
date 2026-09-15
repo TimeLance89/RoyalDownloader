@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import asyncio
+import threading
 
 import pytest
 
@@ -105,6 +107,7 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
         {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"], "tag": "1080p"},
         {"type": "url", "url": "https://dood.to/d/two", "languages": ["de"]},
         {"type": "url", "url": "https://filemoon.to/e/three", "languages": ["en"]},
+        {"type": "url", "url": "https://voe.sx/e/unknown"},
         {"type": "url", "url": "https://bs.to/serie/x/1/1", "languages": ["de"]},
         {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"]},
     ])
@@ -117,6 +120,38 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
     payload = calls[0][1]["json"]
     assert payload["ids"] == {"tmdb_id": "123"}
     assert payload["episode"] == {"ids": {}, "season": 2, "episode": 4}
+
+
+def test_huhu_language_check_rejects_english_only_episode(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    german_slug = "huhu:123:exact-show-s09e15"
+    english_slug = "huhu:123:exact-show-s09e17"
+    german = FilmpalastMovie(
+        title="Exact Show S09E15", url="https://huhu.to/item?id=123",
+        hosters=[HosterInfo("VOE", "https://voe.invalid/e/de", "de")],
+    )
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["huhu"])
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(
+        content_languages={"de"}, huhu_lock=threading.RLock(),
+    ))
+    monkeypatch.setattr(discovery, "get_huhu_scraper", lambda: SimpleNamespace(
+        get_movie=lambda slug: german if slug == german_slug else None,
+    ))
+
+    body = discovery.HuhuEpisodeLanguagesBody(slugs=[german_slug, english_slug])
+    result = asyncio.run(discovery.api_huhu_episode_languages(body))
+
+    assert result["available"] == {german_slug: True, english_slug: False}
+
+
+def test_huhu_english_only_source_is_not_a_german_episode():
+    scraper, _calls = scraper_with(Response([
+        {"type": "url", "url": "https://voe.sx/e/english", "languages": ["en"]},
+        {"type": "url", "url": "https://voe.sx/e/unknown"},
+    ]))
+
+    assert scraper.get_movie("huhu:123:exact-show-s09e17") is None
 
 
 @pytest.mark.parametrize("status, text, reason", [

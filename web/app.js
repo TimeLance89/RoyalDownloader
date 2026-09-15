@@ -298,13 +298,7 @@ async function initApp() {
   document.getElementById("series-az-btn").addEventListener("click", () => {
     document.getElementById("series-alpha-bar").classList.toggle("hidden");
   });
-  document.getElementById("series-select-all").addEventListener("click", () => {
-    if (!state.series.current) return;
-    state.series.epPicked = new Set(
-      seriesEpisodes().filter(isEpisodeSelectable).map((episode) => episode.slug),
-    );
-    renderSeriesTiles();
-  });
+  document.getElementById("series-select-all").addEventListener("click", selectAllSeriesEpisodes);
   document.getElementById("series-select-none").addEventListener("click", () => {
     state.series.epPicked.clear();
     renderSeriesTiles();

@@ -24,6 +24,7 @@ from providers.models import (
     parse_episode_slug,
 )
 from media.session_manager import ProviderBlockedError
+from providers.catalog import normalize_content_language
 
 
 BASE_URL = "https://huhu.to"
@@ -234,19 +235,23 @@ class HuhuScraper:
             host = (urlparse(url).hostname or "").casefold()
             if host == "bs.to" or host.endswith(".bs.to"):
                 continue
-            languages = [
-                str(value or "").strip().casefold()
-                for value in source.get("languages") or []
-            ]
-            if languages and not any(
-                value == "de" or value.startswith("de-") for value in languages
-            ):
+            raw_languages = source.get("languages")
+            if not isinstance(raw_languages, (list, tuple)):
+                raw_languages = [raw_languages] if raw_languages else []
+            languages = {
+                normalize_content_language(value)
+                for value in raw_languages
+                if normalize_content_language(value)
+            }
+            # The API's locale is not proof of the actual stream language.
+            # Sources without an explicit German language must fail closed.
+            if "de" not in languages:
                 continue
             seen_urls.add(url)
             hosters.append(HosterInfo(
                 name=self._hoster_name(url, str(source.get("name") or "Huhu")),
                 url=url,
-                language="de" if not languages or "de" in languages else languages[0],
+                language="de",
                 quality=str(source.get("tag") or ""),
             ))
         return hosters

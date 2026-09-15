@@ -74,6 +74,21 @@ def test_deferred_series_detail_is_already_marked_subscribed(monkeypatch):
     assert payload["tmdb_id"] == 94997
 
 
+def test_series_detail_exposes_offered_and_enabled_episode_languages(monkeypatch):
+    monkeypatch.setattr(server.state, "watchlist", [])
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    series = _series("serienstream:test-series")
+    series.seasons[1][0].content_languages = ("de", "en")
+    series.seasons[1][1].content_languages = ("en",)
+
+    payload = server.series_to_dict(series, defer_checks=True)
+
+    assert payload["enabled_content_languages"] == ["de"]
+    assert [episode["content_languages"] for episode in payload["seasons"][0]["episodes"]] == [
+        ["de", "en"], ["en"],
+    ]
+
+
 def test_ambiguous_title_without_stable_id_does_not_guess(monkeypatch):
     monkeypatch.setattr(server.state, "watchlist", [
         {"base_slug": "one", "title": "The Office", "tmdb_id": 2316},

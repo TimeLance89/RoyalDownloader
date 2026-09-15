@@ -427,6 +427,7 @@ class SerienstreamScraper:
                 release_name="",
                 release_at=listing.release_at,
                 release_label=listing.release_label,
+                content_languages=listing.content_languages,
             ))
         return eps
 

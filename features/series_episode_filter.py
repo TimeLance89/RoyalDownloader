@@ -29,6 +29,7 @@ class EpisodeListing:
     episode: int
     release_at: str = ""
     release_label: str = ""
+    content_languages: tuple[str, ...] = ()
 
     @property
     def is_released(self) -> bool:
@@ -67,12 +68,20 @@ def episode_listings(page_html: str, series_slug: str, season: int) -> list[Epis
     )
     found = {int(number) for number in episode_re.findall(page_html or "")}
     upcoming: dict[int, tuple[str, str]] = {}
+    languages: dict[int, tuple[str, ...]] = {}
 
     for row_match in _ROW_RE.finditer(page_html or ""):
         row = row_match.group(0)
         row_numbers = {int(number) for number in episode_re.findall(row)}
         if not row_numbers:
             continue
+        flags = []
+        if "svg-flag-german" in row.casefold():
+            flags.append("de")
+        if "svg-flag-english" in row.casefold():
+            flags.append("en")
+        if flags:
+            languages.update((number, tuple(flags)) for number in row_numbers)
         opening_tag = row.split(">", 1)[0].casefold()
         plain_text = html.unescape(_TAG_RE.sub(" ", row))
         is_upcoming = (
@@ -85,7 +94,11 @@ def episode_listings(page_html: str, series_slug: str, season: int) -> list[Epis
             upcoming.update((number, details) for number in row_numbers)
 
     return [
-        EpisodeListing(number, *(upcoming.get(number) or ("", "")))
+        EpisodeListing(
+            number,
+            *(upcoming.get(number) or ("", "")),
+            languages.get(number, ()),
+        )
         for number in sorted(found)
     ]
 
