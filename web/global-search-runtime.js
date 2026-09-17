@@ -32,6 +32,25 @@
   state.globalSearch.failures = [];
   state.globalSearch.pendingCatalogs = [];
 
+  // Manche Provider führen Inhalte absichtlich anders als TMDB. Ein Beispiel
+  // sind Anthologien, die auf der Quellseite eine Serie mit mehreren Staffeln
+  // sind, während TMDB die Geschichten als einzelne Serien führt. In diesem
+  // Fall darf die reine Artwork-Hydration nicht Titel/Jahr/TMDB-ID und damit
+  // die klickbare Provider-Identität überschreiben.
+  if (
+    typeof window.hydrateHomeSeriesArtwork === "function"
+    && !window.__royalProviderSeriesMetadataPolicyInstalled
+  ) {
+    window.__royalProviderSeriesMetadataPolicyInstalled = true;
+    const baseHydrateHomeSeriesArtwork = window.hydrateHomeSeriesArtwork;
+    window.hydrateHomeSeriesArtwork = function hydrateProviderAuthoritativeSeries(items, options) {
+      const metadataSafeItems = (items || []).filter(
+        (item) => item?.metadata_policy !== "provider_authoritative",
+      );
+      return baseHydrateHomeSeriesArtwork(metadataSafeItems, options);
+    };
+  }
+
   function uniqueCatalogContentEntries(entries) {
     // Provider-Slugs/Base-Slugs sind technische Quellen-IDs und keine
     // Inhaltsidentität. Innerhalb eines Katalogs deshalb TMDB bzw.

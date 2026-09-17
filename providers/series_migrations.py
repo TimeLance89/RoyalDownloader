@@ -1,9 +1,10 @@
 """Provider series source migrations for renamed or merged catalog entries.
 
 A provider can rename a series slug or merge previously separate shows into a
-single canonical series.  Persisted watchlist/queue entries must keep working
+single canonical series. Persisted watchlist/queue entries must keep working
 across those changes, including episode slugs whose season number changed as
-part of the merge.
+part of the merge. Canonical identities additionally describe provider-native
+series whose structure must not be replaced by an ambiguous metadata match.
 """
 
 from __future__ import annotations
@@ -33,7 +34,19 @@ class SeriesSourceMigration:
     legacy_title: str = ""
 
 
-# Registry intentionally uses explicit historical identities.  More provider
+@dataclass(frozen=True)
+class SeriesCanonicalIdentity:
+    """Current provider-native identity for a renamed or merged series."""
+
+    provider: str
+    canonical_slug: str
+    title: str
+    year: str = ""
+    aliases: tuple[str, ...] = ()
+    metadata_policy: str = "provider_authoritative"
+
+
+# Registry intentionally uses explicit historical identities. More provider
 # migrations can be added here without teaching queue/watchlist code about a
 # particular site or title.
 SERIES_SOURCE_MIGRATIONS: tuple[SeriesSourceMigration, ...] = (
@@ -60,9 +73,32 @@ SERIES_SOURCE_MIGRATIONS: tuple[SeriesSourceMigration, ...] = (
     ),
 )
 
+
+SERIES_CANONICAL_IDENTITIES: tuple[SeriesCanonicalIdentity, ...] = (
+    SeriesCanonicalIdentity(
+        provider="serienstream",
+        canonical_slug="monster-2022",
+        title="Monster",
+        year="2022",
+        aliases=(
+            "Monster (2022)",
+            "Dahmer – Monster: Die Geschichte von Jeffrey Dahmer",
+            "Dahmer - Monster: Die Geschichte von Jeffrey Dahmer",
+            "Monster: Die Geschichte von Lyle und Erik Menendez",
+            "Monster: Die Geschichte von Ed Gein",
+            "Monster: Die Geschichte von Lizzie Borden",
+        ),
+    ),
+)
+
+
 _MIGRATIONS_BY_KEY = {
     (migration.provider.casefold(), migration.legacy_slug.casefold()): migration
     for migration in SERIES_SOURCE_MIGRATIONS
+}
+_IDENTITIES_BY_KEY = {
+    (identity.provider.casefold(), identity.canonical_slug.casefold()): identity
+    for identity in SERIES_CANONICAL_IDENTITIES
 }
 _PROVIDER_PREFIXES = {
     "serienstream": "serienstream:",
@@ -84,12 +120,19 @@ def canonical_provider_series_slug(provider: str, slug: str) -> str:
     return migration.canonical_slug if migration else str(slug or "").strip()
 
 
+def canonical_identity_for(provider: str, slug: str) -> SeriesCanonicalIdentity | None:
+    canonical_slug = canonical_provider_series_slug(provider, slug)
+    return _IDENTITIES_BY_KEY.get(
+        (str(provider or "").strip().casefold(), canonical_slug.casefold())
+    )
+
+
 def _canonical_episode(provider: str, base: str, season: int, episode: int) -> tuple[str, int, int]:
     migration = migration_for(provider, base)
     if migration is None:
         return base, season, episode
     # The known split->anthology migrations came from standalone shows whose
-    # only season was S01.  Preserve unexpected legacy season numbers rather
+    # only season was S01. Preserve unexpected legacy season numbers rather
     # than guessing an offset for data we have never observed.
     target_season = (
         migration.canonical_season
@@ -151,6 +194,73 @@ def canonical_series_source(value: str) -> str:
         if episode_text is not None:
             new_path += f"/episode-{int(episode_text)}"
     return urlunsplit((parsed.scheme, parsed.netloc, new_path, parsed.query, parsed.fragment))
+
+
+def _provider_slug_from_source(value: str) -> tuple[str, str] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for provider, prefix in _PROVIDER_PREFIXES.items():
+        if raw.casefold().startswith(prefix.casefold()):
+            rest = raw[len(prefix):]
+            episode = _EPISODE_RE.match(rest)
+            slug = episode.group("base") if episode else rest
+            return provider, canonical_provider_series_slug(provider, slug)
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    host = (parsed.hostname or "").casefold()
+    provider = next(
+        (name for name, hosts in _PROVIDER_HOSTS.items() if host in hosts),
+        "",
+    )
+    if not provider:
+        return None
+    match = _SERIES_PATH_RE.match(parsed.path or "")
+    if not match:
+        return None
+    return provider, canonical_provider_series_slug(provider, match.group("slug"))
+
+
+def canonical_identity_for_source(value: str) -> SeriesCanonicalIdentity | None:
+    source = _provider_slug_from_source(value)
+    if source is None:
+        return None
+    return canonical_identity_for(*source)
+
+
+def _search_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def series_search_identity(query: str) -> SeriesCanonicalIdentity | None:
+    """Resolve an exact provider slug/URL or known title alias used in search."""
+    raw = str(query or "").strip()
+    if not raw:
+        return None
+    source_identity = canonical_identity_for_source(raw)
+    if source_identity is not None:
+        return source_identity
+
+    wanted = _search_key(raw)
+    for identity in SERIES_CANONICAL_IDENTITIES:
+        candidates = {
+            _search_key(identity.canonical_slug),
+            _search_key(identity.title),
+            _search_key(f"{identity.title} ({identity.year})"),
+            *(_search_key(alias) for alias in identity.aliases),
+        }
+        migrations = (
+            migration for migration in SERIES_SOURCE_MIGRATIONS
+            if migration.provider.casefold() == identity.provider.casefold()
+            and migration.canonical_slug.casefold() == identity.canonical_slug.casefold()
+        )
+        candidates.update(_search_key(migration.legacy_slug) for migration in migrations)
+        candidates.update(_search_key(migration.legacy_title) for migration in migrations)
+        if wanted in candidates:
+            return identity
+    return None
 
 
 def equivalent_series_sources(left: str, right: str) -> bool:
