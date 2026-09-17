@@ -34,8 +34,11 @@ def _canonical_result(identity, result=None) -> FilmpalastSeriesResult:
     return FilmpalastSeriesResult(
         title=f"{identity.title}{_PROVIDER_SUFFIX.get(identity.provider, '')}",
         base_slug=base_slug,
-        sample_slug=base_slug,
-        sample_url=_PROVIDER_URL[identity.provider].format(slug=identity.canonical_slug),
+        sample_slug=str(getattr(result, "sample_slug", "") or base_slug),
+        sample_url=str(
+            getattr(result, "sample_url", "")
+            or _PROVIDER_URL[identity.provider].format(slug=identity.canonical_slug)
+        ),
         year=identity.year,
         cover_url=str(getattr(result, "cover_url", "") or ""),
     )
@@ -56,6 +59,36 @@ def _canonicalize_provider_results(provider: str, results) -> list[FilmpalastSer
         seen.add(key)
         normalized.append(current)
     return normalized
+
+
+def _is_direct_canonical_search(query: str, identity) -> bool:
+    """Return True for explicit provider URLs/prefixes or canonical bare slugs."""
+    raw = str(query or "").strip()
+    if not raw:
+        return False
+    if canonical_identity_for_source(raw) is not None:
+        return True
+    return raw.casefold() == identity.canonical_slug.casefold()
+
+
+def _canonical_provider_hit(backend, identity):
+    """Resolve the current provider card without leaking fuzzy cross-provider hits."""
+    canonical_source = f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
+    try:
+        canonical_hits = backend._search_series_for_provider(
+            identity.provider, identity.title,
+        )
+    except Exception:
+        canonical_hits = []
+    canonical_hits = _canonicalize_provider_results(identity.provider, canonical_hits)
+    matching = next((
+        result for result in canonical_hits
+        if equivalent_series_sources(
+            result.base_slug or result.sample_slug or result.sample_url,
+            canonical_source,
+        )
+    ), None)
+    return matching or _canonical_result(identity)
 
 
 def _install_serienstream_migrations() -> None:
@@ -109,11 +142,17 @@ def _install_search_migrations() -> None:
 
     @wraps(original_provider_search)
     def migrated_provider_search(query: str):
+        identity = series_search_identity(query)
+        if identity is not None and _is_direct_canonical_search(query, identity):
+            active = list(backend.provider_priority("series"))
+            if identity.provider not in active:
+                return {}
+            return {identity.provider: [_canonical_provider_hit(backend, identity)]}
+
         provider_results = original_provider_search(query)
         for provider, results in list(provider_results.items()):
             provider_results[provider] = _canonicalize_provider_results(provider, results)
 
-        identity = series_search_identity(query)
         if identity is None:
             return provider_results
 
@@ -132,24 +171,7 @@ def _install_search_migrations() -> None:
         ):
             return provider_results
 
-        # A slug such as ``monster-2022`` is not useful to a title-search form.
-        # Retry the provider with its canonical human title, then fall back to a
-        # navigable provider-native stub when the site search itself is stale.
-        try:
-            canonical_hits = backend._search_series_for_provider(
-                identity.provider, identity.title,
-            )
-        except Exception:
-            canonical_hits = []
-        canonical_hits = _canonicalize_provider_results(identity.provider, canonical_hits)
-        matching = next((
-            result for result in canonical_hits
-            if equivalent_series_sources(
-                result.base_slug or result.sample_slug or result.sample_url,
-                canonical_source,
-            )
-        ), None)
-        results.insert(0, matching or _canonical_result(identity))
+        results.insert(0, _canonical_provider_hit(backend, identity))
         return provider_results
 
     migrated_provider_search._royal_series_search_migrations_installed = True
