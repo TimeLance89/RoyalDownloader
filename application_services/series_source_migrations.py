@@ -133,6 +133,63 @@ def _install_watchlist_migrations() -> None:
     backend.watchlist_lookup = migrated_watchlist_lookup
 
 
+def _install_load_migrations() -> None:
+    """Keep explicit migrated provider identities strict while loading details."""
+    backend = _runtime._registered_backend()
+    original_get_series_for_value = backend.get_series_for_value
+    if getattr(original_get_series_for_value, "_royal_series_load_migrations_installed", False):
+        return
+
+    @wraps(original_get_series_for_value)
+    def migrated_get_series_for_value(value: str, fallback_title: str = ""):
+        identity = canonical_identity_for_source(value)
+        if identity is None:
+            return original_get_series_for_value(value, fallback_title)
+
+        canonical_source = (
+            f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
+        )
+        try:
+            series = backend._load_series_for_provider(identity.provider, canonical_source)
+        except Exception as exc:
+            backend.log(
+                f"{_PROVIDER_SUFFIX.get(identity.provider, identity.provider)} "
+                f"Serie «{identity.title}» direkt nicht ladbar: {exc}",
+                "warn",
+            )
+            series = None
+        if series is not None and getattr(series, "seasons", None):
+            return series
+
+        # Eine explizite Provider-Identität darf niemals per Fuzzy-Fallback zu
+        # einer anderen Serie oder sogar einem anderen Anbieter mutieren. Ein
+        # letzter Retry bleibt deshalb auf denselben Provider beschränkt und
+        # akzeptiert nur den kanonisch äquivalenten Treffer.
+        try:
+            hits = backend._search_series_for_provider(identity.provider, identity.title)
+        except Exception:
+            hits = []
+        for hit in _canonicalize_provider_results(identity.provider, hits):
+            if not equivalent_series_sources(
+                hit.base_slug or hit.sample_slug or hit.sample_url,
+                canonical_source,
+            ):
+                continue
+            try:
+                series = backend._load_series_for_provider(
+                    identity.provider,
+                    hit.sample_slug or hit.base_slug or hit.sample_url,
+                )
+            except Exception:
+                series = None
+            if series is not None and getattr(series, "seasons", None):
+                return series
+        return None
+
+    migrated_get_series_for_value._royal_series_load_migrations_installed = True
+    backend.get_series_for_value = migrated_get_series_for_value
+
+
 def _install_search_migrations() -> None:
     """Keep provider identities authoritative through discovery and UI payloads."""
     backend = _runtime._registered_backend()
@@ -215,4 +272,5 @@ def _install_search_migrations() -> None:
 
 _install_serienstream_migrations()
 _install_watchlist_migrations()
+_install_load_migrations()
 _install_search_migrations()

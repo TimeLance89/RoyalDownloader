@@ -43,6 +43,7 @@ class SeriesCanonicalIdentity:
     title: str
     year: str = ""
     aliases: tuple[str, ...] = ()
+    season_hints: tuple[int, ...] = ()
     metadata_policy: str = "provider_authoritative"
 
 
@@ -88,6 +89,7 @@ SERIES_CANONICAL_IDENTITIES: tuple[SeriesCanonicalIdentity, ...] = (
             "Monster: Die Geschichte von Ed Gein",
             "Monster: Die Geschichte von Lizzie Borden",
         ),
+        season_hints=(1, 2, 3, 4),
     ),
 )
 
@@ -125,6 +127,12 @@ def canonical_identity_for(provider: str, slug: str) -> SeriesCanonicalIdentity 
     return _IDENTITIES_BY_KEY.get(
         (str(provider or "").strip().casefold(), canonical_slug.casefold())
     )
+
+
+def canonical_season_hints(provider: str, slug: str) -> tuple[int, ...]:
+    """Return known season numbers for provider-native merged identities."""
+    identity = canonical_identity_for(provider, slug)
+    return identity.season_hints if identity is not None else ()
 
 
 def _canonical_episode(provider: str, base: str, season: int, episode: int) -> tuple[str, int, int]:
