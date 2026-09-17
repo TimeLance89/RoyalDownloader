@@ -139,3 +139,32 @@ def test_provider_authoritative_series_use_tmdb_for_artwork_only():
     assert "tmdb_id" not in runtime.split("const artworkClones", 1)[1].split(
         "function uniqueCatalogContentEntries", 1,
     )[0]
+
+
+def test_canonical_provider_detail_load_never_falls_back_to_other_series(monkeypatch):
+    calls = []
+
+    def load(provider, value):
+        calls.append(("load", provider, value))
+        return None
+
+    def search(provider, query):
+        calls.append(("search", provider, query))
+        return [FilmpalastSeriesResult(
+            title="Monarch: Legacy of Monsters",
+            base_slug="huhu:monarch",
+            sample_slug="huhu:monarch",
+            sample_url="https://example.invalid/monarch",
+        )]
+
+    monkeypatch.setattr(server, "_load_series_for_provider", load)
+    monkeypatch.setattr(server, "_search_series_for_provider", search)
+
+    loaded = server.get_series_for_value(f"serienstream:{CANONICAL}")
+
+    assert loaded is None
+    assert calls == [
+        ("load", "serienstream", f"serienstream:{CANONICAL}"),
+        ("search", "serienstream", "Monster"),
+    ]
+    assert all(call[1] == "serienstream" for call in calls)
