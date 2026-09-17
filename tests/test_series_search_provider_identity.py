@@ -1,0 +1,100 @@
+from pathlib import Path
+
+import pytest
+
+import server
+from providers.models import FilmpalastSeriesResult
+from providers.series_migrations import (
+    canonical_identity_for_source,
+    series_search_identity,
+)
+
+
+CANONICAL = "monster-2022"
+ED_GEIN = "monster-die-geschichte-von-ed-gein"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Monster",
+        "Monster (2022)",
+        "monster-2022",
+        "serienstream:monster-2022",
+        "Monster: Die Geschichte von Ed Gein",
+        "Dahmer - Monster: Die Geschichte von Jeffrey Dahmer",
+    ],
+)
+def test_monster_search_aliases_resolve_provider_canonical_identity(query):
+    identity = series_search_identity(query)
+
+    assert identity is not None
+    assert identity.provider == "serienstream"
+    assert identity.canonical_slug == CANONICAL
+    assert identity.title == "Monster"
+    assert identity.year == "2022"
+    assert identity.metadata_policy == "provider_authoritative"
+
+
+def test_canonical_identity_is_recognized_from_current_provider_source():
+    identity = canonical_identity_for_source(f"serienstream:{CANONICAL}")
+
+    assert identity is not None
+    assert identity.canonical_slug == CANONICAL
+
+
+def test_slug_search_injects_navigable_canonical_provider_result(monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "provider_priority",
+        lambda kind: ["serienstream"] if kind == "series" else [],
+    )
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_args: [])
+
+    catalog = server.series_search_catalog("monster-2022")
+
+    assert catalog["entries"]
+    entry = catalog["entries"][0]
+    assert entry.provider == "serienstream"
+    assert entry.result.base_slug == f"serienstream:{CANONICAL}"
+    assert entry.result.sample_slug == f"serienstream:{CANONICAL}"
+    assert entry.result.sample_url == f"https://serienstream.to/serie/{CANONICAL}"
+    assert entry.result.title.startswith("Monster")
+    assert entry.result.year == "2022"
+
+    payload = server._series_entry_to_dict(entry)
+    assert payload["metadata_policy"] == "provider_authoritative"
+    assert payload["canonical_series_source"] == f"serienstream:{CANONICAL}"
+
+
+def test_legacy_provider_search_hit_collapses_to_current_monster_series(monkeypatch):
+    legacy = FilmpalastSeriesResult(
+        title="Monster: Die Geschichte von Ed Gein  [S.to]",
+        base_slug=f"serienstream:{ED_GEIN}",
+        sample_slug=f"serienstream:{ED_GEIN}",
+        sample_url=f"https://serienstream.to/serie/{ED_GEIN}",
+        year="2025",
+    )
+    monkeypatch.setattr(
+        server,
+        "provider_priority",
+        lambda kind: ["serienstream"] if kind == "series" else [],
+    )
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_args: [legacy])
+
+    catalog = server.series_search_catalog("Monster")
+
+    assert catalog["entries"]
+    result = catalog["entries"][0].result
+    assert result.base_slug == f"serienstream:{CANONICAL}"
+    assert result.title.startswith("Monster")
+    assert result.year == "2022"
+
+
+def test_provider_authoritative_series_are_not_overwritten_by_tmdb_hydration():
+    runtime = (
+        Path(__file__).resolve().parents[1] / "web" / "global-search-runtime.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'item?.metadata_policy !== "provider_authoritative"' in runtime
+    assert "baseHydrateHomeSeriesArtwork(metadataSafeItems, options)" in runtime
