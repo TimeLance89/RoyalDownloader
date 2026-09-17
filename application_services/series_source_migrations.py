@@ -6,11 +6,56 @@ from functools import wraps
 
 from application_services import runtime as _runtime
 from providers import serienstream as _serienstream
+from providers.models import FilmpalastSeriesResult
 from providers.series_migrations import (
+    canonical_identity_for_source,
     canonical_provider_series_slug,
     canonical_series_source,
     equivalent_series_sources,
+    series_search_identity,
 )
+
+
+_PROVIDER_PREFIX = {
+    "serienstream": "serienstream:",
+}
+_PROVIDER_URL = {
+    "serienstream": "https://serienstream.to/serie/{slug}",
+}
+_PROVIDER_SUFFIX = {
+    "serienstream": "  [S.to]",
+}
+
+
+def _canonical_result(identity, result=None) -> FilmpalastSeriesResult:
+    """Build a provider result whose navigation identity stays provider-native."""
+    prefix = _PROVIDER_PREFIX[identity.provider]
+    base_slug = f"{prefix}{identity.canonical_slug}"
+    return FilmpalastSeriesResult(
+        title=f"{identity.title}{_PROVIDER_SUFFIX.get(identity.provider, '')}",
+        base_slug=base_slug,
+        sample_slug=base_slug,
+        sample_url=_PROVIDER_URL[identity.provider].format(slug=identity.canonical_slug),
+        year=identity.year,
+        cover_url=str(getattr(result, "cover_url", "") or ""),
+    )
+
+
+def _canonicalize_provider_results(provider: str, results) -> list[FilmpalastSeriesResult]:
+    """Collapse legacy provider hits onto the current canonical series source."""
+    normalized: list[FilmpalastSeriesResult] = []
+    seen: set[str] = set()
+    for result in results or []:
+        identity = canonical_identity_for_source(
+            result.base_slug or result.sample_slug or result.sample_url
+        )
+        current = _canonical_result(identity, result) if identity else result
+        key = str(current.base_slug or current.sample_slug or current.sample_url).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(current)
+    return normalized
 
 
 def _install_serienstream_migrations() -> None:
@@ -55,5 +100,97 @@ def _install_watchlist_migrations() -> None:
     backend.watchlist_lookup = migrated_watchlist_lookup
 
 
+def _install_search_migrations() -> None:
+    """Keep provider identities authoritative through discovery and UI payloads."""
+    backend = _runtime._registered_backend()
+    original_provider_search = backend._search_series_provider_results
+    if getattr(original_provider_search, "_royal_series_search_migrations_installed", False):
+        return
+
+    @wraps(original_provider_search)
+    def migrated_provider_search(query: str):
+        provider_results = original_provider_search(query)
+        for provider, results in list(provider_results.items()):
+            provider_results[provider] = _canonicalize_provider_results(provider, results)
+
+        identity = series_search_identity(query)
+        if identity is None:
+            return provider_results
+
+        active = list(backend.provider_priority("series"))
+        if identity.provider not in active:
+            return provider_results
+
+        results = provider_results.setdefault(identity.provider, [])
+        canonical_source = f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
+        if any(
+            equivalent_series_sources(
+                result.base_slug or result.sample_slug or result.sample_url,
+                canonical_source,
+            )
+            for result in results
+        ):
+            return provider_results
+
+        # A slug such as ``monster-2022`` is not useful to a title-search form.
+        # Retry the provider with its canonical human title, then fall back to a
+        # navigable provider-native stub when the site search itself is stale.
+        try:
+            canonical_hits = backend._search_series_for_provider(
+                identity.provider, identity.title,
+            )
+        except Exception:
+            canonical_hits = []
+        canonical_hits = _canonicalize_provider_results(identity.provider, canonical_hits)
+        matching = next((
+            result for result in canonical_hits
+            if equivalent_series_sources(
+                result.base_slug or result.sample_slug or result.sample_url,
+                canonical_source,
+            )
+        ), None)
+        results.insert(0, matching or _canonical_result(identity))
+        return provider_results
+
+    migrated_provider_search._royal_series_search_migrations_installed = True
+    backend._search_series_provider_results = migrated_provider_search
+
+    original_search_catalog = backend.series_search_catalog
+
+    @wraps(original_search_catalog)
+    def migrated_search_catalog(query: str):
+        catalog = original_search_catalog(query)
+        identity = series_search_identity(query)
+        if identity is None:
+            return catalog
+        canonical_source = f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
+        entries = list(catalog.get("entries") or [])
+        entries.sort(key=lambda entry: not equivalent_series_sources(
+            entry.result.base_slug or entry.result.sample_slug or entry.result.sample_url,
+            canonical_source,
+        ))
+        return {**catalog, "entries": entries}
+
+    backend.series_search_catalog = migrated_search_catalog
+
+    original_entry_to_dict = backend._series_entry_to_dict
+
+    @wraps(original_entry_to_dict)
+    def migrated_entry_to_dict(entry):
+        payload = original_entry_to_dict(entry)
+        identity = canonical_identity_for_source(
+            entry.result.base_slug or entry.result.sample_slug or entry.result.sample_url
+        )
+        if identity is not None:
+            payload["metadata_policy"] = identity.metadata_policy
+            payload["canonical_series_source"] = (
+                f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
+            )
+        return payload
+
+    backend._series_entry_to_dict = migrated_entry_to_dict
+
+
 _install_serienstream_migrations()
 _install_watchlist_migrations()
+_install_search_migrations()
