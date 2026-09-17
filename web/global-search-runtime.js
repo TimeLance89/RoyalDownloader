@@ -34,20 +34,53 @@
 
   // Manche Provider führen Inhalte absichtlich anders als TMDB. Ein Beispiel
   // sind Anthologien, die auf der Quellseite eine Serie mit mehreren Staffeln
-  // sind, während TMDB die Geschichten als einzelne Serien führt. In diesem
-  // Fall darf die reine Artwork-Hydration nicht Titel/Jahr/TMDB-ID und damit
-  // die klickbare Provider-Identität überschreiben.
+  // sind, während TMDB die Geschichten als einzelne Serien führt. Für solche
+  // Treffer darf TMDB Bilder liefern, aber niemals Titel/Jahr/TMDB-ID oder die
+  // klickbare Provider-Identität ersetzen.
   if (
     typeof window.hydrateHomeSeriesArtwork === "function"
     && !window.__royalProviderSeriesMetadataPolicyInstalled
   ) {
     window.__royalProviderSeriesMetadataPolicyInstalled = true;
     const baseHydrateHomeSeriesArtwork = window.hydrateHomeSeriesArtwork;
-    window.hydrateHomeSeriesArtwork = function hydrateProviderAuthoritativeSeries(items, options) {
-      const metadataSafeItems = (items || []).filter(
+    window.hydrateHomeSeriesArtwork = async function hydrateProviderAuthoritativeSeries(
+      items,
+      options = {},
+    ) {
+      const sourceItems = items || [];
+      const regularItems = sourceItems.filter(
         (item) => item?.metadata_policy !== "provider_authoritative",
       );
-      return baseHydrateHomeSeriesArtwork(metadataSafeItems, options);
+      const authoritativeItems = sourceItems.filter(
+        (item) => item?.metadata_policy === "provider_authoritative",
+      );
+      const artworkClones = authoritativeItems.map((item) => ({ ...item }));
+
+      const [regularHydrated, authoritativeHydrated] = await Promise.all([
+        baseHydrateHomeSeriesArtwork(regularItems, { ...options, render: false }),
+        baseHydrateHomeSeriesArtwork(artworkClones, { ...options, render: false }),
+      ]);
+
+      let copiedArtwork = false;
+      artworkClones.forEach((clone, index) => {
+        const target = authoritativeItems[index];
+        for (const field of ["cover_url", "backdrop_url"]) {
+          if (clone[field] && clone[field] !== target[field]) {
+            target[field] = clone[field];
+            copiedArtwork = true;
+          }
+        }
+      });
+
+      if (copiedArtwork) {
+        if (typeof saveHomeCache === "function") saveHomeCache();
+        if (options?.render !== false && typeof renderHome === "function") renderHome();
+      }
+
+      return [...new Set([
+        ...(regularHydrated || []),
+        ...(authoritativeHydrated || []),
+      ])];
     };
   }
 
