@@ -353,7 +353,7 @@ class SerienstreamScraper:
         season_nums = sorted({
             int(m)
             for m in re.findall(
-                rf'/serie/{re.escape(slug)}/staffel-(\\d+)', str(soup)
+                rf'/serie/{re.escape(slug)}/staffel-(\d+)', str(soup)
             )
             if int(m) > 0
         })
