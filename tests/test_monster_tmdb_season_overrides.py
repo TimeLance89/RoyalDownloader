@@ -75,9 +75,9 @@ def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, seaso
     assert filtered is not None
     assert filtered.base_slug == f"tmdb-series:{tmdb_id}"
     assert filtered.url.endswith(f"/staffel-{season}")
-    assert filtered.season_numbers == [season]
-    assert [episode.slug for episode in filtered.all_episodes] == [
-        f"serienstream:monster-2022-s{season:02d}e01"
+    assert filtered.season_numbers == [1]
+    assert [(episode.season, episode.slug) for episode in filtered.all_episodes] == [
+        (1, f"serienstream:monster-2022-s{season:02d}e01")
     ]
 
 
@@ -97,7 +97,7 @@ def test_runtime_virtual_tmdb_source_loads_only_mapped_season(
 
     assert loaded is not None
     assert loaded.base_slug == f"tmdb-series:{tmdb_id}"
-    assert loaded.season_numbers == [season]
+    assert loaded.season_numbers == [1]
     assert calls == [("serienstream", "serienstream:monster-2022")]
 
 
