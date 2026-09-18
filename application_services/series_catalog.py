@@ -10,6 +10,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
 
@@ -659,6 +660,9 @@ def _episode_placeholder(slug: str, series_title: str = "") -> FilmpalastMovie:
     if not parsed:
         raise ValueError(f"Kein Episoden-Slug: {slug}")
     base_slug, season, episode = parsed
+    monster_virtual = parse_monster_virtual_episode(slug)
+    if not series_title and monster_virtual is not None:
+        series_title = monster_virtual[0].fallback_title
     if not series_title:
         with state.watchlist_lock:
             entry = watchlist_lookup(base_slug)

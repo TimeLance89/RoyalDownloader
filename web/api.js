@@ -128,6 +128,14 @@ const api = {
       .finally(() => clearTimeout(timer));
   },
   seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
+    const special = /^monster-tmdb:(\d+)$/i.exec(baseSlug || sampleSlug || "");
+    if (special) {
+      return this.post("/api/series/monster-tmdb-load", {
+        tmdb_id: Number(special[1]),
+        refresh_jellyfin: refreshJellyfin,
+        defer_checks: deferChecks,
+      });
+    }
     return this.post("/api/series/load", {
       sample_slug: sampleSlug, base_slug: baseSlug,
       refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,

@@ -732,6 +732,13 @@ function updateWatchBtn() {
   const btn = document.getElementById("series-watch-btn");
   const series = state.series.current;
   if (!series) return;
+  if (series.special_series === "monster_tmdb") {
+    btn.disabled = true;
+    btn.textContent = "Abo für Sonderzuordnung deaktiviert";
+    btn.title = "Diese vier Monster-TMDB-Zuordnungen werden nicht als Anthologie-Abo gespeichert.";
+    return;
+  }
+  btn.disabled = false;
   const tracked = series.watchlisted;
   const label = WATCH_MODE_LABELS[series.watch_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
   btn.textContent = tracked ? `✓ Abo · ${label}` : "+ Abonnieren";
