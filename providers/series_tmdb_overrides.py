@@ -124,7 +124,6 @@ def logical_episode_identity(value: str) -> tuple[int, int] | None:
     return int(season), int(episode)
 
 
-
 def apply_tmdb_season_override(
     series: FilmpalastSeries,
     override: TmdbSeriesSeasonOverride,
