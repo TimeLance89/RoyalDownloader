@@ -126,7 +126,12 @@ def apply_tmdb_season_override(
     description: str = "",
     genres: list[str] | None = None,
 ) -> FilmpalastSeries | None:
-    source_episodes = list((series.seasons or {}).get(override.season) or [])
+    source_episodes = list(
+        (series.seasons or {}).get(
+            1 if series.base_slug == override.virtual_base_slug else override.season
+        )
+        or []
+    )
     if not source_episodes:
         return None
     # TMDB führt jede Geschichte als eigenständige Serie mit Staffel 1. Die
