@@ -10,6 +10,10 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from features.monster_series_extension import (
+    monster_source_episode_slug,
+    parse_monster_virtual_episode,
+)
 
 globals().update(import_backend_namespace())
 
@@ -122,6 +126,8 @@ def provider_priority(media_type: str) -> List[str]:
 
 def provider_for_value(value: str) -> str:
     """Erkennt die Katalogquelle an den zentral hinterlegten Merkmalen."""
+    if parse_monster_virtual_episode(value) is not None:
+        return "serienstream"
     return provider_for_source(value)
 
 
@@ -251,7 +257,11 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     if re.fullmatch(r"tmdb:\d+", slug or "", flags=re.IGNORECASE):
         sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
         return sources[0] if sources else None
-    provider = provider_for_value(slug)
+    requested_slug = slug
+    monster_virtual = parse_monster_virtual_episode(requested_slug)
+    provider = provider_for_value(requested_slug)
+    if monster_virtual is not None:
+        slug = monster_source_episode_slug(requested_slug) or requested_slug
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(FILMO_PREFIX):
@@ -302,6 +312,11 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     movie = _apply_provider_metadata(movie, provider)
     if movie is None:
         return None
+    if monster_virtual is not None:
+        item, episode_number = monster_virtual
+        cached = state.series_cache.get(item.virtual_base_slug)
+        series_title = cached.title if cached and cached.title else item.fallback_title
+        movie.title = f"{series_title} S01E{episode_number:02d}"
     language = _movie_content_language(movie, fallback=slug)
     with state.provider_priority_lock:
         enabled_languages = {
