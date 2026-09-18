@@ -7,6 +7,9 @@ from providers.models import FilmpalastSeries, SeriesEpisode
 from providers.series_tmdb_overrides import (
     MONSTER_TMDB_SEASON_OVERRIDES,
     apply_tmdb_season_override,
+    logical_episode_identity,
+    source_episode_slug,
+    tmdb_series_override_for_episode_slug,
     tmdb_series_override_for_value,
     tmdb_series_season_override,
 )
@@ -67,6 +70,28 @@ def test_unrelated_tmdb_id_has_no_override():
     assert tmdb_series_override_for_value("tmdb-series:94997") is None
 
 
+@pytest.mark.parametrize("tmdb_id,source_season", EXPECTED.items())
+def test_virtual_episode_resolves_to_exact_provider_episode(tmdb_id, source_season):
+    virtual = f"tmdb-series:{tmdb_id}-s01e03"
+
+    override = tmdb_series_override_for_episode_slug(virtual)
+
+    assert override is not None
+    assert override.tmdb_id == tmdb_id
+    assert logical_episode_identity(virtual) == (1, 3)
+    assert source_episode_slug(virtual) == (
+        f"serienstream:monster-2022-s{source_season:02d}e03"
+    )
+
+
+def test_direct_anthology_episode_is_not_affected_by_tmdb_exception():
+    source = "serienstream:monster-2022-s03e04"
+
+    assert tmdb_series_override_for_episode_slug(source) is None
+    assert logical_episode_identity(source) == (3, 4)
+    assert source_episode_slug(source) == source
+
+
 @pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
 def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, season):
     override = tmdb_series_season_override(tmdb_id)
@@ -77,8 +102,11 @@ def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, seaso
     assert filtered.url.endswith(f"/staffel-{season}")
     assert filtered.season_numbers == [1]
     assert [(episode.season, episode.slug) for episode in filtered.all_episodes] == [
-        (1, f"serienstream:monster-2022-s{season:02d}e01")
+        (1, f"tmdb-series:{tmdb_id}-s01e01")
     ]
+    assert filtered.all_episodes[0].url.endswith(
+        f"/staffel-{season}/episode-1"
+    )
 
 
 @pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
@@ -98,6 +126,10 @@ def test_runtime_virtual_tmdb_source_loads_only_mapped_season(
     assert loaded is not None
     assert loaded.base_slug == f"tmdb-series:{tmdb_id}"
     assert loaded.season_numbers == [1]
+    assert loaded.all_episodes[0].slug == f"tmdb-series:{tmdb_id}-s01e01"
+    assert source_episode_slug(loaded.all_episodes[0].slug) == (
+        f"serienstream:monster-2022-s{season:02d}e01"
+    )
     assert calls == [("serienstream", "serienstream:monster-2022")]
 
 
