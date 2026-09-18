@@ -1026,6 +1026,7 @@ def series_to_dict(
     series: FilmpalastSeries,
     refresh_jellyfin: bool = False,
     defer_checks: bool = False,
+    tmdb_id_override="",
 ) -> dict:
     """Serialisiert eine Serie, optional ohne blockierende Verfügbarkeitschecks.
 
@@ -1037,7 +1038,9 @@ def series_to_dict(
     with state.watchlist_lock:
         stored_entry = watchlist_match_series(series.base_slug, series.title)
         watchlist_entry = dict(stored_entry) if stored_entry else None
-    stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
+    stored_tmdb_id = str(tmdb_id_override or "").strip() or (
+        watchlist_entry.get("tmdb_id") if watchlist_entry else ""
+    )
     tmdb_client = get_tmdb_client()
     tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id)
     aliases = list(dict.fromkeys(filter(None, (
