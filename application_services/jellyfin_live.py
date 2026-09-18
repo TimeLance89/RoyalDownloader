@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
+from integrations.jellyfin_auth import jellyfin_auth_headers
 from application_services.runtime import backend_value, publish_service
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ def _probe_library_revision(client) -> str | None:
         response = requests.get(
             f"{client.base_url}/Items",
             params=params,
-            headers={"X-Emby-Token": client.api_key},
+            headers=jellyfin_auth_headers(client.api_key),
             timeout=client.timeout,
         )
         response.raise_for_status()

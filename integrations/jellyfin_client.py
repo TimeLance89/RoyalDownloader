@@ -18,6 +18,8 @@ from typing import List, Optional
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 
+from integrations.jellyfin_auth import jellyfin_auth_headers
+
 logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000
 
@@ -109,7 +111,7 @@ class JellyfinClient:
             })
             req = urllib.request.Request(
                 f"{self.base_url}{endpoint}?{urlencode(page_params)}",
-                headers={"X-Emby-Token": self.api_key},
+                headers=jellyfin_auth_headers(self.api_key),
             )
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -351,7 +353,7 @@ class JellyfinClient:
             return False
         url = f"{self.base_url}/Library/Refresh"
         req = urllib.request.Request(
-            url, data=b"", method="POST", headers={"X-Emby-Token": self.api_key},
+            url, data=b"", method="POST", headers=jellyfin_auth_headers(self.api_key),
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout):
@@ -365,7 +367,7 @@ class JellyfinClient:
         if not self.configured:
             return []
         req = urllib.request.Request(
-            f"{self.base_url}/Users", headers={"X-Emby-Token": self.api_key},
+            f"{self.base_url}/Users", headers=jellyfin_auth_headers(self.api_key),
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -661,7 +663,7 @@ class JellyfinClient:
         req = urllib.request.Request(
             f"{self.base_url}/Items/{quote(item_id, safe='')}",
             method="DELETE",
-            headers={"X-Emby-Token": self.api_key},
+            headers=jellyfin_auth_headers(self.api_key),
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout):

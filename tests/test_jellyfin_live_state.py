@@ -88,7 +88,8 @@ def test_live_probe_is_one_bounded_page(monkeypatch):
     assert params["StartIndex"] == "0"
     assert params["IncludeItemTypes"] == "Movie,Series,Episode"
     assert params["EnableTotalRecordCount"] == "true"
-    assert headers["X-Emby-Token"] == "secret"
+    assert headers["Authorization"] == 'MediaBrowser Token="secret"'
+    assert "X-Emby-Token" not in headers
     assert timeout == 5.0
 
 
