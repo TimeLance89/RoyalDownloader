@@ -92,6 +92,12 @@ def test_direct_anthology_episode_is_not_affected_by_tmdb_exception():
     assert source_episode_slug(source) == source
 
 
+def test_virtual_episode_keeps_serienstream_as_technical_provider():
+    virtual = "tmdb-series:225634-s01e03"
+
+    assert server.provider_for_value(virtual) == "serienstream"
+
+
 @pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
 def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, season):
     override = tmdb_series_season_override(tmdb_id)
