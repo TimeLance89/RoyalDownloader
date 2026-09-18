@@ -158,14 +158,44 @@ def test_targeted_episode_cache_avoids_repeated_jellyfin_calls(monkeypatch):
     assert calls == ["jf-house"]
 
 
-def test_jellyfin_client_uses_parent_id_for_targeted_episode_query(monkeypatch):
+def test_jellyfin_client_uses_show_api_for_targeted_episode_query(monkeypatch):
     client = JellyfinClient("http://jellyfin", "key")
     captured = {}
+
+    def fake_list(endpoint, params, page_size, label):
+        captured.update({
+            "endpoint": endpoint,
+            "params": params,
+            "page_size": page_size,
+            "label": label,
+        })
+        return [{
+            "Id": "episode-1", "SeriesId": "series-1", "SeriesName": "House",
+            "ParentIndexNumber": 1, "IndexNumber": 1,
+        }]
+
+    monkeypatch.setattr(client, "_list_endpoint_items", fake_list)
+    monkeypatch.setattr(
+        client, "_list_items",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy fallback used")),
+    )
+    result = client.list_episodes_for_series("series-1")
+
+    assert captured["endpoint"] == "/Shows/series-1/Episodes"
+    assert captured["params"]["IsMissing"] == "false"
+    assert "ParentId" not in captured["params"]
+    assert result[0]["series_id"] == "series-1"
+
+
+def test_jellyfin_client_falls_back_to_parent_id_if_show_api_fails(monkeypatch):
+    client = JellyfinClient("http://jellyfin", "key")
+    captured = {}
+    monkeypatch.setattr(client, "_list_endpoint_items", lambda *_args, **_kwargs: None)
 
     def fake_list(params, page_size, label):
         captured.update({"params": params, "page_size": page_size, "label": label})
         return [{
-            "Id": "episode-1", "SeriesId": "series-1", "SeriesName": "House",
+            "Id": "episode-1", "SeriesName": "House",
             "ParentIndexNumber": 1, "IndexNumber": 1,
         }]
 
