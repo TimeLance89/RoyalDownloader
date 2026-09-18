@@ -1007,6 +1007,7 @@ async def api_series_load(body: SeriesLoadBody):
             series,
             refresh_jellyfin=body.refresh_jellyfin,
             defer_checks=body.defer_checks,
+            tmdb_id_override=tmdb_override.tmdb_id if tmdb_override else "",
         )
 
         if tmdb_override is not None:
@@ -1028,9 +1029,7 @@ async def api_series_load(body: SeriesLoadBody):
                 counts = metadata.get("season_episode_counts") or {}
                 standalone_count = counts.get("1") or counts.get(1)
                 if standalone_count:
-                    payload["season_episode_counts"] = {
-                        str(tmdb_override.season): standalone_count,
-                    }
+                    payload["season_episode_counts"] = {"1": standalone_count}
                 payload["metadata_source"] = "TMDB"
 
         # Die vier Monster-TMDB-Einträge sind absichtlich jeweils nur eine
