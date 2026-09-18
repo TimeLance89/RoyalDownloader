@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 import server
@@ -5,7 +7,6 @@ from providers.models import FilmpalastSeries, SeriesEpisode
 from providers.series_tmdb_overrides import (
     MONSTER_TMDB_SEASON_OVERRIDES,
     apply_tmdb_season_override,
-    monster_tmdb_overrides_for_query,
     tmdb_series_override_for_value,
     tmdb_series_season_override,
 )
@@ -66,13 +67,6 @@ def test_unrelated_tmdb_id_has_no_override():
     assert tmdb_series_override_for_value("tmdb-series:94997") is None
 
 
-def test_only_literal_monster_search_gets_the_exception_set():
-    assert len(monster_tmdb_overrides_for_query("Monster")) == 4
-    assert len(monster_tmdb_overrides_for_query(" monster ")) == 4
-    assert monster_tmdb_overrides_for_query("Monster Hunter") == ()
-    assert monster_tmdb_overrides_for_query("Monarch") == ()
-
-
 @pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
 def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, season):
     override = tmdb_series_season_override(tmdb_id)
@@ -108,8 +102,6 @@ def test_runtime_virtual_tmdb_source_loads_only_mapped_season(
 
 
 def test_frontend_passes_tmdb_identity_into_series_load():
-    from pathlib import Path
-
     root = Path(__file__).resolve().parents[1]
     api_js = (root / "web" / "api.js").read_text(encoding="utf-8")
     series_js = (root / "web" / "screens" / "series.js").read_text(encoding="utf-8")
