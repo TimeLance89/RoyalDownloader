@@ -662,7 +662,13 @@ async function loadSeries(result) {
 
   document.getElementById("series-status").textContent = `Öffne Staffeln für «${result.title}» …`;
   try {
-    const loaded = await api.seriesLoad(result.sample_slug, result.base_slug || "", false, true);
+    const loaded = await api.seriesLoad(
+      result.sample_slug,
+      result.base_slug || "",
+      false,
+      true,
+      result.tmdb_id || null,
+    );
     if (requestId !== state.series.requestSeq) return;
     const series = mergeSeriesDetailPayload(result, loaded);
     showSeriesDetail(series, result.sample_slug);
