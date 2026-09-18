@@ -10,6 +10,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from providers.series_tmdb_overrides import tmdb_series_override_for_episode_slug
 
 globals().update(import_backend_namespace())
 
@@ -659,6 +660,19 @@ def _episode_placeholder(slug: str, series_title: str = "") -> FilmpalastMovie:
     if not parsed:
         raise ValueError(f"Kein Episoden-Slug: {slug}")
     base_slug, season, episode = parsed
+    tmdb_override = tmdb_series_override_for_episode_slug(slug)
+    logical_season = 1 if tmdb_override is not None else season
+    if not series_title and tmdb_override is not None:
+        with state.watchlist_lock:
+            entry = watchlist_lookup(tmdb_override.virtual_base_slug)
+            if entry:
+                series_title = str(entry.get("title") or "")
+        if not series_title:
+            cached = state.series_cache.get(tmdb_override.virtual_base_slug)
+            if cached:
+                series_title = cached.title
+        if not series_title:
+            series_title = tmdb_override.fallback_title
     if not series_title:
         with state.watchlist_lock:
             entry = watchlist_lookup(base_slug)
@@ -671,7 +685,7 @@ def _episode_placeholder(slug: str, series_title: str = "") -> FilmpalastMovie:
     if not series_title:
         series_title = _series_search_title(base_slug).title() or "Unbekannte Serie"
     return FilmpalastMovie(
-        title=f"{series_title} S{season:02d}E{episode:02d}",
+        title=f"{series_title} S{logical_season:02d}E{episode:02d}",
         url=slug,
         hosters=[],
     )
