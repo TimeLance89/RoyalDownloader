@@ -1,0 +1,120 @@
+import pytest
+
+import server
+from providers.models import FilmpalastSeries, SeriesEpisode
+from providers.series_tmdb_overrides import (
+    MONSTER_TMDB_SEASON_OVERRIDES,
+    apply_tmdb_season_override,
+    monster_tmdb_overrides_for_query,
+    tmdb_series_override_for_value,
+    tmdb_series_season_override,
+)
+
+
+EXPECTED = {
+    113988: 1,
+    225634: 2,
+    286801: 3,
+    299939: 4,
+}
+
+
+def _anthology():
+    return FilmpalastSeries(
+        title="Monster",
+        base_slug="serienstream:monster-2022",
+        url="https://serienstream.to/serie/monster-2022",
+        seasons={
+            season: [
+                SeriesEpisode(
+                    season,
+                    1,
+                    f"serienstream:monster-2022-s{season:02d}e01",
+                    (
+                        "https://serienstream.to/serie/monster-2022/"
+                        f"staffel-{season}/episode-1"
+                    ),
+                ),
+            ]
+            for season in range(1, 5)
+        },
+    )
+
+
+def test_override_registry_contains_only_requested_monster_tmdb_ids():
+    assert {
+        override.tmdb_id: override.season
+        for override in MONSTER_TMDB_SEASON_OVERRIDES
+    } == EXPECTED
+
+
+@pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
+def test_tmdb_id_maps_to_exact_serienstream_season(tmdb_id, season):
+    override = tmdb_series_season_override(tmdb_id)
+
+    assert override is not None
+    assert override.provider == "serienstream"
+    assert override.source_slug == "monster-2022"
+    assert override.season == season
+    assert override.source_url == (
+        f"https://serienstream.to/serie/monster-2022/staffel-{season}"
+    )
+
+
+def test_unrelated_tmdb_id_has_no_override():
+    assert tmdb_series_season_override(94997) is None
+    assert tmdb_series_override_for_value("tmdb-series:94997") is None
+
+
+def test_only_literal_monster_search_gets_the_exception_set():
+    assert len(monster_tmdb_overrides_for_query("Monster")) == 4
+    assert len(monster_tmdb_overrides_for_query(" monster ")) == 4
+    assert monster_tmdb_overrides_for_query("Monster Hunter") == ()
+    assert monster_tmdb_overrides_for_query("Monarch") == ()
+
+
+@pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
+def test_filtered_override_exposes_only_requested_provider_season(tmdb_id, season):
+    override = tmdb_series_season_override(tmdb_id)
+    filtered = apply_tmdb_season_override(_anthology(), override)
+
+    assert filtered is not None
+    assert filtered.base_slug == f"tmdb-series:{tmdb_id}"
+    assert filtered.url.endswith(f"/staffel-{season}")
+    assert filtered.season_numbers == [season]
+    assert [episode.slug for episode in filtered.all_episodes] == [
+        f"serienstream:monster-2022-s{season:02d}e01"
+    ]
+
+
+@pytest.mark.parametrize("tmdb_id,season", EXPECTED.items())
+def test_runtime_virtual_tmdb_source_loads_only_mapped_season(
+    monkeypatch, tmdb_id, season,
+):
+    calls = []
+
+    def load(provider, source):
+        calls.append((provider, source))
+        return _anthology()
+
+    monkeypatch.setattr(server, "_load_series_for_provider", load)
+
+    loaded = server.get_series_for_value(f"tmdb-series:{tmdb_id}")
+
+    assert loaded is not None
+    assert loaded.base_slug == f"tmdb-series:{tmdb_id}"
+    assert loaded.season_numbers == [season]
+    assert calls == [("serienstream", "serienstream:monster-2022")]
+
+
+def test_frontend_passes_tmdb_identity_into_series_load():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    api_js = (root / "web" / "api.js").read_text(encoding="utf-8")
+    series_js = (root / "web" / "screens" / "series.js").read_text(encoding="utf-8")
+    movies_js = (root / "web" / "screens" / "movies.js").read_text(encoding="utf-8")
+
+    assert "tmdb_id: Number(tmdbId) > 0 ? Number(tmdbId) : null" in api_js
+    assert "result.tmdb_id || null" in series_js
+    assert "current.tmdb_id || null" in movies_js
