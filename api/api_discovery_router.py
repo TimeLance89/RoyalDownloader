@@ -969,7 +969,7 @@ async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
     )
 
 
-@router.post("/api/v1/series/load")
+@router.post("/api/v1/series/monster-tmdb-load")
 @router.post("/api/series/monster-tmdb-load")
 async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
     item = monster_tmdb_series(body.tmdb_id)
@@ -977,11 +977,27 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
         raise HTTPException(404, "Unbekannte Monster-TMDB-Serie.")
 
     def _work():
-        source = get_series_for_value("serienstream:monster-2022")
-        if source is None:
+        # Diese Erweiterung lädt absichtlich nur die exakt zugeordnete
+        # SerienStream-Staffel. Die Root-Anthologie und die übrigen Staffeln
+        # werden hier nie angefasst.
+        try:
+            source_episodes = list(
+                get_sto_scraper()._load_season("monster-2022", item.source_season)
+                or []
+            )
+        except Exception as exc:
+            log(
+                f"Monster-TMDB {item.tmdb_id}: SerienStream Staffel "
+                f"{item.source_season} nicht ladbar: {exc}",
+                "warn",
+            )
             return None
-        source_episodes = list((source.seasons or {}).get(item.source_season) or [])
         if not source_episodes:
+            log(
+                f"Monster-TMDB {item.tmdb_id}: SerienStream Staffel "
+                f"{item.source_season} lieferte keine Episoden.",
+                "warn",
+            )
             return None
 
         client = get_tmdb_client()
@@ -1013,9 +1029,9 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
             title=title,
             base_slug=item.virtual_base_slug,
             url=item.source_url,
-            cover_url=str(metadata.get("cover_url") or source.cover_url or ""),
-            description=str(metadata.get("description") or source.description or ""),
-            genres=list(metadata.get("genres") or source.genres or []),
+            cover_url=str(metadata.get("cover_url") or ""),
+            description=str(metadata.get("description") or ""),
+            genres=list(metadata.get("genres") or []),
             seasons={1: virtual_episodes},
         )
         state.series_cache[item.virtual_base_slug] = series
@@ -1091,6 +1107,7 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
     return payload
 
 
+@router.post("/api/v1/series/load")
 @router.post("/api/series/load")
 async def api_series_load(body: SeriesLoadBody):
     def _work():
