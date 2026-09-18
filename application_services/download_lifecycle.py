@@ -7,6 +7,10 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from features.monster_series_extension import (
+    monster_source_episode_slug,
+    parse_monster_virtual_episode,
+)
 
 globals().update(import_backend_namespace())
 
@@ -599,14 +603,22 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
                 item["probe_verified_redirect"] = True
                 state.fp_movies[item["slug"]] = movie
                 return True
+            requested_slug = item["slug"]
+            source_slug = (
+                monster_source_episode_slug(requested_slug)
+                if parse_monster_virtual_episode(requested_slug) is not None
+                else None
+            ) or requested_slug
             with state.sto_lock:
                 sto.reset_gate()
                 movie = _apply_provider_metadata(
-                    sto.get_movie(item["slug"]), "serienstream",
+                    sto.get_movie(source_slug), "serienstream",
                 )
             if movie and movie.hosters:
                 item["movie"] = movie
-                state.fp_movies[item["slug"]] = movie
+                state.fp_movies[requested_slug] = movie
+                if source_slug != requested_slug:
+                    item["probe_verified_monster_episode"] = True
                 return True
             raise RuntimeError("Episodenseite lieferte keine Hoster")
         with state.sto_lock:
@@ -659,9 +671,13 @@ def _execute_provider_probe(item: Optional[dict]) -> None:
         successful = _probe_serienstream_once(item)
     if not successful:
         return
+    reset_failures = bool(item and (
+        item.pop("probe_verified_redirect", False)
+        or item.pop("probe_verified_monster_episode", False)
+    ))
     state.provider_health.mark_success(
         "serienstream",
-        reset_failures=bool(item and item.pop("probe_verified_redirect", False)),
+        reset_failures=reset_failures,
     )
     log("SerienStream-Probe erfolgreich – Provider wieder verfügbar.")
     broadcast({"type": "provider_status", "provider": serienstream_provider_status()})

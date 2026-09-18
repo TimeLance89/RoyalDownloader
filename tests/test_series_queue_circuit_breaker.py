@@ -444,6 +444,76 @@ def test_remove_waiting_episode_removes_delayed_retry():
     assert slug not in server.state.counted_queue_slugs
 
 
+def test_monster_virtual_probe_uses_exact_serienstream_source_slug(monkeypatch):
+    requested_slug = "monster-tmdb:299939-s01e01"
+    source_slug = "serienstream:monster-2022-s04e01"
+    placeholder = FilmpalastMovie(
+        title="Monster: The Lizzie Borden Story S01E01",
+        url=requested_slug,
+        provider="serienstream",
+        hosters=[],
+    )
+    calls = []
+
+    class FakeSto:
+        last_block_reason = ""
+
+        @staticmethod
+        def reset_gate():
+            return None
+
+        @staticmethod
+        def is_redirect_url(_url):
+            return False
+
+        def get_movie(self, slug):
+            calls.append(slug)
+            return FilmpalastMovie(
+                title="Monster S04E01",
+                url="https://serienstream.to/serie/monster-2022/staffel-4/episode-1",
+                provider="serienstream",
+                hosters=[HosterInfo("Direct", "https://cdn.invalid/lizzie.m3u8")],
+            )
+
+    monkeypatch.setattr(server, "get_sto_scraper", lambda: FakeSto())
+    item = {"slug": requested_slug, "movie": placeholder}
+
+    assert server._probe_serienstream_once(item)
+    assert calls == [source_slug]
+    assert item["probe_verified_monster_episode"] is True
+    assert server.state.fp_movies[requested_slug].hosters
+
+
+def test_successful_monster_probe_resets_escalated_provider_failures(monkeypatch):
+    requested_slug = "monster-tmdb:299939-s01e01"
+    item = {
+        "slug": requested_slug,
+        "movie": FilmpalastMovie(
+            title="Monster: The Lizzie Borden Story S01E01",
+            url=requested_slug,
+            provider="serienstream",
+            hosters=[],
+        ),
+    }
+    server.state.provider_health.mark_blocked("serienstream", "probe_failed", "one")
+    server.state.provider_health.mark_blocked("serienstream", "probe_failed", "two")
+    assert server.state.provider_health.status("serienstream")["failure_count"] == 2
+    assert server.state.provider_health.begin_probe("serienstream", force=True)
+
+    def successful_probe(current):
+        current["probe_verified_monster_episode"] = True
+        return True
+
+    monkeypatch.setattr(server, "_probe_serienstream_once", successful_probe)
+    monkeypatch.setattr(server, "_resume_waiting_provider_jobs", lambda *_args: None)
+
+    server._execute_provider_probe(item)
+
+    status = server.state.provider_health.status("serienstream")
+    assert status["state"] == "healthy"
+    assert status["failure_count"] == 0
+
+
 def test_successful_probe_reuses_resolved_url(monkeypatch):
     slug = "serienstream:exact-show-s02e04"
     movie = FilmpalastMovie(
