@@ -107,10 +107,17 @@ def test_special_load_exposes_logical_season_one_only(
 ):
     captured = {}
 
+    calls = []
+
+    class FakeSto:
+        def _load_season(self, slug, season):
+            calls.append((slug, season))
+            return list(_source_series().seasons[season])
+
     monkeypatch.setattr(
         api_discovery_router,
-        "get_series_for_value",
-        lambda value: _source_series() if value == "serienstream:monster-2022" else None,
+        "get_sto_scraper",
+        lambda: FakeSto(),
     )
     monkeypatch.setattr(
         api_discovery_router,
@@ -184,6 +191,7 @@ def test_special_load_exposes_logical_season_one_only(
     assert payload["tmdb_id"] == tmdb_id
     assert payload["special_series"] == "monster_tmdb"
     assert payload["monster_source_season"] == source_season
+    assert calls == [("monster-2022", source_season)]
 
 
 def test_special_load_rejects_every_other_tmdb_id():
@@ -237,3 +245,25 @@ def test_frontend_routes_only_virtual_base_slugs_to_special_endpoint():
     assert '/^monster-tmdb:(\\d+)$/i.exec(baseSlug || sampleSlug || "")' in api_source
     assert '"/api/series/monster-tmdb-load"' in api_source
     assert '"/api/series/load"' in api_source
+
+
+def test_route_isolation_keeps_v1_generic_series_load_on_generic_handler():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "api" / "api_discovery_router.py"
+    ).read_text(encoding="utf-8")
+
+    special = source.split(
+        "async def api_monster_tmdb_series_load", 1
+    )[0].rsplit("\n\n", 1)[-1]
+    generic = source.split(
+        "async def api_series_load", 1
+    )[0].rsplit("\n\n", 1)[-1]
+
+    assert '@router.post("/api/v1/series/monster-tmdb-load")' in special
+    assert '@router.post("/api/series/monster-tmdb-load")' in special
+    assert '@router.post("/api/v1/series/load")' not in special
+
+    assert '@router.post("/api/v1/series/load")' in generic
+    assert '@router.post("/api/series/load")' in generic
