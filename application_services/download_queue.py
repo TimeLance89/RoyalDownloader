@@ -6,6 +6,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from providers.series_tmdb_overrides import tmdb_series_override_for_episode_slug
 
 globals().update(import_backend_namespace())
 
@@ -135,17 +136,31 @@ def _existing_valid_episode_path(series_title: str, season: int, episode: int) -
     return None
 
 
+def _tmdb_override_series_title(override, fallback: str = "") -> str:
+    if override is None:
+        return fallback
+    with state.watchlist_lock:
+        stored = watchlist_lookup(override.virtual_base_slug)
+        if stored and stored.get("title"):
+            return str(stored["title"])
+    cached = state.series_cache.get(override.virtual_base_slug)
+    if cached and cached.title:
+        return cached.title
+    return str(fallback or override.fallback_title)
+
+
 def _episode_jellyfin_identity(
     base_slug: str,
     series_title: str,
     jf_client: JellyfinClient,
     jf_series: Optional[List[dict]],
+    tmdb_id_override="",
 ) -> tuple[tuple[str, ...], set[str], str]:
     """Ermittelt eine eindeutige Serienidentität; Mehrdeutigkeit blockiert."""
     with state.watchlist_lock:
         stored = watchlist_lookup(base_slug)
         entry = dict(stored) if stored else {}
-    tmdb_id = str(entry.get("tmdb_id") or "")
+    tmdb_id = str(tmdb_id_override or entry.get("tmdb_id") or "")
     aliases = list(dict.fromkeys(filter(None, (
         series_title,
         entry.get("title", ""),
@@ -176,8 +191,11 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
     episode_info = parse_episode_slug(slug)
     jf_client = get_jellyfin_client()
     if episode_info:
+        tmdb_override = tmdb_series_override_for_episode_slug(slug)
+        logical_season = 1 if tmdb_override is not None else episode_info[1]
         series_title = strip_episode_suffix(movie.title) or movie.title
-        if _existing_valid_episode_path(series_title, episode_info[1], episode_info[2]):
+        series_title = _tmdb_override_series_title(tmdb_override, series_title)
+        if _existing_valid_episode_path(series_title, logical_season, episode_info[2]):
             return True, "lokal vorhanden"
         if jf_client.configured:
             jf_series = get_jellyfin_series()
@@ -189,7 +207,16 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
                 return True, "Jellyfin-Serienindex nicht verfügbar"
             try:
                 aliases, series_ids, _tmdb_id = _episode_jellyfin_identity(
-                    episode_info[0], series_title, jf_client, jf_series,
+                    (
+                        tmdb_override.virtual_base_slug
+                        if tmdb_override is not None else episode_info[0]
+                    ),
+                    series_title,
+                    jf_client,
+                    jf_series,
+                    tmdb_id_override=(
+                        tmdb_override.tmdb_id if tmdb_override is not None else ""
+                    ),
                 )
             except RuntimeError as exc:
                 return True, str(exc)
@@ -205,7 +232,7 @@ def _content_already_available(movie: FilmpalastMovie, slug: str) -> tuple[bool,
                 ):
                     return True, "Jellyfin-Daten werden gerade aktualisiert"
             if jf_client.has_episode(
-                series_title, episode_info[1], episode_info[2], items=items,
+                series_title, logical_season, episode_info[2], items=items,
                 aliases=aliases, series_ids=series_ids,
             ):
                 return True, "in Jellyfin vorhanden"
@@ -274,8 +301,15 @@ def run_download_queue(
             # später aus einem inzwischen ersetzten movie-Objekt neu ableiten,
             # könnte eine leicht abweichende Anbieter-Formatierung die Episode
             # in einem zweiten, abweichenden Ordner landen lassen.
+            tmdb_override = tmdb_series_override_for_episode_slug(movie_slug)
+            logical_season = 1 if tmdb_override is not None else ep_info[1]
             orig_series_title = strip_episode_suffix(movie.title) or movie.title
-            existing_file = _existing_valid_episode_path(orig_series_title, ep_info[1], ep_info[2])
+            orig_series_title = _tmdb_override_series_title(
+                tmdb_override, orig_series_title,
+            )
+            existing_file = _existing_valid_episode_path(
+                orig_series_title, logical_season, ep_info[2],
+            )
             if existing_file is not None:
                 if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                     on_job_done(True, "bereits vorhanden", movie.title, existing_file, slug=movie_slug)
@@ -352,7 +386,7 @@ def run_download_queue(
             source_fallbacks_loaded[0] = True
             alternatives = find_episode_fallbacks(
                 orig_series_title,
-                ep_info[1],
+                logical_season,
                 ep_info[2],
                 aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
                 source_slug=movie_slug,
@@ -387,7 +421,7 @@ def run_download_queue(
                 if ep_info:
                     alternatives = find_episode_fallbacks(
                         orig_series_title,
-                        ep_info[1],
+                        logical_season,
                         ep_info[2],
                         aliases=_episode_fallback_aliases(movie_slug, orig_series_title),
                         source_slug=movie_slug,
@@ -484,8 +518,12 @@ def run_download_queue(
         # s.to/moflix haben dort 'episode-1'/'1' als letztes Segment).
         episode_info = parse_episode_slug(movie_slug)
         if episode_info:
-            _base_slug, season, episode = episode_info
-            out_path = series_episode_out_path(orig_series_title, season, episode)
+            _base_slug, source_season, episode = episode_info
+            tmdb_override = tmdb_series_override_for_episode_slug(movie_slug)
+            logical_season = 1 if tmdb_override is not None else source_season
+            out_path = series_episode_out_path(
+                orig_series_title, logical_season, episode,
+            )
         else:
             primary_movie = source_movies[0]
             out_path = out_root / build_movie_filename(
