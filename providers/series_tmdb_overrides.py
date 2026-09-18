@@ -8,7 +8,6 @@ stories as seasons of one anthology.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from providers.models import FilmpalastSeries
 
@@ -91,11 +90,6 @@ def tmdb_series_season_override(tmdb_id) -> TmdbSeriesSeasonOverride | None:
 def tmdb_series_override_for_value(value: str) -> TmdbSeriesSeasonOverride | None:
     return _BY_VIRTUAL_SLUG.get(str(value or "").strip().casefold())
 
-
-def monster_tmdb_overrides_for_query(query: str) -> tuple[TmdbSeriesSeasonOverride, ...]:
-    """Only the literal Monster search receives the four synthetic TMDB cards."""
-    normalized = re.sub(r"[^a-z0-9]+", "", str(query or "").casefold())
-    return MONSTER_TMDB_SEASON_OVERRIDES if normalized == "monster" else ()
 
 
 def apply_tmdb_season_override(
