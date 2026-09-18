@@ -127,10 +127,19 @@ const api = {
       })
       .finally(() => clearTimeout(timer));
   },
-  seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
+  seriesLoad(
+    sampleSlug,
+    baseSlug = "",
+    refreshJellyfin = false,
+    deferChecks = false,
+    tmdbId = null,
+  ) {
     return this.post("/api/series/load", {
-      sample_slug: sampleSlug, base_slug: baseSlug,
-      refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
+      sample_slug: sampleSlug,
+      base_slug: baseSlug,
+      tmdb_id: Number(tmdbId) > 0 ? Number(tmdbId) : null,
+      refresh_jellyfin: refreshJellyfin,
+      defer_checks: deferChecks,
     });
   },
   huhuEpisodeLanguages(slugs) {
