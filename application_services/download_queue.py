@@ -341,7 +341,7 @@ def run_download_queue(
                 if refreshed_movie and refreshed_movie.hosters:
                     movie = refreshed_movie
                     state.fp_movies[movie_slug] = refreshed_movie
-                elif movie_slug.startswith(SERIENSTREAM_PREFIX):
+                elif is_sto:
                     primary_unavailable = True
         else:
             primary_unavailable = False
