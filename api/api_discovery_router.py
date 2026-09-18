@@ -1003,12 +1003,13 @@ async def api_series_load(body: SeriesLoadBody):
             if series is None:
                 return None, None
 
-        payload = series_to_dict(
-            series,
-            refresh_jellyfin=body.refresh_jellyfin,
-            defer_checks=body.defer_checks,
-            tmdb_id_override=tmdb_override.tmdb_id if tmdb_override else "",
-        )
+        serialize_kwargs = {
+            "refresh_jellyfin": body.refresh_jellyfin,
+            "defer_checks": body.defer_checks,
+        }
+        if tmdb_override is not None:
+            serialize_kwargs["tmdb_id_override"] = tmdb_override.tmdb_id
+        payload = series_to_dict(series, **serialize_kwargs)
 
         if tmdb_override is not None:
             payload["tmdb_id"] = tmdb_override.tmdb_id
