@@ -234,11 +234,7 @@ async function refreshSeriesJellyfinStatus(force = false) {
     // vollständige Enrichment nutzt danach denselben Cache und lädt nicht
     // parallel erneut die komplette Jellyfin-Struktur.
     const refreshed = await api.seriesLoad(
-      sampleSlug,
-      baseSlug,
-      false,
-      false,
-      current.tmdb_id || null,
+      sampleSlug, baseSlug, false, false, current.tmdb_id || null,
     );
     const isLatestForSeries = state.series.jellyfinRefreshByBase.get(baseSlug) === refreshGeneration;
     const isSameView = state.series.viewGeneration === viewGeneration;
