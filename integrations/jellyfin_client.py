@@ -89,10 +89,13 @@ class JellyfinClient:
     def configured(self) -> bool:
         return bool(self.base_url and self.api_key)
 
-    def _list_items(self, params: dict, page_size: int, label: str) -> Optional[List[dict]]:
-        """Liest /Items vollständig; Jellyfin begrenzt große Antworten serverseitig."""
+    def _list_endpoint_items(
+        self, endpoint: str, params: dict, page_size: int, label: str,
+    ) -> Optional[List[dict]]:
+        """Liest einen paginierten Jellyfin-QueryResult-Endpunkt vollständig."""
         if not self.configured:
             return []
+        endpoint = "/" + str(endpoint or "").lstrip("/")
         page_size = max(1, min(int(page_size or 1000), 5000))
         start = 0
         result: List[dict] = []
@@ -105,21 +108,24 @@ class JellyfinClient:
                 "EnableTotalRecordCount": "true",
             })
             req = urllib.request.Request(
-                f"{self.base_url}/Items?{urlencode(page_params)}",
+                f"{self.base_url}{endpoint}?{urlencode(page_params)}",
                 headers={"X-Emby-Token": self.api_key},
             )
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
             except Exception as exc:
-                logger.warning("%s fehlgeschlagen (%s): %s", label, self.base_url, exc)
+                logger.warning("%s fehlgeschlagen (%s%s): %s", label, self.base_url, endpoint, exc)
                 return None
             if not isinstance(data, dict):
-                logger.warning("%s lieferte ein ungültiges Antwortobjekt (%s)", label, self.base_url)
+                logger.warning(
+                    "%s lieferte ein ungültiges Antwortobjekt (%s%s)",
+                    label, self.base_url, endpoint,
+                )
                 return None
             page = data.get("Items") or []
             if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
-                logger.warning("%s lieferte ungültige Daten (%s)", label, self.base_url)
+                logger.warning("%s lieferte ungültige Daten (%s%s)", label, self.base_url, endpoint)
                 return None
             if page:
                 fingerprint = hashlib.sha256(
@@ -127,8 +133,8 @@ class JellyfinClient:
                 ).hexdigest()
                 if fingerprint in seen_pages:
                     logger.warning(
-                        "%s brach eine wiederholte Jellyfin-Seite bei StartIndex %d ab (%s)",
-                        label, start, self.base_url,
+                        "%s brach eine wiederholte Jellyfin-Seite bei StartIndex %d ab (%s%s)",
+                        label, start, self.base_url, endpoint,
                     )
                     return None
                 seen_pages.add(fingerprint)
@@ -145,9 +151,13 @@ class JellyfinClient:
             ):
                 break
         else:
-            logger.warning("%s überschritt das Seitenlimit (%s)", label, self.base_url)
+            logger.warning("%s überschritt das Seitenlimit (%s%s)", label, self.base_url, endpoint)
             return None
         return result
+
+    def _list_items(self, params: dict, page_size: int, label: str) -> Optional[List[dict]]:
+        """Liest /Items vollständig; Jellyfin begrenzt große Antworten serverseitig."""
+        return self._list_endpoint_items("/Items", params, page_size, label)
 
     def list_movies(self, limit: int = 1000) -> Optional[List[dict]]:
         """Liefert die komplette Filmbibliothek (für Duplikat-Checks von
@@ -415,23 +425,39 @@ class JellyfinClient:
     ) -> Optional[List[dict]]:
         """Lädt gezielt nur die Episoden einer Jellyfin-Serie.
 
-        Die Detailansicht darf nicht von einer Komplettabfrage aller Episoden
-        einer großen Bibliothek abhängen. ``ParentId`` plus ``Recursive`` nutzt
-        denselben stabilen Jellyfin-Index, begrenzt die Antwort aber auf genau
-        die zuvor eindeutig erkannte Serie.
+        Jellyfin 12 hat die Semantik rekursiver ``/Items``-Abfragen geändert.
+        Für eine bereits eindeutig erkannte Serie verwenden wir deshalb den
+        dafür vorgesehenen Show-Endpunkt. Der alte ParentId-Pfad bleibt als
+        Kompatibilitätsfallback für ältere Server erhalten.
         """
         series_id = str(series_id or "").strip()
         if not self.configured or not series_id:
             return None
-        items = self._list_items({
-            "ParentId": series_id,
-            "IncludeItemTypes": "Episode",
-            "Recursive": "true",
-            "ExcludeLocationTypes": "Virtual,Offline",
-            "IsMissing": "false",
-            "IsPlaceHolder": "false",
-            "Fields": "ParentIndexNumber,IndexNumber,SeriesName,SeriesId",
-        }, limit, f"Jellyfin-Episodenabruf für Serie {series_id}")
+        label = f"Jellyfin-Episodenabruf für Serie {series_id}"
+        fields = "ParentIndexNumber,IndexNumber,SeriesName,SeriesId"
+        items = self._list_endpoint_items(
+            f"/Shows/{quote(series_id, safe='')}/Episodes",
+            {
+                "IsMissing": "false",
+                "Fields": fields,
+            },
+            limit,
+            label,
+        )
+        if items is None:
+            logger.info(
+                "%s: Show-API nicht verfügbar, versuche kompatiblen /Items-Fallback",
+                label,
+            )
+            items = self._list_items({
+                "ParentId": series_id,
+                "IncludeItemTypes": "Episode",
+                "Recursive": "true",
+                "ExcludeLocationTypes": "Virtual,Offline",
+                "IsMissing": "false",
+                "IsPlaceHolder": "false",
+                "Fields": fields,
+            }, limit, f"{label} (Fallback)")
         if items is None:
             return None
         result = []
