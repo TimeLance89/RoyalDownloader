@@ -10,10 +10,6 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from providers.series_tmdb_overrides import (
-    source_episode_slug,
-    tmdb_series_override_for_episode_slug,
-)
 
 globals().update(import_backend_namespace())
 
@@ -126,9 +122,6 @@ def provider_priority(media_type: str) -> List[str]:
 
 def provider_for_value(value: str) -> str:
     """Erkennt die Katalogquelle an den zentral hinterlegten Merkmalen."""
-    override = tmdb_series_override_for_episode_slug(value)
-    if override is not None:
-        return override.provider
     return provider_for_source(value)
 
 
@@ -259,8 +252,6 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         sources = resolve_tmdb_movie_sources(slug.split(":", 1)[1])
         return sources[0] if sources else None
     provider = provider_for_value(slug)
-    source_slug = source_episode_slug(slug)
-    slug = source_slug
     if slug.startswith(FILMFREI24_PREFIX):
         movie = FilmFrei24Scraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(FILMO_PREFIX):
