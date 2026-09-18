@@ -97,23 +97,31 @@ def tmdb_series_override_for_episode_slug(
     parsed = parse_episode_slug(str(value or ""))
     if parsed is None:
         return None
-    base_slug, season, _episode = parsed
-    for override in MONSTER_TMDB_SEASON_OVERRIDES:
-        if (
-            base_slug.casefold() == override.provider_source.casefold()
-            and int(season) == override.season
-        ):
-            return override
-    return None
+    base_slug, logical_season, _episode = parsed
+    if int(logical_season) != 1:
+        return None
+    return tmdb_series_override_for_value(base_slug)
+
+
+def source_episode_slug(value: str) -> str:
+    """Translate a virtual Monster episode back to its exact S.to source."""
+    parsed = parse_episode_slug(str(value or ""))
+    override = tmdb_series_override_for_episode_slug(value)
+    if parsed is None or override is None:
+        return str(value or "")
+    _base_slug, _logical_season, episode = parsed
+    return (
+        f"{override.provider}:{override.source_slug}"
+        f"-s{override.season:02d}e{int(episode):02d}"
+    )
 
 
 def logical_episode_identity(value: str) -> tuple[int, int] | None:
     parsed = parse_episode_slug(str(value or ""))
     if parsed is None:
         return None
-    _base_slug, source_season, episode = parsed
-    override = tmdb_series_override_for_episode_slug(value)
-    return (1 if override is not None else int(source_season), int(episode))
+    _base_slug, season, episode = parsed
+    return int(season), int(episode)
 
 
 
@@ -138,7 +146,14 @@ def apply_tmdb_season_override(
     # technische S.to-Staffel bleibt ausschließlich im Slug/URL erhalten, damit
     # der Provider weiterhin die richtige Quelle abruft.
     logical_episodes = [
-        replace(episode, season=1)
+        replace(
+            episode,
+            season=1,
+            slug=(
+                f"{override.virtual_base_slug}"
+                f"-s01e{int(episode.episode):02d}"
+            ),
+        )
         for episode in source_episodes
     ]
     return FilmpalastSeries(
