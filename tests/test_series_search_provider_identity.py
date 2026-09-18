@@ -103,7 +103,7 @@ def test_direct_slug_search_does_not_leak_fuzzy_other_provider_hits(monkeypatch)
     assert catalog["entries"][0].result.cover_url == "https://img.example/monster.jpg"
 
 
-def test_free_monster_search_preserves_separate_provider_results(monkeypatch):
+def test_legacy_provider_search_hit_collapses_to_current_monster_series(monkeypatch):
     legacy = FilmpalastSeriesResult(
         title="Monster: Die Geschichte von Ed Gein  [S.to]",
         base_slug=f"serienstream:{ED_GEIN}",
@@ -122,13 +122,9 @@ def test_free_monster_search_preserves_separate_provider_results(monkeypatch):
 
     assert catalog["entries"]
     result = catalog["entries"][0].result
-    assert result.base_slug == f"serienstream:{ED_GEIN}"
-    assert result.title.startswith("Monster: Die Geschichte von Ed Gein")
-    assert result.year == "2025"
-
-    payload = server._series_entry_to_dict(catalog["entries"][0])
-    assert "metadata_policy" not in payload
-    assert "canonical_series_source" not in payload
+    assert result.base_slug == f"serienstream:{CANONICAL}"
+    assert result.title.startswith("Monster")
+    assert result.year == "2022"
 
 
 def test_provider_authoritative_series_use_tmdb_for_artwork_only():
