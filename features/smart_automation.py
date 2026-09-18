@@ -8,6 +8,8 @@ import shutil
 import threading
 import time
 import urllib.request
+
+from integrations.jellyfin_auth import jellyfin_auth_headers
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -429,7 +431,7 @@ def jellyfin_playback_status(
 
     request = urllib.request.Request(
         f"{base_url}/Sessions",
-        headers={"X-Emby-Token": api_key, "Accept": "application/json"},
+        headers=jellyfin_auth_headers(api_key, accept_json=True),
     )
     reachable = False
     active_streams = 0
