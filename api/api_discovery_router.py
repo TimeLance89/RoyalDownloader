@@ -26,6 +26,10 @@ from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
 from providers.models import FilmpalastSeriesResult, parse_episode_slug
+from providers.series_tmdb_overrides import (
+    apply_tmdb_season_override,
+    tmdb_series_season_override,
+)
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
 from providers.sflix import SflixScraper
@@ -778,6 +782,7 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
 class SeriesLoadBody(BaseModel):
     sample_slug: str
     base_slug: str = ""
+    tmdb_id: int | None = None
     refresh_jellyfin: bool = False
     defer_checks: bool = False
 
@@ -960,17 +965,82 @@ async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
 @router.post("/api/series/load")
 async def api_series_load(body: SeriesLoadBody):
     def _work():
-        series = state.series_cache.get(body.base_slug) if body.base_slug else None
+        tmdb_override = tmdb_series_season_override(body.tmdb_id)
+        cache_key = tmdb_override.virtual_base_slug if tmdb_override else body.base_slug
+        series = state.series_cache.get(cache_key) if cache_key else None
+        metadata = None
+
         if series is None:
-            series = get_series_for_value(body.sample_slug)
+            if tmdb_override is not None:
+                series = get_series_for_value(tmdb_override.virtual_base_slug)
+            else:
+                series = get_series_for_value(body.sample_slug)
         if series is None:
             return None, None
-        payload = series_to_dict(
-            series,
-            refresh_jellyfin=body.refresh_jellyfin,
-            defer_checks=body.defer_checks,
+
+        if tmdb_override is not None:
+            client = get_tmdb_client()
+            if client.configured:
+                try:
+                    metadata = client.series_by_id(
+                        tmdb_override.tmdb_id,
+                        tmdb_override.fallback_title,
+                    )
+                except Exception as exc:
+                    log(
+                        f"TMDB-Metadaten für Monster-ID {tmdb_override.tmdb_id} "
+                        f"konnten nicht geladen werden: {exc}",
+                        "warn",
+                    )
+            series = apply_tmdb_season_override(
+                series,
+                tmdb_override,
+                title=str((metadata or {}).get("title") or ""),
+                cover_url=str((metadata or {}).get("cover_url") or ""),
+                description=str((metadata or {}).get("description") or ""),
+                genres=list((metadata or {}).get("genres") or []),
+            )
+            if series is None:
+                return None, None
+
+        serialize_kwargs = {
+            "refresh_jellyfin": body.refresh_jellyfin,
+            "defer_checks": body.defer_checks,
+        }
+        if tmdb_override is not None:
+            serialize_kwargs["tmdb_id_override"] = tmdb_override.tmdb_id
+        payload = series_to_dict(series, **serialize_kwargs)
+
+        if tmdb_override is not None:
+            payload["tmdb_id"] = tmdb_override.tmdb_id
+            payload["base_slug"] = tmdb_override.virtual_base_slug
+            payload["url"] = tmdb_override.source_url
+            payload["provider_season"] = tmdb_override.season
+            payload["tmdb_season"] = 1
+            if metadata:
+                for field in (
+                    "title", "year", "first_air_date", "runtime", "cover_url",
+                    "backdrop_url", "description", "genres", "original_title",
+                    "rating", "vote_count", "status", "trailer", "cast", "creators",
+                    "networks", "original_language", "countries",
+                    "production_companies", "similar_titles", "tmdb_url",
+                ):
+                    if metadata.get(field):
+                        payload[field] = metadata[field]
+                counts = metadata.get("season_episode_counts") or {}
+                standalone_count = counts.get("1") or counts.get(1)
+                if standalone_count:
+                    payload["season_episode_counts"] = {"1": standalone_count}
+                payload["metadata_source"] = "TMDB"
+
+        # Die vier Monster-TMDB-Einträge sind absichtlich jeweils nur eine
+        # S.to-Staffel. Der generische Vollständigkeitscheck darf daraus keine
+        # "fehlenden" Anthologie-Staffeln ableiten.
+        missing_seasons = (
+            set()
+            if body.defer_checks or tmdb_override is not None
+            else series_payload_missing_seasons(payload)
         )
-        missing_seasons = set() if body.defer_checks else series_payload_missing_seasons(payload)
         if missing_seasons:
             log(
                 f"Serienstruktur für «{series.title}» unvollständig "

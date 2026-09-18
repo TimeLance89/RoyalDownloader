@@ -14,6 +14,10 @@ from providers.series_migrations import (
     equivalent_series_sources,
     series_search_identity,
 )
+from providers.series_tmdb_overrides import (
+    apply_tmdb_season_override,
+    tmdb_series_override_for_value,
+)
 
 
 _PROVIDER_PREFIX = {
@@ -142,6 +146,24 @@ def _install_load_migrations() -> None:
 
     @wraps(original_get_series_for_value)
     def migrated_get_series_for_value(value: str, fallback_title: str = ""):
+        tmdb_override = tmdb_series_override_for_value(value)
+        if tmdb_override is not None:
+            try:
+                source_series = backend._load_series_for_provider(
+                    tmdb_override.provider,
+                    tmdb_override.provider_source,
+                )
+            except Exception as exc:
+                backend.log(
+                    f"TMDB-Serie {tmdb_override.tmdb_id} konnte nicht aus "
+                    f"{tmdb_override.provider_source} geladen werden: {exc}",
+                    "warn",
+                )
+                return None
+            if source_series is None:
+                return None
+            return apply_tmdb_season_override(source_series, tmdb_override)
+
         identity = canonical_identity_for_source(value)
         if identity is None:
             return original_get_series_for_value(value, fallback_title)
@@ -206,30 +228,10 @@ def _install_search_migrations() -> None:
                 return {}
             return {identity.provider: [_canonical_provider_hit(backend, identity)]}
 
-        provider_results = original_provider_search(query)
-        for provider, results in list(provider_results.items()):
-            provider_results[provider] = _canonicalize_provider_results(provider, results)
-
-        if identity is None:
-            return provider_results
-
-        active = list(backend.provider_priority("series"))
-        if identity.provider not in active:
-            return provider_results
-
-        results = provider_results.setdefault(identity.provider, [])
-        canonical_source = f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
-        if any(
-            equivalent_series_sources(
-                result.base_slug or result.sample_slug or result.sample_url,
-                canonical_source,
-            )
-            for result in results
-        ):
-            return provider_results
-
-        results.insert(0, _canonical_provider_hit(backend, identity))
-        return provider_results
+        # Freie Titelsuchen bleiben vollständig provider-first. Insbesondere
+        # "Monster" darf die getrennten TMDB-Serien/Provider-Treffer zeigen;
+        # die Sonderzuordnung auf S.to passiert erst beim Öffnen per TMDB-ID.
+        return original_provider_search(query)
 
     migrated_provider_search._royal_series_search_migrations_installed = True
     backend._search_series_provider_results = migrated_provider_search
@@ -240,7 +242,7 @@ def _install_search_migrations() -> None:
     def migrated_search_catalog(query: str):
         catalog = original_search_catalog(query)
         identity = series_search_identity(query)
-        if identity is None:
+        if identity is None or not _is_direct_canonical_search(query, identity):
             return catalog
         canonical_source = f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
         entries = list(catalog.get("entries") or [])
@@ -257,10 +259,15 @@ def _install_search_migrations() -> None:
     @wraps(original_entry_to_dict)
     def migrated_entry_to_dict(entry):
         payload = original_entry_to_dict(entry)
-        identity = canonical_identity_for_source(
+        raw_source = (
             entry.result.base_slug or entry.result.sample_slug or entry.result.sample_url
         )
-        if identity is not None:
+        identity = canonical_identity_for_source(raw_source)
+        if (
+            identity is not None
+            and canonical_series_source(raw_source).casefold()
+            == str(raw_source or "").strip().casefold()
+        ):
             payload["metadata_policy"] = identity.metadata_policy
             payload["canonical_series_source"] = (
                 f"{_PROVIDER_PREFIX[identity.provider]}{identity.canonical_slug}"
