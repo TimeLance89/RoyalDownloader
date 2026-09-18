@@ -16,6 +16,10 @@ from starlette.concurrency import run_in_threadpool
 
 import core.config as appconfig
 from features.movie_releases import release_service, safe_image
+from features.monster_series_extension import (
+    inject_monster_search_results,
+    monster_tmdb_series,
+)
 from providers.aniworld import aniworld_episode_page
 from providers.catalog import provider_content_language
 from providers.einschalten import EinschaltenScraper
@@ -25,7 +29,7 @@ from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
-from providers.models import FilmpalastSeriesResult, parse_episode_slug
+from providers.models import FilmpalastSeries, FilmpalastSeriesResult, SeriesEpisode, parse_episode_slug
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
 from providers.sflix import SflixScraper
@@ -764,8 +768,11 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
         return {**catalog, "direct_series": None, "mode": browse_mode}
 
     data = await run_in_threadpool(_work)
+    results = [_series_entry_to_dict(entry) for entry in data["entries"]]
+    if data["mode"] == "search":
+        results = inject_monster_search_results(query, results)
     return {
-        "results": [_series_entry_to_dict(entry) for entry in data["entries"]],
+        "results": results,
         "direct_series": data["direct_series"],
         "mode": data["mode"],
         "page": data["page"],
@@ -778,6 +785,12 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
 class SeriesLoadBody(BaseModel):
     sample_slug: str
     base_slug: str = ""
+    refresh_jellyfin: bool = False
+    defer_checks: bool = False
+
+
+class MonsterSeriesLoadBody(BaseModel):
+    tmdb_id: int
     refresh_jellyfin: bool = False
     defer_checks: bool = False
 
@@ -957,6 +970,127 @@ async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
 
 
 @router.post("/api/v1/series/load")
+@router.post("/api/series/monster-tmdb-load")
+async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
+    item = monster_tmdb_series(body.tmdb_id)
+    if item is None:
+        raise HTTPException(404, "Unbekannte Monster-TMDB-Serie.")
+
+    def _work():
+        source = get_series_for_value("serienstream:monster-2022")
+        if source is None:
+            return None
+        source_episodes = list((source.seasons or {}).get(item.source_season) or [])
+        if not source_episodes:
+            return None
+
+        client = get_tmdb_client()
+        metadata = {}
+        if client.configured:
+            try:
+                metadata = client.series_by_id(item.tmdb_id, item.fallback_title) or {}
+            except Exception as exc:
+                log(
+                    f"TMDB-Metadaten für Monster-ID {item.tmdb_id} nicht ladbar: {exc}",
+                    "warn",
+                )
+
+        title = str(metadata.get("title") or item.fallback_title)
+        virtual_episodes = [
+            SeriesEpisode(
+                season=1,
+                episode=episode.episode,
+                slug=f"{item.virtual_base_slug}-s01e{episode.episode:02d}",
+                url=episode.url,
+                release_name=episode.release_name,
+                release_at=episode.release_at,
+                release_label=episode.release_label,
+                content_languages=episode.content_languages,
+            )
+            for episode in source_episodes
+        ]
+        series = FilmpalastSeries(
+            title=title,
+            base_slug=item.virtual_base_slug,
+            url=item.source_url,
+            cover_url=str(metadata.get("cover_url") or source.cover_url or ""),
+            description=str(metadata.get("description") or source.description or ""),
+            genres=list(metadata.get("genres") or source.genres or []),
+            seasons={1: virtual_episodes},
+        )
+        state.series_cache[item.virtual_base_slug] = series
+
+        payload = series_to_dict(
+            series,
+            refresh_jellyfin=False,
+            defer_checks=body.defer_checks,
+        )
+        if metadata:
+            for field in (
+                "title", "year", "first_air_date", "runtime", "cover_url",
+                "backdrop_url", "description", "genres", "original_title",
+                "rating", "vote_count", "status", "trailer", "cast", "creators",
+                "networks", "original_language", "countries",
+                "production_companies", "similar_titles", "tmdb_url",
+            ):
+                if metadata.get(field):
+                    payload[field] = metadata[field]
+
+        payload["tmdb_id"] = item.tmdb_id
+        payload["base_slug"] = item.virtual_base_slug
+        payload["url"] = item.source_url
+        payload["special_series"] = "monster_tmdb"
+        payload["provider"] = "serienstream"
+        payload["provider_label"] = "Serienstream"
+        payload["metadata_source"] = "TMDB"
+        payload["monster_source_season"] = item.source_season
+
+        counts = metadata.get("season_episode_counts") or {}
+        logical_count = counts.get("1") or counts.get(1)
+        if logical_count:
+            payload["season_episode_counts"] = {"1": logical_count}
+
+        if not body.defer_checks:
+            aliases = list(dict.fromkeys(filter(None, (
+                metadata.get("title", ""),
+                metadata.get("original_title", ""),
+                item.fallback_title,
+            ))))
+            status = _series_jellyfin_status(
+                title,
+                tmdb_id=item.tmdb_id,
+                aliases=aliases,
+                episodes=[
+                    {
+                        "slug": episode.slug,
+                        "season": 1,
+                        "episode": episode.episode,
+                    }
+                    for episode in virtual_episodes
+                ],
+                force=body.refresh_jellyfin,
+            )
+            payload["jellyfin_configured"] = bool(status["configured"])
+            payload["jellyfin_pending"] = False
+            payload["jellyfin_available"] = bool(status["available"])
+            payload["jellyfin_stale"] = bool(status["stale"])
+            payload["jellyfin_checked_at"] = float(status["checked_at"] or 0)
+            for season in payload.get("seasons") or []:
+                for episode in season.get("episodes") or []:
+                    episode["in_jellyfin"] = bool(
+                        status["episodes"].get(episode.get("slug", ""))
+                    )
+        return payload
+
+    payload = await run_in_threadpool(_work)
+    if payload is None:
+        raise HTTPException(
+            502,
+            f"Monster Staffel {item.source_season} konnte bei Serienstream nicht geladen werden.",
+        )
+    return payload
+
+
 @router.post("/api/series/load")
 async def api_series_load(body: SeriesLoadBody):
     def _work():
