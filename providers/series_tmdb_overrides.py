@@ -7,9 +7,9 @@ stories as seasons of one anthology.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from providers.models import FilmpalastSeries
+from providers.models import FilmpalastSeries, parse_episode_slug
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,31 @@ def tmdb_series_override_for_value(value: str) -> TmdbSeriesSeasonOverride | Non
     return _BY_VIRTUAL_SLUG.get(str(value or "").strip().casefold())
 
 
+def tmdb_series_override_for_episode_slug(
+    value: str,
+) -> TmdbSeriesSeasonOverride | None:
+    parsed = parse_episode_slug(str(value or ""))
+    if parsed is None:
+        return None
+    base_slug, season, _episode = parsed
+    for override in MONSTER_TMDB_SEASON_OVERRIDES:
+        if (
+            base_slug.casefold() == override.provider_source.casefold()
+            and int(season) == override.season
+        ):
+            return override
+    return None
+
+
+def logical_episode_identity(value: str) -> tuple[int, int] | None:
+    parsed = parse_episode_slug(str(value or ""))
+    if parsed is None:
+        return None
+    _base_slug, source_season, episode = parsed
+    override = tmdb_series_override_for_episode_slug(value)
+    return (1 if override is not None else int(source_season), int(episode))
+
+
 
 def apply_tmdb_season_override(
     series: FilmpalastSeries,
@@ -101,9 +126,16 @@ def apply_tmdb_season_override(
     description: str = "",
     genres: list[str] | None = None,
 ) -> FilmpalastSeries | None:
-    episodes = list((series.seasons or {}).get(override.season) or [])
-    if not episodes:
+    source_episodes = list((series.seasons or {}).get(override.season) or [])
+    if not source_episodes:
         return None
+    # TMDB führt jede Geschichte als eigenständige Serie mit Staffel 1. Die
+    # technische S.to-Staffel bleibt ausschließlich im Slug/URL erhalten, damit
+    # der Provider weiterhin die richtige Quelle abruft.
+    logical_episodes = [
+        replace(episode, season=1)
+        for episode in source_episodes
+    ]
     return FilmpalastSeries(
         title=str(title or override.fallback_title),
         base_slug=override.virtual_base_slug,
@@ -111,5 +143,5 @@ def apply_tmdb_season_override(
         cover_url=str(cover_url or series.cover_url or ""),
         description=str(description or series.description or ""),
         genres=list(genres or series.genres or []),
-        seasons={override.season: episodes},
+        seasons={1: logical_episodes},
     )
