@@ -3,33 +3,27 @@
 function aiFormConfig() {
   return {
     enabled: Boolean(document.getElementById("ai-enabled")?.checked),
-    provider: document.getElementById("ai-provider")?.value || "jev",
     url: document.getElementById("ai-url")?.value.trim() || "http://127.0.0.1:11434",
     model: document.getElementById("ai-model")?.value.trim() || "llama3.2:3b",
     timeout_seconds: Math.max(
       30,
       Math.min(300, Number(document.getElementById("ai-timeout")?.value) || 180),
     ),
-    jev_api_key: document.getElementById("ai-jev-key")?.value.trim() || "",
-    jev_model: document.getElementById("ai-jev-model")?.value.trim() || "jev-latest",
   };
 }
 
 function syncAiSettingsState() {
   const enabled = Boolean(document.getElementById("ai-enabled")?.checked);
-  const provider = document.getElementById("ai-provider")?.value || "jev";
-  ["ai-url", "ai-model", "ai-test", "ai-jev-key", "ai-jev-model"].forEach((id) => {
+  ["ai-url", "ai-model", "ai-test"].forEach((id) => {
     const element = document.getElementById(id);
     if (element) element.disabled = !enabled;
   });
   const status = document.getElementById("ai-status");
   if (!status) return;
-  document.querySelectorAll("#ai-url, #ai-model").forEach((element) => { element.closest("label").hidden = provider !== "ollama"; });
-  document.querySelectorAll("#ai-jev-key, #ai-jev-model").forEach((element) => { element.closest("label").hidden = provider !== "jev"; });
   const badge = document.getElementById("ai-provider-badge");
   const privacy = document.getElementById("ai-privacy-note");
-  if (badge) badge.textContent = provider === "jev" ? "CLOUD" : "LOKAL";
-  if (privacy) privacy.textContent = provider === "jev" ? "JEV erhält nur kompakte Katalogmetadaten und dein Geschmacksprofil über eine Cloud-Entscheidungs-API." : "Ollama verarbeitet nur kompakte Katalogmetadaten und dein Geschmacksprofil lokal.";
+  if (badge) badge.textContent = "LOKAL";
+  if (privacy) privacy.textContent = "Royal Reflex verarbeitet kompakte Katalogmetadaten und dein Geschmacksprofil ausschließlich lokal über Ollama.";
   if (enabled !== state.ai.enabled) {
     status.textContent = enabled
       ? "Aktivierung noch speichern."
@@ -45,20 +39,15 @@ function applyAiConfig(config = {}) {
   state.ai.enabled = Boolean(config.enabled);
   state.ai.configured = Boolean(config.configured);
   state.ai.model = String(config.model || "");
-  state.ai.provider = String(config.provider || "ollama");
   state.ai.moduleAvailable = Boolean(config.module_available);
   const enabled = document.getElementById("ai-enabled");
   const url = document.getElementById("ai-url");
   const model = document.getElementById("ai-model");
   const timeout = document.getElementById("ai-timeout");
-  const provider = document.getElementById("ai-provider");
-  const jevModel = document.getElementById("ai-jev-model");
   if (enabled) enabled.checked = state.ai.enabled;
   if (url) url.value = config.url || "http://127.0.0.1:11434";
   if (model) model.value = config.model || "llama3.2:3b";
   if (timeout) timeout.value = String(config.timeout_seconds || 180);
-  if (provider) provider.value = state.ai.provider;
-  if (jevModel) jevModel.value = config.jev_model || "jev-latest";
   syncAiSettingsState();
   if (state.ai.enabled && state.ai.moduleAvailable) {
     setAiDiscoveryState("waiting", "Royal Intelligence wartet auf die Titel der Startseite.");
@@ -85,7 +74,7 @@ async function testAiConnection() {
         return option;
       }));
     }
-    status.textContent = result.provider === "jev" ? "JEV-Verbindung erfolgreich." : result.model_available
+    status.textContent = result.model_available
       ? `Verbunden · ${models.length} Modell(e) verfügbar.`
       : `Verbunden · Modell noch nicht geladen (${models.length} verfügbar).`;
     if (Boolean(document.getElementById("ai-enabled")?.checked) !== state.ai.enabled) {
@@ -269,7 +258,6 @@ document.getElementById("home-ai-retry")?.addEventListener("click", () => {
   state.ai.lastFingerprint = "";
   void refreshAiDiscovery(true);
 });
-document.getElementById("ai-provider")?.addEventListener("change", syncAiSettingsState);
 
 const classicLoadHomeData = window.loadHomeData;
 if (typeof classicLoadHomeData === "function") {

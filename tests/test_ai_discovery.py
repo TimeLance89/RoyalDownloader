@@ -40,16 +40,12 @@ def test_recommendations_accept_only_supplied_keys_and_clamp_scores(monkeypatch)
         "model": "local",
         "timeout_seconds": 20,
     })
-    monkeypatch.setattr(OllamaClient, "recommend", lambda *_args: {
-        "recommendations": [
-            {"key": "invented", "score": 100, "reason": "Nein"},
-            {"key": "movie:1", "score": 140, "reason": "Passt zum Profil", "angle": "taste"},
-        ]
-    })
+    monkeypatch.setattr(OllamaClient, "decide", lambda *_args: "invented|4|taste|1\nmovie:1|4|taste|1")
     result = service.recommend([_candidate()], {"dimensions": {}})
     assert result == [{
-        "key": "movie:1", "score": 100,
-        "reason": "Passt zum Profil", "angle": "taste",
+        "key": "movie:1", "score": 100, "angle": "taste",
+        "confidence": 1.0, "noul": 1.0,
+        "reason": "Starker Match mit deinem kompakten Geschmacksprofil.",
     }]
 
 

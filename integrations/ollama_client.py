@@ -89,3 +89,21 @@ class OllamaClient:
         if not isinstance(result, dict):
             raise OllamaError("Ollama hat kein JSON-Objekt geliefert.")
         return result
+
+    def decide(self, state: dict, questions: dict) -> str:
+        """One bounded inference for many closed candidate decisions."""
+        if not self.model:
+            raise OllamaError("Kein Ollama-Modell ausgewählt.")
+        payload = {
+            "model": self.model, "stream": False,
+            "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 800},
+            "messages": [{"role": "system", "content": "Du entscheidest nur über Daten. Gib pro Frage exakt eine Zeile key|score|angle|noul aus. score ist 0,1,2,3 oder 4; angle ist taste, adjacent oder surprise; noul ist 0.0 bis 1.0. Keine Erklärungen, kein JSON, keine weiteren Zeilen."}, {"role": "user", "content": json.dumps({"state": state, "questions": questions}, ensure_ascii=False)}],
+        }
+        try:
+            response = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout_seconds, allow_redirects=False)
+            response.raise_for_status()
+            if len(response.content) > 2_000_000: raise OllamaError("Ollama-Antwort ist unerwartet groß.")
+            content = str(response.json().get("message", {}).get("content", ""))
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            raise OllamaError("Ollama-Entscheidung konnte nicht verarbeitet werden.") from exc
+        return content[:50_000]

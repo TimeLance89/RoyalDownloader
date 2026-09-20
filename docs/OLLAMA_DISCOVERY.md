@@ -1,6 +1,6 @@
 # Ollama in Royal Intelligence
 
-Diese Dokumentation wurde nach [Royal Intelligence](ROYAL_INTELLIGENCE.md) migriert. Ollama bleibt als lokaler Provider erhalten.
+Diese Dokumentation wurde nach [Royal Reflex](ROYAL_REFLEX.md) migriert. Ollama bleibt das lokale Backend.
 
 RoyalDownloader kann den bestehenden Startseiten-Katalog optional durch
 Ollama kuratieren lassen. Die Funktion ergänzt Discovery und hat keinen Zugriff
