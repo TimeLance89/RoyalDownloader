@@ -130,7 +130,6 @@ function setAiDiscoveryState(mode, message = "") {
   const copy = document.getElementById("home-ai-state-message");
   const retry = document.getElementById("home-ai-retry");
   if (!rail || !track || !panel) return;
-  rail.style.order = "-1";
   rail.dataset.state = mode;
   rail.hidden = !state.ai.enabled;
   panel.hidden = mode === "ready";
@@ -166,7 +165,6 @@ function renderAiDiscovery(entries, recommendations, model) {
   const track = document.getElementById("home-ai-track");
   const note = document.getElementById("home-ai-note");
   if (!rail || !track) return;
-  rail.style.order = "-1";
   const byKey = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
   const specs = recommendations.map((recommendation, index) => {
     const entry = byKey.get(recommendation.key);
@@ -174,20 +172,7 @@ function renderAiDiscovery(entries, recommendations, model) {
     return {
       signature: JSON.stringify([recommendation.key, recommendation.score, recommendation.reason]),
       create: (cycle = 1) => {
-        const card = createHomeCard(entry, 0, cycle === 1 && index < 3, index === 0 ? "spotlight-lead" : "");
-        card.classList.add("home-ai-card");
-        const art = card.querySelector(".home-card-art");
-        if (art) {
-          const match = document.createElement("span");
-          match.className = "home-ai-match";
-          match.textContent = `${recommendation.score}% Match`;
-          art.appendChild(match);
-        }
-        const reason = document.createElement("p");
-        reason.className = "home-ai-reason";
-        reason.textContent = recommendation.reason;
-        card.appendChild(reason);
-        return card;
+        return createHomeCard(entry, 0, cycle === 1 && index < 3, index === 0 ? "spotlight-lead" : "");
       },
       update: (card) => syncHomeCardContent(card, entry, 0),
     };

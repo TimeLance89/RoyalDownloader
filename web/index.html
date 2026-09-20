@@ -412,29 +412,6 @@
       </section>
 
       <div class="home-rails" aria-live="polite">
-        <section id="home-ai-rail" class="home-rail home-ai-rail" aria-labelledby="home-ai-title" hidden>
-          <header class="home-rail-head home-ai-head">
-            <div>
-              <span class="home-ai-signal"><i aria-hidden="true"></i> Für dich kuratiert</span>
-              <h2 id="home-ai-title">Royal Intelligence</h2>
-              <p id="home-ai-note">Aus deinem Geschmack und dem aktuellen Royal-Katalog ausgewählt.</p>
-            </div>
-            <div class="home-rail-controls">
-              <button type="button" data-home-scroll="home-ai-track" data-direction="-1" aria-label="KI-Auswahl nach links scrollen">‹</button>
-              <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
-            </div>
-          </header>
-          <div id="home-ai-state" class="home-ai-state" role="status" hidden>
-            <span class="home-ai-state-mark" aria-hidden="true">✦</span>
-            <div>
-              <strong id="home-ai-state-title">Royal Intelligence wird vorbereitet</strong>
-              <span id="home-ai-state-message">Die Auswahl wartet auf Katalogdaten.</span>
-            </div>
-            <button id="home-ai-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
-          </div>
-          <div id="home-ai-track" class="home-track home-ai-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
-        </section>
-
         <section class="home-rail home-rail-spotlight" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
             <div>
@@ -476,6 +453,29 @@
             </div>
           </header>
           <div id="home-series-track" class="home-track" role="group" aria-label="Angesagte Serien"></div>
+        </section>
+
+        <section id="home-ai-rail" class="home-rail home-ai-rail" aria-labelledby="home-ai-title" hidden>
+          <header class="home-rail-head">
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">✦</span>
+              <h2 id="home-ai-title">Royal Intelligence</h2>
+              <p id="home-ai-note">Aus deinem Geschmack und dem aktuellen Royal-Katalog ausgewählt.</p>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-ai-track" data-direction="-1" aria-label="KI-Auswahl nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-ai-state" class="home-ai-state" role="status" hidden>
+            <span class="home-ai-state-mark" aria-hidden="true">✦</span>
+            <div>
+              <strong id="home-ai-state-title">Royal Intelligence wird vorbereitet</strong>
+              <span id="home-ai-state-message">Die Auswahl wartet auf Katalogdaten.</span>
+            </div>
+            <button id="home-ai-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
+          </div>
+          <div id="home-ai-track" class="home-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
         </section>
 
         <section class="home-rail home-rail-genre home-discovery-rail" aria-labelledby="home-genre-title">
@@ -2482,7 +2482,7 @@
 <script src="/screens/library.js?v=royal-20260823-1"></script>
 <script src="/screens/notifications.js?v=royal-20260908-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
-<script src="/ai-discovery.js?v=royal-20260920-1"></script>
+<script src="/ai-discovery.js?v=royal-20260920-2"></script>
 <script src="/screens/account.js?v=royal-20260920-1"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
