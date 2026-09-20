@@ -47,6 +47,31 @@
     </article>`;
   };
 
+  const syncFeatureCapabilities = async () => {
+    const button = document.getElementById("seerr-sync");
+    const status = document.getElementById("seerr-status");
+    if (!button || !status) return;
+    try {
+      const payload = await api.get("/api/modules");
+      const seerr = payload.modules.find((module) => module.id === "seerr-sync");
+      const available = !!(
+        seerr
+        && seerr.enabled
+        && seerr.runtime_status === "running"
+        && seerr.health === "healthy"
+      );
+      button.disabled = !available;
+      button.dataset.moduleAvailable = String(available);
+      if (!available && seerr) {
+        status.textContent = seerr.enabled
+          ? `Seerr-Modul nicht bereit · ${seerr.configuration_detail}`
+          : "Seerr-Modul deaktiviert · Einstellungen → Module";
+      }
+    } catch (error) {
+      console.warn("Modulstatus konnte nicht geladen werden:", error);
+    }
+  };
+
   const render = async () => {
     const host = document.getElementById("module-manager-list");
     if (!host) return;
@@ -100,4 +125,6 @@
   } else {
     install();
   }
+  document.addEventListener("royal:settings-ready", syncFeatureCapabilities);
+  document.addEventListener("royal:modules-changed", syncFeatureCapabilities);
 })();

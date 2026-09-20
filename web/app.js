@@ -678,7 +678,7 @@ async function initApp() {
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
   try {
     await initSettings();
-    await syncModuleCapabilities();
+    document.dispatchEvent(new Event("royal:settings-ready"));
   } catch (e) {
     console.error("Einstellungen konnten nicht geladen werden:", e);
   }
@@ -687,34 +687,6 @@ async function initApp() {
   window.royalLoader?.finish();
 }
 
-async function syncModuleCapabilities() {
-  const button = document.getElementById("seerr-sync");
-  const status = document.getElementById("seerr-status");
-  if (!button || !status) return;
-  try {
-    const payload = await api.get("/api/modules");
-    const seerr = payload.modules.find((module) => module.id === "seerr-sync");
-    const available = !!(
-      seerr
-      && seerr.enabled
-      && seerr.runtime_status === "running"
-      && seerr.health === "healthy"
-    );
-    button.disabled = !available;
-    button.dataset.moduleAvailable = String(available);
-    if (!available && seerr) {
-      status.textContent = seerr.enabled
-        ? `Seerr-Modul nicht bereit · ${seerr.configuration_detail}`
-        : "Seerr-Modul deaktiviert · Einstellungen → Module";
-    }
-  } catch (error) {
-    console.warn("Modulstatus konnte nicht geladen werden:", error);
-  }
-}
-
-document.addEventListener("royal:modules-changed", () => {
-  syncModuleCapabilities();
-});
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
     window.royalLoader?.finish();
