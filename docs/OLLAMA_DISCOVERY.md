@@ -1,4 +1,6 @@
-# Optionale lokale KI-Discovery
+# Ollama in Royal Intelligence
+
+Diese Dokumentation wurde nach [Royal Intelligence](ROYAL_INTELLIGENCE.md) migriert. Ollama bleibt als lokaler Provider erhalten.
 
 RoyalDownloader kann den bestehenden Startseiten-Katalog optional durch
 Ollama kuratieren lassen. Die Funktion ergänzt Discovery und hat keinen Zugriff

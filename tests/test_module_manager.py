@@ -5,7 +5,9 @@ from core.module_manager import ModuleDependencyError, ModuleManager, ModuleMani
 
 def test_existing_installations_default_all_builtin_modules_to_enabled():
     manager = ModuleManager(lambda: {}, lambda _states: True)
-    assert all(module["enabled"] for module in manager.payload()["modules"])
+    modules = {module["id"]: module["enabled"] for module in manager.payload()["modules"]}
+    assert all(enabled for module_id, enabled in modules.items() if module_id != "royal-intelligence")
+    assert modules["royal-intelligence"] is False
 
 
 def test_module_state_is_persisted_and_lifecycle_is_stopped():

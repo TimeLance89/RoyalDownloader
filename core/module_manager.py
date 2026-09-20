@@ -31,6 +31,7 @@ class ModuleManifest:
     optional_requires: tuple[str, ...] = ()
     conflicts: tuple[str, ...] = ()
     core: bool = False
+    default_enabled: bool = True
 
 
 class ModuleController(Protocol):
@@ -80,7 +81,7 @@ class ModuleManager:
         # Missing keys preserve the first-release behaviour: all existing
         # integrations retain their previous enabled state after an upgrade.
         self._enabled = {
-            module_id: bool(persisted.get(module_id, True))
+            module_id: bool(persisted.get(module_id, self._manifests[module_id].default_enabled))
             for module_id in self._manifests
         }
         self._runtime = {
