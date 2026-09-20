@@ -41,6 +41,7 @@ _LIVE_DEFAULT_INTERVAL_SECONDS = 1.0
 _LIVE_MAX_INTERVAL_SECONDS = 30.0
 _LIVE_MAX_FAILURE_BACKOFF_SECONDS = 15.0
 _LIVE_DOWNLOAD_WAIT_SECONDS = 20.0
+_RECENT_MOVIE_SNAPSHOT_GRACE_SECONDS = 120.0
 
 _live_lock = threading.RLock()
 _live_wake_event = threading.Event()
@@ -357,6 +358,17 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
     if not backend_value("get_jellyfin_client")().configured:
         return True
     with state.jellyfin_cache_lock:
+        # Die Detailansicht kann einen vollständigen, negativen Besitzstand
+        # erfolgreich geladen haben, während der unmittelbar folgende
+        # Hintergrund-Probe-Request transient scheitert (z. B. bei einem NAS
+        # im Leerlauf). Dieser sehr frische Snapshot ist belastbarer als ein
+        # zweiter, gerade fehlgeschlagener Request und verhindert unnötige
+        # Wiederholungen beim manuellen Download.
+        recent_snapshot = bool(
+            getattr(state, "jellyfin_movie_identities", None) is not None
+            and float(getattr(state, "jellyfin_movie_identities_time", 0.0) or 0.0)
+            >= time.time() - _RECENT_MOVIE_SNAPSHOT_GRACE_SECONDS
+        )
         missing_movie_snapshot = (
             getattr(state, "jellyfin_movie_identities", None) is None
             or not bool(getattr(state, "jellyfin_movie_identities_available", False))
@@ -365,6 +377,8 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
             not bool(getattr(state, "jellyfin_live_stale", False))
             and not missing_movie_snapshot
         ):
+            return True
+        if recent_snapshot:
             return True
         # Clear while holding the state lock so a concurrent successful monitor
         # cycle cannot publish freshness immediately before this reset.
@@ -383,6 +397,11 @@ def wait_for_jellyfin_live_ready(timeout: float | None = None) -> bool:
             not getattr(state, "jellyfin_live_stale", False)
             and getattr(state, "jellyfin_movie_identities", None) is not None
             and getattr(state, "jellyfin_movie_identities_available", False)
+            or (
+                getattr(state, "jellyfin_movie_identities", None) is not None
+                and float(getattr(state, "jellyfin_movie_identities_time", 0.0) or 0.0)
+                >= time.time() - _RECENT_MOVIE_SNAPSHOT_GRACE_SECONDS
+            )
         )
 
 

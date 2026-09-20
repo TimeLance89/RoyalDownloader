@@ -395,6 +395,27 @@ def test_movie_download_wait_fails_closed_after_timeout(monkeypatch):
     assert live.wait_for_jellyfin_live_ready(timeout=0.0) is False
 
 
+def test_movie_download_uses_a_recent_verified_snapshot_after_transient_probe_failure(monkeypatch):
+    fake_state = _state(
+        jellyfin_live_stale=True,
+        jellyfin_movie_identities=[{"id": "verified"}],
+        jellyfin_movie_identities_available=False,
+        jellyfin_movie_identities_time=time.time(),
+    )
+    refreshes = []
+    monkeypatch.setattr(live, "state", fake_state)
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **kwargs: refreshes.append(kwargs))
+    monkeypatch.setattr(
+        live,
+        "backend_value",
+        lambda name: (lambda: SimpleNamespace(configured=True))
+        if name == "get_jellyfin_client" else None,
+    )
+
+    assert live.wait_for_jellyfin_live_ready(timeout=0.0) is True
+    assert refreshes == []
+
+
 def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():
     core = (live.backend_value("APP_DIR") / "web" / "core.js").read_text(encoding="utf-8")
     home = (live.backend_value("APP_DIR") / "web" / "screens" / "home.js").read_text(encoding="utf-8")

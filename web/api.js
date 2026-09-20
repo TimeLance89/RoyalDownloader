@@ -497,6 +497,15 @@ function loadRoyalStorageMoveJobs() {
   document.body.appendChild(script);
 }
 
+function loadRoyalModuleManager() {
+  if (document.querySelector('script[data-royal-module-manager]')) return;
+  const script = document.createElement("script");
+  script.src = "/module-manager.js?v=royal-20260920-1";
+  script.async = false;
+  script.setAttribute("data-royal-module-manager", "true");
+  document.body.appendChild(script);
+}
+
 function loadRoyalStorageManager() {
   const existing = document.querySelector('script[data-royal-storage-manager]');
   if (existing) {
@@ -522,3 +531,4 @@ if (document.readyState === "loading") {
 } else {
   window.setTimeout(loadRoyalStorageManager, 0);
 }
+window.setTimeout(loadRoyalModuleManager, 0);
