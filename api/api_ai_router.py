@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -90,11 +90,13 @@ def create_ai_router(state) -> APIRouter:
     @router.post("/api/intelligence/recommendations")
     @router.post("/api/v1/ai/recommendations")
     @router.post("/api/ai/recommendations")
-    async def recommendations(body: AiRecommendationBody):
+    async def recommendations(body: AiRecommendationBody, request: Request):
         config, available = state.ai_discovery.config(), _availability(state)
         if not available[0]: return {"enabled": bool(config.get("enabled")), "available": False, "recommendations": [], "message": available[1]}
-        try: ranked = await run_in_threadpool(state.ai_discovery.recommend, [candidate.model_dump() for candidate in body.candidates], state.taste_profile.public_profile())
+        from application_services.auth import current_user
+        user = current_user(request.headers, request.cookies) or {}
+        try: result = state.ai_discovery.recommendations_now([candidate.model_dump() for candidate in body.candidates], state.taste_profile.public_profile(), str(user.get("id") or ""))
         except (ReflexError, OllamaError, ValueError): return {"enabled": True, "available": False, "recommendations": [], "message": "Royal Reflex ist derzeit nicht verfügbar. Die klassische Startseite bleibt unverändert."}
-        return {"enabled": True, "available": True, "backend": "ollama", "model": config.get("model"), "recommendations": ranked, "diagnostics": dict(state.ai_discovery.diagnostics)}
+        return {"enabled": True, "available": True, "backend": "ollama", "model": config.get("model"), "recommendations": result["items"], "source": result["source"], "refinement_status": result["refinement_status"], "diagnostics": dict(state.ai_discovery.diagnostics)}
 
     return router

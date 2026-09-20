@@ -241,6 +241,11 @@ async function refreshAiDiscovery(force = false) {
     state.ai.recommendations = result.recommendations;
     state.ai.lastFingerprint = fingerprint;
     renderAiDiscovery(entries, result.recommendations, result.model);
+    if (result.source === "baseline" && result.refinement_status !== "error") {
+      const note = document.getElementById("home-ai-note");
+      if (note) note.textContent = "Basisranking ist bereit – lokale KI verfeinert die Auswahl im Hintergrund.";
+      window.setTimeout(() => void refreshAiDiscovery(true), 4000);
+    }
     if (result.diagnostics?.fallback) {
       const note = document.getElementById("home-ai-note");
       if (note) note.textContent = "Lokale KI derzeit nicht verfügbar – Basisranking verwendet.";

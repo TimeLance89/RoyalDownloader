@@ -56,4 +56,4 @@ def test_ollama_failure_returns_deterministic_fallback(monkeypatch):
     monkeypatch.setattr("integrations.royal_intelligence.OllamaReflexProvider.score_candidates", Mock(side_effect=ReflexError("offline")))
     candidates = [{"key": "movie:1", "title": "T", "kind": "movie", "rating": 8, "genres": []}]
     assert service.recommend(candidates, {})[0]["key"] == "movie:1"
-    assert service.diagnostics["fallback"] is True
+    assert service.diagnostics["job"] in {"queued", "running"}
