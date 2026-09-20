@@ -31,7 +31,10 @@ DOMAIN_ROUTERS = {
 }
 
 _PREFIXES = {
-    "ai-discovery": ("/api/ai", "/api/v1/ai"),
+    "ai-discovery": (
+        "/api/ai", "/api/v1/ai",
+        "/api/intelligence", "/api/v1/intelligence",
+    ),
     "queue": (
         "/api/queue", "/api/v1/queue", "/api/download", "/api/v1/download",
         "/api/taste", "/api/v1/taste",
