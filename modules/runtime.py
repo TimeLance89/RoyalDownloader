@@ -50,3 +50,21 @@ class WorkerModuleController:
         if not configured:
             return False, detail
         return (True, "Worker läuft") if self._alive() else (False, "Worker läuft nicht")
+
+
+class OnDemandModuleController:
+    """Lifecycle contract for modules that perform work only per API request."""
+    def __init__(self, configured: Callable[[], tuple[bool, str]]) -> None:
+        self._configured, self._active, self._lock = configured, False, RLock()
+    def configuration_state(self) -> tuple[bool, str]: return self._configured()
+    def start(self) -> None:
+        configured, detail = self.configuration_state()
+        if not configured: raise RuntimeError(detail)
+        with self._lock: self._active = True
+    def stop(self) -> bool:
+        with self._lock: self._active = False
+        return True
+    def health(self) -> tuple[bool, str]:
+        configured, detail = self.configuration_state()
+        if not configured: return False, detail
+        with self._lock: return (True, "Bei Anfrage bereit") if self._active else (False, "Modul ist nicht gestartet")

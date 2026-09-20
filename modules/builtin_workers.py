@@ -12,7 +12,7 @@ import threading
 from typing import Callable
 
 from application_services.runtime import backend_value, set_backend_value
-from modules.runtime import WorkerModuleController
+from modules.runtime import OnDemandModuleController, WorkerModuleController
 
 
 def _thread_alive(reference: str) -> bool:
@@ -93,6 +93,10 @@ def _updates_configuration() -> tuple[bool, str]:
     return True, "Automatische Prüfungen konfiguriert"
 
 
+def _intelligence_configuration() -> tuple[bool, str]:
+    return backend_value("state").ai_discovery.configuration_state()
+
+
 def _start_telegram() -> None:
     bot = backend_value("_telegram_bot")
     if bot is None:
@@ -156,6 +160,7 @@ def register_builtin_worker_controllers(manager) -> None:
             _jellyfin_configuration,
         ),
     )
+    manager.register_controller("royal-intelligence", OnDemandModuleController(_intelligence_configuration))
     manager.register_controller(
         "seerr-sync",
         WorkerModuleController(
