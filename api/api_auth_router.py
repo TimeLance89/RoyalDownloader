@@ -36,6 +36,16 @@ class AuthConfigBody(BaseModel):
     current_password: str | None = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
 
+class UserCreateBody(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    username: str = Field(max_length=MAX_USERNAME_LENGTH)
+    role: str = Field(default="member", pattern="^(admin|member)$")
+
+
+class FirstLoginBody(LoginBody):
+    password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -59,6 +69,8 @@ class AuthDependencies:
     session_token: Callable[[dict], str]
     request_is_secure: Callable[[Request], bool]
     log: Callable[..., None]
+    user_store: Callable[[], Any]
+    current_user: Callable[[Any, Any], dict | None]
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -101,15 +113,17 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             if auth_method is None
             else (not dependencies.auth_required() or auth_method != "none")
         )
+        user = dependencies.current_user(request.headers, request.cookies) if authenticated else None
         return {
             "configured": configured,
             "required": dependencies.auth_required(),
             "authenticated": authenticated,
             "username": (
-                account.get("username", "")
+                (user or account).get("username", "")
                 if authenticated or not configured
                 else ""
             ),
+            "user": dependencies.user_store().public(user) if user else None,
             "source": account.get("source", "none"),
             "setup_required": dependencies.setup_required(),
             "prompt_setup": (
@@ -128,7 +142,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     ) -> tuple[str, dict, str]:
         key = dependencies.client_key(request)
         login_guard = dependencies.login_guard()
-        account_key = "royal-admin"
+        account_key = f"account:{username.strip().casefold()}"
         blocked_ip = login_guard.retry_after(key)
         blocked_account = account_login_guard.retry_after(account_key)
         blocked = max(blocked_ip, blocked_account)
@@ -167,14 +181,17 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         login_guard.register_success(key)
         account_login_guard.register_success(account_key)
         session_label = str(label or "").strip()[:120]
+        user = dependencies.user_store().find(username)
         token = dependencies.session_store().create(
             label=session_label,
             kind=session_kind,
+            user_id=str(user.get("id")) if user else "",
         )
         payload = auth_status_payload(request)
         payload.update({
             "authenticated": True,
-            "username": dependencies.auth_account().get("username", ""),
+            "username": user.get("username", "") if user else "",
+            "user": dependencies.user_store().public(user) if user else None,
         })
         dependencies.log("Anmeldung erfolgreich.")
         return token, payload, session_label
@@ -260,6 +277,52 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         response = JSONResponse(payload)
         set_session_cookie(response, request, token)
         return response
+
+    @router.post("/api/auth/first-login")
+    async def api_first_login(body: FirstLoginBody, request: Request):
+        user = dependencies.user_store().find(body.username)
+        if not user or not user.get("enabled") or not user.get("setup_required") or body.password != body.password_repeat:
+            raise HTTPException(401, "Anmeldung oder Passwortsetzung nicht möglich.")
+        try: password = appauth.validate_password(body.password)
+        except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+        dependencies.user_store().set_password(user["id"], await run_in_threadpool(appauth.hash_password, password))
+        token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"])
+        response = JSONResponse({"ok": True, "authenticated": True, "user": dependencies.user_store().public(dependencies.user_store().get(user["id"]))})
+        set_session_cookie(response, request, token)
+        return response
+
+    def require_admin(request: Request) -> dict:
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user or user.get("role") != "admin": raise HTTPException(403, "Administratorrechte erforderlich.")
+        return user
+
+    @router.get("/api/auth/users")
+    async def api_users(request: Request):
+        require_admin(request)
+        return {"users": dependencies.user_store().list()}
+
+    @router.post("/api/auth/users")
+    async def api_users_create(body: UserCreateBody, request: Request):
+        require_admin(request)
+        try: user = dependencies.user_store().create(body.display_name, body.username, body.role)
+        except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+        return {"user": user}
+
+    @router.post("/api/auth/users/{user_id}/reset-password")
+    async def api_user_reset(user_id: str, request: Request):
+        require_admin(request)
+        try: user = dependencies.user_store().reset_password(user_id)
+        except ValueError as exc: raise HTTPException(404, str(exc)) from exc
+        dependencies.session_store().revoke_user(user_id)
+        return {"user": user}
+
+    @router.post("/api/auth/users/{user_id}/enabled")
+    async def api_user_enabled(user_id: str, request: Request, enabled: bool):
+        require_admin(request)
+        try: user = dependencies.user_store().set_enabled(user_id, enabled)
+        except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+        if not enabled: dependencies.session_store().revoke_user(user_id)
+        return {"user": user}
 
     @router.post("/api/v1/auth/login")
     async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):

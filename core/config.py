@@ -228,6 +228,11 @@ def sessions_file() -> Path:
     return _config_dir() / "sessions.json"
 
 
+def users_file() -> Path:
+    """Ablage der Haushaltskonten; Passwörter liegen nur als Hash vor."""
+    return _config_dir() / "users.json"
+
+
 def taste_profile_file() -> Path:
     """Persistentes, geräteübergreifendes Geschmacksprofil des Einzelbenutzers."""
     return _config_dir() / "taste_profile.json"

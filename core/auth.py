@@ -202,6 +202,7 @@ class SessionStore:
                     "last_seen": last_seen,
                     "label": str(entry.get("label") or ""),
                     "kind": kind,
+                    "user_id": str(entry.get("user_id") or ""),
                     "_persisted_last_seen": last_seen,
                 }))
             # Auch eine manipulierte oder beschädigte Datei darf das konfigurierte
@@ -263,7 +264,7 @@ class SessionStore:
         return bool(stale)
 
     # -- API ----------------------------------------------------------------
-    def create(self, label: str = "", kind: str = SESSION_KIND_WEB) -> str:
+    def create(self, label: str = "", kind: str = SESSION_KIND_WEB, user_id: str = "") -> str:
         """Legt eine Sitzung an und gibt das Klartext-Token für das Cookie zurück."""
         if kind not in SESSION_KINDS:
             raise ValueError("Unbekannter Sitzungstyp.")
@@ -282,6 +283,7 @@ class SessionStore:
                 "last_seen": now,
                 "label": str(label or "")[:120],
                 "kind": kind,
+                "user_id": str(user_id or "")[:120],
                 "_persisted_last_seen": now,
             }
             try:
@@ -290,6 +292,13 @@ class SessionStore:
                 self._sessions = previous
                 raise
         return token
+
+    def user_id(self, token: str, kind: Optional[str] = None) -> str:
+        """Return the authenticated session owner without exposing token state."""
+        if not self.validate(token, kind): return ""
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token)) or {}
+            return str(entry.get("user_id") or "")
 
     def validate(
         self,
@@ -377,6 +386,16 @@ class SessionStore:
             except SessionPersistenceError:
                 self._sessions.update(removed)
                 raise
+            return len(removed)
+
+    def revoke_user(self, user_id: str, keep_token: str = "") -> int:
+        target, keep = str(user_id or ""), _token_fingerprint(keep_token) if keep_token else ""
+        if not target: return 0
+        with self._lock:
+            removed = {key: entry for key, entry in self._sessions.items() if key != keep and entry.get("user_id") == target}
+            if not removed: return 0
+            for key in removed: self._sessions.pop(key, None)
+            self._save_locked()
             return len(removed)
 
     def count(self, kind: Optional[str] = None) -> int:
