@@ -125,6 +125,7 @@ def select_missing_episode_slugs(
     jellyfin_watched=None,
     season_episode_counts=None,
     unreleased_slugs=None,
+    enabled_content_languages=None,
 ) -> set[str]:
     """Waehlt fehlende Episoden entsprechend der Abo-Regel aus.
 
@@ -136,8 +137,26 @@ def select_missing_episode_slugs(
     erschienen sind – die werden nie als fehlend gemeldet, sonst landen
     unveroeffentlichte Folgen in der Auto-Download-Warteschlange und schlagen
     dort dauerhaft fehl.
+    ``enabled_content_languages`` schließt Episoden aus, für die der Anbieter
+    ausschließlich nicht aktivierte Sprachfassungen meldet. Ohne bekannte
+    Sprachmetadaten bleibt eine Episode rückwärtskompatibel auswählbar.
     """
     episodes = list(episodes or [])
+    enabled_languages = {
+        str(language or "").strip().casefold()
+        for language in (enabled_content_languages or [])
+        if str(language or "").strip()
+    }
+    if enabled_languages:
+        episodes = [
+            episode for episode in episodes
+            if not {
+                str(language or "").strip().casefold()
+                for language in (getattr(episode, "content_languages", ()) or ())
+                if str(language or "").strip()
+            }.isdisjoint(enabled_languages)
+            or not getattr(episode, "content_languages", ())
+        ]
     downloaded = set(downloaded_slugs or [])
     jellyfin = set(jellyfin_existing or [])
     unreleased = set(unreleased_slugs or [])

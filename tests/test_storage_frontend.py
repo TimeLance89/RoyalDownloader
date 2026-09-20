@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_storage_runtime_is_loaded_by_frontend_manifest():
     api_js = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
-    assert "/storage-manager.js?v=royal-20260823-1" in api_js
+    assert "/storage-manager.js?v=royal-20260920-1" in api_js
     assert "data-royal-storage-manager" in api_js
 
 
@@ -34,6 +34,14 @@ def test_storage_runtime_exposes_multi_volume_management_cleanup_and_move_ui():
         "confirm: true",
     ):
         assert marker in source
+
+
+def test_storage_runtime_starts_hidden_and_uses_settings_navigation_visibility_rules():
+    source = (ROOT / "web" / "storage-manager.js").read_text(encoding="utf-8")
+    assert 'id="settings-storage" class="settings-section royal-storage-section"' in source
+    assert 'aria-hidden="true" hidden' in source
+    assert "section.hidden = !active" in source
+    assert 'section.setAttribute("aria-hidden", active ? "false" : "true")' in source
 
 
 def test_storage_runtime_explains_true_move_semantics_and_mount_requirements():
