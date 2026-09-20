@@ -70,7 +70,12 @@ install_pre_state_security(appconfig, appauth)
 # ---------------------------------------------------------------------------
 def auth_account() -> dict:
     """Aktuell hinterlegtes Konto (settings.ini oder APP_USERNAME/APP_PASSWORD)."""
-    return appconfig.load_auth()
+    store = backend_value("USER_STORE")
+    store.ensure_legacy(appconfig.load_auth())
+    users = store.list()
+    # Compatibility shape for setup/status; the first admin remains visible.
+    admin = next((user for user in users if user["role"] == "admin"), None)
+    return {"username": admin["username"] if admin else "", "configured": bool(admin), "source": "users"}
 
 
 def auth_configured() -> bool:
@@ -100,23 +105,47 @@ def setup_required() -> bool:
 
 def verify_credentials(username: str, password: str) -> bool:
     """Prüft Zugangsdaten zeitkonstant und aktualisiert alte Hashparameter."""
-    account = auth_account()
-    if not account.get("configured"):
+    user = backend_value("USER_STORE").find(username)
+    if not user:
+        # Compatibility and timing hardening: exercise the legacy admin hash
+        # for an unknown name as well. The migrated user store remains the
+        # authoritative successful-login source.
+        legacy = auth_account()
+        if not legacy.get("configured"):
+            return False
+        if not secrets.compare_digest(str(username or "").casefold(), str(legacy.get("username", "")).casefold()):
+            appauth.verify_password(str(password or ""), legacy.get("password_hash", ""))
+            return False
+        user = legacy
+    if not user.get("enabled", True) or user.get("setup_required"):
         return False
-    if not secrets.compare_digest(str(username or ""), str(account.get("username", ""))):
+    if not secrets.compare_digest(str(username or "").casefold(), str(user.get("username", "")).casefold()):
         # Trotzdem eine Hash-Runde rechnen, damit ein falscher Benutzername
         # nicht spürbar schneller beantwortet wird als ein falsches Passwort.
-        appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+        appauth.verify_password(str(password or ""), user.get("password_hash", ""))
         return False
-    if account.get("source") == "env":
-        return secrets.compare_digest(str(password or ""), str(account.get("env_password", "")))
-    verified = appauth.verify_password(str(password or ""), account.get("password_hash", ""))
+    if user.get("source") == "env": return secrets.compare_digest(str(password or ""), str(user.get("env_password", "")))
+    verified = appauth.verify_password(str(password or ""), user.get("password_hash", ""))
     if verified:
         try:
-            maybe_upgrade_password_hash(appconfig, appauth, account, str(password or ""))
+            maybe_upgrade_password_hash(appconfig, appauth, user, str(password or ""))
         except Exception as exc:  # login stays available if a background rehash cannot persist
             logger.warning("Passwort-Hash konnte nicht automatisch aktualisiert werden: %s", exc)
     return verified
+
+
+def current_user(headers, cookies, *, touch: bool = True) -> dict | None:
+    """Authoritative session-bound user context for HTTP boundaries."""
+    dependencies = _runtime_dependencies()
+    token = authenticated_mobile_token(headers, touch=touch) or authenticated_web_token(cookies, touch=touch)
+    user_id = dependencies.session_store.user_id(token)
+    user = backend_value("USER_STORE").get(user_id) if user_id else None
+    return user if user and user.get("enabled") else None
+
+
+def current_user_id(headers, cookies, *, touch: bool = True) -> str:
+    user = current_user(headers, cookies, touch=touch)
+    return str(user.get("id")) if user else ""
 
 
 def _authorized_basic_header(value: str, guard_key: str = "") -> bool:
@@ -258,6 +287,8 @@ _SERVICE_EXPORTS = (
     "auth_required",
     "setup_required",
     "verify_credentials",
+    "current_user",
+    "current_user_id",
     "_authorized_basic_header",
     "_bearer_token",
     "_session_token",

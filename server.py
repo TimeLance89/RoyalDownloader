@@ -214,6 +214,7 @@ from api.api_administration_router import (
 )
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from core.app_state import AppState, _PreparationSlots
+from core.users import UserStore
 from core.websocket_manager import WSManager, _WSClient
 from api.api_websocket_router import (
     WebSocketDependencies,
@@ -335,6 +336,7 @@ WEBSOCKET_AUTH_RECHECK_SECONDS = 30.0
 WEBSOCKET_CLIENT_QUEUE_SIZE = 128
 SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
+USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
 LOGIN_GUARD = appauth.LoginGuard()
 BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
@@ -683,6 +685,8 @@ app.include_router(create_auth_router(AuthDependencies(
     session_token=lambda cookies: _session_token(cookies),
     request_is_secure=lambda request: _request_is_secure(request),
     log=lambda *args, **kwargs: log(*args, **kwargs),
+    user_store=lambda: USER_STORE,
+    current_user=lambda headers, cookies: current_user(headers, cookies),
 )))
 
 
