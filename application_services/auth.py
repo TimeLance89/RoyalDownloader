@@ -71,6 +71,7 @@ install_pre_state_security(appconfig, appauth)
 def auth_account() -> dict:
     """Aktuell hinterlegtes Konto (settings.ini oder APP_USERNAME/APP_PASSWORD)."""
     store = backend_value("USER_STORE")
+    store.ensure_legacy(appconfig.load_auth())
     users = store.list()
     # Compatibility shape for setup/status; the first admin remains visible.
     admin = next((user for user in users if user["role"] == "admin"), None)

@@ -44,6 +44,12 @@ class UserStore:
         self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "created_at": time.time(), "updated_at": time.time()}
         self._save()
 
+    def ensure_legacy(self, account: dict) -> None:
+        """Migrate an account created after process startup (first-run setup)."""
+        with self._lock:
+            if not self._users and account.get("configured"):
+                self._migrate_legacy(account)
+
     def find(self, username: str) -> dict | None:
         key = normalize_username(username).casefold()
         with self._lock:
