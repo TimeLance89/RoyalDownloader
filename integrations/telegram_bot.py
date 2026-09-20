@@ -37,6 +37,15 @@ class TelegramBot:
     def stop(self):
         self._running = False
 
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive() and self._running)
+
+    def stop_and_wait(self, timeout: float = 2.0) -> bool:
+        self.stop()
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(max(0.0, timeout))
+        return not bool(self._thread and self._thread.is_alive())
+
     @staticmethod
     def _parse_response(resp, method: str) -> dict:
         result = json.loads(resp.read().decode("utf-8"))

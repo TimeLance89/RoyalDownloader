@@ -27,7 +27,7 @@ def create_module_router(manager) -> APIRouter:
         except KeyError as exc:
             raise HTTPException(404, "Modul nicht gefunden.") from exc
         except ModuleDependencyError as exc:
-            raise HTTPException(409, {"message": str(exc), "used_by": exc.dependents}) from exc
+            raise HTTPException(409, {"message": str(exc), "modules": exc.modules}) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except RuntimeError as exc:
