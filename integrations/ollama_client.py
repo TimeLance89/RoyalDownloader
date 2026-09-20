@@ -95,8 +95,8 @@ class OllamaClient:
         if not self.model:
             raise OllamaError("Kein Ollama-Modell ausgewählt.")
         payload = {
-            "model": self.model, "stream": False,
-            "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 800},
+            "model": self.model, "stream": False, "think": False,
+            "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 160},
             "messages": [{"role": "system", "content": "Du entscheidest nur über Daten. Gib pro Frage exakt eine Zeile key|score|angle|noul aus. score ist 0,1,2,3 oder 4; angle ist taste, adjacent oder surprise; noul ist 0.0 bis 1.0. Keine Erklärungen, kein JSON, keine weiteren Zeilen."}, {"role": "user", "content": json.dumps({"state": state, "questions": questions}, ensure_ascii=False)}],
         }
         try:

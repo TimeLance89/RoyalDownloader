@@ -56,9 +56,10 @@ def test_invalid_or_empty_ai_result_is_non_authoritative(monkeypatch):
         "model": "local",
         "timeout_seconds": 20,
     })
-    monkeypatch.setattr(OllamaClient, "recommend", lambda *_args: {"recommendations": []})
-    with pytest.raises(OllamaError):
-        service.recommend([_candidate()], {})
+    monkeypatch.setattr(OllamaClient, "decide", lambda *_args: "ungültige Antwort")
+    result = service.recommend([_candidate()], {})
+    assert result[0]["key"] == "movie:1"
+    assert service.diagnostics["fallback"] is True
 
 
 @pytest.mark.parametrize("url", [
