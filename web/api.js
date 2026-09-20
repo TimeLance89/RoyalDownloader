@@ -500,7 +500,7 @@ function loadRoyalStorageMoveJobs() {
 function loadRoyalModuleManager() {
   if (document.querySelector('script[data-royal-module-manager]')) return;
   const script = document.createElement("script");
-  script.src = "/module-manager.js?v=royal-20260920-2";
+  script.src = "/module-manager.js?v=royal-20260920-3";
   script.async = false;
   script.setAttribute("data-royal-module-manager", "true");
   document.body.appendChild(script);

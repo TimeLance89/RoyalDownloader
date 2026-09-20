@@ -68,3 +68,18 @@ def test_disabled_feature_guard_returns_a_defined_api_error(monkeypatch):
         assert exc.detail["code"] == "module_unavailable"
     else:
         raise AssertionError("disabled module must reject its feature route")
+
+
+def test_relevant_configuration_endpoints_trigger_module_reconciliation():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "api" / "api_administration_router.py").read_text(
+        encoding="utf-8",
+    )
+    for module_id in (
+        "automatic-updates",
+        "jellyfin-recommendations",
+        "telegram-control",
+        "seerr-sync",
+    ):
+        assert f'state.module_manager.reconcile("{module_id}")' in source

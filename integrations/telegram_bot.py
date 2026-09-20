@@ -3,13 +3,16 @@
 import json
 import secrets
 import threading
-import time
 import urllib.error
 import urllib.request
 from typing import Callable, Optional
 
 
 class TelegramBot:
+    POLL_TIMEOUT_SECONDS = 5
+    POLL_HTTP_TIMEOUT_SECONDS = 8
+    STOP_TIMEOUT_SECONDS = 10.0
+
     def __init__(
         self,
         config_cb: Callable[[], dict],
@@ -26,25 +29,44 @@ class TelegramBot:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_error = ""
+        self._stop_event = threading.Event()
+        self._lifecycle_lock = threading.RLock()
 
     def start(self):
-        if self._thread and self._thread.is_alive():
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="telegram-bot")
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._thread and self._thread.is_alive():
+                if self._running:
+                    return
+                raise RuntimeError("Telegram-Worker beendet sich noch")
+            self._stop_event.clear()
+            self._running = True
+            self._thread = threading.Thread(
+                target=self._loop,
+                daemon=True,
+                name="telegram-bot",
+            )
+            self._thread.start()
 
     def stop(self):
-        self._running = False
+        with self._lifecycle_lock:
+            self._running = False
+            self._stop_event.set()
+
+    def is_alive(self) -> bool:
+        with self._lifecycle_lock:
+            return bool(self._thread and self._thread.is_alive())
 
     def is_running(self) -> bool:
-        return bool(self._thread and self._thread.is_alive() and self._running)
+        with self._lifecycle_lock:
+            return bool(self._thread and self._thread.is_alive() and self._running)
 
-    def stop_and_wait(self, timeout: float = 2.0) -> bool:
+    def stop_and_wait(self, timeout: float = STOP_TIMEOUT_SECONDS) -> bool:
         self.stop()
-        if self._thread and self._thread is not threading.current_thread():
-            self._thread.join(max(0.0, timeout))
-        return not bool(self._thread and self._thread.is_alive())
+        with self._lifecycle_lock:
+            thread = self._thread
+        if thread and thread is not threading.current_thread():
+            thread.join(max(0.0, timeout))
+        return not self.is_alive()
 
     @staticmethod
     def _parse_response(resp, method: str) -> dict:
@@ -238,37 +260,51 @@ class TelegramBot:
         ).start()
 
     def _loop(self):
-        while self._running:
-            cfg = self.config_cb()
-            enabled = bool(cfg.get("enabled"))
-            token = str(cfg.get("bot_token", "")).strip()
-            if not enabled or not token:
-                self._active_token = ""
-                self._offset = None
-                time.sleep(2)
-                continue
+        try:
+            while self._running and not self._stop_event.is_set():
+                cfg = self.config_cb()
+                enabled = bool(cfg.get("enabled"))
+                token = str(cfg.get("bot_token", "")).strip()
+                if not enabled or not token:
+                    self._active_token = ""
+                    self._offset = None
+                    self._stop_event.wait(0.25)
+                    continue
 
-            if token != self._active_token:
-                self._active_token = token
-                self._offset = None
-                self._last_error = ""
-                self.log_cb("Telegram-Bot aktiviert.")
+                if token != self._active_token:
+                    self._active_token = token
+                    self._offset = None
+                    self._last_error = ""
+                    self.log_cb("Telegram-Bot aktiviert.")
 
-            payload = {"timeout": 25, "allowed_updates": ["message", "callback_query"]}
-            if self._offset is not None:
-                payload["offset"] = self._offset
-            try:
-                data = self._request(token, "getUpdates", payload, timeout=35)
-                self._last_error = ""
-                for update in data.get("result", []):
-                    self._dispatch_update(update)
-            except urllib.error.HTTPError as exc:
+                payload = {
+                    "timeout": self.POLL_TIMEOUT_SECONDS,
+                    "allowed_updates": ["message", "callback_query"],
+                }
+                if self._offset is not None:
+                    payload["offset"] = self._offset
                 try:
-                    detail = exc.read().decode("utf-8", errors="replace")
-                except Exception:
-                    detail = str(exc)
-                self._log_error_once(f"Telegram-Polling fehlgeschlagen ({exc.code}): {detail[:180]}")
-                time.sleep(5)
-            except Exception as exc:
-                self._log_error_once(f"Telegram-Polling fehlgeschlagen: {exc}")
-                time.sleep(5)
+                    data = self._request(
+                        token,
+                        "getUpdates",
+                        payload,
+                        timeout=self.POLL_HTTP_TIMEOUT_SECONDS,
+                    )
+                    self._last_error = ""
+                    for update in data.get("result", []):
+                        self._dispatch_update(update)
+                except urllib.error.HTTPError as exc:
+                    try:
+                        detail = exc.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        detail = str(exc)
+                    self._log_error_once(
+                        f"Telegram-Polling fehlgeschlagen ({exc.code}): {detail[:180]}",
+                    )
+                    self._stop_event.wait(0.25)
+                except Exception as exc:
+                    self._log_error_once(f"Telegram-Polling fehlgeschlagen: {exc}")
+                    self._stop_event.wait(0.25)
+        finally:
+            with self._lifecycle_lock:
+                self._running = False

@@ -5,6 +5,7 @@
   const readable = (value) => ({
     running: "Läuft", disabled: "Deaktiviert", starting: "Startet",
     stopping: "Wird beendet", error: "Fehler", needs_configuration: "Konfiguration fehlt",
+    dependency_missing: "Abhängigkeit fehlt",
   }[value] || value);
   const list = (values, fallback = "keine") => values.length
     ? values.map(escapeHtml).join(", ")
@@ -63,6 +64,7 @@
             await api._req("PUT", `/api/modules/${input.dataset.module}`, {
               enabled: input.checked,
             });
+            document.dispatchEvent(new Event("royal:modules-changed"));
             await render();
           } catch (error) {
             input.checked = !input.checked;

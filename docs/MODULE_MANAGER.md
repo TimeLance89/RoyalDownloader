@@ -14,7 +14,7 @@ Ein Controller stellt `start()`, `stop()`, `health()` und `configuration_state()
 |---|---|
 | `enabled` | Persistierter Nutzerwunsch für das Modul. |
 | `configured` | Zugangsdaten bzw. notwendige Modulkonfiguration sind vorhanden. |
-| `runtime_status` | `disabled`, `starting`, `running`, `stopping`, `needs_configuration` oder `error`. |
+| `runtime_status` | `disabled`, `starting`, `running`, `stopping`, `needs_configuration`, `dependency_missing` oder `error`. |
 | `health` | Reale Workerprüfung, nicht nur ein gesetztes Event. |
 
 Ein aktiviertes Telegram-Modul ohne Token ist damit `needs_configuration`, nicht `running`. Ein Thread, dessen Stop-Timeout abläuft, bleibt `stopping`; er wird nicht als beendet dargestellt.
@@ -26,6 +26,16 @@ Der Zustand liegt rückwärtskompatibel als `module.<id> = true|false` in `setti
 Bei einer Änderung wird zuerst der Lifecycle ausgeführt und danach der neue Zustand gespeichert. Ein nicht beendeter Worker wird nicht persistiert deaktiviert. Schlägt das Schreiben fehl, wird der vorherige Workerzustand wiederhergestellt und der RAM-Zustand bleibt unverändert. Ein fehlgeschlagener Start wird dagegen als sichtbarer Runtime-Fehler bei gespeichertem Aktivierungswunsch geführt; er blockiert weder Core noch andere Module und kann nach Konfigurationskorrektur oder Neustart erneut starten.
 
 Beim Start werden nur persistiert aktivierte Module in Dependency-Reihenfolge gestartet. Beim Shutdown werden sie in umgekehrter Reihenfolge gestoppt, ohne den persistierten Wunsch zu verändern. Dadurch startet ein deaktiviertes Modul nach Neustart nicht, ein aktiviertes genau einmal.
+
+### Startup-Validierung und Reconciliation
+
+Vor dem ersten Workerstart normalisiert der Manager alte persistierte Zustände: fehlende Required-Dependencies werden transitiv aktiviert; bei Konflikten gewinnt deterministisch das zuerst registrierte Modul und das andere wird deaktiviert. Die korrigierte Konfiguration wird sofort gespeichert. Falls diese Korrektur nicht persistiert werden kann, starten Module mit fehlenden Dependencies oder Konflikten nicht und zeigen `dependency_missing` beziehungsweise einen Fehler.
+
+`reconcile(module_id)` prüft Aktivierungswunsch, Graph, Konfiguration, echten Workerzustand und Health erneut. Es wird direkt nach dem Speichern von Jellyfin-, Seerr-, Telegram- und Updater-Konfiguration aufgerufen sowie periodisch durch die Runtime-Wartung. Damit verlässt ein Modul `needs_configuration` selbstständig, sobald Zugangsdaten ergänzt wurden. Ein unerwartet beendeter Worker wird als `error` sichtbar und beim nächsten Reconcile kontrolliert neu gestartet.
+
+Ein Stop-Timeout rollt nicht länger fälschlich auf `running` zurück: Der Aktivierungswunsch bleibt unverändert, der betroffene Modulstatus bleibt `stopping`, und nur bereits sauber beendete andere Worker werden wiederhergestellt. Erst wenn der alte Worker wirklich beendet ist, startet Reconciliation genau eine neue Instanz, falls das Modul weiterhin aktiviert sein soll.
+
+Telegram begrenzt seinen `getUpdates`-Poll auf fünf Sekunden und den HTTP-Timeout auf acht Sekunden; Wartezeiten sind über ein Stop-Event unterbrechbar. Ein noch auslaufender Telegram-Thread wird nicht durch einen zweiten Thread ersetzt.
 
 ## Dependencies
 
