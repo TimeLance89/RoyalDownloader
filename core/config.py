@@ -800,7 +800,7 @@ def load_ai() -> dict:
         timeout = 180
     return {
         "enabled": enabled,
-        "provider": values.get("ai_provider", "ollama").strip().lower() or "ollama",
+        "provider": "ollama",
         "url": (
             values.get("ai_url")
             or os.environ.get("OLLAMA_URL", "").strip()
@@ -812,22 +812,20 @@ def load_ai() -> dict:
             or "llama3.2:3b"
         ),
         "timeout_seconds": max(30, min(300, int(timeout))),
-        "jev_api_key": values.get("ai_jev_api_key", "").strip(),
-        "jev_endpoint": values.get("ai_jev_endpoint", "https://api.typesafe.ai/v1/systemone").strip(),
-        "jev_model": values.get("ai_jev_model", "jev-latest").strip() or "jev-latest",
     }
 
 
-def save_ai(enabled: bool, url: str, model: str, timeout_seconds: int = 180, provider: str = "ollama", jev_api_key: str = "", jev_endpoint: str = "https://api.typesafe.ai/v1/systemone", jev_model: str = "jev-latest") -> bool:
+def save_ai(enabled: bool, url: str, model: str, timeout_seconds: int = 180) -> bool:
     return _update_all({
         "ai_enabled": "true" if enabled else "false",
         "ai_url": str(url or "").strip().rstrip("/"),
         "ai_model": str(model or "").strip(),
         "ai_timeout_seconds": str(max(30, min(300, int(timeout_seconds or 180)))),
-        "ai_provider": provider if provider in {"ollama", "jev"} else "ollama",
-        "ai_jev_api_key": str(jev_api_key or "").strip(),
-        "ai_jev_endpoint": str(jev_endpoint or "https://api.typesafe.ai/v1/systemone").strip(),
-        "ai_jev_model": str(jev_model or "jev-latest").strip(),
+        # Remove the withdrawn cloud-provider configuration on the next save.
+        "ai_provider": "ollama",
+        "ai_jev_api_key": "",
+        "ai_jev_endpoint": "",
+        "ai_jev_model": "",
     })
 
 

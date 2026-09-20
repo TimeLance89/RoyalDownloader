@@ -1653,22 +1653,13 @@
               <h3>Royal Intelligence</h3>
               <p class="dim settings-hint">Bewertet ausschließlich vorhandene Titel. Downloads, Provider und Queue bleiben vollständig unabhängig.</p>
             </div>
-            <span id="ai-provider-badge" class="ai-local-badge">OPTIONAL</span>
+            <span id="ai-provider-badge" class="ai-local-badge">LOKAL</span>
           </div>
           <label class="auto-toggle-row">
             <input id="ai-enabled" type="checkbox">
             <span>Intelligente Discovery aktivieren</span>
           </label>
           <div class="ai-settings-grid">
-            <label class="auto-lbl" for="ai-provider">Intelligence Provider
-              <select id="ai-provider"><option value="jev">JEV · Cloud</option><option value="ollama">Ollama · lokal</option></select>
-            </label>
-            <label class="auto-lbl" for="ai-jev-key">JEV API-Key
-              <input id="ai-jev-key" type="password" autocomplete="new-password" placeholder="wird nie wieder angezeigt">
-            </label>
-            <label class="auto-lbl" for="ai-jev-model">JEV-Modell
-              <input id="ai-jev-model" type="text" value="jev-latest">
-            </label>
             <label class="auto-lbl" for="ai-url">Ollama-Adresse
               <input id="ai-url" type="url" autocomplete="off" placeholder="http://ollama:11434">
             </label>
@@ -1684,7 +1675,7 @@
             <p id="ai-status" class="dim small-status" role="status">Deaktiviert · Royal nutzt das klassische Ranking.</p>
             <button id="ai-test" class="btn btn-ghost btn-sm" type="button">Verbindung testen</button>
           </div>
-          <p id="ai-privacy-note" class="ai-privacy-note"><span aria-hidden="true">⌂</span> Providerabhängig: JEV nutzt eine Cloud-Entscheidungs-API, Ollama verarbeitet lokal.</p>
+          <p id="ai-privacy-note" class="ai-privacy-note"><span aria-hidden="true">⌂</span> Royal Reflex verarbeitet kompakte Katalogmetadaten und dein Geschmacksprofil ausschließlich lokal über Ollama.</p>
         </div>
 
         <div class="settings-group settings-card telegram-settings">
