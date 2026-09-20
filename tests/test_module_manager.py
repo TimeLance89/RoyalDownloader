@@ -139,3 +139,89 @@ def test_shutdown_keeps_persisted_intent_and_reports_a_worker_that_will_not_stop
     status = manager.payload()["modules"][0]
     assert status["enabled"] is True
     assert status["runtime_status"] == "stopping"
+
+
+def test_startup_repairs_missing_required_dependency_before_starting_workers():
+    base = ModuleManifest("base", "Base", "", "", {})
+    child = ModuleManifest("child", "Child", "", "", {}, requires=("base",))
+    saved = []
+    manager = ModuleManager(
+        lambda: {"base": False, "child": True},
+        lambda states: saved.append(states) or True,
+        (base, child),
+    )
+    base_controller = _Controller()
+    child_controller = _Controller()
+    manager.register_controller("base", base_controller)
+    manager.register_controller("child", child_controller)
+
+    manager.start_enabled()
+
+    assert saved[-1] == {"base": True, "child": True}
+    assert base_controller.running is True
+    assert child_controller.running is True
+
+
+def test_startup_repairs_conflicting_persisted_modules_deterministically():
+    left = ModuleManifest("left", "Left", "", "", {}, conflicts=("right",))
+    right = ModuleManifest("right", "Right", "", "", {})
+    manager, saved = _manager(left, right, states={"left": True, "right": True})
+
+    manager.start_enabled()
+
+    states = {entry["id"]: entry for entry in manager.payload()["modules"]}
+    assert saved[-1] == {"left": True, "right": False}
+    assert states["left"]["runtime_status"] == "running"
+    assert states["right"]["enabled"] is False
+    assert states["right"]["runtime_status"] == "disabled"
+
+
+def test_reconcile_starts_enabled_module_after_configuration_is_fixed():
+    module = ModuleManifest("telegram", "Telegram", "", "", {})
+    controller = _Controller(configured=False)
+    manager = ModuleManager(lambda: {"telegram": True}, lambda _: True, (module,))
+    manager.register_controller("telegram", controller)
+    manager.start_enabled()
+
+    controller.configured = True
+    manager.reconcile("telegram")
+
+    status = manager.payload()["modules"][0]
+    assert controller.running is True
+    assert status["runtime_status"] == "running"
+
+
+def test_dead_worker_never_remains_available_or_running_after_observation():
+    module = ModuleManifest("module", "Module", "", "", {})
+    controller = _Controller()
+    manager = ModuleManager(lambda: {"module": True}, lambda _: True, (module,))
+    manager.register_controller("module", controller)
+    manager.start_enabled()
+    controller.running = False
+
+    available, _detail = manager.availability("module")
+
+    assert available is False
+    assert manager.payload()["modules"][0]["runtime_status"] == "error"
+    manager.reconcile("module")
+    assert controller.running is True
+    assert manager.payload()["modules"][0]["runtime_status"] == "running"
+
+
+def test_stop_timeout_keeps_stopping_until_real_worker_exit_then_reconciles():
+    module = ModuleManifest("module", "Module", "", "", {})
+    controller = _Controller(fail_stop=True)
+    controller.running = True
+    manager = ModuleManager(lambda: {"module": True}, lambda _: True, (module,))
+    manager.register_controller("module", controller)
+
+    with pytest.raises(RuntimeError, match="nicht vollständig beendet"):
+        manager.set_enabled("module", False)
+    assert manager.payload()["modules"][0]["runtime_status"] == "stopping"
+
+    controller.fail_stop = False
+    controller.running = False  # The old worker finally exits after the timeout.
+    manager.reconcile("module")
+
+    assert controller.running is True
+    assert manager.payload()["modules"][0]["runtime_status"] == "running"

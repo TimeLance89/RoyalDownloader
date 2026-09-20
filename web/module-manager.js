@@ -5,6 +5,7 @@
   const readable = (value) => ({
     running: "Läuft", disabled: "Deaktiviert", starting: "Startet",
     stopping: "Wird beendet", error: "Fehler", needs_configuration: "Konfiguration fehlt",
+    dependency_missing: "Abhängigkeit fehlt",
   }[value] || value);
   const list = (values, fallback = "keine") => values.length
     ? values.map(escapeHtml).join(", ")
@@ -46,6 +47,31 @@
     </article>`;
   };
 
+  const syncFeatureCapabilities = async () => {
+    const button = document.getElementById("seerr-sync");
+    const status = document.getElementById("seerr-status");
+    if (!button || !status) return;
+    try {
+      const payload = await api.get("/api/modules");
+      const seerr = payload.modules.find((module) => module.id === "seerr-sync");
+      const available = !!(
+        seerr
+        && seerr.enabled
+        && seerr.runtime_status === "running"
+        && seerr.health === "healthy"
+      );
+      button.disabled = !available;
+      button.dataset.moduleAvailable = String(available);
+      if (!available && seerr) {
+        status.textContent = seerr.enabled
+          ? `Seerr-Modul nicht bereit · ${seerr.configuration_detail}`
+          : "Seerr-Modul deaktiviert · Einstellungen → Module";
+      }
+    } catch (error) {
+      console.warn("Modulstatus konnte nicht geladen werden:", error);
+    }
+  };
+
   const render = async () => {
     const host = document.getElementById("module-manager-list");
     if (!host) return;
@@ -63,6 +89,7 @@
             await api._req("PUT", `/api/modules/${input.dataset.module}`, {
               enabled: input.checked,
             });
+            document.dispatchEvent(new Event("royal:modules-changed"));
             await render();
           } catch (error) {
             input.checked = !input.checked;
@@ -98,4 +125,6 @@
   } else {
     install();
   }
+  document.addEventListener("royal:settings-ready", syncFeatureCapabilities);
+  document.addEventListener("royal:modules-changed", syncFeatureCapabilities);
 })();

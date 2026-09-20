@@ -14,6 +14,7 @@ RUNTIME_RUNNING = "running"
 RUNTIME_STOPPING = "stopping"
 RUNTIME_ERROR = "error"
 RUNTIME_NEEDS_CONFIGURATION = "needs_configuration"
+RUNTIME_DEPENDENCY_MISSING = "dependency_missing"
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +109,22 @@ class ModuleManager:
                 raise KeyError(module_id)
             if not self._enabled[module_id]:
                 return False, "Dieses optionale Modul ist deaktiviert."
-            status = self._runtime[module_id]
-            if status != RUNTIME_RUNNING:
-                configured, detail = self._configuration(module_id)
-                if not configured:
-                    return False, detail
+            blocked = self._runtime_blocker(module_id)
+            if blocked:
+                return False, blocked
+            configured, detail = self._configuration(module_id)
+            if not configured:
+                self._runtime[module_id] = RUNTIME_NEEDS_CONFIGURATION
+                return False, detail
+            healthy, detail = self._health(module_id)
+            if not healthy:
+                self._runtime[module_id] = RUNTIME_ERROR
+                self._errors[module_id] = detail
+                return False, detail
+            if self._runtime[module_id] != RUNTIME_RUNNING:
                 return False, self._errors.get(
                     module_id,
-                    f"Modul ist derzeit {status}.",
+                    f"Modul ist derzeit {self._runtime[module_id]}.",
                 )
             return True, "Modul läuft."
 
@@ -189,13 +198,84 @@ class ModuleManager:
         controller = self._controllers.get(module_id)
         if controller is None:
             return False, "Lifecycle noch nicht registriert"
-        return controller.configuration_state()
+        try:
+            return controller.configuration_state()
+        except Exception as exc:
+            return False, f"Konfigurationsprüfung fehlgeschlagen: {exc}"
 
     def _health(self, module_id: str) -> tuple[bool, str]:
         controller = self._controllers.get(module_id)
         if controller is None:
             return False, "Lifecycle noch nicht registriert"
-        return controller.health()
+        try:
+            return controller.health()
+        except Exception as exc:
+            return False, f"Health-Prüfung fehlgeschlagen: {exc}"
+
+    def _runtime_blocker(self, module_id: str) -> str:
+        missing = [
+            dependency
+            for dependency in self._manifests[module_id].requires
+            if not self._enabled[dependency]
+        ]
+        if missing:
+            return f"Benötigte Module sind deaktiviert: {', '.join(sorted(missing))}"
+        conflicts = [
+            other
+            for other, manifest in self._manifests.items()
+            if other != module_id
+            and self._enabled[other]
+            and (
+                other in self._manifests[module_id].conflicts
+                or module_id in manifest.conflicts
+            )
+        ]
+        if conflicts:
+            return f"Konflikt mit aktivem Modul: {', '.join(sorted(conflicts))}"
+        return ""
+
+    def _normalized_startup_state(self) -> tuple[dict[str, bool], dict[str, str]]:
+        """Repair old persisted states deterministically before workers start."""
+        proposed = dict(self._enabled)
+        notes: dict[str, str] = {}
+        for module_id in self._manifests:
+            if proposed[module_id]:
+                for dependency in self._required_closure(module_id):
+                    if not proposed[dependency]:
+                        proposed[dependency] = True
+                        notes[dependency] = (
+                            f"Beim Start für abhängiges Modul {module_id} aktiviert"
+                        )
+        active: list[str] = []
+        for module_id, manifest in self._manifests.items():
+            if not proposed[module_id]:
+                continue
+            conflict = next((
+                other for other in active
+                if other in manifest.conflicts
+                or module_id in self._manifests[other].conflicts
+            ), None)
+            if conflict:
+                proposed[module_id] = False
+                notes[module_id] = (
+                    f"Beim Start wegen Konflikt mit {conflict} deaktiviert"
+                )
+            else:
+                active.append(module_id)
+        return proposed, notes
+
+    def _apply_startup_normalization(self) -> None:
+        proposed, notes = self._normalized_startup_state()
+        if proposed == self._enabled:
+            return
+        if self._save(proposed):
+            self._enabled = proposed
+            self._errors.update(notes)
+            logger.warning("Ungültige persistierte Modulzustände wurden normalisiert")
+            return
+        # Never run an invalid old graph when its correction cannot be durable.
+        for module_id, detail in notes.items():
+            self._errors[module_id] = f"{detail}; Persistenzkorrektur fehlgeschlagen"
 
     def _start(self, module_id: str) -> bool:
         controller = self._controllers.get(module_id)
@@ -266,13 +346,77 @@ class ModuleManager:
         logger.warning("Modul %s beendet sich noch", module_id)
         return False
 
+    def _reconcile_one(self, module_id: str) -> None:
+        """Make one module's desired state match its real worker state."""
+        if not self._enabled[module_id]:
+            if self._runtime[module_id] != RUNTIME_DISABLED:
+                self._stop(module_id)
+            return
+
+        blocker = self._runtime_blocker(module_id)
+        if blocker:
+            if self._runtime[module_id] in {RUNTIME_RUNNING, RUNTIME_STOPPING}:
+                self._stop(module_id)
+            if self._runtime[module_id] != RUNTIME_STOPPING:
+                self._runtime[module_id] = RUNTIME_DEPENDENCY_MISSING
+                self._errors[module_id] = blocker
+            return
+
+        configured, detail = self._configuration(module_id)
+        if not configured:
+            if self._runtime[module_id] in {RUNTIME_RUNNING, RUNTIME_STOPPING}:
+                self._stop(module_id)
+            if self._runtime[module_id] != RUNTIME_STOPPING:
+                self._runtime[module_id] = RUNTIME_NEEDS_CONFIGURATION
+                self._errors.pop(module_id, None)
+            return
+
+        # A timed-out stop owns the worker until it really terminates. Once it
+        # has terminated, restart exactly one worker if the old enabled intent
+        # still applies (for example a rejected disable followed by re-enable).
+        if self._runtime[module_id] == RUNTIME_STOPPING:
+            if not self._stop(module_id):
+                return
+
+        healthy, detail = self._health(module_id)
+        if self._runtime[module_id] == RUNTIME_RUNNING and healthy:
+            return
+        if self._runtime[module_id] == RUNTIME_RUNNING and not healthy:
+            self._runtime[module_id] = RUNTIME_ERROR
+            self._errors[module_id] = detail
+        self._start(module_id)
+
+    def reconcile(self, module_id: str | None = None) -> dict:
+        """Re-evaluate configuration, graph constraints, health and workers.
+
+        Configuration endpoints call this immediately. The server additionally
+        runs ``reconcile_all`` periodically so an unexpectedly dead worker can
+        never remain reported as running indefinitely.
+        """
+        with self._lock:
+            if module_id is not None and module_id not in self._manifests:
+                raise KeyError(module_id)
+            if module_id is None:
+                self._apply_startup_normalization()
+                module_ids = self._ordered(set(self._manifests), start=True)
+            else:
+                module_ids = [module_id]
+            for current in module_ids:
+                self._reconcile_one(current)
+            return self.payload()
+
+    reconcile_all = reconcile
+
     def _restore_runtime(self, old_enabled: dict[str, bool], changed: set[str]) -> None:
-        """Best-effort rollback after a rejected lifecycle/persistence change."""
+        """Restore workers that did stop; never lie about one still stopping."""
         for module_id in self._ordered(changed, start=False):
             if not old_enabled[module_id]:
                 self._stop(module_id)
         for module_id in self._ordered(changed, start=True):
-            if old_enabled[module_id]:
+            if (
+                old_enabled[module_id]
+                and self._runtime[module_id] != RUNTIME_STOPPING
+            ):
                 self._start(module_id)
 
     def _validate_conflicts(self, proposed: dict[str, bool], changes: set[str]) -> None:
@@ -299,6 +443,13 @@ class ModuleManager:
             for item in self._manifests.values():
                 configured, configuration_detail = self._configuration(item.id)
                 healthy, health_detail = self._health(item.id)
+                if self._runtime[item.id] == RUNTIME_RUNNING and not healthy:
+                    self._runtime[item.id] = (
+                        RUNTIME_NEEDS_CONFIGURATION
+                        if not configured else RUNTIME_ERROR
+                    )
+                    if configured:
+                        self._errors[item.id] = health_detail
                 modules.append({
                     **asdict(item),
                     "enabled": self._enabled[item.id],
@@ -330,12 +481,7 @@ class ModuleManager:
             }
 
     def start_enabled(self) -> None:
-        with self._lock:
-            for module_id in self._ordered(
-                {key for key, enabled in self._enabled.items() if enabled},
-                start=True,
-            ):
-                self._start(module_id)
+        self.reconcile_all()
 
     def stop_all(self) -> None:
         """Shutdown-only; persisted enablement remains unchanged for restart."""
@@ -380,8 +526,14 @@ class ModuleManager:
             # Stop failures never reach persistence: a module that still owns a
             # worker remains enabled in both RAM and settings.ini.
             if not enabled:
-                stopped = [self._stop(key) for key in self._ordered(changed, start=False)]
-                if not all(stopped):
+                stopped = {
+                    key: self._stop(key)
+                    for key in self._ordered(changed, start=False)
+                }
+                if not all(stopped.values()):
+                    # Do not restart the worker whose stop signal is still in
+                    # flight. It remains ``stopping`` and reconciliation will
+                    # restart it only after the old thread has actually ended.
                     self._restore_runtime(old_enabled, changed)
                     raise RuntimeError(
                         "Modul konnte nicht vollständig beendet werden; "

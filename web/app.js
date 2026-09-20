@@ -608,7 +608,7 @@ async function initApp() {
     } catch (error) {
       status.textContent = `✗ ${error.message}`;
     } finally {
-      button.disabled = false;
+      button.disabled = button.dataset.moduleAvailable !== "true";
     }
   });
   document.getElementById("jellyfin-users-load").addEventListener("click", () => loadJellyfinUsers({
@@ -678,6 +678,7 @@ async function initApp() {
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
   try {
     await initSettings();
+    document.dispatchEvent(new Event("royal:settings-ready"));
   } catch (e) {
     console.error("Einstellungen konnten nicht geladen werden:", e);
   }
@@ -685,6 +686,7 @@ async function initApp() {
   if (!needsSetup) startInitialData();
   window.royalLoader?.finish();
 }
+
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
     window.royalLoader?.finish();

@@ -466,6 +466,7 @@ async def _runtime_cache_maintenance_loop() -> None:
     while True:
         await asyncio.sleep(60)
         await asyncio.to_thread(state.maintain_runtime_caches)
+        await asyncio.to_thread(state.module_manager.reconcile_all)
 
 
 @asynccontextmanager

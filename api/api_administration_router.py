@@ -289,6 +289,7 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     else:
         _set_updater_runtime("manual", "Updates werden nur manuell installiert.")
     _updater_wake_event.set()
+    state.module_manager.reconcile("automatic-updates")
     return {**_updater_config_payload(), "saved": True}
 
 
@@ -1012,6 +1013,7 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
             _recommender_wake_event.set()
 
     await run_in_threadpool(_save_jellyfin_config)
+    state.module_manager.reconcile("jellyfin-recommendations")
 
     def _recheck():
         with state.watchlist_lock:
@@ -1162,6 +1164,7 @@ async def api_telegram_config_set(body: TelegramConfigBody):
         return appconfig.load_telegram()
 
     state.telegram_cfg = await run_in_threadpool(_save_telegram_config)
+    state.module_manager.reconcile("telegram-control")
     return {
         "enabled": bool(state.telegram_cfg.get("enabled")),
         "bot_token": "",
@@ -1245,6 +1248,7 @@ async def api_seerr_config_set(body: SeerrConfigBody):
         state.seerr_moonfin_configured = bool(moonfin.get("configured"))
         state.seerr_moonfin_error = "" if state.seerr_moonfin_configured else str(moonfin.get("detail") or "")
     _seerr_wake_event.set()
+    state.module_manager.reconcile("seerr-sync")
     payload = _seerr_config_payload()
     payload["saved"] = True
     return payload
