@@ -105,7 +105,18 @@ def setup_required() -> bool:
 def verify_credentials(username: str, password: str) -> bool:
     """Prüft Zugangsdaten zeitkonstant und aktualisiert alte Hashparameter."""
     user = backend_value("USER_STORE").find(username)
-    if not user or not user.get("enabled") or user.get("setup_required"):
+    if not user:
+        # Compatibility and timing hardening: exercise the legacy admin hash
+        # for an unknown name as well. The migrated user store remains the
+        # authoritative successful-login source.
+        legacy = auth_account()
+        if not legacy.get("configured"):
+            return False
+        if not secrets.compare_digest(str(username or "").casefold(), str(legacy.get("username", "")).casefold()):
+            appauth.verify_password(str(password or ""), legacy.get("password_hash", ""))
+            return False
+        user = legacy
+    if not user.get("enabled", True) or user.get("setup_required"):
         return False
     if not secrets.compare_digest(str(username or "").casefold(), str(user.get("username", "")).casefold()):
         # Trotzdem eine Hash-Runde rechnen, damit ein falscher Benutzername
