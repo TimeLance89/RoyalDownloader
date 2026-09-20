@@ -66,6 +66,11 @@ const api = {
 
   authStatus() { return this.get("/api/auth/status"); },
   authLogin(username, password) { return this.post("/api/auth/login", { username, password }); },
+  authFirstLogin(username, password, passwordRepeat) { return this.post("/api/auth/first-login", { username, password, password_repeat: passwordRepeat }); },
+  authUsers() { return this.get("/api/auth/users"); },
+  authUserCreate(displayName, username, role) { return this.post("/api/auth/users", { display_name: displayName, username, role }); },
+  authUserReset(userId) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/reset-password`); },
+  authUserEnabled(userId, enabled) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/enabled?enabled=${Boolean(enabled)}`); },
   authLogout() { return this.post("/api/auth/logout"); },
   authConfigGet() { return this.get("/api/auth/config"); },
   authConfigSet(username, password, currentPassword = "") {
