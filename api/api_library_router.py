@@ -1131,6 +1131,7 @@ def _calculate_watchlist_entry_state(
         jellyfin_watched=jf_watched,
         season_episode_counts=entry.get("season_episode_counts") or {},
         unreleased_slugs=unreleased_slugs,
+        enabled_content_languages=state.content_languages,
     )
     return {
         "mode": mode,

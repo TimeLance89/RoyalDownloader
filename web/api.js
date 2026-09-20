@@ -508,7 +508,7 @@ function loadRoyalStorageManager() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/storage-manager.js?v=royal-20260823-1";
+  script.src = "/storage-manager.js?v=royal-20260920-1";
   script.async = false;
   script.setAttribute("data-royal-storage-manager", "true");
   script.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
