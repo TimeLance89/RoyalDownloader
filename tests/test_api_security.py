@@ -5,6 +5,8 @@ from api.api_security import harden_http_response, is_mobile_legacy_path, is_pub
 
 
 def test_public_api_policy_is_method_aware():
+    assert is_public_path("/api/auth/first-login", "POST", lambda: False)
+    assert not is_public_path("/api/auth/first-login", "GET", lambda: False)
     assert is_public_path("/api/ui/config", "GET", lambda: False)
     assert not is_public_path("/api/ui/config", "POST", lambda: False)
     assert is_public_path("/api/ui/config", "POST", lambda: True)

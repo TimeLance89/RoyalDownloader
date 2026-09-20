@@ -22,6 +22,7 @@ PUBLIC_API_METHODS = {
     "/api/health": frozenset({"GET"}),
     "/api/auth/status": frozenset({"GET"}),
     "/api/auth/login": frozenset({"POST"}),
+    "/api/auth/first-login": frozenset({"POST"}),
     "/api/auth/logout": frozenset({"POST"}),
     "/api/ui/config": frozenset({"GET"}),
     "/api/ui/translate": frozenset({"POST"}),
