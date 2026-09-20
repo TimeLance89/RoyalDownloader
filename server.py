@@ -76,6 +76,7 @@ from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
 from api.api_system_router import create_system_router
+from api.api_module_router import create_module_router
 from api.api_ai_router import create_ai_router
 from api.api_domain_routers import install_domain_routers, register_domain_router
 from api.api_auth_router import (
@@ -456,37 +457,39 @@ def start_background_services():
     threading.Thread(target=warm_jellyfin_identity_cache, daemon=True).start()
     threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
-    _recommender_stop_event.clear()
-    _recommender_wake_event.clear()
-    _recommender_thread = threading.Thread(
-        target=jellyfin_recommender_loop,
-        name="jellyfin-recommender",
-        daemon=True,
-    )
-    _recommender_thread.start()
-    _seerr_stop_event.clear()
-    _seerr_wake_event.clear()
-    _seerr_thread = threading.Thread(
-        target=seerr_poll_loop,
-        name="seerr-request-bridge",
-        daemon=True,
-    )
-    _seerr_thread.start()
-    _updater_stop_event.clear()
-    _updater_wake_event.clear()
-    _updater_thread = threading.Thread(
-        target=automatic_update_loop,
-        name="automatic-updater",
-        daemon=True,
-    )
-    _updater_thread.start()
-    _ytdlp_updater_stop_event.clear()
-    _ytdlp_updater_thread = threading.Thread(
-        target=ytdlp_runtime_update_loop,
-        name="ytdlp-runtime-updater",
-        daemon=True,
-    )
-    _ytdlp_updater_thread.start()
+    state.module_manager.start_enabled()
+
+
+def _module_lifecycle(module_id: str, enabled: bool) -> None:
+    """Starts/stops optional workers; the core never depends on these threads."""
+    global _recommender_thread, _seerr_thread, _updater_thread, _ytdlp_updater_thread
+    if module_id == "jellyfin-recommendations":
+        if enabled and not (_recommender_thread and _recommender_thread.is_alive()):
+            _recommender_stop_event.clear(); _recommender_wake_event.clear()
+            _recommender_thread = threading.Thread(target=jellyfin_recommender_loop, name="jellyfin-recommender", daemon=True)
+            _recommender_thread.start()
+        elif not enabled:
+            _recommender_stop_event.set(); _recommender_wake_event.set()
+    elif module_id == "seerr-sync":
+        if enabled and not (_seerr_thread and _seerr_thread.is_alive()):
+            _seerr_stop_event.clear(); _seerr_wake_event.clear()
+            _seerr_thread = threading.Thread(target=seerr_poll_loop, name="seerr-request-bridge", daemon=True)
+            _seerr_thread.start()
+        elif not enabled:
+            _seerr_stop_event.set(); _seerr_wake_event.set()
+    elif module_id == "automatic-updates":
+        if enabled and not (_updater_thread and _updater_thread.is_alive()):
+            _updater_stop_event.clear(); _updater_wake_event.clear(); _ytdlp_updater_stop_event.clear()
+            _updater_thread = threading.Thread(target=automatic_update_loop, name="automatic-updater", daemon=True)
+            _ytdlp_updater_thread = threading.Thread(target=ytdlp_runtime_update_loop, name="ytdlp-runtime-updater", daemon=True)
+            _updater_thread.start(); _ytdlp_updater_thread.start()
+        elif not enabled:
+            _updater_stop_event.set(); _updater_wake_event.set(); _ytdlp_updater_stop_event.set()
+    elif module_id == "telegram-control" and _telegram_bot:
+        _telegram_bot.start() if enabled else _telegram_bot.stop()
+
+
+state.module_manager.set_lifecycle(_module_lifecycle)
 
 
 async def _runtime_cache_maintenance_loop() -> None:
@@ -544,15 +547,14 @@ async def lifespan(app: FastAPI):
     )
     if removed_staging:
         logger.info("%s altes Staging-Artefakt(e) entfernt.", removed_staging)
-    if appconfig.is_initialized():
-        start_background_services()
     _telegram_bot = TelegramBot(
         lambda: state.telegram_cfg,
         handle_telegram_message,
         log,
         callback_cb=handle_telegram_callback,
     )
-    _telegram_bot.start()
+    if appconfig.is_initialized():
+        start_background_services()
     cache_maintenance_task = asyncio.create_task(_runtime_cache_maintenance_loop())
     yield
     # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
@@ -634,6 +636,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(
     create_system_router(state.runtime_cache_diagnostics, _capabilities_payload),
 )
+app.include_router(create_module_router(state.module_manager))
 install_authentication_middleware(
     app,
     SecurityDependencies(

@@ -329,6 +329,20 @@ def load_releases() -> dict:
             "region": values.get("releases_region", "de")}
 
 
+def load_module_states() -> dict[str, bool]:
+    values = _read_all()
+    prefix = "module."
+    return {
+        key[len(prefix):]: value.strip().casefold() not in {"0", "false", "no", "off"}
+        for key, value in values.items() if key.startswith(prefix)
+    }
+
+
+def save_module_states(states: dict[str, bool]) -> bool:
+    updates = {f"module.{module_id}": "true" if enabled else "false" for module_id, enabled in states.items()}
+    return _update_all(updates)
+
+
 def save_releases(api_key: str, region: str) -> bool:
     if region not in {"de", "at", "ch", "us", "gb"} or any(c.isspace() for c in api_key):
         return False
