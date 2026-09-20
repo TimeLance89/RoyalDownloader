@@ -274,6 +274,7 @@ from integrations.jellyfin_recommender import (
 )
 from integrations.tmdb_client import SERIES_CACHE_TTL, TMDBClient
 from integrations.telegram_bot import TelegramBot
+from modules.builtin_workers import register_builtin_worker_controllers
 from integrations.seerr_client import SeerrClient, SeerrRequest
 from updates.update_checker import UpdateChecker, detect_local_commit
 from updates.self_updater import SelfUpdater
@@ -446,8 +447,7 @@ refresh_services()
 # ---------------------------------------------------------------------------
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
-    global _background_services_started, _recommender_thread, _seerr_thread
-    global _updater_thread, _ytdlp_updater_thread
+    global _background_services_started
     with _background_services_lock:
         if _background_services_started:
             return
@@ -459,37 +459,7 @@ def start_background_services():
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
     state.module_manager.start_enabled()
 
-
-def _module_lifecycle(module_id: str, enabled: bool) -> None:
-    """Starts/stops optional workers; the core never depends on these threads."""
-    global _recommender_thread, _seerr_thread, _updater_thread, _ytdlp_updater_thread
-    if module_id == "jellyfin-recommendations":
-        if enabled and not (_recommender_thread and _recommender_thread.is_alive()):
-            _recommender_stop_event.clear(); _recommender_wake_event.clear()
-            _recommender_thread = threading.Thread(target=jellyfin_recommender_loop, name="jellyfin-recommender", daemon=True)
-            _recommender_thread.start()
-        elif not enabled:
-            _recommender_stop_event.set(); _recommender_wake_event.set()
-    elif module_id == "seerr-sync":
-        if enabled and not (_seerr_thread and _seerr_thread.is_alive()):
-            _seerr_stop_event.clear(); _seerr_wake_event.clear()
-            _seerr_thread = threading.Thread(target=seerr_poll_loop, name="seerr-request-bridge", daemon=True)
-            _seerr_thread.start()
-        elif not enabled:
-            _seerr_stop_event.set(); _seerr_wake_event.set()
-    elif module_id == "automatic-updates":
-        if enabled and not (_updater_thread and _updater_thread.is_alive()):
-            _updater_stop_event.clear(); _updater_wake_event.clear(); _ytdlp_updater_stop_event.clear()
-            _updater_thread = threading.Thread(target=automatic_update_loop, name="automatic-updater", daemon=True)
-            _ytdlp_updater_thread = threading.Thread(target=ytdlp_runtime_update_loop, name="ytdlp-runtime-updater", daemon=True)
-            _updater_thread.start(); _ytdlp_updater_thread.start()
-        elif not enabled:
-            _updater_stop_event.set(); _updater_wake_event.set(); _ytdlp_updater_stop_event.set()
-    elif module_id == "telegram-control" and _telegram_bot:
-        _telegram_bot.start() if enabled else _telegram_bot.stop()
-
-
-state.module_manager.set_lifecycle(_module_lifecycle)
+register_builtin_worker_controllers(state.module_manager)
 
 
 async def _runtime_cache_maintenance_loop() -> None:
@@ -560,15 +530,8 @@ async def lifespan(app: FastAPI):
     # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
     # den auslaufenden Event-Loop einstellen.
     _main_loop = None
-    _seerr_stop_event.set()
-    _seerr_wake_event.set()
-    _updater_stop_event.set()
-    _updater_wake_event.set()
-    _ytdlp_updater_stop_event.set()
+    state.module_manager.stop_all()
     cache_maintenance_task.cancel()
-    stop_jellyfin_recommender()
-    if _telegram_bot is not None:
-        _telegram_bot.stop()
     if state.voe_pool is not None:
         try:
             state.voe_pool.close()

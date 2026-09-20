@@ -62,6 +62,11 @@ def backend_value(name: str) -> Any:
     return getattr(_registered_backend(), name)
 
 
+def set_backend_value(name: str, value: Any) -> None:
+    """Set a composition-root runtime reference through the supported seam."""
+    setattr(_registered_backend(), name, value)
+
+
 def _dynamic_function(name: str, original):
     if inspect.iscoroutinefunction(original):
         @wraps(original)

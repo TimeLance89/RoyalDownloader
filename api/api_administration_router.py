@@ -166,6 +166,21 @@ def create_administration_router(backend) -> APIRouter:
     return router
 
 
+def _require_enabled_module(module_id: str) -> None:
+    """Return a stable feature error instead of invoking a disabled module."""
+    available, detail = state.module_manager.availability(module_id)
+    if available:
+        return
+    raise HTTPException(
+        409,
+        {
+            "code": "module_unavailable",
+            "module": module_id,
+            "message": detail,
+        },
+    )
+
+
 # ── Einstellungen ────────────────────────────────────────────────────────────
 
 
@@ -1238,6 +1253,7 @@ async def api_seerr_config_set(body: SeerrConfigBody):
 @router.post("/api/v1/seerr/sync")
 @router.post("/api/seerr/sync")
 async def api_seerr_sync():
+    _require_enabled_module("seerr-sync")
     result = await run_in_threadpool(seerr_poll_once)
     if not result.get("ok"):
         raise HTTPException(502, result.get("detail") or "Seerr-Abgleich fehlgeschlagen.")

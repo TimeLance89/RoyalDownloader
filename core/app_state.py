@@ -25,6 +25,7 @@ from core.runtime_cache import BoundedTTLCache
 from core.runtime_paths import data_dir
 from features.taste_profile import TasteProfileStore
 from core.module_manager import ModuleManager
+from modules.registry import BUILTIN_MODULES
 from integrations.tmdb_client import TMDBClient
 from integrations.ai_discovery import AiDiscoveryService
 
@@ -79,7 +80,7 @@ class _PreparationSlots:
 
 class AppState:
     def __init__(self):
-        self.module_manager = ModuleManager(appconfig.load_module_states, appconfig.save_module_states)
+        self.module_manager = ModuleManager(appconfig.load_module_states, appconfig.save_module_states, BUILTIN_MODULES)
         self.save_path: str = appconfig.load()              # Zielordner Filme
         self.series_path: str = appconfig.load_series_path()  # Zielordner Serien (getrennt)
         self.ui_language: str = appconfig.load_ui_language()
