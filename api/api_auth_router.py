@@ -154,6 +154,9 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             )
         if not dependencies.auth_configured():
             raise HTTPException(400, "Es ist kein Konto eingerichtet.")
+        pending = dependencies.user_store().find(username)
+        if pending and pending.get("enabled") and pending.get("setup_required"):
+            raise HTTPException(409, "Dieser Zugang benötigt zuerst eine Passwort-Einrichtung.")
         ok = await run_in_threadpool(
             dependencies.verify_credentials,
             username.strip(),

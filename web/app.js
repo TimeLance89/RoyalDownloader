@@ -676,6 +676,7 @@ async function initApp() {
   document.getElementById("account-save").addEventListener("click", saveAccount);
   document.getElementById("account-logout").addEventListener("click", logoutAccount);
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
+  document.getElementById("new-user-create").addEventListener("click", createAccountUser);
   try {
     await initSettings();
     document.dispatchEvent(new Event("royal:settings-ready"));

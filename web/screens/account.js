@@ -27,14 +27,54 @@ function applyAccountCfg(cfg) {
     : "Konto anlegen";
 }
 
+function accountUserRow(user) {
+  const row = document.createElement("div");
+  row.className = "account-actions";
+  const state = !user.enabled ? "Deaktiviert" : user.setup_required ? "Einrichtung ausstehend" : "Aktiv";
+  row.textContent = `${user.display_name} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
+  if (user.enabled) {
+    const reset = document.createElement("button"); reset.className = "btn btn-ghost btn-sm"; reset.textContent = "Passwort zurücksetzen";
+    reset.onclick = async () => { await api.authUserReset(user.id); void refreshAccountUsers(); };
+    row.appendChild(reset);
+  }
+  return row;
+}
+
+async function refreshAccountUsers() {
+  const card = document.getElementById("account-users-card");
+  const list = document.getElementById("account-users-list");
+  try {
+    const result = await api.authUsers();
+    card.hidden = false;
+    list.replaceChildren(...(result.users || []).map(accountUserRow));
+  } catch (_error) { card.hidden = true; }
+}
+
+async function createAccountUser() {
+  const status = document.getElementById("account-users-status");
+  try {
+    const displayName = document.getElementById("new-user-display-name").value.trim();
+    const username = document.getElementById("new-user-username").value.trim();
+    const role = document.getElementById("new-user-role").value;
+    const result = await api.authUserCreate(displayName, username, role);
+    status.textContent = `${result.user.display_name} wurde angelegt und richtet beim ersten Login ein Passwort ein.`;
+    document.getElementById("new-user-display-name").value = "";
+    document.getElementById("new-user-username").value = "";
+    await refreshAccountUsers();
+  } catch (error) { status.textContent = error.message; status.classList.add("error"); }
+}
+
 async function refreshAccountCard() {
   try {
     applyAccountCfg(await api.authConfigGet());
+    void refreshAccountUsers();
   } catch (error) {
     document.getElementById("account-state").textContent =
       `Kontostatus nicht abrufbar: ${error.message}`;
   }
 }
+
+window.createAccountUser = createAccountUser;
 
 async function saveAccount() {
   const button = document.getElementById("account-save");

@@ -1773,6 +1773,19 @@
           <button id="account-revoke" class="btn btn-ghost btn-sm" type="button">Andere Sitzungen beenden</button>
           <div id="account-revoke-status" class="dim small-status" role="status" aria-live="polite"></div>
         </div>
+        <div id="account-users-card" class="settings-group settings-card account-sessions" hidden>
+          <h3>Benutzer</h3>
+          <p class="dim settings-hint">Neue Benutzer legen ihr Passwort selbst beim ersten Login fest.</p>
+          <div id="account-users-list" class="small-status">Wird geladen …</div>
+          <label class="dim auto-lbl" for="new-user-display-name">Anzeigename</label>
+          <input id="new-user-display-name" type="text" autocomplete="off">
+          <label class="dim auto-lbl" for="new-user-username">Benutzername</label>
+          <input id="new-user-username" type="text" autocomplete="off">
+          <label class="dim auto-lbl" for="new-user-role">Rolle</label>
+          <select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select>
+          <div class="account-actions"><button id="new-user-create" class="btn btn-primary btn-sm" type="button">Benutzer hinzufügen</button></div>
+          <div id="account-users-status" class="dim small-status" role="status"></div>
+        </div>
             </div>
           </section>
 
@@ -1978,6 +1991,14 @@
         <button id="login-submit" class="btn btn-primary login-submit" type="submit">
           <span>Anmelden</span><span aria-hidden="true">→</span>
         </button>
+      </form>
+      <form id="first-login-form" class="login-form hidden" autocomplete="on">
+        <p id="first-login-greeting" class="login-intro">Lege für deinen Zugang ein Passwort fest.</p>
+        <label for="first-login-password">Neues Passwort</label>
+        <input id="first-login-password" type="password" autocomplete="new-password" required>
+        <label for="first-login-repeat">Passwort bestätigen</label>
+        <input id="first-login-repeat" type="password" autocomplete="new-password" required>
+        <button class="btn btn-primary login-submit" type="submit"><span>Passwort festlegen</span><span aria-hidden="true">→</span></button>
       </form>
       <div id="login-status" class="login-status" role="status" aria-live="polite"></div>
       <footer class="login-foot">
@@ -2437,7 +2458,7 @@
 <script src="/api.js?v=royal-20260915-2"></script>
 <script src="/i18n.js?v=royal-20260909-3"></script>
 <script src="/store.js?v=royal-20260825-2"></script>
-<script src="/screens/login.js?v=royal-20260827-1"></script>
+<script src="/screens/login.js?v=royal-20260920-1"></script>
 <script src="/core.js?v=royal-20260913-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
 <script src="/home_rail_runtime.js?v=royal-20260915-1"></script>
@@ -2462,7 +2483,7 @@
 <script src="/screens/notifications.js?v=royal-20260908-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/ai-discovery.js?v=royal-20260920-1"></script>
-<script src="/screens/account.js?v=royal-20260805-3"></script>
+<script src="/screens/account.js?v=royal-20260920-1"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
 <script src="/app.js?v=royal-20260915-1"></script>
