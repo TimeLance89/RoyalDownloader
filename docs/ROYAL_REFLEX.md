@@ -4,7 +4,7 @@ Royal Reflex ist die lokale Entscheidungsengine von Royal Intelligence. Sie bewe
 
 ## Architektur
 
-Royal Intelligence liefert einen kompakten Geschmackszustand und maximal 24 Katalog-Kandidaten an Royal Reflex. Das lokale Ollama-Backend beantwortet in **einer** begrenzten Inference pro Kandidatenpool nur Zeilen im Format `key|score|angle|noul`. Royal Reflex validiert jede Zeile strikt und erzeugt daraus die geschlossenen Primitive:
+Royal Intelligence sammelt maximal 24 Katalog-Kandidaten, berechnet daraus ein schnelles Genre-/Rating-Pre-Ranking und sendet nur die besten zehn Titel an Ollama. Das lokale Ollama-Backend beantwortet in **einer** begrenzten Inference pro Kandidatenpool nur Zeilen im Format `key|score|angle|noul`. Royal Reflex validiert jede Zeile strikt und erzeugt daraus die geschlossenen Primitive:
 
 - **Choice**: ausschließlich `taste`, `adjacent` oder `surprise`.
 - **Score**: Level 0–4, normalisiert auf 0–100.
@@ -18,6 +18,6 @@ RoyalDownloader kombiniert Score (80 %) und Noul (20 %), wählt maximal acht gü
 
 Aktivierung und Laufzeit liegen beim Modul **Royal Intelligence**. Das einzige Backend ist lokales Ollama; Modell, URL und Timeout bleiben frei konfigurierbar. Kleine Modelle um 1.5–2B Parameter sind der vorgesehene Low-Resource-Bereich, größere lokale Modelle können robuster sein. Es gibt keine Cloud-API und keine laufenden API-Kosten.
 
-Der Cache gilt sechs Stunden; Modell, Reflex-Version, Profil und Kandidatenmenge sind Teil des Keys. Bei Timeout, Parsing- oder Backend-Fehler wird nur der Intelligence-Bereich ausgelassen, während die Startseite und alle Core-Funktionen normal laufen.
+Der Cache gilt sechs Stunden; Modell, Reflex-Version, Profil und Kandidatenmenge sind Teil des Keys. Der Batch nutzt 2.048 Context- und maximal 160 Output-Tokens bei deaktiviertem Thinking. Bei Timeout, Parsing- oder Backend-Fehler liefert das deterministische Pre-Ranking eine reduzierte Auswahl; Startseite und Core-Funktionen bleiben normal verfügbar.
 
 Eine spätere Benchmark-/Distillation-Erweiterung kann dieselbe `evaluate(state, questions)`-Grenze nutzen. Nutzerdaten werden nicht exportiert oder gesammelt.

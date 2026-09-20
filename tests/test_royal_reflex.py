@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from integrations.royal_intelligence import RoyalIntelligenceService
+from integrations.royal_intelligence import RoyalIntelligenceService, pre_rank
 from integrations.royal_reflex import ReflexError, RoyalReflex
 
 
@@ -43,3 +43,17 @@ def test_model_change_invalidates_cache(monkeypatch):
     service.configure({"enabled": True, "url": "http://ollama:11434", "model": "other"})
     service.recommend([candidate], {})
     assert scored.call_count == 2
+
+
+def test_pre_ranking_limits_the_ollama_batch_to_ten_candidates():
+    profile = {"preferences": {"genres": ["Drama"]}}
+    candidates = [{"key": f"movie:{index}", "rating": index % 10, "genres": ["Drama"]} for index in range(24)]
+    assert len(pre_rank(candidates, profile)) == 10
+
+
+def test_ollama_failure_returns_deterministic_fallback(monkeypatch):
+    service = RoyalIntelligenceService({"enabled": True, "url": "http://ollama:11434", "model": "small"})
+    monkeypatch.setattr("integrations.royal_intelligence.OllamaReflexProvider.score_candidates", Mock(side_effect=ReflexError("offline")))
+    candidates = [{"key": "movie:1", "title": "T", "kind": "movie", "rating": 8, "genres": []}]
+    assert service.recommend(candidates, {})[0]["key"] == "movie:1"
+    assert service.diagnostics["fallback"] is True

@@ -226,7 +226,7 @@ async function refreshAiDiscovery(force = false) {
   state.ai.loading = true;
   setAiDiscoveryState(
     "loading",
-    `${state.ai.model || "Royal Intelligence"} ordnet ${candidates.length} Titel nach deinem Profil.`,
+    `Kandidaten werden vorbereitet … lokale KI bewertet eine kompakte Auswahl.`,
   );
   try {
     const result = await api.aiRecommendations(candidates);
@@ -241,6 +241,10 @@ async function refreshAiDiscovery(force = false) {
     state.ai.recommendations = result.recommendations;
     state.ai.lastFingerprint = fingerprint;
     renderAiDiscovery(entries, result.recommendations, result.model);
+    if (result.diagnostics?.fallback) {
+      const note = document.getElementById("home-ai-note");
+      if (note) note.textContent = "Lokale KI derzeit nicht verfügbar – Basisranking verwendet.";
+    }
   } catch (error) {
     setAiDiscoveryState("error", "Royal Intelligence ist nicht erreichbar. Einstellungen prüfen.");
     console.warn("Royal Intelligence ist nicht verfügbar:", error);

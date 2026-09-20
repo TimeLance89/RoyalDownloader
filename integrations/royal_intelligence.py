@@ -26,7 +26,16 @@ def profile_summary(profile: Mapping[str, Any]) -> dict:
 
 
 def compact_candidates(candidates: list[dict]) -> list[dict]:
-    return [{"key": str(item["key"]), "title": str(item["title"])[:160], "kind": str(item["kind"]), "year": item.get("year"), "rating": item.get("rating"), "genres": [str(value)[:60] for value in item.get("genres", [])[:10]], "description": str(item.get("description") or "")[:180]} for item in candidates[:24]]
+    return [{"key": str(item["key"]), "title": str(item["title"])[:80], "kind": str(item["kind"]), "year": item.get("year"), "rating": item.get("rating"), "genres": [str(value)[:40] for value in item.get("genres", [])[:5]], "description": str(item.get("description") or "")[:70]} for item in candidates[:24]]
+
+
+def pre_rank(candidates: list[dict], profile: dict, limit: int = 10) -> list[dict]:
+    """Cheap deterministic filter before the single local inference."""
+    preferred = {value.casefold() for value in profile["preferences"].get("genres", [])}
+    def score(item):
+        overlap = len(preferred & {str(genre).casefold() for genre in item.get("genres", [])})
+        return overlap * 25 + min(10, float(item.get("rating") or 0)) * 3
+    return sorted(candidates, key=lambda item: (-score(item), item["key"]))[:limit]
 
 
 class OllamaReflexProvider:
@@ -92,8 +101,15 @@ class RoyalIntelligenceService:
             if cached and time.time() - cached[0] < 21600:
                 self.diagnostics = {"backend": "ollama", "candidate_count": len(compact), "selected_count": len(cached[1]), "cache": "hit"}
                 return list(cached[1])
-        started = time.monotonic(); result = self._select(self._provider(cfg).score_candidates(summary, compact), compact, summary)
+        shortlisted = pre_rank(compact, summary)
+        started, fallback = time.monotonic(), False
+        try:
+            result = self._select(self._provider(cfg).score_candidates(summary, shortlisted), compact, summary)
+        except (OllamaError, ReflexError):
+            fallback = True
+            # The rail remains useful if the optional local model is offline.
+            result = self._select([{"key": item["key"], "score": round(min(100, float(item.get("rating") or 0) * 10)), "angle": "taste", "confidence": 0, "noul": 0} for item in shortlisted], compact, summary)
         if not result: raise ReflexError("Keine Empfehlungen verfügbar.")
         with self._lock: self._cache[fingerprint] = (time.time(), result)
-        self.diagnostics = {"backend": "ollama", "candidate_count": len(compact), "selected_count": len(result), "cache": "miss", "duration_ms": round((time.monotonic()-started)*1000)}
+        self.diagnostics = {"backend": "ollama", "candidate_count": len(compact), "shortlisted_count": len(shortlisted), "request_count": 0 if fallback else 1, "selected_count": len(result), "cache": "miss", "fallback": fallback, "duration_ms": round((time.monotonic()-started)*1000)}
         return result
