@@ -130,9 +130,10 @@ function setAiDiscoveryState(mode, message = "") {
   const copy = document.getElementById("home-ai-state-message");
   const retry = document.getElementById("home-ai-retry");
   if (!rail || !track || !panel) return;
+  const keepVisibleRail = mode === "loading" && state.ai.recommendations.length > 0;
   rail.dataset.state = mode;
   rail.hidden = !state.ai.enabled;
-  panel.hidden = mode === "ready";
+  panel.hidden = mode === "ready" || keepVisibleRail;
   retry.hidden = !["error", "waiting"].includes(mode);
   document.querySelectorAll('[data-home-scroll="home-ai-track"]').forEach((button) => {
     button.hidden = mode !== "ready";
@@ -209,10 +210,12 @@ async function refreshAiDiscovery(force = false) {
   if (!force && fingerprint === state.ai.lastFingerprint) return;
   const sequence = ++state.ai.requestSeq;
   state.ai.loading = true;
-  setAiDiscoveryState(
-    "loading",
-    `Kandidaten werden vorbereitet … lokale KI bewertet eine kompakte Auswahl.`,
-  );
+  if (!state.ai.recommendations.length) {
+    setAiDiscoveryState(
+      "loading",
+      `Kandidaten werden vorbereitet … lokale KI bewertet eine kompakte Auswahl.`,
+    );
+  }
   try {
     const result = await api.aiRecommendations(candidates);
     if (sequence !== state.ai.requestSeq) return;

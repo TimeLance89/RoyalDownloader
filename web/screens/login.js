@@ -39,6 +39,7 @@ function showFirstLogin(username) {
   document.getElementById("login-form").classList.add("hidden");
   document.getElementById("first-login-form").classList.remove("hidden");
   document.getElementById("first-login-greeting").textContent = `Hallo ${username}. Lege für deinen Zugang ein Passwort fest.`;
+  setLoginStatus();
   document.getElementById("first-login-password").focus();
 }
 
