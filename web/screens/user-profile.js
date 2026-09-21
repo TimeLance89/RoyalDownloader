@@ -92,7 +92,8 @@ function renderProfileSummary(summary) {
     if (download.cover_url) { const cover = document.createElement("img"); cover.src = download.cover_url; cover.alt = ""; cover.loading = "lazy"; card.append(cover); }
     else { const art = document.createElement("span"); art.className = "profile-download-art"; art.textContent = String(download.title || "D").trim().slice(0, 1).toUpperCase(); card.append(art); }
     const copy = document.createElement("div"); const title = document.createElement("strong"); title.textContent = download.title;
-    const meta = document.createElement("small"); const requested = download.requested_at ? new Date(download.requested_at * 1000).toLocaleDateString("de-DE") : "Angefordert"; meta.textContent = `${requested} · ${download.status}`; copy.append(title, meta); card.append(copy); return card;
+    const statusLabels = { requested: "Angefordert", queued: "Eingeplant", preparing: "Wird vorbereitet", waiting_provider: "Wartet auf Quelle", downloading: "Lädt", completed: "✓ Geladen", failed: "Fehlgeschlagen", cancelled: "Abgebrochen" };
+    const meta = document.createElement("small"); const requested = download.requested_at ? new Date(download.requested_at * 1000).toLocaleDateString("de-DE") : "Angefordert"; meta.textContent = `${requested} · ${statusLabels[download.status] || download.status}`; copy.append(title, meta); card.append(copy); return card;
   }) : [createProfileEmptyState()]));
   const created = summary.user?.created_at ? new Date(summary.user.created_at * 1000).toLocaleDateString("de-DE", { month: "long", year: "numeric" }) : "";
   document.getElementById("profile-member-since").textContent = created ? `Mitglied seit ${created}` : userRoleLabel(summary.user);

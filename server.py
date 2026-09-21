@@ -661,21 +661,10 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
 
 
 def _profile_summary(user: dict) -> dict:
-    """Return only the active user's personal overview; household jobs stay private."""
+    """Return only the active user's durable personal media overview."""
     user_id = str(user.get("id") or "")
     profile = state.taste_profiles.for_user(user_id).public_profile()
-    with state.queue_claim_lock:
-        jobs = [*state.queue_history, *state.queue_jobs.values()]
-        personal = [job for job in jobs if str(job.get("requested_by_user_id") or "") == user_id]
-    recent = [
-        {
-            "title": str(job.get("title") or job.get("display_name") or "Download"),
-            "status": str(job.get("status") or "queued"),
-            "cover_url": str(job.get("cover_url") or ""),
-            "requested_at": float(job.get("requested_at") or job.get("created_at") or job.get("queued_at") or 0),
-        }
-        for job in personal[:8]
-    ]
+    recent = state.personal_requests.recent_for_user(user_id, limit=8)
     dimensions = profile.get("dimensions") or {}
     genres = dimensions.get("genres") or profile.get("genres") or {}
     signals = profile.get("signal_breakdown") or {}
@@ -697,7 +686,7 @@ def _profile_summary(user: dict) -> dict:
             },
             "updated_at": profile.get("updated_at") or 0,
         },
-        "downloads_requested": len(personal),
+        "downloads_requested": state.personal_requests.count_for_user(user_id),
         "subscriptions": subscriptions,
         "recent_downloads": recent,
         "onboarding_required": bool(user.get("taste_onboarding_required")),
