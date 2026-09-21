@@ -123,3 +123,22 @@ class UserStore:
             if not user: raise ValueError("Benutzer nicht gefunden.")
             if not enabled and user.get("role") == ADMIN and sum(bool(x.get("enabled")) and x.get("role") == ADMIN for x in self._users.values()) <= 1: raise ValueError("Der letzte aktive Administrator kann nicht deaktiviert werden.")
             user.update(enabled=bool(enabled), updated_at=time.time()); self._save(); return self.public(user)
+
+    def delete(self, user_id: str) -> dict:
+        """Remove an account record after all user-owned data was purged."""
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            if user.get("role") == ADMIN and user.get("enabled") and sum(
+                bool(item.get("enabled")) and item.get("role") == ADMIN
+                for item in self._users.values()
+            ) <= 1:
+                raise ValueError("Der letzte aktive Administrator kann nicht gelöscht werden.")
+            removed = self._users.pop(str(user_id))
+            try:
+                self._save()
+            except Exception:
+                self._users[str(user_id)] = removed
+                raise
+            return self.public(removed)

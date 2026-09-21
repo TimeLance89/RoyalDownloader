@@ -78,6 +78,7 @@ class AuthDependencies:
     user_store: Callable[[], Any]
     current_user: Callable[[Any, Any], dict | None]
     profile_summary: Callable[[dict], dict] | None = None
+    delete_user_data: Callable[[str], dict] | None = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -387,6 +388,27 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
         if not enabled: dependencies.session_store().revoke_user(user_id)
         return {"user": user}
+
+    @router.delete("/api/auth/users/{user_id}")
+    async def api_user_delete(user_id: str, request: Request):
+        administrator = require_admin(request)
+        if str(administrator.get("id")) == str(user_id):
+            raise HTTPException(400, "Das aktuell angemeldete Administratorkonto kann nicht gelöscht werden.")
+        user = dependencies.user_store().get(user_id)
+        if not user:
+            raise HTTPException(404, "Benutzer nicht gefunden.")
+        if not dependencies.delete_user_data:
+            raise HTTPException(503, "Die vollständige Benutzerlöschung ist gerade nicht verfügbar.")
+        try:
+            erased = dependencies.delete_user_data(str(user_id))
+            deleted = dependencies.user_store().delete(str(user_id))
+            revoked = dependencies.session_store().revoke_user(str(user_id))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, "Die Benutzerdaten konnten nicht vollständig gelöscht werden.") from exc
+        dependencies.log(f"Benutzer „{deleted['username']}“ wurde vollständig gelöscht.")
+        return {"deleted": deleted, "erased": erased, "revoked_sessions": revoked}
 
     @router.post("/api/v1/auth/login")
     async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):

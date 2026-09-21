@@ -165,6 +165,23 @@ class PersonalRequestStore:
         with self._lock:
             return sum(item["user_id"] == _text(user_id) for item in self._requests)
 
+    def delete_for_user(self, user_id: str) -> int:
+        """Erase the durable personal request history for one account."""
+        owner = _text(user_id)
+        if not owner:
+            return 0
+        with self._lock:
+            previous = self._requests
+            remaining = [item for item in previous if item["user_id"] != owner]
+            removed = len(previous) - len(remaining)
+            if not removed:
+                return 0
+            self._requests = remaining
+            if self._save_locked():
+                return removed
+            self._requests = previous
+            raise OSError("Persönliche Anfragen konnten nicht gelöscht werden.")
+
     def backfill(self, jobs: list[dict]) -> None:
         """Import only historical jobs whose explicit manual source is trustworthy."""
         for job in jobs:
