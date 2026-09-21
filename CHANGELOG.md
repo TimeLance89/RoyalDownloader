@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Add household accounts with isolated sessions, passwords, onboarding,
+  recommendations, browser state, downloads, subscriptions, and taste profiles.
+- Introduce the Royal Intelligence and Royal Reflex recommendation flow with
+  per-user local ranking, cache isolation, resilient background refinement, and
+  a dedicated personal profile hub.
+- Redesign the personal profile as a Royal media home with identity, confidence,
+  learning signals, ratings, relative genre affinity, personal activity, recent
+  requests, and secondary account controls.
+- Classify subscription episodes semantically: language-mismatched episodes wait
+  for the requested language, announced episodes remain upcoming, source gaps
+  wait with backoff, and only an actual failed transfer is shown as a problem.
+- Stabilize home and Intelligence carousels by eager-loading visible artwork,
+  reconciling rails without layout jumps, and preserving the established series
+  rail design.
+
 - Add a compact Royal transfer deck with clearer download hierarchy, segmented
   progress, a next-up view, and responsive queue controls.
 - Redesign home cards and carousels with stable layout, reliable poster and
