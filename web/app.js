@@ -308,6 +308,18 @@ async function initApp() {
   document.getElementById("series-subscriptions-manage").addEventListener("click", () => switchTab("bibliothek"));
   document.addEventListener("keydown", (event) => {
     if (
+      (event.ctrlKey || event.metaKey)
+      && !event.altKey
+      && event.key.toLowerCase() === "k"
+    ) {
+      const input = document.getElementById("global-search-input");
+      if (!input) return;
+      event.preventDefault();
+      document.getElementById("global-search-shell").classList.add("is-expanded");
+      input.focus();
+      return;
+    }
+    if (
       event.key !== "/"
       || event.ctrlKey
       || event.metaKey
