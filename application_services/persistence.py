@@ -12,6 +12,13 @@ from application_services.runtime import (
 globals().update(import_backend_namespace())
 
 
+def _sync_personal_request(job: dict | None) -> None:
+    """Keep durable personal history in step without making the queue own it."""
+    store = getattr(state, "personal_requests", None)
+    if store and job and str(job.get("requested_by_user_id") or ""):
+        store.update_from_job(job)
+
+
 def queue_group_name(slug: str) -> str:
     parsed = parse_episode_slug(slug)
     if not parsed:
@@ -324,6 +331,7 @@ def _update_queue_job(
         snapshot = deepcopy(job)
     if persist and not _persist_queue_state():
         log(f"Queue-Job {job['job_id']} konnte nicht gespeichert werden.", "warn")
+    _sync_personal_request(snapshot)
     return snapshot
 
 
@@ -363,6 +371,7 @@ def _terminal_queue_job(
         snapshot = deepcopy(job)
     if persist and not _persist_queue_state():
         log(f"Terminaler Queue-Job {job_id} konnte nicht gespeichert werden.", "warn")
+    _sync_personal_request(snapshot)
     return snapshot
 
 
@@ -413,6 +422,7 @@ def _apply_terminal_queue_job(terminal: dict) -> None:
                 if item.get("job_id") != job_id
             ),
         ][:HISTORY_LIMIT]
+    _sync_personal_request(terminal)
 
 
 def _retry_queue_job(job_id: str) -> Optional[dict]:
@@ -449,7 +459,9 @@ def _retry_queue_job(job_id: str) -> Optional[dict]:
         state.queue_jobs[job_id] = job
         state.queue_job_by_slug[slug] = job_id
         state.picked.add(slug)
-        return deepcopy(job)
+        snapshot = deepcopy(job)
+    _sync_personal_request(snapshot)
+    return snapshot
 
 
 def queue_jobs_payload() -> dict:

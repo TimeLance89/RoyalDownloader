@@ -28,5 +28,5 @@ def test_profile_hub_has_the_royal_wide_dashboard_structure():
 def test_profile_summary_keeps_recent_requests_personal_and_includes_real_request_time():
     server = (ROOT / "server.py").read_text(encoding="utf-8")
 
-    assert 'str(job.get("requested_by_user_id") or "") == user_id' in server
-    assert '"requested_at": float(job.get("requested_at")' in server
+    assert "state.personal_requests.recent_for_user(user_id, limit=8)" in server
+    assert "state.personal_requests.count_for_user(user_id)" in server
