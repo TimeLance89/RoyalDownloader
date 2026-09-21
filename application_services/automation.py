@@ -63,6 +63,16 @@ def _playable_episode_source(slug: str, primary):
     return fallbacks[0] if fallbacks else None
 
 
+WATCHLIST_SOURCE_RETRY_SECONDS = 30 * 60
+
+
+def _watchlist_source_retry_allowed(slug: str) -> bool:
+    with state.watchlist_lock:
+        entry = _watchlist_entry_for_episode(slug)
+        retry = (entry or {}).get("waiting_source_retries") or {}
+        return time.time() >= float(retry.get(slug, 0) or 0)
+
+
 def _auto_download_new_episodes():
     """Lädt alle als neu erkannten Episoden abonnierter Serien automatisch
     herunter (nutzt dieselbe Pipeline wie der manuelle Download inkl.
@@ -98,6 +108,8 @@ def _auto_download_new_episodes():
         prepared_slugs: List[str] = []
         for slug in pending:
             if not _watchlist_retry_allowed(slug):
+                continue
+            if not _watchlist_source_retry_allowed(slug):
                 continue
             with state.watchlist_lock:
                 if not any(
@@ -135,6 +147,10 @@ def _auto_download_new_episodes():
                         waiting = set(entry.get("waiting_release_slugs") or [])
                         waiting.add(slug)
                         entry["waiting_release_slugs"] = sorted(waiting)
+                        retries = entry.get("waiting_source_retries")
+                        if not isinstance(retries, dict): retries = {}
+                        retries[slug] = time.time() + WATCHLIST_SOURCE_RETRY_SECONDS
+                        entry["waiting_source_retries"] = retries
                         failures = entry.get("failed_downloads")
                         if isinstance(failures, dict):
                             failures.pop(slug, None)
@@ -150,6 +166,8 @@ def _auto_download_new_episodes():
                     waiting = set(entry.get("waiting_release_slugs") or [])
                     waiting.discard(slug)
                     entry["waiting_release_slugs"] = sorted(waiting)
+                    retries = entry.get("waiting_source_retries")
+                    if isinstance(retries, dict): retries.pop(slug, None)
 
             already_available, reason = _content_already_available(movie, slug)
             if already_available:
@@ -326,6 +344,8 @@ def watchlist_auto_check_loop():
 _SERVICE_EXPORTS = (
     "is_within_download_window",
     "_playable_episode_source",
+    "WATCHLIST_SOURCE_RETRY_SECONDS",
+    "_watchlist_source_retry_allowed",
     "_auto_download_new_episodes",
     "WATCHLIST_JELLYFIN_RETRY_SECONDS",
     "WATCHLIST_QUICK_RETRY_ERRORS",

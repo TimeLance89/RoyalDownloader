@@ -676,15 +676,28 @@ def _profile_summary(user: dict) -> dict:
         for job in personal[:8]
     ]
     dimensions = profile.get("dimensions") or {}
+    genres = dimensions.get("genres") or profile.get("genres") or {}
+    signals = profile.get("signal_breakdown") or {}
+    with state.watchlist_lock:
+        subscriptions = sum(
+            str(entry.get("requested_by_user_id") or "") == user_id
+            for entry in state.watchlist
+        )
     return {
         "user": USER_STORE.public(user),
         "taste": {
             "confidence": float(profile.get("confidence") or 0),
+            "confidence_label": str(profile.get("confidence_label") or "low"),
             "interactions": int(profile.get("interactions") or 0),
-            "genres": dimensions.get("genres") or profile.get("genres") or {},
+            "direct_ratings": int(signals.get("explicit") or 0),
+            "genres": genres,
+            "negative_genres": {
+                name: score for name, score in genres.items() if float(score or 0) < 0
+            },
             "updated_at": profile.get("updated_at") or 0,
         },
         "downloads_requested": len(personal),
+        "subscriptions": subscriptions,
         "recent_downloads": recent,
         "onboarding_required": bool(user.get("taste_onboarding_required")),
     }
