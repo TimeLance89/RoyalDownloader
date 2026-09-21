@@ -39,6 +39,7 @@ body.taste-onboarding-open { overflow: hidden; }
 
 .taste-onboarding-status { padding: 18px 0 8px; color: #aaa; font-size: 13px; }
 .taste-onboarding-status[hidden] { display: none; }
+.taste-onboarding-picked { display: flex; gap: 12px; align-items: center; padding: 13px 0 4px; color: #c7c8cb; font-size: 12px; }.taste-onboarding-selected { display: flex; flex-wrap: wrap; gap: 7px; }.taste-onboarding-selection { max-width: 180px; padding: 5px 8px; overflow: hidden; border: 1px solid rgba(239,23,36,.56); border-radius: 999px; color: #fff; background: rgba(239,23,36,.14); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 
 .taste-onboarding-grid {
   display: grid;
@@ -108,6 +109,7 @@ body.taste-onboarding-open { overflow: hidden; }
   .taste-onboarding-grid { grid-template-columns: repeat(3, minmax(82px, 1fr)); gap: 7px; }
   .taste-onboarding-actions { display: grid; grid-template-columns: 1fr 1.25fr; padding-inline: 12px; }
   .taste-onboarding-actions .btn { min-width: 0; padding-inline: 10px; font-size: 11px; }
+  .taste-onboarding-picked { align-items: flex-start; flex-direction: column; gap: 7px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .taste-onboarding-card { transition: none; }

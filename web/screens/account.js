@@ -6,24 +6,28 @@ function setAccountStatus(message = "", error = false) {
 }
 
 function applyAccountCfg(cfg) {
+  const activeUser = authStatus.user;
   const configured = !!cfg.configured;
   const card = document.getElementById("account-card");
   card.dataset.state = configured ? "configured" : "open";
   document.getElementById("account-warning").classList.toggle("hidden", configured);
-  document.getElementById("account-username").value = cfg.username || "";
+  document.getElementById("account-username").value = activeUser?.username || cfg.username || "";
+  document.getElementById("account-username").disabled = !!activeUser;
   // Ohne bestehendes Konto gibt es kein aktuelles Passwort zu bestätigen.
   document.getElementById("account-current-label").classList.toggle("hidden", !configured);
   document.getElementById("account-current-password").classList.toggle("hidden", !configured);
   document.getElementById("account-logout").classList.toggle("hidden", !configured);
-  document.getElementById("account-state").textContent = configured
+  document.getElementById("account-state").textContent = activeUser
+    ? `Angemeldet als „${activeUser.display_name || activeUser.username}“ · ${activeUser.role === "admin" ? "Administrator" : "Mitglied"}. Hier änderst du ausschließlich dein eigenes Passwort.`
+    : configured
     ? (cfg.source === "env"
       ? `Angemeldet als „${cfg.username}“ · Zugangsdaten stammen aus APP_USERNAME/APP_PASSWORD. Beim Speichern werden sie in die Einstellungen übernommen.`
       : `Angemeldet als „${cfg.username}“.`)
     : "Es ist kein Konto eingerichtet – die Oberfläche ist ungeschützt erreichbar.";
   document.getElementById("account-sessions-count").textContent =
     `${cfg.active_sessions ?? 0} aktive Sitzung(en)`;
-  document.getElementById("account-save").textContent = configured
-    ? "Zugangsdaten speichern"
+  document.getElementById("account-save").textContent = activeUser || configured
+    ? "Mein Passwort ändern"
     : "Konto anlegen";
 }
 
@@ -97,13 +101,16 @@ async function saveAccount() {
   button.disabled = true;
   setAccountStatus("Wird gespeichert …");
   try {
-    const result = await api.authConfigSet(username, password, current);
+    const result = authStatus.user
+      ? await api.mePassword(current, password, repeat)
+      : await api.authConfigSet(username, password, current);
     document.getElementById("account-password").value = "";
     document.getElementById("account-password-repeat").value = "";
     document.getElementById("account-current-password").value = "";
+    if (result.user) authStatus.user = result.user;
     applyAccountCfg(result);
-    authStatus = { ...authStatus, configured: true, authenticated: true, username };
-    setAccountStatus("✓ Gespeichert. Andere Geräte müssen sich neu anmelden.");
+    authStatus = { ...authStatus, configured: true, authenticated: true, username: authStatus.user?.username || username };
+    setAccountStatus("✓ Passwort geändert. Andere Sitzungen wurden beendet.");
   } catch (error) {
     setAccountStatus(error.message, true);
   } finally {

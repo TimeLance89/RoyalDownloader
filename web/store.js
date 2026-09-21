@@ -299,7 +299,7 @@ function discoveryV2DayDistance(day) {
 function loadDiscoveryExposureV2() {
   let history = null;
   try {
-    history = JSON.parse(localStorage.getItem(HOME_DISCOVERY_V2_EXPOSURE_KEY) || "null");
+    history = JSON.parse(localStorage.getItem(personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY)) || "null");
   } catch {
     history = null;
   }
@@ -313,7 +313,7 @@ function loadDiscoveryExposureV2() {
 
 function saveDiscoveryExposureV2(history) {
   try {
-    localStorage.setItem(HOME_DISCOVERY_V2_EXPOSURE_KEY, JSON.stringify(history));
+    localStorage.setItem(personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY), JSON.stringify(history));
   } catch {
     // Discovery remains deterministic even when browser storage is unavailable.
   }

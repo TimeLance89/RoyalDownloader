@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -87,6 +88,13 @@ def test_all_taste_routes_have_versioned_and_browser_aliases():
     }:
         assert (method, f"/api{suffix}") in routes
         assert (method, f"/api/v1{suffix}") in routes
+
+
+def test_current_user_profile_routes_exist_without_another_users_detail_route():
+    router = (Path(__file__).resolve().parents[1] / "api/api_auth_router.py").read_text(encoding="utf-8")
+    for path in ("/api/me", "/api/me/profile-summary", "/api/me/household", "/api/me/password"):
+        assert f'"{path}"' in router
+    assert "/api/users/{user_id}/profile-summary" not in router
 
 
 def test_onboarding_seeds_only_current_user_and_completes_status(monkeypatch, tmp_path):

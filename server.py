@@ -660,6 +660,36 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
     )
 
 
+def _profile_summary(user: dict) -> dict:
+    """Return only the active user's personal overview; household jobs stay private."""
+    user_id = str(user.get("id") or "")
+    profile = state.taste_profiles.for_user(user_id).public_profile()
+    with state.queue_claim_lock:
+        jobs = [*state.queue_history, *state.queue_jobs.values()]
+        personal = [job for job in jobs if str(job.get("requested_by_user_id") or "") == user_id]
+    recent = [
+        {
+            "title": str(job.get("title") or job.get("display_name") or "Download"),
+            "status": str(job.get("status") or "queued"),
+            "cover_url": str(job.get("cover_url") or ""),
+        }
+        for job in personal[:8]
+    ]
+    dimensions = profile.get("dimensions") or {}
+    return {
+        "user": USER_STORE.public(user),
+        "taste": {
+            "confidence": float(profile.get("confidence") or 0),
+            "interactions": int(profile.get("interactions") or 0),
+            "genres": dimensions.get("genres") or profile.get("genres") or {},
+            "updated_at": profile.get("updated_at") or 0,
+        },
+        "downloads_requested": len(personal),
+        "recent_downloads": recent,
+        "onboarding_required": bool(user.get("taste_onboarding_required")),
+    }
+
+
 app.include_router(create_auth_router(AuthDependencies(
     api_version=API_VERSION,
     appauth=appauth,
@@ -690,6 +720,7 @@ app.include_router(create_auth_router(AuthDependencies(
     log=lambda *args, **kwargs: log(*args, **kwargs),
     user_store=lambda: USER_STORE,
     current_user=lambda headers, cookies: current_user(headers, cookies),
+    profile_summary=_profile_summary,
 )))
 
 

@@ -46,6 +46,12 @@ class FirstLoginBody(LoginBody):
     password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
+class PasswordChangeBody(BaseModel):
+    current_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -71,6 +77,7 @@ class AuthDependencies:
     log: Callable[..., None]
     user_store: Callable[[], Any]
     current_user: Callable[[Any, Any], dict | None]
+    profile_summary: Callable[[dict], dict] | None = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -246,6 +253,60 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             auth_status_payload(request),
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
+
+    @router.get("/api/me")
+    async def api_me(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        return dependencies.user_store().public(user)
+
+    @router.get("/api/me/profile-summary")
+    async def api_me_profile_summary(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.profile_summary:
+            return {"user": dependencies.user_store().public(user)}
+        return dependencies.profile_summary(user)
+
+    @router.get("/api/me/household")
+    async def api_me_household(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        users = dependencies.user_store().list()
+        return {
+            "current_user_id": str(user["id"]),
+            "users": [
+                {key: item.get(key) for key in ("id", "display_name", "role", "enabled")}
+                for item in users if item.get("enabled")
+            ],
+        }
+
+    @router.post("/api/me/password")
+    async def api_me_password(body: PasswordChangeBody, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if body.password != body.password_repeat:
+            raise HTTPException(400, "Die beiden Passwörter stimmen nicht überein.")
+        if not await run_in_threadpool(dependencies.verify_credentials, user["username"], body.current_password):
+            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+        try:
+            password_hash = appauth.hash_password(appauth.validate_password(body.password))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        updated = dependencies.user_store().set_password(str(user["id"]), password_hash)
+        dependencies.session_store().revoke_user(str(user["id"]))
+        token = dependencies.session_store().create(
+            label=request.headers.get("user-agent", "")[:120],
+            kind=appauth.SESSION_KIND_WEB,
+            user_id=str(user["id"]),
+        )
+        response = JSONResponse({"user": updated, "configured": True, "active_sessions": 1})
+        set_session_cookie(response, request, token)
+        return response
 
     @router.get("/api/v1/auth/status")
     async def api_v1_auth_status(request: Request):
