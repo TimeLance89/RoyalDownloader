@@ -1,7 +1,7 @@
 import threading
 import time
 
-from downloader import DownloadQueue
+from media.downloader import DownloadQueue
 
 
 class _BlockingJob:

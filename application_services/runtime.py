@@ -23,6 +23,7 @@ _POST_SERVICE_MODULES = (
     "application_services.content_language_policy",
     "application_services.media_identity",
     "application_services.media_identity_series_alias",
+    "application_services.series_source_migrations",
     "application_services.movie_fallback_policy",
     "application_services.movie_subscription_quality",
     "application_services.movie_subscription_repeat_guard",
@@ -59,6 +60,11 @@ def _registered_backend() -> ModuleType:
 def backend_value(name: str) -> Any:
     """Read a runtime value that the composition root may replace."""
     return getattr(_registered_backend(), name)
+
+
+def set_backend_value(name: str, value: Any) -> None:
+    """Set a composition-root runtime reference through the supported seam."""
+    setattr(_registered_backend(), name, value)
 
 
 def _dynamic_function(name: str, original):
@@ -116,7 +122,7 @@ def refresh_services() -> None:
     # persistence, lifecycle callbacks, and physical scheduler), so install it
     # only after every runtime dependency has been published.  The installer is
     # idempotent and uses the same dynamic backend seam as the service modules.
-    from queue_performance import install_queue_performance
+    from core.queue_performance import install_queue_performance
 
     backend = _registered_backend()
     controller = install_queue_performance(backend)

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260908-2">
+<link rel="stylesheet" href="/style.css?v=royal-20260921-2">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -130,6 +130,22 @@
     <button id="mobile-queue-btn" class="btn btn-ghost mobile-only" title="Warteschlange" aria-label="Warteschlange öffnen">
       <span aria-hidden="true">↓</span><span id="mobile-queue-count">0</span>
     </button>
+    <div id="user-menu" class="user-menu">
+      <button id="user-menu-trigger" class="user-menu-trigger" type="button" aria-expanded="false" aria-controls="user-menu-popover">
+        <span id="user-menu-avatar" class="user-menu-avatar" aria-hidden="true">R</span><span class="user-menu-copy"><strong id="user-menu-name">Royal</strong><small id="user-menu-role">Profil</small></span><span class="user-menu-chevron" aria-hidden="true">⌄</span>
+      </button>
+      <div id="user-menu-popover" class="user-menu-popover" hidden>
+        <div class="user-menu-identity"><strong id="user-menu-popover-name">Royal</strong><span id="user-menu-popover-role">Profil</span></div>
+        <button type="button" data-user-action="profile">Mein Profil</button>
+        <button type="button" data-user-action="taste">Mein Geschmack</button>
+        <button type="button" data-user-action="downloads">Meine Downloads</button>
+        <hr>
+        <button type="button" data-user-action="household">Wer schaut gerade?</button>
+        <button type="button" data-user-action="security">Konto &amp; Sicherheit</button>
+        <button type="button" data-user-action="logout">Abmelden</button>
+        <button id="user-menu-admin" type="button" data-user-action="users" hidden>Benutzer verwalten</button>
+      </div>
+    </div>
     <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
   </header>
 
@@ -412,29 +428,6 @@
       </section>
 
       <div class="home-rails" aria-live="polite">
-        <section id="home-ai-rail" class="home-rail home-ai-rail" aria-labelledby="home-ai-title" hidden>
-          <header class="home-rail-head home-ai-head">
-            <div>
-              <span class="home-ai-signal"><i aria-hidden="true"></i> Lokal kuratiert</span>
-              <h2 id="home-ai-title">Royal Auswahl</h2>
-              <p id="home-ai-note">Ollama verbindet deinen Geschmack mit dem aktuellen Katalog.</p>
-            </div>
-            <div class="home-rail-controls">
-              <button type="button" data-home-scroll="home-ai-track" data-direction="-1" aria-label="KI-Auswahl nach links scrollen">‹</button>
-              <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
-            </div>
-          </header>
-          <div id="home-ai-state" class="home-ai-state" role="status" hidden>
-            <span class="home-ai-state-mark" aria-hidden="true">✦</span>
-            <div>
-              <strong id="home-ai-state-title">Royal KI wird vorbereitet</strong>
-              <span id="home-ai-state-message">Ollama wartet auf Katalogdaten.</span>
-            </div>
-            <button id="home-ai-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
-          </div>
-          <div id="home-ai-track" class="home-track home-ai-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
-        </section>
-
         <section class="home-rail home-rail-spotlight" aria-labelledby="home-movies-title">
           <header class="home-rail-head">
             <div>
@@ -465,7 +458,11 @@
 
         <section class="home-rail home-rail-series" aria-labelledby="home-series-title">
           <header class="home-rail-head">
-            <h2 id="home-series-title">Serien, die gerade alle sehen</h2>
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">♨</span>
+              <h2 id="home-series-title">Serien, die gerade alle sehen</h2>
+              <p>Was bei Serien gerade besonders gefragt ist</p>
+            </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-series-track" data-direction="-1" aria-label="Angesagte Serien nach links scrollen">‹</button>
               <button type="button" data-home-scroll="home-series-track" data-direction="1" aria-label="Angesagte Serien nach rechts scrollen">›</button>
@@ -474,11 +471,35 @@
           <div id="home-series-track" class="home-track" role="group" aria-label="Angesagte Serien"></div>
         </section>
 
+        <section id="home-ai-rail" class="home-rail home-ai-rail" aria-labelledby="home-ai-title" hidden>
+          <header class="home-rail-head">
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">✦</span>
+              <h2 id="home-ai-title">Royal Intelligence</h2>
+              <p id="home-ai-note">Aus deinem Geschmack und dem aktuellen Royal-Katalog ausgewählt.</p>
+            </div>
+            <div class="home-rail-controls">
+              <button type="button" data-home-scroll="home-ai-track" data-direction="-1" aria-label="KI-Auswahl nach links scrollen">‹</button>
+              <button type="button" data-home-scroll="home-ai-track" data-direction="1" aria-label="KI-Auswahl nach rechts scrollen">›</button>
+            </div>
+          </header>
+          <div id="home-ai-state" class="home-ai-state" role="status" hidden>
+            <span class="home-ai-state-mark" aria-hidden="true">✦</span>
+            <div>
+              <strong id="home-ai-state-title">Royal Intelligence wird vorbereitet</strong>
+              <span id="home-ai-state-message">Die Auswahl wartet auf Katalogdaten.</span>
+            </div>
+            <button id="home-ai-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
+          </div>
+          <div id="home-ai-track" class="home-track" role="group" aria-label="Lokal kuratierte Empfehlungen"></div>
+        </section>
+
         <section class="home-rail home-rail-genre home-discovery-rail" aria-labelledby="home-genre-title">
           <header class="home-rail-head">
-            <div>
-              <span id="home-genre-eyebrow" class="home-rail-eyebrow">Nach deinem Geschmack</span>
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">✦</span>
               <h2 id="home-genre-title">Ein Genre für dich</h2>
+              <p id="home-genre-eyebrow">Nach deinem Geschmack</p>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-genre-track" data-direction="-1" aria-label="Genre-Empfehlungen nach links scrollen">‹</button>
@@ -490,9 +511,10 @@
 
         <section class="home-rail home-rail-explore home-discovery-rail is-exploration" aria-labelledby="home-explore-title">
           <header class="home-rail-head">
-            <div>
-              <span class="home-rail-eyebrow">Raus aus der Komfortzone</span>
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">↗</span>
               <h2 id="home-explore-title">Heute mal etwas anderes</h2>
+              <p>Entdeckungen abseits deiner üblichen Auswahl</p>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-explore-track" data-direction="-1" aria-label="Neue Entdeckungen nach links scrollen">‹</button>
@@ -504,9 +526,10 @@
 
         <section class="home-rail home-rail-gems home-discovery-rail is-gems" aria-labelledby="home-gems-title">
           <header class="home-rail-head">
-            <div>
-              <span class="home-rail-eyebrow">Abseits der ersten Reihe</span>
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">◇</span>
               <h2 id="home-gems-title">Verborgene Schätze</h2>
+              <p>Gut bewertet und leicht zu übersehen</p>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-gems-track" data-direction="-1" aria-label="Verborgene Schätze nach links scrollen">‹</button>
@@ -518,9 +541,10 @@
 
         <section class="home-rail home-rail-new" aria-labelledby="home-new-title">
           <header class="home-rail-head">
-            <div>
-              <span class="home-rail-eyebrow">Frisch eingetroffen</span>
+            <div class="home-rail-heading">
+              <span class="home-rail-icon" aria-hidden="true">✧</span>
               <h2 id="home-new-title">Neu hinzugefügt</h2>
+              <p>Die neuesten Filme und Serien im Archiv</p>
             </div>
             <div class="home-rail-controls">
               <button type="button" data-home-scroll="home-new-track" data-direction="-1" aria-label="Neue Titel nach links scrollen">‹</button>
@@ -813,13 +837,6 @@
                   <div><label>Freigabe</label><span id="fp-detail-certification" data-i18n-ignore>—</span></div>
                   <div><label>Sprache · Herkunft</label><span id="fp-detail-origin" data-i18n-ignore>—</span></div>
                 </div>
-                <section id="fp-detail-similar-section" class="detail-similar" aria-labelledby="fp-detail-similar-title" hidden>
-                  <div class="detail-section-head">
-                    <span id="fp-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
-                    <small>Passend aus dem Filmarchiv</small>
-                  </div>
-                  <div id="fp-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
-                </section>
                 <section id="fp-detail-extras-section" class="detail-extras" aria-labelledby="fp-detail-extras-title" hidden>
                   <div class="detail-section-head">
                     <span id="fp-detail-extras-title" class="detail-section-title">Trailer und mehr</span>
@@ -865,6 +882,13 @@
                   <span class="detail-queue-icon" aria-hidden="true">↓</span>
                   <span><strong>Bereit für die Warteschlange</strong><small>Startet automatisch · maximal 2 Downloads gleichzeitig</small></span>
                 </div>
+                <section id="fp-detail-similar-section" class="detail-similar" aria-labelledby="fp-detail-similar-title" hidden>
+                  <div class="detail-section-head">
+                    <span id="fp-detail-similar-title" class="detail-section-title">Ähnliche Titel</span>
+                    <small>Passend aus dem Filmarchiv</small>
+                  </div>
+                  <div id="fp-detail-similar" class="detail-similar-grid" data-i18n-ignore></div>
+                </section>
               </article>
             </div>
           </div>
@@ -1291,6 +1315,23 @@
       </div>
     </section>
 
+    <section class="tab-content profile-hub" id="tab-profil" aria-labelledby="profile-title">
+      <header class="profile-hero">
+        <span id="profile-avatar" class="profile-avatar" aria-hidden="true">R</span>
+        <div class="profile-identity"><p>Dein Royal-Profil</p><h1 id="profile-title">Royal</h1><span id="profile-member-since">Mitglied</span><strong id="profile-hero-insight">Dein Geschmack nimmt Gestalt an.</strong></div>
+        <div class="profile-hero-actions"><button id="profile-show-taste" class="btn btn-ghost" type="button">Geschmack ansehen</button><button id="profile-edit-taste" class="btn btn-primary" type="button">Geschmack neu einrichten</button></div>
+      </header>
+      <div class="profile-grid">
+        <section class="profile-panel profile-taste"><h2>Dein Geschmack</h2><p id="profile-confidence">Wir lernen dich noch kennen.</p><div class="profile-confidence"><i id="profile-confidence-bar"></i></div><dl><div><dt>Lernsignale</dt><dd id="profile-interactions">0</dd></div><div><dt>Bewertungen</dt><dd id="profile-direct-ratings">0</dd></div></dl></section>
+        <section class="profile-panel profile-genres-panel"><h2>Top Genres</h2><div id="profile-genres" class="profile-genres"></div><p id="profile-negative-genres" class="profile-negative-genres" hidden></p></section>
+        <section class="profile-panel profile-activity"><h2>Deine Aktivität</h2><dl><div><dt>Angeforderte Downloads</dt><dd id="profile-download-count">0</dd></div><div><dt>Meine Abos</dt><dd id="profile-subscription-count">0</dd></div></dl><button id="profile-open-library" class="profile-link" type="button">Meine Liste und Abos öffnen</button></section>
+        <section class="profile-panel profile-intelligence"><h2>Royal Intelligence</h2><p id="profile-intelligence-copy">Deine Empfehlungen werden lokal für dich verfeinert.</p><button id="profile-show-taste-secondary" class="profile-link" type="button">Geschmack ansehen</button></section>
+        <section class="profile-panel profile-downloads"><div class="profile-panel-heading"><div><h2>Zuletzt von dir angefordert</h2><p>Nur deine persönlichen Download-Anfragen.</p></div><button id="profile-discover" class="profile-link" type="button">Entdecken</button></div><div id="profile-recent-downloads" class="profile-recent-downloads"></div></section>
+        <section class="profile-panel profile-security-panel"><h2>Konto &amp; Sicherheit</h2><p>Passwort, aktive Sitzungen und Login verwalten.</p><button id="profile-security" class="btn btn-ghost" type="button">Konto &amp; Sicherheit</button></section>
+      </div>
+      <section id="household-panel" class="profile-panel household-panel" hidden><h2>Wer schaut gerade?</h2><div id="household-users" class="household-users"></div></section>
+    </section>
+
     <section class="tab-content" id="tab-einstellungen">
       <header class="settings-hero">
         <div class="settings-hero-copy">
@@ -1460,7 +1501,7 @@
           <h3>Dein Geschmack</h3>
           <p class="dim settings-hint">Royal lernt lokal aus Suche, Auswahl, Downloads, Abos und deinem Jellyfin-Verlauf. Das Profil gilt für alle Geräte.</p>
           <div id="taste-profile-summary" class="taste-profile-summary" role="status" aria-live="polite">Profil wird geladen …</div>
-          <button id="taste-profile-reset" class="btn btn-ghost btn-sm" type="button">Geschmacksprofil zurücksetzen</button>
+          <button id="taste-profile-reset" class="btn btn-ghost btn-sm" type="button">Geschmack neu einrichten</button>
         </div>
             </div>
           </section>
@@ -1642,10 +1683,10 @@
         <div class="settings-group settings-card ai-settings-card">
           <div class="ai-settings-heading">
             <div>
-              <h3>Royal KI · Ollama</h3>
-              <p class="dim settings-hint">Kuratiert vorhandene Titel lokal. Downloads, Provider und Queue bleiben vollständig unabhängig.</p>
+              <h3>Royal Intelligence</h3>
+              <p class="dim settings-hint">Bewertet ausschließlich vorhandene Titel. Downloads, Provider und Queue bleiben vollständig unabhängig.</p>
             </div>
-            <span class="ai-local-badge">LOKAL</span>
+            <span id="ai-provider-badge" class="ai-local-badge">LOKAL</span>
           </div>
           <label class="auto-toggle-row">
             <input id="ai-enabled" type="checkbox">
@@ -1667,7 +1708,7 @@
             <p id="ai-status" class="dim small-status" role="status">Deaktiviert · Royal nutzt das klassische Ranking.</p>
             <button id="ai-test" class="btn btn-ghost btn-sm" type="button">Verbindung testen</button>
           </div>
-          <p class="ai-privacy-note"><span aria-hidden="true">⌂</span> Metadaten und dein kompaktes Geschmacksprofil bleiben in deinem Heimnetz.</p>
+          <p id="ai-privacy-note" class="ai-privacy-note"><span aria-hidden="true">⌂</span> Royal Reflex verarbeitet kompakte Katalogmetadaten und dein Geschmacksprofil ausschließlich lokal über Ollama.</p>
         </div>
 
         <div class="settings-group settings-card telegram-settings">
@@ -1730,9 +1771,9 @@
             <header class="settings-section-heading">
               <span class="settings-section-mark is-account" aria-hidden="true">⚿</span>
               <div>
-                <span>ZUGANG</span>
-                <h2 id="settings-account-title">Anmeldung</h2>
-                <p>Zugangsdaten für die Oberfläche festlegen und angemeldete Geräte verwalten.</p>
+                <span>MEIN ACCOUNT</span>
+                <h2 id="settings-account-title">Konto &amp; Sicherheit</h2>
+                <p>Dein Passwort und angemeldete Geräte verwalten.</p>
               </div>
             </header>
             <div class="settings-card-grid">
@@ -1764,6 +1805,19 @@
           <p id="account-sessions-count" class="dim small-status" role="status" aria-live="polite">—</p>
           <button id="account-revoke" class="btn btn-ghost btn-sm" type="button">Andere Sitzungen beenden</button>
           <div id="account-revoke-status" class="dim small-status" role="status" aria-live="polite"></div>
+        </div>
+        <div id="account-users-card" class="settings-group settings-card account-sessions" hidden>
+          <h3>Benutzer</h3>
+          <p class="dim settings-hint">Neue Benutzer legen ihr Passwort selbst beim ersten Login fest.</p>
+          <div id="account-users-list" class="small-status">Wird geladen …</div>
+          <label class="dim auto-lbl" for="new-user-display-name">Anzeigename</label>
+          <input id="new-user-display-name" type="text" autocomplete="off">
+          <label class="dim auto-lbl" for="new-user-username">Benutzername</label>
+          <input id="new-user-username" type="text" autocomplete="off">
+          <label class="dim auto-lbl" for="new-user-role">Rolle</label>
+          <select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select>
+          <div class="account-actions"><button id="new-user-create" class="btn btn-primary btn-sm" type="button">Benutzer hinzufügen</button></div>
+          <div id="account-users-status" class="dim small-status" role="status"></div>
         </div>
             </div>
           </section>
@@ -1916,6 +1970,29 @@
   </main>
 </div>
 
+<section id="taste-onboarding" class="taste-onboarding hidden" role="dialog" aria-modal="true" aria-labelledby="taste-onboarding-title">
+  <header class="taste-onboarding-head">
+    <div class="taste-onboarding-brand"><strong>ROYAL</strong><span>CINEMA</span></div>
+    <div class="taste-onboarding-copy">
+      <p id="taste-onboarding-welcome">Willkommen.</p>
+      <h1 id="taste-onboarding-title">Was gefällt dir?</h1>
+      <span>Wähle mindestens fünf Titel. Daraus entsteht dein persönlicher Startpunkt.</span>
+    </div>
+    <div class="taste-onboarding-progress" aria-live="polite">
+      <strong id="taste-onboarding-count">0</strong><span>von mindestens 5</span>
+    </div>
+  </header>
+    <div id="taste-onboarding-status" class="taste-onboarding-status" role="status">Titel werden zusammengestellt …</div>
+  <div class="taste-onboarding-picked" aria-live="polite">
+    <strong>Deine Auswahl</strong><div id="taste-onboarding-selected" class="taste-onboarding-selected"></div>
+  </div>
+  <div id="taste-onboarding-grid" class="taste-onboarding-grid" role="group" aria-label="Titel auswählen"></div>
+  <footer class="taste-onboarding-actions">
+    <button id="taste-onboarding-more" class="btn btn-ghost" type="button">Andere Titel anzeigen</button>
+    <button id="taste-onboarding-submit" class="btn btn-primary" type="button" disabled>Auswahl übernehmen</button>
+  </footer>
+</section>
+
 <div id="login-screen" class="login-screen hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
   <div class="login-shell">
     <section class="login-stage" aria-hidden="true">
@@ -1970,6 +2047,14 @@
         <button id="login-submit" class="btn btn-primary login-submit" type="submit">
           <span>Anmelden</span><span aria-hidden="true">→</span>
         </button>
+      </form>
+      <form id="first-login-form" class="login-form hidden" autocomplete="on">
+        <p id="first-login-greeting" class="login-intro">Lege für deinen Zugang ein Passwort fest.</p>
+        <label for="first-login-password">Neues Passwort</label>
+        <input id="first-login-password" type="password" autocomplete="new-password" required>
+        <label for="first-login-repeat">Passwort bestätigen</label>
+        <input id="first-login-repeat" type="password" autocomplete="new-password" required>
+        <button class="btn btn-primary login-submit" type="submit"><span>Passwort festlegen</span><span aria-hidden="true">→</span></button>
       </form>
       <div id="login-status" class="login-status" role="status" aria-live="polite"></div>
       <footer class="login-foot">
@@ -2426,15 +2511,16 @@
 </div>
 
 <script src="/loading.js?v=royal-20260827-1"></script>
-<script src="/api.js?v=royal-20260825-2"></script>
+<script src="/api.js?v=royal-20260921-1"></script>
 <script src="/i18n.js?v=royal-20260909-3"></script>
-<script src="/store.js?v=royal-20260825-2"></script>
-<script src="/screens/login.js?v=royal-20260827-1"></script>
+<script src="/store.js?v=royal-20260921-1"></script>
+<script src="/screens/login.js?v=royal-20260920-1"></script>
 <script src="/core.js?v=royal-20260913-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/home_rail_runtime.js?v=royal-20260830-1"></script>
-<script src="/screens/home.js?v=royal-20260830-1"></script>
-<script src="/home_layout_editor.js?v=royal-20260830-1"></script>
+<script src="/home_rail_runtime.js?v=royal-20260921-1"></script>
+<script src="/screens/home.js?v=royal-20260921-1"></script>
+<script src="/screens/taste-onboarding.js?v=royal-20260921-1"></script>
+<script src="/home_layout_editor.js?v=royal-20260915-2"></script>
 <script src="/screens/mood.js?v=royal-20260825-2"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
 <script src="/catalog-runtime.js?v=royal-20260905-1"></script>
@@ -2445,18 +2531,19 @@
 <script src="/screens/movie-collections.js?v=royal-20260913-1"></script>
 <script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
 <script src="/screens/series-detail-discovery.js?v=royal-20260824-1"></script>
-<script src="/screens/series.js?v=royal-20260908-1"></script>
+<script src="/screens/series.js?v=royal-20260915-2"></script>
 <script src="/screens/series-calendar.js?v=royal-20260912-1"></script>
 <script src="/screens/movie-releases.js?v=royal-20260912-1"></script>
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
 <script src="/screens/library.js?v=royal-20260823-1"></script>
-<script src="/screens/notifications.js?v=royal-20260908-1"></script>
+<script src="/screens/notifications.js?v=royal-20260921-2"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
-<script src="/ai-discovery.js?v=royal-20260903-3"></script>
-<script src="/screens/account.js?v=royal-20260805-3"></script>
+<script src="/ai-discovery.js?v=royal-20260920-3"></script>
+<script src="/screens/account.js?v=royal-20260921-1"></script>
+<script src="/screens/user-profile.js?v=royal-20260921-2"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260913-1"></script>
+<script src="/app.js?v=royal-20260921-1"></script>
 </body>
 </html>

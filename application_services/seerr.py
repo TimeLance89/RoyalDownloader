@@ -25,7 +25,7 @@ def configure_moonfin_seerr(seerr_url: str, enabled: bool) -> dict:
     if not jf_url or not api_key:
         return {"configured": False, "detail": "Jellyfin ist nicht konfiguriert."}
     session = requests.Session()
-    headers = {"X-Emby-Token": api_key, "Accept": "application/json"}
+    headers = jellyfin_auth_headers(api_key, accept_json=True)
     try:
         response = session.get(f"{jf_url}/Plugins", headers=headers, timeout=10)
         response.raise_for_status()

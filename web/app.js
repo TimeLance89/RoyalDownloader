@@ -4,7 +4,7 @@ async function initApp() {
   initLoginScreen();
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
-  await requireLogin();
+  await requireLogin(); initUserProfile(); initTasteOnboarding(authStatus);
   // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
   // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
   initSeriesCalendar({ autoLoad: true });
@@ -298,13 +298,7 @@ async function initApp() {
   document.getElementById("series-az-btn").addEventListener("click", () => {
     document.getElementById("series-alpha-bar").classList.toggle("hidden");
   });
-  document.getElementById("series-select-all").addEventListener("click", () => {
-    if (!state.series.current) return;
-    state.series.epPicked = new Set(
-      seriesEpisodes().filter(isEpisodeSelectable).map((episode) => episode.slug),
-    );
-    renderSeriesTiles();
-  });
+  document.getElementById("series-select-all").addEventListener("click", selectAllSeriesEpisodes);
   document.getElementById("series-select-none").addEventListener("click", () => {
     state.series.epPicked.clear();
     renderSeriesTiles();
@@ -548,6 +542,7 @@ async function initApp() {
       const response = await api.tasteReset();
       applyServerTasteProfile(response.profile);
       renderHome();
+      reopenTasteOnboarding(response.user);
     } catch (error) {
       window.alert(`Profil konnte nicht zurückgesetzt werden: ${error.message}`);
     }
@@ -614,7 +609,7 @@ async function initApp() {
     } catch (error) {
       status.textContent = `✗ ${error.message}`;
     } finally {
-      button.disabled = false;
+      button.disabled = button.dataset.moduleAvailable !== "true";
     }
   });
   document.getElementById("jellyfin-users-load").addEventListener("click", () => loadJellyfinUsers({
@@ -682,8 +677,10 @@ async function initApp() {
   document.getElementById("account-save").addEventListener("click", saveAccount);
   document.getElementById("account-logout").addEventListener("click", logoutAccount);
   document.getElementById("account-revoke").addEventListener("click", revokeOtherSessions);
+  document.getElementById("new-user-create").addEventListener("click", createAccountUser);
   try {
     await initSettings();
+    document.dispatchEvent(new Event("royal:settings-ready"));
   } catch (e) {
     console.error("Einstellungen konnten nicht geladen werden:", e);
   }
@@ -691,6 +688,7 @@ async function initApp() {
   if (!needsSetup) startInitialData();
   window.royalLoader?.finish();
 }
+
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
     window.royalLoader?.finish();

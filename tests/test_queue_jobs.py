@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-import api_queue_router
-import queue_jobs
+import api.api_queue_router as api_queue_router
+import core.queue_jobs as queue_jobs
 import server
 from application_services import download_lifecycle
-from downloader import DownloadQueue
+from media.downloader import DownloadQueue
 
 
 @pytest.fixture(autouse=True)

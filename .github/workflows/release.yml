@@ -7,7 +7,7 @@ on:
     tags:
       - "v*"
     paths:
-      - app_version.py
+      - core/app_version.py
   workflow_dispatch:
 
 permissions:

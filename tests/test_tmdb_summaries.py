@@ -1,4 +1,4 @@
-from tmdb_client import TMDBClient
+from integrations.tmdb_client import TMDBClient
 
 
 class FakeTMDBClient(TMDBClient):

@@ -23,6 +23,62 @@ function isEpisodeQueued(episode) {
   return Boolean(episode?.queued || state.queuedSlugs.has(episode?.slug));
 }
 
+function episodeHasEnabledStreamLanguage(episode, series = state.series.current) {
+  if (series?.provider === "huhu") {
+    return episode?.huhu_language_checked === true
+      && episode?.huhu_language_available === true;
+  }
+  const offered = episode?.content_languages || [];
+  if (!offered.length) return true;
+  const enabled = series?.enabled_content_languages?.length
+    ? series.enabled_content_languages
+    : [...(state.providers?.contentLanguages || [])];
+  return offered.some((language) => enabled.includes(language));
+}
+
+function episodeLanguageLockLabel(episode, series = state.series.current) {
+  if (episodeHasEnabledStreamLanguage(episode, series)) return "";
+  const offered = episode?.content_languages || [];
+  if (offered.length === 1) return `NUR ${String(offered[0]).toUpperCase()}`;
+  if (series?.provider === "huhu" && episode?.huhu_language_checked) {
+    return "KEIN DE-STREAM";
+  }
+  return offered.length ? "SPRACHE GESPERRT" : "";
+}
+
+async function verifyHuhuEpisodeLanguages(episodes, series = state.series.current) {
+  if (series?.provider !== "huhu") return;
+  const pending = episodes.filter((episode) => !episode.huhu_language_checked);
+  if (!pending.length) return;
+  const generation = state.series.viewGeneration;
+  const status = document.getElementById("series-status");
+  status.textContent = `Prüfe deutsche Quellen für ${pending.length} Folge(n) …`;
+  for (let index = 0; index < pending.length; index += 30) {
+    const chunk = pending.slice(index, index + 30);
+    const result = await api.huhuEpisodeLanguages(chunk.map((episode) => episode.slug));
+    if (generation !== state.series.viewGeneration || state.series.current !== series) return;
+    for (const episode of chunk) {
+      episode.huhu_language_checked = true;
+      episode.huhu_language_available = result.available?.[episode.slug] === true;
+      episode.content_languages = result.languages?.[episode.slug] || [];
+    }
+  }
+  status.textContent = pending.some((episode) => !episode.huhu_language_available)
+    ? "Folgen ohne deutsche Quelle bleiben gesperrt."
+    : "Deutsche Quellen bestätigt.";
+  renderSeriesTiles();
+}
+
+function isEpisodeEligible(episode) {
+  return Boolean(
+    episode
+    && !episode.downloaded
+    && !episode.in_jellyfin
+    && !episode.unreleased
+    && !isEpisodeQueued(episode)
+  );
+}
+
 function isEpisodeSelectable(episode) {
   return Boolean(
     episode
@@ -30,6 +86,14 @@ function isEpisodeSelectable(episode) {
     && !episode.in_jellyfin
     && !episode.unreleased
     && !isEpisodeQueued(episode)
+    && episodeHasEnabledStreamLanguage(episode)
+  );
+}
+
+function isEpisodeActionable(episode, series = state.series.current) {
+  return isEpisodeEligible(episode) && (
+    isEpisodeSelectable(episode)
+    || (series?.provider === "huhu" && !episode.huhu_language_checked)
   );
 }
 
@@ -668,6 +732,13 @@ function updateWatchBtn() {
   const btn = document.getElementById("series-watch-btn");
   const series = state.series.current;
   if (!series) return;
+  if (series.special_series === "monster_tmdb") {
+    btn.disabled = true;
+    btn.textContent = "Abo für Sonderzuordnung deaktiviert";
+    btn.title = "Diese vier Monster-TMDB-Zuordnungen werden nicht als Anthologie-Abo gespeichert.";
+    return;
+  }
+  btn.disabled = false;
   const tracked = series.watchlisted;
   const label = WATCH_MODE_LABELS[series.watch_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
   btn.textContent = tracked ? `✓ Abo · ${label}` : "+ Abonnieren";
@@ -820,12 +891,30 @@ function showSeriesDetail(series, sampleSlug) {
   updateSeriesStatus(series);
   updateTasteFeedbackButtons();
   openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
+  if (series.provider === "huhu") {
+    const latestSelectableSeason = [...series.seasons].reverse()
+      .find((season) => season.episodes.some(isEpisodeEligible));
+    if (latestSelectableSeason) {
+      void verifyHuhuEpisodeLanguages(
+        latestSelectableSeason.episodes.filter(isEpisodeEligible), series,
+      ).catch((error) => {
+        if (state.series.current === series) {
+          document.getElementById("series-status").textContent =
+            `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+        }
+      });
+    }
+  }
 }
 
 function tileClass(ep) {
   if (isEpisodeQueued(ep)) return "queued";
   if (ep.downloaded) return "downloaded";
   if (ep.unreleased) return "scheduled";
+  if (state.series.current?.provider === "huhu" && !ep.huhu_language_checked) {
+    return "language-pending";
+  }
+  if (!episodeHasEnabledStreamLanguage(ep)) return "wrong-language";
   if (state.series.epPicked.has(ep.slug) && isEpisodeSelectable(ep)) return "selected";
   return "available";
 }
@@ -869,9 +958,20 @@ function syncSeriesAvailabilityNotice(container, series) {
 
 function applySeriesEpisodeTileState(tile, episode, series) {
   tile.className = "ep-tile " + tileClass(episode) + (episode.in_jellyfin ? " in-jellyfin" : "");
-  tile.disabled = !isEpisodeSelectable(episode);
+  tile.disabled = !isEpisodeActionable(episode, series);
   const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
-  if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
+  const languageLock = episodeLanguageLockLabel(episode, series);
+  if (series.provider === "huhu" && !episode.huhu_language_checked
+      && isEpisodeEligible(episode)) {
+    tile.title = "Deutsche Quelle vor der Auswahl prüfen";
+  }
+  else if (!episodeHasEnabledStreamLanguage(episode, series)
+      && isEpisodeEligible(episode)) {
+    tile.title = languageLock === "NUR EN"
+      ? "Nur auf Englisch verfügbar · Download mit deutscher Sprachwahl gesperrt"
+      : "Keine Episode in den aktivierten Stream-Sprachen verfügbar";
+  }
+  else if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
   else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
   else if (episode.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
   else if (episode.downloaded) tile.title = "Bereits heruntergeladen";
@@ -897,10 +997,14 @@ function refreshSeriesTileStates() {
     const pickedCount = season.episodes.filter((episode) => state.series.epPicked.has(episode.slug)).length;
     const button = row.querySelector(".season-btn");
     const count = button?.querySelector("small");
-    if (button) button.disabled = !season.episodes.some(isEpisodeSelectable);
+    if (button) button.disabled = !season.episodes.some(
+      (episode) => isEpisodeActionable(episode, series)
+    );
     if (count) count.textContent = `${pickedCount}/${season.episodes.length} gewählt`;
   }
-  const selectableCount = seriesEpisodes(series).filter(isEpisodeSelectable).length;
+  const selectableCount = seriesEpisodes(series).filter(
+    (episode) => isEpisodeActionable(episode, series)
+  ).length;
   document.getElementById("series-pick-count").textContent = `${state.series.epPicked.size} ausgewählt`;
   document.getElementById("series-select-all").disabled = selectableCount === 0;
   document.getElementById("series-select-none").disabled = state.series.epPicked.size === 0;
@@ -914,7 +1018,9 @@ function renderSeriesTiles() {
   if (!series) { document.getElementById("series-pick-count").textContent = "0 ausgewählt"; return; }
   pruneSeriesEpisodeSelection();
   syncSeriesAvailabilityNotice(container, series);
-  const selectableCount = seriesEpisodes(series).filter(isEpisodeSelectable).length;
+  const selectableCount = seriesEpisodes(series).filter(
+    (episode) => isEpisodeActionable(episode, series)
+  ).length;
   for (const seasonObj of series.seasons) {
     const pickedCount = seasonObj.episodes.filter((e) => state.series.epPicked.has(e.slug)).length;
     const row = document.createElement("div");
@@ -930,7 +1036,9 @@ function renderSeriesTiles() {
     const seasonCount = document.createElement("small");
     seasonCount.textContent = `${pickedCount}/${seasonObj.episodes.length} gewählt`;
     seasonBtn.append(seasonLabel, seasonNumber, seasonCount);
-    seasonBtn.disabled = !seasonObj.episodes.some(isEpisodeSelectable);
+    seasonBtn.disabled = !seasonObj.episodes.some(
+      (episode) => isEpisodeActionable(episode, series)
+    );
     seasonBtn.addEventListener("click", () => toggleSeasonTiles(seasonObj.season));
     row.appendChild(seasonBtn);
     const tiles = document.createElement("div");
@@ -940,15 +1048,24 @@ function renderSeriesTiles() {
       tile.dataset.episodeSlug = ep.slug;
       applySeriesEpisodeTileState(tile, ep, series);
       const releaseText = ep.unreleased ? episodeReleaseText(ep) : "";
+      const languageLock = episodeLanguageLockLabel(ep, series);
       tile.setAttribute(
         "aria-label",
-        ep.unreleased ? `Folge ${ep.episode}, verfügbar ab ${releaseText}` : `Folge ${ep.episode}`,
+        ep.unreleased ? `Folge ${ep.episode}, verfügbar ab ${releaseText}`
+          : languageLock ? `Folge ${ep.episode}, ${languageLock} verfügbar, Download gesperrt`
+            : `Folge ${ep.episode}`,
       );
       const episodeLabel = document.createElement("span");
       episodeLabel.textContent = "FOLGE";
       const episodeNumber = document.createElement("strong");
       episodeNumber.textContent = String(ep.episode).padStart(2, "0");
       tile.append(episodeLabel, episodeNumber);
+      if (languageLock) {
+        const languageNotice = document.createElement("small");
+        languageNotice.className = "ep-language-lock";
+        languageNotice.textContent = languageLock;
+        tile.appendChild(languageNotice);
+      }
       if (ep.unreleased) {
         const release = document.createElement("small");
         release.className = "ep-release";
@@ -967,8 +1084,19 @@ function renderSeriesTiles() {
   document.getElementById("series-add-btn").disabled = state.series.epPicked.size === 0;
 }
 
-function toggleEpisodeTile(slug) {
+async function toggleEpisodeTile(slug) {
   const episode = findCurrentEpisode(slug);
+  const series = state.series.current;
+  if (isEpisodeEligible(episode) && series?.provider === "huhu") {
+    try {
+      await verifyHuhuEpisodeLanguages([episode], series);
+    } catch (error) {
+      document.getElementById("series-status").textContent =
+        `Deutsche Quelle konnte nicht geprüft werden: ${error.message}`;
+      return;
+    }
+    if (state.series.current !== series) return;
+  }
   if (!isEpisodeSelectable(episode)) {
     state.series.epPicked.delete(slug);
     renderSeriesTiles();
@@ -979,9 +1107,23 @@ function toggleEpisodeTile(slug) {
   renderSeriesTiles();
 }
 
-function toggleSeasonTiles(season) {
-  const seasonObj = state.series.current.seasons.find((s) => s.season === season);
+async function toggleSeasonTiles(season) {
+  const series = state.series.current;
+  const seasonObj = series.seasons.find((s) => s.season === season);
   if (!seasonObj) return;
+  const eligible = seasonObj.episodes.filter(isEpisodeEligible);
+  if (!eligible.length) return;
+  const generation = state.series.viewGeneration;
+  if (series.provider === "huhu") {
+    try {
+      await verifyHuhuEpisodeLanguages(eligible, series);
+    } catch (error) {
+      document.getElementById("series-status").textContent =
+        `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+      return;
+    }
+    if (state.series.current !== series || state.series.viewGeneration !== generation) return;
+  }
   const selectable = seasonObj.episodes.filter(isEpisodeSelectable);
   if (!selectable.length) return;
   const allPicked = selectable.every((episode) => state.series.epPicked.has(episode.slug));
@@ -989,6 +1131,25 @@ function toggleSeasonTiles(season) {
     if (!isEpisodeSelectable(ep) || allPicked) state.series.epPicked.delete(ep.slug);
     else state.series.epPicked.add(ep.slug);
   }
+  renderSeriesTiles();
+}
+
+async function selectAllSeriesEpisodes() {
+  const series = state.series.current;
+  if (!series) return;
+  if (series.provider === "huhu") {
+    try {
+      await verifyHuhuEpisodeLanguages(seriesEpisodes(series).filter(isEpisodeEligible), series);
+    } catch (error) {
+      document.getElementById("series-status").textContent =
+        `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+      return;
+    }
+    if (state.series.current !== series) return;
+  }
+  state.series.epPicked = new Set(
+    seriesEpisodes(series).filter(isEpisodeSelectable).map((episode) => episode.slug),
+  );
   renderSeriesTiles();
 }
 

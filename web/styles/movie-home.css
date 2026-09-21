@@ -34,12 +34,12 @@
     "title title"
     "actions actions"
     "synopsis facts"
-    "similar similar"
     "extras credits"
     "cast cast"
     "sources sources"
     "route route"
-    "queue queue";
+    "queue queue"
+    "similar similar";
   gap: 28px 36px;
 }
 
@@ -397,13 +397,13 @@
       "actions"
       "synopsis"
       "facts"
-      "similar"
       "extras"
       "credits"
       "cast"
       "sources"
       "route"
-      "queue";
+      "queue"
+      "similar";
     gap: 22px;
   }
 

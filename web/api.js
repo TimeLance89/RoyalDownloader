@@ -65,7 +65,16 @@ const api = {
   post(url, body) { return this._req("POST", url, body === undefined ? {} : body); },
 
   authStatus() { return this.get("/api/auth/status"); },
+  me() { return this.get("/api/me"); },
+  meProfileSummary() { return this.get("/api/me/profile-summary"); },
+  meHousehold() { return this.get("/api/me/household"); },
+  mePassword(currentPassword, password, passwordRepeat) { return this.post("/api/me/password", { current_password: currentPassword, password, password_repeat: passwordRepeat }); },
   authLogin(username, password) { return this.post("/api/auth/login", { username, password }); },
+  authFirstLogin(username, password, passwordRepeat) { return this.post("/api/auth/first-login", { username, password, password_repeat: passwordRepeat }); },
+  authUsers() { return this.get("/api/auth/users"); },
+  authUserCreate(displayName, username, role) { return this.post("/api/auth/users", { display_name: displayName, username, role }); },
+  authUserReset(userId) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/reset-password`); },
+  authUserEnabled(userId, enabled) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/enabled?enabled=${Boolean(enabled)}`); },
   authLogout() { return this.post("/api/auth/logout"); },
   authConfigGet() { return this.get("/api/auth/config"); },
   authConfigSet(username, password, currentPassword = "") {
@@ -128,10 +137,21 @@ const api = {
       .finally(() => clearTimeout(timer));
   },
   seriesLoad(sampleSlug, baseSlug = "", refreshJellyfin = false, deferChecks = false) {
+    const special = /^monster-tmdb:(\d+)$/i.exec(baseSlug || sampleSlug || "");
+    if (special) {
+      return this.post("/api/series/monster-tmdb-load", {
+        tmdb_id: Number(special[1]),
+        refresh_jellyfin: refreshJellyfin,
+        defer_checks: deferChecks,
+      });
+    }
     return this.post("/api/series/load", {
       sample_slug: sampleSlug, base_slug: baseSlug,
       refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
     });
+  },
+  huhuEpisodeLanguages(slugs) {
+    return this.post("/api/series/huhu-episode-languages", { slugs });
   },
   seriesJellyfinStatus(series, force = false) {
     return this._postWithin("/api/series/jellyfin-status", {
@@ -240,10 +260,10 @@ const api = {
   jellyfinUsers(url, apiKey) { return this.post("/api/jellyfin/users", { url, api_key: apiKey }); },
   tmdbConfigGet() { return this.get("/api/tmdb/config"); },
   tmdbConfigSet(apiKey) { return this.post("/api/tmdb/config", { api_key: apiKey }); },
-  aiConfigGet() { return this.get("/api/ai/config"); },
-  aiConfigSet(cfg) { return this.post("/api/ai/config", cfg); },
-  aiTest(cfg) { return this.post("/api/ai/test", cfg); },
-  aiRecommendations(candidates) { return this.post("/api/ai/recommendations", { candidates }); },
+  aiConfigGet() { return this.get("/api/intelligence/config"); },
+  aiConfigSet(cfg) { return this.post("/api/intelligence/config", cfg); },
+  aiTest(cfg) { return this.post("/api/intelligence/test", cfg); },
+  aiRecommendations(candidates) { return this.post("/api/intelligence/recommendations", { candidates }); },
   automationConfigGet() { return this.get("/api/automation/config"); },
   automationConfigSet(cfg) { return this.post("/api/automation/config", cfg); },
   telegramConfigGet() { return this.get("/api/telegram/config"); },
@@ -300,6 +320,7 @@ const api = {
   tasteEvent(event) { return this.post("/api/taste/events", event); },
   tasteFeedback(feedback) { return this.post("/api/taste/feedback", feedback); },
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
+  tasteOnboarding(items) { return this.post("/api/taste/onboarding", { items }); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
   homeLayout() { return this.get("/api/home/layout"); },
@@ -486,6 +507,15 @@ function loadRoyalStorageMoveJobs() {
   document.body.appendChild(script);
 }
 
+function loadRoyalModuleManager() {
+  if (document.querySelector('script[data-royal-module-manager]')) return;
+  const script = document.createElement("script");
+  script.src = "/module-manager.js?v=royal-20260920-4";
+  script.async = false;
+  script.setAttribute("data-royal-module-manager", "true");
+  document.body.appendChild(script);
+}
+
 function loadRoyalStorageManager() {
   const existing = document.querySelector('script[data-royal-storage-manager]');
   if (existing) {
@@ -497,7 +527,7 @@ function loadRoyalStorageManager() {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/storage-manager.js?v=royal-20260823-1";
+  script.src = "/storage-manager.js?v=royal-20260920-1";
   script.async = false;
   script.setAttribute("data-royal-storage-manager", "true");
   script.addEventListener("load", () => window.setTimeout(loadRoyalStorageMoveJobs, 0), { once: true });
@@ -511,3 +541,4 @@ if (document.readyState === "loading") {
 } else {
   window.setTimeout(loadRoyalStorageManager, 0);
 }
+window.setTimeout(loadRoyalModuleManager, 0);

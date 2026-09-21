@@ -33,11 +33,17 @@
 
   function activateStorage() {
     const target = document.getElementById("settings-storage");
-    if (!target) return;
-    document.querySelectorAll("[data-settings-section]").forEach((section) => {
-      section.classList.toggle("is-active", section === target);
+    const root = document.getElementById("tab-einstellungen");
+    const panel = root?.querySelector(".settings-panel");
+    if (!target || !root || !panel) return;
+    root.querySelectorAll("[data-settings-section]").forEach((section) => {
+      const active = section === target;
+      section.classList.toggle("is-active", active);
+      section.hidden = !active;
+      section.setAttribute("aria-hidden", active ? "false" : "true");
     });
-    document.querySelectorAll(".settings-directory-nav [data-settings-target]").forEach((link) => {
+    panel.classList.remove("is-overview");
+    root.querySelectorAll(".settings-directory-nav [data-settings-target]").forEach((link) => {
       const active = link.dataset.settingsTarget === "settings-storage";
       link.classList.toggle("is-active", active);
       if (active) link.setAttribute("aria-current", "page");
@@ -98,7 +104,7 @@
 
     const general = document.getElementById("settings-general");
     general?.insertAdjacentHTML("afterend", `
-      <section id="settings-storage" class="settings-section royal-storage-section" data-settings-section aria-labelledby="settings-storage-title">
+      <section id="settings-storage" class="settings-section royal-storage-section" data-settings-section aria-labelledby="settings-storage-title" aria-hidden="true" hidden>
         <header class="settings-section-heading">
           <span class="settings-section-mark is-storage" aria-hidden="true">▰</span>
           <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher überwachen &amp; bereinigen</h2>

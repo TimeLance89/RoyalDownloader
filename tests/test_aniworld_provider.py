@@ -1,8 +1,12 @@
 from pathlib import Path
+import asyncio
+import threading
+from types import SimpleNamespace
 
 from bs4 import BeautifulSoup
+from fastapi import HTTPException
 
-import config
+import core.config as config
 from providers.aniworld import (
     AniWorldAnime,
     AniWorldEpisode,
@@ -148,6 +152,94 @@ def test_episode_page_filters_the_selected_language_track():
         (1, 1),
         (2, 1),
     ]
+
+
+def test_english_aniworld_episode_is_marked_english(monkeypatch):
+    from application_services import movie_catalog
+
+    base = "https://aniworld.to/anime/stream/test-anime"
+    episode_url = f"{base}/staffel-1/episode-2"
+    scraper = AniWorldScraper(
+        session=_Session({
+            base: _Response(_detail_html()),
+            episode_url: _Response(
+                b'<li data-lang-key="2" data-link-target="/redirect/english">'
+                b"<h4>VOE</h4></li>"
+            ),
+        })
+    )
+    slug = "aniworld:test-anime|eng-s01e002"
+    movie = scraper.get_episode(slug)
+    assert movie.content_language == "en"
+    assert movie.hosters[0].language == "Englisch"
+
+    monkeypatch.setattr(movie_catalog.state, "content_languages", {"de"})
+    monkeypatch.setattr(movie_catalog, "get_aniworld_scraper", lambda: scraper)
+    assert movie_catalog.load_movie_for_slug(slug) is None
+
+
+def test_aniworld_detail_hides_disabled_english_track(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    anime = AniWorldAnime(
+        id="test-anime",
+        title="Test Anime",
+        translations={"dub": 1, "eng": 1},
+        latest_tracks=["dub", "eng"],
+        episodes=[AniWorldEpisode(1, 1, tracks=("dub", "eng"))],
+    )
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["aniworld"])
+    monkeypatch.setattr(
+        discovery, "state",
+        SimpleNamespace(
+            content_languages={"de"}, aniworld_lock=threading.RLock(),
+            picked=set(),
+        ),
+    )
+    monkeypatch.setattr(
+        discovery, "get_aniworld_scraper",
+        lambda: SimpleNamespace(get_anime=lambda _id: anime),
+    )
+    monkeypatch.setattr(
+        discovery, "_existing_valid_episode_path", lambda *_args: None,
+    )
+
+    detail = asyncio.run(discovery.api_aniworld_detail(
+        "test-anime", translation="eng",
+    ))
+
+    assert detail["translation"] == "dub"
+    assert detail["translations"] == {"dub": 1}
+    assert detail["latest_tracks"] == ["dub"]
+    assert detail["translation_labels"] == {"dub": "Deutsch Dub"}
+    assert detail["episodes"][0]["slug"] == "aniworld:test-anime|dub-s01e001"
+
+
+def test_aniworld_detail_rejects_english_only_anime_under_german_setting(
+    monkeypatch,
+):
+    import api.api_discovery_router as discovery
+
+    anime = AniWorldAnime(
+        id="test-anime", title="Test Anime", translations={"eng": 1},
+        episodes=[AniWorldEpisode(1, 1, tracks=("eng",))],
+    )
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["aniworld"])
+    monkeypatch.setattr(
+        discovery, "state",
+        SimpleNamespace(content_languages={"de"}, aniworld_lock=threading.RLock()),
+    )
+    monkeypatch.setattr(
+        discovery, "get_aniworld_scraper",
+        lambda: SimpleNamespace(get_anime=lambda _id: anime),
+    )
+
+    try:
+        asyncio.run(discovery.api_aniworld_detail("test-anime"))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("English-only anime must not be offered")
 
 
 def test_catalog_deduplicates_titles_and_exposes_letter_and_genre_facets():

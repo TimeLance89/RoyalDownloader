@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from ai_discovery import AiDiscoveryService
-from ollama_client import OllamaClient, OllamaError, normalize_ollama_url
+from integrations.ai_discovery import AiDiscoveryService
+from integrations.ollama_client import OllamaClient, OllamaError, normalize_ollama_url
 
 
 def _candidate(key: str = "movie:1") -> dict:
@@ -40,17 +40,10 @@ def test_recommendations_accept_only_supplied_keys_and_clamp_scores(monkeypatch)
         "model": "local",
         "timeout_seconds": 20,
     })
-    monkeypatch.setattr(OllamaClient, "recommend", lambda *_args: {
-        "recommendations": [
-            {"key": "invented", "score": 100, "reason": "Nein"},
-            {"key": "movie:1", "score": 140, "reason": "Passt zum Profil", "angle": "taste"},
-        ]
-    })
+    monkeypatch.setattr(OllamaClient, "decide", lambda *_args: "invented|4|taste|1\nmovie:1|4|taste|1")
     result = service.recommend([_candidate()], {"dimensions": {}})
-    assert result == [{
-        "key": "movie:1", "score": 100,
-        "reason": "Passt zum Profil", "angle": "taste",
-    }]
+    assert result[0]["key"] == "movie:1"
+    assert service.diagnostics["job"] in {"queued", "running"}
 
 
 def test_invalid_or_empty_ai_result_is_non_authoritative(monkeypatch):
@@ -60,9 +53,10 @@ def test_invalid_or_empty_ai_result_is_non_authoritative(monkeypatch):
         "model": "local",
         "timeout_seconds": 20,
     })
-    monkeypatch.setattr(OllamaClient, "recommend", lambda *_args: {"recommendations": []})
-    with pytest.raises(OllamaError):
-        service.recommend([_candidate()], {})
+    monkeypatch.setattr(OllamaClient, "decide", lambda *_args: "ungültige Antwort")
+    result = service.recommend([_candidate()], {})
+    assert result[0]["key"] == "movie:1"
+    assert service.diagnostics["job"] in {"queued", "running"}
 
 
 @pytest.mark.parametrize("url", [

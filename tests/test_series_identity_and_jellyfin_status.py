@@ -1,5 +1,5 @@
 import server
-from jellyfin_client import JellyfinClient
+from integrations.jellyfin_client import JellyfinClient
 from providers.models import FilmpalastMovie, FilmpalastSeries, SeriesEpisode
 
 
@@ -74,6 +74,21 @@ def test_deferred_series_detail_is_already_marked_subscribed(monkeypatch):
     assert payload["tmdb_id"] == 94997
 
 
+def test_series_detail_exposes_offered_and_enabled_episode_languages(monkeypatch):
+    monkeypatch.setattr(server.state, "watchlist", [])
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    series = _series("serienstream:test-series")
+    series.seasons[1][0].content_languages = ("de", "en")
+    series.seasons[1][1].content_languages = ("en",)
+
+    payload = server.series_to_dict(series, defer_checks=True)
+
+    assert payload["enabled_content_languages"] == ["de"]
+    assert [episode["content_languages"] for episode in payload["seasons"][0]["episodes"]] == [
+        ["de", "en"], ["en"],
+    ]
+
+
 def test_ambiguous_title_without_stable_id_does_not_guess(monkeypatch):
     monkeypatch.setattr(server.state, "watchlist", [
         {"base_slug": "one", "title": "The Office", "tmdb_id": 2316},
@@ -143,14 +158,44 @@ def test_targeted_episode_cache_avoids_repeated_jellyfin_calls(monkeypatch):
     assert calls == ["jf-house"]
 
 
-def test_jellyfin_client_uses_parent_id_for_targeted_episode_query(monkeypatch):
+def test_jellyfin_client_uses_show_api_for_targeted_episode_query(monkeypatch):
     client = JellyfinClient("http://jellyfin", "key")
     captured = {}
+
+    def fake_list(endpoint, params, page_size, label):
+        captured.update({
+            "endpoint": endpoint,
+            "params": params,
+            "page_size": page_size,
+            "label": label,
+        })
+        return [{
+            "Id": "episode-1", "SeriesId": "series-1", "SeriesName": "House",
+            "ParentIndexNumber": 1, "IndexNumber": 1,
+        }]
+
+    monkeypatch.setattr(client, "_list_endpoint_items", fake_list)
+    monkeypatch.setattr(
+        client, "_list_items",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy fallback used")),
+    )
+    result = client.list_episodes_for_series("series-1")
+
+    assert captured["endpoint"] == "/Shows/series-1/Episodes"
+    assert captured["params"]["IsMissing"] == "false"
+    assert "ParentId" not in captured["params"]
+    assert result[0]["series_id"] == "series-1"
+
+
+def test_jellyfin_client_falls_back_to_parent_id_if_show_api_fails(monkeypatch):
+    client = JellyfinClient("http://jellyfin", "key")
+    captured = {}
+    monkeypatch.setattr(client, "_list_endpoint_items", lambda *_args, **_kwargs: None)
 
     def fake_list(params, page_size, label):
         captured.update({"params": params, "page_size": page_size, "label": label})
         return [{
-            "Id": "episode-1", "SeriesId": "series-1", "SeriesName": "House",
+            "Id": "episode-1", "SeriesName": "House",
             "ParentIndexNumber": 1, "IndexNumber": 1,
         }]
 

@@ -3,13 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-import downloader
+import media.downloader as downloader
 import server  # noqa: F401
 from application_services import download_storage_guard as storage_guard
 from application_services import movie_subscription_quality_hardening as quality_hardening
 from application_services import movie_subscription_runtime_hardening as runtime_hardening
 from application_services import movie_subscription_probe_optimizer as optimizer
-from media_quality import normalize_media_profile
+from media.media_quality import normalize_media_profile
 
 
 def _profile(height: int, *, hdr="sdr", codec="h264", channels=2, language="de"):

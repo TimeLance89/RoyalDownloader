@@ -1,0 +1,191 @@
+/* Compact landscape rails inspired by the supplied streaming mockup. */
+#tab-home {
+  --mockup-rail-gap: clamp(11px, .9vw, 19px);
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) {
+  position: relative;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-head {
+  min-height: 42px;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+#tab-home .home-rail-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 12px;
+}
+
+#tab-home .home-rail-heading .home-rail-icon {
+  flex: 0 0 auto;
+  align-self: center;
+  color: #ef6b68;
+  font: 800 27px/1 "Archivo", sans-serif;
+}
+
+#tab-home .home-rail-genre .home-rail-icon { color: #d7ae68; }
+#tab-home .home-rail-explore .home-rail-icon { color: #7ac5d7; }
+#tab-home .home-rail-gems .home-rail-icon { color: #a485e9; }
+#tab-home .home-rail-new .home-rail-icon { color: #65d38d; }
+
+#tab-home .home-rail-heading h2 {
+  flex: 0 0 auto;
+  color: #f5f6f8;
+  font-size: clamp(19px, 1.34vw, 25px);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+#tab-home .home-rail-heading p {
+  overflow: hidden;
+  margin: 0;
+  color: #a5acb7;
+  font: 500 clamp(11px, .83vw, 15px)/1.3 "Archivo", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tab-home .home-discovery-rail .home-rail-head > .home-rail-heading::after {
+  display: none;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-controls {
+  flex-basis: 0;
+  width: 0;
+  gap: 0;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-track {
+  gap: var(--mockup-rail-gap);
+  padding-top: 2px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) :is(.home-card, .home-card-skeleton) {
+  flex: 0 0 clamp(220px, 15.3vw, 320px);
+  width: clamp(220px, 15.3vw, 320px);
+  border-radius: 9px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) :is(.home-card-art, .home-card-skeleton) {
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-art {
+  border: 1px solid rgba(190, 207, 225, .25);
+  box-shadow: 0 1px 9px rgba(88, 128, 168, .15);
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-art::before {
+  display: none;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-art::after {
+  background: linear-gradient(180deg, rgba(5, 10, 17, .08) 38%, rgba(5, 10, 17, .54) 69%, rgba(5, 10, 17, .94) 100%);
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-overlay {
+  right: 13px;
+  bottom: 11px;
+  left: 13px;
+  gap: 4px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-overlay strong {
+  font-size: clamp(15px, 1vw, 19px);
+  line-height: 1.15;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-overlay span {
+  color: #d2d6dc;
+  font: 600 clamp(10px, .73vw, 13px)/1.2 "Archivo", sans-serif;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-star {
+  color: #ffc83d;
+  font-size: 15px;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-type {
+  top: 10px;
+  right: 10px;
+  min-height: 0;
+  padding: 5px 8px;
+  color: #e9edf4;
+  background: rgba(8, 13, 19, .8);
+  border: 1px solid rgba(224, 234, 244, .28);
+  border-radius: 6px;
+  font: 750 10px/1 "Archivo", sans-serif;
+  letter-spacing: .02em;
+}
+
+#tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-card-art > .catalog-jellyfin-badge {
+  top: 10px;
+  left: 10px;
+}
+
+@media (min-width: 821px) {
+  #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-controls button {
+    top: 139px;
+    width: 48px;
+    height: 48px;
+    color: #edf3fb;
+    background: #15212e;
+    border: 1px solid rgba(224, 234, 244, .28);
+    border-radius: 50%;
+    box-shadow: 0 0 14px rgba(161, 194, 225, .38);
+    font-size: 31px;
+  }
+
+  #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-controls button[data-direction="1"] {
+    right: 13px;
+    opacity: 1;
+  }
+
+  #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) .home-rail-controls button[data-direction="-1"] {
+    left: 13px;
+  }
+}
+
+@media (max-width: 820px) {
+  #tab-home .home-rail-heading {
+    flex-wrap: wrap;
+    column-gap: 8px;
+    row-gap: 2px;
+  }
+
+  #tab-home .home-rail-heading .home-rail-icon { font-size: 22px; }
+  #tab-home .home-rail-heading h2 { font-size: 18px; }
+  #tab-home .home-rail-heading p {
+    flex-basis: 100%;
+    padding-left: 30px;
+    font-size: 11px;
+  }
+
+  #tab-home :is(.home-rail-series, .home-rail-genre, .home-rail-explore, .home-rail-gems, .home-rail-new) :is(.home-card, .home-card-skeleton) {
+    flex-basis: min(74vw, 320px);
+    width: min(74vw, 320px);
+  }
+
+}
+
+@media (max-width: 500px) {
+  #tab-home .home-rail-heading p { display: none; }
+  #tab-home .home-rail-heading h2 { font-size: 16px; }
+}

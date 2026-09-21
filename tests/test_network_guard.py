@@ -2,9 +2,7 @@ import socket
 
 import pytest
 
-import network_guard
-
-
+import core.network_guard as network_guard
 def _resolver(*addresses):
     def resolve(_host, port, *_args):
         rows = []

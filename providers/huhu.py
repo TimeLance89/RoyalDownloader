@@ -23,7 +23,8 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
+from providers.catalog import normalize_content_language
 
 
 BASE_URL = "https://huhu.to"
@@ -186,6 +187,32 @@ class HuhuScraper:
             hosters=hosters,
         )
 
+    def get_episode_languages(self, url_or_slug: str) -> tuple[str, ...]:
+        """Liest die explizit von HUHU gemeldeten Sprachen einer Episode.
+
+        Die Information dient nur der Darstellung. Ein Download wird weiterhin
+        ausschliesslich über die in ``_source_hosters`` erlaubten DE-Quellen
+        vorbereitet.
+        """
+        parsed = parse_episode_slug(url_or_slug)
+        if not parsed:
+            return ()
+        base_slug, season, episode = parsed
+        tmdb_id = self._tmdb_id(base_slug)
+        if not tmdb_id:
+            return ()
+        sources = self._post("source", {
+            "type": "series",
+            "ids": {"tmdb_id": tmdb_id},
+            "name": self._title_from_slug(base_slug),
+            "episode": {
+                "ids": {},
+                "season": season,
+                "episode": episode,
+            },
+        })
+        return self._source_stream_languages(sources)
+
     def _get_feature_movie(self, url_or_slug: str) -> Optional[FilmpalastMovie]:
         tmdb_id = self._tmdb_id(url_or_slug)
         if not tmdb_id:
@@ -234,22 +261,51 @@ class HuhuScraper:
             host = (urlparse(url).hostname or "").casefold()
             if host == "bs.to" or host.endswith(".bs.to"):
                 continue
-            languages = [
-                str(value or "").strip().casefold()
-                for value in source.get("languages") or []
-            ]
-            if languages and not any(
-                value == "de" or value.startswith("de-") for value in languages
-            ):
+            raw_languages = source.get("languages")
+            if not isinstance(raw_languages, (list, tuple)):
+                raw_languages = [raw_languages] if raw_languages else []
+            languages = {
+                normalize_content_language(value)
+                for value in raw_languages
+                if normalize_content_language(value)
+            }
+            # The API's locale is not proof of the actual stream language.
+            # Sources without an explicit German language must fail closed.
+            if "de" not in languages:
                 continue
             seen_urls.add(url)
             hosters.append(HosterInfo(
                 name=self._hoster_name(url, str(source.get("name") or "Huhu")),
                 url=url,
-                language="de" if not languages or "de" in languages else languages[0],
+                language="de",
                 quality=str(source.get("tag") or ""),
             ))
         return hosters
+
+    @staticmethod
+    def _source_stream_languages(sources) -> tuple[str, ...]:
+        """Gibt nur Sprachen realer, direkter HUHU-Streamquellen zurück."""
+        if not isinstance(sources, list):
+            return ()
+        languages: set[str] = set()
+        for source in sources:
+            if not isinstance(source, dict) or source.get("type") != "url":
+                continue
+            url = str(source.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            host = (urlparse(url).hostname or "").casefold()
+            if host == "bs.to" or host.endswith(".bs.to"):
+                continue
+            raw_languages = source.get("languages")
+            if not isinstance(raw_languages, (list, tuple)):
+                raw_languages = [raw_languages] if raw_languages else []
+            languages.update(
+                normalized
+                for value in raw_languages
+                if (normalized := normalize_content_language(value))
+            )
+        return tuple(sorted(languages))
 
     def _post(self, endpoint: str, payload: dict):
         response = self.session.post(

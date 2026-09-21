@@ -3,7 +3,7 @@ import pytest
 
 from providers.models import SeriesEpisode
 from providers.serienstream import SerienstreamScraper
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
 
 
 def _episode(slug: str, season: int, episode: int) -> SeriesEpisode:
@@ -74,3 +74,30 @@ def test_blocked_season_is_not_silently_treated_as_missing(monkeypatch):
 
     with pytest.raises(ProviderBlockedError):
         scraper._load_season("house-of-the-dragon", 2)
+
+
+def test_merged_monster_anthology_loads_hinted_seasons_when_root_has_no_nav(monkeypatch):
+    slug = "monster-2022"
+    soup = BeautifulSoup("<h1>Monster</h1>", "html.parser")
+    scraper = SerienstreamScraper(session=object())
+    monkeypatch.setattr(scraper, "_get_soup", lambda *_args, **_kwargs: soup)
+    monkeypatch.setattr(scraper, "_episodes_from_soup", lambda *_args, **_kwargs: [])
+    loaded_seasons = []
+
+    def load_season(series_slug, season):
+        loaded_seasons.append(season)
+        return [_episode(series_slug, season, 1)]
+
+    monkeypatch.setattr(scraper, "_load_season", load_season)
+
+    series = scraper.get_series(f"serienstream:{slug}")
+
+    assert series is not None
+    assert series.season_numbers == [1, 2, 3, 4]
+    assert loaded_seasons == [1, 2, 3, 4]
+    assert [episode.slug for episode in series.all_episodes] == [
+        f"serienstream:{slug}-s01e01",
+        f"serienstream:{slug}-s02e01",
+        f"serienstream:{slug}-s03e01",
+        f"serienstream:{slug}-s04e01",
+    ]

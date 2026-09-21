@@ -1,4 +1,4 @@
-/* Optional Ollama enhancement over Royal's existing discovery candidates. */
+/* Optional, provider-neutral ranking over Royal's existing discovery candidates. */
 
 function aiFormConfig() {
   return {
@@ -20,12 +20,16 @@ function syncAiSettingsState() {
   });
   const status = document.getElementById("ai-status");
   if (!status) return;
+  const badge = document.getElementById("ai-provider-badge");
+  const privacy = document.getElementById("ai-privacy-note");
+  if (badge) badge.textContent = "LOKAL";
+  if (privacy) privacy.textContent = "Royal Reflex verarbeitet kompakte Katalogmetadaten und dein Geschmacksprofil ausschließlich lokal über Ollama.";
   if (enabled !== state.ai.enabled) {
     status.textContent = enabled
       ? "Aktivierung noch speichern."
       : "Deaktivierung noch speichern.";
   } else if (enabled) {
-    status.textContent = `Aktiviert · ${state.ai.model || "Ollama"} kuratiert die Discovery.`;
+    status.textContent = `Aktiviert · ${state.ai.model || "Royal Intelligence"} kuratiert die Discovery.`;
   } else {
     status.textContent = "Deaktiviert · Royal nutzt das klassische Ranking.";
   }
@@ -35,6 +39,7 @@ function applyAiConfig(config = {}) {
   state.ai.enabled = Boolean(config.enabled);
   state.ai.configured = Boolean(config.configured);
   state.ai.model = String(config.model || "");
+  state.ai.moduleAvailable = Boolean(config.module_available);
   const enabled = document.getElementById("ai-enabled");
   const url = document.getElementById("ai-url");
   const model = document.getElementById("ai-model");
@@ -44,8 +49,8 @@ function applyAiConfig(config = {}) {
   if (model) model.value = config.model || "llama3.2:3b";
   if (timeout) timeout.value = String(config.timeout_seconds || 180);
   syncAiSettingsState();
-  if (state.ai.enabled) {
-    setAiDiscoveryState("waiting", "Ollama wartet auf die Titel der Startseite.");
+  if (state.ai.enabled && state.ai.moduleAvailable) {
+    setAiDiscoveryState("waiting", "Royal Intelligence wartet auf die Titel der Startseite.");
   } else {
     const rail = document.getElementById("home-ai-rail");
     if (rail) rail.hidden = true;
@@ -57,7 +62,7 @@ async function testAiConnection() {
   const status = document.getElementById("ai-status");
   if (!button || !status) return;
   button.disabled = true;
-  status.textContent = "Ollama wird geprüft …";
+  status.textContent = "Provider wird geprüft …";
   try {
     const result = await api.aiTest(aiFormConfig());
     const models = Array.isArray(result.models) ? result.models : [];
@@ -125,10 +130,10 @@ function setAiDiscoveryState(mode, message = "") {
   const copy = document.getElementById("home-ai-state-message");
   const retry = document.getElementById("home-ai-retry");
   if (!rail || !track || !panel) return;
-  rail.style.order = "-1";
+  const keepVisibleRail = mode === "loading" && state.ai.recommendations.length > 0;
   rail.dataset.state = mode;
   rail.hidden = !state.ai.enabled;
-  panel.hidden = mode === "ready";
+  panel.hidden = mode === "ready" || keepVisibleRail;
   retry.hidden = !["error", "waiting"].includes(mode);
   document.querySelectorAll('[data-home-scroll="home-ai-track"]').forEach((button) => {
     button.hidden = mode !== "ready";
@@ -161,7 +166,6 @@ function renderAiDiscovery(entries, recommendations, model) {
   const track = document.getElementById("home-ai-track");
   const note = document.getElementById("home-ai-note");
   if (!rail || !track) return;
-  rail.style.order = "-1";
   const byKey = new Map(entries.map((entry) => [homeEntryKey(entry), entry]));
   const specs = recommendations.map((recommendation, index) => {
     const entry = byKey.get(recommendation.key);
@@ -169,26 +173,13 @@ function renderAiDiscovery(entries, recommendations, model) {
     return {
       signature: JSON.stringify([recommendation.key, recommendation.score, recommendation.reason]),
       create: (cycle = 1) => {
-        const card = createHomeCard(entry, 0, cycle === 1 && index < 3, index === 0 ? "spotlight-lead" : "");
-        card.classList.add("home-ai-card");
-        const art = card.querySelector(".home-card-art");
-        if (art) {
-          const match = document.createElement("span");
-          match.className = "home-ai-match";
-          match.textContent = `${recommendation.score}% Match`;
-          art.appendChild(match);
-        }
-        const reason = document.createElement("p");
-        reason.className = "home-ai-reason";
-        reason.textContent = recommendation.reason;
-        card.appendChild(reason);
-        return card;
+        return createHomeCard(entry, 0, cycle === 1 && index < 3, index === 0 ? "spotlight-lead" : "");
       },
       update: (card) => syncHomeCardContent(card, entry, 0),
     };
   }).filter(Boolean);
   if (!specs.length) {
-    setAiDiscoveryState("error", "Ollama hat Titel geliefert, die nicht mehr im aktuellen Katalog liegen.");
+    setAiDiscoveryState("error", "Royal Intelligence hat Titel geliefert, die nicht mehr im aktuellen Katalog liegen.");
     return;
   }
   reconcileHomeRail(track, specs);
@@ -204,37 +195,52 @@ async function refreshAiDiscovery(force = false) {
     if (rail) rail.hidden = true;
     return;
   }
+  if (!state.ai.moduleAvailable) {
+    if (rail) rail.hidden = true;
+    return;
+  }
   const entries = homeAllEntries();
   const candidates = aiDiscoveryCandidates();
   if (state.ai.loading) return;
   if (!candidates.length) {
-    setAiDiscoveryState("waiting", "Sobald Titel geladen sind, erstellt Ollama hier eine Auswahl.");
+    setAiDiscoveryState("waiting", "Sobald Titel geladen sind, erstellt Royal Intelligence hier eine Auswahl.");
     return;
   }
   const fingerprint = candidates.map((item) => item.key).join("|");
   if (!force && fingerprint === state.ai.lastFingerprint) return;
   const sequence = ++state.ai.requestSeq;
   state.ai.loading = true;
-  setAiDiscoveryState(
-    "loading",
-    `${state.ai.model || "Ollama"} ordnet ${candidates.length} Titel nach deinem Profil.`,
-  );
+  if (!state.ai.recommendations.length) {
+    setAiDiscoveryState(
+      "loading",
+      `Kandidaten werden vorbereitet … lokale KI bewertet eine kompakte Auswahl.`,
+    );
+  }
   try {
     const result = await api.aiRecommendations(candidates);
     if (sequence !== state.ai.requestSeq) return;
     if (!result.available || !result.recommendations?.length) {
       setAiDiscoveryState(
         "error",
-        result.message || "Ollama hat noch keine verwertbare Auswahl geliefert.",
+        result.message || "Royal Intelligence hat noch keine verwertbare Auswahl geliefert.",
       );
       return;
     }
     state.ai.recommendations = result.recommendations;
     state.ai.lastFingerprint = fingerprint;
     renderAiDiscovery(entries, result.recommendations, result.model);
+    if (result.source === "baseline" && result.refinement_status !== "error") {
+      const note = document.getElementById("home-ai-note");
+      if (note) note.textContent = "Basisranking ist bereit – lokale KI verfeinert die Auswahl im Hintergrund.";
+      window.setTimeout(() => void refreshAiDiscovery(true), 4000);
+    }
+    if (result.diagnostics?.fallback) {
+      const note = document.getElementById("home-ai-note");
+      if (note) note.textContent = "Lokale KI derzeit nicht verfügbar – Basisranking verwendet.";
+    }
   } catch (error) {
-    setAiDiscoveryState("error", "Ollama ist nicht erreichbar. Verbindung und Modell prüfen.");
-    console.warn("Lokale KI-Discovery ist nicht verfügbar:", error);
+    setAiDiscoveryState("error", "Royal Intelligence ist nicht erreichbar. Einstellungen prüfen.");
+    console.warn("Royal Intelligence ist nicht verfügbar:", error);
   } finally {
     state.ai.loading = false;
   }

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import types
 
-import downloader
-import smart_automation as smart
+import media.downloader as downloader
+import features.smart_automation as smart
 
 
 def _policy(**overrides):

@@ -1,12 +1,14 @@
 from types import SimpleNamespace
+import asyncio
+import threading
 
 import pytest
 
-import config
+import core.config as config
 import server
 from providers.huhu import HuhuScraper
 from providers.models import FilmpalastMovie, HosterInfo
-from session_manager import ProviderBlockedError
+from media.session_manager import ProviderBlockedError
 
 
 class Response:
@@ -105,6 +107,7 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
         {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"], "tag": "1080p"},
         {"type": "url", "url": "https://dood.to/d/two", "languages": ["de"]},
         {"type": "url", "url": "https://filemoon.to/e/three", "languages": ["en"]},
+        {"type": "url", "url": "https://voe.sx/e/unknown"},
         {"type": "url", "url": "https://bs.to/serie/x/1/1", "languages": ["de"]},
         {"type": "url", "url": "https://voe.sx/e/one", "languages": ["de"]},
     ])
@@ -117,6 +120,44 @@ def test_huhu_episode_sources_keep_only_german_direct_hoster_urls():
     payload = calls[0][1]["json"]
     assert payload["ids"] == {"tmdb_id": "123"}
     assert payload["episode"] == {"ids": {}, "season": 2, "episode": 4}
+
+
+def test_huhu_language_check_rejects_english_only_episode(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    german_slug = "huhu:123:exact-show-s09e15"
+    english_slug = "huhu:123:exact-show-s09e17"
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["huhu"])
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(
+        content_languages={"de"}, huhu_lock=threading.RLock(),
+    ))
+    monkeypatch.setattr(discovery, "get_huhu_scraper", lambda: SimpleNamespace(
+        get_episode_languages=lambda slug: ("de",) if slug == german_slug else ("en",),
+    ))
+
+    body = discovery.HuhuEpisodeLanguagesBody(slugs=[german_slug, english_slug])
+    result = asyncio.run(discovery.api_huhu_episode_languages(body))
+
+    assert result["available"] == {german_slug: True, english_slug: False}
+    assert result["languages"] == {german_slug: ["de"], english_slug: ["en"]}
+
+
+def test_huhu_english_only_source_is_not_a_german_episode():
+    scraper, _calls = scraper_with(Response([
+        {"type": "url", "url": "https://voe.sx/e/english", "languages": ["en"]},
+        {"type": "url", "url": "https://voe.sx/e/unknown"},
+    ]))
+
+    assert scraper.get_movie("huhu:123:exact-show-s09e17") is None
+
+
+def test_huhu_episode_languages_expose_english_only_direct_sources():
+    scraper, _calls = scraper_with(Response([
+        {"type": "url", "url": "https://voe.sx/e/english", "languages": ["en"]},
+        {"type": "url", "url": "https://bs.to/serie/x/9/17", "languages": ["de"]},
+    ]))
+
+    assert scraper.get_episode_languages("huhu:123:exact-show-s09e17") == ("en",)
 
 
 @pytest.mark.parametrize("status, text, reason", [

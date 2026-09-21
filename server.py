@@ -10,7 +10,7 @@ Paket ``providers``; dieser Server bildet die REST-/WebSocket-Schicht darüber.
 Start: python server.py  (öffnet automatisch den Browser)
 """
 
-from environment_file import load_project_env
+from core.environment_file import load_project_env
 
 load_project_env()
 
@@ -60,33 +60,34 @@ from providers.catalog import (
     provider_for_source,
     provider_language_payload,
 )
-from extractor import (
+from media.extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
     extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
 )
-from downloader import (
+from media.downloader import (
     DownloadJob, DownloadQueue, build_filename, build_movie_filename,
     probe_stream_url, validate_media_file, cleanup_stale_staging,
     _sanitize as sanitize_filename,
 )
-from queue_jobs import HISTORY_LIMIT, new_job
-from session_manager import ProviderBlockedError, _cookie_file_for
-from hoster_intel import HosterIntel
-from provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
-from resolved_link_cache import ResolvedLinkCache
-from runtime_cache import BoundedTTLCache
-from api_system_router import create_system_router
-from api_ai_router import create_ai_router
-from api_domain_routers import install_domain_routers, register_domain_router
-from api_auth_router import (
+from core.queue_jobs import HISTORY_LIMIT, new_job
+from media.session_manager import ProviderBlockedError, _cookie_file_for
+from media.hoster_intel import HosterIntel
+from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
+from media.resolved_link_cache import ResolvedLinkCache
+from core.runtime_cache import BoundedTTLCache
+from api.api_system_router import create_system_router
+from api.api_module_router import create_module_router
+from api.api_ai_router import create_ai_router
+from api.api_domain_routers import install_domain_routers, register_domain_router
+from api.api_auth_router import (
     ApiV1LoginBody,
     AuthConfigBody,
     AuthDependencies,
     LoginBody,
     create_auth_router,
 )
-from api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
-from api_discovery_router import (
+from api.api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
+from api.api_discovery_router import (
     MovieMetadataBody,
     MovieMetadataItem,
     PreloadBody,
@@ -97,13 +98,15 @@ from api_discovery_router import (
     SeriesMetadataItem,
     create_discovery_router,
 )
-from api_queue_router import (
+from api.api_queue_router import (
     MovieDownloadPreference,
     QueueAddBody,
     QueueRemoveBody,
     TasteEventBody,
     TasteFeedbackBody,
     TasteImportBody,
+    TasteOnboardingBody,
+    TasteOnboardingItem,
     _QueuePreparationJob,
     _cancel_queue_slugs,
     _cancel_withdrawn_watchlist_slugs,
@@ -121,12 +124,13 @@ from api_queue_router import (
     api_taste_event,
     api_taste_feedback,
     api_taste_import,
+    api_taste_onboarding,
     api_taste_profile_get,
     api_taste_profile_reset,
     create_queue_router,
     restore_persisted_queue,
 )
-from api_library_router import (
+from api.api_library_router import (
     MovieSubscriptionBody,
     MovieSubscriptionKeysBody,
     WatchlistAddBody,
@@ -159,7 +163,7 @@ from api_library_router import (
     movie_subscription_lookup,
     movie_subscriptions_payload,
 )
-from api_administration_router import (
+from api.api_administration_router import (
     AutomationConfigBody,
     ConfigBody,
     JellyfinConfigBody,
@@ -211,21 +215,22 @@ from api_administration_router import (
     api_updater_status,
     create_administration_router,
 )
-from api_security import SecurityDependencies, install_authentication_middleware
-from app_state import AppState, _PreparationSlots
-from websocket_manager import WSManager, _WSClient
-from api_websocket_router import (
+from api.api_security import SecurityDependencies, install_authentication_middleware
+from core.app_state import AppState, _PreparationSlots
+from core.users import UserStore
+from core.websocket_manager import WSManager, _WSClient
+from api.api_websocket_router import (
     WebSocketDependencies,
     create_websocket_router,
     websocket_origin_allowed as _websocket_origin_allowed,
 )
-from media_paths import (
+from storage.media_paths import (
     prepare_media_directory,
     recover_misplaced_media,
 )
-from runtime_paths import data_dir, in_container, persistent_container_path
-from series_calendar_service import get_series_calendar_service
-from network_guard import is_public_http_url
+from core.runtime_paths import data_dir, in_container, persistent_container_path
+from features.series_calendar_service import get_series_calendar_service
+from core.network_guard import is_public_http_url
 from providers.filmfrei24 import (
     BASE_URL as FILMFREI24_BASE_URL,
     FilmFrei24Scraper,
@@ -264,25 +269,26 @@ from providers.aniworld import (
     SOURCE_PREFIX as ANIWORLD_PREFIX,
 )
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
-from jellyfin_client import JellyfinClient
-from jellyfin_recommender import (
+from integrations.jellyfin_client import JellyfinClient
+from integrations.jellyfin_recommender import (
     Config as JellyfinRecommenderConfig,
     ConfigurationError as JellyfinRecommenderConfigurationError,
     RecommenderError as JellyfinRecommenderError,
     run_once as run_jellyfin_recommender_once,
 )
-from tmdb_client import SERIES_CACHE_TTL, TMDBClient
-from telegram_bot import TelegramBot
-from seerr_client import SeerrClient, SeerrRequest
-from update_checker import UpdateChecker, detect_local_commit
-from self_updater import SelfUpdater
-from ytdlp_updater import YtDlpRuntimeUpdater
-from ui_translator import (
+from integrations.tmdb_client import SERIES_CACHE_TTL, TMDBClient
+from integrations.telegram_bot import TelegramBot
+from modules.builtin_workers import register_builtin_worker_controllers
+from integrations.seerr_client import SeerrClient, SeerrRequest
+from updates.update_checker import UpdateChecker, detect_local_commit
+from updates.self_updater import SelfUpdater
+from updates.ytdlp_updater import YtDlpRuntimeUpdater
+from integrations.ui_translator import (
     SUPPORTED_UI_LANGUAGES,
     UITranslator,
     normalize_ui_language,
 )
-from watchlist_policy import (
+from features.watchlist_policy import (
     CLEANUP_MODE_KEEP,
     CLEANUP_MODE_LABELS,
     WATCH_MODE_DEFAULT,
@@ -295,7 +301,7 @@ from watchlist_policy import (
     select_missing_episode_slugs,
     serialize_episode_history,
 )
-from movie_subscription_policy import (
+from features.movie_subscription_policy import (
     MOVIE_CLEANUP_DEFAULT,
     MOVIE_CLEANUP_LABELS,
     MOVIE_CLEANUP_WATCHED,
@@ -307,11 +313,11 @@ from movie_subscription_policy import (
     normalize_movie_quality,
     select_upgrade_quality,
 )
-from taste_profile import TasteProfileStore
-import config as appconfig
-import auth as appauth
-from app_version import APP_VERSION
-from update_channels import UPDATE_CHANNEL_BRANCHES
+from features.taste_profile import TasteProfileStore
+import core.config as appconfig
+import core.auth as appauth
+from core.app_version import APP_VERSION
+from updates.update_channels import UPDATE_CHANNEL_BRANCHES
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -322,7 +328,7 @@ logger = logging.getLogger(__name__)
 # nodriver_patch). Auf frischen Installationen (Docker/NAS) scheitert sonst
 # schon `import nodriver` → VOE-Extraktion tot. Einmal beim Start reparieren,
 # BEVOR irgendein Codepfad nodriver importiert.
-import nodriver_patch  # noqa: E402 - Reparatur muss vor dem ersten nodriver-Import laufen.
+import core.nodriver_patch as nodriver_patch  # noqa: E402 - Reparatur muss vor dem ersten nodriver-Import laufen.
 nodriver_patch.ensure_cdp_utf8()
 
 APP_DIR = Path(__file__).parent
@@ -333,6 +339,7 @@ WEBSOCKET_AUTH_RECHECK_SECONDS = 30.0
 WEBSOCKET_CLIENT_QUEUE_SIZE = 128
 SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
+USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
 LOGIN_GUARD = appauth.LoginGuard()
 BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
@@ -445,8 +452,7 @@ refresh_services()
 # ---------------------------------------------------------------------------
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
-    global _background_services_started, _recommender_thread, _seerr_thread
-    global _updater_thread, _ytdlp_updater_thread
+    global _background_services_started
     with _background_services_lock:
         if _background_services_started:
             return
@@ -456,43 +462,16 @@ def start_background_services():
     threading.Thread(target=warm_jellyfin_identity_cache, daemon=True).start()
     threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
-    _recommender_stop_event.clear()
-    _recommender_wake_event.clear()
-    _recommender_thread = threading.Thread(
-        target=jellyfin_recommender_loop,
-        name="jellyfin-recommender",
-        daemon=True,
-    )
-    _recommender_thread.start()
-    _seerr_stop_event.clear()
-    _seerr_wake_event.clear()
-    _seerr_thread = threading.Thread(
-        target=seerr_poll_loop,
-        name="seerr-request-bridge",
-        daemon=True,
-    )
-    _seerr_thread.start()
-    _updater_stop_event.clear()
-    _updater_wake_event.clear()
-    _updater_thread = threading.Thread(
-        target=automatic_update_loop,
-        name="automatic-updater",
-        daemon=True,
-    )
-    _updater_thread.start()
-    _ytdlp_updater_stop_event.clear()
-    _ytdlp_updater_thread = threading.Thread(
-        target=ytdlp_runtime_update_loop,
-        name="ytdlp-runtime-updater",
-        daemon=True,
-    )
-    _ytdlp_updater_thread.start()
+    state.module_manager.start_enabled()
+
+register_builtin_worker_controllers(state.module_manager)
 
 
 async def _runtime_cache_maintenance_loop() -> None:
     while True:
         await asyncio.sleep(60)
         await asyncio.to_thread(state.maintain_runtime_caches)
+        await asyncio.to_thread(state.module_manager.reconcile_all)
 
 
 @asynccontextmanager
@@ -544,29 +523,21 @@ async def lifespan(app: FastAPI):
     )
     if removed_staging:
         logger.info("%s altes Staging-Artefakt(e) entfernt.", removed_staging)
-    if appconfig.is_initialized():
-        start_background_services()
     _telegram_bot = TelegramBot(
         lambda: state.telegram_cfg,
         handle_telegram_message,
         log,
         callback_cb=handle_telegram_callback,
     )
-    _telegram_bot.start()
+    if appconfig.is_initialized():
+        start_background_services()
     cache_maintenance_task = asyncio.create_task(_runtime_cache_maintenance_loop())
     yield
     # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
     # den auslaufenden Event-Loop einstellen.
     _main_loop = None
-    _seerr_stop_event.set()
-    _seerr_wake_event.set()
-    _updater_stop_event.set()
-    _updater_wake_event.set()
-    _ytdlp_updater_stop_event.set()
+    state.module_manager.stop_all()
     cache_maintenance_task.cancel()
-    stop_jellyfin_recommender()
-    if _telegram_bot is not None:
-        _telegram_bot.stop()
     if state.voe_pool is not None:
         try:
             state.voe_pool.close()
@@ -634,6 +605,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(
     create_system_router(state.runtime_cache_diagnostics, _capabilities_payload),
 )
+app.include_router(create_module_router(state.module_manager))
 install_authentication_middleware(
     app,
     SecurityDependencies(
@@ -688,6 +660,49 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
     )
 
 
+def _profile_summary(user: dict) -> dict:
+    """Return only the active user's personal overview; household jobs stay private."""
+    user_id = str(user.get("id") or "")
+    profile = state.taste_profiles.for_user(user_id).public_profile()
+    with state.queue_claim_lock:
+        jobs = [*state.queue_history, *state.queue_jobs.values()]
+        personal = [job for job in jobs if str(job.get("requested_by_user_id") or "") == user_id]
+    recent = [
+        {
+            "title": str(job.get("title") or job.get("display_name") or "Download"),
+            "status": str(job.get("status") or "queued"),
+            "cover_url": str(job.get("cover_url") or ""),
+        }
+        for job in personal[:8]
+    ]
+    dimensions = profile.get("dimensions") or {}
+    genres = dimensions.get("genres") or profile.get("genres") or {}
+    signals = profile.get("signal_breakdown") or {}
+    with state.watchlist_lock:
+        subscriptions = sum(
+            str(entry.get("requested_by_user_id") or "") == user_id
+            for entry in state.watchlist
+        )
+    return {
+        "user": USER_STORE.public(user),
+        "taste": {
+            "confidence": float(profile.get("confidence") or 0),
+            "confidence_label": str(profile.get("confidence_label") or "low"),
+            "interactions": int(profile.get("interactions") or 0),
+            "direct_ratings": int(signals.get("explicit") or 0),
+            "genres": genres,
+            "negative_genres": {
+                name: score for name, score in genres.items() if float(score or 0) < 0
+            },
+            "updated_at": profile.get("updated_at") or 0,
+        },
+        "downloads_requested": len(personal),
+        "subscriptions": subscriptions,
+        "recent_downloads": recent,
+        "onboarding_required": bool(user.get("taste_onboarding_required")),
+    }
+
+
 app.include_router(create_auth_router(AuthDependencies(
     api_version=API_VERSION,
     appauth=appauth,
@@ -716,6 +731,9 @@ app.include_router(create_auth_router(AuthDependencies(
     session_token=lambda cookies: _session_token(cookies),
     request_is_secure=lambda request: _request_is_secure(request),
     log=lambda *args, **kwargs: log(*args, **kwargs),
+    user_store=lambda: USER_STORE,
+    current_user=lambda headers, cookies: current_user(headers, cookies),
+    profile_summary=_profile_summary,
 )))
 
 

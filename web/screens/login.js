@@ -15,6 +15,8 @@ function showLoginScreen({ expired = false } = {}) {
   loginVisible = true;
   document.body.classList.add("login-open");
   screen.classList.remove("hidden");
+  document.getElementById("login-form").classList.remove("hidden");
+  document.getElementById("first-login-form").classList.add("hidden");
   window.royalLoader?.finish();
   setLoginStatus(expired ? "Die Sitzung ist abgelaufen. Bitte erneut anmelden." : "", expired);
   const username = document.getElementById("login-username");
@@ -28,7 +30,17 @@ function hideLoginScreen() {
   document.body.classList.remove("login-open");
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("login-password").value = "";
+  document.getElementById("first-login-password").value = "";
+  document.getElementById("first-login-repeat").value = "";
   setLoginStatus();
+}
+
+function showFirstLogin(username) {
+  document.getElementById("login-form").classList.add("hidden");
+  document.getElementById("first-login-form").classList.remove("hidden");
+  document.getElementById("first-login-greeting").textContent = `Hallo ${username}. Lege für deinen Zugang ein Passwort fest.`;
+  setLoginStatus();
+  document.getElementById("first-login-password").focus();
 }
 
 async function submitLogin(event) {
@@ -53,11 +65,24 @@ async function submitLogin(event) {
       location.reload();
     }
   } catch (error) {
-    setLoginStatus(error.message, true);
-    document.getElementById("login-password").select();
+    if (error.status === 409) showFirstLogin(username);
+    else { setLoginStatus(error.message, true); document.getElementById("login-password").select(); }
   } finally {
     button.disabled = false;
   }
+}
+
+async function submitFirstLogin(event) {
+  event.preventDefault();
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("first-login-password").value;
+  const repeat = document.getElementById("first-login-repeat").value;
+  if (!password || password !== repeat) { setLoginStatus("Passwörter stimmen nicht überein.", true); return; }
+  try {
+    authStatus = await api.authFirstLogin(username, password, repeat);
+    hideLoginScreen();
+    location.reload();
+  } catch (error) { setLoginStatus(error.message, true); }
 }
 
 function handleUnauthorized() {
@@ -80,6 +105,7 @@ async function requireLogin() {
 function initLoginScreen() {
   api.onUnauthorized = handleUnauthorized;
   document.getElementById("login-form").addEventListener("submit", submitLogin);
+  document.getElementById("first-login-form").addEventListener("submit", submitFirstLogin);
   document.getElementById("login-password-toggle").addEventListener("click", (event) => {
     const button = event.currentTarget;
     const password = document.getElementById("login-password");

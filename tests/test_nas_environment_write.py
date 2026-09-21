@@ -1,6 +1,6 @@
 import asyncio
 
-import api_administration_router as administration
+import api.api_administration_router as administration
 import pytest
 
 

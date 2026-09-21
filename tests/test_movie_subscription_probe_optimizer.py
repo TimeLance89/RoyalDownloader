@@ -3,11 +3,11 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-import downloader
+import media.downloader as downloader
 import server  # noqa: F401
 from application_services import movie_subscription_probe_optimizer as optimizer
 from application_services import movie_subscription_stream_quality as stream_quality
-from media_quality import normalize_media_profile
+from media.media_quality import normalize_media_profile
 from providers.models import FilmpalastMovie, HosterInfo
 
 

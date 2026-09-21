@@ -29,7 +29,7 @@ def test_ai_status_distinguishes_saved_and_unsaved_activation():
     assert "enabled !== state.ai.enabled" in script
     assert "Aktivierung noch speichern." in script
     assert "Aktiviert · ${state.ai.model" in script
-    assert 'ai-discovery.js?v=royal-20260903-3' in index
+    assert 'ai-discovery.js?v=royal-20260920-3' in index
 
 
 def test_enabled_ai_discovery_exposes_loading_and_failure_states():
@@ -41,3 +41,18 @@ def test_enabled_ai_discovery_exposes_loading_and_failure_states():
     assert re.search(r'setAiDiscoveryState\(\s*"loading"', script)
     assert 'setAiDiscoveryState("error"' in script
     assert 'rail.hidden = !state.ai.enabled' in script
+
+
+def test_background_refinement_keeps_the_existing_rail_stable():
+    script = (ROOT / "web" / "ai-discovery.js").read_text(encoding="utf-8")
+    assert 'const keepVisibleRail = mode === "loading" && state.ai.recommendations.length > 0;' in script
+    assert 'panel.hidden = mode === "ready" || keepVisibleRail;' in script
+
+
+def test_royal_intelligence_exposes_provider_and_module_aware_ui():
+    index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    script = (ROOT / "web" / "ai-discovery.js").read_text(encoding="utf-8")
+    assert 'id="ai-url"' in index
+    assert 'Royal Reflex' in index
+    assert "state.ai.moduleAvailable" in script
+    assert "Cloud-Entscheidungs-API" not in script

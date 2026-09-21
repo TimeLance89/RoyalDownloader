@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import serienstream_verification as verification
-from api_serienstream_verification_router import router
+import integrations.serienstream_verification as verification
+from api.api_serienstream_verification_router import router
 
 
 @pytest.mark.parametrize(

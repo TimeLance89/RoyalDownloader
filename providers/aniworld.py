@@ -654,7 +654,7 @@ class AniWorldScraper:
             genres=anime.genres,
             hosters=hosters,
             provider="aniworld",
-            content_language="de",
+            content_language="en" if track == "eng" else "de",
         )
 
     @staticmethod

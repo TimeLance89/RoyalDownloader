@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-import tmdb_client as _tmdb_module
+import integrations.tmdb_client as _tmdb_module
 
 from application_services import media_identity as _identity
 

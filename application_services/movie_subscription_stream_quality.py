@@ -17,14 +17,14 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-import api_library_router as library_router
+import api.api_library_router as library_router
 import application_services.movie_subscription_quality as quality_service
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,
     publish_service,
 )
-from media_quality import (
+from media.media_quality import (
     media_profile_complete,
     media_profile_from_height,
     media_profile_from_jellyfin_item,
@@ -392,12 +392,21 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
     """Reuse the just-probed stream for a few minutes instead of extracting twice."""
     cached = getattr(movie, "_quality_pre_resolved", None)
     source_url = str((cached or {}).get("source_hoster_url") or "")
+    enabled_languages = {
+        normalize_content_language(language)
+        for language in state.content_languages
+        if normalize_content_language(language)
+    }
+    cached_language = normalize_content_language(
+        (cached or {}).get("content_language")
+    )
     excluded = excluded_hoster_urls or set()
     barren = barren_hoster_urls or set()
     if (
         isinstance(cached, dict)
         and float(cached.get("expires_at") or 0.0) > time.time()
         and cached.get("stream_info")
+        and cached_language in enabled_languages
         and source_url not in excluded
         and source_url not in barren
     ):

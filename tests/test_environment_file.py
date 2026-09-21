@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-import config as appconfig
-from environment_file import (
+import core.config as appconfig
+from core.environment_file import (
     load_project_env,
     normalize_deployment_mode,
     read_env,

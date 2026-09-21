@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import storage_manager as sm
-import storage_move as mover
+import storage.storage_manager as sm
+import storage.storage_move as mover
 
 
 def _write(path: Path, size: int, byte: bytes = b"x"):

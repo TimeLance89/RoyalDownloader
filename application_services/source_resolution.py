@@ -97,6 +97,11 @@ def _extract_from_movie(
     # sinnvoll; weitere Versuche kosten auf dem NAS nur CPU und bringen in der
     # Regel denselben leeren Player zurück.
     browser_fallbacks_started: set[str] = set()
+    enabled_languages = {
+        normalize_content_language(language)
+        for language in state.content_languages
+        if normalize_content_language(language)
+    }
 
     ranked_hosters = state.hoster_intel.rank(movie.hosters)
     preferred_quality_value = getattr(movie, "_preferred_quality", None)
@@ -107,6 +112,16 @@ def _extract_from_movie(
         )
     for hoster in ranked_hosters:
         if not hoster.url:
+            continue
+        hoster_language = _movie_content_language(
+            movie, str(getattr(hoster, "language", "") or "")
+        )
+        if hoster_language not in enabled_languages:
+            log(
+                f"  Überspringe {hoster.name}: Stream-Sprache "
+                f"{hoster_language.upper() or 'unbekannt'} ist nicht aktiviert.",
+                "info",
+            )
             continue
         if hoster.url in excluded_hoster_urls:
             log(f"  Überspringe {hoster.name}: Download zuvor fehlgeschlagen", "warn")
@@ -132,10 +147,7 @@ def _extract_from_movie(
         res.hoster_used = hoster.name
         res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
-        res.content_language = _movie_content_language(
-            movie,
-            str(getattr(hoster, "language", "") or ""),
-        )
+        res.content_language = hoster_language
         log(f"  Versuche Hoster: {hoster.name}")
 
         # serienstream.to liefert Hoster als lazy /r?t=-Redirect. Erst JETZT,
@@ -516,6 +528,20 @@ def _extract_from_movie(
                 log(f"  {hoster.name} nicht nutzbar: {probe_msg}", "warn")
                 if "unsupported url" in probe_msg.lower():
                     unsupported_domains.add(play_url)
+                if was_sto and res.resolved_from_cache:
+                    # Das gecachte Redirect-Ziel kann früher ablaufen als sein
+                    # kurzer Cache-Eintrag. Ohne Invalidierung würden weitere
+                    # Versuche denselben toten Hoster verwenden und die
+                    # Episode endgültig als nicht extrahierbar markieren.
+                    # Stattdessen einmal kontrolliert über die Provider-Probe
+                    # ein frisches SerienStream-Redirect-Ziel anfordern.
+                    if state.resolved_link_cache.invalidate(hoster.url, play_url):
+                        log(
+                            f"  {hoster.name}: gecachter Hoster-Link ist abgelaufen – "
+                            "SerienStream-Probe wird vorgemerkt.",
+                            "warn",
+                        )
+                        res.gated = True
                 res.stream_info = None
                 continue
             break

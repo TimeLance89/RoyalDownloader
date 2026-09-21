@@ -276,6 +276,9 @@
 .notif-state.is-queued { color: var(--subscription-blue); background: #1b253d; border-color: #3b4b71; }
 .notif-state.is-downloaded { color: var(--subscription-success); background: #152b22; border-color: #315c47; }
 .notif-state.is-issue { color: var(--subscription-warning); background: #2b2116; border-color: #665038; }
+.notif-state.is-waiting-language { color: #b7d5ff; background: #18263a; border-color: #405f85; }
+.notif-state.is-waiting-source { color: #c7b9ff; background: #241e3a; border-color: #564a7e; }
+.notif-state.is-upcoming { color: #c6cad2; background: #20242a; border-color: #454b54; }
 .notif-item-detail,
 .notif-item-download {
   margin: 0;

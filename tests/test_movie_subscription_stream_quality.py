@@ -3,12 +3,12 @@ from pathlib import Path
 import threading
 from types import SimpleNamespace
 
-import downloader
+import media.downloader as downloader
 import server  # noqa: F401
 from application_services import movie_subscription_commit_guard as commit_guard
 from application_services import movie_subscription_stream_quality as stream_quality
-from hoster_intel import HosterIntel
-from media_quality import normalize_media_profile
+from media.hoster_intel import HosterIntel
+from media.media_quality import normalize_media_profile
 from providers.models import FilmpalastMovie, HosterInfo
 
 

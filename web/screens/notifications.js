@@ -366,10 +366,14 @@ function buildSubscriptionInbox(items, health = {}) {
     // queued/failed reduziert werden, weil diese Mengen überlappen konnten.
     openCount: notificationCount(entry.open_count ?? entry.new_count),
     queuedCount: notificationCount(entry.queued_count),
+    waitingLanguageCount: notificationCount(entry.waiting_language_count),
+    upcomingCount: notificationCount(entry.upcoming_count),
+    waitingSourceCount: notificationCount(entry.waiting_release_count),
     downloadedCount: notificationCount(entry.downloaded_count),
     hasIssue: notificationHasIssue(entry),
   })).filter((item) => (
-    item.openCount || item.queuedCount || item.downloadedCount || item.hasIssue
+    item.openCount || item.queuedCount || item.waitingLanguageCount || item.upcomingCount
+      || item.waitingSourceCount || item.downloadedCount || item.hasIssue
   ));
   const globalError = String(health?.error || "").trim();
   const counts = {
@@ -382,8 +386,9 @@ function buildSubscriptionInbox(items, health = {}) {
   const totals = entries.reduce((sum, item) => ({
     open: sum.open + item.openCount,
     queued: sum.queued + item.queuedCount,
+    waitingLanguage: sum.waitingLanguage + item.waitingLanguageCount,
     downloaded: sum.downloaded + item.downloadedCount,
-  }), { open: 0, queued: 0, downloaded: 0 });
+  }), { open: 0, queued: 0, waitingLanguage: 0, downloaded: 0 });
   return { entries, counts, totals, globalError };
 }
 
@@ -427,7 +432,7 @@ function ensureSubscriptionCenterStyles() {
   if (document.querySelector('link[data-subscription-center-styles]')) return;
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = "/styles/subscription-center.css?v=royal-20260908-1";
+  link.href = "/styles/subscription-center.css?v=royal-20260921-2";
   link.dataset.subscriptionCenterStyles = "true";
   document.head.appendChild(link);
 }
@@ -480,8 +485,8 @@ function inboxDownloadDetail(entry) {
 }
 
 function buildNotificationItem(item) {
-  const { entry, openCount, queuedCount, downloadedCount, hasIssue } = item;
-  const stateName = hasIssue ? "issue" : openCount ? "new" : queuedCount ? "queued" : "downloaded";
+  const { entry, openCount, queuedCount, waitingLanguageCount, upcomingCount, waitingSourceCount, downloadedCount, hasIssue } = item;
+  const stateName = hasIssue ? "issue" : waitingLanguageCount ? "waiting-language" : upcomingCount ? "upcoming" : openCount ? "new" : queuedCount ? "queued" : "downloaded";
   const row = document.createElement("article");
   row.className = `notif-item is-${stateName}`;
   row.dataset.baseSlug = entry.base_slug;
@@ -525,6 +530,9 @@ function buildNotificationItem(item) {
   };
   if (openCount) signal("new", `${openCount} ${openCount === 1 ? "Folge offen" : "Folgen offen"}`);
   if (queuedCount) signal("queued", `${queuedCount} im Downloadplan`);
+  if (waitingLanguageCount) signal("waiting-language", `${waitingLanguageCount} ${waitingLanguageCount === 1 ? "wartet auf Deutsch" : "warten auf Deutsch"}`);
+  if (waitingSourceCount) signal("waiting-source", `${waitingSourceCount} ${waitingSourceCount === 1 ? "wartet auf Quelle" : "warten auf Quelle"}`);
+  if (upcomingCount) signal("upcoming", `${upcomingCount} ${upcomingCount === 1 ? "demnächst" : "demnächst"}`);
   if (downloadedCount) signal("downloaded", `${downloadedCount} ${downloadedCount === 1 ? "Folge geladen" : "Folgen geladen"}`);
   if (hasIssue) signal("issue", "Problem");
   copy.append(title, meta, signals);
@@ -539,6 +547,9 @@ function buildNotificationItem(item) {
   row.appendChild(open);
 
   const detailText = hasIssue ? inboxIssueDetail(entry)
+    : waitingLanguageCount ? "Die Episode ist verfügbar, aber noch nicht in deiner gewünschten Sprache."
+    : waitingSourceCount ? "Die Episode ist bekannt, aber noch ohne geeignete Quelle."
+    : upcomingCount ? "Angekündigte Folgen werden erst nach Veröffentlichung geprüft."
     : entry.status === "waiting_window" && openCount
       ? "Der automatische Download wartet auf das nächste Zeitfenster."
       : openCount ? "Serie öffnen, um die offenen Folgen auszuwählen."
@@ -592,6 +603,7 @@ function inboxContext(model, filter) {
   if (filter === "queued") return `${model.totals.queued} Folgen im Downloadplan.`;
   if (filter === "downloaded") return `${model.totals.downloaded} Downloads sind noch ungelesen.`;
   if (filter === "issue") return "Download-, Prüf- und Bereinigungsfehler.";
+  if (model.totals.waitingLanguage) return `${model.totals.waitingLanguage} Folgen warten auf die gewünschte Sprache.`;
   return "Ein Eintrag pro Abo. Ein Abo kann mehrere Zustände haben.";
 }
 

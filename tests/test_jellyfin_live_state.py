@@ -88,7 +88,8 @@ def test_live_probe_is_one_bounded_page(monkeypatch):
     assert params["StartIndex"] == "0"
     assert params["IncludeItemTypes"] == "Movie,Series,Episode"
     assert params["EnableTotalRecordCount"] == "true"
-    assert headers["X-Emby-Token"] == "secret"
+    assert headers["Authorization"] == 'MediaBrowser Token="secret"'
+    assert "X-Emby-Token" not in headers
     assert timeout == 5.0
 
 
@@ -392,6 +393,27 @@ def test_movie_download_wait_fails_closed_after_timeout(monkeypatch):
     monkeypatch.setattr(live, "_live_ready_event", event)
 
     assert live.wait_for_jellyfin_live_ready(timeout=0.0) is False
+
+
+def test_movie_download_uses_a_recent_verified_snapshot_after_transient_probe_failure(monkeypatch):
+    fake_state = _state(
+        jellyfin_live_stale=True,
+        jellyfin_movie_identities=[{"id": "verified"}],
+        jellyfin_movie_identities_available=False,
+        jellyfin_movie_identities_time=time.time(),
+    )
+    refreshes = []
+    monkeypatch.setattr(live, "state", fake_state)
+    monkeypatch.setattr(live, "request_jellyfin_live_refresh", lambda **kwargs: refreshes.append(kwargs))
+    monkeypatch.setattr(
+        live,
+        "backend_value",
+        lambda name: (lambda: SimpleNamespace(configured=True))
+        if name == "get_jellyfin_client" else None,
+    )
+
+    assert live.wait_for_jellyfin_live_ready(timeout=0.0) is True
+    assert refreshes == []
 
 
 def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():

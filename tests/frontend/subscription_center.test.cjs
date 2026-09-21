@@ -32,7 +32,7 @@ test("empty subscriptions have no notices or episode totals", () => {
   const inbox = loadInbox();
   const model = inbox.buildSubscriptionInbox([]);
   assert.deepEqual(plain(model.counts), { all: 0, new: 0, queued: 0, downloaded: 0, issue: 0 });
-  assert.deepEqual(plain(model.totals), { open: 0, queued: 0, downloaded: 0 });
+  assert.deepEqual(plain(model.totals), { open: 0, queued: 0, waitingLanguage: 0, downloaded: 0 });
   assert.equal(model.entries.length, 0);
   assert.ok(!model.globalError);
 });
@@ -64,7 +64,7 @@ test("orthogonal filters retain all states while the all filter renders each sub
   const before = JSON.stringify(entries);
   const model = inbox.buildSubscriptionInbox(entries);
   assert.deepEqual(plain(model.counts), { all: 4, new: 2, queued: 2, downloaded: 2, issue: 2 });
-  assert.deepEqual(plain(model.totals), { open: 5, queued: 4, downloaded: 2 });
+  assert.deepEqual(plain(model.totals), { open: 5, queued: 4, waitingLanguage: 0, downloaded: 2 });
   assert.deepEqual(slugs(inbox, model, "all"), ["download", "mixed", "problem", "queue"]);
   assert.deepEqual(slugs(inbox, model, "new"), ["mixed", "problem"]);
   assert.deepEqual(slugs(inbox, model, "queued"), ["mixed", "queue"]);
@@ -88,6 +88,22 @@ test("an explicit zero open count is respected and legacy counts are never guess
   assert.equal(bySlug.get("explicit").openCount, 0);
   assert.equal(bySlug.get("string-counts").openCount, 2);
   assert.deepEqual(slugs(inbox, model, "new"), ["legacy", "string-counts"]);
+});
+
+test("EN-only and upcoming episodes remain visible without becoming a problem", () => {
+  const inbox = loadInbox();
+  const model = inbox.buildSubscriptionInbox([
+    subscription("chicago-fire", {
+      status: "waiting_for_language", waiting_language_count: 2, upcoming_count: 1,
+      open_count: 0, failed_count: 0,
+    }),
+  ]);
+  const item = model.entries[0];
+  assert.equal(item.hasIssue, false);
+  assert.equal(item.waitingLanguageCount, 2);
+  assert.equal(item.upcomingCount, 1);
+  assert.deepEqual(slugs(inbox, model, "all"), ["chicago-fire"]);
+  assert.deepEqual(slugs(inbox, model, "issue"), []);
 });
 
 test("each independent error source creates an issue even if the status is current", () => {

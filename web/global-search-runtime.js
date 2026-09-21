@@ -32,6 +32,58 @@
   state.globalSearch.failures = [];
   state.globalSearch.pendingCatalogs = [];
 
+  // Manche Provider führen Inhalte absichtlich anders als TMDB. Ein Beispiel
+  // sind Anthologien, die auf der Quellseite eine Serie mit mehreren Staffeln
+  // sind, während TMDB die Geschichten als einzelne Serien führt. Für solche
+  // Treffer darf TMDB Bilder liefern, aber niemals Titel/Jahr/TMDB-ID oder die
+  // klickbare Provider-Identität ersetzen.
+  if (
+    typeof window.hydrateHomeSeriesArtwork === "function"
+    && !window.__royalProviderSeriesMetadataPolicyInstalled
+  ) {
+    window.__royalProviderSeriesMetadataPolicyInstalled = true;
+    const baseHydrateHomeSeriesArtwork = window.hydrateHomeSeriesArtwork;
+    window.hydrateHomeSeriesArtwork = async function hydrateProviderAuthoritativeSeries(
+      items,
+      options = {},
+    ) {
+      const sourceItems = items || [];
+      const regularItems = sourceItems.filter(
+        (item) => item?.metadata_policy !== "provider_authoritative",
+      );
+      const authoritativeItems = sourceItems.filter(
+        (item) => item?.metadata_policy === "provider_authoritative",
+      );
+      const artworkClones = authoritativeItems.map((item) => ({ ...item }));
+
+      const [regularHydrated, authoritativeHydrated] = await Promise.all([
+        baseHydrateHomeSeriesArtwork(regularItems, { ...options, render: false }),
+        baseHydrateHomeSeriesArtwork(artworkClones, { ...options, render: false }),
+      ]);
+
+      let copiedArtwork = false;
+      artworkClones.forEach((clone, index) => {
+        const target = authoritativeItems[index];
+        for (const field of ["cover_url", "backdrop_url"]) {
+          if (clone[field] && clone[field] !== target[field]) {
+            target[field] = clone[field];
+            copiedArtwork = true;
+          }
+        }
+      });
+
+      if (copiedArtwork) {
+        if (typeof saveHomeCache === "function") saveHomeCache();
+        if (options?.render !== false && typeof renderHome === "function") renderHome();
+      }
+
+      return [...new Set([
+        ...(regularHydrated || []),
+        ...(authoritativeHydrated || []),
+      ])];
+    };
+  }
+
   function uniqueCatalogContentEntries(entries) {
     // Provider-Slugs/Base-Slugs sind technische Quellen-IDs und keine
     // Inhaltsidentität. Innerhalb eines Katalogs deshalb TMDB bzw.

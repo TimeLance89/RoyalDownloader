@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import auth as appauth
-from api_auth_router import AuthDependencies, create_auth_router
+import core.auth as appauth
+from api.api_auth_router import AuthDependencies, create_auth_router
 
 
 class FakeLoginGuard:
@@ -26,8 +26,8 @@ class FakeSessionStore:
         self.created = []
         self.revoked = []
 
-    def create(self, *, label, kind):
-        self.created.append((label, kind))
+    def create(self, *, label, kind, user_id=""):
+        self.created.append((label, kind, user_id))
         return f"token-{len(self.created)}"
 
     def revoke(self, token, *, kind):
@@ -38,13 +38,15 @@ class FakeSessionStore:
         return 0
 
     def count(self, kind):
-        return sum(created_kind == kind for _label, created_kind in self.created)
+        return sum(created_kind == kind for _label, created_kind, _user_id in self.created)
 
 
 def auth_client(*, valid_password="secret"):
     store = FakeSessionStore()
     account = {"configured": True, "username": "royal", "source": "settings"}
     config = SimpleNamespace(is_initialized=lambda: True, save_auth=lambda *_args: True)
+    user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": "admin", "enabled": True, "setup_required": False}
+    users = SimpleNamespace(find=lambda _username: user, public=lambda value: value, list=lambda: [user])
     dependencies = AuthDependencies(
         api_version=1,
         appauth=appauth,
@@ -67,6 +69,8 @@ def auth_client(*, valid_password="secret"):
             request.headers.get("x-forwarded-proto") == "https"
         ),
         log=lambda *_args, **_kwargs: None,
+        user_store=lambda: users,
+        current_user=lambda *_args: user,
     )
     application = FastAPI()
     application.include_router(create_auth_router(dependencies))
@@ -96,8 +100,8 @@ def test_web_and_native_login_contracts_remain_distinct():
     assert native.json()["access_token"] == "token-2"
     assert native.json()["device_label"] == "Phone"
     assert store.created == [
-        ("Browser", appauth.SESSION_KIND_WEB),
-        ("Phone", appauth.SESSION_KIND_MOBILE),
+        ("Browser", appauth.SESSION_KIND_WEB, "user-1"),
+        ("Phone", appauth.SESSION_KIND_MOBILE, "user-1"),
     ]
 
 

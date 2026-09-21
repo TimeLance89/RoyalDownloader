@@ -46,18 +46,18 @@ that file.
 
 | Module | Responsibility |
 |---|---|
-| `api_security.py` | Authentication middleware, public-route policy, origin validation, and security headers |
-| `api_auth_router.py` | Browser and bearer login, sessions, account management, and sign-out routes |
-| `api_setup_router.py` | First-run setup HTTP boundary |
-| `api_discovery_router.py` | Movie, series, anime, TMDB, and targeted Jellyfin discovery |
-| `api_queue_router.py` | Queue lifecycle, taste events, preparation, removal, and cancellation |
-| `api_library_router.py` | Cover proxy, subscriptions, watchlist, watched-state reconciliation, and cleanup |
-| `api_administration_router.py` | Runtime, updater, provider, storage, Jellyfin, TMDB, automation, Telegram, and Seerr settings |
-| `api_system_router.py` | Health, capabilities, and cache diagnostics |
-| `api_websocket_router.py` | WebSocket aliases, origin checks, authentication, revalidation, and initial snapshot |
-| `app_state.py` | Mutable process state, locks, caches, provider instances, and queue state |
-| `websocket_manager.py` | Bounded per-client event delivery and slow-client isolation |
-| `media_paths.py` | Persistent media-path validation and misplaced-file recovery |
+| `api/api_security.py` | Authentication middleware, public-route policy, origin validation, and security headers |
+| `api/api_auth_router.py` | Browser and bearer login, sessions, account management, and sign-out routes |
+| `api/api_setup_router.py` | First-run setup HTTP boundary |
+| `api/api_discovery_router.py` | Movie, series, anime, TMDB, and targeted Jellyfin discovery |
+| `api/api_queue_router.py` | Queue lifecycle, taste events, preparation, removal, and cancellation |
+| `api/api_library_router.py` | Cover proxy, subscriptions, watchlist, watched-state reconciliation, and cleanup |
+| `api/api_administration_router.py` | Runtime, updater, provider, storage, Jellyfin, TMDB, automation, Telegram, and Seerr settings |
+| `api/api_system_router.py` | Health, capabilities, and cache diagnostics |
+| `api/api_websocket_router.py` | WebSocket aliases, origin checks, authentication, revalidation, and initial snapshot |
+| `core/app_state.py` | Mutable process state, locks, caches, provider instances, and queue state |
+| `core/websocket_manager.py` | Bounded per-client event delivery and slow-client isolation |
+| `storage/media_paths.py` | Persistent media-path validation and misplaced-file recovery |
 | `application_services/auth.py` | Authentication policy and request identity |
 | `application_services/updater.py` | Logging, live publication, and runtime updates |
 | `application_services/media_clients.py` | Provider clients, Jellyfin snapshots, and TMDB metadata |
@@ -145,7 +145,7 @@ screen stylesheets is discouraged because it makes precedence implicit again.
 
 ## State, locking, and concurrency
 
-`app_state.py` is the single owner of mutable process state and its associated
+`core/app_state.py` is the single owner of mutable process state and its associated
 locks. Code must not create parallel state containers for the same data.
 
 When multiple locks are unavoidable, acquire them only in this order and

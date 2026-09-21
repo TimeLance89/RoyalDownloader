@@ -373,6 +373,7 @@ function homeAnimeEntry(item) {
 }
 
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
+function discoveryProfileStorageKey() { const userId = String(authStatus?.user?.id || ""); return userId && userId !== "admin-legacy" ? `${HOME_DISCOVERY_PROFILE_KEY}:${userId}` : HOME_DISCOVERY_PROFILE_KEY; }
 const HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1";
 
 function homeEntryKey(entry) {
@@ -460,7 +461,7 @@ function stableDailyOrder(entries, lane) {
 function loadDiscoveryProfile() {
   let profile = null;
   try {
-    profile = JSON.parse(localStorage.getItem(HOME_DISCOVERY_PROFILE_KEY) || "null");
+    profile = JSON.parse(localStorage.getItem(discoveryProfileStorageKey()) || "null");
   } catch {
     profile = null;
   }
@@ -491,7 +492,7 @@ function loadDiscoveryProfile() {
 
 function saveDiscoveryProfile(profile) {
   try {
-    localStorage.setItem(HOME_DISCOVERY_PROFILE_KEY, JSON.stringify(profile));
+    localStorage.setItem(discoveryProfileStorageKey(), JSON.stringify(profile));
   } catch {
     // Private Modi können lokalen Speicher blockieren; Entdecken bleibt nutzbar.
   }
@@ -1057,7 +1058,7 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     };
     showArtworkCandidate();
     image.alt = "";
-    image.loading = "eager";
+    image.loading = eager ? "eager" : "lazy";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
     image.addEventListener("error", () => {
@@ -1080,10 +1081,8 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
   title.translate = false;
   title.textContent = media.title;
   const meta = document.createElement("span");
-  meta.textContent = [
-    media.year || "",
-    media.rating ? `★ ${media.rating}` : "",
-  ].filter(Boolean).join(" · ") || (kind === "movie" ? "Film" : "Serie");
+  meta.className = "home-card-meta";
+  setHomeCardMeta(meta, media, kind);
   overlay.append(title, meta);
   art.append(type, jellyfin, overlay);
   card.append(art, primaryAction);
@@ -1135,7 +1134,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
+        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 0 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }), { loop: layout !== "spotlight" && !ranked });
@@ -1239,7 +1238,7 @@ function saveHomeCache() {
 
 function searchHistory() {
   try {
-    const value = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]");
+    const value = JSON.parse(localStorage.getItem(personalStorageKey(SEARCH_HISTORY_KEY)) || "[]");
     return Array.isArray(value) ? value.filter((entry) => entry?.query).slice(0, 6) : [];
   } catch {
     return [];
@@ -1254,7 +1253,7 @@ function rememberSearch(query, kind) {
     ...searchHistory().filter((entry) => entry.query.toLocaleLowerCase() !== normalized.toLocaleLowerCase()),
   ].slice(0, 6);
   try {
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+    localStorage.setItem(personalStorageKey(SEARCH_HISTORY_KEY), JSON.stringify(next));
   } catch {
     // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
   }

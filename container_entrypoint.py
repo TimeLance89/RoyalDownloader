@@ -35,8 +35,7 @@ def smoke_check() -> None:
 
 def main() -> None:
     smoke_check()
-    bootstrap = Path(__file__).resolve().with_name("docker_bootstrap.py")
-    os.execv(sys.executable, [sys.executable, str(bootstrap)])
+    os.execv(sys.executable, [sys.executable, "-m", "updates.docker_bootstrap"])
 
 
 if __name__ == "__main__":

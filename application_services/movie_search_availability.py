@@ -20,7 +20,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from runtime_cache import BoundedTTLCache
+from core.runtime_cache import BoundedTTLCache
 
 
 globals().update(import_backend_namespace())

@@ -41,8 +41,9 @@ from providers.models import (
     SeriesEpisode,
     parse_episode_slug,
 )
-from series_episode_filter import episode_listings
-from session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
+from providers.series_migrations import canonical_season_hints
+from features.series_episode_filter import episode_listings
+from media.session_manager import GATE_BLOCKED, ProviderBlockedError, SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -356,18 +357,26 @@ class SerienstreamScraper:
             )
             if int(m) > 0
         })
+        # Provider-Migrationen können eine alte Gruppe eigenständiger Serien
+        # in eine Anthologie zusammenführen. Solche Root-Seiten zeigen die
+        # Staffel-Navigation nicht zwingend vollständig im ersten HTML.
+        season_nums = sorted(
+            set(season_nums) | set(canonical_season_hints("serienstream", slug))
+        )
         if not season_nums:
             season_nums = [1]
 
         seasons: Dict[int, List[SeriesEpisode]] = {}
         for sn in season_nums:
-            # /serie/<slug> zeigt bereits Staffel 1. Diesen Inhalt nicht noch
-            # einmal abrufen; weitere Staffeln mit kurzem seriellen Abstand.
-            eps = (
-                self._episodes_from_soup(soup, slug, sn)
-                if sn == 1
-                else self._load_season(slug, sn)
-            )
+            # Üblicherweise zeigt /serie/<slug> bereits Staffel 1. Bei
+            # migrierten/umgebauten Einträgen kann die Root-Seite aber nur
+            # noch eine Landingpage sein. Dann /staffel-1 explizit nachladen.
+            if sn == 1:
+                eps = self._episodes_from_soup(soup, slug, sn)
+                if not eps:
+                    eps = self._load_season(slug, sn)
+            else:
+                eps = self._load_season(slug, sn)
             if eps:
                 seasons[sn] = eps
 
@@ -427,6 +436,7 @@ class SerienstreamScraper:
                 release_name="",
                 release_at=listing.release_at,
                 release_label=listing.release_label,
+                content_languages=listing.content_languages,
             ))
         return eps
 

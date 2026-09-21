@@ -10,6 +10,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
+from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
 
@@ -659,6 +660,9 @@ def _episode_placeholder(slug: str, series_title: str = "") -> FilmpalastMovie:
     if not parsed:
         raise ValueError(f"Kein Episoden-Slug: {slug}")
     base_slug, season, episode = parsed
+    monster_virtual = parse_monster_virtual_episode(slug)
+    if not series_title and monster_virtual is not None:
+        series_title = monster_virtual[0].fallback_title
     if not series_title:
         with state.watchlist_lock:
             entry = watchlist_lookup(base_slug)
@@ -1110,6 +1114,7 @@ def series_to_dict(
                 "season": ep.season, "episode": ep.episode, "slug": ep.slug,
                 "url": ep.url, "release_name": ep.release_name,
                 "release_at": ep.release_at, "release_label": ep.release_label,
+                "content_languages": list(ep.content_languages),
                 "queued": ep.slug in state.picked,
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,
@@ -1125,6 +1130,7 @@ def series_to_dict(
         "provider_label": PROVIDER_LABELS.get(provider, provider),
         "content_language": provider_content_language(provider),
         "language_label": PROVIDER_CATALOG[provider].language_label,
+        "enabled_content_languages": sorted(state.content_languages),
         "episode_count": len(series.all_episodes),
         "watchlisted": watchlist_entry is not None,
         "availability_pending": defer_checks,

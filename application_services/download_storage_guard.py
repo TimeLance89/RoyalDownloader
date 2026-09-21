@@ -6,8 +6,8 @@ import os
 import shutil
 from pathlib import Path
 
-import downloader
-from hoster_intel import HosterIntel
+import media.downloader as downloader
+from media.hoster_intel import HosterIntel
 
 _MIN_FREE_GIB = max(
     0.0,

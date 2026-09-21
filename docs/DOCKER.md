@@ -382,7 +382,7 @@ is installed with its own Python environment and smoke-tested before one atomic
 switch of `./runtime/current`; `./runtime/previous` remains fully reversible,
 including dependencies. The API endpoint `POST /api/updater/rollback` (and the
 emergency command `docker compose run --rm seriendownloader python
-/opt/seriendownloader/docker_bootstrap.py --rollback`) switches back without
+python -m updates.docker_bootstrap --rollback`) switches back without
 rebuilding an image.
 
 After a successful update, unreferenced older releases are removed
