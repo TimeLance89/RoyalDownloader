@@ -1134,7 +1134,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: (cycle = 1) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
+        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 0 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }), { loop: layout !== "spotlight" && !ranked });
@@ -1238,7 +1238,7 @@ function saveHomeCache() {
 
 function searchHistory() {
   try {
-    const value = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]");
+    const value = JSON.parse(localStorage.getItem(personalStorageKey(SEARCH_HISTORY_KEY)) || "[]");
     return Array.isArray(value) ? value.filter((entry) => entry?.query).slice(0, 6) : [];
   } catch {
     return [];
@@ -1253,7 +1253,7 @@ function rememberSearch(query, kind) {
     ...searchHistory().filter((entry) => entry.query.toLocaleLowerCase() !== normalized.toLocaleLowerCase()),
   ].slice(0, 6);
   try {
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+    localStorage.setItem(personalStorageKey(SEARCH_HISTORY_KEY), JSON.stringify(next));
   } catch {
     // Private Modi können lokalen Speicher blockieren; die Suche bleibt nutzbar.
   }

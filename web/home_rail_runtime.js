@@ -74,4 +74,30 @@ function reconcileHomeRail(track, specs, { loop = true } = {}) {
   while (track.children.length > renderedSpecs.length) track.lastElementChild.remove();
   prepareHomeRailLoop(track, loop ? logicalCount : 0);
   updateHomeRailNavigation(track);
+  primeHomeRailPosters(track);
+}
+
+function primeHomeRailPosters(track) {
+  if (!track?.getBoundingClientRect || !track.addEventListener) return;
+  const hydrate = () => {
+    const bounds = track.getBoundingClientRect();
+    [...track.children].forEach((card, index) => {
+      const image = card.querySelector?.(".home-card-art img");
+      if (!image) return;
+      const rect = card.getBoundingClientRect();
+      const nearViewport = rect.right >= bounds.left - 240 && rect.left <= bounds.right + 420;
+      if (index < 7 || nearViewport) {
+        image.loading = "eager";
+        image.fetchPriority = index < 5 ? "high" : "auto";
+      }
+    });
+  };
+  hydrate();
+  if (track.dataset.posterHydrationBound) return;
+  track.dataset.posterHydrationBound = "true";
+  let frame = 0;
+  track.addEventListener("scroll", () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; hydrate(); });
+  }, { passive: true });
 }

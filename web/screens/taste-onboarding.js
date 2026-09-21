@@ -4,6 +4,7 @@ let tasteOnboardingPage = 0;
 let tasteOnboardingTimer = 0;
 let tasteOnboardingBound = false;
 let tasteOnboardingSelection = new Map();
+let tasteOnboardingSeen = new Set();
 
 function tasteOnboardingEntryData(entry) {
   const media = homeEntryMedia(entry);
@@ -67,12 +68,33 @@ function updateTasteOnboardingProgress() {
   const count = tasteOnboardingSelection.size;
   document.getElementById("taste-onboarding-count").textContent = String(count);
   document.getElementById("taste-onboarding-submit").disabled = count < TASTE_ONBOARDING_MINIMUM;
+  const selected = document.getElementById("taste-onboarding-selected");
+  if (!selected) return;
+  selected.replaceChildren(...[...tasteOnboardingSelection.values()].map((item) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "taste-onboarding-selection";
+    chip.textContent = `${item.title} ×`;
+    chip.setAttribute("aria-label", `${item.title} aus Auswahl entfernen`);
+    chip.addEventListener("click", () => {
+      tasteOnboardingSelection.delete(item.key);
+      document.querySelector(`.taste-onboarding-card[data-key="${CSS.escape(item.key)}"]`)?.classList.remove("is-selected");
+      document.querySelector(`.taste-onboarding-card[data-key="${CSS.escape(item.key)}"]`)?.setAttribute("aria-pressed", "false");
+      updateTasteOnboardingProgress();
+    });
+    return chip;
+  }));
 }
 
 function renderTasteOnboardingCandidates() {
   const grid = document.getElementById("taste-onboarding-grid");
   const status = document.getElementById("taste-onboarding-status");
-  const candidates = diverseTasteOnboardingCandidates(homeAllEntries(), tasteOnboardingPage);
+  const allCandidates = diverseTasteOnboardingCandidates(homeAllEntries(), tasteOnboardingPage);
+  let candidates = allCandidates.filter((item) => !tasteOnboardingSeen.has(item.key));
+  if (!candidates.length && allCandidates.length) {
+    tasteOnboardingSeen = new Set(tasteOnboardingSelection.keys());
+    candidates = allCandidates.filter((item) => !tasteOnboardingSeen.has(item.key));
+  }
   if (!candidates.length) {
     status.hidden = false;
     status.textContent = "Titel werden zusammengestellt …";
@@ -80,13 +102,16 @@ function renderTasteOnboardingCandidates() {
     tasteOnboardingTimer = window.setTimeout(renderTasteOnboardingCandidates, 600);
     return;
   }
+  candidates.forEach((item) => tasteOnboardingSeen.add(item.key));
   status.hidden = true;
   grid.replaceChildren(...candidates.map((item) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "taste-onboarding-card";
     card.dataset.key = item.key;
-    card.setAttribute("aria-pressed", "false");
+    const selected = tasteOnboardingSelection.has(item.key);
+    card.classList.toggle("is-selected", selected);
+    card.setAttribute("aria-pressed", String(selected));
     const image = document.createElement("img");
     image.src = item.artwork;
     image.alt = "";
@@ -105,9 +130,9 @@ function renderTasteOnboardingCandidates() {
     card.addEventListener("click", () => {
       if (tasteOnboardingSelection.has(item.key)) tasteOnboardingSelection.delete(item.key);
       else tasteOnboardingSelection.set(item.key, item);
-      const selected = tasteOnboardingSelection.has(item.key);
-      card.classList.toggle("is-selected", selected);
-      card.setAttribute("aria-pressed", String(selected));
+      const isSelected = tasteOnboardingSelection.has(item.key);
+      card.classList.toggle("is-selected", isSelected);
+      card.setAttribute("aria-pressed", String(isSelected));
       updateTasteOnboardingProgress();
     });
     return card;
@@ -153,14 +178,13 @@ function initTasteOnboarding(status = authStatus) {
   screen.classList.remove("hidden");
   document.body.classList.add("taste-onboarding-open");
   tasteOnboardingSelection = new Map();
+  tasteOnboardingSeen = new Set();
   updateTasteOnboardingProgress();
   renderTasteOnboardingCandidates();
   if (!tasteOnboardingBound) {
     tasteOnboardingBound = true;
     document.getElementById("taste-onboarding-more").addEventListener("click", () => {
       tasteOnboardingPage += 1;
-      tasteOnboardingSelection.clear();
-      updateTasteOnboardingProgress();
       renderTasteOnboardingCandidates();
     });
     document.getElementById("taste-onboarding-submit").addEventListener("click", completeTasteOnboarding);

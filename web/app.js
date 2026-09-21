@@ -4,7 +4,7 @@ async function initApp() {
   initLoginScreen();
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
-  await requireLogin(); initTasteOnboarding(authStatus);
+  await requireLogin(); initUserProfile(); initTasteOnboarding(authStatus);
   // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
   // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
   initSeriesCalendar({ autoLoad: true });

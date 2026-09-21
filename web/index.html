@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260915-3">
+<link rel="stylesheet" href="/style.css?v=royal-20260921-1">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -130,6 +130,22 @@
     <button id="mobile-queue-btn" class="btn btn-ghost mobile-only" title="Warteschlange" aria-label="Warteschlange öffnen">
       <span aria-hidden="true">↓</span><span id="mobile-queue-count">0</span>
     </button>
+    <div id="user-menu" class="user-menu">
+      <button id="user-menu-trigger" class="user-menu-trigger" type="button" aria-expanded="false" aria-controls="user-menu-popover">
+        <span id="user-menu-avatar" class="user-menu-avatar" aria-hidden="true">R</span><span class="user-menu-copy"><strong id="user-menu-name">Royal</strong><small id="user-menu-role">Profil</small></span><span class="user-menu-chevron" aria-hidden="true">⌄</span>
+      </button>
+      <div id="user-menu-popover" class="user-menu-popover" hidden>
+        <div class="user-menu-identity"><strong id="user-menu-popover-name">Royal</strong><span id="user-menu-popover-role">Profil</span></div>
+        <button type="button" data-user-action="profile">Mein Profil</button>
+        <button type="button" data-user-action="taste">Mein Geschmack</button>
+        <button type="button" data-user-action="downloads">Meine Downloads</button>
+        <hr>
+        <button type="button" data-user-action="household">Wer schaut gerade?</button>
+        <button type="button" data-user-action="security">Konto &amp; Sicherheit</button>
+        <button type="button" data-user-action="logout">Abmelden</button>
+        <button id="user-menu-admin" type="button" data-user-action="users" hidden>Benutzer verwalten</button>
+      </div>
+    </div>
     <button id="settings-btn" class="btn btn-ghost" title="Einstellungen">⚙ Einstellungen</button>
   </header>
 
@@ -1299,6 +1315,21 @@
       </div>
     </section>
 
+    <section class="tab-content profile-hub" id="tab-profil" aria-labelledby="profile-title">
+      <header class="profile-hero">
+        <span id="profile-avatar" class="profile-avatar" aria-hidden="true">R</span>
+        <div><p>Mein Profil</p><h1 id="profile-title">Royal</h1><span id="profile-member-since">Mitglied</span></div>
+        <button id="profile-edit-taste" class="btn btn-primary" type="button">Interessen neu auswählen</button>
+      </header>
+      <div class="profile-grid">
+        <section class="profile-panel profile-taste"><h2>Dein Geschmack</h2><p id="profile-confidence">Wir lernen dich noch kennen.</p><div class="profile-confidence"><i id="profile-confidence-bar"></i></div><dl><div><dt>Interaktionen</dt><dd id="profile-interactions">0</dd></div><div><dt>Angefordert</dt><dd id="profile-download-count">0</dd></div></dl></section>
+        <section class="profile-panel"><h2>Top Genres</h2><div id="profile-genres" class="profile-genres"></div></section>
+        <section class="profile-panel profile-downloads"><h2>Zuletzt von dir angefordert</h2><div id="profile-recent-downloads" class="profile-recent-downloads"></div></section>
+        <section class="profile-panel"><h2>Account</h2><p>Passwort, aktive Sitzungen und Sicherheit verwaltest du in deinem Konto.</p><button id="profile-security" class="btn btn-ghost" type="button">Konto &amp; Sicherheit</button></section>
+      </div>
+      <section id="household-panel" class="profile-panel household-panel" hidden><h2>Wer schaut gerade?</h2><div id="household-users" class="household-users"></div></section>
+    </section>
+
     <section class="tab-content" id="tab-einstellungen">
       <header class="settings-hero">
         <div class="settings-hero-copy">
@@ -1738,9 +1769,9 @@
             <header class="settings-section-heading">
               <span class="settings-section-mark is-account" aria-hidden="true">⚿</span>
               <div>
-                <span>ZUGANG</span>
-                <h2 id="settings-account-title">Anmeldung</h2>
-                <p>Zugangsdaten für die Oberfläche festlegen und angemeldete Geräte verwalten.</p>
+                <span>MEIN ACCOUNT</span>
+                <h2 id="settings-account-title">Konto &amp; Sicherheit</h2>
+                <p>Dein Passwort und angemeldete Geräte verwalten.</p>
               </div>
             </header>
             <div class="settings-card-grid">
@@ -1949,7 +1980,10 @@
       <strong id="taste-onboarding-count">0</strong><span>von mindestens 5</span>
     </div>
   </header>
-  <div id="taste-onboarding-status" class="taste-onboarding-status" role="status">Titel werden zusammengestellt …</div>
+    <div id="taste-onboarding-status" class="taste-onboarding-status" role="status">Titel werden zusammengestellt …</div>
+  <div class="taste-onboarding-picked" aria-live="polite">
+    <strong>Deine Auswahl</strong><div id="taste-onboarding-selected" class="taste-onboarding-selected"></div>
+  </div>
   <div id="taste-onboarding-grid" class="taste-onboarding-grid" role="group" aria-label="Titel auswählen"></div>
   <footer class="taste-onboarding-actions">
     <button id="taste-onboarding-more" class="btn btn-ghost" type="button">Andere Titel anzeigen</button>
@@ -2475,15 +2509,15 @@
 </div>
 
 <script src="/loading.js?v=royal-20260827-1"></script>
-<script src="/api.js?v=royal-20260915-2"></script>
+<script src="/api.js?v=royal-20260921-1"></script>
 <script src="/i18n.js?v=royal-20260909-3"></script>
-<script src="/store.js?v=royal-20260825-2"></script>
+<script src="/store.js?v=royal-20260921-1"></script>
 <script src="/screens/login.js?v=royal-20260920-1"></script>
 <script src="/core.js?v=royal-20260913-1"></script>
 <script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/home_rail_runtime.js?v=royal-20260915-1"></script>
-<script src="/screens/home.js?v=royal-20260920-1"></script>
-<script src="/screens/taste-onboarding.js?v=royal-20260920-1"></script>
+<script src="/home_rail_runtime.js?v=royal-20260921-1"></script>
+<script src="/screens/home.js?v=royal-20260921-1"></script>
+<script src="/screens/taste-onboarding.js?v=royal-20260921-1"></script>
 <script src="/home_layout_editor.js?v=royal-20260915-2"></script>
 <script src="/screens/mood.js?v=royal-20260825-2"></script>
 <script src="/trailer-runtime.js?v=royal-20260810-2"></script>
@@ -2504,9 +2538,10 @@
 <script src="/screens/notifications.js?v=royal-20260908-1"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/ai-discovery.js?v=royal-20260920-3"></script>
-<script src="/screens/account.js?v=royal-20260920-1"></script>
+<script src="/screens/account.js?v=royal-20260921-1"></script>
+<script src="/screens/user-profile.js?v=royal-20260921-1"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260920-1"></script>
+<script src="/app.js?v=royal-20260921-1"></script>
 </body>
 </html>
