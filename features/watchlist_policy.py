@@ -216,3 +216,57 @@ def select_missing_episode_slugs(
         selected = [episode for episode in missing if episode.season == target_season]
 
     return {episode.slug for episode in selected}
+
+
+def classify_subscription_episode_states(
+    episodes,
+    mode: str,
+    *,
+    downloaded_slugs=None,
+    jellyfin_existing=None,
+    jellyfin_watched=None,
+    season_episode_counts=None,
+    unreleased_slugs=None,
+    enabled_content_languages=None,
+) -> dict[str, str]:
+    """Classify selected subscription episodes without treating absence as failure.
+
+    The download selector intentionally hides language-mismatched and future
+    episodes.  The subscription inbox needs to retain those episodes as normal
+    waiting states, otherwise an unavailable DE track is indistinguishable from
+    a broken download.
+    """
+    episodes = list(episodes or [])
+    unreleased = {str(slug) for slug in (unreleased_slugs or [])}
+    desired = {
+        str(language or "").strip().casefold()
+        for language in (enabled_content_languages or [])
+        if str(language or "").strip()
+    }
+    selected = select_missing_episode_slugs(
+        episodes,
+        mode,
+        downloaded_slugs=downloaded_slugs,
+        jellyfin_existing=jellyfin_existing,
+        jellyfin_watched=jellyfin_watched,
+        season_episode_counts=season_episode_counts,
+        # Keep future episodes in this selection so they receive UPCOMING.
+        unreleased_slugs=(),
+        enabled_content_languages=None,
+    )
+    result: dict[str, str] = {}
+    for episode in episodes:
+        if episode.slug not in selected:
+            continue
+        languages = {
+            str(language or "").strip().casefold()
+            for language in (getattr(episode, "content_languages", ()) or ())
+            if str(language or "").strip()
+        }
+        if episode.slug in unreleased or not bool(getattr(episode, "is_released", True)):
+            result[episode.slug] = "upcoming"
+        elif desired and languages and languages.isdisjoint(desired):
+            result[episode.slug] = "waiting_for_language"
+        else:
+            result[episode.slug] = "available"
+    return result

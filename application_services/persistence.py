@@ -680,6 +680,8 @@ def watchlist_payload() -> dict:
             # A new attempt supersedes older release/failure markers, including
             # manual retries which deliberately retain their failure history.
             waiting_release = (set(w.get("waiting_release_slugs") or []) & pending) - queued
+            waiting_language = set(w.get("waiting_language_slugs") or []) - queued
+            upcoming = set(w.get("upcoming_slugs") or [])
             actionable_pending = pending - waiting_release
             open_pending = actionable_pending - queued
             queued_count = len(queued)
@@ -711,6 +713,10 @@ def watchlist_payload() -> dict:
                 status = "waiting_window"
             elif actionable_pending:
                 status = "missing"
+            elif waiting_language:
+                status = "waiting_for_language"
+            elif upcoming:
+                status = "upcoming"
             elif waiting_release:
                 status = "waiting_release"
             else:
@@ -747,6 +753,9 @@ def watchlist_payload() -> dict:
                 "new_count": len(actionable_pending),
                 "open_count": len(open_pending),
                 "waiting_release_count": len(waiting_release),
+                "waiting_language_count": len(waiting_language),
+                "upcoming_count": len(upcoming),
+                "episode_states": deepcopy(w.get("episode_states") or {}),
                 "queued_count": queued_count,
                 "failed_count": failed_count,
                 "downloaded_count": len(unread_download_notifications),

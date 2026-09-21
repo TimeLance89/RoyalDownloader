@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import api.api_library_router as api_library_router
 import server  # noqa: F401
 from application_services import persistence
+from features.watchlist_policy import classify_subscription_episode_states
 
 
 @pytest.fixture
@@ -109,6 +110,35 @@ def test_read_download_history_does_not_create_an_unread_label(inbox_payload):
     assert item["downloaded_count"] == 0
     assert item["last_unread_downloaded_episode"] is None
     assert item["status"] == "current"
+
+
+def test_language_and_upcoming_episodes_are_waiting_states_not_failures(inbox_payload):
+    item = inbox_payload(
+        {
+            "waiting_language_slugs": ["en-only", "en-only-2"],
+            "upcoming_slugs": ["future"],
+            "failed_downloads": {"en-only": {"message": "old classification"}},
+        },
+    )
+
+    assert item["waiting_language_count"] == 2
+    assert item["upcoming_count"] == 1
+    assert item["failed_count"] == 0
+    assert item["status"] == "waiting_for_language"
+
+
+def test_episode_state_classifier_separates_de_availability_from_en_and_upcoming():
+    episodes = [
+        SimpleNamespace(slug="de", season=1, episode=1, content_languages=("de",), is_released=True),
+        SimpleNamespace(slug="en", season=1, episode=2, content_languages=("en",), is_released=True),
+        SimpleNamespace(slug="future", season=1, episode=3, content_languages=("de",), is_released=False),
+    ]
+
+    states = classify_subscription_episode_states(
+        episodes, "all", enabled_content_languages={"de"}, unreleased_slugs={"future"},
+    )
+
+    assert states == {"de": "available", "en": "waiting_for_language", "future": "upcoming"}
 
 
 @pytest.mark.parametrize(("cutoff", "expected_read"), [

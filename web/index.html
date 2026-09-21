@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
-<link rel="stylesheet" href="/style.css?v=royal-20260921-1">
+<link rel="stylesheet" href="/style.css?v=royal-20260921-2">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -1318,14 +1318,16 @@
     <section class="tab-content profile-hub" id="tab-profil" aria-labelledby="profile-title">
       <header class="profile-hero">
         <span id="profile-avatar" class="profile-avatar" aria-hidden="true">R</span>
-        <div><p>Mein Profil</p><h1 id="profile-title">Royal</h1><span id="profile-member-since">Mitglied</span></div>
-        <button id="profile-edit-taste" class="btn btn-primary" type="button">Interessen neu auswählen</button>
+        <div class="profile-identity"><p>Dein Royal-Profil</p><h1 id="profile-title">Royal</h1><span id="profile-member-since">Mitglied</span><strong id="profile-hero-insight">Dein Geschmack nimmt Gestalt an.</strong></div>
+        <div class="profile-hero-actions"><button id="profile-show-taste" class="btn btn-ghost" type="button">Geschmack ansehen</button><button id="profile-edit-taste" class="btn btn-primary" type="button">Geschmack neu einrichten</button></div>
       </header>
       <div class="profile-grid">
-        <section class="profile-panel profile-taste"><h2>Dein Geschmack</h2><p id="profile-confidence">Wir lernen dich noch kennen.</p><div class="profile-confidence"><i id="profile-confidence-bar"></i></div><dl><div><dt>Interaktionen</dt><dd id="profile-interactions">0</dd></div><div><dt>Angefordert</dt><dd id="profile-download-count">0</dd></div></dl></section>
-        <section class="profile-panel"><h2>Top Genres</h2><div id="profile-genres" class="profile-genres"></div></section>
-        <section class="profile-panel profile-downloads"><h2>Zuletzt von dir angefordert</h2><div id="profile-recent-downloads" class="profile-recent-downloads"></div></section>
-        <section class="profile-panel"><h2>Account</h2><p>Passwort, aktive Sitzungen und Sicherheit verwaltest du in deinem Konto.</p><button id="profile-security" class="btn btn-ghost" type="button">Konto &amp; Sicherheit</button></section>
+        <section class="profile-panel profile-taste"><h2>Dein Geschmack</h2><p id="profile-confidence">Wir lernen dich noch kennen.</p><div class="profile-confidence"><i id="profile-confidence-bar"></i></div><dl><div><dt>Lernsignale</dt><dd id="profile-interactions">0</dd></div><div><dt>Bewertungen</dt><dd id="profile-direct-ratings">0</dd></div></dl></section>
+        <section class="profile-panel profile-genres-panel"><h2>Top Genres</h2><div id="profile-genres" class="profile-genres"></div><p id="profile-negative-genres" class="profile-negative-genres" hidden></p></section>
+        <section class="profile-panel profile-activity"><h2>Deine Aktivität</h2><dl><div><dt>Angeforderte Downloads</dt><dd id="profile-download-count">0</dd></div><div><dt>Meine Abos</dt><dd id="profile-subscription-count">0</dd></div></dl><button id="profile-open-library" class="profile-link" type="button">Meine Liste und Abos öffnen</button></section>
+        <section class="profile-panel profile-intelligence"><h2>Royal Intelligence</h2><p id="profile-intelligence-copy">Deine Empfehlungen werden lokal für dich verfeinert.</p><button id="profile-show-taste-secondary" class="profile-link" type="button">Geschmack ansehen</button></section>
+        <section class="profile-panel profile-downloads"><div class="profile-panel-heading"><div><h2>Zuletzt von dir angefordert</h2><p>Nur deine persönlichen Download-Anfragen.</p></div><button id="profile-discover" class="profile-link" type="button">Entdecken</button></div><div id="profile-recent-downloads" class="profile-recent-downloads"></div></section>
+        <section class="profile-panel profile-security-panel"><h2>Konto &amp; Sicherheit</h2><p>Passwort, aktive Sitzungen und Login verwalten.</p><button id="profile-security" class="btn btn-ghost" type="button">Konto &amp; Sicherheit</button></section>
       </div>
       <section id="household-panel" class="profile-panel household-panel" hidden><h2>Wer schaut gerade?</h2><div id="household-users" class="household-users"></div></section>
     </section>
@@ -2535,11 +2537,11 @@
 <script src="/screens/anime.js?v=royal-20260805-3"></script>
 <script src="/screens/aniworld.js?v=royal-20260823-2"></script>
 <script src="/screens/library.js?v=royal-20260823-1"></script>
-<script src="/screens/notifications.js?v=royal-20260908-1"></script>
+<script src="/screens/notifications.js?v=royal-20260921-2"></script>
 <script src="/screens/settings.js?v=royal-20260823-1"></script>
 <script src="/ai-discovery.js?v=royal-20260920-3"></script>
 <script src="/screens/account.js?v=royal-20260921-1"></script>
-<script src="/screens/user-profile.js?v=royal-20260921-1"></script>
+<script src="/screens/user-profile.js?v=royal-20260921-2"></script>
 <script src="/screens/setup.js?v=royal-20260823-1"></script>
 <script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
 <script src="/app.js?v=royal-20260921-1"></script>

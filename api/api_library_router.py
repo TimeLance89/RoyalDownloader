@@ -49,8 +49,8 @@ from features.watchlist_policy import (
     normalize_cleanup_mode,
     normalize_episode_history,
     normalize_watch_mode,
+    classify_subscription_episode_states,
     select_cleanup_items,
-    select_missing_episode_slugs,
     serialize_episode_history,
 )
 
@@ -1143,7 +1143,7 @@ def _calculate_watchlist_entry_state(
         if any(expected_counts.get(season, 0) <= 0 for season in required_seasons):
             raise RuntimeError("Staffelumfang nicht verifizierbar – Auto-Download pausiert")
     unreleased_slugs = _unreleased_episode_slugs(series, entry.get("tmdb_id", ""))
-    missing_slugs = select_missing_episode_slugs(
+    episode_states = classify_subscription_episode_states(
         series.all_episodes,
         mode,
         downloaded_slugs=downloaded,
@@ -1153,11 +1153,19 @@ def _calculate_watchlist_entry_state(
         unreleased_slugs=unreleased_slugs,
         enabled_content_languages=state.content_languages,
     )
+    missing_slugs = {slug for slug, status in episode_states.items() if status == "available"}
+    waiting_language_slugs = {
+        slug for slug, status in episode_states.items() if status == "waiting_for_language"
+    }
+    upcoming_slugs = {slug for slug, status in episode_states.items() if status == "upcoming"}
     return {
         "mode": mode,
         "cleanup_mode": cleanup_mode,
         "known_slugs": [episode.slug for episode in series.all_episodes],
         "missing_slugs": missing_slugs,
+        "waiting_language_slugs": waiting_language_slugs,
+        "upcoming_slugs": upcoming_slugs,
+        "episode_states": episode_states,
         "cleanup_items": cleanup_items,
     }
 
@@ -1179,12 +1187,25 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
     entry["failed_downloads"] = {
         slug: failure for slug, failure in failed.items() if slug in missing_slugs
     }
+    entry["waiting_language_slugs"] = sorted(
+        str(slug) for slug in calculated.get("waiting_language_slugs", set())
+    )
+    entry["upcoming_slugs"] = sorted(
+        str(slug) for slug in calculated.get("upcoming_slugs", set())
+    )
+    entry["episode_states"] = dict(calculated.get("episode_states") or {})
     waiting_release = {
         str(slug)
         for slug in (entry.get("waiting_release_slugs") or [])
         if str(slug) in missing_slugs
     }
     entry["waiting_release_slugs"] = sorted(waiting_release)
+    source_retries = entry.get("waiting_source_retries")
+    if isinstance(source_retries, dict):
+        entry["waiting_source_retries"] = {
+            str(slug): retry for slug, retry in source_retries.items()
+            if str(slug) in missing_slugs
+        }
     entry["last_checked"] = time.time()
     entry["last_error"] = ""
     entry["check_in_progress"] = False

@@ -40,20 +40,25 @@ function invalidatePersonalUiState(user = authStatus?.user) {
   activeUserId = nextId;
 }
 
-function tasteConfidenceCopy(value, interactions) {
-  if (interactions < 5 || value < .2) return "Wir lernen dich noch kennen.";
-  if (value < .55) return "Dein Geschmacksprofil nimmt Form an.";
-  return "Dein Geschmacksprofil ist gut etabliert.";
+function tasteConfidenceCopy(value, interactions, label = "") {
+  if (label === "very_high" || value >= .82) return "Profil sehr sicher";
+  if (label === "high" || value >= .62) return "Profil gut etabliert";
+  if (label === "medium" || value >= .35) return "Dein Geschmacksprofil nimmt Form an.";
+  return interactions ? "Wir lernen dich noch kennen." : "Dein Profil wartet auf erste Signale.";
 }
 
 function renderProfileSummary(summary) {
   const taste = summary.taste || {};
   const confidence = Math.max(0, Math.min(1, Number(taste.confidence || 0)));
-  document.getElementById("profile-confidence").textContent = tasteConfidenceCopy(confidence, Number(taste.interactions || 0));
+  const confidenceCopy = tasteConfidenceCopy(confidence, Number(taste.interactions || 0), taste.confidence_label);
+  document.getElementById("profile-confidence").textContent = confidenceCopy;
+  document.getElementById("profile-hero-insight").textContent = confidenceCopy;
   document.getElementById("profile-confidence-bar").style.width = `${Math.max(8, confidence * 100)}%`;
   document.getElementById("profile-interactions").textContent = String(taste.interactions || 0);
+  document.getElementById("profile-direct-ratings").textContent = String(taste.direct_ratings || 0);
   document.getElementById("profile-download-count").textContent = String(summary.downloads_requested || 0);
-  const genres = Object.entries(taste.genres || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5);
+  document.getElementById("profile-subscription-count").textContent = String(summary.subscriptions || 0);
+  const genres = Object.entries(taste.genres || {}).filter(([, score]) => Number(score) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5);
   const maximum = Math.max(1, ...genres.map(([, score]) => Math.abs(Number(score) || 0)));
   document.getElementById("profile-genres").replaceChildren(...(genres.length ? genres.map(([name, score]) => {
     const row = document.createElement("div");
@@ -64,6 +69,11 @@ function renderProfileSummary(summary) {
     meter.append(fill); row.append(label, meter);
     return row;
   }) : [Object.assign(document.createElement("p"), { textContent: "Noch keine ausreichenden Signale." })]));
+  const negative = Object.entries(taste.negative_genres || {}).filter(([, score]) => Number(score) < 0).sort((a, b) => Number(a[1]) - Number(b[1])).slice(0, 3).map(([name]) => name);
+  const negativeTarget = document.getElementById("profile-negative-genres");
+  negativeTarget.hidden = !negative.length;
+  negativeTarget.textContent = negative.length ? `Weniger deins: ${negative.join(", ")}` : "";
+  document.getElementById("profile-intelligence-copy").textContent = `${confidenceCopy}. Letzte Aktualisierung: ${taste.updated_at ? new Date(taste.updated_at * 1000).toLocaleDateString("de-DE") : "noch offen"}.`;
   const recent = summary.recent_downloads || [];
   document.getElementById("profile-recent-downloads").replaceChildren(...(recent.length ? recent.map((download) => {
     const card = document.createElement("div"); card.className = "profile-download"; card.textContent = download.title; card.title = download.status; return card;
@@ -124,6 +134,11 @@ function initUserProfile() {
     if (!window.confirm("Geschmack vollständig neu aufbauen? Bisherige persönliche Signale werden gelöscht.")) return;
     const response = await api.tasteReset(); reopenTasteOnboarding(response.user);
   });
+  const showTaste = () => document.querySelector(".profile-genres-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  document.getElementById("profile-show-taste").addEventListener("click", showTaste);
+  document.getElementById("profile-show-taste-secondary").addEventListener("click", showTaste);
+  document.getElementById("profile-open-library").addEventListener("click", () => switchTab("bibliothek"));
+  document.getElementById("profile-discover").addEventListener("click", () => switchTab("home"));
   document.getElementById("profile-security").addEventListener("click", () => switchTab("einstellungen"));
 }
 
