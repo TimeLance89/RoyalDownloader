@@ -141,6 +141,14 @@ function initNavigationMenus() {
     event.preventDefault();
     closeNavigationMenus({ restoreFocus: true });
   });
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;
+    const input = document.getElementById("global-search-input");
+    if (!input) return;
+    event.preventDefault();
+    document.getElementById("global-search-shell").classList.add("is-expanded");
+    input.focus();
+  });
   window.addEventListener("resize", () => closeNavigationMenus());
 }
 
