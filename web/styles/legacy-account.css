@@ -95,6 +95,9 @@ body.login-open #app {
 .account-warning span { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
 .account-settings input { margin-bottom: 4px; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.account-user-identity { flex: 1 1 260px; align-self: center; color: var(--text-dim); font-size: 11px; }
+.account-user-delete { color: #ff9aa3; border-color: rgba(235, 62, 80, .48); }
+.account-user-delete:hover, .account-user-delete:focus-visible { color: #fff; border-color: #ef3546; background: rgba(195, 22, 39, .2); }
 .account-sessions button { margin-top: 10px; }
 #account-status.error, #account-revoke-status.error { color: var(--red); }
 
