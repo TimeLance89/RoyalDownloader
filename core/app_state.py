@@ -23,7 +23,7 @@ from providers.serienstream import SerienstreamScraper
 from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
 from core.runtime_paths import data_dir
-from features.taste_profile import TasteProfileStore
+from features.taste_profile import UserTasteProfileStore
 from core.module_manager import ModuleManager
 from modules.registry import BUILTIN_MODULES
 from integrations.tmdb_client import TMDBClient
@@ -117,7 +117,10 @@ class AppState:
         self.movie_subscription_check_lock = threading.Lock()
         self.auto_download_lock = threading.Lock()
         self.hoster_intel = HosterIntel()
-        self.taste_profile = TasteProfileStore(appconfig.taste_profile_file())
+        self.taste_profiles = UserTasteProfileStore(appconfig.taste_profile_file())
+        # Compatibility for the Jellyfin recommender and legacy maintenance:
+        # the historic file belongs exclusively to the original administrator.
+        self.taste_profile = self.taste_profiles.legacy
         self.home_layout = HomeLayoutStore(appconfig.home_layout_file())
         self.ai_discovery = AiDiscoveryService(appconfig.load_ai())
 

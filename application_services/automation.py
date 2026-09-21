@@ -208,7 +208,15 @@ def _auto_download_new_episodes():
                 "warn",
             )
             return
-        accepted = _enqueue_automatic_downloads(prepared_slugs, taste_source="watchlist")
+        with state.watchlist_lock:
+            owners = {
+                slug: str(entry.get("requested_by_user_id") or "")
+                for entry in state.watchlist for slug in prepared_slugs
+                if slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
+            }
+        accepted = _enqueue_automatic_downloads(
+            prepared_slugs, taste_source="watchlist", requested_by_by_slug=owners,
+        )
         if len(accepted) != len(prepared_slugs):
             with state.queue_claim_lock:
                 state.picked.difference_update(set(prepared_slugs) - accepted)

@@ -11,7 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -248,9 +248,11 @@ class _QueuePreparationJob:
                 broadcast({"type": "queue_update", "queue": build_queue_payload()})
 
 
-def _record_download_taste(jobs: list[tuple[FilmpalastMovie, str]], source: str) -> None:
-    if not source:
+def _record_download_taste(jobs: list[tuple[FilmpalastMovie, str]], source: str, user_id: str = "") -> None:
+    if not source or not user_id:
         return
+    profiles = getattr(state, "taste_profiles", None)
+    profile = profiles.for_user(user_id) if profiles else state.taste_profile
     for movie, slug in jobs:
         episode = parse_episode_slug(slug)
         is_anime = source == "anime" or slug.startswith((MKISSA_PREFIX, ANIWORLD_PREFIX))
@@ -262,7 +264,7 @@ def _record_download_taste(jobs: list[tuple[FilmpalastMovie, str]], source: str)
             item_key = f"anime:{anime_base}"
         else:
             item_key = f"series:{episode[0]}" if episode else f"movie:{slug}"
-        state.taste_profile.record_event(
+        profile.record_event(
             "download",
             source=source,
             media_type=media_type,
@@ -281,6 +283,8 @@ def _enqueue_automatic_downloads(
     slugs: list[str],
     movie_fallbacks: dict[str, list[FilmpalastMovie]] | None = None,
     taste_source: str = "",
+    requested_by_user_id: str = "",
+    requested_by_by_slug: dict[str, str] | None = None,
 ) -> set[str]:
     if UPDATE_INSTALLER.is_active() or state.ytdlp_update_active:
         log("Downloadstart pausiert: Ein Systemupdate läuft.", "warn")
@@ -346,6 +350,10 @@ def _enqueue_automatic_downloads(
                     continue
                 jobs.append((movie, slug))
                 _ensure_queue_job(slug, movie)
+                owner = str((requested_by_by_slug or {}).get(slug) or requested_by_user_id)
+                job_id = state.queue_job_by_slug.get(slug, "")
+                if owner and job_id in state.queue_jobs:
+                    state.queue_jobs[job_id]["requested_by_user_id"] = owner
                 if key:
                     occupied_keys.add(key)
 
@@ -394,7 +402,9 @@ def _enqueue_automatic_downloads(
         if rejected_claims:
             broadcast({"type": "queue_update", "queue": build_queue_payload()})
         return set()
-    _record_download_taste(jobs, taste_source)
+    for movie, slug in jobs:
+        owner = str((requested_by_by_slug or {}).get(slug) or requested_by_user_id)
+        _record_download_taste([(movie, slug)], taste_source, owner)
     log(f"Automatisch eingeplant: {len(jobs)} Download(s) (max. 2 parallel)")
     broadcast({
         "type": "queue_started",
@@ -491,18 +501,53 @@ class TasteImportBody(BaseModel):
     kinds: dict[str, float] = Field(default_factory=dict)
 
 
+class TasteOnboardingItem(BaseModel):
+    item_key: str = Field(min_length=1, max_length=240)
+    title: str = Field(min_length=1, max_length=160)
+    media_type: str = Field(pattern="^(movie|series|anime)$")
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class TasteOnboardingBody(BaseModel):
+    items: list[TasteOnboardingItem] = Field(min_length=5, max_length=20)
+
+
+def _taste_context(request: Request | None = None):
+    if request is None:
+        return None, state.taste_profile
+    from application_services.auth import current_user
+    user = current_user(request.headers, request.cookies)
+    if not user or not user.get("id"):
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    profiles = getattr(state, "taste_profiles", None)
+    profile = profiles.for_user(str(user["id"])) if profiles else state.taste_profile
+    return user, profile
+
+
+def _taste_payload(user, profile) -> dict:
+    payload = profile.public_profile()
+    if user:
+        payload.update({
+            "owner_user_id": str(user["id"]),
+            "taste_onboarding_required": bool(user.get("taste_onboarding_required")),
+        })
+    return payload
+
+
 @router.get("/api/v1/taste/profile")
 @router.get("/api/taste/profile")
-async def api_taste_profile_get():
-    return state.taste_profile.public_profile()
+async def api_taste_profile_get(request: Request = None):
+    user, profile = _taste_context(request)
+    return _taste_payload(user, profile)
 
 
 @router.post("/api/v1/taste/events")
 @router.post("/api/taste/events")
-async def api_taste_event(body: TasteEventBody):
+async def api_taste_event(body: TasteEventBody, request: Request = None):
+    user, profile = _taste_context(request)
     try:
         recorded = await run_in_threadpool(
-            state.taste_profile.record_event,
+            profile.record_event,
             body.action,
             source=body.source,
             media_type=body.media_type,
@@ -514,20 +559,21 @@ async def api_taste_event(body: TasteEventBody):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"recorded": recorded, "profile": state.taste_profile.public_profile()}
+    return {"recorded": recorded, "profile": _taste_payload(user, profile)}
 
 
 @router.post("/api/v1/taste/feedback")
 @router.post("/api/taste/feedback")
-async def api_taste_feedback(body: TasteFeedbackBody):
+async def api_taste_feedback(body: TasteFeedbackBody, request: Request = None):
+    user, profile = _taste_context(request)
     try:
         if body.action.casefold() == "clear":
             changed = await run_in_threadpool(
-                state.taste_profile.clear_feedback, body.item_key,
+                profile.clear_feedback, body.item_key,
             )
         else:
             await run_in_threadpool(
-                state.taste_profile.set_feedback,
+                profile.set_feedback,
                 body.item_key,
                 body.action,
                 source=body.source,
@@ -539,28 +585,55 @@ async def api_taste_feedback(body: TasteFeedbackBody):
             changed = True
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"changed": changed, "profile": state.taste_profile.public_profile()}
+    return {"changed": changed, "profile": _taste_payload(user, profile)}
 
 
 @router.post("/api/v1/taste/import")
 @router.post("/api/taste/import")
-async def api_taste_import(body: TasteImportBody):
+async def api_taste_import(body: TasteImportBody, request: Request = None):
+    user, profile = _taste_context(request)
     try:
         imported = await run_in_threadpool(
-            state.taste_profile.import_legacy, body.model_dump(),
+            profile.import_legacy, body.model_dump(),
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, "Das alte Geschmacksprofil ist ungültig.") from exc
-    return {"imported": imported, "profile": state.taste_profile.public_profile()}
+    return {"imported": imported, "profile": _taste_payload(user, profile)}
+
+
+@router.post("/api/v1/taste/onboarding")
+@router.post("/api/taste/onboarding")
+async def api_taste_onboarding(body: TasteOnboardingBody, request: Request):
+    user, profile = _taste_context(request)
+    if not user.get("taste_onboarding_required"):
+        raise HTTPException(409, "Der Geschmack ist bereits eingerichtet.")
+    unique = {item.item_key: item for item in body.items}
+    if len(unique) < 5:
+        raise HTTPException(400, "Wähle mindestens fünf unterschiedliche Titel aus.")
+    await run_in_threadpool(
+        profile.seed_onboarding,
+        [item.model_dump() for item in unique.values()],
+    )
+    from application_services.runtime import backend_value
+    updated_user = backend_value("USER_STORE").complete_taste_onboarding(str(user["id"]))
+    return {
+        "completed": True,
+        "user": updated_user,
+        "profile": _taste_payload(updated_user, profile),
+    }
 
 
 @router.post("/api/v1/taste/reset")
 @router.post("/api/taste/reset")
 @router.delete("/api/v1/taste/profile")
 @router.delete("/api/taste/profile")
-async def api_taste_profile_reset():
-    await run_in_threadpool(state.taste_profile.reset)
-    return {"reset": True, "profile": state.taste_profile.public_profile()}
+async def api_taste_profile_reset(request: Request = None):
+    user, profile = _taste_context(request)
+    await run_in_threadpool(profile.reset)
+    if user:
+        from application_services.runtime import backend_value
+        user = backend_value("USER_STORE").require_taste_onboarding(str(user["id"]))
+    return {"reset": True, "user": user, "profile": _taste_payload(user, profile)}
 
 
 def _preferred_movie_sources(
@@ -612,7 +685,9 @@ def _scheduled_episode_reason(slug: str) -> str:
 
 @router.post("/api/v1/queue/add")
 @router.post("/api/queue/add")
-async def api_queue_add(body: QueueAddBody):
+async def api_queue_add(body: QueueAddBody, request: Request = None):
+    user, _profile = _taste_context(request)
+    requested_by_user_id = str((user or {}).get("id") or "")
     def _work():
         added_slugs: list[str] = []
         selected_fallbacks: dict[str, list[FilmpalastMovie]] = {}
@@ -716,6 +791,7 @@ async def api_queue_add(body: QueueAddBody):
             added_slugs,
             movie_fallbacks=selected_fallbacks or None,
             taste_source=body.source,
+            requested_by_user_id=requested_by_user_id,
         )
         duplicate_rejected = set(added_slugs) - accepted
         if len(accepted) < len(added_slugs):

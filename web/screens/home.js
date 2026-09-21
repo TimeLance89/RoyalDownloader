@@ -373,6 +373,7 @@ function homeAnimeEntry(item) {
 }
 
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
+function discoveryProfileStorageKey() { const userId = String(authStatus?.user?.id || ""); return userId && userId !== "admin-legacy" ? `${HOME_DISCOVERY_PROFILE_KEY}:${userId}` : HOME_DISCOVERY_PROFILE_KEY; }
 const HOME_DAILY_TOP_KEY = "royal-home-daily-top-v1";
 
 function homeEntryKey(entry) {
@@ -460,7 +461,7 @@ function stableDailyOrder(entries, lane) {
 function loadDiscoveryProfile() {
   let profile = null;
   try {
-    profile = JSON.parse(localStorage.getItem(HOME_DISCOVERY_PROFILE_KEY) || "null");
+    profile = JSON.parse(localStorage.getItem(discoveryProfileStorageKey()) || "null");
   } catch {
     profile = null;
   }
@@ -491,7 +492,7 @@ function loadDiscoveryProfile() {
 
 function saveDiscoveryProfile(profile) {
   try {
-    localStorage.setItem(HOME_DISCOVERY_PROFILE_KEY, JSON.stringify(profile));
+    localStorage.setItem(discoveryProfileStorageKey(), JSON.stringify(profile));
   } catch {
     // Private Modi können lokalen Speicher blockieren; Entdecken bleibt nutzbar.
   }

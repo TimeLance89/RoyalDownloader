@@ -1,9 +1,25 @@
 # Private personalization
 
-Royal Downloader maintains one persistent taste profile for the single user of
-an installation. The profile is stored locally beside the other application
-state and is shared by the web UI, mobile API, Telegram, Seerr, subscriptions,
-the download queue, and Jellyfin.
+Royal Downloader maintains one isolated taste profile for every household
+user. The original `taste_profile.json` remains assigned to the migrated first
+administrator. Additional profiles live below `taste_profiles/` under a
+SHA-256-derived filename; a new user therefore starts with no inherited
+signals. Catalog, library, queue and downloads remain shared household state.
+The instance-wide Jellyfin adapter remains attached to that legacy
+administrator; its playback history never seeds a newly created account.
+
+## Cold-start onboarding
+
+New users are marked `taste_onboarding_required` until they choose at least
+five titles from a diverse 32-title catalog sample. The browser balances media
+types, genres and release decades instead of showing a random cluster of
+similar titles. “Andere Titel anzeigen” produces another deterministic,
+diverse sample.
+
+Each choice is persisted as an `onboarding_like` interaction with a moderate
+weight of `2.5`. This creates useful genre, people, tag, decade and media-type
+dimensions without outweighing later downloads, explicit likes or completed
+plays. Until completion, Royal Intelligence returns no personalized result.
 
 ## What Royal learns from
 
@@ -52,10 +68,9 @@ daily recommendation run, so it cannot grow or double-count indefinitely.
 
 ## Cross-device synchronization and migration
 
-`taste_profile.json` in the persistent application data directory is the source
-of truth. The browser keeps an optimistic cache so clicks feel immediate. On
-startup it refreshes from the server. An existing `royal-discovery-profile-v1`
-browser profile is imported exactly once, after which the server profile wins.
+The per-user server file is the source of truth. The browser cache is namespaced
+with the authenticated user id. Only `admin-legacy` may import the historic
+unnamespaced `royal-discovery-profile-v1` cache; another account never reads it.
 
 All taste endpoints have browser and versioned mobile aliases:
 
@@ -64,6 +79,7 @@ GET    /api[/v1]/taste/profile
 POST   /api[/v1]/taste/events
 POST   /api[/v1]/taste/feedback
 POST   /api[/v1]/taste/import
+POST   /api[/v1]/taste/onboarding
 POST   /api[/v1]/taste/reset
 DELETE /api[/v1]/taste/profile
 ```
@@ -79,10 +95,15 @@ See [ANDROID_API.md](ANDROID_API.md) for request and response examples.
 - API profile responses do not expose raw search queries, titles, or the full
   event history.
 - All routes use the existing Royal Downloader authentication middleware.
-- Settings show the strongest learned genres and provide a full reset button.
+- Settings show the strongest learned genres and can restart taste onboarding.
 - Movie and series details provide “More like this” and “Not for me”; pressing
   the active choice again clears it.
 
-Back up the persistent `data` directory if the profile should survive a fresh
-installation. Removing or resetting the profile is immediate and does not
-delete media, subscriptions, or queue state.
+Royal Intelligence fingerprints and background jobs include the user id,
+profile summary, candidates, model and Reflex version. Download, watchlist and
+subscription signals are written only to the requesting user's profile; shared
+automation without a requesting user does not become household taste.
+
+Back up the persistent `data` directory if profiles should survive a fresh
+installation. Resetting a profile restarts onboarding and does not delete
+media, subscriptions, or queue state.

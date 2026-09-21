@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -150,6 +150,18 @@ def create_library_router(backend) -> APIRouter:
     globals().update({name: dynamic(name) for name in _DYNAMIC_CALLS})
     globals()["state"] = backend.state
     return router
+
+
+def _personal_taste_store(request: Request | None):
+    if request is None:
+        return None, ""
+    from application_services.auth import current_user
+    user = current_user(request.headers, request.cookies) or {}
+    user_id = str(user.get("id") or "")
+    if not user_id:
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    profiles = getattr(state, "taste_profiles", None)
+    return (profiles.for_user(user_id) if profiles else state.taste_profile), user_id
 
 
 # ── Cover-Proxy ──────────────────────────────────────────────────────────────
@@ -546,6 +558,7 @@ def check_movie_subscriptions(entries: list[dict] | None = None) -> int:
             accepted = _enqueue_automatic_downloads(
                 [slug], movie_fallbacks={slug: fallbacks},
                 taste_source="movie-subscription",
+                requested_by_user_id=str(entry.get("requested_by_user_id") or ""),
             )
             if slug not in accepted:
                 with state.queue_claim_lock:
@@ -580,7 +593,8 @@ class MovieSubscriptionBody(BaseModel):
 
 @router.post("/api/v1/movie-subscriptions")
 @router.post("/api/movie-subscriptions")
-async def api_movie_subscription_save(body: MovieSubscriptionBody):
+async def api_movie_subscription_save(body: MovieSubscriptionBody, request: Request = None):
+    taste_profile, requested_by_user_id = _personal_taste_store(request)
     if body.target_quality not in MOVIE_QUALITY_LABELS:
         raise HTTPException(400, "Unbekannte Zielqualität.")
     if body.cleanup_mode not in MOVIE_CLEANUP_LABELS:
@@ -600,6 +614,8 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
                     "pending_slug": "", "watched_deleted": False,
                 }
                 candidate.append(entry)
+            if requested_by_user_id:
+                entry["requested_by_user_id"] = requested_by_user_id
             entry.update({
                 "source_slug": body.source_slug,
                 "target_quality": normalize_movie_quality(body.target_quality),
@@ -612,16 +628,17 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody):
             _require_persistent_snapshot("movie_subscriptions", candidate)
             state.movie_subscriptions = candidate
         movie = state.fp_movies.get(body.source_slug)
-        state.taste_profile.record_event(
-            "subscription", source="movie-subscription", media_type="movie",
-            item_key=f"movie:{body.tmdb_id or body.source_slug or key}",
-            title=body.title,
-            metadata={
-                "genres": list(movie.genres or []) if movie else [],
-                "year": body.year,
-                "runtime": movie.runtime if movie else "",
-            },
-        )
+        if taste_profile is not None:
+            taste_profile.record_event(
+                "subscription", source="movie-subscription", media_type="movie",
+                item_key=f"movie:{body.tmdb_id or body.source_slug or key}",
+                title=body.title,
+                metadata={
+                    "genres": list(movie.genres or []) if movie else [],
+                    "year": body.year,
+                    "runtime": movie.runtime if movie else "",
+                },
+            )
         threading.Thread(
             target=check_movie_subscriptions, args=([entry],), daemon=True,
         ).start()
@@ -693,7 +710,8 @@ class WatchlistAddBody(BaseModel):
 
 @router.post("/api/v1/watchlist/add")
 @router.post("/api/watchlist/add")
-async def api_watchlist_add(body: WatchlistAddBody):
+async def api_watchlist_add(body: WatchlistAddBody, request: Request = None):
+    taste_profile, requested_by_user_id = _personal_taste_store(request)
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
     if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
@@ -782,6 +800,7 @@ async def api_watchlist_add(body: WatchlistAddBody):
                         409, f"Serie ist bereits als «{duplicate.get('title', body.title)}» abonniert.",
                     )
                 entry = body.model_dump()
+                entry["requested_by_user_id"] = requested_by_user_id
                 localized_title = str((incoming_tmdb or {}).get("title") or body.title).strip()
                 original_title = str((incoming_tmdb or {}).get("original_title") or "").strip()
                 entry["title"] = localized_title
@@ -827,17 +846,18 @@ async def api_watchlist_add(body: WatchlistAddBody):
                     raise
         if entry is not None:
             log(f"«{body.title}» zur Bibliothek hinzugefügt.")
-            state.taste_profile.record_event(
-                "watchlist",
-                source="watchlist",
-                media_type="series",
-                item_key=f"series:{body.tmdb_id or body.base_slug}",
-                title=body.title,
-                metadata={
-                    "genres": (incoming_tmdb or {}).get("genres") or [],
-                    "year": (incoming_tmdb or {}).get("year") or "",
-                },
-            )
+            if taste_profile is not None:
+                taste_profile.record_event(
+                    "watchlist",
+                    source="watchlist",
+                    media_type="series",
+                    item_key=f"series:{body.tmdb_id or body.base_slug}",
+                    title=body.title,
+                    metadata={
+                        "genres": (incoming_tmdb or {}).get("genres") or [],
+                        "year": (incoming_tmdb or {}).get("year") or "",
+                    },
+                )
 
             # Nicht erst bis zum nächsten 30-Minuten-Intervall warten: sofort prüfen
             # und bei eingeschalteter Automatik den Download anstoßen. Die Arbeit

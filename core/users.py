@@ -24,9 +24,21 @@ class UserStore:
     def _load(self) -> None:
         try: raw = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, ValueError): return
+        migrated = False
         for item in raw.get("users", []) if isinstance(raw, dict) else []:
             if not isinstance(item, dict) or not item.get("id") or not item.get("username"): continue
-            self._users[str(item["id"])] = dict(item)
+            stored = dict(item)
+            is_legacy_admin = str(stored["id"]) == "admin-legacy"
+            if "taste_onboarding_required" not in stored or "taste_onboarding_completed_at" not in stored:
+                migrated = True
+            stored.setdefault("taste_onboarding_required", not is_legacy_admin)
+            stored.setdefault(
+                "taste_onboarding_completed_at",
+                float(stored.get("updated_at") or 0) if is_legacy_admin else 0.0,
+            )
+            self._users[str(stored["id"])] = stored
+        if migrated:
+            self._save()
 
     def _save(self) -> None:
         payload = {"version": 1, "users": list(self._users.values())}
@@ -41,7 +53,7 @@ class UserStore:
 
     def _migrate_legacy(self, account: dict) -> None:
         username = validate_username(account["username"])
-        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "created_at": time.time(), "updated_at": time.time()}
+        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "taste_onboarding_required": False, "taste_onboarding_completed_at": time.time(), "created_at": time.time(), "updated_at": time.time()}
         self._save()
 
     def ensure_legacy(self, account: dict) -> None:
@@ -62,7 +74,7 @@ class UserStore:
             item = self._users.get(str(user_id)); return dict(item) if item else None
 
     def public(self, user: dict) -> dict:
-        return {key: user.get(key) for key in ("id", "username", "display_name", "role", "enabled", "setup_required", "created_at", "updated_at")}
+        return {key: user.get(key) for key in ("id", "username", "display_name", "role", "enabled", "setup_required", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")}
 
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]
@@ -74,7 +86,7 @@ class UserStore:
         with self._lock:
             if self.find(username): raise ValueError("Benutzername ist bereits vergeben.")
             now, user_id = time.time(), secrets.token_urlsafe(12)
-            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "created_at": now, "updated_at": now}
+            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
             self._users[user_id] = user; self._save(); return self.public(user)
 
     def set_password(self, user_id: str, password_hash: str) -> dict:
@@ -88,6 +100,22 @@ class UserStore:
             user = self._users.get(user_id)
             if not user: raise ValueError("Benutzer nicht gefunden.")
             user.update(password_hash="", env_password="", setup_required=True, updated_at=time.time()); self._save(); return self.public(user)
+
+    def complete_taste_onboarding(self, user_id: str) -> dict:
+        with self._lock:
+            user = self._users.get(user_id)
+            if not user: raise ValueError("Benutzer nicht gefunden.")
+            user.update(taste_onboarding_required=False, taste_onboarding_completed_at=time.time(), updated_at=time.time())
+            self._save()
+            return self.public(user)
+
+    def require_taste_onboarding(self, user_id: str) -> dict:
+        with self._lock:
+            user = self._users.get(user_id)
+            if not user: raise ValueError("Benutzer nicht gefunden.")
+            user.update(taste_onboarding_required=True, taste_onboarding_completed_at=0.0, updated_at=time.time())
+            self._save()
+            return self.public(user)
 
     def set_enabled(self, user_id: str, enabled: bool) -> dict:
         with self._lock:

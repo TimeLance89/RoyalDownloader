@@ -4,7 +4,7 @@ async function initApp() {
   initLoginScreen();
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
-  await requireLogin();
+  await requireLogin(); initTasteOnboarding(authStatus);
   // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
   // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
   initSeriesCalendar({ autoLoad: true });
@@ -542,6 +542,7 @@ async function initApp() {
       const response = await api.tasteReset();
       applyServerTasteProfile(response.profile);
       renderHome();
+      reopenTasteOnboarding(response.user);
     } catch (error) {
       window.alert(`Profil konnte nicht zurückgesetzt werden: ${error.message}`);
     }

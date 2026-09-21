@@ -1,4 +1,4 @@
-"""Local, persistent taste profile shared by all Royal Downloader clients.
+"""Local, persistent taste profiles shared across a user's Royal clients.
 
 Raw interaction evidence stays on the Royal server.  Public API responses expose
 only aggregate interests plus ranking metadata, never private search text or
@@ -8,6 +8,7 @@ watched-title history.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -32,6 +33,7 @@ HALF_LIFE_DAYS = 180.0
 LEGACY_HALF_LIFE_DAYS = 120.0
 
 ACTION_WEIGHTS = {
+    "onboarding_like": 2.5,
     "search": 0.15,
     "open": 0.8,
     "remove": -1.0,
@@ -399,6 +401,44 @@ class TasteProfileStore:
             self._save_locked()
         return feedback
 
+    def seed_onboarding(self, items: Iterable[Mapping[str, Any]]) -> int:
+        """Atomically store a bounded set of moderate cold-start signals."""
+        unique: dict[str, Mapping[str, Any]] = {}
+        for item in items:
+            key = _clean_text(item.get("item_key"), 240)
+            if key:
+                unique[key] = item
+        if not 5 <= len(unique) <= 20:
+            raise ValueError("Wähle mindestens fünf unterschiedliche Titel aus.")
+        now = float(self.clock())
+        events = [{
+            "id": uuid.uuid4().hex,
+            "at": now,
+            "action": "onboarding_like",
+            "source": "taste-onboarding",
+            "media_type": _clean_text(item.get("media_type"), 20).casefold(),
+            "item_key": key,
+            "title": _clean_text(item.get("title"), 160),
+            "dimensions": normalize_metadata(
+                item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {},
+                _clean_text(item.get("media_type"), 20).casefold(),
+            ),
+            "value": None,
+            "query": "",
+        } for key, item in unique.items()]
+        with self._lock:
+            # A failed account-state write may cause the client to retry. Replace
+            # the cold-start batch so that such retries remain idempotent.
+            self._data["events"] = [
+                event for event in self._data["events"]
+                if event.get("action") != "onboarding_like"
+            ]
+            self._data["events"].extend(events)
+            self._data["events"] = self._data["events"][-MAX_EVENTS:]
+            self._data["updated_at"] = now
+            self._save_locked()
+        return len(events)
+
     def clear_feedback(self, item_key: str) -> bool:
         with self._lock:
             removed = self._data["feedback"].pop(_clean_text(item_key, 240), None) is not None
@@ -650,3 +690,45 @@ class TasteProfileStore:
             self._data = self._empty()
             self._data["updated_at"] = float(self.clock())
             self._save_locked()
+
+
+class UserTasteProfileStore:
+    """Own one persistent taste profile per household user.
+
+    The historic single-user file remains the original administrator's file.
+    Every other user gets a separate, initially empty file identified by a
+    non-reversible hash of the user id.
+    """
+
+    def __init__(self, legacy_path: Path | str, *, legacy_user_id: str = "admin-legacy"):
+        self.legacy_path = Path(legacy_path)
+        self.root = self.legacy_path.with_name("taste_profiles")
+        self.legacy_user_id = str(legacy_user_id)
+        self._lock = threading.RLock()
+        self._profiles: dict[str, TasteProfileStore] = {
+            self.legacy_user_id: TasteProfileStore(self.legacy_path),
+        }
+
+    @property
+    def legacy(self) -> TasteProfileStore:
+        return self._profiles[self.legacy_user_id]
+
+    def for_user(self, user_id: str) -> TasteProfileStore:
+        owner = _clean_text(user_id, 120)
+        if not owner:
+            raise ValueError("Für das Geschmacksprofil fehlt der Benutzer.")
+        with self._lock:
+            profile = self._profiles.get(owner)
+            if profile is None:
+                filename = hashlib.sha256(owner.encode("utf-8")).hexdigest() + ".json"
+                profile = TasteProfileStore(self.root / filename)
+                self._profiles[owner] = profile
+            return profile
+
+    def diagnostics(self, user_id: str) -> dict[str, Any]:
+        profile = self.for_user(user_id).public_profile()
+        return {
+            "user_id": str(user_id),
+            "profile_id": hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:12],
+            "interaction_count": profile["interactions"],
+        }

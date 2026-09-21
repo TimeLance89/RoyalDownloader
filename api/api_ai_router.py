@@ -95,8 +95,21 @@ def create_ai_router(state) -> APIRouter:
         if not available[0]: return {"enabled": bool(config.get("enabled")), "available": False, "recommendations": [], "message": available[1]}
         from application_services.auth import current_user
         user = current_user(request.headers, request.cookies) or {}
-        try: result = state.ai_discovery.recommendations_now([candidate.model_dump() for candidate in body.candidates], state.taste_profile.public_profile(), str(user.get("id") or ""))
+        user_id = str(user.get("id") or "")
+        if not user_id:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if user.get("taste_onboarding_required"):
+            return {
+                "enabled": True,
+                "available": False,
+                "onboarding_required": True,
+                "recommendations": [],
+                "message": "Richte zuerst deinen persönlichen Geschmack ein.",
+            }
+        profile = state.taste_profiles.for_user(user_id).public_profile()
+        try: result = state.ai_discovery.recommendations_now([candidate.model_dump() for candidate in body.candidates], profile, user_id)
         except (ReflexError, OllamaError, ValueError): return {"enabled": True, "available": False, "recommendations": [], "message": "Royal Reflex ist derzeit nicht verfügbar. Die klassische Startseite bleibt unverändert."}
-        return {"enabled": True, "available": True, "backend": "ollama", "model": config.get("model"), "recommendations": result["items"], "source": result["source"], "refinement_status": result["refinement_status"], "diagnostics": dict(state.ai_discovery.diagnostics)}
+        taste_diagnostics = state.taste_profiles.diagnostics(user_id)
+        return {"enabled": True, "available": True, "backend": "ollama", "model": config.get("model"), "recommendations": result["items"], "source": result["source"], "refinement_status": result["refinement_status"], "diagnostics": {**dict(state.ai_discovery.diagnostics), **taste_diagnostics, "cache_owner": user_id, "onboarding_status": "completed"}}
 
     return router

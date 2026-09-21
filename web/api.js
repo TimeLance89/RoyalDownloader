@@ -316,6 +316,7 @@ const api = {
   tasteEvent(event) { return this.post("/api/taste/events", event); },
   tasteFeedback(feedback) { return this.post("/api/taste/feedback", feedback); },
   tasteImport(profile) { return this.post("/api/taste/import", profile); },
+  tasteOnboarding(items) { return this.post("/api/taste/onboarding", { items }); },
   tasteReset() { return this.post("/api/taste/reset"); },
 
   homeLayout() { return this.get("/api/home/layout"); },
