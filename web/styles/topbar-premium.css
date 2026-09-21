@@ -242,6 +242,21 @@
 .topbar .settings-icon { width: 18px; height: 18px; color: var(--nav-gold); }
 .topbar .settings-label { display: none; }
 
+@media (min-width: 1540px) {
+  .topbar .global-search-shell {
+    position: absolute;
+    left: 62%;
+    margin-left: 0;
+    transform: translateX(-50%);
+  }
+
+  .topbar .bell-wrap { margin-left: auto; }
+}
+
+@media (min-width: 1371px) and (max-width: 1539px) {
+  .topbar .tabs { flex: 1 1 auto; }
+}
+
 @media (max-width: 1370px) {
   .topbar { width: 100%; min-height: 88px; margin-top: 0; gap: 8px; padding-inline: 16px 10px; }
   .topbar .brand { flex-basis: 194px; width: 194px; height: 62px; }
