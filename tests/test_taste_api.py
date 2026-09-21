@@ -1,7 +1,9 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 import server
 from providers.models import FilmpalastMovie
@@ -11,6 +13,7 @@ from features.taste_profile import TasteProfileStore
 def _use_store(monkeypatch, tmp_path):
     store = TasteProfileStore(tmp_path / "taste.json", clock=lambda: 100_000)
     monkeypatch.setattr(server.state, "taste_profile", store)
+    monkeypatch.setattr(server.state, "taste_profiles", SimpleNamespace(for_user=lambda _user_id: store))
     return store
 
 
@@ -55,10 +58,10 @@ def test_queue_taste_collapses_episodes_and_distinguishes_anime(monkeypatch, tmp
     server._record_download_taste([
         (series, "eine-serie-s01e01"),
         (series, "eine-serie-s01e02"),
-    ], "telegram")
+    ], "telegram", "test-user")
     server._record_download_taste([
         (anime, "mkissa:abcdef|sub-s01e001"),
-    ], "anime")
+    ], "anime", "test-user")
     profile = store.public_profile()
     assert profile["interactions"] == 2
     assert profile["kinds"]["series"] == 3.5
@@ -79,7 +82,42 @@ def test_all_taste_routes_have_versioned_and_browser_aliases():
         ("POST", "/taste/events"),
         ("POST", "/taste/feedback"),
         ("POST", "/taste/import"),
+        ("POST", "/taste/onboarding"),
         ("POST", "/taste/reset"),
     }:
         assert (method, f"/api{suffix}") in routes
         assert (method, f"/api/v1{suffix}") in routes
+
+
+def test_onboarding_seeds_only_current_user_and_completes_status(monkeypatch, tmp_path):
+    store = _use_store(monkeypatch, tmp_path)
+    user = {"id": "member-1", "username": "member", "taste_onboarding_required": True}
+    completed = []
+    monkeypatch.setattr("application_services.auth.current_user", lambda *_args: user)
+    monkeypatch.setattr(
+        "application_services.runtime.backend_value",
+        lambda name: SimpleNamespace(
+            complete_taste_onboarding=lambda user_id: completed.append(user_id) or {
+                **user, "taste_onboarding_required": False,
+            },
+        ) if name == "USER_STORE" else None,
+    )
+    request = Request({
+        "type": "http", "method": "POST", "path": "/api/taste/onboarding",
+        "headers": [], "query_string": b"", "client": ("127.0.0.1", 1),
+        "server": ("localhost", 80), "scheme": "http",
+    })
+    body = server.TasteOnboardingBody(items=[
+        server.TasteOnboardingItem(
+            item_key=f"movie:{index}", title=f"Titel {index}", media_type="movie",
+            metadata={"genres": ["Drama" if index < 3 else "Comedy"]},
+        )
+        for index in range(5)
+    ])
+
+    response = asyncio.run(server.api_taste_onboarding(body, request))
+
+    assert response["completed"] is True
+    assert completed == ["member-1"]
+    assert response["profile"]["interactions"] == 5
+    assert response["profile"]["owner_user_id"] == "member-1"

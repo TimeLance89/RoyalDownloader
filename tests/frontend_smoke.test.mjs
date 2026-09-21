@@ -310,7 +310,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   assert.match(app, /container\.classList\.contains\("active"\)/);
   assert.match(app, /recheckFpInfinite = bind\("tab-filme", "fp-infinite", loadNextFpPage\)/);
   assert.match(app, /recheckSeriesInfinite = bind\("tab-serien", "series-infinite", loadNextSeriesPage\)/);
-  assert.match(html, /app\.js\?v=royal-20260915-1/);
+  assert.match(html, /app\.js\?v=royal-20260920-1/);
 });
 
 test("searches run only after an explicit submit", () => {
@@ -435,7 +435,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260915-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260915-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260920-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
