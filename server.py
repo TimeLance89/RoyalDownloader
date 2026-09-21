@@ -672,6 +672,7 @@ def _profile_summary(user: dict) -> dict:
             "title": str(job.get("title") or job.get("display_name") or "Download"),
             "status": str(job.get("status") or "queued"),
             "cover_url": str(job.get("cover_url") or ""),
+            "requested_at": float(job.get("requested_at") or job.get("created_at") or job.get("queued_at") or 0),
         }
         for job in personal[:8]
     ]
