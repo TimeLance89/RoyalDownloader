@@ -8,6 +8,52 @@ function homeRailCardSignature(entry, rank = 0, variant = "") {
   ]);
 }
 
+const homeCardArtworkState = new WeakMap();
+let homeCardArtworkObserver = null;
+
+function startHomeCardArtwork(image, priority = "auto") {
+  const artwork = homeCardArtworkState.get(image);
+  if (!artwork || artwork.started || !artwork.candidates.length) return;
+  artwork.started = true;
+  image.loading = "eager";
+  image.fetchPriority = priority;
+  const candidate = artwork.candidates[artwork.index];
+  image.classList.toggle("is-poster-fallback", candidate.posterFallback);
+  image.src = candidate.url;
+  homeCardArtworkObserver?.unobserve(image);
+}
+
+function observeHomeCardArtwork(image) {
+  if (typeof IntersectionObserver !== "function") return;
+  if (!homeCardArtworkObserver) {
+    homeCardArtworkObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        startHomeCardArtwork(entry.target, entry.intersectionRatio > 0 ? "high" : "auto");
+      });
+    }, { root: null, rootMargin: "480px 520px", threshold: 0.01 });
+  }
+  homeCardArtworkObserver.observe(image);
+}
+
+function setHomeCardArtworkCandidates(image, candidates) {
+  const artwork = { candidates: [...candidates], index: 0, started: false };
+  homeCardArtworkState.set(image, artwork);
+  image.addEventListener("error", () => {
+    artwork.index += 1;
+    if (artwork.index >= artwork.candidates.length) {
+      homeCardArtworkState.delete(image);
+      homeCardArtworkObserver?.unobserve(image);
+      image.remove();
+      return;
+    }
+    const candidate = artwork.candidates[artwork.index];
+    image.classList.toggle("is-poster-fallback", candidate.posterFallback);
+    image.src = candidate.url;
+  });
+  observeHomeCardArtwork(image);
+}
+
 function setHomeCardMeta(meta, media, kind) {
   meta.replaceChildren();
   if (media.year) {
@@ -81,18 +127,23 @@ function primeHomeRailPosters(track) {
   if (!track?.getBoundingClientRect || !track.addEventListener) return;
   const hydrate = () => {
     const bounds = track.getBoundingClientRect();
-    [...track.children].forEach((card, index) => {
+    const viewportWidth = document.documentElement?.clientWidth || window.innerWidth || 0;
+    const viewportHeight = document.documentElement?.clientHeight || window.innerHeight || 0;
+    const verticallyNear = bounds.bottom >= -320 && bounds.top <= viewportHeight + 640;
+    if (!verticallyNear) return;
+    [...track.children].forEach((card) => {
       const image = card.querySelector?.(".home-card-art img");
       if (!image) return;
       const rect = card.getBoundingClientRect();
       const nearViewport = rect.right >= bounds.left - 240 && rect.left <= bounds.right + 420;
-      if (index < 7 || nearViewport) {
-        image.loading = "eager";
-        image.fetchPriority = index < 5 ? "high" : "auto";
-      }
+      if (!nearViewport) return;
+      const visible = rect.right > 0 && rect.left < viewportWidth
+        && rect.bottom > 0 && rect.top < viewportHeight;
+      startHomeCardArtwork(image, visible ? "high" : "auto");
     });
   };
   hydrate();
+  requestAnimationFrame(hydrate);
   if (track.dataset.posterHydrationBound) return;
   track.dataset.posterHydrationBound = "true";
   let frame = 0;
