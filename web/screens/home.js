@@ -2,7 +2,6 @@
 const MOVIE_FEATURE_INTERVAL_MS = 9000;
 const MOVIE_FEATURE_MAX_AGE_DAYS = 270;
 const MOVIE_FEATURE_MAX_FUTURE_DAYS = 45;
-
 function movieFeatureCandidate(result) {
   const metadata = state.fp.metadataCache[result.slug] || {};
   const backdrop = metadata.backdrop_url || result.backdrop_url || "";
@@ -41,7 +40,6 @@ function movieFeatureCandidate(result) {
     featureScore: score,
   };
 }
-
 function stopMovieFeatureRotation() {
   if (!state.fp.featureTimer) return;
   clearInterval(state.fp.featureTimer);
@@ -1050,24 +1048,11 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     });
   if (artworkCandidates.length) {
     const image = document.createElement("img");
-    let artworkIndex = 0;
-    const showArtworkCandidate = () => {
-      const candidate = artworkCandidates[artworkIndex];
-      image.classList.toggle("is-poster-fallback", candidate.posterFallback);
-      image.src = candidate.url;
-    };
-    showArtworkCandidate();
-    image.alt = "";
-    image.loading = eager ? "eager" : "lazy";
+    image.loading = "lazy";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
-    image.addEventListener("error", () => {
-      artworkIndex += 1;
-      if (artworkIndex < artworkCandidates.length) {
-        showArtworkCandidate();
-      }
-      else image.remove();
-    });
+    image.alt = "";
+    setHomeCardArtworkCandidates(image, artworkCandidates);
     art.appendChild(image);
   }
   const type = document.createElement("span");
@@ -1134,7 +1119,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 0 && index < eagerCount, variant),
+        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }), { loop: layout !== "spotlight" && !ranked });

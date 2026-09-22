@@ -43,6 +43,18 @@ def _watchlist_entry_for_episode(slug: str) -> dict | None:
         )
 
 
+def _watchlist_episode_is_actionable(entry: dict, slug: str) -> bool:
+    """Reject stale pending slugs that are known language/release wait states."""
+    episode_state = (entry.get("episode_states") or {}).get(slug)
+    if episode_state in {"waiting_for_language", "upcoming"}:
+        return False
+    return slug not in {
+        *(entry.get("waiting_language_slugs") or []),
+        *(entry.get("waiting_release_slugs") or []),
+        *(entry.get("upcoming_slugs") or []),
+    }
+
+
 def _playable_episode_source(slug: str, primary):
     """Return a playable source or None while the episode has no release."""
     if primary is not None and getattr(primary, "hosters", None):
@@ -99,6 +111,7 @@ def _auto_download_new_episodes():
                     for entry in state.watchlist
                     if not entry.get("last_error") and not entry.get("check_in_progress")
                     for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
+                    if _watchlist_episode_is_actionable(entry, slug)
                 },
                 key=episode_sort_key,
             )
@@ -115,6 +128,7 @@ def _auto_download_new_episodes():
                 if not any(
                     not entry.get("last_error") and not entry.get("check_in_progress")
                     and slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
+                    and _watchlist_episode_is_actionable(entry, slug)
                     for entry in state.watchlist
                 ):
                     continue
@@ -211,6 +225,7 @@ def _auto_download_new_episodes():
                 for entry in state.watchlist
                 if not entry.get("last_error") and not entry.get("check_in_progress")
                 for slug in state.watchlist_new_slugs.get(entry.get("base_slug", ""), set())
+                if _watchlist_episode_is_actionable(entry, slug)
             }
         withdrawn = set(prepared_slugs) - still_pending
         if withdrawn:

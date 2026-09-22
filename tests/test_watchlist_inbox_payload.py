@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import api.api_library_router as api_library_router
 import server  # noqa: F401
 from application_services import persistence
+from application_services import automation
 from features.watchlist_policy import classify_subscription_episode_states
 
 
@@ -125,6 +126,53 @@ def test_language_and_upcoming_episodes_are_waiting_states_not_failures(inbox_pa
     assert item["upcoming_count"] == 1
     assert item["failed_count"] == 0
     assert item["status"] == "waiting_for_language"
+
+
+def test_language_waiting_wins_over_stale_pending_and_failure_state(inbox_payload):
+    en_only = {f"fire-country-s04e{episode:02d}" for episode in range(13, 21)}
+    en_only.update({"9-1-1-s09e17", "9-1-1-s09e18"})
+    item = inbox_payload(
+        {
+            "waiting_language_slugs": sorted(en_only),
+            "failed_downloads": {
+                slug: {"message": "old download attempt"} for slug in en_only
+            },
+        },
+        pending=en_only,
+    )
+
+    assert item["waiting_language_count"] == 10
+    assert item["new_count"] == item["open_count"] == item["failed_count"] == 0
+    assert item["status"] == "waiting_for_language"
+
+
+def test_episode_state_alone_suppresses_stale_language_failure(inbox_payload):
+    item = inbox_payload(
+        {
+            "episode_states": {"9-1-1-s09e17": "waiting_for_language"},
+            "failed_downloads": {"9-1-1-s09e17": {"message": "stale"}},
+        },
+        pending={"9-1-1-s09e17"},
+    )
+
+    assert item["waiting_language_count"] == 1
+    assert item["open_count"] == item["failed_count"] == 0
+    assert item["status"] == "waiting_for_language"
+
+
+def test_auto_download_rejects_language_and_release_wait_states():
+    entry = {
+        "waiting_language_slugs": ["fire-country-s04e13"],
+        "waiting_release_slugs": ["future-release"],
+        "upcoming_slugs": ["future-episode"],
+        "episode_states": {"9-1-1-s09e17": "waiting_for_language"},
+    }
+
+    for slug in (
+        "fire-country-s04e13", "future-release", "future-episode", "9-1-1-s09e17",
+    ):
+        assert automation._watchlist_episode_is_actionable(entry, slug) is False
+    assert automation._watchlist_episode_is_actionable(entry, "ready-de-episode") is True
 
 
 def test_episode_state_classifier_separates_de_availability_from_en_and_upcoming():

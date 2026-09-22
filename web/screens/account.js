@@ -35,11 +35,37 @@ function accountUserRow(user) {
   const row = document.createElement("div");
   row.className = "account-actions";
   const state = !user.enabled ? "Deaktiviert" : user.setup_required ? "Einrichtung ausstehend" : "Aktiv";
-  row.textContent = `${user.display_name} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
+  const identity = document.createElement("span");
+  identity.className = "account-user-identity";
+  identity.textContent = `${user.display_name} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
+  row.appendChild(identity);
   if (user.enabled) {
     const reset = document.createElement("button"); reset.className = "btn btn-ghost btn-sm"; reset.textContent = "Passwort zurücksetzen";
     reset.onclick = async () => { await api.authUserReset(user.id); void refreshAccountUsers(); };
     row.appendChild(reset);
+  }
+  if (user.id !== authStatus.user?.id) {
+    const remove = document.createElement("button");
+    remove.className = "btn btn-ghost btn-sm account-user-delete";
+    remove.textContent = "Vollständig löschen";
+    remove.onclick = async () => {
+      const name = user.display_name || user.username;
+      if (!window.confirm(`Konto „${name}“ vollständig löschen? Sitzungen, Geschmack, Anfragen und persönliche Abos werden dauerhaft entfernt.`)) return;
+      const status = document.getElementById("account-users-status");
+      remove.disabled = true;
+      status.classList.remove("error");
+      status.textContent = `„${name}“ wird vollständig gelöscht …`;
+      try {
+        await api.authUserDelete(user.id);
+        status.textContent = `„${name}“ wurde vollständig gelöscht.`;
+        await refreshAccountUsers();
+      } catch (error) {
+        status.textContent = error.message;
+        status.classList.add("error");
+        remove.disabled = false;
+      }
+    };
+    row.appendChild(remove);
   }
   return row;
 }

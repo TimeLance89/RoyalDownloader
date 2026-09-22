@@ -1,55 +1,81 @@
 {
   "voe.sx": {
-    "last_probe": 1786348570.6797557,
-    "ok": 8,
+    "last_probe": 1790053473.4525185,
+    "ok": 69,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 0,
+    "last_download": 1789995399.3697455,
+    "download_ok": 28,
+    "speed_bps_ewma": 10726880.269390747,
+    "speed_samples": 29,
+    "download_fail": 1,
+    "fail": 33,
+    "last_probe_failure": 1790013293.196668
   },
   "@name:voe": {
-    "last_probe": 1786348570.6797557,
-    "ok": 8,
+    "last_probe": 1790053473.4525185,
+    "ok": 61,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 0,
+    "last_download": 1789995399.3697455,
+    "download_ok": 28,
+    "speed_bps_ewma": 10726880.269390747,
+    "speed_samples": 29,
+    "download_fail": 1,
+    "fail": 23,
+    "last_probe_failure": 1790013293.196668
   },
   "moflix-stream.click": {
-    "last_probe": 1786348447.5867245,
-    "ok": 4,
+    "last_probe": 1790013466.9150825,
+    "ok": 15,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 2,
+    "fail": 22,
+    "last_probe_failure": 1790013466.9150825
   },
   "@name:moflix": {
-    "last_probe": 1786348447.5867245,
-    "ok": 4,
+    "last_probe": 1790013466.9150825,
+    "ok": 15,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 3,
+    "fail": 33,
+    "last_probe_failure": 1790013466.9150825,
+    "circuit_until": 1790014666.9150825,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "vide0.net": {
-    "last_probe": 1786259783.5846372,
-    "ok": 1,
+    "last_probe": 1790011714.4944384,
+    "ok": 5,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 2,
+    "fail": 20,
+    "last_probe_failure": 1790011714.4944384
   },
   "@name:doodstream": {
-    "last_probe": 1786259783.5846372,
-    "ok": 1,
+    "last_probe": 1790013293.5703495,
+    "ok": 5,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 3,
+    "fail": 28,
+    "last_probe_failure": 1790013293.5703495,
+    "circuit_until": 1790014493.5703495,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "meinecloud.click": {
-    "last_probe": 1786259786.433194,
-    "fail": 1,
-    "probe_fail_streak": 1,
-    "last_probe_failure": 1786259786.433194,
-    "circuit_until": 1786260986.433194,
-    "circuit_reason": "ERROR: Unsupported URL: https://meinecloud.click/movie/tt15940132"
+    "last_probe": 1790013470.9519114,
+    "fail": 34,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.9519114,
+    "circuit_until": 1790014670.9519114,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "@name:sirius": {
-    "last_probe": 1786259786.433194,
-    "fail": 1,
-    "probe_fail_streak": 1,
-    "last_probe_failure": 1786259786.433194,
-    "circuit_until": 1786260986.433194,
-    "circuit_reason": "ERROR: Unsupported URL: https://meinecloud.click/movie/tt15940132"
+    "last_probe": 1790013470.9519114,
+    "fail": 34,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.9519114,
+    "circuit_until": 1790014670.9519114,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "mdy48tn97.com": {
     "last_probe": 1786259789.7717505,
@@ -128,20 +154,24 @@
     "circuit_reason": "ERROR: Unsupported URL: https://veev.pro/e/aq5j7f4sh7nk"
   },
   "vidara.to": {
-    "last_probe": 1786348450.0849466,
-    "ok": 6,
+    "last_probe": 1790013467.8401692,
+    "ok": 23,
     "unsupported": false,
-    "probe_fail_streak": 0,
-    "fail": 2,
-    "last_probe_failure": 1786348376.4860919
+    "probe_fail_streak": 3,
+    "fail": 37,
+    "last_probe_failure": 1790013467.8401692,
+    "circuit_until": 1790014667.8401692,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "@name:vidara": {
-    "last_probe": 1786348523.8496337,
-    "ok": 10,
+    "last_probe": 1790013470.0896122,
+    "ok": 21,
     "unsupported": false,
-    "probe_fail_streak": 0,
-    "fail": 5,
-    "last_probe_failure": 1786348380.0732691
+    "probe_fail_streak": 3,
+    "fail": 38,
+    "last_probe_failure": 1790013470.0896122,
+    "circuit_until": 1790014670.0896122,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "filmfrei24.com": {
     "last_probe": 1786259804.921541,
@@ -156,18 +186,22 @@
     "probe_fail_streak": 0
   },
   "vidaraa.cc": {
-    "last_probe": 1786348419.267538,
-    "ok": 5,
+    "last_probe": 1790013470.0896122,
+    "ok": 16,
     "unsupported": false,
-    "probe_fail_streak": 0,
-    "fail": 2,
-    "last_probe_failure": 1786348378.1120741
+    "probe_fail_streak": 3,
+    "fail": 35,
+    "last_probe_failure": 1790013470.0896122,
+    "circuit_until": 1790014670.0896122,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "vidsonic.net": {
-    "last_probe": 1786348426.5576568,
-    "ok": 4,
+    "last_probe": 1790013471.5077627,
+    "ok": 6,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 2,
+    "fail": 21,
+    "last_probe_failure": 1790013471.5077627
   },
   "@name:vidsonic": {
     "last_probe": 1786348422.8829749,
@@ -192,40 +226,42 @@
     "circuit_reason": "ERROR: Unsupported URL: https://flyfile.app/v/YRm2wmVNmUckz0M"
   },
   "gupload.xyz": {
-    "last_probe": 1786347445.384628,
-    "fail": 1,
-    "probe_fail_streak": 1,
-    "last_probe_failure": 1786347445.384628,
-    "circuit_until": 1786348645.384628,
-    "circuit_reason": "ERROR: Unsupported URL: https://gupload.xyz/data/e/b0d725b03678"
+    "last_probe": 1790013470.925678,
+    "fail": 34,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.925678,
+    "circuit_until": 1790014670.925678,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "@name:mirror1": {
-    "last_probe": 1786347445.384628,
-    "fail": 1,
-    "probe_fail_streak": 1,
-    "last_probe_failure": 1786347445.384628,
-    "circuit_until": 1786348645.384628,
-    "circuit_reason": "ERROR: Unsupported URL: https://gupload.xyz/data/e/b0d725b03678"
+    "last_probe": 1790013470.925678,
+    "fail": 34,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.925678,
+    "circuit_until": 1790014670.925678,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "@name:mirror4": {
-    "last_probe": 1786348329.8860257,
-    "ok": 2,
+    "last_probe": 1790013467.8401692,
+    "ok": 6,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 2,
+    "fail": 21,
+    "last_probe_failure": 1790013467.8401692
   },
   "vids.st": {
-    "last_probe": 1786348357.4460392,
-    "fail": 2,
-    "probe_fail_streak": 1,
-    "last_probe_failure": 1786348357.4460392,
-    "circuit_until": 1786349557.4460392,
-    "circuit_reason": "ERROR: [generic] 110209: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:"
+    "last_probe": 1790013470.9377525,
+    "fail": 37,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.9377525,
+    "circuit_until": 1790014670.9377525,
+    "circuit_reason": "No pyvenv.cfg file"
   },
   "@name:mirror7": {
-    "last_probe": 1786348357.4460392,
-    "fail": 2,
+    "last_probe": 1790013467.8519769,
+    "fail": 13,
     "probe_fail_streak": 1,
-    "last_probe_failure": 1786348357.4460392,
+    "last_probe_failure": 1790013467.8519769,
     "circuit_until": 1786349557.4460392,
     "circuit_reason": "ERROR: [generic] 110209: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:"
   },
@@ -236,10 +272,12 @@
     "probe_fail_streak": 0
   },
   "@name:mirror9": {
-    "last_probe": 1786348374.626912,
-    "ok": 2,
+    "last_probe": 1790013469.158069,
+    "ok": 9,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 2,
+    "fail": 22,
+    "last_probe_failure": 1790013469.158069
   },
   "vidara.so": {
     "last_probe": 1786348386.8022685,
@@ -250,27 +288,183 @@
     "unsupported": false
   },
   "@name:serverr2": {
-    "last_probe": 1786348426.5576568,
-    "ok": 1,
+    "last_probe": 1790013471.5077627,
+    "ok": 3,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 1,
+    "fail": 11,
+    "last_probe_failure": 1790013471.5077627
   },
   "@name:mirror3": {
-    "last_probe": 1786348450.0849466,
-    "ok": 1,
+    "last_probe": 1790013438.4145396,
+    "ok": 4,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 1,
+    "fail": 15,
+    "last_probe_failure": 1790013438.4145396
   },
   "@name:mirror8": {
-    "last_probe": 1786348490.296183,
-    "ok": 1,
+    "last_probe": 1790013452.2631917,
+    "ok": 3,
     "unsupported": false,
-    "probe_fail_streak": 0
+    "probe_fail_streak": 1,
+    "fail": 13,
+    "last_probe_failure": 1790013452.2631917,
+    "circuit_until": 1789996376.0748768,
+    "circuit_reason": "ERROR: [generic] 145751: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:"
   },
   "odysseusa.cc": {
     "last_probe": 1786348523.8496337,
     "ok": 1,
     "unsupported": false,
     "probe_fail_streak": 0
+  },
+  "playmate.to": {
+    "last_probe": 1790013459.4081478,
+    "fail": 33,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013459.4081478,
+    "circuit_until": 1790014659.4081478,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "@name:playmate": {
+    "last_probe": 1790013459.4081478,
+    "fail": 23,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790013459.4081478,
+    "circuit_until": 1789996332.4773207,
+    "circuit_reason": "ERROR: Unsupported URL: https://playmate.to/watch/hmyG7gil0inNG"
+  },
+  "vixeo.io": {
+    "last_probe": 1790013459.3986397,
+    "fail": 23,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790013459.3986397,
+    "circuit_until": 1789996336.1042523,
+    "circuit_reason": "ERROR: Unsupported URL: https://vixeo.io/e/UbKTBmAJwy8p"
+  },
+  "@name:vixeo": {
+    "last_probe": 1790013470.9131684,
+    "fail": 33,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013470.9131684,
+    "circuit_until": 1790014670.9131684,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "anonstream.co": {
+    "last_probe": 1790013438.3323555,
+    "fail": 13,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1790013438.3323555,
+    "circuit_until": 1789996359.0899544,
+    "circuit_reason": "ERROR: Unsupported URL: https://anonstream.co/e/2tw71gj2vmnl"
+  },
+  "@name:mirror2": {
+    "last_probe": 1790013465.8575988,
+    "fail": 23,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790013465.8575988,
+    "circuit_until": 1789996359.0899544,
+    "circuit_reason": "ERROR: Unsupported URL: https://anonstream.co/e/2tw71gj2vmnl"
+  },
+  "streamtape.com": {
+    "last_probe": 1790013438.4145396,
+    "fail": 15,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1790013438.4145396
+  },
+  "@name:mirror6": {
+    "last_probe": 1790013470.9377525,
+    "ok": 4,
+    "unsupported": false,
+    "probe_fail_streak": 2,
+    "fail": 22,
+    "last_probe_failure": 1790013470.9377525
+  },
+  "firestream.site": {
+    "last_probe": 1790013469.158069,
+    "ok": 11,
+    "unsupported": false,
+    "probe_fail_streak": 3,
+    "fail": 33,
+    "last_probe_failure": 1790013469.158069,
+    "circuit_until": 1790014669.158069,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "@name:polaris": {
+    "last_probe": 1790013454.0621872,
+    "ok": 6,
+    "unsupported": false,
+    "probe_fail_streak": 1,
+    "fail": 13,
+    "last_probe_failure": 1790013454.0621872
+  },
+  "@name:vega": {
+    "last_probe": 1790011687.8702903,
+    "ok": 8,
+    "unsupported": false,
+    "probe_fail_streak": 1,
+    "fail": 10,
+    "last_probe_failure": 1790011687.8702903
+  },
+  "@name:orion": {
+    "last_probe": 1790013454.6724658,
+    "ok": 2,
+    "unsupported": false,
+    "probe_fail_streak": 1,
+    "fail": 11,
+    "last_probe_failure": 1790013454.6724658
+  },
+  "veev.to": {
+    "last_probe": 1790013478.87793,
+    "fail": 22,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790013478.87793,
+    "circuit_until": 1789996479.9172192,
+    "circuit_reason": "ERROR: Unsupported URL: https://veev.to/e/ounvg8j77b5w"
+  },
+  "@name:rigel": {
+    "last_probe": 1790013478.87793,
+    "fail": 22,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790013478.87793,
+    "circuit_until": 1789996479.9172192,
+    "circuit_reason": "ERROR: Unsupported URL: https://veev.to/e/ounvg8j77b5w"
+  },
+  "filemoon.to": {
+    "last_probe": 1790012437.724533,
+    "fail": 24,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790012437.724533,
+    "circuit_until": 1790006948.9930642,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "@name:filemoon": {
+    "last_probe": 1790012437.724533,
+    "fail": 24,
+    "probe_fail_streak": 2,
+    "last_probe_failure": 1790012437.724533,
+    "circuit_until": 1790006948.9930642,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "moflix-stream.fans": {
+    "last_probe": 1790013438.1885934,
+    "fail": 11,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1790013438.1885934
+  },
+  "playmogo.com": {
+    "last_probe": 1790013293.5703495,
+    "fail": 8,
+    "probe_fail_streak": 3,
+    "last_probe_failure": 1790013293.5703495,
+    "circuit_until": 1790014493.5703495,
+    "circuit_reason": "No pyvenv.cfg file"
+  },
+  "flyf.lat": {
+    "last_probe": 1790013465.8575988,
+    "fail": 10,
+    "probe_fail_streak": 1,
+    "last_probe_failure": 1790013465.8575988
   }
 }

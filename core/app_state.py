@@ -24,6 +24,7 @@ from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
 from core.runtime_paths import data_dir
 from features.taste_profile import UserTasteProfileStore
+from core.personal_requests import PersonalRequestStore
 from core.module_manager import ModuleManager
 from modules.registry import BUILTIN_MODULES
 from integrations.tmdb_client import TMDBClient
@@ -252,6 +253,8 @@ class AppState:
             job["slug"]: job["job_id"] for job in self.queue_jobs.values()
         }
         self.queue_history: list[dict] = list(queue_document["history"])
+        self.personal_requests = PersonalRequestStore(appconfig.personal_requests_file())
+        self.personal_requests.backfill([*self.queue_jobs.values(), *self.queue_history])
         self.queue_persistence_revision = int(queue_document.get("revision") or 0)
         self.queue_job_persist_times: dict[str, float] = {}
         self.picked: set = set(self.queue_job_by_slug)

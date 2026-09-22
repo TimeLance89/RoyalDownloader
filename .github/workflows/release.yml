@@ -47,12 +47,8 @@ jobs:
           else
             test "${GITHUB_REF}" = "refs/heads/main"
             if git rev-parse --verify --quiet "refs/tags/${tag_name}"; then
+              test "$(git rev-list -n 1 "${tag_name}")" = "${GITHUB_SHA}"
               test "$(git cat-file -t "${tag_name}")" = "tag"
-              if [[ "$(git rev-list -n 1 "${tag_name}")" != "${GITHUB_SHA}" ]]; then
-                echo "Release tag ${tag_name} already belongs to an earlier revision; skipping publication."
-                echo "RELEASE_TAG=${tag_name}" >> "${GITHUB_ENV}"
-                exit 0
-              fi
             else
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

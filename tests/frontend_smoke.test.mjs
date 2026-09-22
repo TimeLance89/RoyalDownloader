@@ -134,7 +134,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /Sendeplan wird geladen/);
   assert.match(html, /series-calendar\.js\?v=royal-20260912-1/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20260921-2/);
+  assert.match(html, /style\.css\?v=royal-20260921-3/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -410,7 +410,7 @@ test("movie shelf posters use bounded thumbnail payloads", () => {
   assert.match(api, /coverThumbnailCandidates\(url\)/);
   assert.match(api, /"\/t\/p\/w500\/"/);
   assert.match(app, /api\.coverThumbnailCandidates\(media\?\.cover_url\)/);
-  assert.match(html, /api\.js\?v=royal-20260921-1/);
+  assert.match(html, /api\.js\?v=royal-20260921-2/);
 });
 
 test("movie queue updates keep poster DOM stable and lock repeated clicks", () => {
@@ -434,8 +434,8 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 });
 
 test("home series rail falls back when the trending provider is unavailable", () => {
-  assert.match(html, /api\.js\?v=royal-20260921-1/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260921-1/);
+  assert.match(html, /api\.js\?v=royal-20260921-2/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260922-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -554,7 +554,7 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
 
 test("home cards and hero fall back to available posters when wallpapers are missing", () => {
   assert.match(home, /\{ url: media\.backdrop_url, posterFallback: false \}, \{ url: media\.cover_url, posterFallback: true \}/);
-  assert.match(home, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
+  assert.match(homeRailRuntime, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
   assert.match(home, /artwork: media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
@@ -719,9 +719,14 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   }
   assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(html, /home_rail_runtime\.js\?v=royal-20260922-1/);
   assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
   assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
-  assert.match(home, /image\.loading = eager \? "eager" : "lazy"/);
+  assert.match(home, /setHomeCardArtworkCandidates\(image, artworkCandidates\)/);
+  assert.match(homeRailRuntime, /new IntersectionObserver/);
+  assert.match(homeRailRuntime, /startHomeCardArtwork\(image, visible \? "high" : "auto"\)/);
+  assert.match(home, /cycle === 1 && index < eagerCount/);
+  assert.doesNotMatch(home, /image\.src = candidate\.url/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
   assert.match(home, /posterFallback: true/);
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);
@@ -925,7 +930,7 @@ test("the document has unique IDs and CI checks nested JavaScript", () => {
 
 test("mobile navigation fills the viewport and distributes visible tabs", () => {
   assert.match(html, /viewport-fit=cover/);
-  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260823-1/);
+  assert.match(stylesheet, /legacy-account\.css\?v=royal-20260921-2/);
   assert.match(
     accountStyles,
     /\.mobile-tabs\s*\{[\s\S]*?left:\s*0;[\s\S]*?right:\s*0;[\s\S]*?bottom:\s*0;/,
@@ -1016,7 +1021,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260921-2/);
+  assert.match(html, /style\.css\?v=royal-20260921-3/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {
