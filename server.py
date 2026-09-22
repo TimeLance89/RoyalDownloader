@@ -664,7 +664,7 @@ def _profile_summary(user: dict) -> dict:
     """Return only the active user's durable personal media overview."""
     user_id = str(user.get("id") or "")
     profile = state.taste_profiles.for_user(user_id).public_profile()
-    recent = state.personal_requests.recent_for_user(user_id, limit=8)
+    recent = state.personal_requests.recent_for_user(user_id, limit=10)
     dimensions = profile.get("dimensions") or {}
     genres = dimensions.get("genres") or profile.get("genres") or {}
     signals = profile.get("signal_breakdown") or {}

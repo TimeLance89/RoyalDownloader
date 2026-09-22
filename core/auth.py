@@ -203,6 +203,7 @@ class SessionStore:
                     "label": str(entry.get("label") or ""),
                     "kind": kind,
                     "user_id": str(entry.get("user_id") or ""),
+                    "household_unlocked": bool(entry.get("household_unlocked")),
                     "_persisted_last_seen": last_seen,
                 }))
             # Auch eine manipulierte oder beschädigte Datei darf das konfigurierte
@@ -284,6 +285,7 @@ class SessionStore:
                 "label": str(label or "")[:120],
                 "kind": kind,
                 "user_id": str(user_id or "")[:120],
+                "household_unlocked": False,
                 "_persisted_last_seen": now,
             }
             try:
@@ -292,6 +294,51 @@ class SessionStore:
                 self._sessions = previous
                 raise
         return token
+
+    def household_unlocked(self, token: str, kind: Optional[str] = None) -> bool:
+        """Return whether this browser session may switch household profiles."""
+        if not self.validate(token, kind):
+            return False
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token)) or {}
+            return bool(entry.get("household_unlocked"))
+
+    def unlock_household(self, token: str, kind: Optional[str] = None) -> bool:
+        """Unlock profile switching for the lifetime of one authenticated session."""
+        if not self.validate(token, kind):
+            return False
+        fingerprint = _token_fingerprint(token)
+        with self._lock:
+            entry = self._sessions.get(fingerprint)
+            if entry is None:
+                return False
+            previous = bool(entry.get("household_unlocked"))
+            entry["household_unlocked"] = True
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                entry["household_unlocked"] = previous
+                raise
+            return True
+
+    def switch_user(self, token: str, user_id: str, kind: Optional[str] = None) -> bool:
+        """Move an unlocked session to another enabled household identity."""
+        target = str(user_id or "").strip()[:120]
+        if not target or not self.validate(token, kind):
+            return False
+        fingerprint = _token_fingerprint(token)
+        with self._lock:
+            entry = self._sessions.get(fingerprint)
+            if entry is None or not entry.get("household_unlocked"):
+                return False
+            previous = str(entry.get("user_id") or "")
+            entry["user_id"] = target
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                entry["user_id"] = previous
+                raise
+            return True
 
     def user_id(self, token: str, kind: Optional[str] = None) -> str:
         """Return the authenticated session owner without exposing token state."""

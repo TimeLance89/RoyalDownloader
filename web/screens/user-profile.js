@@ -27,7 +27,6 @@ function applyActiveUser(user = authStatus?.user) {
   ["user-menu-avatar", "profile-avatar"].forEach((id) => {
     const element = document.getElementById(id); if (element) element.textContent = initial;
   });
-  document.getElementById("user-menu-admin")?.toggleAttribute("hidden", user.role !== "admin");
 }
 
 function invalidatePersonalUiState(user = authStatus?.user) {
@@ -86,7 +85,7 @@ function renderProfileSummary(summary) {
   negativeTarget.hidden = !negative.length;
   negativeTarget.textContent = negative.length ? `Weniger deins: ${negative.join(", ")}` : "";
   document.getElementById("profile-intelligence-copy").textContent = `Letzte Aktualisierung: ${taste.updated_at ? new Date(taste.updated_at * 1000).toLocaleDateString("de-DE") : "noch keine Signale"}.`;
-  const recent = summary.recent_downloads || [];
+  const recent = (summary.recent_downloads || []).slice(0, 10);
   document.getElementById("profile-recent-downloads").replaceChildren(...(recent.length ? recent.map((download) => {
     const card = document.createElement("article"); card.className = "profile-download";
     if (download.cover_url) { const cover = document.createElement("img"); cover.src = download.cover_url; cover.alt = ""; cover.loading = "lazy"; card.append(cover); }
@@ -119,17 +118,65 @@ async function showHousehold() {
   const panel = document.getElementById("household-panel");
   const target = document.getElementById("household-users");
   const household = await api.meHousehold();
+  panel.dataset.unlocked = String(Boolean(household.unlocked));
   target.replaceChildren(...household.users.map((user) => {
     const button = document.createElement("button"); button.type = "button"; button.className = "household-user";
+    button.dataset.userId = user.id;
+    button.style.setProperty("--profile-hue", String([...String(user.id)].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 330));
     const avatar = document.createElement("i"); avatar.textContent = userInitials(user);
     const details = document.createElement("span");
     const name = document.createElement("strong"); name.textContent = user.display_name;
     const role = document.createElement("small"); role.textContent = userRoleLabel(user);
     details.append(name, role); button.append(avatar, details);
-    if (user.id !== household.current_user_id) button.addEventListener("click", () => logoutAccount());
+    if (user.id === household.current_user_id) {
+      button.classList.add("is-current");
+      button.setAttribute("aria-current", "true");
+      const current = document.createElement("em"); current.textContent = "Aktiv"; button.append(current);
+    } else {
+      button.addEventListener("click", () => selectHouseholdUser(user));
+    }
     return button;
   }));
   panel.hidden = false;
+  document.body.classList.add("household-open");
+  document.getElementById("household-unlock").hidden = true;
+  window.setTimeout(() => target.querySelector(".household-user")?.focus(), 0);
+}
+
+let pendingHouseholdUser = null;
+
+function closeHousehold() {
+  pendingHouseholdUser = null;
+  document.getElementById("household-panel").hidden = true;
+  document.getElementById("household-unlock").hidden = true;
+  document.getElementById("household-password").value = "";
+  document.getElementById("household-status").textContent = "";
+  document.body.classList.remove("household-open");
+}
+
+async function switchHouseholdUser(user, password = "") {
+  const status = document.getElementById("household-status");
+  status.classList.remove("error");
+  status.textContent = `Wechsel zu ${user.display_name} …`;
+  try {
+    await api.meHouseholdSwitch(user.id, password);
+    location.reload();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+    document.getElementById("household-password").select();
+  }
+}
+
+function selectHouseholdUser(user) {
+  if (document.getElementById("household-panel").dataset.unlocked === "true") {
+    void switchHouseholdUser(user);
+    return;
+  }
+  pendingHouseholdUser = user;
+  document.getElementById("household-unlock-title").textContent = `Zu ${user.display_name} wechseln`;
+  document.getElementById("household-unlock").hidden = false;
+  document.getElementById("household-password").focus();
 }
 
 function closeUserMenu() {
@@ -150,9 +197,8 @@ function initUserProfile() {
   document.addEventListener("click", (event) => { if (!event.target.closest("#user-menu")) closeUserMenu(); });
   document.getElementById("user-menu-popover").addEventListener("click", async (event) => {
     const action = event.target.closest("[data-user-action]")?.dataset.userAction; if (!action) return; closeUserMenu();
-    if (action === "logout" || action === "users") { if (action === "users") switchTab("einstellungen"); else logoutAccount(); return; }
-    if (action === "profile" || action === "downloads") { switchTab("profil"); await refreshUserProfile(); if (action === "downloads") document.querySelector(".profile-downloads")?.scrollIntoView({ behavior: "smooth" }); return; }
-    if (action === "taste") { switchTab("profil"); await refreshUserProfile(); document.querySelector(".profile-taste")?.scrollIntoView({ behavior: "smooth" }); return; }
+    if (action === "logout") { logoutAccount(); return; }
+    if (action === "profile") { switchTab("profil"); await refreshUserProfile(); return; }
     if (action === "security") { switchTab("einstellungen"); document.getElementById("settings-account")?.scrollIntoView({ behavior: "smooth" }); return; }
     if (action === "household") { switchTab("profil"); await refreshUserProfile(); await showHousehold(); }
   });
@@ -160,10 +206,16 @@ function initUserProfile() {
     if (!window.confirm("Geschmack vollständig neu aufbauen? Bisherige persönliche Signale werden gelöscht.")) return;
     const response = await api.tasteReset(); reopenTasteOnboarding(response.user);
   });
-  const showTaste = () => document.querySelector(".profile-genres-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  document.getElementById("profile-show-taste").addEventListener("click", showTaste);
-  document.getElementById("profile-show-taste-secondary").addEventListener("click", showTaste);
-  document.getElementById("profile-show-taste-detail").addEventListener("click", showTaste);
+  document.getElementById("profile-show-taste-detail").addEventListener("click", () => document.querySelector(".profile-genres-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  document.getElementById("profile-household-open").addEventListener("click", showHousehold);
+  document.getElementById("household-close").addEventListener("click", closeHousehold);
+  document.getElementById("household-unlock").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (pendingHouseholdUser) void switchHouseholdUser(pendingHouseholdUser, document.getElementById("household-password").value);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !document.getElementById("household-panel").hidden) closeHousehold();
+  });
   document.getElementById("profile-open-library").addEventListener("click", () => switchTab("bibliothek"));
   const openSecurity = () => { switchTab("einstellungen"); document.getElementById("settings-account")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
   document.getElementById("profile-security").addEventListener("click", openSecurity);

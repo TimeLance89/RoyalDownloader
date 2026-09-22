@@ -1050,6 +1050,12 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     });
   if (artworkCandidates.length) {
     const image = document.createElement("img");
+    // Carousel artwork must start loading before the browser sees `src`.
+    // Native lazy-loading on duplicated horizontal tracks remained dormant in
+    // some browsers until hover triggered a new layout calculation.
+    image.loading = "eager";
+    image.fetchPriority = eager ? "high" : "auto";
+    image.decoding = "async";
     let artworkIndex = 0;
     const showArtworkCandidate = () => {
       const candidate = artworkCandidates[artworkIndex];
@@ -1058,9 +1064,6 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     };
     showArtworkCandidate();
     image.alt = "";
-    image.loading = eager ? "eager" : "lazy";
-    image.fetchPriority = eager ? "high" : "auto";
-    image.decoding = "async";
     image.addEventListener("error", () => {
       artworkIndex += 1;
       if (artworkIndex < artworkCandidates.length) {

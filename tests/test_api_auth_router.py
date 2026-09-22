@@ -25,6 +25,8 @@ class FakeSessionStore:
     def __init__(self):
         self.created = []
         self.revoked = []
+        self.current_user_id = "user-1"
+        self.unlocked = False
 
     def create(self, *, label, kind, user_id=""):
         self.created.append((label, kind, user_id))
@@ -40,13 +42,32 @@ class FakeSessionStore:
     def count(self, kind):
         return sum(created_kind == kind for _label, created_kind, _user_id in self.created)
 
+    def household_unlocked(self, _token, kind=None):
+        return self.unlocked
+
+    def unlock_household(self, _token, kind=None):
+        self.unlocked = True
+        return True
+
+    def switch_user(self, _token, user_id, kind=None):
+        if not self.unlocked:
+            return False
+        self.current_user_id = user_id
+        return True
+
 
 def auth_client(*, valid_password="secret"):
     store = FakeSessionStore()
     account = {"configured": True, "username": "royal", "source": "settings"}
     config = SimpleNamespace(is_initialized=lambda: True, save_auth=lambda *_args: True)
     user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": "admin", "enabled": True, "setup_required": False}
-    users = SimpleNamespace(find=lambda _username: user, public=lambda value: value, list=lambda: [user])
+    second_user = {"id": "user-2", "username": "guest", "display_name": "Guest", "role": "member", "enabled": True, "setup_required": False}
+    users = SimpleNamespace(
+        find=lambda username: user if username == "royal" else second_user if username == "guest" else None,
+        get=lambda user_id: user if user_id == "user-1" else second_user if user_id == "user-2" else None,
+        public=lambda value: value,
+        list=lambda: [user, second_user],
+    )
     dependencies = AuthDependencies(
         api_version=1,
         appauth=appauth,
@@ -121,3 +142,27 @@ def test_invalid_login_and_native_logout_keep_status_contracts():
     assert "Noch 4 Versuch(e)" in rejected.json()["detail"]
     assert logout.json() == {"ok": True, "revoked": 1}
     assert store.revoked == [("mobile-session", appauth.SESSION_KIND_MOBILE)]
+
+
+def test_household_switch_requires_password_only_once_per_session():
+    client, store = auth_client()
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    rejected = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-2", "password": "wrong"},
+    )
+    first = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-2", "password": "secret"},
+    )
+    second = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-1", "password": ""},
+    )
+
+    assert rejected.status_code == 403
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert store.unlocked is True
+    assert store.current_user_id == "user-1"
