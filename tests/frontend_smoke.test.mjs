@@ -721,7 +721,7 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
   assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
   assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
-  assert.match(home, /image\.loading = eager \? "eager" : "lazy"/);
+  assert.match(home, /image\.loading = "eager"/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
   assert.match(home, /posterFallback: true/);
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);

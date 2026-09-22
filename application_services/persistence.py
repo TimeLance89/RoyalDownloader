@@ -692,9 +692,21 @@ def watchlist_payload() -> dict:
             # A new attempt supersedes older release/failure markers, including
             # manual retries which deliberately retain their failure history.
             waiting_release = (set(w.get("waiting_release_slugs") or []) & pending) - queued
-            waiting_language = set(w.get("waiting_language_slugs") or []) - queued
-            upcoming = set(w.get("upcoming_slugs") or [])
-            actionable_pending = pending - waiting_release
+            episode_states = w.get("episode_states") if isinstance(w.get("episode_states"), dict) else {}
+            waiting_language = (
+                set(w.get("waiting_language_slugs") or [])
+                | {slug for slug, status in episode_states.items() if status == "waiting_for_language"}
+            ) - queued
+            upcoming = (
+                set(w.get("upcoming_slugs") or [])
+                | {slug for slug, status in episode_states.items() if status == "upcoming"}
+            ) - queued
+            # A provider snapshot can arrive while an older download attempt is
+            # still being finalized.  Keep the freshly classified language and
+            # release states authoritative even if that old slug is briefly
+            # still present in the in-memory pending/failure maps.
+            non_actionable = waiting_release | waiting_language | upcoming
+            actionable_pending = pending - non_actionable
             open_pending = actionable_pending - queued
             queued_count = len(queued)
             failures = w.get("failed_downloads") if isinstance(w.get("failed_downloads"), dict) else {}

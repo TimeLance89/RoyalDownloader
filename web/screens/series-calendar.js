@@ -1,6 +1,36 @@
 const SERIES_CALENDAR_CACHE_KEY = "royal.series-calendar.v2";
+const SERIES_CALENDAR_FILTERS_KEY = "royal.series-calendar.filters.v1";
 const SERIES_CALENDAR_CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1_000;
 const SERIES_CALENDAR_WATCHDOG_MS = 16_000;
+
+function calendarFiltersStorageKey() {
+  const userId = String(authStatus?.user?.id || "");
+  return userId ? `${SERIES_CALENDAR_FILTERS_KEY}:${userId}` : SERIES_CALENDAR_FILTERS_KEY;
+}
+
+function calendarRestoreFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(calendarFiltersStorageKey()) || "null");
+    if (!saved || typeof saved !== "object") return;
+    if (["all", "1", "2", "3"].includes(saved.language)) state.calendar.language = saved.language;
+    if (["all", "released", "upcoming"].includes(saved.status)) state.calendar.status = saved.status;
+    if (["day", "week"].includes(saved.view)) state.calendar.view = saved.view;
+    state.calendar.subscribedOnly = Boolean(saved.subscribedOnly);
+    state.calendar.query = String(saved.query || "").slice(0, 120);
+  } catch (_error) { /* ungültige lokale Altwerte ignorieren */ }
+}
+
+function calendarStoreFilters() {
+  try {
+    localStorage.setItem(calendarFiltersStorageKey(), JSON.stringify({
+      language: state.calendar.language,
+      status: state.calendar.status,
+      view: state.calendar.view,
+      subscribedOnly: state.calendar.subscribedOnly,
+      query: state.calendar.query,
+    }));
+  } catch (_error) { /* Privatmodus oder volles Browser-Limit */ }
+}
 
 function calendarDate(value) {
   return new Date(`${value}T12:00:00`);
@@ -391,6 +421,21 @@ function renderSeriesCalendar() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+  const search = document.getElementById("calendar-search");
+  if (search && search.value !== state.calendar.query) search.value = state.calendar.query;
+  document.querySelectorAll("[data-calendar-language]").forEach((button) => {
+    const active = button.dataset.calendarLanguage === state.calendar.language;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-calendar-status]").forEach((button) => {
+    const active = button.dataset.calendarStatus === state.calendar.status;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const subscribed = document.getElementById("calendar-subscribed");
+  subscribed?.classList.toggle("is-active", state.calendar.subscribedOnly);
+  subscribed?.setAttribute("aria-pressed", String(state.calendar.subscribedOnly));
   const weeks = calendarAvailableWeeks();
   document.getElementById("calendar-prev-week").disabled = !weeks.some((week) => week < state.calendar.activeWeek);
   document.getElementById("calendar-next-week").disabled = !weeks.some((week) => week > state.calendar.activeWeek);
@@ -426,6 +471,7 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
     return;
   }
   state.calendar.initialized = true;
+  calendarRestoreFilters();
   const restored = calendarRestoreSnapshot();
   if (!restored) {
     state.calendar.activeWeek = calendarInitialWeek();
@@ -441,15 +487,18 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
     state.calendar.activeWeek = week;
     state.calendar.selectedDate = calendarTodayKey();
     state.calendar.view = "day";
+    calendarStoreFilters();
     renderSeriesCalendar();
   });
   document.getElementById("calendar-search")?.addEventListener("input", (event) => {
     state.calendar.query = event.currentTarget.value;
+    calendarStoreFilters();
     renderSeriesCalendar();
   });
   document.querySelectorAll("[data-calendar-language]").forEach((button) => {
     button.addEventListener("click", () => {
       state.calendar.language = button.dataset.calendarLanguage;
+      calendarStoreFilters();
       document.querySelectorAll("[data-calendar-language]").forEach((candidate) => {
         const active = candidate === button;
         candidate.classList.toggle("is-active", active);
@@ -461,6 +510,7 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
   document.querySelectorAll("[data-calendar-status]").forEach((button) => {
     button.addEventListener("click", () => {
       state.calendar.status = button.dataset.calendarStatus;
+      calendarStoreFilters();
       document.querySelectorAll("[data-calendar-status]").forEach((candidate) => {
         const active = candidate === button;
         candidate.classList.toggle("is-active", active);
@@ -471,6 +521,7 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
   });
   document.getElementById("calendar-subscribed")?.addEventListener("click", (event) => {
     state.calendar.subscribedOnly = !state.calendar.subscribedOnly;
+    calendarStoreFilters();
     event.currentTarget.classList.toggle("is-active", state.calendar.subscribedOnly);
     event.currentTarget.setAttribute("aria-pressed", String(state.calendar.subscribedOnly));
     renderSeriesCalendar();
@@ -480,12 +531,14 @@ function initSeriesCalendar({ autoLoad = false } = {}) {
     if (!button) return;
     state.calendar.selectedDate = button.dataset.calendarDate;
     state.calendar.view = "day";
+    calendarStoreFilters();
     renderSeriesCalendar();
     document.querySelector(`[data-calendar-date="${state.calendar.selectedDate}"]`)?.focus({ preventScroll: true });
   });
   document.querySelectorAll("[data-calendar-view]").forEach((button) => {
     button.addEventListener("click", () => {
       state.calendar.view = button.dataset.calendarView;
+      calendarStoreFilters();
       renderSeriesCalendar();
     });
   });

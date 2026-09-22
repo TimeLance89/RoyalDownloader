@@ -69,6 +69,7 @@ const api = {
   me() { return this.get("/api/me"); },
   meProfileSummary() { return this.get("/api/me/profile-summary"); },
   meHousehold() { return this.get("/api/me/household"); },
+  meHouseholdSwitch(userId, password = "") { return this.post("/api/me/household/switch", { user_id: userId, password }); },
   mePassword(currentPassword, password, passwordRepeat) { return this.post("/api/me/password", { current_password: currentPassword, password, password_repeat: passwordRepeat }); },
   authLogin(username, password) { return this.post("/api/auth/login", { username, password }); },
   authFirstLogin(username, password, passwordRepeat) { return this.post("/api/auth/first-login", { username, password, password_repeat: passwordRepeat }); },
