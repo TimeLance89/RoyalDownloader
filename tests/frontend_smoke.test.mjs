@@ -435,7 +435,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.match(html, /api\.js\?v=royal-20260921-2/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260921-1/);
+  assert.match(html, /screens\/home\.js\?v=royal-20260922-1/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /state\.home\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /state\.home\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -554,7 +554,7 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
 
 test("home cards and hero fall back to available posters when wallpapers are missing", () => {
   assert.match(home, /\{ url: media\.backdrop_url, posterFallback: false \}, \{ url: media\.cover_url, posterFallback: true \}/);
-  assert.match(home, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
+  assert.match(homeRailRuntime, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
   assert.match(home, /artwork: media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
@@ -719,9 +719,14 @@ test("home programme planner controls visibility, order, and fast artwork", () =
   }
   assert.match(homeLayoutEditor, /event\.dataTransfer\.setData\("text\/plain", railId\)/);
   assert.match(homeLayoutEditor, /api\.saveHomeLayout\(currentHomeLayout\(\)\)/);
+  assert.match(html, /home_rail_runtime\.js\?v=royal-20260922-1/);
   assert.match(homeLayoutEditor, /section\.style\.order = String\(index\)/);
   assert.doesNotMatch(stylesheet, /\.home-rail-spotlight \{ order:/);
-  assert.match(home, /image\.loading = "eager"/);
+  assert.match(home, /setHomeCardArtworkCandidates\(image, artworkCandidates\)/);
+  assert.match(homeRailRuntime, /new IntersectionObserver/);
+  assert.match(homeRailRuntime, /startHomeCardArtwork\(image, visible \? "high" : "auto"\)/);
+  assert.match(home, /cycle === 1 && index < eagerCount/);
+  assert.doesNotMatch(home, /image\.src = candidate\.url/);
   assert.match(home, /image\.fetchPriority = eager \? "high" : "auto"/);
   assert.match(home, /posterFallback: true/);
   assert.match(stylesheet, /home-layout-editor\.css\?v=royal-20260830-1/);

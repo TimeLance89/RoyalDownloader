@@ -1048,27 +1048,11 @@ function createHomeCard(entry, rank = 0, eager = false, variant = "") {
     });
   if (artworkCandidates.length) {
     const image = document.createElement("img");
-    // Carousel artwork must start loading before the browser sees `src`.
-    // Native lazy-loading on duplicated horizontal tracks remained dormant in
-    // some browsers until hover triggered a new layout calculation.
-    image.loading = "eager";
+    image.loading = "lazy";
     image.fetchPriority = eager ? "high" : "auto";
     image.decoding = "async";
-    let artworkIndex = 0;
-    const showArtworkCandidate = () => {
-      const candidate = artworkCandidates[artworkIndex];
-      image.classList.toggle("is-poster-fallback", candidate.posterFallback);
-      image.src = candidate.url;
-    };
-    showArtworkCandidate();
     image.alt = "";
-    image.addEventListener("error", () => {
-      artworkIndex += 1;
-      if (artworkIndex < artworkCandidates.length) {
-        showArtworkCandidate();
-      }
-      else image.remove();
-    });
+    setHomeCardArtworkCandidates(image, artworkCandidates);
     art.appendChild(image);
   }
   const type = document.createElement("span");
@@ -1135,7 +1119,7 @@ function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = 
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 0 && index < eagerCount, variant),
+        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }), { loop: layout !== "spotlight" && !ranked });
