@@ -661,20 +661,10 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
 
 
 def _profile_summary(user: dict) -> dict:
-    """Return only the active user's personal overview; household jobs stay private."""
+    """Return only the active user's durable personal media overview."""
     user_id = str(user.get("id") or "")
     profile = state.taste_profiles.for_user(user_id).public_profile()
-    with state.queue_claim_lock:
-        jobs = [*state.queue_history, *state.queue_jobs.values()]
-        personal = [job for job in jobs if str(job.get("requested_by_user_id") or "") == user_id]
-    recent = [
-        {
-            "title": str(job.get("title") or job.get("display_name") or "Download"),
-            "status": str(job.get("status") or "queued"),
-            "cover_url": str(job.get("cover_url") or ""),
-        }
-        for job in personal[:8]
-    ]
+    recent = state.personal_requests.recent_for_user(user_id, limit=10)
     dimensions = profile.get("dimensions") or {}
     genres = dimensions.get("genres") or profile.get("genres") or {}
     signals = profile.get("signal_breakdown") or {}
@@ -696,11 +686,73 @@ def _profile_summary(user: dict) -> dict:
             },
             "updated_at": profile.get("updated_at") or 0,
         },
-        "downloads_requested": len(personal),
+        "downloads_requested": state.personal_requests.count_for_user(user_id),
         "subscriptions": subscriptions,
         "recent_downloads": recent,
         "onboarding_required": bool(user.get("taste_onboarding_required")),
     }
+
+
+def _delete_user_owned_data(user_id: str) -> dict:
+    """Erase all persisted data that belongs to a household account."""
+    owner = str(user_id or "").strip()
+    if not owner:
+        raise ValueError("Benutzer nicht gefunden.")
+    erased = {
+        "taste_profile": False,
+        "personal_requests": 0,
+        "watchlist_entries": 0,
+        "queue_references": 0,
+    }
+
+    # Queue entries are shared household work. They remain available, but no
+    # longer retain the deleted account's identifier.
+    with state.queue_claim_lock:
+        changed_queue_entries = []
+        for entry in [*state.queue_jobs.values(), *state.queue_history]:
+            if str(entry.get("requested_by_user_id") or "") == owner:
+                changed_queue_entries.append(entry)
+        if changed_queue_entries:
+            previous_revision = state.queue_persistence_revision
+            for entry in changed_queue_entries:
+                entry["requested_by_user_id"] = ""
+            state.queue_persistence_revision = int(previous_revision) + 1
+            queue_document = {
+                "schema_version": 3,
+                "revision": state.queue_persistence_revision,
+                "jobs": deepcopy([
+                    entry for entry in state.queue_jobs.values()
+                    if entry.get("slug") in state.picked
+                ]),
+                "history": deepcopy(list(state.queue_history)[:HISTORY_LIMIT]),
+            }
+            if not appconfig.save_queue_state(queue_document):
+                for entry in changed_queue_entries:
+                    entry["requested_by_user_id"] = owner
+                state.queue_persistence_revision = previous_revision
+                raise OSError("Download-Zuordnungen konnten nicht gelöscht werden.")
+            erased["queue_references"] = len(changed_queue_entries)
+
+    # A watchlist subscription belongs to the account that added it. Remove
+    # those entries instead of leaving an orphaned subscription behind.
+    with state.watchlist_lock:
+        previous_watchlist = state.watchlist
+        removed_watchlist = [
+            entry for entry in previous_watchlist
+            if str(entry.get("requested_by_user_id") or "") == owner
+        ]
+        if removed_watchlist:
+            state.watchlist = [entry for entry in previous_watchlist if entry not in removed_watchlist]
+            if not appconfig.save_watchlist(deepcopy(state.watchlist)):
+                state.watchlist = previous_watchlist
+                raise OSError("Abonnements konnten nicht gelöscht werden.")
+            for entry in removed_watchlist:
+                state.watchlist_new_slugs.pop(str(entry.get("base_slug") or ""), None)
+            erased["watchlist_entries"] = len(removed_watchlist)
+
+    erased["personal_requests"] = state.personal_requests.delete_for_user(owner)
+    erased["taste_profile"] = state.taste_profiles.delete_for_user(owner)
+    return erased
 
 
 app.include_router(create_auth_router(AuthDependencies(
@@ -733,6 +785,7 @@ app.include_router(create_auth_router(AuthDependencies(
     log=lambda *args, **kwargs: log(*args, **kwargs),
     user_store=lambda: USER_STORE,
     current_user=lambda headers, cookies: current_user(headers, cookies),
+    delete_user_data=_delete_user_owned_data,
     profile_summary=_profile_summary,
 )))
 

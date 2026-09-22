@@ -732,3 +732,25 @@ class UserTasteProfileStore:
             "profile_id": hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:12],
             "interaction_count": profile["interactions"],
         }
+
+    def delete_for_user(self, user_id: str) -> bool:
+        """Permanently remove the persisted taste profile for one account."""
+        owner = _clean_text(user_id, 120)
+        if not owner:
+            raise ValueError("Für das Geschmacksprofil fehlt der Benutzer.")
+        with self._lock:
+            path = self.legacy_path if owner == self.legacy_user_id else (
+                self.root / (hashlib.sha256(owner.encode("utf-8")).hexdigest() + ".json")
+            )
+            existed = path.exists()
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise OSError("Geschmacksprofil konnte nicht gelöscht werden.") from exc
+            self._profiles.pop(owner, None)
+            if owner != self.legacy_user_id:
+                try:
+                    self.root.rmdir()
+                except OSError:
+                    pass
+            return existed

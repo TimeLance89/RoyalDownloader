@@ -79,6 +79,8 @@ def new_job(
         "attempts": 0,
         "next_retry_at": 0.0,
         "final_path": "",
+        "requested_by_user_id": "",
+        "request_source": "",
     }
 
 

@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "serienstream": {
+      "blocked_at": 0.0,
+      "blocked_reason": "",
+      "failure_count": 0,
+      "last_error": "",
+      "last_success_at": 1790013253.706208,
+      "next_probe_at": 0.0,
+      "provider": "serienstream",
+      "state": "healthy"
+    }
+  },
+  "version": 1
+}

@@ -63,11 +63,13 @@ const api = {
       .finally(() => clearTimeout(timer));
   },
   post(url, body) { return this._req("POST", url, body === undefined ? {} : body); },
+  delete(url) { return this._req("DELETE", url); },
 
   authStatus() { return this.get("/api/auth/status"); },
   me() { return this.get("/api/me"); },
   meProfileSummary() { return this.get("/api/me/profile-summary"); },
   meHousehold() { return this.get("/api/me/household"); },
+  meHouseholdSwitch(userId, password = "") { return this.post("/api/me/household/switch", { user_id: userId, password }); },
   mePassword(currentPassword, password, passwordRepeat) { return this.post("/api/me/password", { current_password: currentPassword, password, password_repeat: passwordRepeat }); },
   authLogin(username, password) { return this.post("/api/auth/login", { username, password }); },
   authFirstLogin(username, password, passwordRepeat) { return this.post("/api/auth/first-login", { username, password, password_repeat: passwordRepeat }); },
@@ -75,6 +77,7 @@ const api = {
   authUserCreate(displayName, username, role) { return this.post("/api/auth/users", { display_name: displayName, username, role }); },
   authUserReset(userId) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/reset-password`); },
   authUserEnabled(userId, enabled) { return this.post(`/api/auth/users/${encodeURIComponent(userId)}/enabled?enabled=${Boolean(enabled)}`); },
+  authUserDelete(userId) { return this.delete(`/api/auth/users/${encodeURIComponent(userId)}`); },
   authLogout() { return this.post("/api/auth/logout"); },
   authConfigGet() { return this.get("/api/auth/config"); },
   authConfigSet(username, password, currentPassword = "") {

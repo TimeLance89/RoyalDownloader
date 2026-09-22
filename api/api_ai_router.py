@@ -94,7 +94,7 @@ def create_ai_router(state) -> APIRouter:
         config, available = state.ai_discovery.config(), _availability(state)
         if not available[0]: return {"enabled": bool(config.get("enabled")), "available": False, "recommendations": [], "message": available[1]}
         from application_services.auth import current_user
-        user = current_user(request.headers, request.cookies) or {}
+        user = await run_in_threadpool(current_user, request.headers, request.cookies) or {}
         user_id = str(user.get("id") or "")
         if not user_id:
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -106,10 +106,20 @@ def create_ai_router(state) -> APIRouter:
                 "recommendations": [],
                 "message": "Richte zuerst deinen persönlichen Geschmack ein.",
             }
-        profile = state.taste_profiles.for_user(user_id).public_profile()
-        try: result = state.ai_discovery.recommendations_now([candidate.model_dump() for candidate in body.candidates], profile, user_id)
+        profile = await run_in_threadpool(
+            state.taste_profiles.for_user(user_id).public_profile,
+        )
+        try:
+            result = await run_in_threadpool(
+                state.ai_discovery.recommendations_now,
+                [candidate.model_dump() for candidate in body.candidates],
+                profile,
+                user_id,
+            )
         except (ReflexError, OllamaError, ValueError): return {"enabled": True, "available": False, "recommendations": [], "message": "Royal Reflex ist derzeit nicht verfügbar. Die klassische Startseite bleibt unverändert."}
-        taste_diagnostics = state.taste_profiles.diagnostics(user_id)
+        taste_diagnostics = await run_in_threadpool(
+            state.taste_profiles.diagnostics, user_id,
+        )
         return {"enabled": True, "available": True, "backend": "ollama", "model": config.get("model"), "recommendations": result["items"], "source": result["source"], "refinement_status": result["refinement_status"], "diagnostics": {**dict(state.ai_discovery.diagnostics), **taste_diagnostics, "cache_owner": user_id, "onboarding_status": "completed"}}
 
     return router

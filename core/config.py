@@ -219,6 +219,11 @@ def _queue_file() -> Path:
     return _config_dir() / "download_queue.json"
 
 
+def personal_requests_file() -> Path:
+    """Durable user-owned request history, separate from the download queue."""
+    return _config_dir() / "personal_requests.json"
+
+
 def _seerr_requests_file() -> Path:
     return _config_dir() / "seerr_requests.json"
 

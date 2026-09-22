@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from core.proxy_security import host_allowed, origin_matches
 
@@ -282,8 +283,17 @@ def install_authentication_middleware(
                     headers={"Retry-After": "60"},
                 ))
         mobile_legacy = is_mobile_legacy_path(path)
-        if is_public_path(path, request.method, dependencies.setup_required) or (
-            dependencies.request_is_authenticated(
+        public_path = is_public_path(path, request.method, dependencies.setup_required)
+        authenticated = False
+        if not public_path:
+            # Session validation occasionally checkpoints the last-seen state
+            # with fsync on the persistent NAS volume. Provider credentials can
+            # also require an intentionally expensive password hash. Neither
+            # operation may block Uvicorn's only event loop, because that also
+            # stalls liveness and makes a healthy process look like a 502 to
+            # the reverse proxy.
+            authenticated = await run_in_threadpool(
+                dependencies.request_is_authenticated,
                 request.headers,
                 request.cookies,
                 client,
@@ -291,7 +301,7 @@ def install_authentication_middleware(
                 allow_mobile_bearer=is_v1 or mobile_legacy,
                 allow_basic=not is_v1,
             )
-        ):
+        if public_path or authenticated:
             try:
                 return hardened(await call_next(request))
             except RequestBodyTooLarge:
@@ -305,7 +315,11 @@ def install_authentication_middleware(
         if (
             not is_v1
             and not mobile_legacy
-            and dependencies.authenticated_mobile_token(request.headers, touch=False)
+            and await run_in_threadpool(
+                dependencies.authenticated_mobile_token,
+                request.headers,
+                touch=False,
+            )
         ):
             return hardened(JSONResponse(
                 status_code=403,

@@ -761,7 +761,12 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
                     movie = preferred
                     state.fp_movies[slug] = movie
                     selected_fallbacks[slug] = fallbacks
-                _ensure_queue_job(slug, movie)
+                job = _ensure_queue_job(slug, movie)
+                # This is the authenticated, conscious request boundary.  The
+                # owner persists on the logical job for recovery/backfill, but
+                # its personal history is stored separately below.
+                job["requested_by_user_id"] = requested_by_user_id
+                job["request_source"] = str(body.source or "manual")[:32]
                 added_slugs.append(slug)
             except Exception as exc:
                 with state.queue_claim_lock:
@@ -775,11 +780,32 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
 
     added_slugs, skipped, skipped_details, selected_fallbacks = await run_in_threadpool(_work)
     def _commit_claims():
+        # Persist the user-owned history before physical queue preparation.  A
+        # later queue cleanup may remove the job, never this request event.
+        recorded_job_ids: dict[str, str] = {}
+        if requested_by_user_id:
+            for slug in added_slugs:
+                with state.queue_claim_lock:
+                    job = _queue_job_for_slug(slug)
+                    movie = state.fp_movies.get(slug)
+                if not job or not state.personal_requests.record(
+                    requested_by_user_id, job, movie, source=body.source,
+                ):
+                    with state.queue_claim_lock:
+                        state.picked.difference_update(added_slugs)
+                        for rollback_slug in added_slugs:
+                            job_id = state.queue_job_by_slug.pop(rollback_slug, "")
+                            if job_id:
+                                state.queue_jobs.pop(job_id, None)
+                    raise HTTPException(503, "Persönliche Anfrage konnte nicht gespeichert werden.")
+                recorded_job_ids[slug] = str(job.get("job_id") or "")
         with state.queue_claim_lock:
             queue_snapshot = _queue_state_snapshot()
         try:
             _require_persistent_snapshot("queue", queue_snapshot)
         except HTTPException:
+            for job_id in recorded_job_ids.values():
+                state.personal_requests.mark_failed(job_id)
             with state.queue_claim_lock:
                 state.picked.difference_update(added_slugs)
                 for slug in added_slugs:
@@ -794,6 +820,9 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
             requested_by_user_id=requested_by_user_id,
         )
         duplicate_rejected = set(added_slugs) - accepted
+        for slug in duplicate_rejected:
+            if recorded_job_ids.get(slug):
+                state.personal_requests.mark_failed(recorded_job_ids[slug])
         if len(accepted) < len(added_slugs):
             with state.queue_claim_lock:
                 not_started = {
