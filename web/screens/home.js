@@ -2,7 +2,6 @@
 const MOVIE_FEATURE_INTERVAL_MS = 9000;
 const MOVIE_FEATURE_MAX_AGE_DAYS = 270;
 const MOVIE_FEATURE_MAX_FUTURE_DAYS = 45;
-
 function movieFeatureCandidate(result) {
   const metadata = state.fp.metadataCache[result.slug] || {};
   const backdrop = metadata.backdrop_url || result.backdrop_url || "";
@@ -41,7 +40,6 @@ function movieFeatureCandidate(result) {
     featureScore: score,
   };
 }
-
 function stopMovieFeatureRotation() {
   if (!state.fp.featureTimer) return;
   clearInterval(state.fp.featureTimer);
