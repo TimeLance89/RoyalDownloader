@@ -34,7 +34,7 @@ export function createShellActions({
   getMovieDownloads,
   state,
 }) {
-  // Internal composition registry, initialized before startup; never exposed on window.
+  // Shell navigation and cross-domain UI coordination use injected services only.
 
   function recheckFpInfinite() { getInfinite().movies.refresh(); }
   function recheckSeriesInfinite() { getInfinite().series.refresh(); }
