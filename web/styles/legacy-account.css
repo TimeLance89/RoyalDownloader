@@ -97,7 +97,7 @@ body.login-open #app {
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .account-user-identity { flex: 1 1 260px; align-self: center; color: var(--text-dim); font-size: 11px; }
 .account-user-delete { color: #ff9aa3; border-color: rgba(235, 62, 80, .48); }
-.account-user-delete:hover, .account-user-delete:focus-visible { color: #fff; border-color: #ef3546; background: rgba(195, 22, 39, .2); }
+.account-user-delete:hover, .account-user-delete:focus-visible { color: var(--color-white); border-color: #ef3546; background: rgba(195, 22, 39, .2); }
 .account-sessions button { margin-top: 10px; }
 #account-status.error, #account-revoke-status.error { color: var(--red); }
 
@@ -376,7 +376,7 @@ body.setup-open #app {
   right: 3px;
   width: 3px;
   height: 3px;
-  background: #93d49a;
+  background: var(--color-success);
   border-radius: 50%;
   box-shadow: -6px 0 rgba(147, 212, 154, .38);
 }
@@ -730,7 +730,7 @@ body.setup-open #dir-modal { z-index: 120; }
   height: 17px;
   border: 1px solid rgba(147, 212, 154, 0.38);
   border-radius: 50%;
-  color: #93d49a;
+  color: var(--color-success);
   font-size: 9px;
 }
 .watch-mode-options { display: grid; flex: 0 0 auto; gap: 8px; padding: 2px; }
@@ -977,7 +977,7 @@ body.setup-open #dir-modal { z-index: 120; }
 }
 .detail-subscribe-btn:not(:disabled):hover,
 .detail-subscribe-btn:not(:disabled):focus-visible {
-  color: #fff;
+  color: var(--color-white);
   border-color: #9bd2e7;
   background: rgba(89, 160, 191, 0.25);
 }

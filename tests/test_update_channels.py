@@ -406,16 +406,15 @@ def test_invalid_api_channel_is_rejected_without_changing_contract(monkeypatch):
 
 def test_frontend_exposes_both_channels_and_warnings():
     html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    account = (ROOT / "web" / "screens" / "account.js").read_text(encoding="utf-8")
-    app = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    account = (ROOT / "web/js/features/settings/updater.js").read_text(encoding="utf-8")
 
     assert 'id="updater-channel"' in html
     assert '<option value="stable">Stable (empfohlen)</option>' in html
     assert '<option value="overnight">Overnight (Entwicklung)</option>' in html
     assert "kann instabil sein" in account
     assert "Rückwechsel zu Stable erkannt" in account
-    assert "confirm_channel_switch" in (ROOT / "web" / "api.js").read_text(encoding="utf-8")
-    assert "Zum Overnight-Kanal wechseln?" in app
+    assert "confirm_channel_switch" in account
+    assert "Zum Overnight-Kanal wechseln?" in account
 
 
 def test_ci_protects_both_branches_and_release_requires_main_ancestry():

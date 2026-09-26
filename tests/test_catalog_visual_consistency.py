@@ -37,6 +37,7 @@ def test_movie_and_series_shelves_use_the_same_poster_geometry():
 
 def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
     library = (ROOT / "web" / "screens" / "library.js").read_text(encoding="utf-8")
+    identity = (ROOT / "web/js/features/discovery/catalog-identity.js").read_text(encoding="utf-8")
     for contract in [
         "function catalogIdentityView",
         "function catalogLogicalMediaMatch",
@@ -44,25 +45,23 @@ def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
         "function mergeCatalogMediaRecord",
         "function reconcileMovieCatalogDuplicates",
         "function reconcileSeriesCatalogDuplicates",
-        "window.mergeCatalogItems = function logicalCatalogMerge",
-        "window.applyFpResults = function logicalMovieResults",
-        "window.applySeriesResults = function logicalSeriesResults",
-        "window.preloadTmdbMetadata = async function logicalMovieMetadataPreload",
-        "window.hydrateHomeSeriesArtwork = async function logicalSeriesMetadataHydration",
     ]:
-        assert contract in library
-    assert "state.fp?.metadataCache?.[slug]" in library
-    assert "leftTmdb && rightTmdb" in library
-    assert "leftYear && rightYear && leftYear !== rightYear" in library
-    assert "titleMatches && sharesSource" in library
-    assert "reconcileMovieCatalogDuplicates();" in library
-    assert "reconcileSeriesCatalogDuplicates();" in library
-    assert "merged.source_providers" in library
-    assert "merged.content_languages" in library
+        assert contract in library + identity
+    adapter = (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8")
+    assert "onSeriesHydrated: () => reconcileSeriesCatalogDuplicates()" in adapter
+    assert "getMetadata(slug)" in identity
+    assert "leftTmdb && rightTmdb" in identity
+    assert "leftYear && rightYear && leftYear !== rightYear" in identity
+    assert "titleMatches && sharesSource" in identity
+    metadata = (ROOT / "web/js/features/discovery/catalog-metadata.js").read_text(encoding="utf-8")
+    assert "reconcileMovieCatalogDuplicates();" in metadata
+    assert "merged.source_providers" in identity
+    assert "merged.content_languages" in identity
 
 
 def test_poster_fallback_initials_ignore_punctuation_only_words():
     library = (ROOT / "web" / "screens" / "library.js").read_text(encoding="utf-8")
-    assert "function cleanMediaCardInitials" in library
-    assert "/[\\p{L}\\p{N}]/u.test(word)" in library
-    assert "window.mediaCardInitials = cleanMediaCardInitials" in library
+    identity = (ROOT / "web/js/features/discovery/catalog-identity.js").read_text(encoding="utf-8")
+    assert "function cleanMediaCardInitials" in identity
+    assert "/[\\p{L}\\p{N}]/u.test(word)" in identity
+    assert "window.mediaCardInitials =" not in library

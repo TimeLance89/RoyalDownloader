@@ -424,26 +424,26 @@ def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():
     assert "refreshFpJellyfinStatus()" in event
     assert "refreshSeriesJellyfinStatus()" in event
     assert "refreshAllCatalogJellyfinStatuses()" in event
-    assert "state.globalSearch.results" in home
-    assert "state.series.results.map(homeSeriesEntry)" in home
-    assert "state.anime.results.map(homeAnimeEntry)" in home
+    assert "sharedPresentation.search.get().results" in home
+    assert "sharedPresentation.seriesState.results.map(homeSeriesEntry)" in home
+    assert "sharedPresentation.anime.get().results.map(homeAnimeEntry)" in home
 
 
 def test_frontend_reconnect_and_idle_resume_refresh_every_jellyfin_surface():
     app_dir = live.backend_value("APP_DIR")
     core = (app_dir / "web" / "core.js").read_text(encoding="utf-8")
-    resume = (app_dir / "web" / "jellyfin-resume.js").read_text(encoding="utf-8")
-    api = (app_dir / "web" / "api.js").read_text(encoding="utf-8")
+    resume = (app_dir / "web/js/features/integrations/resume.js").read_text(encoding="utf-8")
+    api = (app_dir / "web/js/features/integrations/catalog-jellyfin.js").read_text(encoding="utf-8")
 
     reconnect = core.split("async function resyncAfterWsOpen", 1)[1].split(
         "function connectWs", 1
     )[0]
     assert "refreshAllCatalogJellyfinStatuses()" in reconnect
-    assert 'window.addEventListener("focus"' in resume
-    assert 'window.addEventListener("online"' in resume
-    assert 'document.addEventListener("visibilitychange"' in resume
+    assert 'scope.listen(window, "focus"' in resume
+    assert 'scope.listen(window, "online"' in resume
+    assert 'scope.listen(document, "visibilitychange"' in resume
     assert "JELLYFIN_RESUME_IDLE_MS" in resume
-    assert "_postWithin" in api
+    assert "timeoutMs: 15_000" in api
     assert '"/api/jellyfin/matches"' in api
 
 

@@ -39,7 +39,7 @@ body.settings-active .bg-decor {
   background:
     linear-gradient(110deg, rgba(240, 56, 69, 0.095), transparent 35%),
     linear-gradient(160deg, #121516, #090b0c 72%);
-  box-shadow: 0 24px 70px -48px #000, inset 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 24px 70px -48px var(--color-black), inset 0 1px rgba(255, 255, 255, 0.04);
 }
 
 #tab-einstellungen .settings-hero::before {
@@ -184,7 +184,7 @@ body.settings-active .bg-decor {
   border: 1px solid var(--settings-line);
   border-radius: 3px;
   background: rgba(9, 11, 12, 0.94);
-  box-shadow: 0 22px 55px -42px #000;
+  box-shadow: 0 22px 55px -42px var(--color-black);
 }
 
 #tab-einstellungen .settings-directory::before { display: none; }
@@ -295,7 +295,7 @@ body.settings-active .bg-decor {
   border: 1px solid var(--settings-line);
   border-radius: 3px 24px 3px 3px;
   background: rgba(9, 11, 12, 0.9);
-  box-shadow: 0 25px 65px -50px #000;
+  box-shadow: 0 25px 65px -50px var(--color-black);
 }
 
 #tab-einstellungen .settings-section {
@@ -598,7 +598,7 @@ body.settings-active .bg-decor {
   border: 1px solid rgba(219, 184, 93, 0.22);
   border-radius: 4px;
   background: rgba(9, 11, 12, 0.95);
-  box-shadow: 0 -24px 50px -38px #000;
+  box-shadow: 0 -24px 50px -38px var(--color-black);
   backdrop-filter: blur(18px);
 }
 
@@ -613,7 +613,7 @@ body.settings-active .bg-decor {
   border-color: var(--settings-red);
   border-radius: 4px;
   background: var(--settings-red);
-  color: #fff;
+  color: var(--color-white);
   box-shadow: 0 9px 26px -17px rgba(240, 56, 69, 0.85);
 }
 

@@ -1,4 +1,6 @@
 const state = createInitialState();
+// Synchronous adapter to module presenters; initialized by the module entry before app startup.
+const sharedPresentation = {};
 
 const WATCH_MODE_DEFAULT = "latest_season";
 const WATCH_MODE_LABELS = {
@@ -26,24 +28,9 @@ const WATCH_CLEANUP_LABELS = {
   watched_seasons: "Staffel-Löschung",
   watched_episodes: "Episoden-Löschung",
 };
-// Neue Katalogseiten reichern Poster in wenigen großen Paketen an. Dadurch
-// warten nachgeladene Karten nicht nacheinander auf viele kleine Requests.
-const FP_METADATA_BATCH_SIZE = 12;
-const FP_METADATA_BATCH_CONCURRENCY = 3;
-// Auto-Nachladen beobachtet sowohl intern scrollende Desktop-Tabs als auch den
-// Dokument-Viewport der mobilen Ansicht (siehe initCatalogInfiniteScroll).
-// Die Konstante bleibt fuer die Retry-Button-Logik als "Auto-Nachladen
-// verfuegbar" erhalten.
-const catalogInfiniteObserverSupported = true;
-// Erneuter Naehe-Check je Tab (nach jedem Laden aufgerufen, damit ein noch zu
-// kurzer Container automatisch bis zum Fuellstand nachlaedt).
-let recheckFpInfinite = () => {};
-let recheckSeriesInfinite = () => {};
-let recheckAniworldInfinite = () => {};
-let watchModeContext = null;
-let watchModeReturnFocus = null;
-let movieSubscriptionContext = null;
-let movieSubscriptionReturnFocus = null;
+function recheckFpInfinite() { sharedPresentation.infinite.movies.refresh(); }
+function recheckSeriesInfinite() { sharedPresentation.infinite.series.refresh(); }
+function recheckAniworldInfinite() { sharedPresentation.infinite.aniworld.refresh(); }
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -53,7 +40,7 @@ function escapeHtml(s) {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
 function animeNavigationAvailable() {
-  return state.providers.contentLanguages.has("en");
+  return sharedPresentation.providers.get().contentLanguages.has("en");
 }
 
 function syncAnimeNavigationVisibility() {
@@ -61,8 +48,8 @@ function syncAnimeNavigationVisibility() {
   document.querySelectorAll(".anime-tab-button").forEach((element) => {
     element.classList.toggle("hidden", !visible);
   });
-  const providerLaneVisible = (state.providers.anime || []).some(
-    (provider) => state.providers.contentLanguages.has(providerLanguage(provider)),
+  const providerLaneVisible = (sharedPresentation.providers.get().anime || []).some(
+    (provider) => sharedPresentation.providers.get().contentLanguages.has(providerLanguage(provider)),
   );
   document.querySelectorAll(".provider-source-lane.is-anime").forEach((element) => {
     element.classList.toggle("hidden", !providerLaneVisible);
@@ -73,7 +60,7 @@ function syncAnimeNavigationVisibility() {
 }
 
 function aniworldNavigationAvailable() {
-  return state.providers.contentLanguages.has("de");
+  return sharedPresentation.providers.get().contentLanguages.has("de");
 }
 
 function syncAniworldNavigationVisibility() {
@@ -86,76 +73,14 @@ function syncAniworldNavigationVisibility() {
   if (!visible && state.tab === "aniworld") switchTab("filme");
 }
 
-function setNavigationMenuOpen(menu, open, { restoreFocus = false } = {}) {
-  const trigger = menu.querySelector(".nav-menu-trigger");
-  const popover = menu.querySelector(".nav-menu-popover");
-  if (!trigger || !popover) return;
-  menu.classList.toggle("is-open", open);
-  trigger.classList.toggle("is-open", open);
-  trigger.setAttribute("aria-expanded", String(open));
-  popover.hidden = !open;
-  popover.inert = !open;
-  if (!open && restoreFocus) trigger.focus();
-}
-
-function closeNavigationMenus({ restoreFocus = false, except = null } = {}) {
-  document.querySelectorAll("[data-nav-menu]").forEach((menu) => {
-    if (menu !== except) setNavigationMenuOpen(menu, false, { restoreFocus });
-  });
-  const anyMobileMenuOpen = Boolean(document.querySelector('[data-nav-menu="mobile"].is-open'));
-  const scrim = document.querySelector("[data-nav-menu-scrim]");
-  if (scrim) scrim.hidden = !anyMobileMenuOpen;
-}
-
-function initNavigationMenus() {
-  document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((button) => {
-    button.addEventListener("click", () => switchTab(button.dataset.tab));
-  });
-  document.querySelectorAll("[data-nav-menu]").forEach((menu) => {
-    const trigger = menu.querySelector(".nav-menu-trigger");
-    const popover = menu.querySelector(".nav-menu-popover");
-    if (!trigger || !popover) return;
-    popover.inert = true;
-    trigger.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const open = !menu.classList.contains("is-open");
-      closeNavigationMenus({ except: menu });
-      setNavigationMenuOpen(menu, open);
-      const scrim = document.querySelector("[data-nav-menu-scrim]");
-      if (scrim) scrim.hidden = !open || menu.dataset.navMenu !== "mobile";
-    });
-    popover.addEventListener("click", (event) => {
-      if (!event.target.closest("[data-tab], [data-mood-open]")) return;
-      closeNavigationMenus();
-    });
-  });
-  document.querySelector("[data-nav-menu-scrim]")?.addEventListener("click", () => closeNavigationMenus());
-  document.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("[data-nav-menu], [data-nav-menu-scrim]")) return;
-    closeNavigationMenus();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    const openMenu = document.querySelector("[data-nav-menu].is-open");
-    if (!openMenu) return;
-    event.preventDefault();
-    closeNavigationMenus({ restoreFocus: true });
-  });
-  document.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;
-    const input = document.getElementById("global-search-input");
-    if (!input) return;
-    event.preventDefault();
-    document.getElementById("global-search-shell").classList.add("is-expanded");
-    input.focus();
-  });
-  window.addEventListener("resize", () => closeNavigationMenus());
-}
+function setNavigationMenuOpen(...args) { return sharedPresentation.shell.setMenuOpen(...args); }
+function closeNavigationMenus(...args) { return sharedPresentation.shell.closeMenus(...args); }
+function initNavigationMenus() { sharedPresentation.shell.mount(); }
 
 function switchTab(name, { autoLoad = true } = {}) {
   if (name === "anime" && !animeNavigationAvailable()) name = "filme";
   if (name === "aniworld" && !aniworldNavigationAvailable()) name = "filme";
-  if (state.globalSearch.active) closeGlobalSearch();
+  if (sharedPresentation.search.get().active) closeGlobalSearch();
   closeAllMediaModals(false);
   document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((b) => {
     const active = b.dataset.tab === name;
@@ -169,16 +94,12 @@ function switchTab(name, { autoLoad = true } = {}) {
   closeMobileQueue();
   if (name === "einstellungen") setQueueDockExpanded(false);
   state.tab = name;
-  if (name === "bibliothek" && !state.wl.loaded) refreshWatchlist();
+  document.dispatchEvent(new CustomEvent("royal:navigate", { detail: { name, autoLoad } }));
   if (name === "home") renderHome();
   if (name === "filme" && autoLoad) ensureFpResults();
   if (name === "serien" && autoLoad) ensureSeriesResults();
-  if (name === "kalender" && autoLoad && !state.calendar.loaded) seriesCalendarLoad();
-  if (name === "releases" && autoLoad) window.movieReleases?.load();
-  if (name === "anime" && autoLoad && !state.anime.loaded) animeBrowse("latest", 1);
-  if (name === "aniworld" && autoLoad && !state.aniworld.loaded) aniworldBrowse("catalog", 1);
-  if (name === "filme") scheduleMovieFeatureRotation();
-  else stopMovieFeatureRotation();
+  if (name === "anime" && autoLoad && !sharedPresentation.anime.get().loaded) animeBrowse("latest", 1);
+  if (name === "aniworld" && autoLoad && !sharedPresentation.aniworld.get().loaded) aniworldBrowse("catalog", 1);
   if (name !== "home") stopHomeHeroRotation();
   if (name === "filme") recheckFpInfinite();
   if (name === "serien") recheckSeriesInfinite();
@@ -193,7 +114,7 @@ function appendLog(msg, level) {
   if (low.includes("fertig") || low.includes(" ok")) tag = "ok";
   else if (low.includes("fehler") || low.includes("error") || low.includes("nicht")) tag = "err";
   else if (low.includes("warn")) tag = "warn";
-  const ts = new Date().toLocaleTimeString(i18n.locale());
+  const ts = new Date().toLocaleTimeString(sharedPresentation.localization.locale());
   const line = document.createElement("div");
   line.className = "log-line " + tag;
   line.translate = false;
@@ -203,67 +124,22 @@ function appendLog(msg, level) {
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────
-let wsReconnectTimer = null;
-let wsConnectionGeneration = 0;
-let queueSnapshotGeneration = 0;
-let watchlistSnapshotGeneration = 0;
+function syncQueueSnapshot(...args) { return sharedPresentation.queueSync.refresh(...args); }
 
-async function syncQueueSnapshot(context = "Queue-Synchronisierung", shouldApply = null) {
-  const snapshotGeneration = ++queueSnapshotGeneration;
-  try {
-    const [response, history] = await Promise.all([
-      api.queueGet(),
-      api.queueHistory(),
-    ]);
-    if (snapshotGeneration !== queueSnapshotGeneration || (shouldApply && !shouldApply())) return false;
-    renderQueue(response.queue);
-    renderQueueHistory(history.jobs || []);
-    return true;
-  } catch (error) {
-    console.warn(`${context} fehlgeschlagen:`, error);
-    return false;
-  }
+function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApply = null) {
+  return sharedPresentation.subscriptions.refresh({ shouldApply });
 }
 
-async function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApply = null) {
-  const snapshotGeneration = ++watchlistSnapshotGeneration;
-  try {
-    const response = await api.watchlistGet();
-    if (snapshotGeneration !== watchlistSnapshotGeneration || (shouldApply && !shouldApply())) return false;
-    showPersistenceWarning("Serien-Abos", response.persistence);
-    applyWatchlist(response.watchlist || [], response.health || null);
-    return true;
-  } catch (error) {
-    console.warn(`${context} fehlgeschlagen:`, error);
-    return false;
-  }
+function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung", shouldApply = null) {
+  return sharedPresentation.movieSubscriptions.refresh({ shouldApply });
 }
 
-async function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung") {
-  try {
-    const response = await api.movieSubscriptionsGet();
-    showPersistenceWarning("Film-Abos", response.persistence);
-    applyMovieSubscriptions(response.movie_subscriptions || []);
-    return true;
-  } catch (error) {
-    console.warn(`${context} fehlgeschlagen:`, error);
-    return false;
-  }
-}
-
-async function resyncAfterWsOpen(connectionGeneration) {
-  const isCurrentConnection = () => connectionGeneration === wsConnectionGeneration;
+async function resyncAfterWsOpen({ isCurrent: isCurrentConnection }) {
   const queueSync = syncQueueSnapshot(
     "Queue-Synchronisierung nach Verbindung", isCurrentConnection,
   );
-  const watchlistSync = syncWatchlistSnapshot(
-    "Abo-Synchronisierung nach Verbindung", isCurrentConnection,
-  );
-  const movieSubscriptionSync = syncMovieSubscriptions(
-    "Film-Abo-Synchronisierung nach Verbindung",
-  );
-  await Promise.allSettled([queueSync, watchlistSync, movieSubscriptionSync]);
-  if (connectionGeneration !== wsConnectionGeneration) return;
+  await queueSync;
+  if (!isCurrentConnection()) return;
   await Promise.allSettled([
     refreshAllCatalogJellyfinStatuses(),
     refreshSeriesJellyfinStatus(true),
@@ -271,125 +147,19 @@ async function resyncAfterWsOpen(connectionGeneration) {
   ]);
 }
 
-function connectWs() {
-  const connectionGeneration = ++wsConnectionGeneration;
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => {
-    if (connectionGeneration !== wsConnectionGeneration) {
-      ws.close();
-      return;
-    }
-    if (wsReconnectTimer) {
-      clearTimeout(wsReconnectTimer);
-      wsReconnectTimer = null;
-    }
-    resyncAfterWsOpen(connectionGeneration).catch((error) => {
-      console.warn("Live-Ansicht konnte nicht vollständig synchronisiert werden:", error);
-    });
-  };
-  ws.onmessage = (ev) => {
-    let data;
-    try {
-      data = JSON.parse(ev.data);
-    } catch (error) {
-      console.warn("Ungültige WebSocket-Nachricht verworfen:", error);
-      return;
-    }
+function handleLiveMessage(data) {
     try {
       if (data.type === "log") {
         appendLog(data.message, data.level);
-      } else if (data.type === "progress") {
-      const filePercent = Number(data.pct);
-      const overallPercent = state.download.total > 0 && filePercent >= 0
-        ? ((state.download.completed + filePercent / 100) / state.download.total) * 100
-        : filePercent;
-      const position = state.download.total
-        ? `Datei ${Math.min(state.download.completed + 1, state.download.total)}/${state.download.total} · ` : "";
-      setDownloadState("active", data.label || "Download läuft", `${position}${(data.msg || "").slice(0, 70)}`, overallPercent);
-      if (data.job_id) updateQueueJobProgress(data.job_id, data.job || data);
-    } else if (data.type === "updater_install") {
-      applyUpdaterInstallStatus(data.installer || {});
-    } else if (data.type === "updater_config") {
-      applyUpdaterConfig(data.config || {});
-    } else if (data.type === "job_done") {
-      state.download.completed = data.done_jobs;
-      state.download.total = data.total_jobs;
-      state.download.failed = data.failed_jobs || 0;
-      const percent = data.total_jobs ? (data.done_jobs / data.total_jobs) * 100 : state.download.percent;
-      const moreWork = Number(data.active) + Number(data.pending) > 0;
-      const kind = !data.ok && !moreWork ? "error" : "active";
-      const title = data.ok ? `${data.done_jobs}/${data.total_jobs} bearbeitet` : "Download fehlgeschlagen";
-      const detail = data.ok
-        ? `${data.active} aktiv · ${data.pending} warten`
-        : String(data.msg || "Alle Anbieter sind ausgefallen").slice(0, 110);
-      setDownloadState(kind, title, detail, percent);
-      if (typeof applyFpDownloadJobResult === "function") {
-        applyFpDownloadJobResult(data);
-      }
-      syncQueueSnapshot("Queue-Aktualisierung nach Download");
-      if (data.ok && data.slug) {
-        markSeriesSlugDownloaded(data.slug);
-        markAnimeSlugDownloaded(data.slug);
-        markAniworldSlugDownloaded(data.slug);
-      }
-    } else if (data.type === "queue_started") {
-      state.download.completed = data.done_jobs;
-      state.download.total = data.total_jobs;
-      if (!data.done_jobs) state.download.failed = 0;
-      const percent = data.total_jobs ? (data.done_jobs / data.total_jobs) * 100 : 0;
-      setDownloadState("active", "Automatischer Download", `${data.done_jobs}/${data.total_jobs} fertig`, percent);
-      if (data.queue) renderQueue(data.queue);
-      else syncQueueSnapshot("Queue-Start-Synchronisierung");
-    } else if (data.type === "queue_update") {
-      if (data.queue) renderQueue(data.queue);
-      else syncQueueSnapshot("Queue-Live-Synchronisierung");
-    } else if (data.type === "provider_status") {
-      renderSerienstreamHealth(data.provider || {});
-    } else if (data.type === "queue_done") {
-      state.download.completed = data.done_jobs;
-      state.download.total = data.total_jobs;
-      state.download.failed = data.failed_jobs || 0;
-      document.getElementById("cancel-btn").disabled = true;
-      if (state.download.failed) {
-        const successful = data.successful_jobs || 0;
-        const title = successful ? "Mit Fehlern beendet" : "Download fehlgeschlagen";
-        setDownloadState("error", title,
-          `${successful} erfolgreich · ${state.download.failed} fehlgeschlagen`, 100);
-      } else {
-        setDownloadState("done", "Abgeschlossen", `${data.done_jobs}/${data.total_jobs} Downloads fertig`, 100);
-      }
-      syncQueueSnapshot("Queue-Abschluss-Synchronisierung");
     } else if (data.type === "jellyfin_update") {
       refreshFpJellyfinStatus();
       refreshSeriesJellyfinStatus();
       refreshAllCatalogJellyfinStatuses();
-      showPersistenceWarning("Serien-Abos", data.persistence);
-      if (data.watchlist) applyWatchlist(data.watchlist, data.health || null);
-      } else if (data.type === "watchlist_update") {
-        showPersistenceWarning("Serien-Abos", data.persistence);
-        applyWatchlist(data.watchlist || [], data.health || null);
-      } else if (data.type === "movie_subscriptions_update") {
-        showPersistenceWarning("Film-Abos", data.persistence);
-        applyMovieSubscriptions(data.movie_subscriptions || []);
+
       }
     } catch (error) {
       console.warn("WebSocket-Aktualisierung konnte nicht verarbeitet werden:", error);
     }
-  };
-  ws.onerror = () => ws.close();
-  ws.onclose = (event) => {
-    if (connectionGeneration !== wsConnectionGeneration) return;
-    // 1008 = der Server hat die Verbindung mangels gültiger Sitzung
-    // abgewiesen. Ein Wiederverbindungsversuch im Sekundentakt würde daran
-    // nichts ändern; stattdessen wird zur Anmeldung aufgefordert.
-    if (event && event.code === 1008) {
-      handleUnauthorized();
-      return;
-    }
-    if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
-    wsReconnectTimer = setTimeout(connectWs, 2000);
-  };
 }
 
 // ── Queue (Warteschlange, gemeinsam für Filme + Serien) ───────────────────
@@ -406,207 +176,10 @@ function showPersistenceWarning(label, persistence) {
   );
 }
 
-function renderQueue(payload) {
-  queueSnapshotGeneration += 1;
-  state.queue = { ...payload, loaded: true };
-  showPersistenceWarning("Downloadplan", payload.persistence);
-  renderSerienstreamHealth(payload.providers?.serienstream || {});
-  state.queuedSlugs = new Set();
-  for (const group of payload.groups) for (const item of group.items) state.queuedSlugs.add(item.slug);
-  syncSeriesQueueFlags();
-  syncAnimeQueueFlags();
-  syncAniworldQueueFlags();
-
-  const count = Number(payload.count) || 0;
-  document.getElementById("queue-count").textContent = `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;
-  document.getElementById("mobile-queue-count").textContent = String(count);
-  document.getElementById("queue-dock").classList.toggle("has-items", count > 0);
-  const list = document.getElementById("queue-list");
-  list.innerHTML = "";
-  if (!payload.groups.length) {
-    list.innerHTML = `<div class="queue-empty"><strong>Der Downloadplan ist leer</strong><span>Filme oder Episoden erscheinen hier, sobald du sie hinzufügst.</span></div>`;
-  }
-
-  let queuePosition = 0;
-  for (const group of payload.groups) {
-    const heading = document.createElement("div");
-    heading.className = "queue-group";
-    heading.translate = false;
-    heading.textContent = `${group.name}  (${group.items.length})`;
-    list.appendChild(heading);
-    for (const item of group.items) {
-      queuePosition += 1;
-      const row = document.createElement("div");
-      row.className = "queue-item" + (item.done ? " done" : "");
-      row.dataset.jobId = item.job_id || "";
-      const position = document.createElement("span");
-      position.className = "queue-position";
-      position.textContent = String(queuePosition).padStart(2, "0");
-      const content = document.createElement("span");
-      content.className = "queue-item-content";
-      const title = document.createElement("strong");
-      title.className = "queue-item-title";
-      title.translate = false;
-      title.textContent = item.title;
-      const route = document.createElement("span");
-      route.className = "queue-item-route";
-      route.translate = false;
-      const language = String(item.content_language || "").toUpperCase();
-      route.textContent = [language, item.provider, item.hoster || item.hoster_label].filter(Boolean).join(" · ");
-      const metrics = document.createElement("span");
-      metrics.className = "queue-item-metrics";
-      metrics.textContent = queueJobMetrics(item);
-      const progress = document.createElement("span");
-      progress.className = "queue-item-progress";
-      const progressFill = document.createElement("i");
-      progressFill.style.width = `${Math.max(0, Math.min(100, Number(item.progress) || 0))}%`;
-      progress.appendChild(progressFill);
-      content.append(title, route, metrics, progress);
-
-      const status = document.createElement("span");
-      status.className = "queue-item-status";
-      const statusLabels = {
-        queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Provider-Pause",
-        downloading: "Lädt", paused: "Pausiert", cancelling: "Wird abgebrochen",
-      };
-      status.textContent = statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
-      const actions = document.createElement("span");
-      actions.className = "queue-item-actions";
-      const addAction = (text, label, handler) => {
-        const button = document.createElement("button");
-        button.className = "queue-action-btn";
-        button.type = "button";
-        button.textContent = text;
-        button.setAttribute("aria-label", label);
-        button.addEventListener("click", async () => {
-          button.disabled = true;
-          try {
-            const response = await handler();
-            if (response.queue) renderQueue(response.queue);
-            const history = await api.queueHistory();
-            renderQueueHistory(history.jobs || []);
-          } catch (error) {
-            console.warn("Queue-Aktion fehlgeschlagen:", error);
-            button.disabled = false;
-          }
-        });
-        actions.appendChild(button);
-      };
-      if (item.job_id && !["downloading", "cancelling"].includes(item.job_status)) {
-        addAction("↑", `${item.title} nach oben`, () => api.queueJobMove(item.job_id, "up"));
-        addAction("↓", `${item.title} nach unten`, () => api.queueJobMove(item.job_id, "down"));
-      }
-      if (item.job_id && item.job_status === "waiting_provider") {
-        addAction("▶", `${item.title} fortsetzen`, () => api.queueJobResume(item.job_id));
-      }
-      if (item.job_status !== "cancelling") {
-        addAction("✕", `${item.title} abbrechen`, () => (
-          item.job_id ? api.queueJobCancel(item.job_id) : api.queueRemove(item.slug)
-        ));
-      }
-      row.append(position, content, status, actions);
-      list.appendChild(row);
-    }
-  }
-  syncFpQueueIndicators();
-
-  const activity = payload.activity || {};
-  const activeDownloads = Math.max(0, Number(activity.active_downloads) || 0);
-  const activePreparations = Math.max(0, Number(activity.active_preparations) || 0);
-  const pendingPreparations = Math.max(0, Number(activity.pending_preparations) || 0);
-  const pendingDownloads = Math.max(0, Number(activity.pending_downloads) || 0);
-  const downloadStage = document.getElementById("download-stage");
-  const hasLiveProgress = downloadStage?.dataset.state === "active"
-    && document.getElementById("dl-state-title")?.textContent !== "Bereit";
-  if (activeDownloads && !hasLiveProgress) {
-    setDownloadState("active", activeDownloads === 1 ? "Download läuft" : `${activeDownloads} Downloads laufen`,
-      pendingDownloads ? `${pendingDownloads} weiterer Download ist bereit` : "Stream geladen · Download aktiv",
-      state.download.percent);
-  } else if (!activeDownloads && activePreparations) {
-    const paused = ["cooldown", "probing", "blocked"].includes(payload.providers?.serienstream?.state);
-    setDownloadState("active", paused ? "Ersatzquelle wird gesucht" : "Quelle wird geprüft",
-      `${activePreparations} aktiv · ${pendingPreparations} Folgen vorgemerkt`, state.download.percent);
-  } else if (!activeDownloads && !activePreparations && pendingPreparations) {
-    setDownloadState("active", "Fallback-Warteschlange läuft",
-      `${pendingPreparations} Folgen werden nacheinander geprüft`, state.download.percent);
-  }
-}
-
-function formatQueueBytes(value) {
-  const bytes = Math.max(0, Number(value) || 0);
-  if (!bytes) return "";
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
-  return `${Math.round(bytes / 1024)} KiB`;
-}
-
-function queueJobMetrics(job) {
-  const parts = [];
-  const downloaded = formatQueueBytes(job.downloaded_bytes);
-  const total = formatQueueBytes(job.total_bytes);
-  if (downloaded) parts.push(total ? `${downloaded} / ${total}` : downloaded);
-  const speed = formatQueueBytes(job.speed_bps);
-  if (speed) parts.push(`${speed}/s`);
-  const eta = Number(job.eta_seconds);
-  if (Number.isFinite(eta) && eta > 0) parts.push(`ETA ${Math.ceil(eta / 60)} Min.`);
-  return parts.join(" · ");
-}
-
-function updateQueueJobProgress(jobId, job) {
-  const row = [...document.querySelectorAll(".queue-item")]
-    .find((item) => item.dataset.jobId === String(jobId));
-  if (!row) return;
-  const fill = row.querySelector(".queue-item-progress i");
-  if (fill) fill.style.width = `${Math.max(0, Math.min(100, Number(job.progress ?? job.pct) || 0))}%`;
-  const metrics = row.querySelector(".queue-item-metrics");
-  if (metrics) metrics.textContent = queueJobMetrics(job);
-  const status = row.querySelector(".queue-item-status");
-  if (status) status.textContent = "Lädt";
-}
-
-function renderQueueHistory(jobs) {
-  const list = document.getElementById("queue-history-list");
-  const count = document.getElementById("queue-history-count");
-  if (!list || !count) return;
-  count.textContent = String(jobs.length);
-  list.innerHTML = "";
-  if (!jobs.length) {
-    list.innerHTML = '<div class="queue-empty">Noch keine abgeschlossenen Downloads.</div>';
-    return;
-  }
-  for (const job of jobs) {
-    const row = document.createElement("div");
-    row.className = `queue-history-item status-${job.status}`;
-    const copy = document.createElement("span");
-    const title = document.createElement("strong");
-    title.textContent = job.title || job.slug;
-    const detail = document.createElement("small");
-    const statusLabel = { completed: "Abgeschlossen", failed: "Fehlgeschlagen", cancelled: "Abgebrochen" }[job.status] || job.status;
-    detail.textContent = [statusLabel, job.error, job.final_path].filter(Boolean).join(" · ");
-    copy.append(title, detail);
-    row.appendChild(copy);
-    if (["failed", "cancelled"].includes(job.status)) {
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.className = "queue-action-btn queue-retry-btn";
-      retry.textContent = "Retry";
-      retry.addEventListener("click", async () => {
-        retry.disabled = true;
-        try {
-          const response = await api.queueJobRetry(job.job_id);
-          renderQueue(response.queue);
-          const history = await api.queueHistory();
-          renderQueueHistory(history.jobs || []);
-        } catch (error) {
-          console.warn("Retry fehlgeschlagen:", error);
-          retry.disabled = false;
-        }
-      });
-      row.appendChild(retry);
-    }
-    list.appendChild(row);
-  }
-}
+// Temporary adapter for classic catalogue/subscription presenters.
+function renderQueue(payload) { sharedPresentation.queueView.render(payload); }
+function renderQueueHistory(jobs) { sharedPresentation.queueView.renderHistory(jobs); }
+function updateQueueJobProgress(jobId, job) { sharedPresentation.queueView.updateProgress(jobId, job); }
 
 function renderSerienstreamHealth(provider) {
   const box = document.getElementById("serienstream-health");
@@ -704,113 +277,16 @@ function setDownloadState(kind, title, detail, percent = state.download.percent)
   document.getElementById("cancel-btn").disabled = !state.download.active;
 }
 
-function activeMediaModal() {
-  return document.querySelector(".media-modal.is-open:not([hidden])");
-}
-
-function openMediaModal(modalId, trigger = null) {
-  const modal = document.getElementById(modalId);
-  if (!modal) return;
-  const current = activeMediaModal();
-  if (current && current !== modal) closeMediaModal(current.id, false);
-  if (!modal.hidden && modal.classList.contains("is-open")) return;
-  modal._returnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
-  modal.hidden = false;
-  modal.classList.add("is-open");
-  document.body.classList.add("media-modal-open");
-  const scrollContainers = modal.querySelectorAll(
-    ".media-modal-panel, .detail-body, .tiles-scroll, .anime-detail-content",
-  );
-  scrollContainers.forEach((element) => { element.scrollTop = 0; element.scrollLeft = 0; });
-  requestAnimationFrame(() => {
-    scrollContainers.forEach((element) => { element.scrollTop = 0; element.scrollLeft = 0; });
-    modal.querySelector(".media-modal-close")?.focus();
-  });
-}
-
-function closeMediaModal(modalId, restoreFocus = true) {
-  const modal = document.getElementById(modalId);
-  if (!modal || modal.hidden) return;
-  if (modalId === "fp-detail-modal") {
-    closeFpTrailerModal(false);
-    stopFpDetailHeroTrailer();
-  } else if (modalId === "series-detail-modal") {
-    closeFpTrailerModal(false);
-    stopSeriesDetailHeroTrailer();
-  }
-  const returnFocus = modal._returnFocus;
-  modal.classList.remove("is-open");
-  modal.hidden = true;
-  if (!activeMediaModal()) document.body.classList.remove("media-modal-open");
-  const resumedMood = restoreFocus
-    && typeof resumeMoodMatchAfterDetail === "function"
-    && resumeMoodMatchAfterDetail();
-  if (!resumedMood && restoreFocus && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
-    returnFocus.focus();
-  }
-}
-
-function closeAllMediaModals(restoreFocus = true) {
-  closeFpTrailerModal(false);
-  document.querySelectorAll(".media-modal:not([hidden])").forEach((modal) => {
-    closeMediaModal(modal.id, restoreFocus);
-  });
-}
-
-function handleMediaModalKeydown(event) {
-  const trailerModal = document.getElementById("fp-trailer-modal");
-  if (trailerModal && !trailerModal.hidden) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeFpTrailerModal();
-      return true;
-    }
-    if (event.key === "Tab") {
-      const focusable = trailerModalFocusableElements();
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    }
-    return true;
-  }
-  const modal = activeMediaModal();
-  if (!modal) return false;
-  if (event.key === "Escape") {
-    event.preventDefault();
-    closeMediaModal(modal.id);
-    return true;
-  }
-  if (event.key !== "Tab") return false;
-  const focusable = [...modal.querySelectorAll(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((element) => !element.hidden && element.getClientRects().length);
-  if (!focusable.length) {
-    event.preventDefault();
-    modal.querySelector(".media-modal-panel")?.focus();
-    return true;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-  return true;
-}
+function activeMediaModal() { return sharedPresentation.modal.active(); }
+function openMediaModal(id, trigger = null) { sharedPresentation.modal.open(id, trigger); }
+function closeMediaModal(id, restoreFocus = true) { sharedPresentation.modal.close(id, restoreFocus); }
+function closeAllMediaModals(restoreFocus = true) { sharedPresentation.modal.closeAll(restoreFocus); }
+function handleMediaModalKeydown(event) { return sharedPresentation.modal.keydown(event); }
 
 function refreshFpQueuePresentation() {
   for (const row of document.querySelectorAll("#fp-results .result-card")) {
     const slug = row.dataset.slug;
-    const result = state.fp.results.find((item) => item.slug === slug);
+    const result = sharedPresentation.movieState.results.find((item) => item.slug === slug);
     if (!result) continue;
     const queued = state.queuedSlugs.has(slug);
     row.classList.toggle("queued", queued);
@@ -818,7 +294,7 @@ function refreshFpQueuePresentation() {
     if (toggle) {
       toggle.classList.toggle("is-queued", queued);
       toggle.textContent = queued ? "✓" : "+";
-      toggle.disabled = fpQueueMutations.has(slug);
+      toggle.disabled = sharedPresentation.movieDownloads.pending(slug);
       toggle.setAttribute("aria-label", queued
         ? `${result.title} aus der Queue entfernen`
         : `${result.title} zur Queue hinzufügen`);
@@ -833,17 +309,4 @@ function refreshFpQueuePresentation() {
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
-function refreshQueueUiAfterChange(resp) {
-  renderQueue(resp.queue);
-  api.queueHistory()
-    .then((history) => renderQueueHistory(history.jobs || []))
-    .catch((error) => console.warn("Downloadhistorie konnte nicht aktualisiert werden:", error));
-  if (resp.auto_started) {
-    state.download.completed = resp.done_jobs;
-    state.download.total = resp.total_jobs;
-    const percent = resp.total_jobs ? (resp.done_jobs / resp.total_jobs) * 100 : 0;
-    setDownloadState("active", "Automatischer Download", `${resp.done_jobs}/${resp.total_jobs} fertig`, percent);
-  }
-  refreshFpQueuePresentation();
-  renderSeriesTiles();
-}
+function refreshQueueUiAfterChange(...args) { return sharedPresentation.queueSync.acceptMutation(...args); }

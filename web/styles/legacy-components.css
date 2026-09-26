@@ -860,7 +860,7 @@
   place-items: center;
   width: 19px;
   height: 19px;
-  color: #e86f6f;
+  color: var(--color-danger);
   border: 1px solid rgba(232, 111, 111, 0.42);
   border-radius: 50%;
   font-family: "JetBrains Mono", Consolas, monospace;

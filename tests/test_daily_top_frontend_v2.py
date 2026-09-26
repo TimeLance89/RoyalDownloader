@@ -2,10 +2,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DAILY = (ROOT / "web" / "daily_top_v2.js").read_text(encoding="utf-8")
-API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+DAILY = (ROOT / "web/js/features/home/daily-top.js").read_text(encoding="utf-8")
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8"))
 RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf-8")
-HOME = (ROOT / "web" / "screens" / "home.js").read_text(encoding="utf-8")
+HOME = (ROOT / "web/js/features/home/cards.js").read_text(encoding="utf-8")
 STORE = (ROOT / "web" / "store.js").read_text(encoding="utf-8")
 
 
@@ -14,13 +14,13 @@ def test_daily_top_service_is_part_of_runtime_graph():
 
 
 def test_daily_top_frontend_loads_after_home_experience_v2():
-    assert 'script.src = "/daily_top_v2.js?v=royal-20260824-1"' in API
-    assert "loadRoyalDailyTopV2" in API
-    assert "window.setTimeout(loadRoyalDailyTopV2, 0)" in API
+    assert "daily_top_v2.js" not in API
+    assert "export function createDailyTop" in DAILY
+    assert "fallbackEntries" in DAILY
 
 
 def test_daily_top_is_real_rank_not_daily_hash_or_taste_shuffle():
-    assert 'api.get("/api/daily-top?"' in DAILY
+    assert 'client.get("/api/daily-top?"' in DAILY
     assert "stableDailyOrder" not in DAILY
     assert "discoveryShuffle" not in DAILY
     assert "global_rank" in DAILY
@@ -66,8 +66,9 @@ def test_daily_top_does_not_repaint_the_initial_home_screen():
 
 
 def test_daily_top_jellyfin_status_survives_snapshot_rerenders():
-    assert "jellyfinStatusByKey: new Map()" in STORE
-    assert "state.home.jellyfinStatusByKey.set(key, status)" in HOME
-    assert "state.home.jellyfinStatusByKey.get(homeEntryKey(entry))" in HOME
-    assert 'response.configured ? "unavailable" : "unconfigured"' in HOME
-    assert 'statusByKey.get(key) || "unavailable"' in HOME
+    matching = (ROOT / "web/js/features/integrations/catalog-jellyfin.js").read_text(encoding="utf-8")
+    assert "statuses = new Map()" in matching
+    assert "statuses.set(key, status)" in matching
+    assert "getJellyfinStatus(homeEntryKey(entry))" in HOME
+    assert 'response.configured ? "unavailable" : "unconfigured"' in matching
+    assert 'statusByKey.get(key) || "unavailable"' in matching

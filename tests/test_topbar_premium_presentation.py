@@ -37,7 +37,7 @@ def test_topbar_keeps_existing_controls_and_adds_premium_semantics():
 
 
 def test_ctrl_k_remains_a_real_search_shortcut_not_visual_copy_only():
-    core = (ROOT / "web" / "core.js").read_text(encoding="utf-8")
+    core = (ROOT / "web" / "js" / "core" / "shell.js").read_text(encoding="utf-8")
 
     assert 'event.key.toLowerCase() !== "k"' in core
     assert 'input.focus();' in core

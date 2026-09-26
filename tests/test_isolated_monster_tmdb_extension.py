@@ -239,7 +239,7 @@ def test_frontend_routes_only_virtual_base_slugs_to_special_endpoint():
     from pathlib import Path
 
     api_source = (
-        Path(__file__).resolve().parents[1] / "web" / "api.js"
+        Path(__file__).resolve().parents[1] / "web/js/features/media-details/series-api.js"
     ).read_text(encoding="utf-8")
 
     assert '/^monster-tmdb:(\\d+)$/i.exec(baseSlug || sampleSlug || "")' in api_source

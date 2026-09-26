@@ -41,7 +41,7 @@
 .release-art { position: relative; aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #30233d; }
 .release-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .release-no-poster { display: grid; place-items: center; width: 100%; height: 100%; color: #c6b4d1; font: 500 48px "Archivo", sans-serif; }
-.release-platform { position: absolute; bottom: 12px; left: 12px; max-width: calc(100% - 24px); padding: 7px 10px; border: 1px solid #ffffff33; border-radius: 5px; color: #fff; background: #18131ff2; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.release-platform { position: absolute; bottom: 12px; left: 12px; max-width: calc(100% - 24px); padding: 7px 10px; border: 1px solid #ffffff33; border-radius: 5px; color: var(--color-white); background: #18131ff2; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
 .release-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; padding-top: 14px; }
 .release-card-labels { display: flex; gap: 10px; color: var(--release-muted); font-size: 12px; }
 .release-copy h3 { margin: 7px 0 0; font: 600 18px/1.3 "Archivo", sans-serif; overflow-wrap: anywhere; }
@@ -49,7 +49,7 @@
 .release-kind { color: var(--release-muted); font-size: 11px; line-height: 1.5; margin-bottom: 14px; }
 .release-card-foot { display: grid; gap: 9px; padding-top: 12px; margin-top: auto; border-top: 1px solid var(--release-line); }
 .release-state { color: var(--release-muted); font-size: 12px; line-height: 1.4; }
-.release-state.is-found { color: #93d49a; }
+.release-state.is-found { color: var(--color-success); }
 .release-card button { width: 100%; border-color: #8a713e; color: #f5dfa5; background: #3d3020; }
 #tab-releases button:hover:not(:disabled) { color: var(--release-paper); border-color: var(--release-gold); }
 #tab-releases button:disabled { opacity: .5; cursor: wait; }

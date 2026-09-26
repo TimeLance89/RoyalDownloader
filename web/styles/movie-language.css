@@ -1,0 +1,13 @@
+/* Shared content-language picker; extracted without visual changes. */
+.movie-language-choice{position:fixed;inset:0;z-index:10040;display:grid;place-items:center;padding:24px;background:rgba(4,6,12,.72);backdrop-filter:blur(12px)}
+    .movie-language-choice[hidden]{display:none}
+    .movie-language-panel{width:min(520px,100%);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:24px;background:linear-gradient(145deg,rgba(24,27,38,.98),rgba(10,12,19,.98));box-shadow:0 28px 90px rgba(0,0,0,.5);color:#fff}
+    .movie-language-kicker{display:block;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.16em;color:#9ca6bd}
+    .movie-language-panel h3{margin:0 0 8px;font-size:24px}
+    .movie-language-panel p{margin:0 0 18px;color:#b7bfd1;line-height:1.5}
+    .movie-language-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .movie-language-option{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:16px;background:rgba(255,255,255,.045);color:#fff;cursor:pointer}
+    .movie-language-option:hover,.movie-language-option:focus-visible{border-color:rgba(111,145,255,.7);background:rgba(111,145,255,.12);outline:none}
+    .movie-language-option b{font-size:26px}.movie-language-option span{display:grid;gap:3px}.movie-language-option strong{font-size:15px}.movie-language-option small{color:#9ca6bd}
+    .movie-language-cancel{margin-top:16px;width:100%;border:0;background:transparent;color:#aeb6c8;padding:10px;cursor:pointer}
+    @media(max-width:560px){.movie-language-options{grid-template-columns:1fr}.movie-language-panel{padding:20px;border-radius:20px}}
