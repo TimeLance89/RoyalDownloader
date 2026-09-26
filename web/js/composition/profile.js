@@ -55,7 +55,7 @@ export function prepareProfile({ getCore, getProfile, getHome }) {
   return { household, userMenu, profileActions, personalStorageKey };
 }
 
-export function initializeProfile({ getProfile, getSettings, Event, getCore, getHome, profileActions }) {
+export function initializeProfile({ getProfile, getSettings, getCore, getHome, profileActions }) {
   getProfile().auth = createAuthentication(document.getElementById("login-screen"), {
       isSetupRequired: () => Boolean(getSettings().setup?.required),
       onChange: status => appStore.set({ user: status.user || null }),

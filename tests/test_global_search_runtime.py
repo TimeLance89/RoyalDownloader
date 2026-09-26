@@ -12,7 +12,7 @@ def test_movie_search_is_not_discarded_by_catalog_timeout():
 
 def test_global_search_runtime_is_loaded():
     source = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
-    assert 'import { createSearch } from "./features/search/index.js"' in source
+    assert 'import { createSearch } from "../features/search/index.js"' in source
     assert 'search: createSearch(' in source
 
 

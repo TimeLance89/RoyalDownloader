@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_storage_runtime_is_loaded_by_frontend_manifest():
     adapter = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
-    assert 'import { createStorage } from "./features/storage/index.js"' in adapter
+    assert 'import { createStorage } from "../features/storage/index.js"' in adapter
     assert 'storage: createStorage(document.getElementById("tab-einstellungen"))' in adapter
 
 

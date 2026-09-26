@@ -8,11 +8,22 @@ import { createReleases } from "./features/releases/index.js";
 export function createApplication({
   core: { user, localization, shell, cardArtwork, startup },
   home: { mood, homeData, home },
-  discovery: { movieDiscovery, seriesDiscovery, moviePresentation, resultCards, seriesPresentation, seriesEpisodes, movieCollections, aniworld, anime, seriesChecks, seriesDetailsLoader, movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader, catalogRefresh, mediaLanguage, trailers, genres, infinite, artwork, movieHero },
+  discovery: {
+    movieDiscovery, seriesDiscovery, moviePresentation, resultCards, seriesPresentation,
+    seriesEpisodes, movieCollections, aniworld, anime, seriesChecks, seriesDetailsLoader,
+    movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader,
+    catalogRefresh, mediaLanguage, trailers, genres, infinite, artwork, movieHero,
+  },
   downloads: { queueView, movieDownloads, live },
   profile: { tasteProfile, tasteOnboarding, profile },
-  subscriptions: { subscriptionSummary, notifications, subscriptions, library, subscriptionRules, movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions, onSubscriptions },
-  settings: { settingsNavigation, setup, settings, providers, directory, updater, account, intelligence, calendar, modules, storage, automation, releases: releaseActions },
+  subscriptions: {
+    subscriptionSummary, notifications, subscriptions, library, subscriptionRules,
+    movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions, onSubscriptions,
+  },
+  settings: {
+    settingsNavigation, setup, settings, providers, directory, updater, account,
+    intelligence, calendar, modules, storage, automation, releases: releaseActions,
+  },
   integrations: { movieStatus, jellyfinResume, catalogJellyfin, jellyfin, setupJellyfin, integrations },
   search: { search }
 }) {

@@ -16,9 +16,12 @@ import { composeProfile, prepareProfile } from "./profile.js";
 import { composeSettings, prepareSettings } from "./settings.js";
 
 export function preparePresentation() {
-    let coreDomain, discoveryDomain, downloadsDomain, homeDomain, integrationsDomain, profileDomain, searchDomain, settingsDomain, subscriptionsDomain;
-  const { state, startupCurtain, artworkUrls, i18n, monitor, modal } = prepareCore({ getDiscovery: () => discoveryDomain, getDownloads: () => downloadsDomain, getIntegrations: () => integrationsDomain, getHome: () => homeDomain });
-  const { movieState, seriesState } = prepareDiscovery({  });
+  let coreDomain, discoveryDomain, downloadsDomain, homeDomain, integrationsDomain;
+  let profileDomain, searchDomain, settingsDomain, subscriptionsDomain;
+
+  // Prepare state first; callbacks resolve named peers only after all domains exist.
+  const { state, startupCurtain, artworkUrls, i18n, modal } = prepareCore({ getDiscovery: () => discoveryDomain, getDownloads: () => downloadsDomain, getIntegrations: () => integrationsDomain, getHome: () => homeDomain });
+  const { movieState, seriesState } = prepareDiscovery();
   const { household, userMenu, profileActions, personalStorageKey } = prepareProfile({ getCore: () => coreDomain, getProfile: () => profileDomain, getHome: () => homeDomain });
   const { subscriptions, movieSubscriptions, movieSubscriptionRules } = prepareSubscriptions({ getCore: () => coreDomain, getIntegrations: () => integrationsDomain });
   const { intelligence } = prepareSettings({ getRecommendations: () => recommendations });
@@ -113,9 +116,24 @@ export function preparePresentation() {
 
   initializeCore({ getCore: () => coreDomain, startupCurtain, getHome: () => homeDomain, getDiscovery: () => discoveryDomain, getSubscriptions: () => subscriptionsDomain, state });
   initializeSearch({ getSearch: () => searchDomain, getHome: () => homeDomain, getDiscovery: () => discoveryDomain });
-  initializeProfile({ getProfile: () => profileDomain, getSettings: () => settingsDomain, Event, getCore: () => coreDomain, getHome: () => homeDomain, profileActions });
+  initializeProfile({ getProfile: () => profileDomain, getSettings: () => settingsDomain, getCore: () => coreDomain, getHome: () => homeDomain, profileActions });
   initializeSettings({ getSettings: () => settingsDomain, getIntegrations: () => integrationsDomain, i18n, getCore: () => coreDomain });
   initializeHome({ getHome: () => homeDomain, artworkUrls, discoveryPolicy, getCore: () => coreDomain, state, getDiscovery: () => discoveryDomain, movieState, getIntegrations: () => integrationsDomain });
-  return { core: coreDomain, discovery: discoveryDomain, downloads: downloadsDomain, home: homeDomain, integrations: integrationsDomain, profile: profileDomain, search: searchDomain, settings: settingsDomain, subscriptions: subscriptionsDomain, initUserProfile: profileActions.initUserProfile, mount: () => mountApplication({ state, downloadsDomain, coreDomain, discoveryDomain, profileDomain, searchDomain, integrationsDomain, subscriptionsDomain, homeDomain, settingsDomain }) };
+  return {
+    core: coreDomain,
+    discovery: discoveryDomain,
+    downloads: downloadsDomain,
+    home: homeDomain,
+    integrations: integrationsDomain,
+    profile: profileDomain,
+    search: searchDomain,
+    settings: settingsDomain,
+    subscriptions: subscriptionsDomain,
+    initUserProfile: profileActions.initUserProfile,
+    mount: () => mountApplication({
+      state, downloadsDomain, coreDomain, discoveryDomain, profileDomain,
+      searchDomain, integrationsDomain, subscriptionsDomain, homeDomain, settingsDomain,
+    }),
+  };
 
 }

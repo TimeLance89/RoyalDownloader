@@ -1,0 +1,688 @@
+{
+  "baseline": "16e7b58b",
+  "main_integrated": "3b991cc",
+  "modules": 165,
+  "edges": 396,
+  "cycles": [],
+  "layer_violations": [],
+  "sharedPresentation_accesses": 0,
+  "composition_root_lines": 139,
+  "graph": {
+    "app.js": [
+      "core/store.js",
+      "core/lifecycle.js",
+      "core/navigation.js",
+      "features/downloads/index.js",
+      "features/releases/index.js"
+    ],
+    "composition/application.js": [
+      "features/downloads/view.js",
+      "app.js",
+      "features/settings/navigation.js",
+      "features/downloads/events.js",
+      "features/home/index.js"
+    ],
+    "composition/core.js": [
+      "core/startup.js",
+      "shared/components/modal.js",
+      "features/system/server-build.js",
+      "core/localization.js",
+      "shared/utils/artwork-url.js",
+      "shared/components/startup-curtain.js",
+      "shell/state.js",
+      "shell/actions.js",
+      "features/discovery/catalog-identity.js",
+      "core/shell.js",
+      "shared/components/media-card.js",
+      "shared/components/card-artwork.js",
+      "shared/components/media-card.js",
+      "shared/components/status-badge.js",
+      "shared/components/status-badge.js"
+    ],
+    "composition/discovery.js": [
+      "features/discovery/series-state.js",
+      "features/discovery/movie-state.js",
+      "features/collections/actions.js",
+      "features/discovery/aniworld-actions.js",
+      "features/discovery/anime-actions.js",
+      "features/discovery/series-actions.js",
+      "features/discovery/movie-actions.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "features/media-details/discovery.js",
+      "features/discovery/movie-presentation.js",
+      "features/media-details/series-status.js",
+      "shared/components/result-card.js",
+      "features/discovery/series-presentation.js",
+      "features/media-details/series-episodes.js",
+      "features/collections/index.js",
+      "features/discovery/aniworld.js",
+      "features/discovery/anime.js",
+      "features/media-details/series-checks.js",
+      "features/media-details/series-loader.js",
+      "features/media-details/movie-loader.js",
+      "features/discovery/movie-filters.js",
+      "features/discovery/series-browse.js",
+      "features/discovery/movie-browse.js",
+      "features/discovery/catalog-identity.js",
+      "features/discovery/catalog-seed.js",
+      "features/discovery/catalog-metadata.js",
+      "features/discovery/poster-preload.js",
+      "features/discovery/catalog-refresh.js",
+      "features/media-details/language.js",
+      "features/trailers/index.js",
+      "features/discovery/genres.js",
+      "shared/components/infinite-scroll.js",
+      "features/discovery/artwork.js",
+      "features/discovery/movie-hero.js"
+    ],
+    "composition/downloads.js": [
+      "features/downloads/actions.js",
+      "features/downloads/sync.js",
+      "features/downloads/movies.js"
+    ],
+    "composition/home.js": [
+      "features/home/rows.js",
+      "features/home/layout.js",
+      "features/home/rail-renderer.js",
+      "features/home/card-dock.js",
+      "features/mood/index.js",
+      "features/home/hero.js",
+      "features/home/discovery-policy.js",
+      "features/home/recommendations.js",
+      "features/home/actions.js",
+      "features/home/cards.js",
+      "shared/components/media-card.js",
+      "features/home/lanes.js",
+      "features/home/presenter.js",
+      "features/home/catalog.js",
+      "features/home/taste-ranking.js",
+      "features/home/hero-selection.js",
+      "features/home/daily-top.js",
+      "features/home/data.js",
+      "shared/components/carousel.js"
+    ],
+    "composition/index.js": [
+      "composition/application.js",
+      "composition/home.js",
+      "composition/settings.js",
+      "composition/profile.js",
+      "composition/search.js",
+      "composition/core.js",
+      "composition/subscriptions.js",
+      "composition/home.js",
+      "composition/core.js",
+      "composition/discovery.js",
+      "composition/downloads.js",
+      "composition/integrations.js",
+      "composition/search.js",
+      "composition/profile.js",
+      "composition/settings.js"
+    ],
+    "composition/integrations.js": [
+      "features/integrations/movie-status.js",
+      "features/integrations/resume.js",
+      "features/integrations/catalog-jellyfin.js",
+      "features/integrations/jellyfin.js",
+      "features/integrations/jellyfin-users.js",
+      "features/integrations/settings.js"
+    ],
+    "composition/profile.js": [
+      "features/profile/taste-onboarding.js",
+      "features/auth/index.js",
+      "features/profile/actions.js",
+      "core/session.js",
+      "features/profile/menu.js",
+      "features/profile/identity.js",
+      "features/profile/household.js",
+      "features/profile/taste.js",
+      "core/store.js",
+      "features/profile/index.js",
+      "features/profile/identity.js"
+    ],
+    "composition/search.js": [
+      "features/search/home.js",
+      "features/search/support.js",
+      "features/search/index.js"
+    ],
+    "composition/settings.js": [
+      "features/setup/index.js",
+      "features/settings/intelligence.js",
+      "features/settings/actions.js",
+      "features/settings/providers.js",
+      "features/settings/deployment.js",
+      "features/settings/deployment.js",
+      "features/settings/index.js",
+      "features/settings/directory.js",
+      "features/settings/updater.js",
+      "features/settings/account.js",
+      "core/session.js",
+      "features/calendar/index.js",
+      "features/automation/index.js",
+      "features/storage/index.js",
+      "features/settings/modules.js"
+    ],
+    "composition/subscriptions.js": [
+      "features/subscriptions/movie-rules.js",
+      "features/subscriptions/state.js",
+      "features/subscriptions/actions.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "features/subscriptions/summary.js",
+      "features/subscriptions/movie-model.js",
+      "features/subscriptions/movies.js",
+      "features/subscriptions/summary.js",
+      "features/subscriptions/rules.js",
+      "features/subscriptions/index.js",
+      "features/subscriptions/summary.js",
+      "features/notifications/model.js",
+      "features/notifications/index.js",
+      "features/subscriptions/model.js"
+    ],
+    "core/api.js": [
+      "core/errors.js"
+    ],
+    "core/errors.js": [],
+    "core/lifecycle.js": [
+      "core/errors.js"
+    ],
+    "core/localization.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "core/navigation.js": [],
+    "core/session.js": [
+      "core/api.js"
+    ],
+    "core/shell.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "core/startup.js": [
+      "core/lifecycle.js"
+    ],
+    "core/store.js": [
+      "core/errors.js"
+    ],
+    "core/websocket.js": [
+      "core/store.js",
+      "core/errors.js"
+    ],
+    "features/auth/index.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/automation/index.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/automation/layout.js",
+      "features/automation/view.js"
+    ],
+    "features/automation/layout.js": [],
+    "features/automation/view.js": [],
+    "features/calendar/index.js": [
+      "core/lifecycle.js",
+      "features/calendar/state.js",
+      "features/calendar/storage.js",
+      "features/calendar/view.js",
+      "features/calendar/model.js"
+    ],
+    "features/calendar/model.js": [],
+    "features/calendar/state.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/store.js",
+      "core/errors.js",
+      "features/calendar/model.js"
+    ],
+    "features/calendar/storage.js": [
+      "features/calendar/model.js"
+    ],
+    "features/calendar/view.js": [
+      "core/lifecycle.js",
+      "shared/utils/escape-html.js",
+      "features/calendar/model.js"
+    ],
+    "features/collections/actions.js": [],
+    "features/collections/index.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/anime-actions.js": [],
+    "features/discovery/anime.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/utils/escape-html.js"
+    ],
+    "features/discovery/aniworld-actions.js": [],
+    "features/discovery/aniworld.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/utils/escape-html.js"
+    ],
+    "features/discovery/artwork.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/catalog-identity.js": [],
+    "features/discovery/catalog-metadata.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/catalog-refresh.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/catalog-seed.js": [],
+    "features/discovery/genres.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/movie-actions.js": [],
+    "features/discovery/movie-browse.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/movie-filters.js": [],
+    "features/discovery/movie-hero.js": [
+      "core/lifecycle.js"
+    ],
+    "features/discovery/movie-presentation.js": [
+      "core/lifecycle.js"
+    ],
+    "features/discovery/movie-state.js": [],
+    "features/discovery/poster-preload.js": [
+      "core/lifecycle.js"
+    ],
+    "features/discovery/series-actions.js": [],
+    "features/discovery/series-browse.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/discovery/series-presentation.js": [
+      "core/lifecycle.js"
+    ],
+    "features/discovery/series-state.js": [],
+    "features/downloads/actions.js": [],
+    "features/downloads/events.js": [],
+    "features/downloads/index.js": [
+      "core/lifecycle.js",
+      "core/websocket.js"
+    ],
+    "features/downloads/movies.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/downloads/outcome.js"
+    ],
+    "features/downloads/outcome.js": [],
+    "features/downloads/sync.js": [
+      "core/api.js"
+    ],
+    "features/downloads/view.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "shared/components/view-state.js"
+    ],
+    "features/home/actions.js": [],
+    "features/home/cache.js": [],
+    "features/home/card-dock.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/components/status-badge.js"
+    ],
+    "features/home/cards.js": [],
+    "features/home/catalog.js": [],
+    "features/home/daily-top.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/home/data.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/home/cache.js"
+    ],
+    "features/home/discovery-policy.js": [],
+    "features/home/hero-selection.js": [],
+    "features/home/hero.js": [
+      "core/lifecycle.js"
+    ],
+    "features/home/index.js": [
+      "core/lifecycle.js"
+    ],
+    "features/home/lanes.js": [],
+    "features/home/layout-model.js": [],
+    "features/home/layout.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/components/dialog.js",
+      "features/home/layout-model.js"
+    ],
+    "features/home/presenter.js": [],
+    "features/home/rail-renderer.js": [
+      "core/lifecycle.js",
+      "shared/components/media-card.js",
+      "shared/components/status-badge.js"
+    ],
+    "features/home/recommendations.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/home/rows.js": [],
+    "features/home/taste-ranking.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/integrations/catalog-jellyfin.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/integrations/health.js": [],
+    "features/integrations/jellyfin-users.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/integrations/jellyfin.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/integrations/jellyfin-users.js"
+    ],
+    "features/integrations/movie-status.js": [
+      "core/lifecycle.js"
+    ],
+    "features/integrations/resume.js": [
+      "core/lifecycle.js"
+    ],
+    "features/integrations/settings.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/integrations/health.js"
+    ],
+    "features/media-details/discovery.js": [
+      "core/lifecycle.js"
+    ],
+    "features/media-details/language.js": [
+      "core/lifecycle.js",
+      "shared/components/dialog.js"
+    ],
+    "features/media-details/movie-loader.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/media-details/series-api.js": [],
+    "features/media-details/series-checks.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/media-details/series-api.js"
+    ],
+    "features/media-details/series-episodes.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/media-details/series-loader.js": [
+      "features/media-details/series-api.js",
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/media-details/series-status.js": [],
+    "features/mood/config.js": [],
+    "features/mood/index.js": [
+      "core/lifecycle.js",
+      "shared/components/dialog.js",
+      "features/mood/model.js",
+      "features/mood/view.js",
+      "features/mood/config.js"
+    ],
+    "features/mood/model.js": [
+      "features/mood/config.js"
+    ],
+    "features/mood/view.js": [
+      "features/mood/config.js"
+    ],
+    "features/notifications/api.js": [
+      "core/api.js"
+    ],
+    "features/notifications/index.js": [
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/notifications/model.js",
+      "features/notifications/view.js",
+      "features/notifications/api.js"
+    ],
+    "features/notifications/model.js": [],
+    "features/notifications/view.js": [
+      "core/lifecycle.js",
+      "features/notifications/model.js"
+    ],
+    "features/profile/actions.js": [],
+    "features/profile/household.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js"
+    ],
+    "features/profile/identity.js": [],
+    "features/profile/index.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "shared/components/view-state.js",
+      "features/profile/view.js"
+    ],
+    "features/profile/menu.js": [
+      "core/lifecycle.js",
+      "core/store.js",
+      "features/profile/identity.js"
+    ],
+    "features/profile/taste-candidates.js": [],
+    "features/profile/taste-onboarding.js": [
+      "core/api.js",
+      "shared/components/dialog.js",
+      "shared/components/media-card.js",
+      "features/profile/taste-candidates.js"
+    ],
+    "features/profile/taste.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/profile/view.js": [
+      "features/profile/identity.js",
+      "core/lifecycle.js"
+    ],
+    "features/releases/api.js": [
+      "core/api.js"
+    ],
+    "features/releases/index.js": [
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/releases/api.js",
+      "features/releases/settings.js"
+    ],
+    "features/releases/settings.js": [
+      "core/lifecycle.js",
+      "core/errors.js"
+    ],
+    "features/search/home.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/search/index.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/search/support.js": [],
+    "features/settings/account.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/settings/actions.js": [],
+    "features/settings/deployment.js": [],
+    "features/settings/directory.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/components/dialog.js"
+    ],
+    "features/settings/index.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/settings/deployment.js"
+    ],
+    "features/settings/intelligence.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/settings/modules.js": [
+      "features/integrations/health.js",
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js"
+    ],
+    "features/settings/navigation.js": [
+      "core/lifecycle.js"
+    ],
+    "features/settings/providers.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "shared/utils/escape-html.js"
+    ],
+    "features/settings/updater.js": [
+      "core/api.js",
+      "core/websocket.js",
+      "core/lifecycle.js"
+    ],
+    "features/setup/copy.js": [],
+    "features/setup/index.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "features/settings/deployment.js",
+      "features/setup/copy.js"
+    ],
+    "features/storage/api.js": [
+      "core/api.js"
+    ],
+    "features/storage/index.js": [
+      "features/storage/layout.js",
+      "features/storage/view.js",
+      "shared/utils/escape-html.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/storage/api.js",
+      "features/storage/jobs.js",
+      "shared/formatters/bytes.js"
+    ],
+    "features/storage/jobs.js": [
+      "shared/utils/escape-html.js",
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "shared/formatters/bytes.js"
+    ],
+    "features/storage/layout.js": [],
+    "features/storage/view.js": [
+      "shared/components/view-state.js",
+      "shared/formatters/bytes.js",
+      "shared/utils/escape-html.js"
+    ],
+    "features/subscriptions/actions.js": [
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js"
+    ],
+    "features/subscriptions/index.js": [
+      "core/api.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/subscriptions/view.js",
+      "features/subscriptions/model.js"
+    ],
+    "features/subscriptions/model.js": [],
+    "features/subscriptions/movie-model.js": [],
+    "features/subscriptions/movie-rules.js": [
+      "core/api.js",
+      "core/errors.js",
+      "shared/components/dialog.js",
+      "features/subscriptions/movie-model.js"
+    ],
+    "features/subscriptions/movie-view.js": [
+      "core/lifecycle.js",
+      "shared/components/view-state.js",
+      "features/subscriptions/movie-model.js"
+    ],
+    "features/subscriptions/movies.js": [
+      "core/lifecycle.js",
+      "core/errors.js",
+      "features/subscriptions/movie-view.js"
+    ],
+    "features/subscriptions/rules.js": [
+      "core/api.js",
+      "core/errors.js",
+      "shared/components/dialog.js"
+    ],
+    "features/subscriptions/state.js": [
+      "core/api.js",
+      "core/store.js",
+      "core/lifecycle.js",
+      "core/errors.js",
+      "core/websocket.js"
+    ],
+    "features/subscriptions/summary.js": [
+      "core/lifecycle.js"
+    ],
+    "features/subscriptions/view.js": [
+      "core/lifecycle.js",
+      "shared/components/view-state.js",
+      "features/subscriptions/model.js"
+    ],
+    "features/system/server-build.js": [
+      "core/api.js",
+      "core/lifecycle.js"
+    ],
+    "features/trailers/index.js": [
+      "core/lifecycle.js",
+      "features/trailers/scroll.js"
+    ],
+    "features/trailers/scroll.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/card-artwork.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/carousel.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/dialog.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/infinite-scroll.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/media-card.js": [
+      "shared/components/status-badge.js"
+    ],
+    "shared/components/modal.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/result-card.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/startup-curtain.js": [
+      "core/lifecycle.js"
+    ],
+    "shared/components/status-badge.js": [],
+    "shared/components/view-state.js": [],
+    "shared/constants/watch-policy.js": [],
+    "shared/formatters/bytes.js": [],
+    "shared/utils/artwork-url.js": [],
+    "shared/utils/escape-html.js": [],
+    "shell/actions.js": [
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js",
+      "shared/constants/watch-policy.js"
+    ],
+    "shell/state.js": []
+  }
+}

@@ -7,25 +7,33 @@ Es gibt keinen Bundler, keine neue Laufzeitabhängigkeit und keinen Build-Schrit
 `web/index.html` lädt ausschließlich `web/app.js` als Modul. Dieser Einstieg
 initialisiert Übersetzung, Anmeldung, Setup und die Anwendung.
 
-`web/js/composition.js` erzeugt die Feature-Dienste und verbindet sie durch
-explizite Abhängigkeiten und Callbacks. `web/js/app.js` registriert Ansichten,
-Sitzungsdienste und deren Lebensdauer. `web/js/shell/presentation.js` sowie
-`shell/actions/` enthalten importierte Shell-Aktionen zwischen diesen Diensten.
-Sie sind keine Browser-Globals. Die interne Registry `sharedPresentation` wird
-nur von der Komposition und Shell benutzt; Feature-Module importieren sie nicht.
-Neue Feature-Logik gehört in `features/`, nicht in die Registry oder Shell.
+`web/js/composition/index.js` führt fachliche Composition-Module zusammen.
+Die Module erzeugen ihre Dienste und übergeben benannte Abhängigkeiten und
+Callbacks an Feature-Factories. `composition/application.js` verbindet die
+Domain-Gruppen mit `web/js/app.js`, das Navigation und Lebensdauer verwaltet.
+`createApplication({ core, home, discovery, downloads, profile, subscriptions,
+settings, integrations, search })` benennt innerhalb jeder Gruppe die tatsächlich
+benötigten Dienste. Es gibt keine globale oder importierbare Service-Registry.
+
+`shell/actions.js` vermittelt globale Navigation, Queue-Dock, Modals und
+bereichsübergreifende UI-Aktualisierung. Home-, Discovery-, Profil-, Abo-,
+Collection- und Download-Aktionen liegen bei ihren Features und erhalten ihre
+Abhängigkeiten als Factory-Parameter. Sie importieren keine Shell-Aktionen.
 
 ```text
 web/
   index.html, app.js                 DOM-Shell und nativer Einstieg
   i18n.js                           inaktiver Update-Kompatibilitätsmarker
   js/
-    composition.js                  Abhängigkeiten und Root-Elemente verbinden
+    composition/index.js            fachliche Komposition zusammenführen
+    composition/application.js      gruppierte Application-Lifecycle-Ports
+    composition/{domain}.js         Dienste, Roots und Callbacks einer Domäne
     app.js                          Navigation und Sitzungslifecycle
     core/                           API, Store, WebSocket, Lifecycle, Fehler
     shell/                          importierte Shell-Aktionen und Queue-Abbild
     shared/components/              wiederverwendbare UI und Interaktion
     shared/formatters/, utils/       reine Formatierung und Hilfsfunktionen
+    shared/constants/               gemeinsame feste UI-Konstanten
     features/                       fachlich abgegrenzte Dienste und Ansichten
   style-tokens.css                   semantische Tokens und Theme-Aliase
   style.css                         geordneter CSS-Importbaum
@@ -35,6 +43,48 @@ web/
 Die ursprüngliche Bestandsaufnahme bleibt unverändert in
 [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) und [frontend-audit.json](frontend-audit.json).
 Diese Dateien beschreiben bewusst den Zustand **vor** dem Umbau.
+
+Die nachfolgende Härtung ist vorab in
+[FRONTEND_HARDENING_AUDIT.md](FRONTEND_HARDENING_AUDIT.md) mit vollständigem
+[Import- und Registry-Inventar](frontend-hardening-audit.json) dokumentiert.
+Der [abschließende Importgraph](frontend-hardening-result.json) enthält keine
+Zyklen und keine Verletzungen der Schichtgrenzen.
+
+## Komposition und erlaubte Abhängigkeiten
+
+| Composition-Modul | Verantwortung |
+| --- | --- |
+| `core.js` | Sprache, Shell, Modals, gemeinsame Darstellung und Start |
+| `downloads.js` | Queue-Synchronisation und Film-Download-Rückmeldungen |
+| `discovery.js` | Film-/Serienzustand, Browse, Details, Anime, AniWorld, Collections |
+| `home.js` | Home-Daten, Karten, Empfehlungen, Hero und Layout |
+| `profile.js` | Auth, Identität, Haushalt, persönlicher Speicher und Onboarding |
+| `subscriptions.js` | Abos, Bibliothek, Regeln und Notifications |
+| `integrations.js` | Jellyfin, Health und Medienverfügbarkeit |
+| `settings.js` | Setup, Provider, Updater, Speicher, Kalender und Automation |
+| `search.js` | globale Suche und Home-Suche |
+
+Die Initialisierung besitzt drei Schritte: `prepare*` erzeugt benötigten Zustand,
+`compose*` erstellt die Domain-Dienste, `initialize*` bindet Dienste, deren
+konkrete Gegenstellen dann vorliegen. Benannte `getHome`-/`getDiscovery`-Ports
+innerhalb der Komposition lösen verzögerte Referenzen auf. Feature-Factories
+erhalten daraus einzelne Dienste, Getter oder Callbacks, keinen Domain-Container.
+Solche Getter dürfen beim Erzeugen einer Factory nicht vorzeitig aufgerufen
+werden. Ein Factory-Ergebnis gehört ausschließlich seiner Domäne; andere
+Domänen verändern es nicht. Neue Abhängigkeiten werden am Konstruktor sichtbar.
+
+Automatisch geschützt werden alle Module unter `web/js/`, einschließlich
+statischer Imports, Re-Exports und literaler dynamischer Imports:
+
+- `core/` importiert keine höheren Schichten.
+- `shared/` importiert keine Features, Shell oder Komposition.
+- `features/` importiert weder Shell noch Komposition.
+- Shell importiert keine Komposition; der Composition-Root importiert nur seine Module.
+- Keine Importzyklen und keine Wiedereinführung von `sharedPresentation`.
+
+Ein Feature innerhalb einer bestehenden Domäne wird dort lokal verdrahtet.
+Der zentrale Root ändert sich nur für eine neue Domäne. Neue fachliche Logik
+gehört weder in die Komposition noch in die Shell.
 
 ## Zustandsgrenzen
 
@@ -135,7 +185,7 @@ Live-Abschluss liefert. Es gibt keine zweite Reconnect- oder Timer-Kette pro Sei
 | Einstellungen und Updater | `settings/` |
 
 Root-Elemente, externe Statusfelder und bereichsübergreifende Aktionen werden in
-`composition.js` übergeben. Ein Feature sucht innerhalb seines Roots. DOM-Erzeugung
+`composition/<bereich>.js` übergeben. Ein Feature sucht innerhalb seines Roots. DOM-Erzeugung
 über `document.createElement`, Fokusverwaltung und bewusst geteilte Shell-Elemente
 sind davon zu unterscheiden. Details dürfen ihre explizit übergebenen Modal-Roots
 ansprechen, auch wenn diese unter `body` liegen.
@@ -175,6 +225,8 @@ bleibt absichtlich erhalten, damit der Refactor das Design nicht verändert.
 Der automatisierte Vergleich prüft 2398 Elemente bei 1440 und 390 Pixeln gegen den
 festen Vor-Umbau-Stand `7d93908`. Er ersetzt keine visuelle Neugestaltung und fügt
 auch keine solche hinzu.
+Die Baseline darf bei einem späteren Redesign nur ausdrücklich und mit
+dokumentierter Designänderung ersetzt werden, niemals automatisch nach einem Fehler.
 
 ## Ein neues Feature ergänzen
 
@@ -183,7 +235,8 @@ auch keine solche hinzu.
    anlegen; Server-Snapshots und temporären Entwurf getrennt halten.
 3. Nebenwirkungen an `createScope()` binden und beim Unmount beenden.
 4. Gemeinsame Karten, Status- und Ladebausteine verwenden; keine eigene HTTP-/WS-Schicht.
-5. In `composition.js` verdrahten und in `app.js` mit passender Lebensdauer registrieren.
+5. Im zuständigen `composition/<bereich>.js` verdrahten; bei einer neuen Ansicht
+   die passende Lifecycle-Registrierung in `app.js` ergänzen.
 6. Erfolg, leere Antwort, Fehler, verspätete Antwort und erneutes Mounten testen.
 
 Kein neuer Code unter `window`, keine Inline-Handler und keine Feature-Imports aus
@@ -213,9 +266,17 @@ node tests/frontend/css-equivalence.cjs
 
 Die Browserprüfungen nutzen eine vorhandene Playwright-Installation über
 `ROYAL_PLAYWRIGHT` und standardmäßig Edge (`ROYAL_BROWSER` überschreibbar).
+In CI installiert der Job `frontend-browser` Playwright 1.62.1 und Chromium
+ausschließlich im Runner-Temporärverzeichnis. `ROYAL_BROWSER=chromium` verwendet
+den mitgelieferten Browser. Es entsteht keine Build-Pipeline oder App-Abhängigkeit.
+Alle drei Browserprüfungen laufen bei jedem PR sowie Push nach `overnight`/`main`
+und bei manuellen oder wiederverwendeten Quality-Läufen. `verify` hängt davon ab
+und schlägt ausdrücklich fehl, wenn das Browser-Gate nicht erfolgreich war.
 HTTP und WebSocket sind deterministische Fixtures. Es werden keine echten
 Downloads oder Nutzerdaten verändert. Direkte Testzugriffe auf Shell-Exporte sind
 auf den Testkontext beschränkt; die Produktionsseite erzeugt keine solchen Globals.
+Der Browser-Test importiert den exakt gleichen Einstieg einschließlich Query-String
+wie das HTML, damit keine zweite Application-Instanz entsteht.
 
 Python-Gesamttests lokal in einer isolierten Kopie ohne persönliche Konfiguration
 starten. Unter Windows sind zwei bestehende Plattformabweichungen bekannt:

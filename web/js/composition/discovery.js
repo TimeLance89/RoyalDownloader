@@ -242,7 +242,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
   return services;
 }
 
-export function prepareDiscovery({  }) {
+export function prepareDiscovery() {
   const movieState = createMovieState(), seriesState = createSeriesState();
   return { movieState, seriesState };
 }
