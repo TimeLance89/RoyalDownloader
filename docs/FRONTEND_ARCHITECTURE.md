@@ -811,3 +811,12 @@ und `/external`-Pfadnormalisierung) wurden auch gegen das unveränderte
 wie vor der Migration. JavaScript-Syntaxprüfung, Ruff-Korrektheitsprüfung und
 Security-Regressionsscan bestanden. Die Linux-CI bleibt für die Plattformprüfung
 maßgeblich.
+
+## Kompatibilität mit installierten Updatern
+
+`web/i18n.js` bleibt als inaktive Kompatibilitätsdatei im Update-Archiv erhalten.
+Bereits installierte Updater (u. a. Overnight `7d93908`) verlangen diesen Pfad,
+bevor sie neuen Code installieren. Die Datei wird nicht im HTML eingebunden und
+enthält keine Laufzeitlogik; Übersetzungen bleiben in `js/core/localization.js`.
+Der Archiv-Regressionstest deckt die erfolgreiche Prüfung sowie den ursprünglichen
+Fehler bei fehlender Kompatibilitätsdatei ab.
