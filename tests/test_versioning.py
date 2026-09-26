@@ -29,7 +29,7 @@ def test_capabilities_add_version_without_changing_health_contracts():
 
 def test_frontend_renders_api_version_separately_from_build_revision():
     html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    account = (ROOT / "web" / "screens" / "account.js").read_text(encoding="utf-8")
+    account = (ROOT / "web/js/features/settings/updater.js").read_text(encoding="utf-8")
 
     assert 'id="updater-version"' in html
     assert 'data.application_version || "unbekannt"' in account

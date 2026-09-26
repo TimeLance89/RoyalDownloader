@@ -85,7 +85,7 @@ body.taste-onboarding-open { overflow: hidden; }
   transition: background .2s ease;
 }
 .taste-onboarding-progress strong {
-  color: #fff;
+  color: var(--color-white);
   font: 800 35px/.9 "Barlow Condensed", sans-serif;
 }
 .taste-onboarding-progress span {
@@ -134,7 +134,7 @@ body.taste-onboarding-open { overflow: hidden; }
   overflow: hidden;
   border: 1px solid rgba(239, 31, 53, .54);
   border-radius: 999px;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(239, 31, 53, .12);
   font: 550 10px/1 "DM Sans", sans-serif;
   text-overflow: ellipsis;
@@ -191,8 +191,8 @@ body.taste-onboarding-open { overflow: hidden; }
   transform: translateY(-3px);
 }
 .taste-onboarding-card:focus-visible {
-  border-color: #fff;
-  outline: 2px solid #fff;
+  border-color: var(--color-white);
+  outline: 2px solid var(--color-white);
   outline-offset: 3px;
 }
 .taste-onboarding-card.is-selected {
@@ -256,7 +256,7 @@ body.taste-onboarding-open { overflow: hidden; }
   backdrop-filter: blur(8px);
 }
 .taste-onboarding-card.is-selected .taste-onboarding-check {
-  color: #fff;
+  color: var(--color-white);
   border-color: var(--taste-red);
   background: var(--taste-red);
 }
@@ -290,7 +290,7 @@ body.taste-onboarding-open { overflow: hidden; }
 .taste-onboarding-card-copy > strong {
   display: -webkit-box;
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   font: 720 clamp(12px, .88vw, 15px)/1.18 "Archivo", sans-serif;
   letter-spacing: -.018em;
   -webkit-box-orient: vertical;

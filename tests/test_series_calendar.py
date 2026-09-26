@@ -125,7 +125,7 @@ def test_calendar_api_marks_watchlist_series_as_subscribed(monkeypatch):
 
 def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
     index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    screen = (ROOT / "web" / "screens" / "series-calendar.js").read_text(encoding="utf-8")
+    screen = "\n".join((ROOT / "web/js/features/calendar" / f"{name}.js").read_text(encoding="utf-8") for name in ("index", "state", "storage", "view"))
     css = (ROOT / "web" / "styles" / "series-calendar.css").read_text(encoding="utf-8")
 
     assert index.count('data-tab="kalender"') == 2
@@ -135,7 +135,7 @@ def test_dedicated_calendar_ui_has_navigation_filters_and_direct_series_flow():
         'class="calendar-ledger"', 'class="calendar-legend"',
     ):
         assert contract in index
-    assert "api.seriesCalendar(force)" in screen
+    assert "client.get(`/api/series-calendar" in screen
     assert "data-calendar-retry" in screen
     open_entry = screen.split("function calendarOpenEntry", 1)[1].split(
         "function initSeriesCalendar", 1,
@@ -151,37 +151,40 @@ def test_calendar_uses_an_independent_provider_session_and_client_timeout():
     router = (ROOT / "api" / "api_discovery_router.py").read_text(encoding="utf-8")
     service = (ROOT / "features" / "series_calendar_service.py").read_text(encoding="utf-8")
     server = (ROOT / "server.py").read_text(encoding="utf-8")
-    api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+    api = (ROOT / "web/js/features/calendar/state.js").read_text(encoding="utf-8")
 
     assert "get_series_calendar_service().get(force=refresh)" in router
     assert "series_calendar_snapshot.json" in service
     assert "os.replace(temporary, self.snapshot_path)" in service
     assert "get_series_calendar_service().refresh_async()" in server
-    assert 'controller.abort(), 15_000' in api
-    assert 'opts.signal = signal' in api
+    assert 'timeoutMs: 15_000' in api
+    transport = (ROOT / 'web/js/core/api.js').read_text(encoding='utf-8')
+    assert 'controller.abort();' in transport
+    assert 'signal: controller.signal' in transport
 
 
 def test_calendar_has_a_terminal_state_and_no_browser_provider_request():
-    screen = (ROOT / "web" / "screens" / "series-calendar.js").read_text(encoding="utf-8")
+    screen = "\n".join((ROOT / "web/js/features/calendar" / f"{name}.js").read_text(encoding="utf-8") for name in ("index", "state", "storage", "view"))
 
     assert "SERIES_CALENDAR_WATCHDOG_MS = 16_000" in screen
-    assert "calendarNextRequestId()" in screen
-    assert "calendarCheckHardDeadline" in screen
-    assert "calendarInstallSafetyNet()" in screen
-    assert "state.calendar.phase = \"error\"" in screen
+    assert "if (!scope.active) return false" in screen
+    assert "Date.now() - startedAt >= deadlineMs" in screen
+    assert "scope.timeout(expire, deadlineMs)" in screen
+    assert "setInterval" not in screen
+
     assert "https://serienstream.to/api/calendar" not in screen
     assert "SERIES_CALENDAR_CACHE_MAX_AGE" in screen
-    assert "calendarRestoreSnapshot()" in screen
-    assert "calendarStoreSnapshot(payload)" in screen
+    assert "restoreSnapshot()" in screen
+    assert "storeSnapshot(payload)" in screen
     assert "Sendeplan wird geladen" not in screen
     assert ".calendar-status[hidden]" in (ROOT / "web" / "styles" / "series-calendar.css").read_text(encoding="utf-8")
 
 
 def test_series_catalog_checks_jellyfin_before_artwork_hydration():
-    screen = (ROOT / "web" / "screens" / "series.js").read_text(encoding="utf-8")
+    screen = (ROOT / "web" / "js/features/discovery/series-presentation.js").read_text(encoding="utf-8")
     body = screen.split("function applySeriesResults", 1)[1].split(
         "function clearSeriesSearchContext", 1
     )[0]
 
     assert body.index("refreshCatalogJellyfinStatus") < body.index("hydrateHomeSeriesArtwork")
-    assert "for (const result of state.series.results) updateSeriesResultCard" in body
+    assert "for (const result of seriesState.results) updateSeriesResultCard" in body

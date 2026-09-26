@@ -1,7 +1,7 @@
 @layer legacy {
 * { box-sizing: border-box; }
 
-::selection { background: rgba(216, 183, 102, 0.35); color: #fff; }
+::selection { background: rgba(216, 183, 102, 0.35); color: var(--color-white); }
 
 html { color-scheme: dark; }
 
@@ -460,7 +460,7 @@ body {
   cursor: pointer;
 }
 .notif-footer button:hover,
-.notif-footer button:focus-visible { outline: none; color: #fff; }
+.notif-footer button:focus-visible { outline: none; color: var(--color-white); }
 
 /* ── Layout ─────────────────────────────────────────────────────────── */
 .layout {
@@ -529,7 +529,7 @@ body {
     #0c0911;
   border: 1px solid rgba(216, 183, 102, 0.2);
   border-radius: 17px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 42px -34px #000;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 42px -34px var(--color-black);
   isolation: isolate;
 }
 .movie-feature::before {
@@ -1298,7 +1298,7 @@ body {
   opacity: 0.2;
   background-position: center 28%;
   background-size: cover;
-  mask-image: linear-gradient(#000 30%, transparent);
+  mask-image: linear-gradient(var(--color-black) 30%, transparent);
 }
 .anime-detail-content {
   position: relative;
@@ -1410,7 +1410,7 @@ body {
   cursor: pointer;
 }
 .anime-episode:hover:not(:disabled),
-.anime-episode:focus-visible { outline: none; color: #fff; border-color: rgba(216, 183, 102, 0.55); }
+.anime-episode:focus-visible { outline: none; color: var(--color-white); border-color: rgba(216, 183, 102, 0.55); }
 .anime-episode.is-selected { color: #160f1d; border-color: #c99af2; background: #c99af2; }
 .anime-episode.is-queued { color: var(--accent-hov); border-color: rgba(216, 183, 102, 0.5); }
 .anime-episode.is-downloaded { color: #82d5a6; border-color: rgba(77, 190, 125, 0.45); }

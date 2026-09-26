@@ -2,9 +2,9 @@
    MEINE LISTE — cinematic streaming library
    ═══════════════════════════════════════════════════════════════════════ */
 #tab-bibliothek {
-  --library-red: #e50914;
+  --library-red: var(--color-accent);
   --library-white: #f5f5f1;
-  --library-muted: #b3b3b3;
+  --library-muted: var(--color-text-muted);
   gap: 0;
   margin: -16px -18px -18px;
   overflow-y: auto;
@@ -101,7 +101,7 @@
   margin: 0;
   color: #dedede;
   font: 500 clamp(13px, 1.5vw, 17px)/1.45 "DM Sans", sans-serif;
-  text-shadow: 0 2px 12px #000;
+  text-shadow: 0 2px 12px var(--color-black);
 }
 
 .library-hero-meta {
@@ -199,13 +199,13 @@
 #tab-bibliothek .library-action:hover:not(:disabled),
 #tab-bibliothek .library-action:focus-visible {
   outline: none;
-  color: #fff;
+  color: var(--color-white);
   background: #3a3a3e;
   transform: translateY(-1px);
 }
 
 #tab-bibliothek .library-action.is-primary {
-  color: #fff;
+  color: var(--color-white);
   background: var(--library-red);
   border-color: var(--library-red);
 }
@@ -331,10 +331,10 @@
 }
 
 #tab-bibliothek .library-card-title {
-  color: #fff;
+  color: var(--color-white);
   font: 700 clamp(15px, 1.4vw, 20px)/1.08 "Archivo", sans-serif;
   letter-spacing: -.025em;
-  text-shadow: 0 2px 10px #000;
+  text-shadow: 0 2px 10px var(--color-black);
 }
 
 #tab-bibliothek .library-card-status {
@@ -400,13 +400,13 @@
 #tab-bibliothek .library-state.is-missing,
 #tab-bibliothek .library-state.is-waiting_window,
 #tab-bibliothek .library-state.is-queued {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(229, 9, 20, .82);
   border-color: rgba(255, 255, 255, .15);
 }
 #tab-bibliothek .library-state.is-failed,
 #tab-bibliothek .library-state.is-blocked {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(166, 0, 8, .9);
   border-color: rgba(255, 255, 255, .15);
 }
@@ -429,7 +429,7 @@
 
 #tab-bibliothek .library-episode-status strong,
 #tab-bibliothek .library-card:not(.has-new) .library-episode-status strong {
-  color: #fff;
+  color: var(--color-white);
   font: 800 11px/1 "Archivo", sans-serif;
 }
 
@@ -480,7 +480,7 @@
 #tab-bibliothek .library-card-open:hover,
 #tab-bibliothek .library-card-open:focus-visible {
   outline: none;
-  color: #fff;
+  color: var(--color-white);
   background: var(--library-red);
   border-color: var(--library-red);
 }
@@ -496,7 +496,7 @@
   width: 58px;
   height: 58px;
   margin-bottom: 9px;
-  color: #fff;
+  color: var(--color-white);
   background: var(--library-red);
   border: 0;
   border-radius: 50%;
@@ -684,7 +684,7 @@
 }
 
 .library-hero-action.is-primary {
-  color: #fff;
+  color: var(--color-white);
   background: var(--archive-red);
   border-color: var(--archive-red);
 }
@@ -747,7 +747,7 @@
 .library-filter-tabs button:hover,
 .library-filter-tabs button:focus-visible,
 .library-filter-tabs button.is-active {
-  color: #fff;
+  color: var(--color-white);
   background: #262932;
   border-color: rgba(255, 255, 255, .1);
   outline: none;
@@ -769,7 +769,7 @@
 
 .library-search input {
   min-width: 0;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 0;
   outline: 0;
@@ -779,7 +779,7 @@
 .library-search button {
   min-height: 30px;
   padding: 0 10px;
-  color: #fff;
+  color: var(--color-white);
   background: #272a31;
   border: 0;
   border-radius: 2px;
@@ -791,7 +791,7 @@
 .library-sort > span { color: #777b84; font: 600 7px/1 "JetBrains Mono", monospace; text-transform: uppercase; }
 .library-sort select {
   min-height: 36px;
-  color: #fff;
+  color: var(--color-white);
   background: #090a0d;
   border: 1px solid rgba(255, 255, 255, .13);
   border-radius: 3px;
@@ -859,7 +859,7 @@
   text-transform: uppercase;
 }
 .library-download-receipt.is-unread {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(25, 126, 56, .88);
   border-color: rgba(184, 238, 196, .55);
 }
@@ -986,7 +986,7 @@
   inset: 0 0 0 38%;
   opacity: 0;
   filter: grayscale(.15) saturate(.72) contrast(1.08);
-  mask-image: linear-gradient(90deg, transparent, #000 28%);
+  mask-image: linear-gradient(90deg, transparent, var(--color-black) 28%);
 }
 
 #tab-bibliothek .library-hero-art.has-artwork { opacity: .62; }

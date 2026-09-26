@@ -13,7 +13,7 @@
   max-height: 530px;
   margin: 0;
   overflow: hidden;
-  background: #111;
+  background: var(--color-surface);
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -57,7 +57,7 @@
 #tab-serien .series-feature.has-no-art .series-feature-art {
   background:
     radial-gradient(circle at 72% 30%, rgba(229, 9, 20, .15), transparent 28%),
-    linear-gradient(125deg, #221214, #111 68%);
+    linear-gradient(125deg, #221214, var(--color-surface) 68%);
 }
 
 #tab-filme .movie-feature.is-poster-art .movie-feature-art,
@@ -97,8 +97,8 @@
   width: 22px;
   height: 22px;
   place-items: center;
-  color: #fff;
-  background: #e50914;
+  color: var(--color-white);
+  background: var(--color-accent);
   border-radius: 3px;
   font: 800 12px/1 "Archivo", sans-serif;
   letter-spacing: 0;
@@ -110,7 +110,7 @@
   max-width: 13ch;
   margin: 15px 0 10px;
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   font: 780 clamp(40px, 4.15vw, 66px)/.96 "Archivo", sans-serif;
   letter-spacing: -.055em;
   text-wrap: balance;
@@ -146,7 +146,7 @@
   margin-top: 20px;
   padding: 10px 19px;
   color: #101010;
-  background: #fff;
+  background: var(--color-white);
   border: 0;
   border-radius: 5px;
   font: 700 12px/1 "DM Sans", sans-serif;
@@ -195,7 +195,7 @@
 #tab-filme .genre-browser-summary { padding: 0 18px; }
 
 #tab-filme .genre-browser-title-row strong {
-  color: #fff;
+  color: var(--color-white);
   font: 760 clamp(22px, 2vw, 30px)/1 "Archivo", sans-serif;
   letter-spacing: -.035em;
 }
@@ -203,7 +203,7 @@
 #tab-filme .genre-browser-kicker {
   display: block;
   margin-bottom: 7px;
-  color: #e50914;
+  color: var(--color-accent);
   font: 700 9px/1 "JetBrains Mono", monospace;
   letter-spacing: .2em;
 }
@@ -283,7 +283,7 @@
 
 #tab-filme .genre-chip-copy { min-width: 0; display: grid; gap: 4px; }
 #tab-filme .genre-chip-copy strong {
-  color: #f5f5f5;
+  color: var(--color-text);
   font: 700 13px/1 "Archivo", sans-serif;
   white-space: nowrap;
 }
@@ -306,15 +306,15 @@
 #tab-filme .genre-chip:focus-visible::after { color: var(--genre-tone); transform: translateX(2px); }
 
 #tab-filme .genre-chip.is-active {
-  color: #fff;
+  color: var(--color-white);
   background: linear-gradient(135deg, rgba(229, 9, 20, .24), #211416 74%);
-  border-color: #e50914;
-  box-shadow: inset 3px 0 0 #e50914, 0 10px 30px rgba(229, 9, 20, .1);
+  border-color: var(--color-accent);
+  box-shadow: inset 3px 0 0 var(--color-accent), 0 10px 30px rgba(229, 9, 20, .1);
 }
 
 #tab-filme .genre-chip.is-active .genre-chip-mark {
-  color: #fff;
-  background: #e50914;
+  color: var(--color-white);
+  background: var(--color-accent);
   border-color: #ff5b64;
 }
 
@@ -332,7 +332,7 @@
   overflow: hidden;
   background: #181818;
   border: 1px solid rgba(255, 255, 255, .08);
-  border-left: 3px solid #e50914;
+  border-left: 3px solid var(--color-accent);
   border-radius: 8px;
   box-shadow: none;
 }
@@ -356,7 +356,7 @@
 }
 
 #tab-filme .movie-subscriptions-kicker {
-  color: #e50914;
+  color: var(--color-accent);
   font-size: 6px;
 }
 
@@ -378,7 +378,7 @@
   flex-basis: 220px;
   min-height: 58px;
   padding: 7px 9px;
-  background: #111;
+  background: var(--color-surface);
   border-color: rgba(255, 255, 255, .08);
   border-radius: 6px;
   transform: none;
@@ -429,7 +429,7 @@
 
 #tab-filme .results-panel > .panel-head .panel-title,
 #tab-serien .results-panel > .panel-head .panel-title {
-  color: #fff;
+  color: var(--color-white);
   font: 760 clamp(21px, 1.8vw, 28px)/1 "Archivo", sans-serif;
   letter-spacing: -.035em;
 }
@@ -467,7 +467,7 @@
   aspect-ratio: 2 / 3;
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 7px;
-  box-shadow: 0 13px 26px -18px #000;
+  box-shadow: 0 13px 26px -18px var(--color-black);
 }
 
 #tab-filme #fp-results .result-card:hover .result-card-visual,
@@ -475,7 +475,7 @@
 #tab-filme #fp-results .result-card:focus-visible .result-card-visual,
 #tab-serien #series-results .result-card:focus-visible .result-card-visual {
   border-color: rgba(255, 255, 255, .32);
-  box-shadow: 0 24px 42px -20px #000;
+  box-shadow: 0 24px 42px -20px var(--color-black);
   transform: translateY(-5px) scale(1.015);
 }
 
@@ -516,8 +516,8 @@
   bottom: 10px;
   width: 31px;
   height: 31px;
-  color: #111;
-  background: #fff;
+  color: var(--color-surface);
+  background: var(--color-white);
   border: 0;
   box-shadow: 0 7px 18px rgba(0, 0, 0, .42);
 }
@@ -729,24 +729,24 @@
 
 .taste-feedback .btn:hover:not(:disabled),
 .taste-feedback .btn:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .09);
 }
 
 .taste-feedback .taste-like[aria-pressed="true"] {
-  color: #fff;
-  background: #e50914;
+  color: var(--color-white);
+  background: var(--color-accent);
   box-shadow: 0 7px 18px -10px rgba(229, 9, 20, .95);
 }
 
 .taste-feedback .taste-dislike[aria-pressed="true"] {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .16);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .13);
 }
 
 .taste-feedback .btn[aria-pressed="true"] .taste-icon {
-  color: #fff;
+  color: var(--color-white);
 }
 
 .taste-feedback.is-saving .btn {
@@ -1178,13 +1178,13 @@
 
 .mood-nav-open:hover,
 .mood-nav-open:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(184, 155, 99, .12);
   border-color: rgba(215, 186, 121, .7);
 }
 
 .mood-nav-open:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--color-white);
   outline-offset: 3px;
 }
 
@@ -1310,7 +1310,7 @@ body.mood-open { overflow: hidden; }
   width: 27px;
   height: 27px;
   place-items: center;
-  color: #fff;
+  color: var(--color-white);
   background: var(--mood-accent);
   border-radius: 3px;
   font: 800 15px/1 "Archivo", sans-serif;
@@ -1332,7 +1332,7 @@ body.mood-open { overflow: hidden; }
 }
 
 .mood-close:hover,
-.mood-close:focus-visible { color: #fff; border-color: var(--mood-accent); }
+.mood-close:focus-visible { color: var(--color-white); border-color: var(--mood-accent); }
 
 .mood-progress { overflow: hidden; background: rgba(255, 255, 255, .06); }
 .mood-progress span {
@@ -1554,7 +1554,7 @@ body.mood-open { overflow: hidden; }
   min-width: 0;
   width: auto;
   padding: 0;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 0;
   text-align: left;

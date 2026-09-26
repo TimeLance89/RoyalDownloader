@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STORE = (ROOT / "web" / "store.js").read_text(encoding="utf-8")
+STORE = (ROOT / "web/js/features/home/discovery-policy.js").read_text(encoding="utf-8")
 
 
 def test_discovery_v2_keeps_a_persistent_exposure_history():
@@ -12,12 +12,13 @@ def test_discovery_v2_keeps_a_persistent_exposure_history():
     assert "if (age < 1 || age > 14) continue" in STORE
 
 
-def test_personalized_lane_has_core_adjacent_and_surprise_mix():
-    assert "function discoveryV2PersonalizedEntries" in STORE
-    assert "four strong taste matches, two adjacent discoveries and one surprise" in STORE
-    assert "discoveryV2SelectDiverse(scored.slice" in STORE
-    assert '"personal-adjacent"' in STORE
-    assert '"personal-surprise"' in STORE
+def test_personalized_lane_keeps_the_active_five_plus_two_policy():
+    ranking = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
+    assert "addDiverse(strong, 5)" in ranking
+    assert "addDiverse(adjacent, Math.max(0, 7 - selected.length))" in ranking
+    legacy = (ROOT / "web/store.js").read_text(encoding="utf-8")
+    assert "window.homePersonalizedEntries =" not in legacy
+    assert "window.homeTopEntries =" not in legacy
 
 
 def test_top_ten_limits_yesterdays_repeats_when_alternatives_exist():
@@ -27,17 +28,19 @@ def test_top_ten_limits_yesterdays_repeats_when_alternatives_exist():
 
 
 def test_home_reservoir_warms_deeper_catalog_pages_in_background():
-    assert "async function warmDiscoveryReservoirV2" in STORE
+    data = (ROOT / "web/js/features/home/data.js").read_text(encoding="utf-8")
+    assert "async function performWarm" in data
     for fragment in (
-        'api.movies({ mode: "new", page: 3 })',
-        'api.movies({ mode: "top", page: 4 })',
-        'api.series({ mode: "discover", page: 2 })',
-        'api.series({ mode: "trending", page: 3 })',
-        'api.series({ mode: "new", page: 3 })',
+        'catalog("movie", { mode: "new", page: 3 }, scope.signal)',
+        'catalog("movie", { mode: "top", page: 4 }, scope.signal)',
+        'catalog("series", { mode: "discover", page: 2 }, scope.signal)',
+        'catalog("series", { mode: "trending", page: 3 }, scope.signal)',
+        'catalog("series", { mode: "new", page: 3 }, scope.signal)',
     ):
-        assert fragment in STORE
-    assert "Promise.allSettled" in STORE
-    assert "window.setTimeout(() => { void warmDiscoveryReservoirV2(); }, 120)" in STORE
+        assert fragment in data
+    assert "Promise.allSettled" in data
+    assert "scheduleWarm(120)" in data
+    assert "owner.timeout" in data
 
 
 def test_discovery_v2_deduplicates_logical_media_and_preserves_language_metadata():

@@ -465,7 +465,7 @@
   width: min(1120px, calc(100vw - 32px));
   padding: 0;
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   background: #101011;
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 10px;
@@ -494,7 +494,7 @@
 .trailer-dialog-close {
   width: 38px;
   height: 38px;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .08);
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 50%;
@@ -503,7 +503,7 @@
 }
 .trailer-dialog-close:hover,
 .trailer-dialog-close:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: var(--accent);
   outline: none;
 }
@@ -553,7 +553,7 @@
   display: inline-flex;
   align-items: center;
   padding: 8px 13px;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .08);
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 4px;

@@ -64,7 +64,7 @@ def test_queue_rows_expose_status_progress_and_actions_as_cards():
     ):
         assert selector in CSS
     assert "border-radius: 13px" in CSS
-    assert "linear-gradient(90deg, #b90812, #e50914, #ff4a55)" in CSS
+    assert "linear-gradient(90deg, #b90812, var(--color-accent), #ff4a55)" in CSS
 
 
 def test_activity_column_is_reduced_to_recent_readable_events():

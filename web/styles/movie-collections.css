@@ -6,7 +6,7 @@
   pointer-events: none;
 }
 
-.movie-collection-type { background: #e50914; }
+.movie-collection-type { background: var(--color-accent); }
 
 .movie-collection-mark {
   position: absolute;
@@ -36,7 +36,7 @@
   max-height: min(900px, calc(100vh - 34px));
   overflow: auto;
   color: #f7f7f7;
-  background: #111;
+  background: var(--color-surface);
   border: 1px solid rgba(255, 255, 255, .15);
   border-radius: 10px;
 }
@@ -71,7 +71,7 @@
   z-index: -1;
   inset: 0;
   background: rgba(8, 8, 8, .58);
-  box-shadow: inset 0 -150px 110px #111;
+  box-shadow: inset 0 -150px 110px var(--color-surface);
 }
 
 #movie-collection-cover {
@@ -163,7 +163,7 @@
 
 .movie-collection-film.is-available { box-shadow: inset 3px 0 #2fbd68; }
 .movie-collection-film.is-owned { box-shadow: inset 3px 0 #6fd67a; }
-.movie-collection-film.is-queued { box-shadow: inset 3px 0 #e50914; }
+.movie-collection-film.is-queued { box-shadow: inset 3px 0 var(--color-accent); }
 .movie-collection-film.is-unavailable,
 .movie-collection-film.is-blocked,
 .movie-collection-film.is-error { opacity: .62; }
@@ -193,18 +193,18 @@
 }
 
 .movie-collection-selection input:checked + span {
-  background: #e50914;
-  border-color: #e50914;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .movie-collection-selection input:checked + span::after {
   content: "✓";
-  color: #fff;
+  color: var(--color-white);
   font-size: 12px;
   font-weight: 800;
 }
 
-.movie-collection-selection input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
+.movie-collection-selection input:focus-visible + span { outline: 2px solid var(--color-white); outline-offset: 2px; }
 .movie-collection-selection input:disabled + span { opacity: .28; cursor: default; }
 
 .movie-collection-order {
@@ -261,22 +261,22 @@
 .movie-collection-film-statuses .is-provider-error,
 .movie-collection-film-statuses .is-queue-error,
 .movie-collection-film-statuses .is-queue-skipped { color: #ffb6b6; }
-.movie-collection-film-statuses .is-queue-queued { color: #fff; background: rgba(229, 9, 20, .72); }
+.movie-collection-film-statuses .is-queue-queued { color: var(--color-white); background: rgba(229, 9, 20, .72); }
 
 .movie-collection-film-actions { display: flex; gap: 6px; flex-direction: column; }
 .movie-collection-film-actions button {
   min-width: 96px;
   min-height: 30px;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 1px solid rgba(255, 255, 255, .2);
   border-radius: 3px;
   font: 700 9px/1 "JetBrains Mono", monospace;
   cursor: pointer;
 }
-.movie-collection-film-actions button.is-primary { background: #e50914; border-color: #e50914; }
+.movie-collection-film-actions button.is-primary { background: var(--color-accent); border-color: var(--color-accent); }
 .movie-collection-film-actions button:disabled { opacity: .38; cursor: default; }
-.movie-collection-film-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.movie-collection-film-actions button:focus-visible { outline: 2px solid var(--color-white); outline-offset: 2px; }
 
 @media (max-width: 900px) {
   .movie-collection-films { grid-template-columns: 1fr; }

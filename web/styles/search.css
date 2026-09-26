@@ -15,7 +15,7 @@
   height: 38px;
   margin-left: auto;
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(15, 15, 15, .35);
   border: 1px solid transparent;
   border-radius: 5px;
@@ -36,7 +36,7 @@
   width: 38px;
   height: 38px;
   padding: 0;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -60,7 +60,7 @@
 
 .global-search-toggle:focus-visible,
 .global-search-clear:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--color-white);
   outline-offset: -3px;
 }
 
@@ -69,7 +69,7 @@
   width: 100%;
   height: 36px;
   padding: 0 2px;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 0;
   outline: 0;
@@ -90,7 +90,7 @@
   overflow-y: auto;
   padding: 105px clamp(18px, 3vw, 56px) 110px;
   background: #141414;
-  color: #fff;
+  color: var(--color-white);
   scrollbar-gutter: stable;
 }
 
@@ -126,12 +126,12 @@ body.global-search-open { overflow: hidden; }
 }
 
 .global-search-filters button:hover,
-.global-search-filters button:focus-visible { color: #fff; border-color: rgba(255, 255, 255, .48); }
-.global-search-filters button.is-active { color: #fff; background: #e50914; border-color: #e50914; }
+.global-search-filters button:focus-visible { color: var(--color-white); border-color: rgba(255, 255, 255, .48); }
+.global-search-filters button.is-active { color: var(--color-white); background: var(--color-accent); border-color: var(--color-accent); }
 #global-search-jellyfin.is-active { color: #d9ffe1; background: #14532d; border-color: #6fd67a; }
 
 .global-search-kicker {
-  color: #e50914;
+  color: var(--color-accent);
   font: 700 9px/1 "JetBrains Mono", monospace;
   letter-spacing: .18em;
 }
@@ -187,7 +187,7 @@ body.global-search-open { overflow: hidden; }
    sichtbar; der echte Empty-State darf erst nach Abschluss erscheinen. */
 .global-search-page.is-loading .global-search-empty { display: none; }
 
-.global-search-empty strong { color: #fff; font-size: 22px; }
+.global-search-empty strong { color: var(--color-white); font-size: 22px; }
 .global-search-empty span { font-size: 13px; }
 
 @media (max-width: 1450px) {

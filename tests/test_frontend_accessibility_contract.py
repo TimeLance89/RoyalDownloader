@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 HOME = (ROOT / "web" / "screens" / "home.js").read_text(encoding="utf-8")
 CORE = (ROOT / "web" / "core.js").read_text(encoding="utf-8")
-TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
+TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
 CARD_CSS = (ROOT / "web" / "styles" / "home-card-hover.css").read_text(encoding="utf-8")
 
 
@@ -40,9 +40,10 @@ def test_hidden_queue_drawer_is_inert_until_opened():
 
 
 def test_home_card_actions_are_siblings_not_nested_controls():
-    assert 'document.createElement("article")' in HOME
-    assert 'primaryAction.className = "home-card-primary-action"' in HOME
-    assert 'document.createElement("button")' in TASTE
+    card = (ROOT / "web/js/shared/components/media-card.js").read_text(encoding="utf-8")
+    assert 'document.createElement("article")' in card
+    assert 'primaryAction.className = "home-card-primary-action"' in card
+    assert 'root.ownerDocument.createElement("button")' in TASTE
     assert 'control.setAttribute("role", "button")' not in TASTE
     assert 'control.setAttribute("tabindex", "0")' not in TASTE
     assert ".home-card-primary-action {" in CARD_CSS

@@ -63,7 +63,7 @@
 .calendar-legend p { display: flex; gap: 7px; align-items: center; margin: 0; color: var(--calendar-muted); font-size: 12px; }
 .calendar-legend b { font-weight: 400; }
 .calendar-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--calendar-gold); }
-.calendar-legend i.is-available { background: #93d49a; }
+.calendar-legend i.is-available { background: var(--color-success); }
 .calendar-legend .calendar-source-note { margin-left: auto; }
 .calendar-agenda { min-width: 0; }
 .calendar-day { padding: 8px 0 24px; scroll-margin-top: 110px; }
@@ -85,7 +85,7 @@
 .calendar-entry-eyebrow { display: flex; flex-wrap: wrap; gap: 5px 10px; font-size: 11px; }
 .calendar-entry-eyebrow time { color: var(--calendar-muted); }
 .calendar-entry-eyebrow > i { color: var(--calendar-gold); font-style: normal; }
-.calendar-entry.is-released .calendar-entry-eyebrow > i { color: #93d49a; }
+.calendar-entry.is-released .calendar-entry-eyebrow > i { color: var(--color-success); }
 .calendar-entry-copy > strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
 .calendar-entry-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; color: var(--calendar-muted); font-size: 11px; line-height: 1.4; }
 .calendar-entry-meta b { color: #e1d7e9; font-weight: 500; }
@@ -97,7 +97,7 @@
 .calendar-status strong { font-size: 18px; }
 .calendar-status small { max-width: 440px; color: var(--calendar-muted); font-size: 14px; line-height: 1.5; }
 .calendar-status-mark { color: var(--calendar-gold); font-size: 24px; }
-.calendar-status.is-error .calendar-status-mark { color: #e86f6f; }
+.calendar-status.is-error .calendar-status-mark { color: var(--color-danger); }
 .calendar-status[hidden], .calendar-days[hidden] { display: none !important; }
 .calendar-loader { width: 24px; height: 24px; border: 2px solid var(--calendar-line); border-top-color: var(--calendar-gold); border-radius: 50%; animation: calendar-spin .8s linear infinite; }
 @keyframes calendar-spin { to { transform: rotate(360deg); } }

@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_series_detail_keeps_episodes_selectable_while_status_checks_run():
-    source = (Path(__file__).parents[1] / "web" / "screens" / "series.js").read_text(
+    source = (Path(__file__).parents[1] / "web" / "js/features/media-details/series-episodes.js").read_text(
         encoding="utf-8"
     )
     selectable = source.split("function isEpisodeSelectable(episode)", 1)[1].split(

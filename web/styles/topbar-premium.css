@@ -129,7 +129,7 @@
 .topbar .tabs > .tab-btn:focus-visible,
 .topbar .nav-menu-trigger:hover,
 .topbar .nav-menu-trigger:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .045);
   outline: 0;
   transform: none;
@@ -178,7 +178,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   background:
     radial-gradient(circle at 13% 50%, rgba(255, 55, 77, .16), transparent 28%),
     linear-gradient(105deg, rgba(65, 7, 17, .88), rgba(20, 12, 18, .9));
@@ -241,7 +241,7 @@
   min-width: 0;
   height: 52px;
   padding: 0 48px 0 12px;
-  color: #fff;
+  color: var(--color-white);
   background: transparent;
   border: 0;
   outline: 0;
@@ -281,7 +281,7 @@
 .topbar .inbox-trigger-copy { min-width: auto; }
 .topbar .inbox-trigger-copy small { display: block; color: #e7e9e8; font-size: 11px; font-weight: 680; letter-spacing: -.015em; }
 .topbar .inbox-trigger-copy strong { display: none; }
-.topbar .notif-badge { top: -3px; right: -2px; color: #fff; background: var(--nav-red); border-color: var(--nav-night); box-shadow: 0 0 12px rgba(240, 45, 68, .42); }
+.topbar .notif-badge { top: -3px; right: -2px; color: var(--color-white); background: var(--nav-red); border-color: var(--nav-night); box-shadow: 0 0 12px rgba(240, 45, 68, .42); }
 
 .topbar .user-menu {
   position: relative;
@@ -304,12 +304,12 @@
 .topbar .user-menu-avatar {
   width: 42px;
   height: 42px;
-  color: #fff;
+  color: var(--color-white);
   background: linear-gradient(145deg, #f3364c, #980b1e);
   box-shadow: 0 0 0 1px rgba(255, 211, 117, .28), 0 8px 19px rgba(87, 0, 17, .42);
 }
 .topbar .user-menu-copy { gap: 3px; }
-.topbar .user-menu-copy strong { max-width: 96px; overflow: hidden; color: #fff; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .user-menu-copy strong { max-width: 96px; overflow: hidden; color: var(--color-white); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .user-menu-copy small { color: #7f8b96; font-size: 9px; }
 .topbar .user-menu-chevron { color: var(--nav-gold); font-size: 15px; }
 
