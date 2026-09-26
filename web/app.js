@@ -1,7 +1,7 @@
 import { sharedPresentation } from "./js/shell/presentation.js";
 import { initUserProfile } from "./js/shell/actions/user-profile.js";
 import { initSettings } from "./js/shell/actions/settings.js";
-import { preparePresentation, mountApplication } from "./js/composition.js";
+import { preparePresentation, mountApplication } from "./js/composition/index.js";
 
 preparePresentation();
 

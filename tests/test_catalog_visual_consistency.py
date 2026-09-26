@@ -47,7 +47,7 @@ def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
         "function reconcileSeriesCatalogDuplicates",
     ]:
         assert contract in library + identity
-    adapter = (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
+    adapter = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
     assert "onSeriesHydrated: () => reconcileSeriesCatalogDuplicates()" in adapter
     assert "getMetadata(slug)" in identity
     assert "leftTmdb && rightTmdb" in identity

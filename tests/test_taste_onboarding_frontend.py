@@ -17,7 +17,7 @@ def test_browser_taste_cache_is_scoped_to_the_authenticated_user():
     home = (ROOT / "web/js/features/profile/taste.js").read_text(encoding="utf-8")
     assert "function discoveryProfileStorageKey()" in home
     assert "getUser()?.id" in home
-    assert "getUser: () => sharedPresentation.auth.get().user" in (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
+    assert "getUser: () => sharedPresentation.auth.get().user" in "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
     assert "`${HOME_DISCOVERY_PROFILE_KEY}:${userId}`" in home
 
 

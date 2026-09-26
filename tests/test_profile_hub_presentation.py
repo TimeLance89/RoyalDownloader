@@ -47,7 +47,7 @@ def test_profile_menu_and_household_chooser_match_the_finetuned_navigation():
 def test_calendar_filters_are_saved_per_authenticated_user():
     storage = (ROOT / "web" / "js" / "features" / "calendar" / "storage.js").read_text(encoding="utf-8")
     controller = (ROOT / "web" / "js" / "features" / "calendar" / "index.js").read_text(encoding="utf-8")
-    adapter = (ROOT / "web" / "js" / "composition.js").read_text(encoding="utf-8")
+    adapter = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
 
     assert "${FILTERS_KEY}:${userId}" in storage
     assert "sharedPresentation.auth.get().user?.id" in adapter
