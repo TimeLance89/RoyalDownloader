@@ -82,11 +82,18 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       repository.href = data.repository_url;
     }
     const installer = data.installer || {};
-    if (installer.active || installer.state === "error") {
+    const errorForOfferedTarget = installer.state === "error"
+      && installer.target_sha === data.latest_sha
+      && data.update_available === true
+      && !data.error
+      && !(channel === "overnight" && data.quality_approved === false);
+    if (installer.active || errorForOfferedTarget) {
       installButton.classList.toggle("hidden", installer.state !== "error");
       applyUpdaterInstallStatus(installer);
       return;
     }
+    card.dataset.installing = "false";
+    byId("updater-check").disabled = false;
     installButton.disabled = installer.supported === false;
     installButton.title = installer.supported === false ? (installer.reason || "Automatisches Update nicht möglich") : "";
     installButton.classList.add("hidden");
@@ -158,6 +165,9 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   const UPDATER_RESTART_TIMEOUT_MS = 180000;
 
   function applyUpdaterInstallStatus(installer) {
+    const offeredTarget = byId("updater-install").dataset.sha;
+    if (!installer.active && installer.state === "error" && installer.target_sha
+      && offeredTarget && installer.target_sha !== offeredTarget) return;
     cancelPoll();
     const card = byId("updater-card");
     const status = byId("updater-status");
@@ -169,7 +179,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     card.dataset.installing = active ? "true" : "false";
     checkButton.disabled = active;
     installButton.disabled = active || installer.supported === false;
-    if (installer.target_sha) installButton.dataset.sha = installer.target_sha;
+    if (installer.target_sha && (active || !offeredTarget)) installButton.dataset.sha = installer.target_sha;
 
     if (installer.state === "error") {
       card.dataset.state = "error";

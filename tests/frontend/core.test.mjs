@@ -1054,3 +1054,43 @@ test("daily Top preserves same-day ranks, advances tomorrow and ignores late unm
   assert.equal(daily.entries()[0].item.slug, "fallback");
   assert.equal(renders, 1);
 });
+
+
+test("updater refresh replaces failed target and retry posts the newly offered commit", async () => {
+  const failed = { state: "error", active: false, target_sha: "broken", error: "Missing file", supported: true };
+  let latest = "broken";
+  const posted = [];
+  const { view, socket, nodes, root } = updaterFixture({
+    get: async () => ({ latest_sha: latest, update_available: true, update_channel: "overnight", quality_approved: true, installer: failed }),
+    post: async (url, body) => { posted.push({ url, body }); return { installer: { state: "idle" } }; },
+  });
+  try {
+    view.mount();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes.get("#updater-install").textContent, "Erneut versuchen");
+    latest = "fixed";
+    await view.refresh(true);
+    assert.equal(nodes.get("#updater-latest").textContent, "fixed");
+    assert.equal(nodes.get("#updater-install").dataset.sha, "fixed");
+    assert.equal(nodes.get("#updater-status").textContent, "Update verfügbar");
+    assert.equal(root.dataset.installing, "false");
+    socket.emit("updater_install", { installer: failed });
+    assert.equal(nodes.get("#updater-status").textContent, "Update verfügbar");
+    nodes.get("#updater-install").dispatchEvent(new Event("click"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(posted, [{ url: "/api/updater/install", body: { target_sha: "fixed", confirm_channel_switch: false } }]);
+  } finally { view.unmount(); }
+});
+
+test("updater does not let a previous installation failure bypass overnight quality checks", async () => {
+  const { view, nodes } = updaterFixture({ get: async () => ({
+    latest_sha: "failed-ci", update_channel: "overnight", quality_approved: false,
+    quality_gate: "failed", update_available: false,
+    installer: { state: "error", target_sha: "failed-ci", error: "Old failure" },
+  }) });
+  try {
+    view.mount();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes.get("#updater-status").textContent, "Overnight-Quality fehlgeschlagen");
+  } finally { view.unmount(); }
+});
