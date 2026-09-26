@@ -410,7 +410,10 @@ const server = createServer(async (req, res) => {
       await page.locator('[data-settings-target="settings-modules"]').click();
       await page.locator('[data-module="seerr-sync"]').waitFor();
       await page.waitForLoadState("networkidle");
+      const moduleSaved = page.waitForResponse(response =>
+        response.url().endsWith("/api/modules/seerr-sync") && response.request().method() === "PUT");
       await page.locator('[data-module="seerr-sync"]').setChecked(!moduleEnabled);
+      assert.equal((await moduleSaved).status(), 200);
       await page.waitForLoadState("networkidle");
       assert.equal(moduleWrites, i + 1);
       await page.evaluate(() => switchTab("home"));
@@ -582,7 +585,9 @@ const server = createServer(async (req, res) => {
     await page.locator("#seerr-url").fill("http://draft-fixture");
     await page.evaluate(() => sharedPresentation.integrations.refresh());
     assert.equal(await page.locator("#seerr-url").inputValue(), "http://draft-fixture");
+    const seerrSynced = page.waitForResponse(response => response.url().endsWith("/api/seerr/sync"));
     await page.locator("#seerr-sync").click();
+    assert.equal((await seerrSynced).status(), 200);
     await page.waitForFunction(() => document.getElementById("seerr-status").textContent.includes("Verbunden"));
     assert.equal(seerrSyncs, 1);
     assert.equal(await page.locator("#seerr-url").inputValue(), "http://draft-fixture");
@@ -878,7 +883,9 @@ const server = createServer(async (req, res) => {
       await page.waitForFunction(() => document.getElementById("storage-live-state").textContent.includes("Volume"));
       await page.locator("#storage-location-label").fill("Fixture Location");
       await page.locator("#storage-location-path").fill("/fixture-only");
+      const storageSaved = page.waitForResponse(response => response.url().endsWith("/api/storage/locations/save"));
       await page.locator("#storage-location-save").click();
+      assert.equal((await storageSaved).status(), 200);
       await page.waitForLoadState("networkidle");
       assert.equal(storageSaves, i + 1);
       if (i < 2) await page.evaluate(() => switchTab("home"));
