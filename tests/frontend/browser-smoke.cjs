@@ -1,4 +1,4 @@
-// Optional integration check: use an existing Playwright installation, no build required.
+// CI quality gate: isolated Playwright tooling, no application build required.
 // ROYAL_PLAYWRIGHT can point at its package directory. API/WS are deterministic fixtures.
 const { chromium } = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
 const { createServer } = require("node:http");
@@ -18,7 +18,7 @@ const server = createServer(async (req, res) => {
 
 (async () => {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
+  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER === "chromium" ? undefined : process.env.ROYAL_BROWSER || "msedge" });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     await page.addInitScript(() => {

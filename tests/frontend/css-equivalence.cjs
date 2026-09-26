@@ -10,7 +10,7 @@ const root = resolve(__dirname, "../..");
 const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
+  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER === "chromium" ? undefined : process.env.ROYAL_BROWSER || "msedge" });
   try {
     let baseline = true;
     const context = await browser.newContext();
