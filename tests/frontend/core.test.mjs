@@ -1,3 +1,4 @@
+import { createProfileActions } from "../../web/js/features/profile/actions.js";
 import { createStartupCurtain } from "../../web/js/shared/components/startup-curtain.js";
 import { createQueueSync } from "../../web/js/features/downloads/sync.js";
 import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
@@ -1136,4 +1137,20 @@ test("queue synchronization applies only latest history despite render invalidat
   pending[2]({ jobs: ["after session"] });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(histories, [["new"]]);
+});
+
+
+test("profile actions isolate personal storage and invalidate only on identity changes", () => {
+  let user = { id: "first" }, invalidations = 0;
+  const actions = createProfileActions({ getUser: () => user,
+    invalidateHome: () => invalidations++, invalidateRecommendations: () => invalidations++,
+    setUser() {}, household: { mount() {} }, userMenu: { mount() {} },
+  });
+  actions.initUserProfile(); actions.initUserProfile();
+  assert.equal(invalidations, 0);
+  assert.equal(actions.personalStorageKey("history"), "history:first");
+  user = { id: "second" }; actions.initUserProfile();
+  assert.equal(invalidations, 2);
+  assert.equal(actions.personalStorageKey("history"), "history:second");
+  assert.equal(actions.personalStorageKey("history", "admin-legacy"), "history");
 });

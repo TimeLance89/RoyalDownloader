@@ -1,5 +1,4 @@
 import { createSearchSupport } from "../features/search/support.js";
-import { personalStorageKey } from "../shell/actions/user-profile.js";
 import { sharedPresentation } from "../shell/presentation.js";
 import { createSearch } from "../features/search/index.js";
 import { createHomeCard } from "../shell/actions/home.js";
@@ -13,7 +12,7 @@ import { homeSeriesEntry } from "../shell/actions/home.js";
 import { homeAnimeEntry } from "../shell/actions/home.js";
 import { refreshCatalogJellyfinStatus } from "../shell/actions/home.js";
 
-export function composeSearch({  }) {
+export function composeSearch({ personalStorageKey }) {
 return {
 searchSupport: createSearchSupport(document, {
       personalStorageKey, getGenres: () => sharedPresentation.genres.get(),

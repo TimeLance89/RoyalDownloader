@@ -13,7 +13,7 @@ import { handleLiveMessage, renderQueue, renderSerienstreamHealth, resyncAfterWs
 import { closeFpTrailerModal, mediaCardInitials, mediaContentLanguages, normalizeUiContentLanguage, presentMovieSubscriptions, selectFpRow, stopFpDetailHeroTrailer, syncFpCatalogFromHome, syncFpQueueIndicators, syncSeriesCatalogFromHome, toggleFpPick, trailerModalFocusableElements } from "../shell/actions/movies.js";
 import { loadSeries, markSeriesSlugDownloaded, stopSeriesDetailHeroTrailer, syncSeriesQueueFlags } from "../shell/actions/series.js";
 import { allowedHomeEntries, applyServerTasteProfile, createHomeCard, homeAllEntries, homeEntryKey, homeEntryMedia, homeHeroCandidates, homeMovieEntry, homeRailCardSignature, homeSeriesEntry, hydrateHomeMovieArtwork, hydrateHomeSeriesArtwork, interleaveHomeEntries, loadDiscoveryProfile, localDateKey, mediaJellyfinStatus, normalizeHomeRailLoop, openHomeEntry, reconcileHomeRail, refreshCatalogJellyfinStatus, rememberSearch, renderHome, renderHomeHero, scheduleHomeHeroRotation, shuffleHomeDiscovery, stableDiscoveryHash, stopHomeHeroRotation, syncHomeCardContent, syncTasteProfile, tasteMetadata, uniqueHomeContentEntries, uniqueHomeEntries, updateHomeRailNavigation } from "../shell/actions/home.js";
-import { personalStorageKey } from "../shell/actions/user-profile.js";
+import { createProfileActions } from "../features/profile/actions.js";
 import { markAnimeSlugDownloaded, syncAnimeQueueFlags } from "../shell/actions/anime.js";
 import { presentWatchlist, refreshWatchlist } from "../shell/actions/library.js";
 
@@ -139,6 +139,13 @@ export function preparePresentation() {
   window.addEventListener("pagehide", () => { household.unmount(); userMenu.unmount(); });
   window.addEventListener("pageshow", event => { if (event.persisted && appStore.get().user) { household.mount(); userMenu.mount(); } });
   document.addEventListener("royal:session-expired", () => { household.unmount(); userMenu.unmount(); });
+  const profileActions = createProfileActions({
+    getUser: () => sharedPresentation.auth.get().user,
+    invalidateRecommendations: () => sharedPresentation.recommendations.invalidate(),
+    invalidateHome: () => sharedPresentation.homePresenter.invalidate(),
+    setUser: user => appStore.set({ user }), household, userMenu,
+  });
+  const { personalStorageKey } = profileActions;
   const modal = createModalController(document.body, {
     closeCollectionDetails: () => sharedPresentation.movieCollections.close(),
     closeAniworldDetails: () => sharedPresentation.aniworld.closeDetail(),
@@ -182,7 +189,7 @@ export function preparePresentation() {
 ...composeDiscovery({ movieState, seriesState, artworkUrls, i18n }),
 ...composeDownloads({ movieState }),
 ...composeIntegrations({ movieState }),
-...composeSearch({  }),
+...composeSearch({ personalStorageKey }),
 ...composeProfile({ household, userMenu }),
 ...composeSettings({ i18n, movieState, seriesState, console, intelligence, subscriptions })
 });
@@ -276,6 +283,7 @@ export function preparePresentation() {
     button.after(release);
   });
 
+  return { initUserProfile: profileActions.initUserProfile };
 }
 
 export function mountApplication() {

@@ -43,7 +43,7 @@ def test_onboarding_keeps_picks_across_batches_and_exposes_removal():
 
 def test_header_profile_and_rail_posters_do_not_depend_on_hover():
     index = (ROOT / "web/index.html").read_text(encoding="utf-8")
-    profile = (ROOT / "web/js/shell/actions/user-profile.js").read_text(encoding="utf-8")
+    profile = (ROOT / "web/js/features/profile/actions.js").read_text(encoding="utf-8")
     rail = (ROOT / "web/js/features/home/rail-renderer.js").read_text(encoding="utf-8")
     artwork = (ROOT / "web/js/shared/components/card-artwork.js").read_text(encoding="utf-8")
     assert 'id="user-menu-trigger"' in index
