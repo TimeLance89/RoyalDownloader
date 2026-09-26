@@ -1,3 +1,220 @@
+import { createSubscriptionSummary, subscriptionMonogram, watchlistStatusText } from "./features/subscriptions/summary.js";
+import { createStartupCurtain } from "./shared/components/startup-curtain.js";
+import {
+  WATCH_CLEANUP_DEFAULT,
+  WATCH_CLEANUP_LABELS,
+  WATCH_MODE_DEFAULT,
+  WATCH_MODE_EXPLANATIONS,
+  WATCH_MODE_LABELS,
+  closeMediaModal,
+  closeMobileQueue,
+  handleLiveMessage,
+  handleMediaModalKeydown,
+  openMediaModal,
+  openMobileQueue,
+  recheckAniworldInfinite,
+  recheckFpInfinite,
+  recheckSeriesInfinite,
+  refreshFpQueuePresentation,
+  refreshQueueUiAfterChange,
+  renderQueue,
+  renderSerienstreamHealth,
+  resyncAfterWsOpen,
+  setDownloadState,
+  setQueueDockExpanded,
+  sharedPresentation,
+  showPersistenceWarning,
+  state,
+  switchTab,
+  syncAnimeNavigationVisibility,
+  syncAniworldNavigationVisibility,
+  syncMovieSubscriptions,
+  syncQueueSnapshot,
+  syncWatchlistSnapshot,
+  toggleDesktopQueue,
+  updateQueueJobProgress,
+} from "./shell/presentation.js";
+import {
+  activateResultCard,
+  applyFpResults,
+  applyFpSmartFilters,
+  basicMovieMetadata,
+  closeFpTrailerModal,
+  configureFpDetailAction,
+  configureFpTrailer,
+  createResultCardVisual,
+  discardObservedResultPosters,
+  findFpResultCard,
+  fpDetailJellyfinValue,
+  fpGenreChange,
+  fpMetadataPreloadItems,
+  fpResultMedia,
+  fpResultYear,
+  fpShowList,
+  fpSmartFilteredResults,
+  fpSmartFilters,
+  fpStatusMessage,
+  fpTrailerYoutubeKey,
+  loadNextFpPage,
+  mediaCardInitials,
+  mediaContentLanguages,
+  mergeCatalogItems,
+  mergeCatalogSources,
+  mergeFpMetadata,
+  metadataPreviewMovie,
+  normalizeUiContentLanguage,
+  openFpTrailerModal,
+  preloadSeriesPosterImages,
+  preloadTmdbMetadata,
+  presentMovieSubscriptions,
+  refreshFpCatalogInBackground,
+  refreshFpJellyfinStatus,
+  refreshSeriesCatalogInBackground,
+  refreshSeriesJellyfinStatus,
+  renderFpAbout,
+  renderFpExtras,
+  renderFpResults,
+  renderFpSimilarTitles,
+  resetFpSmartFilters,
+  scheduleFpCatalogRefresh,
+  scheduleResultPoster,
+  selectFpRow,
+  setActiveGenreFilter,
+  setFpDetailAvailability,
+  setFpDetailJellyfinStatus,
+  setFpJellyfinBadge,
+  setFpPosterJellyfinBadge,
+  showFpDetail,
+  stopFpDetailHeroTrailer,
+  syncFpCatalogFromHome,
+  syncFpQueueIndicators,
+  syncResultCardPoster,
+  syncSeriesCatalogFromHome,
+  toggleFpPick,
+  trailerModalFocusableElements,
+  updateFpInfiniteState,
+  updateFpJellyfinBadges,
+  updateFpResultCard,
+  updateFpResultSelection,
+  updateSeriesJellyfinBadge,
+  updateSeriesStatus,
+} from "./shell/actions/movies.js";
+import {
+  applySeriesResults,
+  configureSeriesTrailer,
+  findSeriesResultCard,
+  firstEpisodeSlug,
+  isEpisodeEligible,
+  isEpisodeSelectable,
+  loadNextSeriesPage,
+  loadSeries,
+  markSeriesSlugDownloaded,
+  mergeSeriesDetailPayload,
+  pruneSeriesEpisodeSelection,
+  refreshSeriesTileStates,
+  renderSeriesCatalogHero,
+  renderSeriesDetailDiscovery,
+  renderSeriesResults,
+  renderSeriesTiles,
+  seriesBrowse,
+  seriesEpisodes,
+  seriesStructureFingerprint,
+  showSeriesDetail,
+  showSeriesLoading,
+  stopSeriesDetailHeroTrailer,
+  syncSeriesQueueFlags,
+  updateSeriesInfiniteState,
+  updateSeriesOverview,
+  updateSeriesResultSelection,
+  updateWatchBtn,
+  verifyHuhuEpisodeLanguages,
+} from "./shell/actions/series.js";
+import {
+  allowedHomeEntries,
+  applyHomeLayout,
+  applyMovieJellyfinStatus,
+  applyServerTasteProfile,
+  closeGlobalSearch,
+  closeSearchSuggestions,
+  createHomeCard,
+  currentHomeLayout,
+  currentTasteTarget,
+  favoriteDiscoveryGenre,
+  homeAllEntries,
+  homeAnimeById,
+  homeAnimeEntry,
+  homeArtworkEntriesInLayout,
+  homeDiscoveryLanes,
+  homeEntryKey,
+  homeEntryMedia,
+  homeHeroCandidates,
+  homeMovieBySlug,
+  homeMovieEntry,
+  homeMovieInstances,
+  homePersonalizedEntries,
+  homeRailCardSignature,
+  homeRailDefinition,
+  homeSeriesBySlug,
+  homeSeriesEntry,
+  homeTopEntries,
+  hydrateHomeMovieArtwork,
+  hydrateHomeSeriesArtwork,
+  interleaveHomeEntries,
+  jellyfinStatusText,
+  loadDiscoveryProfile,
+  localDateKey,
+  mediaJellyfinStatus,
+  normalizeHomeRailLoop,
+  openHomeEntry,
+  reconcileHomeRail,
+  refreshAllCatalogJellyfinStatuses,
+  refreshCatalogJellyfinStatus,
+  refreshMovieFeatureCandidates,
+  rememberAllHomeRailScroll,
+  rememberSearch,
+  renderHome,
+  renderHomeHero,
+  renderHomeRail,
+  renderTasteProfileSummary,
+  saveHomeCache,
+  scheduleHomeHeroRotation,
+  setCatalogJellyfinBadge,
+  setHomeCardArtworkCandidates,
+  setHomeCardMeta,
+  shuffleHomeDiscovery,
+  stableDailyOrder,
+  stableDiscoveryHash,
+  stopHomeHeroRotation,
+  syncHomeCardContent,
+  syncSearchClearButtons,
+  syncTasteProfile,
+  tasteMetadata,
+  trackDiscoveryPreference,
+  uniqueHomeContentEntries,
+  uniqueHomeEntries,
+  updateHomeRailNavigation,
+  updateTasteFeedbackButtons,
+} from "./shell/actions/home.js";
+import { personalStorageKey } from "./shell/actions/user-profile.js";
+import {
+  markAnimeSlugDownloaded,
+  openAnimeDetail,
+  openWatchModeModal,
+  syncAnimeQueueFlags,
+  watchlistEntryForSeries,
+} from "./shell/actions/anime.js";
+import {
+  dedupeCatalogMedia,
+  openWatchlistEntry,
+  presentWatchlist,
+  reconcileMovieCatalogDuplicates,
+  reconcileSeriesCatalogDuplicates,
+  refreshWatchlist,
+  watchlistCheckResultText,
+} from "./shell/actions/library.js";
+import { createMovieCollectionSearchCard, homeCollectionEntry, openMovieCollection } from "./shell/actions/movie-collections.js";
+import { loadNextAniworldPage, markAniworldSlugDownloaded, syncAniworldQueueFlags } from "./shell/actions/aniworld.js";
+import { applyFpDownloadJobResult } from "./shell/actions/movie_download_feedback.js";
 import { createArtworkUrls } from "./shared/utils/artwork-url.js";
 import { createQueueSync } from "./features/downloads/sync.js";
 import { createLocalization } from "./core/localization.js";
@@ -53,7 +270,10 @@ import { createAuthentication } from "./features/auth/index.js";
 import { createInfiniteScroll } from "./shared/components/infinite-scroll.js";
 import { createSetup } from "./features/setup/index.js";
 import { createSettings } from "./features/settings/index.js";
-import { updateDeploymentModeHints as deploymentHints, selectedDeploymentMode as deploymentMode } from "./features/settings/deployment.js";
+import {
+  updateDeploymentModeHints as deploymentHints,
+  selectedDeploymentMode as deploymentMode,
+} from "./features/settings/deployment.js";
 import { createJellyfinSettings } from "./features/integrations/jellyfin.js";
 import { createJellyfinUserPicker } from "./features/integrations/jellyfin-users.js";
 import { createProviderSettings } from "./features/settings/providers.js";
@@ -99,7 +319,8 @@ import { createQueueView } from "./features/downloads/view.js";
 import { createApplication } from "./app.js";
 import { createHomeLifecycle } from "./features/home/index.js";
 
-export function prepareLegacyPresentation() {
+export function preparePresentation() {
+  sharedPresentation.startupCurtain = createStartupCurtain(document);
   const artworkUrls = createArtworkUrls(document.defaultView.location.origin);
   const i18n = createLocalization(document);
   i18n.primeStoredInterface();
@@ -154,6 +375,10 @@ export function prepareLegacyPresentation() {
     allowedHomeEntries: entries => allowedHomeEntries(entries), uniqueHomeEntries, normalizeUiContentLanguage,
   });
   Object.assign(sharedPresentation, {
+    subscriptionSummary: createSubscriptionSummary(document.getElementById("series-subscriptions-list"), document.getElementById("series-subscriptions-count"), {
+      getItems: () => sharedPresentation.subscriptions.get().items, open: openWatchlistEntry,
+      WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT,
+    }),
     discoveryPolicy, cleanMediaCardInitials, movieState, seriesState, localization: i18n,
     queueSync: createQueueSync({ getView: () => sharedPresentation.queueView, downloadState: state.download,
       setDownloadState, refreshFpQueuePresentation, renderSeriesTiles }),
@@ -530,7 +755,7 @@ export function prepareLegacyPresentation() {
     onChange: status => appStore.set({ user: status.user || null }),
     onVisibility: visible => document.body.classList.toggle("login-open", visible),
     onExpired: () => document.dispatchEvent(new Event("royal:session-expired")),
-    finishLoading: () => window.royalLoader?.finish(),
+    finishLoading: () => sharedPresentation.startupCurtain.finish(),
   });
   window.addEventListener("pagehide", () => sharedPresentation.auth.unmount());
   window.addEventListener("pageshow", event => { if (event.persisted) sharedPresentation.auth.mount(); });
@@ -590,7 +815,7 @@ export function prepareLegacyPresentation() {
     createHomeCard: (...args) => createHomeCard(...args), syncHomeCardContent,
   });
 
-  // Shell-owned navigation entries exist before the legacy menu listeners bind.
+  // Shell-owned navigation entries exist before the shell menu listeners bind.
   document.querySelectorAll('.tab-btn[data-tab="kalender"]').forEach(button => {
     const release = document.createElement("button");
     release.className = "tab-btn";
@@ -601,7 +826,7 @@ export function prepareLegacyPresentation() {
 
 }
 
-export function mountLegacyApplication() {
+export function mountApplication() {
   const queueView = createQueueView(document.getElementById("queue-dock"), {
     state, invalidate: () => sharedPresentation.queueSync.invalidate(),
     showPersistenceWarning, renderSerienstreamHealth,
@@ -624,6 +849,7 @@ export function mountLegacyApplication() {
     movieStatus: sharedPresentation.movieStatus,
     resultCards: sharedPresentation.resultCards,
     seriesPresentation: sharedPresentation.seriesPresentation,
+    subscriptionSummary: sharedPresentation.subscriptionSummary,
     seriesEpisodes: sharedPresentation.seriesEpisodes,
     movieDownloads: sharedPresentation.movieDownloads,
     movieCollections: sharedPresentation.movieCollections,

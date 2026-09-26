@@ -1,3 +1,5 @@
+import { createStartupCurtain } from "../../web/js/shared/components/startup-curtain.js";
+import { createQueueSync } from "../../web/js/features/downloads/sync.js";
 import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
 import { createDailyTop } from "../../web/js/features/home/daily-top.js";
 import { createCardArtwork } from "../../web/js/shared/components/card-artwork.js";
@@ -1093,4 +1095,45 @@ test("updater does not let a previous installation failure bypass overnight qual
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(nodes.get("#updater-status").textContent, "Overnight-Quality fehlgeschlagen");
   } finally { view.unmount(); }
+});
+
+
+test("startup curtain disposes fallback timers after its transition", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let removals = 0, leaving = 0;
+  const loader = Object.assign(new EventTarget(), {
+    classList: { add() { leaving++; } }, remove() { removals++; },
+  });
+  const window = Object.assign(new EventTarget(), { matchMedia: () => ({ matches: true }) });
+  const curtain = createStartupCurtain({ getElementById: () => loader, defaultView: window });
+  curtain.finish(); curtain.finish();
+  t.mock.timers.tick(1);
+  assert.equal(leaving, 1);
+  loader.dispatchEvent(new Event("transitionend"));
+  t.mock.timers.tick(20000);
+  window.dispatchEvent(new Event("pagehide"));
+  assert.equal(removals, 1);
+});
+
+test("queue synchronization applies only latest history despite render invalidation", async () => {
+  const pending = [], histories = [];
+  const controller = new AbortController();
+  let sync;
+  const view = { active: true, signal: controller.signal,
+    render() { sync.invalidate(); }, renderHistory: value => histories.push(value) };
+  sync = createQueueSync({ getView: () => view, downloadState: {}, setDownloadState() {},
+    refreshFpQueuePresentation() {}, renderSeriesTiles() {},
+    client: { get: () => new Promise(resolve => pending.push(resolve)) },
+  });
+  sync.acceptMutation({ queue: {} });
+  sync.acceptMutation({ queue: {} });
+  pending[1]({ jobs: ["new"] });
+  pending[0]({ jobs: ["old"] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(histories, [["new"]]);
+  sync.acceptMutation({ queue: {} });
+  controller.abort(); view.active = false;
+  pending[2]({ jobs: ["after session"] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(histories, [["new"]]);
 });

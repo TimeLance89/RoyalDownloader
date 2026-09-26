@@ -38,3 +38,19 @@ def test_migrated_features_do_not_install_new_window_globals():
 def test_architecture_and_migration_inventory_are_documented():
     assert (ROOT / "docs/FRONTEND_ARCHITECTURE.md").is_file()
     assert (ROOT / "docs/FRONTEND_AUDIT.md").is_file()
+
+
+def test_entry_uses_modules_and_no_obsolete_runtime_scripts():
+    markup = (WEB / "index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r"<script\b([^>]*)>", markup)
+    assert len(scripts) == 1
+    assert 'type="module"' in scripts[0]
+    for name in ("api.js", "core.js", "store.js", "loading.js", "js/legacy-adapter.js"):
+        assert not (WEB / name).exists(), name
+    assert not list((WEB / "screens").glob("*.js"))
+    for path in (WEB / "js").rglob("*.js"):
+        source = path.read_text(encoding="utf-8")
+        assert not re.search(r"\bwindow\.\w+\s*=(?!=)", source), path
+    # Already installed updaters require this archive marker, not runtime code.
+    assert (WEB / "i18n.js").is_file()
+    assert '/i18n.js' not in markup

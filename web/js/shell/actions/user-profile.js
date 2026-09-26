@@ -1,12 +1,13 @@
+import { sharedPresentation } from "../presentation.js";
 /* Active household identity, profile hub, and personal browser-state boundary. */
-let activeUserId = "";
+export let activeUserId = "";
 
-function personalStorageKey(base, userId = sharedPresentation.auth.get().user?.id) {
+export function personalStorageKey(base, userId = sharedPresentation.auth.get().user?.id) {
   const id = String(userId || "");
   return id && id !== "admin-legacy" ? `${base}:${id}` : base;
 }
 
-function invalidatePersonalUiState(user = sharedPresentation.auth.get().user) {
+export function invalidatePersonalUiState(user = sharedPresentation.auth.get().user) {
   const nextId = String(user?.id || "");
   if (!activeUserId || activeUserId === nextId) { activeUserId = nextId; return; }
   sharedPresentation.recommendations.invalidate();
@@ -14,7 +15,7 @@ function invalidatePersonalUiState(user = sharedPresentation.auth.get().user) {
   activeUserId = nextId;
 }
 
-function initUserProfile() {
+export function initUserProfile() {
   invalidatePersonalUiState(sharedPresentation.auth.get().user);
   sharedPresentation.setUser(sharedPresentation.auth.get().user);
   sharedPresentation.household.mount();

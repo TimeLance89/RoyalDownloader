@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HOME_JS = (ROOT / "web/js/features/search/index.js").read_text(encoding="utf-8")
 SEARCH_CSS = (ROOT / "web" / "styles" / "search.css").read_text(encoding="utf-8")
 GLOBAL_SEARCH_RUNTIME = (ROOT / "web/js/features/search/index.js").read_text(encoding="utf-8")
-CATALOG_RUNTIME = (ROOT / "web/screens/movies.js").read_text(encoding="utf-8")
+CATALOG_RUNTIME = (ROOT / "web/js/shell/actions/movies.js").read_text(encoding="utf-8")
 
 
 def test_global_search_has_distinct_loading_state_before_empty_state():
@@ -28,7 +28,7 @@ def test_global_search_empty_message_is_hidden_during_loading_as_defense_in_dept
 
 def test_rendered_catalog_pages_start_thumbnail_downloads_immediately():
     start = CATALOG_RUNTIME.index('function scheduleResultPoster(image, coverCandidates)')
-    end = CATALOG_RUNTIME.index('\nfunction discardObservedResultPosters', start)
+    end = CATALOG_RUNTIME.index('\nexport function discardObservedResultPosters', start)
     scheduler = CATALOG_RUNTIME[start:end]
     assert 'sharedPresentation.cardArtwork.set(image, coverCandidates.map(url => ({ url })), { eager: true });' in scheduler
     artwork = (ROOT / "web/js/shared/components/card-artwork.js").read_text(encoding="utf-8")

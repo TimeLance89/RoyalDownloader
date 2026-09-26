@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_profile_hub_has_the_royal_wide_dashboard_structure():
     markup = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     styles = (ROOT / "web" / "styles" / "user-profile.css").read_text(encoding="utf-8")
-    script = ((ROOT / "web/screens/user-profile.js").read_text(encoding="utf-8") + (ROOT / "web/js/features/profile/view.js").read_text(encoding="utf-8"))
+    script = ((ROOT / "web/js/shell/actions/user-profile.js").read_text(encoding="utf-8") + (ROOT / "web/js/features/profile/view.js").read_text(encoding="utf-8"))
 
     assert 'class="profile-hero-cinema"' in markup
     for identifier in (
@@ -34,7 +34,7 @@ def test_profile_summary_keeps_recent_requests_personal_and_includes_real_reques
 
 def test_profile_menu_and_household_chooser_match_the_finetuned_navigation():
     markup = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    script = ((ROOT / "web/screens/user-profile.js").read_text(encoding="utf-8") + (ROOT / "web/js/features/profile/view.js").read_text(encoding="utf-8"))
+    script = ((ROOT / "web/js/shell/actions/user-profile.js").read_text(encoding="utf-8") + (ROOT / "web/js/features/profile/view.js").read_text(encoding="utf-8"))
 
     assert 'data-user-action="taste"' not in markup
     assert 'data-user-action="downloads"' not in markup
@@ -47,7 +47,7 @@ def test_profile_menu_and_household_chooser_match_the_finetuned_navigation():
 def test_calendar_filters_are_saved_per_authenticated_user():
     storage = (ROOT / "web" / "js" / "features" / "calendar" / "storage.js").read_text(encoding="utf-8")
     controller = (ROOT / "web" / "js" / "features" / "calendar" / "index.js").read_text(encoding="utf-8")
-    adapter = (ROOT / "web" / "js" / "legacy-adapter.js").read_text(encoding="utf-8")
+    adapter = (ROOT / "web" / "js" / "composition.js").read_text(encoding="utf-8")
 
     assert "${FILTERS_KEY}:${userId}" in storage
     assert "sharedPresentation.auth.get().user?.id" in adapter

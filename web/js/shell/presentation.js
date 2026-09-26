@@ -1,14 +1,27 @@
-const state = createInitialState();
-// Synchronous adapter to module presenters; initialized by the module entry before app startup.
-const sharedPresentation = {};
+import { createInitialState } from "./state.js";
+import { providerLanguage } from "./actions/settings.js";
+import { closeGlobalSearch, refreshAllCatalogJellyfinStatuses, renderHome, stopHomeHeroRotation } from "./actions/home.js";
+import {
+  ensureFpResults,
+  fpResultAvailability,
+  fpStatusMessage,
+  refreshFpJellyfinStatus,
+  refreshSeriesJellyfinStatus,
+} from "./actions/movies.js";
+import { ensureSeriesResults } from "./actions/series.js";
+import { animeBrowse } from "./actions/anime.js";
+import { aniworldBrowse } from "./actions/aniworld.js";
+export const state = createInitialState();
+// Internal composition registry, initialized before startup; never exposed on window.
+export const sharedPresentation = {};
 
-const WATCH_MODE_DEFAULT = "latest_season";
-const WATCH_MODE_LABELS = {
+export const WATCH_MODE_DEFAULT = "latest_season";
+export const WATCH_MODE_LABELS = {
   all: "Alles Fehlende",
   latest_season: "Neueste Staffel",
   next_season: "Nächste Staffel nach Gesehen-Status",
 };
-const WATCH_MODE_EXPLANATIONS = {
+export const WATCH_MODE_EXPLANATIONS = {
   all: {
     title: "Das Abo hält die komplette Serie vollständig",
     copy: "Royal prüft sofort alle Staffeln und danach regelmäßig weiter. Bei aktivem Auto-Download landen Treffer in der Queue, sonst in der Abo-Inbox.",
@@ -22,28 +35,28 @@ const WATCH_MODE_EXPLANATIONS = {
     copy: "Royal prüft den gewählten Jellyfin-Benutzer regelmäßig. Eine weitere Staffel wird erst freigegeben, wenn die vorherige vollständig als gesehen markiert ist.",
   },
 };
-const WATCH_CLEANUP_DEFAULT = "keep";
-const WATCH_CLEANUP_LABELS = {
+export const WATCH_CLEANUP_DEFAULT = "keep";
+export const WATCH_CLEANUP_LABELS = {
   keep: "Behalten",
   watched_seasons: "Staffel-Löschung",
   watched_episodes: "Episoden-Löschung",
 };
-function recheckFpInfinite() { sharedPresentation.infinite.movies.refresh(); }
-function recheckSeriesInfinite() { sharedPresentation.infinite.series.refresh(); }
-function recheckAniworldInfinite() { sharedPresentation.infinite.aniworld.refresh(); }
+export function recheckFpInfinite() { sharedPresentation.infinite.movies.refresh(); }
+export function recheckSeriesInfinite() { sharedPresentation.infinite.series.refresh(); }
+export function recheckAniworldInfinite() { sharedPresentation.infinite.aniworld.refresh(); }
 
-function escapeHtml(s) {
+export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
-function animeNavigationAvailable() {
+export function animeNavigationAvailable() {
   return sharedPresentation.providers.get().contentLanguages.has("en");
 }
 
-function syncAnimeNavigationVisibility() {
+export function syncAnimeNavigationVisibility() {
   const visible = animeNavigationAvailable();
   document.querySelectorAll(".anime-tab-button").forEach((element) => {
     element.classList.toggle("hidden", !visible);
@@ -59,11 +72,11 @@ function syncAnimeNavigationVisibility() {
   if (!visible && state.tab === "anime") switchTab("filme");
 }
 
-function aniworldNavigationAvailable() {
+export function aniworldNavigationAvailable() {
   return sharedPresentation.providers.get().contentLanguages.has("de");
 }
 
-function syncAniworldNavigationVisibility() {
+export function syncAniworldNavigationVisibility() {
   const visible = aniworldNavigationAvailable();
   document.querySelectorAll(".aniworld-tab-button").forEach((element) => {
     element.classList.toggle("hidden", !visible);
@@ -73,11 +86,11 @@ function syncAniworldNavigationVisibility() {
   if (!visible && state.tab === "aniworld") switchTab("filme");
 }
 
-function setNavigationMenuOpen(...args) { return sharedPresentation.shell.setMenuOpen(...args); }
-function closeNavigationMenus(...args) { return sharedPresentation.shell.closeMenus(...args); }
-function initNavigationMenus() { sharedPresentation.shell.mount(); }
+export function setNavigationMenuOpen(...args) { return sharedPresentation.shell.setMenuOpen(...args); }
+export function closeNavigationMenus(...args) { return sharedPresentation.shell.closeMenus(...args); }
+export function initNavigationMenus() { sharedPresentation.shell.mount(); }
 
-function switchTab(name, { autoLoad = true } = {}) {
+export function switchTab(name, { autoLoad = true } = {}) {
   if (name === "anime" && !animeNavigationAvailable()) name = "filme";
   if (name === "aniworld" && !aniworldNavigationAvailable()) name = "filme";
   if (sharedPresentation.search.get().active) closeGlobalSearch();
@@ -107,7 +120,7 @@ function switchTab(name, { autoLoad = true } = {}) {
 }
 
 // ── Log console ──────────────────────────────────────────────────────────
-function appendLog(msg, level) {
+export function appendLog(msg, level) {
   const el = document.getElementById("log-console");
   const low = (msg || "").toLowerCase();
   let tag = "";
@@ -124,17 +137,17 @@ function appendLog(msg, level) {
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────
-function syncQueueSnapshot(...args) { return sharedPresentation.queueSync.refresh(...args); }
+export function syncQueueSnapshot(...args) { return sharedPresentation.queueSync.refresh(...args); }
 
-function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApply = null) {
+export function syncWatchlistSnapshot(context = "Abo-Synchronisierung", shouldApply = null) {
   return sharedPresentation.subscriptions.refresh({ shouldApply });
 }
 
-function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung", shouldApply = null) {
+export function syncMovieSubscriptions(context = "Film-Abo-Synchronisierung", shouldApply = null) {
   return sharedPresentation.movieSubscriptions.refresh({ shouldApply });
 }
 
-async function resyncAfterWsOpen({ isCurrent: isCurrentConnection }) {
+export async function resyncAfterWsOpen({ isCurrent: isCurrentConnection }) {
   const queueSync = syncQueueSnapshot(
     "Queue-Synchronisierung nach Verbindung", isCurrentConnection,
   );
@@ -147,7 +160,7 @@ async function resyncAfterWsOpen({ isCurrent: isCurrentConnection }) {
   ]);
 }
 
-function handleLiveMessage(data) {
+export function handleLiveMessage(data) {
     try {
       if (data.type === "log") {
         appendLog(data.message, data.level);
@@ -163,7 +176,7 @@ function handleLiveMessage(data) {
 }
 
 // ── Queue (Warteschlange, gemeinsam für Filme + Serien) ───────────────────
-function showPersistenceWarning(label, persistence) {
+export function showPersistenceWarning(label, persistence) {
   if (!persistence || persistence.ok !== false) return;
   const retry = persistence.pending_retry
     ? "Automatischer Speicherversuch läuft"
@@ -177,11 +190,11 @@ function showPersistenceWarning(label, persistence) {
 }
 
 // Temporary adapter for classic catalogue/subscription presenters.
-function renderQueue(payload) { sharedPresentation.queueView.render(payload); }
-function renderQueueHistory(jobs) { sharedPresentation.queueView.renderHistory(jobs); }
-function updateQueueJobProgress(jobId, job) { sharedPresentation.queueView.updateProgress(jobId, job); }
+export function renderQueue(payload) { sharedPresentation.queueView.render(payload); }
+export function renderQueueHistory(jobs) { sharedPresentation.queueView.renderHistory(jobs); }
+export function updateQueueJobProgress(jobId, job) { sharedPresentation.queueView.updateProgress(jobId, job); }
 
-function renderSerienstreamHealth(provider) {
+export function renderSerienstreamHealth(provider) {
   const box = document.getElementById("serienstream-health");
   if (!box) return;
   const paused = ["cooldown", "probing", "blocked"].includes(provider.state);
@@ -224,7 +237,7 @@ function renderSerienstreamHealth(provider) {
   document.getElementById("serienstream-retry").disabled = provider.state === "probing";
 }
 
-function setQueueDockExpanded(expanded) {
+export function setQueueDockExpanded(expanded) {
   if (window.matchMedia("(max-width: 820px)").matches) return;
   const dock = document.getElementById("queue-dock");
   const drawer = document.getElementById("queue-drawer");
@@ -238,12 +251,12 @@ function setQueueDockExpanded(expanded) {
     : "Downloadplan öffnen";
 }
 
-function toggleDesktopQueue() {
+export function toggleDesktopQueue() {
   const dock = document.getElementById("queue-dock");
   setQueueDockExpanded(!dock.classList.contains("queue-expanded"));
 }
 
-function openMobileQueue() {
+export function openMobileQueue() {
   document.body.classList.add("queue-open");
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "false");
   document.getElementById("queue-drawer").setAttribute("aria-hidden", "false");
@@ -251,7 +264,7 @@ function openMobileQueue() {
   document.getElementById("mobile-queue-close").focus();
 }
 
-function closeMobileQueue() {
+export function closeMobileQueue() {
   document.body.classList.remove("queue-open");
   document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "true");
   if (window.matchMedia("(max-width: 820px)").matches) {
@@ -260,7 +273,7 @@ function closeMobileQueue() {
   }
 }
 
-function setDownloadState(kind, title, detail, percent = state.download.percent) {
+export function setDownloadState(kind, title, detail, percent = state.download.percent) {
   const safePercent = Number.isFinite(Number(percent)) && Number(percent) >= 0
     ? Math.max(0, Math.min(100, Number(percent))) : state.download.percent;
   state.download.active = kind === "active";
@@ -277,13 +290,13 @@ function setDownloadState(kind, title, detail, percent = state.download.percent)
   document.getElementById("cancel-btn").disabled = !state.download.active;
 }
 
-function activeMediaModal() { return sharedPresentation.modal.active(); }
-function openMediaModal(id, trigger = null) { sharedPresentation.modal.open(id, trigger); }
-function closeMediaModal(id, restoreFocus = true) { sharedPresentation.modal.close(id, restoreFocus); }
-function closeAllMediaModals(restoreFocus = true) { sharedPresentation.modal.closeAll(restoreFocus); }
-function handleMediaModalKeydown(event) { return sharedPresentation.modal.keydown(event); }
+export function activeMediaModal() { return sharedPresentation.modal.active(); }
+export function openMediaModal(id, trigger = null) { sharedPresentation.modal.open(id, trigger); }
+export function closeMediaModal(id, restoreFocus = true) { sharedPresentation.modal.close(id, restoreFocus); }
+export function closeAllMediaModals(restoreFocus = true) { sharedPresentation.modal.closeAll(restoreFocus); }
+export function handleMediaModalKeydown(event) { return sharedPresentation.modal.keydown(event); }
 
-function refreshFpQueuePresentation() {
+export function refreshFpQueuePresentation() {
   for (const row of document.querySelectorAll("#fp-results .result-card")) {
     const slug = row.dataset.slug;
     const result = sharedPresentation.movieState.results.find((item) => item.slug === slug);
@@ -309,4 +322,4 @@ function refreshFpQueuePresentation() {
   document.getElementById("fp-status").textContent = fpStatusMessage();
 }
 
-function refreshQueueUiAfterChange(...args) { return sharedPresentation.queueSync.acceptMutation(...args); }
+export function refreshQueueUiAfterChange(...args) { return sharedPresentation.queueSync.acceptMutation(...args); }

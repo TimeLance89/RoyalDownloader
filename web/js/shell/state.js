@@ -1,4 +1,5 @@
-function createInitialState() {
+
+export function createInitialState() {
   return {
     tab: "home",
     queue: { count: 0, groups: [], loaded: false },

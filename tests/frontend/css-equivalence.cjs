@@ -6,6 +6,8 @@ const { execFileSync } = require("node:child_process");
 const { resolve } = require("node:path");
 const assert = require("node:assert/strict");
 const root = resolve(__dirname, "../..");
+// Frozen pre-refactor baseline; HEAD changes as migration commits land.
+const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
 
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
@@ -21,7 +23,7 @@ const root = resolve(__dirname, "../..");
       let body;
       try {
         body = baseline && path !== "web/styles/components.css"
-          ? execFileSync("git", ["show", `HEAD:${path}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+          ? execFileSync("git", ["show", `${baselineRef}:${path}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
           : readFileSync(resolve(root, path), "utf8");
       } catch { body = readFileSync(resolve(root, path), "utf8"); }
       return route.fulfill({ contentType: "text/css", body });
@@ -30,7 +32,7 @@ const root = resolve(__dirname, "../..");
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
       .replace("<head>", '<head><base href="http://royal.test/">');
     const legacyRankingCss = ["web/storage-manager.js", "web/storage-move-jobs.js", "web/taste_v2.js", "web/daily_top_v2.js", "web/store.js"].map(path => {
-      const script = execFileSync("git", ["show", `HEAD:${path}`], { cwd: root, encoding: "utf8" });
+      const script = execFileSync("git", ["show", `${baselineRef}:${path}`], { cwd: root, encoding: "utf8" });
       return script.match(/style\.textContent = `([\s\S]*?)`;/)?.[1] || "";
     }).join("\n");
     async function rankingFixture(withLegacyStyles) {

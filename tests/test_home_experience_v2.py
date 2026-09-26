@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIENCE = (ROOT / "web/js/features/home/hero-selection.js").read_text(encoding="utf-8")
-API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8"))
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/composition.js").read_text(encoding="utf-8"))
 
 
 def test_home_experience_loads_after_taste_profile_v2():

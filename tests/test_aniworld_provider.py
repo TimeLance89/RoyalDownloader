@@ -101,7 +101,7 @@ def test_existing_installation_enables_aniworld_once(monkeypatch):
 
 
 def test_german_aniworld_settings_remain_visible_without_english():
-    core = (Path(__file__).parents[1] / "web" / "core.js").read_text(encoding="utf-8")
+    core = (Path(__file__).parents[1] / "web" / "js/shell/presentation.js").read_text(encoding="utf-8")
 
     assert 'querySelectorAll(".anime-tab-button")' in core
     assert 'querySelectorAll(".provider-source-lane.is-anime")' in core
@@ -436,7 +436,7 @@ def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
     assert 'id="aniworld-catalog-btn" class="is-active"' in screen
     assert "hydrateAniworldPosters" in screen
     assert 'aniworldBrowse("catalog", 1)' in (
-        root / "web" / "core.js"
+        root / "web" / "js/shell/presentation.js"
     ).read_text(encoding="utf-8")
     assert 'episode.kind === "movie"' in screen
     assert "aniworldSelectableEpisodes" in screen
