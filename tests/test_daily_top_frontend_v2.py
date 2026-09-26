@@ -3,10 +3,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DAILY = (ROOT / "web/js/features/home/daily-top.js").read_text(encoding="utf-8")
-API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8"))
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/composition.js").read_text(encoding="utf-8"))
 RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf-8")
 HOME = (ROOT / "web/js/features/home/cards.js").read_text(encoding="utf-8")
-STORE = (ROOT / "web" / "store.js").read_text(encoding="utf-8")
+STORE = (ROOT / "web" / "js/shell/state.js").read_text(encoding="utf-8")
 
 
 def test_daily_top_service_is_part_of_runtime_graph():

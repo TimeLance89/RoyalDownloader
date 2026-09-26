@@ -17,7 +17,7 @@ def test_browser_taste_cache_is_scoped_to_the_authenticated_user():
     home = (ROOT / "web/js/features/profile/taste.js").read_text(encoding="utf-8")
     assert "function discoveryProfileStorageKey()" in home
     assert "getUser()?.id" in home
-    assert "getUser: () => sharedPresentation.auth.get().user" in (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8")
+    assert "getUser: () => sharedPresentation.auth.get().user" in (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
     assert "`${HOME_DISCOVERY_PROFILE_KEY}:${userId}`" in home
 
 
@@ -43,7 +43,7 @@ def test_onboarding_keeps_picks_across_batches_and_exposes_removal():
 
 def test_header_profile_and_rail_posters_do_not_depend_on_hover():
     index = (ROOT / "web/index.html").read_text(encoding="utf-8")
-    profile = (ROOT / "web/screens/user-profile.js").read_text(encoding="utf-8")
+    profile = (ROOT / "web/js/shell/actions/user-profile.js").read_text(encoding="utf-8")
     rail = (ROOT / "web/js/features/home/rail-renderer.js").read_text(encoding="utf-8")
     artwork = (ROOT / "web/js/shared/components/card-artwork.js").read_text(encoding="utf-8")
     assert 'id="user-menu-trigger"' in index

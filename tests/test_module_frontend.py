@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_module_ui_uses_authoritative_api_and_does_not_dirty_normal_settings():
     source = (ROOT / "web/js/features/settings/modules.js").read_text(encoding="utf-8")
-    api = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8"))
+    api = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/composition.js").read_text(encoding="utf-8"))
     assert "/module-manager.js" not in api
     assert 'api.get("/api/modules", { signal: current.signal })' in source
     assert 'api.put(`/api/modules/${input.dataset.module}`' in source

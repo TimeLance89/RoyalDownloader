@@ -18,17 +18,17 @@ const transport = readFileSync(new URL("../web/js/core/api.js", import.meta.url)
 const api = ["shared/utils/artwork-url", "features/downloads/sync", "features/downloads/view", "features/downloads/movies", "features/integrations/catalog-jellyfin"].map(path => readFileSync(new URL(`../web/js/${path}.js`, import.meta.url), "utf8")).join("\n");
 const localization = readFileSync(new URL("../web/js/core/localization.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/js/features/auth/index.js", import.meta.url), "utf8");
-const loader = readFileSync(new URL("../web/loading.js", import.meta.url), "utf8");
+const loader = readFileSync(new URL("../web/js/shared/components/startup-curtain.js", import.meta.url), "utf8");
 const mood = ["config", "model", "view", "index"].map(name => readFileSync(new URL(`../web/js/features/mood/${name}.js`, import.meta.url), "utf8")).join("\n");
 const homeRows = readFileSync(new URL("../web/js/features/home/rows.js", import.meta.url), "utf8");
-const home = readFileSync(new URL("../web/screens/home.js", import.meta.url), "utf8");
+const home = readFileSync(new URL("../web/js/shell/actions/home.js", import.meta.url), "utf8");
 const homeExperience = readFileSync(new URL("../web/js/features/home/hero-selection.js", import.meta.url), "utf8");
 const homeRailRuntime = ["features/home/rail-renderer", "shared/components/card-artwork"].map(name => readFileSync(new URL(`../web/js/${name}.js`, import.meta.url), "utf8")).join("\n");
 const carousel = readFileSync(new URL("../web/js/shared/components/carousel.js", import.meta.url), "utf8");
 const mediaCard = readFileSync(new URL("../web/js/shared/components/media-card.js", import.meta.url), "utf8");
 const homeLayoutEditor = ["layout-model", "layout"].map(name => readFileSync(new URL(`../web/js/features/home/${name}.js`, import.meta.url), "utf8")).join("\n");
 const seriesPresentation = readFileSync(new URL("../web/js/features/discovery/series-presentation.js", import.meta.url), "utf8");
-const seriesScreen = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
+const seriesScreen = readFileSync(new URL("../web/js/shell/actions/series.js", import.meta.url), "utf8");
 const seriesCalendar = ["index", "model", "state", "storage", "view"].map(name => readFileSync(new URL(`../web/js/features/calendar/${name}.js`, import.meta.url), "utf8")).join("\n");
 const movieReleases = readFileSync(new URL("../web/js/features/releases/index.js", import.meta.url), "utf8");
 import { createDetailHeroScroll } from "../web/js/features/trailers/scroll.js";
@@ -53,7 +53,7 @@ const appModulePaths = [
   "js/features/home/hero-selection.js",
   "js/features/home/data.js", "js/features/home/cache.js",
   "js/features/discovery/artwork.js",
-  "core.js",
+  "js/shell/presentation.js",
   "js/features/subscriptions/model.js",
   "js/features/subscriptions/view.js",
   "js/features/subscriptions/index.js",
@@ -63,12 +63,12 @@ const appModulePaths = [
   "js/shared/components/media-card.js", "js/shared/components/result-card.js",
   "js/shared/components/status-badge.js",
   "js/core/websocket.js", "js/core/shell.js",
-  "js/legacy-adapter.js",
+  "js/composition.js",
   "js/features/home/hero.js",
   "js/features/home/rows.js",
   "js/features/home/card-dock.js",
   "js/features/home/rail-renderer.js", "js/shared/components/card-artwork.js",
-  "screens/home.js",
+  "js/shell/actions/home.js",
   "js/features/home/catalog.js", "js/features/home/cards.js",
   "js/features/home/lanes.js",
   "js/features/home/presenter.js", "js/features/collections/index.js",
@@ -83,22 +83,22 @@ const appModulePaths = [
   "js/features/discovery/catalog-refresh.js",
   "js/features/discovery/catalog-metadata.js",
   "js/features/trailers/scroll.js",
-  "screens/movie_download_feedback.js",
+  "js/shell/actions/movie_download_feedback.js",
   "js/features/media-details/discovery.js",
-  "screens/movies.js", "js/features/discovery/movie-presentation.js",
+  "js/shell/actions/movies.js", "js/features/discovery/movie-presentation.js",
   "js/features/discovery/movie-filters.js",
   "js/features/media-details/movie-loader.js",
   "js/features/media-details/series-loader.js",
   "js/features/media-details/series-status.js", "js/features/integrations/movie-status.js",
   "js/features/media-details/series-checks.js", "js/features/media-details/series-episodes.js",
   "js/features/media-details/series-api.js",
-  "screens/series.js", "js/features/discovery/series-presentation.js",
+  "js/shell/actions/series.js", "js/features/discovery/series-presentation.js",
   "js/features/calendar/index.js",
   "js/features/calendar/view.js",
-  "screens/anime.js",
+  "js/shell/actions/anime.js",
   "js/features/discovery/anime.js",
-  "screens/library.js",
-  "screens/settings.js",
+  "js/shell/actions/library.js",
+  "js/shell/actions/settings.js",
   "js/features/settings/index.js",
   "js/features/settings/deployment.js",
   "js/features/integrations/jellyfin.js",
@@ -128,7 +128,7 @@ test("episode selection requires an enabled stream language", () => {
   const episodes = createSeriesEpisodes({}, { seriesState: state.series, getQueuedSlugs: () => state.queuedSlugs,
     getEnabledLanguages: () => state.providers.contentLanguages });
   const context = vm.createContext({ state, sharedPresentation: { seriesEpisodes: episodes, seriesState: state.series } });
-  vm.runInContext(seriesScreen, context);
+  Object.assign(context, episodes);
   const selectable = (episode) => vm.runInContext(
     `isEpisodeSelectable(${JSON.stringify(episode)})`, context,
   );
@@ -176,10 +176,10 @@ test("release calendar routes movies and series and unlocks past dates", () => {
 test("royal startup loader is branded, accessible, and wired to every exit path", () => {
   assert.match(html, /id="royal-loader"[^>]+role="status"[^>]+aria-label="Royal Downloader wird geladen"/);
   assert.match(html, /class="royal-loader-crown"/);
-  assert.match(html, /loading\.js\?v=royal-20260827-1/);
+  assert.doesNotMatch(html, /<script(?![^>]*type="module")/);
   assert.match(loader, /prefers-reduced-motion: reduce/);
-  assert.match(loader, /window\.royalLoader = \{ finish \}/);
-  assert.match(app, /window\.royalLoader\?\.finish\(\)/);
+  assert.match(loader, /scope\.dispose\(\)/);
+  assert.match(app, /startupCurtain\.finish\(\)/);
   assert.match(login, /finishLoading\(\)/);
 });
 
@@ -382,7 +382,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(html, /screens\/movies\.js\?v=royal-20260905-1/);
+  assert.match(app, /shell\/actions\/movies\.js/);
   assert.match(app, /const selectedHomeMovie = homeMovieBySlug\((?:sharedPresentation\.)?movieState\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /statuses\.set\(`movie:\$\{slug\}`, status\)/);
@@ -454,7 +454,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.doesNotMatch(html, /src="\/api\.js/);
-  assert.match(html, /screens\/home\.js\?v=royal-20260922-1/);
+  assert.match(app, /shell\/actions\/home\.js/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /getData\(\)\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /getData\(\)\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -826,7 +826,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(html, /core\.js\?v=royal-20260913-1/);
+  assert.match(app, /shell\/presentation\.js/);
   assert.doesNotMatch(html, /src="\/screens\/mood\.js/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
@@ -978,7 +978,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
   );
   assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
   assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(html, /screens\/movie_download_feedback\.js\?v=royal-20260822-1/);
+  assert.match(app, /shell\/actions\/movie_download_feedback\.js/);
   assert.match(
     app,
     /const movie = provided \|\| await prepareFpMovieDownload\(slug, owner\);[\s\S]*?if \(!movie \|\| !owner\.active\) return;[\s\S]*?await client\.post\("\/api\/queue\/add"/,

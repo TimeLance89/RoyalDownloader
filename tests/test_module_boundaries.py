@@ -32,7 +32,7 @@ def test_application_services_stay_focused():
 
 
 def test_frontend_feature_files_do_not_become_new_monoliths():
-    javascript = list((ROOT / "web" / "screens").glob("*.js"))
+    javascript = list((ROOT / "web" / "js").rglob("*.js"))
     stylesheets = list((ROOT / "web" / "styles").glob("*.css"))
     assert javascript and stylesheets
     assert max(map(_line_count, javascript)) < 1_800

@@ -7,7 +7,7 @@ import { createReleases } from "./features/releases/index.js";
 /** Explicit seam to classic presenters while features migrate independently. */
 export function createApplication({
   live, releases: releaseActions, home, user, queueView, modules, profile, movieHero,
-  localization, shell, movieDiscovery, seriesDiscovery, moviePresentation, movieStatus, resultCards, seriesPresentation, seriesEpisodes, movieDownloads, movieCollections, tasteProfile, aniworld, anime, seriesChecks, seriesDetailsLoader, movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader, catalogRefresh, mediaLanguage, mood, cardArtwork, trailers, jellyfinResume, catalogJellyfin, tasteOnboarding, startup, genres, infinite, setup, settings, jellyfin, setupJellyfin, providers, integrations, settingsNavigation, directory, updater, search, account, intelligence, homeData, artwork, calendar, storage, automation, notifications, subscriptions, library, subscriptionRules,
+  localization, shell, movieDiscovery, seriesDiscovery, moviePresentation, movieStatus, resultCards, subscriptionSummary, seriesPresentation, seriesEpisodes, movieDownloads, movieCollections, tasteProfile, aniworld, anime, seriesChecks, seriesDetailsLoader, movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader, catalogRefresh, mediaLanguage, mood, cardArtwork, trailers, jellyfinResume, catalogJellyfin, tasteOnboarding, startup, genres, infinite, setup, settings, jellyfin, setupJellyfin, providers, integrations, settingsNavigation, directory, updater, search, account, intelligence, homeData, artwork, calendar, storage, automation, notifications, subscriptions, library, subscriptionRules,
   onSubscriptions, movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions,
 }) {
   let sessionActive = true;
@@ -39,9 +39,9 @@ export function createApplication({
     unmount() { moviePresentation.unmount(); movieStatus.cancel(); resultCards.unmount("movie"); movieBrowse.unmount(); catalogRefresh.movies.unmount(); infinite.movies.unmount(); movieHero.unmount(); movieSubscriptionView.unmount(); },
   }, document.getElementById("tab-filme"));
   navigation.register("serien", {
-    mount(root) { resultCards.mount("series", root); seriesPresentation.mount(); seriesBrowse.mount(); catalogRefresh.series.mount(); infinite.series.mount(); },
+    mount(root) { resultCards.mount("series", root); subscriptionSummary.mount(); seriesPresentation.mount(); seriesBrowse.mount(); catalogRefresh.series.mount(); infinite.series.mount(); },
     refresh() { infinite.series.refresh(); },
-    unmount() { resultCards.unmount("series"); seriesPresentation.unmount(); seriesBrowse.unmount(); posterPreloader.unmount(); catalogRefresh.series.unmount(); infinite.series.unmount(); },
+    unmount() { resultCards.unmount("series"); subscriptionSummary.unmount(); seriesPresentation.unmount(); seriesBrowse.unmount(); posterPreloader.unmount(); catalogRefresh.series.unmount(); infinite.series.unmount(); },
   }, document.getElementById("tab-serien"));
   navigation.register("anime", anime, document.getElementById("tab-anime"));
   navigation.register("aniworld", {

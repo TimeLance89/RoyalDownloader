@@ -16,7 +16,7 @@ def test_personalized_lane_keeps_the_active_five_plus_two_policy():
     ranking = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
     assert "addDiverse(strong, 5)" in ranking
     assert "addDiverse(adjacent, Math.max(0, 7 - selected.length))" in ranking
-    legacy = (ROOT / "web/store.js").read_text(encoding="utf-8")
+    legacy = (ROOT / "web/js/shell/state.js").read_text(encoding="utf-8")
     assert "window.homePersonalizedEntries =" not in legacy
     assert "window.homeTopEntries =" not in legacy
 

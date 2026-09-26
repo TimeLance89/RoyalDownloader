@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
-API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8"))
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + (ROOT / "web/js/composition.js").read_text(encoding="utf-8"))
 RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf-8")
 
 
@@ -24,7 +24,7 @@ def test_manual_shuffle_penalizes_current_session_exposure():
     assert "sessionExposure.add(key)" in TASTE
     assert "const sessionPenalty = sessionExposure.has(key) ? 18 : 0" in TASTE
     assert "beforeShuffle: recordVisiblePersonalForReshuffle" in TASTE
-    assert "sharedPresentation.tasteRanking.beforeShuffle()" in (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8")
+    assert "sharedPresentation.tasteRanking.beforeShuffle()" in (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
 
 
 def test_home_cards_offer_direct_not_for_me_feedback_and_reason():

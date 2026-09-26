@@ -61,7 +61,7 @@ def test_smart_automation_frontend_is_loaded_and_styled():
     runtime = GLOBAL_RUNTIME.read_text(encoding="utf-8")
     css = POLICY_CSS.read_text(encoding="utf-8")
     assert "/automation-policy.js" not in runtime
-    assert "createAutomation" in (ROOT / "web/js/legacy-adapter.js").read_text(encoding="utf-8")
+    assert "createAutomation" in (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
     assert ".smart-automation-policy" in css
     assert ".smart-schedule-choice" in css
     assert ".smart-time-window" in css

@@ -1,6 +1,9 @@
-import { prepareLegacyPresentation, mountLegacyApplication } from "./js/legacy-adapter.js";
+import { sharedPresentation } from "./js/shell/presentation.js";
+import { initUserProfile } from "./js/shell/actions/user-profile.js";
+import { initSettings } from "./js/shell/actions/settings.js";
+import { preparePresentation, mountApplication } from "./js/composition.js";
 
-prepareLegacyPresentation();
+preparePresentation();
 
 // ── Init ─────────────────────────────────────────────────────────────────
 async function initApp() {
@@ -12,7 +15,7 @@ async function initApp() {
   // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
   sharedPresentation.calendar.initialize();
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
-  mountLegacyApplication();
+  mountApplication();
   try {
     await initSettings();
     document.dispatchEvent(new Event("royal:settings-ready"));
@@ -21,12 +24,12 @@ async function initApp() {
   }
   const needsSetup = await sharedPresentation.setup.initialize();
   if (!needsSetup) sharedPresentation.startup.start();
-  window.royalLoader?.finish();
+  sharedPresentation.startupCurtain.finish();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
-    window.royalLoader?.finish();
+    sharedPresentation.startupCurtain.finish();
     console.error("Royal Downloader konnte nicht initialisiert werden:", error);
   });
 });
