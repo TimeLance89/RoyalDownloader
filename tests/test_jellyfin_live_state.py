@@ -417,21 +417,21 @@ def test_movie_download_uses_a_recent_verified_snapshot_after_transient_probe_fa
 
 
 def test_frontend_live_event_refreshes_every_visible_jellyfin_surface():
-    core = (live.backend_value("APP_DIR") / "web" / "js/shell/presentation.js").read_text(encoding="utf-8")
-    home = (live.backend_value("APP_DIR") / "web" / "js/shell/actions" / "home.js").read_text(encoding="utf-8")
+    core = (live.backend_value("APP_DIR") / "web" / "js/shell/actions.js").read_text(encoding="utf-8")
+    home = (live.backend_value("APP_DIR") / "web" / "js/features/home/actions.js").read_text(encoding="utf-8")
 
     event = core.split('data.type === "jellyfin_update"', 1)[1].split("watchlist_update", 1)[0]
     assert "refreshFpJellyfinStatus()" in event
     assert "refreshSeriesJellyfinStatus()" in event
     assert "refreshAllCatalogJellyfinStatuses()" in event
-    assert "sharedPresentation.search.get().results" in home
-    assert "sharedPresentation.seriesState.results.map(homeSeriesEntry)" in home
-    assert "sharedPresentation.anime.get().results.map(homeAnimeEntry)" in home
+    assert "getSearch().get().results" in home
+    assert "getSeriesState().results.map(homeSeriesEntry)" in home
+    assert "getAnime().get().results.map(homeAnimeEntry)" in home
 
 
 def test_frontend_reconnect_and_idle_resume_refresh_every_jellyfin_surface():
     app_dir = live.backend_value("APP_DIR")
-    core = (app_dir / "web" / "js/shell/presentation.js").read_text(encoding="utf-8")
+    core = (app_dir / "web" / "js/shell/actions.js").read_text(encoding="utf-8")
     resume = (app_dir / "web/js/features/integrations/resume.js").read_text(encoding="utf-8")
     api = (app_dir / "web/js/features/integrations/catalog-jellyfin.js").read_text(encoding="utf-8")
 

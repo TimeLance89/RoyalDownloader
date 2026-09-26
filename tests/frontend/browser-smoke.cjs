@@ -21,11 +21,18 @@ const server = createServer(async (req, res) => {
   const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await page.addInitScript(paths => {
+    await page.addInitScript(() => {
       document.addEventListener("DOMContentLoaded", async () => {
-        for (const path of paths) Object.assign(window, await import(path));
+        if (window !== window.top || !document.getElementById("user-menu")) return;
+        const { application } = await import(document.querySelector('script[type="module"]').src);
+        const domains = [application.core, application.home, application.discovery, application.downloads, application.profile, application.subscriptions, application.settings, application.integrations, application.search];
+        window.sharedPresentation = Object.assign({}, ...domains);
+        window.state = application.core.state;
+        for (const domain of domains) for (const [key, value] of Object.entries(domain)) {
+          if (key === "actions" || key.endsWith("Actions")) Object.assign(window, value);
+        }
       }, { once: true });
-    }, ["/js/shell/presentation.js", "/js/shell/state.js", "/js/shell/actions/anime.js", "/js/shell/actions/aniworld.js", "/js/shell/actions/home.js", "/js/shell/actions/library.js", "/js/shell/actions/movie-collections.js", "/js/shell/actions/movies.js", "/js/shell/actions/movie_download_feedback.js", "/js/shell/actions/series.js", "/js/shell/actions/settings.js", "/js/shell/actions/user-profile.js"]);
+    });
     const errors = [], missing = [], calls = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(error.stack); });
     page.on("console", message => { if (message.type() === "error" && !message.text().includes("503 (Service Unavailable)")) errors.push(message.text()); });

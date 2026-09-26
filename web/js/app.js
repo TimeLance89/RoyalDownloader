@@ -4,11 +4,17 @@ import { createNavigation } from "./core/navigation.js";
 import { createLiveUpdates } from "./features/downloads/index.js";
 import { createReleases } from "./features/releases/index.js";
 
-/** Explicit seam to classic presenters while features migrate independently. */
+/** Owns application lifecycle and navigation using explicit domain dependencies. */
 export function createApplication({
-  live, releases: releaseActions, home, user, queueView, modules, profile, movieHero,
-  localization, shell, movieDiscovery, seriesDiscovery, moviePresentation, movieStatus, resultCards, subscriptionSummary, seriesPresentation, seriesEpisodes, movieDownloads, movieCollections, tasteProfile, aniworld, anime, seriesChecks, seriesDetailsLoader, movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader, catalogRefresh, mediaLanguage, mood, cardArtwork, trailers, jellyfinResume, catalogJellyfin, tasteOnboarding, startup, genres, infinite, setup, settings, jellyfin, setupJellyfin, providers, integrations, settingsNavigation, directory, updater, search, account, intelligence, homeData, artwork, calendar, storage, automation, notifications, subscriptions, library, subscriptionRules,
-  onSubscriptions, movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions,
+  core: { user, localization, shell, cardArtwork, startup },
+  home: { mood, homeData, home },
+  discovery: { movieDiscovery, seriesDiscovery, moviePresentation, resultCards, seriesPresentation, seriesEpisodes, movieCollections, aniworld, anime, seriesChecks, seriesDetailsLoader, movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader, catalogRefresh, mediaLanguage, trailers, genres, infinite, artwork, movieHero },
+  downloads: { queueView, movieDownloads, live },
+  profile: { tasteProfile, tasteOnboarding, profile },
+  subscriptions: { subscriptionSummary, notifications, subscriptions, library, subscriptionRules, movieSubscriptions, movieSubscriptionView, movieSubscriptionRules, onMovieSubscriptions, onSubscriptions },
+  settings: { settingsNavigation, setup, settings, providers, directory, updater, account, intelligence, calendar, modules, storage, automation, releases: releaseActions },
+  integrations: { movieStatus, jellyfinResume, catalogJellyfin, jellyfin, setupJellyfin, integrations },
+  search: { search }
 }) {
   let sessionActive = true;
   const scope = createScope();

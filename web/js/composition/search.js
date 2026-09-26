@@ -1,33 +1,34 @@
+import { createHomeSearch } from "../features/search/home.js";
 import { createSearchSupport } from "../features/search/support.js";
-import { sharedPresentation } from "../shell/presentation.js";
-import { createSearch } from "../features/search/index.js";
-import { createHomeCard } from "../shell/actions/home.js";
-import { mediaJellyfinStatus } from "../shell/actions/home.js";
-import { rememberSearch } from "../shell/actions/home.js";
-import { uniqueHomeContentEntries } from "../shell/actions/home.js";
-import { uniqueHomeEntries } from "../shell/actions/home.js";
-import { homeCollectionEntry } from "../shell/actions/movie-collections.js";
-import { homeMovieEntry } from "../shell/actions/home.js";
-import { homeSeriesEntry } from "../shell/actions/home.js";
-import { homeAnimeEntry } from "../shell/actions/home.js";
-import { refreshCatalogJellyfinStatus } from "../shell/actions/home.js";
 
-export function composeSearch({ personalStorageKey }) {
-return {
-searchSupport: createSearchSupport(document, {
-      personalStorageKey, getGenres: () => sharedPresentation.genres.get(),
-      recordTasteEvent: event => sharedPresentation.tasteProfile.event(event),
-    }),
-search: createSearch(document.getElementById("global-search-page"), document.getElementById("global-search-shell"), {
-      createHomeCard: (...args) => createHomeCard(...args), mediaJellyfinStatus,
-      rememberSearch: (...args) => rememberSearch(...args),
-      uniqueHomeContentEntries: entries => uniqueHomeContentEntries(entries), uniqueHomeEntries,
-      homeCollectionEntry, homeMovieEntry, homeSeriesEntry, homeAnimeEntry,
-      hydrateHomeMovieArtwork: (...args) => sharedPresentation.artwork.movies(...args),
-      hydrateHomeSeriesArtwork: (...args) => sharedPresentation.artwork.series(...args),
-      refreshCatalogJellyfinStatus: (...args) => refreshCatalogJellyfinStatus(...args),
-      mediaDetailModalOpen: () => [...document.querySelectorAll(".media-modal")].some(modal =>
-        !modal.hidden && !modal.classList.contains("hidden") && modal.getAttribute("aria-hidden") !== "true"),
-    })
-};
+import { createSearch } from "../features/search/index.js";
+
+export function composeSearch({ personalStorageKey, getDiscovery, getProfile, getHome }) {
+  const services = {
+  searchSupport: createSearchSupport(document, {
+        personalStorageKey, getGenres: () => getDiscovery().genres.get(),
+        recordTasteEvent: event => getProfile().tasteProfile.event(event),
+      }),
+  search: createSearch(document.getElementById("global-search-page"), document.getElementById("global-search-shell"), {
+        createHomeCard: (...args) => getHome().actions.createHomeCard(...args), mediaJellyfinStatus: (...args) => getHome().actions.mediaJellyfinStatus(...args),
+        rememberSearch: (...args) => getHome().actions.rememberSearch(...args),
+        uniqueHomeContentEntries: entries => getHome().actions.uniqueHomeContentEntries(entries), uniqueHomeEntries: (...args) => getHome().actions.uniqueHomeEntries(...args),
+        homeCollectionEntry: (...args) => getDiscovery().collectionActions.homeCollectionEntry(...args), homeMovieEntry: (...args) => getHome().actions.homeMovieEntry(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), homeAnimeEntry: (...args) => getHome().actions.homeAnimeEntry(...args),
+        hydrateHomeMovieArtwork: (...args) => getDiscovery().artwork.movies(...args),
+        hydrateHomeSeriesArtwork: (...args) => getDiscovery().artwork.series(...args),
+        refreshCatalogJellyfinStatus: (...args) => getHome().actions.refreshCatalogJellyfinStatus(...args),
+        mediaDetailModalOpen: () => [...document.querySelectorAll(".media-modal")].some(modal =>
+          !modal.hidden && !modal.classList.contains("hidden") && modal.getAttribute("aria-hidden") !== "true"),
+      })
+  };
+
+  return services;
+}
+
+export function initializeSearch({ getSearch, getHome, getDiscovery }) {
+  getSearch().homeSearch = createHomeSearch(document.getElementById("tab-home"), {
+      rememberSearch: (...args) => getHome().actions.rememberSearch(...args), homeMovieEntry: (...args) => getHome().actions.homeMovieEntry(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args),
+      interleaveHomeEntries: (...args) => getHome().actions.interleaveHomeEntries(...args), uniqueHomeEntries: (...args) => getHome().actions.uniqueHomeEntries(...args), createHomeCard: (...args) => getHome().actions.createHomeCard(...args),
+      artwork: getDiscovery().artwork, refreshJellyfin: (...args) => getHome().actions.refreshCatalogJellyfinStatus(...args),
+    });
 }
