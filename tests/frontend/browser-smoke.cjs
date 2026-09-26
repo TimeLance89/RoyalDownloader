@@ -1,4 +1,4 @@
-// Optional integration check: use an existing Playwright installation, no build required.
+// CI quality gate: isolated Playwright tooling, no application build required.
 // ROYAL_PLAYWRIGHT can point at its package directory. API/WS are deterministic fixtures.
 const { chromium } = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
 const { createServer } = require("node:http");
@@ -18,14 +18,21 @@ const server = createServer(async (req, res) => {
 
 (async () => {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
+  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER === "chromium" ? undefined : process.env.ROYAL_BROWSER || "msedge" });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await page.addInitScript(paths => {
+    await page.addInitScript(() => {
       document.addEventListener("DOMContentLoaded", async () => {
-        for (const path of paths) Object.assign(window, await import(path));
+        if (window !== window.top || !document.getElementById("user-menu")) return;
+        const { application } = await import(document.querySelector('script[type="module"]').src);
+        const domains = [application.core, application.home, application.discovery, application.downloads, application.profile, application.subscriptions, application.settings, application.integrations, application.search];
+        window.sharedPresentation = Object.assign({}, ...domains);
+        window.state = application.core.state;
+        for (const domain of domains) for (const [key, value] of Object.entries(domain)) {
+          if (key === "actions" || key.endsWith("Actions")) Object.assign(window, value);
+        }
       }, { once: true });
-    }, ["/js/shell/presentation.js", "/js/shell/state.js", "/js/shell/actions/anime.js", "/js/shell/actions/aniworld.js", "/js/shell/actions/home.js", "/js/shell/actions/library.js", "/js/shell/actions/movie-collections.js", "/js/shell/actions/movies.js", "/js/shell/actions/movie_download_feedback.js", "/js/shell/actions/series.js", "/js/shell/actions/settings.js", "/js/shell/actions/user-profile.js"]);
+    });
     const errors = [], missing = [], calls = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(error.stack); });
     page.on("console", message => { if (message.type() === "error" && !message.text().includes("503 (Service Unavailable)")) errors.push(message.text()); });
@@ -403,7 +410,10 @@ const server = createServer(async (req, res) => {
       await page.locator('[data-settings-target="settings-modules"]').click();
       await page.locator('[data-module="seerr-sync"]').waitFor();
       await page.waitForLoadState("networkidle");
+      const moduleSaved = page.waitForResponse(response =>
+        response.url().endsWith("/api/modules/seerr-sync") && response.request().method() === "PUT");
       await page.locator('[data-module="seerr-sync"]').setChecked(!moduleEnabled);
+      assert.equal((await moduleSaved).status(), 200);
       await page.waitForLoadState("networkidle");
       assert.equal(moduleWrites, i + 1);
       await page.evaluate(() => switchTab("home"));
@@ -575,7 +585,9 @@ const server = createServer(async (req, res) => {
     await page.locator("#seerr-url").fill("http://draft-fixture");
     await page.evaluate(() => sharedPresentation.integrations.refresh());
     assert.equal(await page.locator("#seerr-url").inputValue(), "http://draft-fixture");
+    const seerrSynced = page.waitForResponse(response => response.url().endsWith("/api/seerr/sync"));
     await page.locator("#seerr-sync").click();
+    assert.equal((await seerrSynced).status(), 200);
     await page.waitForFunction(() => document.getElementById("seerr-status").textContent.includes("Verbunden"));
     assert.equal(seerrSyncs, 1);
     assert.equal(await page.locator("#seerr-url").inputValue(), "http://draft-fixture");
@@ -871,7 +883,9 @@ const server = createServer(async (req, res) => {
       await page.waitForFunction(() => document.getElementById("storage-live-state").textContent.includes("Volume"));
       await page.locator("#storage-location-label").fill("Fixture Location");
       await page.locator("#storage-location-path").fill("/fixture-only");
+      const storageSaved = page.waitForResponse(response => response.url().endsWith("/api/storage/locations/save"));
       await page.locator("#storage-location-save").click();
+      assert.equal((await storageSaved).status(), 200);
       await page.waitForLoadState("networkidle");
       assert.equal(storageSaves, i + 1);
       if (i < 2) await page.evaluate(() => switchTab("home"));

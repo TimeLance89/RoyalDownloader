@@ -2,8 +2,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-HOME = (ROOT / "web" / "js/shell/actions" / "home.js").read_text(encoding="utf-8")
-CORE = (ROOT / "web" / "js/shell/presentation.js").read_text(encoding="utf-8")
+HOME = (ROOT / "web" / "js/features/home/actions.js").read_text(encoding="utf-8")
+CORE = (ROOT / "web" / "js/shell/actions.js").read_text(encoding="utf-8")
 TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
 CARD_CSS = (ROOT / "web" / "styles" / "home-card-hover.css").read_text(encoding="utf-8")
 

@@ -17,11 +17,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository and frozen CSS baseline
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+
+      - name: Install isolated browser test tooling
+        shell: bash
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/royal-frontend-tests" --no-save --ignore-scripts playwright@1.62.1
+          "${RUNNER_TEMP}/royal-frontend-tests/node_modules/.bin/playwright" install --with-deps chromium
+          echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-frontend-tests/node_modules/playwright" >> "$GITHUB_ENV"
+          echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
+
+      - name: Browser interaction and lifecycle regression
+        run: node tests/frontend/browser-smoke.cjs
+
+      - name: First-run setup and authentication browser regression
+        if: ${{ !cancelled() }}
+        run: node tests/frontend/setup-browser.cjs
+
+      - name: Frozen desktop and mobile CSS equivalence
+        if: ${{ !cancelled() }}
+        run: node tests/frontend/css-equivalence.cjs
+
   verify:
+    needs: frontend-browser
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
+      - name: Require successful frontend browser gate
+        if: ${{ needs.frontend-browser.result != 'success' }}
+        run: exit 1
+
       - name: Check out repository
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # immutable v7 line
         with:
@@ -51,7 +91,7 @@ jobs:
         run: find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Frontend contract smoke tests
-        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs
+        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs
 
       - name: Python correctness baseline
         run: ruff check --select E9,F63,F7,F82 .

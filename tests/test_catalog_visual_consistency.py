@@ -36,7 +36,7 @@ def test_movie_and_series_shelves_use_the_same_poster_geometry():
 
 
 def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
-    library = (ROOT / "web" / "js/shell/actions" / "library.js").read_text(encoding="utf-8")
+    library = (ROOT / "web" / "js/features/subscriptions/actions.js").read_text(encoding="utf-8")
     identity = (ROOT / "web/js/features/discovery/catalog-identity.js").read_text(encoding="utf-8")
     for contract in [
         "function catalogIdentityView",
@@ -47,8 +47,8 @@ def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
         "function reconcileSeriesCatalogDuplicates",
     ]:
         assert contract in library + identity
-    adapter = (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
-    assert "onSeriesHydrated: () => reconcileSeriesCatalogDuplicates()" in adapter
+    adapter = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
+    assert "onSeriesHydrated: () => getSubscriptions().actions.reconcileSeriesCatalogDuplicates()" in adapter
     assert "getMetadata(slug)" in identity
     assert "leftTmdb && rightTmdb" in identity
     assert "leftYear && rightYear && leftYear !== rightYear" in identity
@@ -60,7 +60,7 @@ def test_catalogs_deduplicate_logical_media_not_only_provider_slugs():
 
 
 def test_poster_fallback_initials_ignore_punctuation_only_words():
-    library = (ROOT / "web" / "js/shell/actions" / "library.js").read_text(encoding="utf-8")
+    library = (ROOT / "web" / "js/features/subscriptions/actions.js").read_text(encoding="utf-8")
     identity = (ROOT / "web/js/features/discovery/catalog-identity.js").read_text(encoding="utf-8")
     assert "function cleanMediaCardInitials" in identity
     assert "/[\\p{L}\\p{N}]/u.test(word)" in identity

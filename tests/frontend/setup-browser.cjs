@@ -1,4 +1,4 @@
-// Optional integration check: use an existing Playwright installation, no build required.
+// CI quality gate: isolated Playwright tooling, no application build required.
 // ROYAL_PLAYWRIGHT can point at its package directory. API/WS are deterministic fixtures.
 const { chromium } = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
 const { createServer } = require("node:http");
@@ -18,7 +18,7 @@ const server = createServer(async (req, res) => {
 
 (async () => {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER || "msedge" });
+  const browser = await chromium.launch({ headless: true, channel: process.env.ROYAL_BROWSER === "chromium" ? undefined : process.env.ROYAL_BROWSER || "msedge" });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     const errors = [], missing = [], writes = [];
@@ -100,20 +100,20 @@ const server = createServer(async (req, res) => {
     assert.equal(submissions[0].body.jellyfin_user_id, "other");
     assert.equal(submissions[0].body.bootstrap_token, "fixture-bootstrap");
     assert.equal(await page.locator("#setup-auth-password").inputValue(), "");
-    await page.evaluate(async () => { const { switchTab } = await import("/js/shell/presentation.js"); switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
+    await page.evaluate(async () => { const { switchTab } = (await import(document.querySelector('script[type="module"]').src)).application.core.actions; switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");
-    await page.evaluate(async () => (await import("/js/shell/presentation.js")).sharedPresentation.jellyfin.refresh());
+    await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.integrations.jellyfin.refresh());
     assert.equal(await page.locator("#jellyfin-url").inputValue(), "http://unsaved.fixture");
     jellyfinSlow = true;
     const usersRequest = page.waitForRequest(request => request.url().endsWith("/api/jellyfin/users"));
     await page.locator("#jellyfin-users-load").click(); await usersRequest;
-    await page.evaluate(async () => (await import("/js/shell/presentation.js")).switchTab("home"));
+    await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.core.actions.switchTab("home"));
     const hidden = await page.locator("#jellyfin-user-status").textContent();
     await page.waitForTimeout(550);
     assert.equal(await page.locator("#jellyfin-user-status").textContent(), hidden);
     loginRequired = true;
-    await page.evaluate(async () => { void (await import("/js/shell/presentation.js")).sharedPresentation.auth.requireLogin(); });
+    await page.evaluate(async () => { void (await import(document.querySelector('script[type="module"]').src)).application.profile.auth.requireLogin(); });
     await page.locator("#login-screen").waitFor({ state: "visible" });
     await page.locator("#login-username").fill("fixture-owner");
     await page.locator("#login-password").fill("fixture-password-only");
@@ -123,13 +123,13 @@ const server = createServer(async (req, res) => {
     await page.locator("#login-screen").waitFor({ state: "hidden" });
     assert.equal(writes.filter(write => write.path === "/api/auth/login").length, 1);
     assert.equal(await page.locator("#login-password").inputValue(), "");
-    assert.equal(await page.evaluate(async () => (await import("/js/shell/presentation.js")).sharedPresentation.auth.get().user.username), "fixture-owner");
+    assert.equal(await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.profile.auth.get().user.username), "fixture-owner");
     await page.evaluate(async () => {
-      const { sharedPresentation } = await import("/js/shell/presentation.js");
+      const { home, profile } = (await import(document.querySelector('script[type="module"]').src)).application;
       const items = Array.from({ length: 65 }, (_, index) => ({ slug: `taste-${index}`, title: `Taste ${index}`, year: String(1980 + index % 40), genres: ["Drama", index % 2 ? "Action" : "Comedy"], cover_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" }));
-      sharedPresentation.homeData.get().newMovies.push(...items);
-      sharedPresentation.auth.acceptUser({ ...sharedPresentation.auth.get().user, taste_onboarding_required: true });
-      sharedPresentation.tasteOnboarding.show();
+      home.homeData.get().newMovies.push(...items);
+      profile.auth.acceptUser({ ...profile.auth.get().user, taste_onboarding_required: true });
+      profile.tasteOnboarding.show();
     });
     await page.locator("#taste-onboarding").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelectorAll(".taste-onboarding-card").length >= 20);
@@ -146,11 +146,11 @@ const server = createServer(async (req, res) => {
     tasteSlow = true;
     const tasteRequest = page.waitForRequest(request => request.url().endsWith("/api/taste/onboarding"));
     await page.locator("#taste-onboarding-submit").click(); await tasteRequest;
-    await page.evaluate(async () => (await import("/js/shell/presentation.js")).sharedPresentation.tasteOnboarding.unmount());
+    await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.profile.tasteOnboarding.unmount());
     await page.waitForTimeout(550);
-    assert.equal(await page.evaluate(async () => (await import("/js/shell/presentation.js")).sharedPresentation.auth.get().user.taste_onboarding_required), true);
+    assert.equal(await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.profile.auth.get().user.taste_onboarding_required), true);
     tasteSlow = false;
-    await page.evaluate(async () => (await import("/js/shell/presentation.js")).sharedPresentation.tasteOnboarding.mount());
+    await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.profile.tasteOnboarding.mount());
     assert.equal(await page.locator("#taste-onboarding-count").textContent(), "5");
     await page.locator("#taste-onboarding-submit").click();
     await page.locator("#taste-onboarding").waitFor({ state: "hidden" });

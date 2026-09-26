@@ -21,14 +21,14 @@ const login = readFileSync(new URL("../web/js/features/auth/index.js", import.me
 const loader = readFileSync(new URL("../web/js/shared/components/startup-curtain.js", import.meta.url), "utf8");
 const mood = ["config", "model", "view", "index"].map(name => readFileSync(new URL(`../web/js/features/mood/${name}.js`, import.meta.url), "utf8")).join("\n");
 const homeRows = readFileSync(new URL("../web/js/features/home/rows.js", import.meta.url), "utf8");
-const home = readFileSync(new URL("../web/js/shell/actions/home.js", import.meta.url), "utf8");
+const home = readFileSync(new URL("../web/js/features/home/actions.js", import.meta.url), "utf8");
 const homeExperience = readFileSync(new URL("../web/js/features/home/hero-selection.js", import.meta.url), "utf8");
 const homeRailRuntime = ["features/home/rail-renderer", "shared/components/card-artwork"].map(name => readFileSync(new URL(`../web/js/${name}.js`, import.meta.url), "utf8")).join("\n");
 const carousel = readFileSync(new URL("../web/js/shared/components/carousel.js", import.meta.url), "utf8");
 const mediaCard = readFileSync(new URL("../web/js/shared/components/media-card.js", import.meta.url), "utf8");
 const homeLayoutEditor = ["layout-model", "layout"].map(name => readFileSync(new URL(`../web/js/features/home/${name}.js`, import.meta.url), "utf8")).join("\n");
 const seriesPresentation = readFileSync(new URL("../web/js/features/discovery/series-presentation.js", import.meta.url), "utf8");
-const seriesScreen = readFileSync(new URL("../web/js/shell/actions/series.js", import.meta.url), "utf8");
+const seriesScreen = readFileSync(new URL("../web/js/features/discovery/series-actions.js", import.meta.url), "utf8");
 const seriesCalendar = ["index", "model", "state", "storage", "view"].map(name => readFileSync(new URL(`../web/js/features/calendar/${name}.js`, import.meta.url), "utf8")).join("\n");
 const movieReleases = readFileSync(new URL("../web/js/features/releases/index.js", import.meta.url), "utf8");
 import { createDetailHeroScroll } from "../web/js/features/trailers/scroll.js";
@@ -53,7 +53,7 @@ const appModulePaths = [
   "js/features/home/hero-selection.js",
   "js/features/home/data.js", "js/features/home/cache.js",
   "js/features/discovery/artwork.js",
-  "js/shell/presentation.js",
+  "js/shell/actions.js",
   "js/features/subscriptions/model.js",
   "js/features/subscriptions/view.js",
   "js/features/subscriptions/index.js",
@@ -63,12 +63,23 @@ const appModulePaths = [
   "js/shared/components/media-card.js", "js/shared/components/result-card.js",
   "js/shared/components/status-badge.js",
   "js/core/websocket.js", "js/core/shell.js",
-  "js/composition.js",
+  "js/composition/application.js",
+  "js/shared/constants/watch-policy.js",
+  "js/composition/core.js",
+  "js/composition/discovery.js",
+  "js/composition/downloads.js",
+  "js/composition/home.js",
+  "js/composition/index.js",
+  "js/composition/integrations.js",
+  "js/composition/profile.js",
+  "js/composition/search.js",
+  "js/composition/settings.js",
+  "js/composition/subscriptions.js",
   "js/features/home/hero.js",
   "js/features/home/rows.js",
   "js/features/home/card-dock.js",
   "js/features/home/rail-renderer.js", "js/shared/components/card-artwork.js",
-  "js/shell/actions/home.js",
+  "js/features/home/actions.js",
   "js/features/home/catalog.js", "js/features/home/cards.js",
   "js/features/home/lanes.js",
   "js/features/home/presenter.js", "js/features/collections/index.js",
@@ -83,22 +94,22 @@ const appModulePaths = [
   "js/features/discovery/catalog-refresh.js",
   "js/features/discovery/catalog-metadata.js",
   "js/features/trailers/scroll.js",
-  "js/shell/actions/movie_download_feedback.js",
+  "js/features/downloads/actions.js",
   "js/features/media-details/discovery.js",
-  "js/shell/actions/movies.js", "js/features/discovery/movie-presentation.js",
+  "js/features/discovery/movie-actions.js", "js/features/discovery/movie-presentation.js",
   "js/features/discovery/movie-filters.js",
   "js/features/media-details/movie-loader.js",
   "js/features/media-details/series-loader.js",
   "js/features/media-details/series-status.js", "js/features/integrations/movie-status.js",
   "js/features/media-details/series-checks.js", "js/features/media-details/series-episodes.js",
   "js/features/media-details/series-api.js",
-  "js/shell/actions/series.js", "js/features/discovery/series-presentation.js",
+  "js/features/discovery/series-actions.js", "js/features/discovery/series-presentation.js",
   "js/features/calendar/index.js",
   "js/features/calendar/view.js",
-  "js/shell/actions/anime.js",
+  "js/features/discovery/anime-actions.js",
   "js/features/discovery/anime.js",
-  "js/shell/actions/library.js",
-  "js/shell/actions/settings.js",
+  "js/features/subscriptions/actions.js",
+  "js/features/settings/actions.js",
   "js/features/settings/index.js",
   "js/features/settings/deployment.js",
   "js/features/integrations/jellyfin.js",
@@ -168,7 +179,7 @@ test("home rails use carousel controls only, without a meaningless show-all acti
 test("release calendar routes movies and series and unlocks past dates", () => {
   assert.match(movieReleases, /entry\.media_type === "series"/);
   assert.match(movieReleases, /openMedia\(entry\.media_type, match\)/);
-  assert.match(app, /switchTab\("serien"\); loadSeries\(match\)/);
+  assert.match(app, /coreDomain\.actions\.switchTab\("serien"\); discoveryDomain\.seriesActions\.loadSeries\(match\)/);
   assert.match(movieReleases, /period === "past"/);
   assert.match(movieReleases, /e\.has_started/);
 });
@@ -374,7 +385,7 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
   assert.match(app, /function refreshCatalogJellyfinStatus\(entries, render, \{ signal \} = \{\}\)/);
   assert.match(app, /media_type: kind === "movie" \? "movie" : "series"/);
   assert.match(app, /setFpJellyfinBadge\(jellyfin, mediaJellyfinStatus\(result\)\)/);
-  assert.match(app, /sharedPresentation\.anime\.get\(\)\.results\.map\(homeAnimeEntry\)/);
+  assert.match(app, /getAnime\(\)\.get\(\)\.results\.map\(homeAnimeEntry\)/);
   assert.match(app, /for \(let index = 0; index < requests\.length; index \+= 100\)/);
   assert.match(app, /batches\.map\(\(batch\) => client\.post\("\/api\/jellyfin\/matches"/);
   assert.match(app, /\[401, 403\]\.includes\(Number\(result\.reason\?\.status\)\)/);
@@ -382,11 +393,11 @@ test("global search covers every catalog and exposes Jellyfin filters", () => {
 });
 
 test("movie detail refreshes stale Jellyfin state for Home selections", () => {
-  assert.match(app, /shell\/actions\/movies\.js/);
-  assert.match(app, /const selectedHomeMovie = homeMovieBySlug\((?:sharedPresentation\.)?movieState\.selectedSlug\)/);
+  assert.match(app, /features\/discovery\/movie-actions\.js/);
+  assert.match(app, /const selectedHomeMovie = homeMovieBySlug\((?:movieState|getMovieState\(\))\.selectedSlug\)/);
   assert.match(app, /function applyMovieJellyfinStatus\(slug, status, owned = null\)/);
   assert.match(app, /statuses\.set\(`movie:\$\{slug\}`, status\)/);
-  assert.match(app, /\|\| homeMovieBySlug\((?:sharedPresentation\.)?movieState\.selectedSlug\)/);
+  assert.match(app, /\|\| homeMovieBySlug\((?:movieState|getMovieState\(\))\.selectedSlug\)/);
   assert.match(app, /function beginCatalogJellyfinRequest\(keys\)/);
   assert.match(app, /const fpJellyfinPending = new Map\(\)/);
   assert.match(app, /await refreshCatalogJellyfinStatus\(targets\.map\(homeMovieEntry\), null, \{ signal: owner\.signal \}\)/);
@@ -415,14 +426,14 @@ test("standby refreshes Jellyfin once and removes idle listeners on session end"
 test("deep movie pagination hydrates only the newly appended page", () => {
   assert.match(app, /const metadataItems = fpMetadataPreloadItems\(incoming\)/);
   assert.match(app, /!metadata\?\.cover_url/);
-  assert.match(app, /tmdb_id: result\.tmdb_id \|\| (?:sharedPresentation\.)?movieState\.metadataCache/);
+  assert.match(app, /tmdb_id: result\.tmdb_id \|\| movieState\.metadataCache/);
   assert.match(app, /attempt < maxAttempts && unresolved\.size/);
-  assert.match(app, /preloadTmdbMetadata\((?:sharedPresentation\.)?movieState\.metadataRequestSeq, metadataItems\)/);
+  assert.match(app, /preloadTmdbMetadata\((?:movieState|getMovieState\(\))\.metadataRequestSeq, metadataItems\)/);
   assert.match(app, /refreshFpJellyfinStatus\(incoming\)/);
   assert.match(app, /refreshedSlugs\.has\(item\.slug\)/);
   assert.doesNotMatch(app, /let fpJellyfinRequestSeq/);
-  assert.match(app, /requestId !== (?:sharedPresentation\.)?movieState\.metadataRequestSeq/);
-  assert.doesNotMatch(app, /const items = (?:sharedPresentation\.)?movieState\.results\s*\.filter\(\(r\) => !(?:sharedPresentation\.)?movieState\.metadataCache/);
+  assert.match(app, /requestId !== (?:movieState|getMovieState\(\))\.metadataRequestSeq/);
+  assert.doesNotMatch(app, /const items = (?:movieState|getMovieState\(\))\.results\s*\.filter\(\(r\) => !(?:movieState|getMovieState\(\))\.metadataCache/);
 });
 
 test("movie shelf posters use bounded thumbnail payloads", () => {
@@ -454,7 +465,7 @@ test("movie queue updates keep poster DOM stable and lock repeated clicks", () =
 
 test("home series rail falls back when the trending provider is unavailable", () => {
   assert.doesNotMatch(html, /src="\/api\.js/);
-  assert.match(app, /shell\/actions\/home\.js/);
+  assert.match(app, /features\/home\/actions\.js/);
   assert.match(app, /function homePopularSeriesEntries\(\)/);
   assert.match(app, /getData\(\)\.newSeries\.map\(homeSeriesEntry\)/);
   assert.match(app, /getData\(\)\.discoverySeries\.map\(homeSeriesEntry\)/);
@@ -466,7 +477,7 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /syncSeriesCatalogFromHome\(\)/);
   assert.match(app, /refreshFpCatalogInBackground\(\)/);
   assert.match(app, /refreshSeriesCatalogInBackground\(\)/);
-  assert.match(app, /cardArtwork.set\(image, coverCandidates.map/);
+  assert.match(app, /getCardArtwork\(\).set\(image, coverCandidates.map/);
   assert.match(app, /preload = 1200/);
   assert.match(app, /const FP_METADATA_BATCH_SIZE = 12/);
   assert.match(app, /client\.post\("\/api\/tmdb\/movies",[\s\S]*?background: true/);
@@ -483,7 +494,7 @@ test("movie and series catalogs show cached content immediately and refresh in t
   assert.match(app, /function updateSeriesResultCard\(baseSlug\)/);
   assert.match(app, /syncResultCardPoster\(visual, result\)/);
   assert.doesNotMatch(app, /updateSeriesResultArtwork/);
-  assert.match(app, /for \(const result of (?:sharedPresentation\.)?seriesState\.results\) updateSeriesResultCard\(result\.base_slug\)/);
+  assert.match(app, /for \(const result of (?:seriesState|getSeriesState\(\))\.results\) updateSeriesResultCard\(result\.base_slug\)/);
   const seriesRenderer = seriesPresentation.split("function renderSeriesResults")[1].split(
     "function findSeriesResultCard",
   )[0];
@@ -570,7 +581,7 @@ test("Top 10 merges provider-tagged duplicates before all metadata is hydrated",
 test("home cards and hero fall back to available posters when wallpapers are missing", () => {
   assert.match(mediaCard, /\{ url: media\.backdrop_url, posterFallback: false \}, \{ url: media\.cover_url, posterFallback: true \}/);
   assert.match(homeRailRuntime, /image\.classList\.toggle\("is-poster-fallback", candidate\.posterFallback\)/);
-  assert.match(home, /sharedPresentation\.heroSelection\.candidates\(\)/);
+  assert.match(home, /getHeroSelection\(\)\.candidates\(\)/);
   assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
@@ -826,7 +837,7 @@ test("evening direction is progressive, explainable, and optionally deep", () =>
   assert.match(app, /requestId !== moodState\.requestId/);
   assert.match(app, /function resumeMoodMatchAfterDetail\(\)/);
   assert.match(app, /resumeMoodMatchAfterDetail\(\)/);
-  assert.match(app, /shell\/presentation\.js/);
+  assert.match(app, /shell\/actions\.js/);
   assert.doesNotMatch(html, /src="\/screens\/mood\.js/);
   assert.doesNotMatch(mood, /source: "mood-session"/);
 });
@@ -978,7 +989,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
   );
   assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
   assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(app, /shell\/actions\/movie_download_feedback\.js/);
+  assert.match(app, /features\/downloads\/actions\.js/);
   assert.match(
     app,
     /const movie = provided \|\| await prepareFpMovieDownload\(slug, owner\);[\s\S]*?if \(!movie \|\| !owner\.active\) return;[\s\S]*?await client\.post\("\/api\/queue\/add"/,

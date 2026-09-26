@@ -21,6 +21,7 @@ movie, series, episode, and hoster models live in `models.py`.
 | `sflix.py` | SFlix | English | Movies, series |
 | `ridomovies.py` | Ridomovies | English | Movies, series |
 | `mkissa.py` | MKissa | English | Anime |
+| `aniworld.py` | Aniworld | Deutsch/English | Anime |
 
 Register new adapters in `providers/catalog.py` and the relevant server adapter
 tables. The central catalog defines media types, default content language,

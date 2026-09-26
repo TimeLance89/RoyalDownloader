@@ -1,0 +1,4442 @@
+{
+  "baseline": "16e7b58b",
+  "modules": 154,
+  "graph": {
+    "web/js/app.js": [
+      "web/js/core/store.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/navigation.js",
+      "web/js/features/downloads/index.js",
+      "web/js/features/releases/index.js"
+    ],
+    "web/js/composition.js": [
+      "web/js/features/subscriptions/summary.js",
+      "web/js/shared/components/startup-curtain.js",
+      "web/js/shell/presentation.js",
+      "web/js/shell/actions/movies.js",
+      "web/js/shell/actions/series.js",
+      "web/js/shell/actions/home.js",
+      "web/js/shell/actions/user-profile.js",
+      "web/js/shell/actions/anime.js",
+      "web/js/shell/actions/library.js",
+      "web/js/shell/actions/movie-collections.js",
+      "web/js/shell/actions/aniworld.js",
+      "web/js/shell/actions/movie_download_feedback.js",
+      "web/js/shared/utils/artwork-url.js",
+      "web/js/features/downloads/sync.js",
+      "web/js/core/localization.js",
+      "web/js/core/shell.js",
+      "web/js/features/media-details/discovery.js",
+      "web/js/features/discovery/movie-presentation.js",
+      "web/js/features/integrations/movie-status.js",
+      "web/js/features/media-details/series-status.js",
+      "web/js/shared/components/result-card.js",
+      "web/js/features/discovery/series-presentation.js",
+      "web/js/features/media-details/series-episodes.js",
+      "web/js/features/downloads/movies.js",
+      "web/js/features/discovery/movie-state.js",
+      "web/js/features/discovery/series-state.js",
+      "web/js/features/search/support.js",
+      "web/js/features/collections/index.js",
+      "web/js/features/home/cards.js",
+      "web/js/features/home/presenter.js",
+      "web/js/features/home/lanes.js",
+      "web/js/features/home/catalog.js",
+      "web/js/features/profile/taste.js",
+      "web/js/features/discovery/aniworld.js",
+      "web/js/features/discovery/anime.js",
+      "web/js/features/media-details/series-checks.js",
+      "web/js/features/media-details/series-loader.js",
+      "web/js/features/media-details/movie-loader.js",
+      "web/js/features/discovery/movie-filters.js",
+      "web/js/features/discovery/series-browse.js",
+      "web/js/features/discovery/movie-browse.js",
+      "web/js/features/discovery/catalog-identity.js",
+      "web/js/features/discovery/catalog-seed.js",
+      "web/js/features/discovery/catalog-metadata.js",
+      "web/js/features/discovery/poster-preload.js",
+      "web/js/features/discovery/catalog-refresh.js",
+      "web/js/features/media-details/language.js",
+      "web/js/features/home/discovery-policy.js",
+      "web/js/features/mood/index.js",
+      "web/js/features/home/card-dock.js",
+      "web/js/shared/components/card-artwork.js",
+      "web/js/features/home/rail-renderer.js",
+      "web/js/features/home/layout.js",
+      "web/js/features/trailers/index.js",
+      "web/js/features/integrations/resume.js",
+      "web/js/features/home/taste-ranking.js",
+      "web/js/features/home/hero-selection.js",
+      "web/js/features/home/daily-top.js",
+      "web/js/features/integrations/catalog-jellyfin.js",
+      "web/js/features/search/home.js",
+      "web/js/features/profile/taste-onboarding.js",
+      "web/js/core/startup.js",
+      "web/js/features/discovery/genres.js",
+      "web/js/features/auth/index.js",
+      "web/js/shared/components/infinite-scroll.js",
+      "web/js/features/setup/index.js",
+      "web/js/features/settings/index.js",
+      "web/js/features/settings/deployment.js",
+      "web/js/features/integrations/jellyfin.js",
+      "web/js/features/integrations/jellyfin-users.js",
+      "web/js/features/settings/providers.js",
+      "web/js/features/integrations/settings.js",
+      "web/js/features/settings/navigation.js",
+      "web/js/features/settings/directory.js",
+      "web/js/features/settings/updater.js",
+      "web/js/features/search/index.js",
+      "web/js/features/settings/account.js",
+      "web/js/core/session.js",
+      "web/js/features/home/recommendations.js",
+      "web/js/features/settings/intelligence.js",
+      "web/js/features/home/data.js",
+      "web/js/features/discovery/artwork.js",
+      "web/js/features/calendar/index.js",
+      "web/js/features/subscriptions/movies.js",
+      "web/js/features/subscriptions/movie-rules.js",
+      "web/js/features/subscriptions/movie-model.js",
+      "web/js/features/subscriptions/rules.js",
+      "web/js/features/subscriptions/index.js",
+      "web/js/features/subscriptions/model.js",
+      "web/js/features/subscriptions/state.js",
+      "web/js/features/notifications/index.js",
+      "web/js/features/notifications/model.js",
+      "web/js/features/automation/index.js",
+      "web/js/features/storage/index.js",
+      "web/js/features/discovery/movie-hero.js",
+      "web/js/core/store.js",
+      "web/js/features/profile/identity.js",
+      "web/js/features/profile/menu.js",
+      "web/js/features/profile/household.js",
+      "web/js/features/profile/index.js",
+      "web/js/features/settings/modules.js",
+      "web/js/shared/components/modal.js",
+      "web/js/features/system/server-build.js",
+      "web/js/features/downloads/events.js",
+      "web/js/features/home/hero.js",
+      "web/js/features/home/rows.js",
+      "web/js/shared/components/carousel.js",
+      "web/js/shared/components/media-card.js",
+      "web/js/shared/components/status-badge.js",
+      "web/js/features/downloads/view.js",
+      "web/js/app.js",
+      "web/js/features/home/index.js"
+    ],
+    "web/js/core/api.js": [
+      "web/js/core/errors.js"
+    ],
+    "web/js/core/errors.js": [],
+    "web/js/core/lifecycle.js": [
+      "web/js/core/errors.js"
+    ],
+    "web/js/core/localization.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/core/navigation.js": [],
+    "web/js/core/session.js": [
+      "web/js/core/api.js"
+    ],
+    "web/js/core/shell.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/core/startup.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/core/store.js": [
+      "web/js/core/errors.js"
+    ],
+    "web/js/core/websocket.js": [
+      "web/js/core/store.js",
+      "web/js/core/errors.js"
+    ],
+    "web/js/features/auth/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/automation/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/automation/layout.js",
+      "web/js/features/automation/view.js"
+    ],
+    "web/js/features/automation/layout.js": [],
+    "web/js/features/automation/view.js": [],
+    "web/js/features/calendar/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/features/calendar/state.js",
+      "web/js/features/calendar/storage.js",
+      "web/js/features/calendar/view.js",
+      "web/js/features/calendar/model.js"
+    ],
+    "web/js/features/calendar/model.js": [],
+    "web/js/features/calendar/state.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/store.js",
+      "web/js/core/errors.js",
+      "web/js/features/calendar/model.js"
+    ],
+    "web/js/features/calendar/storage.js": [
+      "web/js/features/calendar/model.js"
+    ],
+    "web/js/features/calendar/view.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/utils/escape-html.js",
+      "web/js/features/calendar/model.js"
+    ],
+    "web/js/features/collections/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/anime.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/utils/escape-html.js"
+    ],
+    "web/js/features/discovery/aniworld.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/utils/escape-html.js"
+    ],
+    "web/js/features/discovery/artwork.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/catalog-identity.js": [],
+    "web/js/features/discovery/catalog-metadata.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/catalog-refresh.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/catalog-seed.js": [],
+    "web/js/features/discovery/genres.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/movie-browse.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/movie-filters.js": [],
+    "web/js/features/discovery/movie-hero.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/movie-presentation.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/movie-state.js": [],
+    "web/js/features/discovery/poster-preload.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/series-browse.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/series-presentation.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/discovery/series-state.js": [],
+    "web/js/features/downloads/events.js": [],
+    "web/js/features/downloads/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/websocket.js"
+    ],
+    "web/js/features/downloads/movies.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/downloads/outcome.js"
+    ],
+    "web/js/features/downloads/outcome.js": [],
+    "web/js/features/downloads/sync.js": [
+      "web/js/core/api.js"
+    ],
+    "web/js/features/downloads/view.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/shared/components/view-state.js"
+    ],
+    "web/js/features/home/cache.js": [],
+    "web/js/features/home/card-dock.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/status-badge.js"
+    ],
+    "web/js/features/home/cards.js": [],
+    "web/js/features/home/catalog.js": [],
+    "web/js/features/home/daily-top.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/home/data.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/home/cache.js"
+    ],
+    "web/js/features/home/discovery-policy.js": [],
+    "web/js/features/home/hero-selection.js": [],
+    "web/js/features/home/hero.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/home/index.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/home/lanes.js": [],
+    "web/js/features/home/layout-model.js": [],
+    "web/js/features/home/layout.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/dialog.js",
+      "web/js/features/home/layout-model.js"
+    ],
+    "web/js/features/home/presenter.js": [],
+    "web/js/features/home/rail-renderer.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/media-card.js",
+      "web/js/shared/components/status-badge.js"
+    ],
+    "web/js/features/home/recommendations.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/home/rows.js": [],
+    "web/js/features/home/taste-ranking.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/integrations/catalog-jellyfin.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/integrations/health.js": [],
+    "web/js/features/integrations/jellyfin-users.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/integrations/jellyfin.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/integrations/jellyfin-users.js"
+    ],
+    "web/js/features/integrations/movie-status.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/integrations/resume.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/integrations/settings.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/integrations/health.js"
+    ],
+    "web/js/features/media-details/discovery.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/media-details/language.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/dialog.js"
+    ],
+    "web/js/features/media-details/movie-loader.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/media-details/series-api.js": [],
+    "web/js/features/media-details/series-checks.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/media-details/series-api.js"
+    ],
+    "web/js/features/media-details/series-episodes.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/media-details/series-loader.js": [
+      "web/js/features/media-details/series-api.js",
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/media-details/series-status.js": [],
+    "web/js/features/mood/config.js": [],
+    "web/js/features/mood/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/dialog.js",
+      "web/js/features/mood/model.js",
+      "web/js/features/mood/view.js",
+      "web/js/features/mood/config.js"
+    ],
+    "web/js/features/mood/model.js": [
+      "web/js/features/mood/config.js"
+    ],
+    "web/js/features/mood/view.js": [
+      "web/js/features/mood/config.js"
+    ],
+    "web/js/features/notifications/api.js": [
+      "web/js/core/api.js"
+    ],
+    "web/js/features/notifications/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/notifications/model.js",
+      "web/js/features/notifications/view.js",
+      "web/js/features/notifications/api.js"
+    ],
+    "web/js/features/notifications/model.js": [],
+    "web/js/features/notifications/view.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/features/notifications/model.js"
+    ],
+    "web/js/features/profile/household.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js"
+    ],
+    "web/js/features/profile/identity.js": [],
+    "web/js/features/profile/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/shared/components/view-state.js",
+      "web/js/features/profile/view.js"
+    ],
+    "web/js/features/profile/menu.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/store.js",
+      "web/js/features/profile/identity.js"
+    ],
+    "web/js/features/profile/taste-candidates.js": [],
+    "web/js/features/profile/taste-onboarding.js": [
+      "web/js/core/api.js",
+      "web/js/shared/components/dialog.js",
+      "web/js/shared/components/media-card.js",
+      "web/js/features/profile/taste-candidates.js"
+    ],
+    "web/js/features/profile/taste.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/profile/view.js": [
+      "web/js/features/profile/identity.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/releases/api.js": [
+      "web/js/core/api.js"
+    ],
+    "web/js/features/releases/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/releases/api.js",
+      "web/js/features/releases/settings.js"
+    ],
+    "web/js/features/releases/settings.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js"
+    ],
+    "web/js/features/search/home.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/search/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/search/support.js": [],
+    "web/js/features/settings/account.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/settings/deployment.js": [],
+    "web/js/features/settings/directory.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/dialog.js"
+    ],
+    "web/js/features/settings/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/settings/deployment.js"
+    ],
+    "web/js/features/settings/intelligence.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/settings/modules.js": [
+      "web/js/features/integrations/health.js",
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js"
+    ],
+    "web/js/features/settings/navigation.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/settings/providers.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/shared/utils/escape-html.js"
+    ],
+    "web/js/features/settings/updater.js": [
+      "web/js/core/api.js",
+      "web/js/core/websocket.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/setup/copy.js": [],
+    "web/js/features/setup/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/features/settings/deployment.js",
+      "web/js/features/setup/copy.js"
+    ],
+    "web/js/features/storage/api.js": [
+      "web/js/core/api.js"
+    ],
+    "web/js/features/storage/index.js": [
+      "web/js/features/storage/layout.js",
+      "web/js/features/storage/view.js",
+      "web/js/shared/utils/escape-html.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/storage/api.js",
+      "web/js/features/storage/jobs.js",
+      "web/js/shared/formatters/bytes.js"
+    ],
+    "web/js/features/storage/jobs.js": [
+      "web/js/shared/utils/escape-html.js",
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/shared/formatters/bytes.js"
+    ],
+    "web/js/features/storage/layout.js": [],
+    "web/js/features/storage/view.js": [
+      "web/js/shared/components/view-state.js",
+      "web/js/shared/formatters/bytes.js",
+      "web/js/shared/utils/escape-html.js"
+    ],
+    "web/js/features/subscriptions/index.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/subscriptions/view.js",
+      "web/js/features/subscriptions/model.js"
+    ],
+    "web/js/features/subscriptions/model.js": [],
+    "web/js/features/subscriptions/movie-model.js": [],
+    "web/js/features/subscriptions/movie-rules.js": [
+      "web/js/core/api.js",
+      "web/js/core/errors.js",
+      "web/js/shared/components/dialog.js",
+      "web/js/features/subscriptions/movie-model.js"
+    ],
+    "web/js/features/subscriptions/movie-view.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/view-state.js",
+      "web/js/features/subscriptions/movie-model.js"
+    ],
+    "web/js/features/subscriptions/movies.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/features/subscriptions/movie-view.js"
+    ],
+    "web/js/features/subscriptions/rules.js": [
+      "web/js/core/api.js",
+      "web/js/core/errors.js",
+      "web/js/shared/components/dialog.js"
+    ],
+    "web/js/features/subscriptions/state.js": [
+      "web/js/core/api.js",
+      "web/js/core/store.js",
+      "web/js/core/lifecycle.js",
+      "web/js/core/errors.js",
+      "web/js/core/websocket.js"
+    ],
+    "web/js/features/subscriptions/summary.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/subscriptions/view.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/shared/components/view-state.js",
+      "web/js/features/subscriptions/model.js"
+    ],
+    "web/js/features/system/server-build.js": [
+      "web/js/core/api.js",
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/features/trailers/index.js": [
+      "web/js/core/lifecycle.js",
+      "web/js/features/trailers/scroll.js"
+    ],
+    "web/js/features/trailers/scroll.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/card-artwork.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/carousel.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/dialog.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/infinite-scroll.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/media-card.js": [
+      "web/js/shared/components/status-badge.js"
+    ],
+    "web/js/shared/components/modal.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/result-card.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/startup-curtain.js": [
+      "web/js/core/lifecycle.js"
+    ],
+    "web/js/shared/components/status-badge.js": [],
+    "web/js/shared/components/view-state.js": [],
+    "web/js/shared/formatters/bytes.js": [],
+    "web/js/shared/utils/artwork-url.js": [],
+    "web/js/shared/utils/escape-html.js": [],
+    "web/js/shell/actions/anime.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/aniworld.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/home.js": [
+      "web/js/shell/presentation.js",
+      "web/js/shell/actions/series.js",
+      "web/js/shell/actions/anime.js"
+    ],
+    "web/js/shell/actions/library.js": [
+      "web/js/shell/presentation.js",
+      "web/js/shell/actions/anime.js",
+      "web/js/shell/actions/series.js",
+      "web/js/shell/actions/movies.js",
+      "web/js/shell/actions/home.js"
+    ],
+    "web/js/shell/actions/movie-collections.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/movies.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/movie_download_feedback.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/series.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/settings.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/actions/user-profile.js": [
+      "web/js/shell/presentation.js"
+    ],
+    "web/js/shell/presentation.js": [
+      "web/js/shell/state.js",
+      "web/js/shell/actions/settings.js",
+      "web/js/shell/actions/home.js",
+      "web/js/shell/actions/movies.js",
+      "web/js/shell/actions/series.js",
+      "web/js/shell/actions/anime.js",
+      "web/js/shell/actions/aniworld.js"
+    ],
+    "web/js/shell/state.js": []
+  },
+  "cycles": [
+    [
+      "web/js/shell/actions/aniworld.js",
+      "web/js/shell/actions/movies.js",
+      "web/js/shell/actions/anime.js",
+      "web/js/shell/actions/series.js",
+      "web/js/shell/actions/home.js",
+      "web/js/shell/actions/settings.js",
+      "web/js/shell/presentation.js"
+    ]
+  ],
+  "registry": {
+    "uses": [
+      {
+        "file": "web/js/composition.js",
+        "line": 323,
+        "key": "startupCurtain",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 342,
+        "key": "movieCollections",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 343,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 344,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 345,
+        "key": "seriesDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 345,
+        "key": "seriesChecks",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 346,
+        "key": "movieDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 346,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 346,
+        "key": "movieStatus",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 347,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 352,
+        "key": "mood",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 359,
+        "key": "jellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 373,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 374,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 379,
+        "key": "subscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 383,
+        "key": "queueView",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 389,
+        "key": "notifications",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 390,
+        "key": "directory",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 400,
+        "key": "movieSubscriptionFor",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 401,
+        "key": "movieSubscriptionRules",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 409,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 410,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 414,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 419,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 426,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 427,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 430,
+        "key": "genres",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 431,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 440,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 443,
+        "key": "dailyTop",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 444,
+        "key": "cardDock",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 445,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 446,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 447,
+        "key": "heroSelection",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 448,
+        "key": "dailyTop",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 456,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 457,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 460,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 463,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 464,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 464,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 467,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 468,
+        "key": "homeSearch",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 469,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 470,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 471,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 474,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 475,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 475,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 477,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 477,
+        "key": "tasteOnboarding",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 522,
+        "key": "genres",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 523,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 524,
+        "key": "catalogMetadata",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 528,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 549,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 557,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 558,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 565,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 566,
+        "key": "setup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 574,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 579,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 642,
+        "key": "genres",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 649,
+        "key": "subscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 655,
+        "key": "setup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 662,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 664,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 665,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 669,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 674,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 675,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 688,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 698,
+        "key": "jellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 699,
+        "key": "jellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 719,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 726,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 728,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 728,
+        "key": "tasteOnboarding",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 738,
+        "key": "homeSearch",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 741,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 743,
+        "key": "startup",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 744,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 744,
+        "key": "genres",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 753,
+        "key": "auth",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 754,
+        "key": "setup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 758,
+        "key": "startupCurtain",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 760,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 761,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 762,
+        "key": "tasteOnboarding",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 763,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 763,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 764,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 769,
+        "key": "recommendations",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 770,
+        "key": "recommendations",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 773,
+        "key": "setup",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 774,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 774,
+        "key": "setupJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 775,
+        "key": "directory",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 777,
+        "key": "settings",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 777,
+        "key": "startup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 781,
+        "key": "hero",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 787,
+        "key": "mood",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 794,
+        "key": "cardDock",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 795,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 800,
+        "key": "railRenderer",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 801,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 801,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 802,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 804,
+        "key": "homeLayout",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 805,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 807,
+        "key": "rows",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 808,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 831,
+        "key": "queueSync",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 838,
+        "key": "queueView",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 841,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 843,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 845,
+        "key": "localization",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 846,
+        "key": "shell",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 847,
+        "key": "movieDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 847,
+        "key": "seriesDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 848,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 849,
+        "key": "movieStatus",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 850,
+        "key": "resultCards",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 851,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 852,
+        "key": "subscriptionSummary",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 853,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 854,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 855,
+        "key": "movieCollections",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 856,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 857,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 858,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 859,
+        "key": "seriesChecks",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 860,
+        "key": "seriesDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 861,
+        "key": "movieDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 862,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 863,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 864,
+        "key": "catalogMetadata",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 865,
+        "key": "posterPreloader",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 866,
+        "key": "catalogRefresh",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 867,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 868,
+        "key": "mood",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 869,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 870,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 871,
+        "key": "jellyfinResume",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 872,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 873,
+        "key": "tasteOnboarding",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 874,
+        "key": "startup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 875,
+        "key": "genres",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 876,
+        "key": "infinite",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 877,
+        "key": "setup",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 878,
+        "key": "settings",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 879,
+        "key": "jellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 880,
+        "key": "setupJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 881,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 882,
+        "key": "integrations",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 883,
+        "key": "directory",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 884,
+        "key": "updater",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 885,
+        "key": "account",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 886,
+        "key": "intelligence",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 887,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 888,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 889,
+        "key": "calendar",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 890,
+        "key": "modules",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 891,
+        "key": "storage",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 892,
+        "key": "automation",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 893,
+        "key": "notifications",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 894,
+        "key": "subscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 895,
+        "key": "library",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 896,
+        "key": "subscriptionRules",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 897,
+        "key": "movieSubscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 898,
+        "key": "movieSubscriptionView",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 899,
+        "key": "movieSubscriptionRules",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 902,
+        "key": "profile",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 903,
+        "key": "movieHero",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 905,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 926,
+        "key": "railRenderer",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 927,
+        "key": "homeLayout",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 928,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 929,
+        "key": "dailyTop",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 930,
+        "key": "homeSearch",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 931,
+        "key": "recommendations",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 932,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 933,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 934,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 935,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 937,
+        "key": "cardDock",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 2,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 3,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 4,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 5,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 6,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 7,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 8,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 9,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 10,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 11,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 21,
+        "key": "subscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/anime.js",
+        "line": 43,
+        "key": "subscriptionRules",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 2,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 3,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 4,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 5,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 6,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 7,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 8,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 9,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 10,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 11,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 12,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 13,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/aniworld.js",
+        "line": 14,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 4,
+        "key": "movieHero",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 6,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 8,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 10,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 12,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 14,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 16,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 18,
+        "key": "jellyfinStatusText",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 19,
+        "key": "setCatalogJellyfinBadge",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 21,
+        "key": "catalogJellyfin",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 26,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 27,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 28,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 38,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 40,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 42,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 44,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 46,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 48,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 50,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 52,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 54,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 56,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 58,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 60,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 62,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 64,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 66,
+        "key": "homeCatalog",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 70,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 73,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 74,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 79,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 83,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 84,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 85,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 86,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 87,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 88,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 89,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 90,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 91,
+        "key": "tasteProfile",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 93,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 95,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 97,
+        "key": "dailyTop",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 99,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 101,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 103,
+        "key": "tasteRanking",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 105,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 107,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 109,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 111,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 112,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 113,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 114,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 115,
+        "key": "heroSelection",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 116,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 117,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 118,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 119,
+        "key": "hero",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 121,
+        "key": "homeCards",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 122,
+        "key": "homeCards",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 124,
+        "key": "rows",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 125,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 126,
+        "key": "homeData",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 128,
+        "key": "searchSupport",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 129,
+        "key": "searchSupport",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 130,
+        "key": "searchSupport",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 132,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 133,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 137,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 141,
+        "key": "artwork",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 145,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 146,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 147,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 148,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 149,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 150,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 151,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 152,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 153,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 154,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 155,
+        "key": "carousel",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 157,
+        "key": "homeLayout",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 158,
+        "key": "homeLayout",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 160,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 162,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 164,
+        "key": "homeLanes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 166,
+        "key": "homeLayout",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 168,
+        "key": "railRenderer",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 169,
+        "key": "railRenderer",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 170,
+        "key": "railRenderer",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 171,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/home.js",
+        "line": 172,
+        "key": "setMediaCardMeta",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 8,
+        "key": "notifications",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 11,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 17,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 18,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 19,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 20,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 21,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 27,
+        "key": "subscriptionSummary",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 38,
+        "key": "catalogIdentity",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 39,
+        "key": "catalogIdentity",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 42,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 42,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 43,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 47,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 48,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 49,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 60,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 60,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 64,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 68,
+        "key": "seriesState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/library.js",
+        "line": 80,
+        "key": "seriesDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie-collections.js",
+        "line": 3,
+        "key": "movieCollections",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie-collections.js",
+        "line": 4,
+        "key": "movieCollections",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 2,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 3,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 4,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 5,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 6,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 7,
+        "key": "movieFilters",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 9,
+        "key": "catalogRefresh",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 12,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 16,
+        "key": "cardArtwork",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 19,
+        "key": "catalogMetadata",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 20,
+        "key": "catalogMetadata",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 21,
+        "key": "catalogMetadata",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 24,
+        "key": "posterPreloader",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 27,
+        "key": "catalogSeed",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 28,
+        "key": "catalogSeed",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 30,
+        "key": "catalogRefresh",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 32,
+        "key": "catalogRefresh",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 36,
+        "key": "movieStatus",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 37,
+        "key": "seriesStatus",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 38,
+        "key": "seriesStatus",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 39,
+        "key": "seriesChecks",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 40,
+        "key": "cleanMediaCardInitials",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 41,
+        "key": "resultCards",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 42,
+        "key": "resultCards",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 43,
+        "key": "resultCards",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 44,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 45,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 46,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 47,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 48,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 49,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 50,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 51,
+        "key": "movieBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 52,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 53,
+        "key": "movieDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 54,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 55,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 56,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 57,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 58,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 59,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 60,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 61,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 62,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 63,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 64,
+        "key": "mediaLanguage",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 65,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 66,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 67,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 68,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 69,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 70,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 71,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 72,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 73,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 74,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 75,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 76,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 77,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 78,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 79,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 80,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 81,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 82,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 83,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 84,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 85,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 86,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 87,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 88,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 89,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 90,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 91,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 92,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 93,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 94,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 95,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 96,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 97,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 98,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 99,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 100,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 101,
+        "key": "moviePresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 102,
+        "key": "movieDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 103,
+        "key": "movieDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movies.js",
+        "line": 104,
+        "key": "movieDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie_download_feedback.js",
+        "line": 2,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie_download_feedback.js",
+        "line": 3,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie_download_feedback.js",
+        "line": 4,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie_download_feedback.js",
+        "line": 5,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/movie_download_feedback.js",
+        "line": 6,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 2,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 3,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 4,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 5,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 6,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 7,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 8,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 9,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 10,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 11,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 12,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 13,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 14,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 15,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 16,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 17,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 18,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 19,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 20,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 21,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 22,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 23,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 24,
+        "key": "seriesEpisodes",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 25,
+        "key": "seriesChecks",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 26,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 27,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 28,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 29,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 30,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 31,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 32,
+        "key": "seriesBrowse",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 33,
+        "key": "seriesDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 34,
+        "key": "seriesDetailsLoader",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 35,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 36,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 37,
+        "key": "trailers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 38,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 39,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 40,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 41,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 42,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 43,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 44,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 45,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 46,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 47,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 48,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 49,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 50,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 51,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 52,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 53,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 54,
+        "key": "seriesPresentation",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/series.js",
+        "line": 55,
+        "key": "seriesDiscovery",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/settings.js",
+        "line": 3,
+        "key": "deploymentHints",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/settings.js",
+        "line": 4,
+        "key": "deploymentMode",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/settings.js",
+        "line": 5,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/settings.js",
+        "line": 6,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/settings.js",
+        "line": 7,
+        "key": "settings",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 5,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 10,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 13,
+        "key": "recommendations",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 14,
+        "key": "homePresenter",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 19,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 20,
+        "key": "setUser",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 20,
+        "key": "auth",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 21,
+        "key": "household",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/actions/user-profile.js",
+        "line": 22,
+        "key": "userMenu",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 44,
+        "key": "infinite",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 45,
+        "key": "infinite",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 46,
+        "key": "infinite",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 56,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 64,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 65,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 76,
+        "key": "providers",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 89,
+        "key": "shell",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 90,
+        "key": "shell",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 91,
+        "key": "shell",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 96,
+        "key": "search",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 114,
+        "key": "anime",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 115,
+        "key": "aniworld",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 130,
+        "key": "localization",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 140,
+        "key": "queueSync",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 143,
+        "key": "subscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 147,
+        "key": "movieSubscriptions",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 193,
+        "key": "queueView",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 194,
+        "key": "queueView",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 195,
+        "key": "queueView",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 293,
+        "key": "modal",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 294,
+        "key": "modal",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 295,
+        "key": "modal",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 296,
+        "key": "modal",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 297,
+        "key": "modal",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 302,
+        "key": "movieState",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 310,
+        "key": "movieDownloads",
+        "write": false
+      },
+      {
+        "file": "web/js/shell/presentation.js",
+        "line": 325,
+        "key": "queueSync",
+        "write": false
+      }
+    ],
+    "writes": [
+      {
+        "file": "web/js/composition.js",
+        "line": 323,
+        "key": "startupCurtain",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 378,
+        "key": "subscriptionSummary",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 382,
+        "key": "discoveryPolicy",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 382,
+        "key": "cleanMediaCardInitials",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 382,
+        "key": "movieState",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 382,
+        "key": "seriesState",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 382,
+        "key": "localization",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 383,
+        "key": "queueSync",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 385,
+        "key": "shell",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 392,
+        "key": "movieDiscovery",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 395,
+        "key": "seriesDiscovery",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 398,
+        "key": "moviePresentation",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 404,
+        "key": "seriesStatus",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 405,
+        "key": "movieStatus",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 407,
+        "key": "resultCards",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 412,
+        "key": "seriesPresentation",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 417,
+        "key": "seriesEpisodes",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 422,
+        "key": "movieDownloads",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 429,
+        "key": "searchSupport",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 433,
+        "key": "movieCollections",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 438,
+        "key": "homeCards",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 452,
+        "key": "homeLanes",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 459,
+        "key": "homePresenter",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 466,
+        "key": "homeCatalog",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 473,
+        "key": "tasteProfile",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 479,
+        "key": "aniworld",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 483,
+        "key": "anime",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 489,
+        "key": "seriesChecks",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 495,
+        "key": "seriesDetailsLoader",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 501,
+        "key": "movieDetailsLoader",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 506,
+        "key": "movieFilters",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 510,
+        "key": "seriesBrowse",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 517,
+        "key": "movieBrowse",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 526,
+        "key": "catalogIdentity",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 527,
+        "key": "catalogSeed",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 535,
+        "key": "catalogMetadata",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 542,
+        "key": "posterPreloader",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 543,
+        "key": "catalogRefresh",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 549,
+        "key": "mediaLanguage",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 550,
+        "key": "setMediaCardMeta",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 550,
+        "key": "cardArtwork",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 551,
+        "key": "trailers",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 552,
+        "key": "search",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 563,
+        "key": "providers",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 568,
+        "key": "tasteRanking",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 577,
+        "key": "heroSelection",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 582,
+        "key": "dailyTop",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 588,
+        "key": "jellyfinResume",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 593,
+        "key": "catalogJellyfin",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 600,
+        "key": "genres",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 605,
+        "key": "infinite",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 627,
+        "key": "deploymentHints",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 628,
+        "key": "deploymentMode",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 629,
+        "key": "settings",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 652,
+        "key": "jellyfin",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 653,
+        "key": "setupJellyfin",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 657,
+        "key": "integrations",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 658,
+        "key": "directory",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 659,
+        "key": "updater",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 660,
+        "key": "intelligence",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 660,
+        "key": "recommendations",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 661,
+        "key": "account",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 668,
+        "key": "homeData",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 681,
+        "key": "artwork",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 686,
+        "key": "movieSubscriptions",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 686,
+        "key": "movieSubscriptionRules",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 687,
+        "key": "calendar",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 691,
+        "key": "movieSubscriptionFor",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 692,
+        "key": "movieSubscriptionView",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 695,
+        "key": "subscriptions",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 696,
+        "key": "subscriptionRules",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 703,
+        "key": "library",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 710,
+        "key": "modal",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 710,
+        "key": "household",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 710,
+        "key": "userMenu",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 711,
+        "key": "notifications",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 718,
+        "key": "movieHero",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 723,
+        "key": "setUser",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 724,
+        "key": "profile",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 731,
+        "key": "automation",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 732,
+        "key": "storage",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 733,
+        "key": "modules",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 734,
+        "key": "renderMediaCard",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 734,
+        "key": "jellyfinStatusText",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 734,
+        "key": "setCatalogJellyfinBadge",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 735,
+        "key": "carousel",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 738,
+        "key": "homeSearch",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 743,
+        "key": "startup",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 753,
+        "key": "auth",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 762,
+        "key": "tasteOnboarding",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 773,
+        "key": "setup",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 781,
+        "key": "hero",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 787,
+        "key": "mood",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 794,
+        "key": "cardDock",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 800,
+        "key": "railRenderer",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 804,
+        "key": "homeLayout",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 807,
+        "key": "rows",
+        "write": true
+      },
+      {
+        "file": "web/js/composition.js",
+        "line": 838,
+        "key": "queueView",
+        "write": true
+      }
+    ],
+    "keys": [
+      "account",
+      "anime",
+      "aniworld",
+      "artwork",
+      "auth",
+      "automation",
+      "calendar",
+      "cardArtwork",
+      "cardDock",
+      "carousel",
+      "catalogIdentity",
+      "catalogJellyfin",
+      "catalogMetadata",
+      "catalogRefresh",
+      "catalogSeed",
+      "cleanMediaCardInitials",
+      "dailyTop",
+      "deploymentHints",
+      "deploymentMode",
+      "directory",
+      "discoveryPolicy",
+      "genres",
+      "hero",
+      "heroSelection",
+      "homeCards",
+      "homeCatalog",
+      "homeData",
+      "homeLanes",
+      "homeLayout",
+      "homePresenter",
+      "homeSearch",
+      "household",
+      "infinite",
+      "integrations",
+      "intelligence",
+      "jellyfin",
+      "jellyfinResume",
+      "jellyfinStatusText",
+      "library",
+      "localization",
+      "mediaLanguage",
+      "modal",
+      "modules",
+      "mood",
+      "movieBrowse",
+      "movieCollections",
+      "movieDetailsLoader",
+      "movieDiscovery",
+      "movieDownloads",
+      "movieFilters",
+      "movieHero",
+      "moviePresentation",
+      "movieState",
+      "movieStatus",
+      "movieSubscriptionFor",
+      "movieSubscriptionRules",
+      "movieSubscriptionView",
+      "movieSubscriptions",
+      "notifications",
+      "posterPreloader",
+      "profile",
+      "providers",
+      "queueSync",
+      "queueView",
+      "railRenderer",
+      "recommendations",
+      "renderMediaCard",
+      "resultCards",
+      "rows",
+      "search",
+      "searchSupport",
+      "seriesBrowse",
+      "seriesChecks",
+      "seriesDetailsLoader",
+      "seriesDiscovery",
+      "seriesEpisodes",
+      "seriesPresentation",
+      "seriesState",
+      "seriesStatus",
+      "setCatalogJellyfinBadge",
+      "setMediaCardMeta",
+      "setUser",
+      "settings",
+      "setup",
+      "setupJellyfin",
+      "shell",
+      "startup",
+      "startupCurtain",
+      "storage",
+      "subscriptionRules",
+      "subscriptionSummary",
+      "subscriptions",
+      "tasteOnboarding",
+      "tasteProfile",
+      "tasteRanking",
+      "trailers",
+      "updater",
+      "userMenu"
+    ]
+  }
+}

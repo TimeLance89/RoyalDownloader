@@ -1,35 +1,33 @@
-import { sharedPresentation } from "./js/shell/presentation.js";
-import { initUserProfile } from "./js/shell/actions/user-profile.js";
-import { initSettings } from "./js/shell/actions/settings.js";
-import { preparePresentation, mountApplication } from "./js/composition.js";
+import { preparePresentation } from "./js/composition/index.js";
 
-preparePresentation();
+export const application = preparePresentation();
+const { core, profile, settings } = application;
 
 // ── Init ─────────────────────────────────────────────────────────────────
 async function initApp() {
-  await sharedPresentation.localization.initialize();
+  await core.localization.initialize();
   // Blockiert, bis eine gültige Sitzung besteht. Ohne eingerichtetes Konto
   // oder vor der Ersteinrichtung kehrt der Aufruf sofort zurück.
-  await sharedPresentation.auth.requireLogin(); initUserProfile(); sharedPresentation.tasteOnboarding.show();
+  await profile.auth.requireLogin(); application.initUserProfile(); profile.tasteOnboarding.show();
   // Unabhängig von allen übrigen Startmodulen initialisieren: Ein Fehler in
   // Katalog, Suche oder Einstellungen darf den Kalender nicht blockieren.
-  sharedPresentation.calendar.initialize();
+  settings.calendar.initialize();
   document.querySelectorAll(".media-modal").forEach((modal) => document.body.appendChild(modal));
-  mountApplication();
+  application.mount();
   try {
-    await initSettings();
+    await settings.settings.initialize();
     document.dispatchEvent(new Event("royal:settings-ready"));
   } catch (e) {
     console.error("Einstellungen konnten nicht geladen werden:", e);
   }
-  const needsSetup = await sharedPresentation.setup.initialize();
-  if (!needsSetup) sharedPresentation.startup.start();
-  sharedPresentation.startupCurtain.finish();
+  const needsSetup = await settings.setup.initialize();
+  if (!needsSetup) core.startup.start();
+  core.startupCurtain.finish();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initApp().catch((error) => {
-    sharedPresentation.startupCurtain.finish();
+    core.startupCurtain.finish();
     console.error("Royal Downloader konnte nicht initialisiert werden:", error);
   });
 });

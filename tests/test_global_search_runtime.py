@@ -11,8 +11,8 @@ def test_movie_search_is_not_discarded_by_catalog_timeout():
 
 
 def test_global_search_runtime_is_loaded():
-    source = (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
-    assert 'import { createSearch } from "./features/search/index.js"' in source
+    source = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
+    assert 'import { createSearch } from "../features/search/index.js"' in source
     assert 'search: createSearch(' in source
 
 
@@ -83,5 +83,5 @@ def test_opening_global_search_result_keeps_search_behind_detail_modal():
 def test_visible_media_detail_prevents_outside_click_from_destroying_search():
     source = (ROOT / "web" / "js/features/search/index.js").read_text(encoding="utf-8")
     assert "if (!force && data.active && mediaDetailModalOpen()) return;" in source
-    adapter = (ROOT / "web/js/composition.js").read_text(encoding="utf-8")
+    adapter = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
     assert 'document.querySelectorAll(".media-modal")' in adapter
