@@ -456,6 +456,10 @@ jobs:
             royal-downloader:release-rc3 \
             /tmp/release_gate.py verify-rollback-rc
 
+      - name: Published v1.1.0 upgrade, restart, rollback and backup recovery
+        shell: bash
+        run: bash scripts/stable_upgrade_gate.sh
+
       - name: Clean release-readiness resources
         if: always()
         shell: bash
