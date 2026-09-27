@@ -1,22 +1,38 @@
 import { api } from "../../core/api.js";
-import { createScope } from "../../core/lifecycle.js";
+import { createScope, delay } from "../../core/lifecycle.js";
 
 export function createSeriesBrowse(root, {
   seriesState, getActiveTab, syncSearchClearButtons, closeSearchSuggestions, rememberSearch, applySeriesResults,
   renderSeriesTiles, updateSeriesInfiniteState, showSeriesDetail, firstEpisodeSlug,
   updateSeriesStatus, refreshSeriesJellyfinStatus, recheckSeriesInfinite, preloadSeriesPosterImages,
   syncSeriesCatalogFromHome, renderSeriesResults, refreshSeriesCatalogInBackground, client = api,
+  waitForRetry = delay,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null, request = null, cancelRequest = null;
   const current = id => scope?.active && request?.scope.active
     && request.id === id && seriesState.browseRequestSeq === id;
-  function load(params, id) {
+  async function load(params, id, retryTransient = false) {
     cancelRequest?.();
     const job = createScope();
     request = { id, scope: job };
     cancelRequest = scope.add(() => job.dispose());
-    return client.get(`/api/series?${new URLSearchParams(params)}`, { signal: job.signal });
+    const url = `/api/series?${new URLSearchParams(params)}`;
+    const deadline = Date.now() + 30_000;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await client.get(url, { signal: job.signal, timeoutMs: Math.max(1, deadline - Date.now()) });
+      } catch (error) {
+        const transient = error.code === "series_catalog_pending"
+          || [409, 429, 502, 503, 504, 520, 521, 522, 524].includes(error.status)
+          || ["network_error", "request_timeout"].includes(error.code);
+        const backoff = 700 * (attempt + 1);
+        if (!retryTransient || !transient || attempt >= 2 || !current(id)
+            || Date.now() + backoff >= deadline) throw error;
+        await waitForRetry(backoff, job.signal);
+        if (!current(id)) throw new DOMException("Anfrage abgebrochen", "AbortError");
+      }
+    }
   }
   function buildAlphaBar() {
     const bar = byId("series-alpha-bar");
@@ -143,7 +159,7 @@ export function createSeriesBrowse(root, {
       byId("series-status").textContent = `Lade ${modeLabels[mode] || "Serien"} …`;
     }
     try {
-      const data = await load(seriesParams(mode, page), requestId);
+      const data = await load(seriesParams(mode, page), requestId, append);
       if (!current(requestId)) return false;
       // Serienkarten sofort stabil anhaengen; Poster, TMDB und Jellyfin werden
       // parallel pro Karte ergaenzt statt die ganze Folgeseite zu sperren.
@@ -185,7 +201,7 @@ export function createSeriesBrowse(root, {
     seriesBrowse("discover", 1);
   }
 
-  async function loadNextSeriesPage() {
+  async function loadNextSeriesPage({ retry = false } = {}) {
     if (!scope?.active) return;
     const mode = seriesState.browseMode;
     if (
@@ -193,6 +209,7 @@ export function createSeriesBrowse(root, {
       || !mode
       || mode === "search"
       || seriesState.loadingBrowse
+      || (seriesState.loadError && !retry)
       || !seriesState.lastPageFull
     ) return;
     await seriesBrowse(mode, seriesState.page + 1, { append: true });

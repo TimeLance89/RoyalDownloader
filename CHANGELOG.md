@@ -4,6 +4,23 @@
 
 No unreleased changes.
 
+## v1.2.3 – 2026-09-27
+
+### Series pagination recovery
+
+- Retry temporary preparation, network and upstream failures while loading the
+  next series page, with at most three attempts inside a 30-second total deadline.
+- Keep loaded cards and the page cursor intact until the next page succeeds.
+  An incomplete follow-up page at the provider deadline now reports a retryable
+  preparation state instead of silently advancing past pending titles.
+- Stop scroll-triggered requests after retries are exhausted. The visible
+  **Erneut versuchen** action retries the same page; leaving the view cancels work.
+- Add backend deadline/API-contract tests and desktop/touch-mobile browser tests
+  for automatic recovery, bounded failure and manual retry to the normal CI gate.
+- Preserve existing design, logical contents, carousel behavior and persistence.
+
+See [v1.2.3 release notes](docs/releases/v1.2.3.md). No persistent-data migration.
+
 ## v1.2.2 – 2026-09-27
 
 ### Similar-title detail reliability

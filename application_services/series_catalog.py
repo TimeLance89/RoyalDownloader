@@ -541,6 +541,12 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
         has_more_unverified = has_more_unverified or timed_out[0]
 
     start = (page - 1) * SERIES_BROWSE_PAGE_SIZE
+    if page > 1 and timed_out[0] and len(catalog_entries) < target_end:
+        # Do not commit a truncated/empty follow-up page: advancing the browser's
+        # page cursor would permanently skip titles still arriving in the cache.
+        raise SeriesCatalogColdLoadLimit(
+            "Weitere Serien werden noch vorbereitet. Bitte kurz warten und erneut versuchen."
+        )
     page_entries = catalog_entries[start:target_end]
     has_more = page < SERIES_MAX_GLOBAL_PAGE and (
         len(catalog_entries) > target_end or has_more_unverified
