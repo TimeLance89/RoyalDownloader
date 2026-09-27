@@ -2,6 +2,102 @@
 
 ## Unreleased
 
+No unreleased changes.
+
+## v1.2.0 – 2026-09-27
+
+### Native frontend architecture
+
+- Replace the historical Vanilla JavaScript runtime/screen scripts with native
+  ES modules organized as `core/`, `shared/`, `features/`, `shell/` and
+  `composition/`. Keep the existing UI, functionality and native browser stack;
+  no React/Vue/Svelte, framework migration or application build pipeline.
+- Centralize HTTP in `core/api.js` and WebSocket ownership/reconnects in
+  `core/websocket.js`. Introduce feature-owned state and scoped
+  mount/refresh/unmount lifecycles that clean up timers, listeners and subscriptions.
+- Split the large composition root into domain modules and group application
+  dependencies by area. Remove `sharedPresentation`, historical browser globals
+  and cyclic ES-module imports; inject named dependencies explicitly.
+- Move business actions into features, retain navigation/application chrome in
+  the shell, and share cards, carousels, dialogs, feedback and loading components.
+- Consolidate CSS design tokens while protecting the existing computed styles.
+  Document ownership, APIs, lifecycle and allowed dependencies in
+  `docs/FRONTEND_ARCHITECTURE.md`; enforce core/shared/feature layering,
+  resolvable modules and cycle-free imports automatically.
+
+### Mobile interaction and carousel rendering
+
+- Repair mobile horizontal scrolling and the hidden navigation scrim that could
+  intercept touch. Give touch/pen native panning and momentum priority; defer
+  loop corrections until scrolling settles, with a fallback without `scrollend`.
+- Distinguish taps from swipes, keep vertical page scrolling over cards, and
+  preserve logical rail position across loop seams, rapid gestures, tab/history
+  navigation, hidden refreshes and portrait/landscape resizing.
+- Fix the detail-poster variable-shadowing error found by real card tap tests.
+- Replace complete triple-clone rails with bounded dynamic edge buffers.
+  **No titles or rails are removed:** all logical content and the visible design
+  remain; only redundant rendering work is reduced.
+- Skip distant rail rendering with measured `content-visibility`, intrinsic
+  sizing and Intersection/ResizeObserver activation. Batch artwork geometry reads
+  before writes and avoid rehydrating already-started images. Keep page height,
+  timely artwork, typography, effects and image quality intact.
+
+### Measured performance
+
+- In the fixed 97-logical-entry fixture, full cards decrease **257 → 137** on
+  desktop (**−46.7%**) and **257 → 117** on mobile (**−54.5%**). Total DOM nodes
+  decrease **6,320 → 4,640** and **6,320 → 4,360**, respectively.
+- A documented paired three-sample Chromium CI run measured desktop 4x CPU
+  initial render **208.3 → 137.4 ms**, blocking time **529 → 386 ms**, layout
+  **99.7 → 69.2 ms**; desktop 6x **305.1 → 218.0**, **1092 → 860**,
+  **147.2 → 105.7 ms**; mobile 4x **196.2 → 122.2**, **497 → 308**,
+  **79.5 → 56.1 ms**, in the same order.
+- These are fixture/profile measurements, not universal device guarantees.
+  Long-task counts and LCP do not improve in every run. Baseline, final-code
+  results, methodology and raw data remain in `docs/FRONTEND_PERFORMANCE_*.md`
+  and `docs/performance/`.
+
+### Integration status, live updates and personal data
+
+- Add structured integration health (`healthy`, `degraded`, `offline`,
+  `auth_failed`, `disabled`, `unknown`) derived from explicit controller facts,
+  not translated errors or Jellyfin media ownership.
+- Broadcast committed movie-subscription save/removal and watchlist-removal
+  snapshots; persistence failures do not emit successful updates.
+- Preserve the compatibility `web/i18n.js` marker required by installed legacy
+  updater archive validators while loading localization through ES modules.
+- Retain household accounts, isolated sessions, first-login/onboarding, taste
+  profiles, recommendations and the Profile Hub in the modular frontend.
+  These capabilities were **already included in v1.1.0**.
+- Preserve durable personal request history and its profile/Home integration:
+  **Personal Request ≠ Download Job ≠ Queue**. Existing user isolation,
+  restart/queue-cleanup persistence and retry deduplication remain protected.
+  The persistent store also predates this release; it is not a new data format.
+
+### Browser quality and release safety
+
+- Make the required `verify` gate depend on Chromium smoke, setup/login,
+  mobile touch/carousel tests at phone/tablet sizes, no-`scrollend` fallback,
+  WebKit mobile validation, frozen CSS equivalence, visual rail comparisons,
+  performance/content budgets and offscreen layout budgets.
+- Preserve Python, frontend/core contracts, security scans, CodeQL, container
+  validation, authentication E2E, persistence/restart and RC3 upgrade/rollback
+  checks. Add upgrade/restart/rollback/backup verification from the actual
+  published v1.1.0 commit with populated multi-user data and a runtime volume.
+- Set authoritative `APP_VERSION` and active installation/capabilities/release
+  documentation to **1.2.0**, resolving the v1.1.0 tag versus 1.0.0 application
+  metadata discrepancy. Keep historical release documents unchanged.
+
+See [v1.2.0 release notes](docs/releases/v1.2.0.md) for compatibility,
+upgrade/rollback instructions, benchmark context and WebKit testing limitations.
+
+## v1.1.0 – published 2026-09-24
+
+The following previously unversioned notes describe functionality already in the
+published v1.1.0 source. That tag reported application version 1.0.0; this historical
+discrepancy is corrected prospectively in v1.2.0, without moving the old tag.
+
+
 - Add household accounts with isolated sessions, passwords, onboarding,
   recommendations, browser state, downloads, subscriptions, and taste profiles.
 - Introduce the Royal Intelligence and Royal Reflex recommendation flow with
