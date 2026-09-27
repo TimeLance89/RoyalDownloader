@@ -4,6 +4,30 @@
 
 No unreleased changes.
 
+## v1.2.1 – 2026-09-27
+
+### Critical catalog hotfix
+
+- Fix a temporal-dead-zone error in the shared result-card renderer: a local
+  poster candidate array shadowed the injected `coverCandidates` function,
+  preventing movie and series catalog cards from rendering. Separate the local
+  candidate value from the dependency while preserving lazy/asynchronous artwork.
+- Fix the same class of error in Home's card-dock queue action, where a local
+  queue-state boolean shadowed the lifecycle scope after the awaited operation.
+- Add movie/series regression tests that fail with the original exception, plus
+  populated desktop and mobile browser checks for actual cards, decoded posters,
+  metadata/Jellyfin badges, details, filters, pagination and vertical touch scroll.
+  Exercise queue add/remove completion in the Home dock as well.
+- Keep unexpected runtime/console errors fatal; narrow the existing intentional
+  503-fixture exception to the exact browser network diagnostic.
+- Audit all 166 frontend modules for lexical initialization/shadowing hazards;
+  no further matching immediate-use TDZ cases remain after these two fixes.
+- Preserve the v1.2.0 design, native module architecture, carousel buffers,
+  offscreen rendering, artwork quality and touch/momentum optimizations.
+
+See [v1.2.1 release notes](docs/releases/v1.2.1.md). Existing v1.2.0 installations
+should update; no persistence migration or configuration reset is needed.
+
 ## v1.2.0 – 2026-09-27
 
 ### Native frontend architecture

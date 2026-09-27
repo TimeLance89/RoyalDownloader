@@ -43,6 +43,9 @@ jobs:
       - name: Browser interaction and lifecycle regression
         run: node tests/frontend/browser-smoke.cjs
 
+      - name: Populated movie and series catalogs on desktop and touch mobile
+        run: node tests/frontend/catalog-browser.cjs
+
       - name: First-run setup and authentication browser regression
         if: ${{ !cancelled() }}
         run: node tests/frontend/setup-browser.cjs

@@ -35,7 +35,9 @@ const server = createServer(async (req, res) => {
     });
     const errors = [], missing = [], calls = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(error.stack); });
-    page.on("console", message => { if (message.type() === "error" && !message.text().includes("503 (Service Unavailable)")) errors.push(message.text()); });
+    // Only the exact browser network diagnostic for intentional 503 fixtures is expected.
+    // JavaScript errors mentioning a status code must still fail the gate.
+    page.on("console", message => { if (message.type() === "error" && !/^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) errors.push(message.text()); });
     page.on("response", response => { if (response.status() === 404 && /\.(js|css)/.test(response.url())) missing.push(response.url()); });
     const calendarDate = new Date().toLocaleDateString("sv-SE");
     let aniworldFixture = false, slowAniworldDetail = false;
