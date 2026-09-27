@@ -401,16 +401,16 @@ export function createCardDock(root, {
         try {
           await toggleFpPick(entry.item.slug);
           if (!active.active) return;
-          const active = isQueued(entry.item.slug);
-          queue.classList.toggle("is-active", active);
-          queue.querySelector(".home-card-dock-action-icon").textContent = active ? "✓" : "+";
-          queue.setAttribute("aria-pressed", String(active));
-          const label = active
+          const queuedNow = isQueued(entry.item.slug);
+          queue.classList.toggle("is-active", queuedNow);
+          queue.querySelector(".home-card-dock-action-icon").textContent = queuedNow ? "✓" : "+";
+          queue.setAttribute("aria-pressed", String(queuedNow));
+          const label = queuedNow
             ? `${media.title} aus der Queue entfernen`
             : `${media.title} zur Download-Queue hinzufügen`;
           queue.setAttribute("aria-label", label);
           queue.title = label;
-          setHomeCardDockMessage(active ? "Zur Download-Queue hinzugefügt." : "Aus der Queue entfernt.");
+          setHomeCardDockMessage(queuedNow ? "Zur Download-Queue hinzugefügt." : "Aus der Queue entfernt.");
         } catch (error) {
           if (active.active) setHomeCardDockMessage("Queue konnte nicht geändert werden.");
         } finally {

@@ -20,6 +20,7 @@ import { createQueueSync } from "../../web/js/features/downloads/sync.js";
 import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
 import { createDailyTop } from "../../web/js/features/home/daily-top.js";
 import { createCardArtwork } from "../../web/js/shared/components/card-artwork.js";
+import { createResultCards } from "../../web/js/shared/components/result-card.js";
 import { createTrailers } from "../../web/js/features/trailers/index.js";
 import { createCatalogJellyfin } from "../../web/js/features/integrations/catalog-jellyfin.js";
 import { createInfiniteScroll } from "../../web/js/shared/components/infinite-scroll.js";
@@ -48,6 +49,42 @@ import { createServerBuildMonitor } from "../../web/js/features/system/server-bu
 import { createHeroSelection } from "../../web/js/features/home/hero-selection.js";
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
+
+for (const kind of ["movie", "series"]) test(`${kind} result cards call injected artwork candidates and create lazy posters`, t => {
+  class Element extends EventTarget {
+    constructor(tag) {
+      super(); this.tagName = tag; this.dataset = {}; this.children = [];
+      const classes = new Set();
+      this.classList = { add: name => classes.add(name), contains: name => classes.has(name) };
+    }
+    querySelector() { return null; }
+    querySelectorAll() { return []; }
+    append(...nodes) { this.children.push(...nodes); }
+    appendChild(node) { this.append(node); }
+    setAttribute() {}
+    remove() {}
+  }
+  const calls = [], scheduled = [];
+  const candidates = ["/poster.jpg", "/fallback.jpg"];
+  const cards = createResultCards({ createElement: tag => new Element(tag) }, {
+    coverCandidates: url => { calls.push(url); return candidates; },
+    mediaCardInitials: () => "RT", scheduleResultPoster: (image, urls) => scheduled.push({ image, urls }),
+    discardPoster() {}, setFpPosterJellyfinBadge: badge => { badge.textContent = "In Jellyfin"; },
+    markLanguage: mark => { mark.dataset.language = "de"; },
+  });
+  t.after(() => cards.dispose());
+  cards.mount(kind, new Element("section"));
+  const visual = cards.create({ cover_url: "/poster.jpg" }, "Regression title", kind, "owned");
+  assert.deepEqual(calls, ["/poster.jpg"]);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].urls, candidates);
+  const image = visual.children.find(child => child.tagName === "img");
+  assert.equal(image, scheduled[0].image);
+  assert.equal(image.dataset.posterKey, candidates.join("\n"));
+  assert.equal(image.loading, "lazy");
+  assert.equal(image.decoding, "async");
+  assert.equal(visual.children.at(-1).textContent, "In Jellyfin");
+});
 
 test("HTTP sends JSON, cookies and all supported verbs", async () => {
   const calls = [];

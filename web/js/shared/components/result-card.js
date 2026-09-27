@@ -10,10 +10,10 @@ export function createResultCards(document, {
     const current = visual.querySelector(".result-card-poster:not(.is-pending-poster)");
     // Das Anbieterposter startet sofort. Sobald TMDB ein besseres Poster liefert,
     // wird es parallel geladen und erst nach erfolgreichem Decode ausgetauscht.
-    const coverCandidates = coverCandidates(media?.cover_url);
-    if (!coverCandidates.length) return;
+    const candidates = coverCandidates(media?.cover_url);
+    if (!candidates.length) return;
 
-    const posterKey = coverCandidates.join("\n");
+    const posterKey = candidates.join("\n");
     if (current?.dataset.posterKey === posterKey) return;
     const pending = visual.querySelector(".result-card-poster.is-pending-poster");
     if (pending?.dataset.posterKey === posterKey) return;
@@ -52,7 +52,7 @@ export function createResultCards(document, {
         job.timeout(removePreviousPoster, 360);
       });
     }, { once: true });
-    scheduleResultPoster(image, coverCandidates);
+    scheduleResultPoster(image, candidates);
     visual.appendChild(image);
   }
 
