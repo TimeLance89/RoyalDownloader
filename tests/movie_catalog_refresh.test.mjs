@@ -251,16 +251,20 @@ test("closing movie details cancels metadata and provider lookup without late ca
     });
     const request = details.open("movie");
     await Promise.resolve();
-    assert.equal(requests.length, 1);
+    // Uncached metadata and provider lookup now start independently.
+    assert.equal(requests.length, cachedMetadata ? 1 : 2);
+    const metadataBeforeClose = structuredClone(state.fp.metadataCache);
     details.unmount();
     const before = changes;
-    assert.equal(requests[0].options.signal.aborted, true);
-    requests[0].resolve(cachedMetadata ? { title: "late provider" } : { movie: { title: "late metadata" } });
+    for (const pending of requests) {
+      assert.equal(pending.options.signal.aborted, true);
+      pending.resolve(pending.url === "/api/tmdb/movie" ? { movie: { title: "late metadata" } } : { title: "late provider" });
+    }
     await request;
-    assert.equal(requests.length, 1);
+    assert.equal(requests.length, cachedMetadata ? 1 : 2);
     assert.equal(changes, before);
     assert.deepEqual(state.fp.moviesCache, {});
-    assert.deepEqual(state.fp.metadataCache, cachedMetadata ? { movie: { details_loaded: true } } : {});
+    assert.deepEqual(state.fp.metadataCache, metadataBeforeClose);
   }
 });
 
