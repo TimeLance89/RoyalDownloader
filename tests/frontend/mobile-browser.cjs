@@ -10,6 +10,15 @@ const results = [];
     const f = await fixture({ viewport, mobile: true });
     try {
       const { page, cdp } = f;
+      assert.equal(await page.locator('[data-nav-menu-scrim]').evaluate(e => getComputedStyle(e).display), 'none');
+      const menu = page.locator('[data-nav-menu="mobile"] .nav-menu-trigger');
+      if (await menu.isVisible()) {
+        await menu.tap();
+        assert.equal(await page.locator('[data-nav-menu-scrim]').evaluate(e => e.hidden), false);
+        assert.notEqual(await page.locator('[data-nav-menu-scrim]').evaluate(e => getComputedStyle(e).display), 'none');
+        await menu.tap();
+        assert.equal(await page.locator('[data-nav-menu-scrim]').evaluate(e => getComputedStyle(e).display), 'none');
+      }
       await page.evaluate(() => renderFixture());
       const track = "#home-series-track";
       await page.locator(track).scrollIntoViewIfNeeded();
@@ -54,11 +63,27 @@ const results = [];
       await page.waitForTimeout(350);
       const stable = Math.abs(await position() - settled) < 2;
       const swipeClicks = await page.evaluate(() => touchAudit.clicks);
-      // Start within the old leading clone, beyond its scroll-event wrap point.
-      await page.evaluate(() => {
-        const track = document.getElementById("home-series-track");
-        track.scrollLeft = fixtureApp.home.carousel.homeRailLoopSize(track) * 0.3;
+      // Both physical edges must wrap to precisely the same visible card sequence.
+      const seams = await page.locator(track).evaluate(track => {
+        const visible = () => {
+          const r = track.getBoundingClientRect();
+          return [...track.children].map(c => ({ key: c.dataset.key, x: c.getBoundingClientRect().left - r.left - track.clientLeft,
+            right: c.getBoundingClientRect().right - r.left - track.clientLeft }))
+            .filter(c => c.right > 2 && c.x < track.clientWidth - 2);
+        };
+        return [0, track.scrollWidth - track.clientWidth].map(edge => {
+          track.scrollLeft = edge;
+          const before = visible(), start = track.scrollLeft;
+          fixtureApp.home.carousel.normalizeHomeRailLoop(track);
+          return { before, after: visible(), start, end: track.scrollLeft, size: fixtureApp.home.carousel.homeRailLoopSize(track), moved: Math.abs(track.scrollLeft - start) > 100 };
+        });
       });
+      for (const seam of seams) {
+        if (process.env.ROYAL_TOUCH_DEBUG) console.log(JSON.stringify(seam));
+        assert.ok(seam.moved, 'edge wraps');
+        assert.deepEqual(seam.after.map(c => c.key), seam.before.map(c => c.key), 'same cards across seam');
+        seam.before.forEach((c, i) => assert.ok(Math.abs(c.x - seam.after[i].x) <= 2, 'no visible seam jump'));
+      }
       await page.waitForTimeout(250);
       await swipe(page, cdp, track, -150);
       await page.waitForTimeout(700);
@@ -72,23 +97,42 @@ const results = [];
         let last = scrollY, quiet = performance.now();
         const tick = () => { if (scrollY !== last) { last = scrollY; quiet = performance.now(); } if (performance.now() - quiet > 400) resolve(); else requestAnimationFrame(tick); }; tick();
       }));
-      const beforeTab = await position();
-      await page.evaluate(() => { fixtureApp.core.actions.switchTab("releases"); fixtureApp.core.actions.switchTab("home"); });
-      // Fixture re-supplies the same catalog after the empty API-backed presenter refresh.
-      await page.evaluate(() => renderFixture());
-      await page.waitForTimeout(300);
-      const afterTab = await position();
+      const historyBefore = await position();
+      await page.evaluate(() => { history.pushState({}, '', '#carousel-check'); history.back(); });
+      await page.waitForFunction(() => location.hash !== '#carousel-check');
+      await page.goForward();
+      assert.ok(Math.abs(await position() - historyBefore) < 2, 'same-document history preserves rail');
       await page.setViewportSize({ width: viewport.height, height: viewport.width });
       await page.waitForTimeout(300);
       await page.setViewportSize(viewport);
       await page.locator(track).scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
       const orientationStart = await position();
-      await swipe(page, cdp, track, -180);
+      await swipe(page, cdp, track, -260);
       await page.waitForTimeout(700);
+      const orientationMoved = Math.abs(await position() - orientationStart) > 20;
+      // Use the actual presenter on both sides of the tab transition. The benchmark's
+      // seven synthetic rails intentionally differ from its domain-selected lanes.
+      await page.evaluate(() => fixtureApp.core.actions.switchTab('home'));
+      await page.waitForTimeout(300);
+      const tabTrack = await page.evaluate(() => {
+        const e = [...document.querySelectorAll('#tab-home .home-track')].find(e => Number(e.dataset.homeLoopCount) > 3 && e.clientWidth);
+        if (!e) throw new Error('fixture needs a real populated presenter rail');
+        e.scrollLeft = (Number(e.dataset.homeLoopLeading) + 2) * Number(e.dataset.homeLoopStride);
+        return '#' + e.id;
+      });
+      await page.waitForTimeout(350);
+      const beforeTab = await page.locator(tabTrack).evaluate(e => e.scrollLeft);
+      const tabGeometry = await page.locator(tabTrack).evaluate(e => ({ id: e.id, width: e.clientWidth, stride: e.dataset.homeLoopStride, count: e.dataset.homeLoopCount, leading: e.dataset.homeLoopLeading }));
+      await page.evaluate(() => fixtureApp.core.actions.switchTab('releases'));
+      await page.waitForTimeout(200);
+      await page.evaluate(() => fixtureApp.core.actions.switchTab('home'));
+      await page.waitForTimeout(350);
+      const afterTab = await page.locator(tabTrack).evaluate(e => e.scrollLeft);
+      if (process.env.ROYAL_TOUCH_DEBUG) console.log({ beforeTab, afterTab, tabGeometry, after: await page.locator(tabTrack).evaluate(e => ({ width: e.clientWidth, stride: e.dataset.homeLoopStride, count: e.dataset.homeLoopCount, leading: e.dataset.homeLoopLeading })) });
       const result = { viewport, start, left, right, stable, swipeClicks, gestureWrites, tapOpened,
         verticalDelta: pageAfter - pageBefore, tabDelta: Math.abs(afterTab - beforeTab),
-        orientationMoved: Math.abs(await position() - orientationStart) > 20, errors: f.errors };
+        orientationMoved, seams, errors: f.errors };
       results.push(result); console.log(JSON.stringify(result));
       if (!diagnostic) {
         assert.ok(left > start + 20, "left swipe advances");
@@ -98,6 +142,7 @@ const results = [];
         assert.deepEqual(gestureWrites, [], "no scrollLeft rewrites during native gesture");
         assert.ok(result.verticalDelta > 30, "vertical page scroll over cards");
         assert.ok(result.orientationMoved, "carousel survives orientation changes");
+        assert.ok(result.tabDelta < 2, 'same catalog tab transition preserves position');
         assert.deepEqual(f.errors, []);
       }
     } finally { await f.close(); }

@@ -453,7 +453,10 @@ const server = createServer(async (req, res) => {
       } }));
       renderHomeRail("home-movies-track", entries);
     });
-    assert.equal(await page.locator("#home-movies-track .home-card").count(), 300);
+    const largeRail = page.locator("#home-movies-track .home-card");
+    assert.ok(await largeRail.count() <= 120, '100 logical cards plus a bounded viewport buffer');
+    assert.equal(await largeRail.evaluateAll(cards => new Set(cards.map(c => c.dataset.key)).size), 100);
+    assert.equal(await largeRail.evaluateAll(cards => cards.filter(c => !c.hasAttribute('aria-hidden')).length), 100);
     assert.equal(await page.locator("#home-movies-track script").count(), 0);
 
     // Intelligence is owned by the visible Home; late refinements cannot repaint it.

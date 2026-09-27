@@ -1,0 +1,170 @@
+[
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-movies-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-top-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-series-track",
+    "ratio": 0.0016187797326889678
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-genre-track",
+    "ratio": 0.0016234992071282942
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-explore-track",
+    "ratio": 0.001675413425960885
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-gems-track",
+    "ratio": 0.0016801329004002114
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "id": "home-new-track",
+    "ratio": 0.0016423771048856
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-movies-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-top-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-series-track",
+    "ratio": 0.002584464940263362
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-genre-track",
+    "ratio": 0.002145957215781138
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-explore-track",
+    "ratio": 0.0025033228535643994
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-gems-track",
+    "ratio": 0.0022230574750307596
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "id": "home-new-track",
+    "ratio": 0.0025170022134199427
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-movies-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-top-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-series-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-genre-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-explore-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-gems-track",
+    "ratio": 0
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "id": "home-new-track",
+    "ratio": 0
+  }
+]

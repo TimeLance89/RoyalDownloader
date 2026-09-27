@@ -1,0 +1,259 @@
+[
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "start": 599,
+    "left": 814,
+    "right": 599,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": true,
+    "verticalDelta": 215,
+    "tabDelta": 0,
+    "orientationMoved": true,
+    "seams": [
+      {
+        "before": [
+          {
+            "key": "performance-14",
+            "x": 1,
+            "right": 289.59375
+          },
+          {
+            "key": "performance-15",
+            "x": 300.59375,
+            "right": 589.1875
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-14",
+            "x": 0.5,
+            "right": 289.09375
+          },
+          {
+            "key": "performance-15",
+            "x": 300.09375,
+            "right": 588.6875
+          }
+        ],
+        "start": 0,
+        "end": 4794,
+        "size": 4793.6,
+        "moved": true
+      },
+      {
+        "before": [
+          {
+            "key": "performance-0",
+            "x": -222.3125,
+            "right": 66.28125
+          },
+          {
+            "key": "performance-1",
+            "x": 77.28125,
+            "right": 365.875
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-0",
+            "x": -221.8125,
+            "right": 66.78125
+          },
+          {
+            "key": "performance-1",
+            "x": 77.78125,
+            "right": 366.375
+          }
+        ],
+        "start": 5616,
+        "end": 822,
+        "size": 4793.6,
+        "moved": true
+      }
+    ],
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 430,
+      "height": 932
+    },
+    "start": 658,
+    "left": 873,
+    "right": 658,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": true,
+    "verticalDelta": 215,
+    "tabDelta": 0,
+    "orientationMoved": true,
+    "seams": [
+      {
+        "before": [
+          {
+            "key": "performance-14",
+            "x": 1,
+            "right": 319.1875
+          },
+          {
+            "key": "performance-15",
+            "x": 330.1875,
+            "right": 648.375
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-14",
+            "x": 1,
+            "right": 319.1875
+          },
+          {
+            "key": "performance-15",
+            "x": 330.1875,
+            "right": 648.375
+          }
+        ],
+        "start": 0,
+        "end": 5267,
+        "size": 5267.2,
+        "moved": true
+      },
+      {
+        "before": [
+          {
+            "key": "performance-0",
+            "x": -241.625,
+            "right": 76.5625
+          },
+          {
+            "key": "performance-1",
+            "x": 87.5625,
+            "right": 405.75
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-0",
+            "x": -241.625,
+            "right": 76.5625
+          },
+          {
+            "key": "performance-1",
+            "x": 87.5625,
+            "right": 405.75
+          }
+        ],
+        "start": 6168,
+        "end": 901,
+        "size": 5267.2,
+        "moved": true
+      }
+    ],
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "start": 993,
+    "left": 1208,
+    "right": 993,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": true,
+    "verticalDelta": 215,
+    "tabDelta": 0,
+    "orientationMoved": true,
+    "seams": [
+      {
+        "before": [
+          {
+            "key": "performance-13",
+            "x": 1,
+            "right": 321
+          },
+          {
+            "key": "performance-14",
+            "x": 332,
+            "right": 652
+          },
+          {
+            "key": "performance-15",
+            "x": 663,
+            "right": 983
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-13",
+            "x": 1,
+            "right": 321
+          },
+          {
+            "key": "performance-14",
+            "x": 332,
+            "right": 652
+          },
+          {
+            "key": "performance-15",
+            "x": 663,
+            "right": 983
+          }
+        ],
+        "start": 0,
+        "end": 5296,
+        "size": 5296,
+        "moved": true
+      },
+      {
+        "before": [
+          {
+            "key": "performance-0",
+            "x": -238,
+            "right": 82
+          },
+          {
+            "key": "performance-1",
+            "x": 93,
+            "right": 413
+          },
+          {
+            "key": "performance-2",
+            "x": 424,
+            "right": 744
+          }
+        ],
+        "after": [
+          {
+            "key": "performance-0",
+            "x": -238,
+            "right": 82
+          },
+          {
+            "key": "performance-1",
+            "x": 93,
+            "right": 413
+          },
+          {
+            "key": "performance-2",
+            "x": 424,
+            "right": 744
+          }
+        ],
+        "start": 6528,
+        "end": 1232,
+        "size": 5296,
+        "moved": true
+      }
+    ],
+    "errors": []
+  }
+]

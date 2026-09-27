@@ -3,9 +3,10 @@ const { createServer } = require("node:http");
 const { readFile } = require("node:fs/promises");
 const { resolve, extname, sep } = require("node:path");
 const playwright = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
-const web = resolve(process.env.ROYAL_WEB_ROOT || resolve(__dirname, "../../web"));
+const defaultWeb = resolve(process.env.ROYAL_WEB_ROOT || resolve(__dirname, "../../web"));
 
-async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium" } = {}) {
+async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium", webRoot = defaultWeb } = {}) {
+  const web = resolve(webRoot);
   const server = createServer(async (req, res) => {
     const path = resolve(web, `.${new URL(req.url, "http://local").pathname.replace(/\/$/, "/index.html")}`);
     if (!path.startsWith(web + sep)) return res.writeHead(403).end();
@@ -19,6 +20,9 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
   const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 3 : 1 });
   try {
   const page = await context.newPage();
+  if (process.env.ROYAL_SCROLLEND_FALLBACK === '1') await page.addInitScript(() => {
+    window.addEventListener('scrollend', event => event.stopImmediatePropagation(), true);
+  });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   const cdp = engine === "chromium" ? await context.newCDPSession(page) : null;

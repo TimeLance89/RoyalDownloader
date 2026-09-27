@@ -1,4 +1,5 @@
 import { createScope } from "../../core/lifecycle.js";
+import { carouselWrap } from "./carousel-geometry.js";
 
 /** Reusable looped carousel; state holds only scroll offsets/targets. */
 export function createCarousel(root, localState = { railScrollPositions: {}, railScrollTargets: {} }) {
@@ -35,29 +36,29 @@ function setHomeRailCycleAccessibility(element, cycle) {
 function homeRailLoopSize(track) {
   const count = Number(track?.dataset?.homeLoopCount || 0);
   if (!track || count < 2) return 0;
-  const first = track.children[0];
-  const repeated = track.children[count];
-  const measured = Number(repeated?.offsetLeft) - Number(first?.offsetLeft);
-  return measured > 0 ? measured : track.scrollWidth / 3;
+  return Number(track.dataset.homeLoopStride || 0) * count;
 }
 
-function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
+function normalizeHomeRailLoop(track) {
   const size = homeRailLoopSize(track);
   if (!size) return 0;
   if (touching.has(track) || nativeMotion.has(track)) return size;
-  let next = track.scrollLeft;
-  if (forceMiddle && next < size * 0.5) next += size;
-  while (next < size * 0.2) next += size;
-  while (next > size * 1.8) next -= size;
+  const next = carouselWrap(track.scrollLeft, size, track.scrollWidth - track.clientWidth);
   if (Math.abs(next - track.scrollLeft) > 1) track.scrollLeft = next;
   return size;
 }
 
-function prepareHomeRailLoop(track, logicalCount) {
+function prepareHomeRailLoop(track, logicalCount, { stride = 0, leading = 0, position } = {}) {
   if (!track) return;
   track.dataset ||= {};
   const wasLooping = Number(track.dataset.homeLoopCount || 0) > 1;
   track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
+  track.dataset.homeLoopStride = String(stride);
+  track.dataset.homeLoopLeading = String(leading);
+  // Circular rails preserve exact subpixel offsets. CSS snap would snap AGAIN
+  // after an equivalent wrap (especially a partial card at the physical end).
+  // Finite rails keep their original proximity snap; touch momentum stays native.
+  if (track.style) track.style.scrollSnapType = logicalCount > 1 ? "none" : "";
   if (logicalCount < 2) {
     if (wasLooping) {
       track.scrollLeft = 0;
@@ -67,16 +68,17 @@ function prepareHomeRailLoop(track, logicalCount) {
     delete track.dataset.homeLoopReady;
     return;
   }
-  const position = () => {
+  const place = () => {
     if (track.dataset.homeLoopReady !== "true") {
-      normalizeHomeRailLoop(track, { forceMiddle: true });
+      track.scrollLeft = position ?? leading * stride;
       track.dataset.homeLoopReady = "true";
     } else {
       normalizeHomeRailLoop(track);
     }
   };
-  position();
-  if (scope) scope.frame(position);
+  // A single synchronous correction prevents a later frame from resetting a gesture.
+  if (Number.isFinite(position) && !touching.has(track) && !nativeMotion.has(track)) track.scrollLeft = position;
+  place();
 }
 
 function updateHomeRailNavigation(track) {
@@ -239,6 +241,7 @@ function initHomeRailScrolling() {
 }
 
   return {
+    isInteracting: track => touching.has(track) || nativeMotion.has(track),
     mount: initHomeRailScrolling,
     unmount() {
       rememberAllHomeRailScroll();
