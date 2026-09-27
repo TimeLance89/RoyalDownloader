@@ -1,10 +1,12 @@
 import asyncio
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 import server
+from api import api_library_router
 from providers.models import FilmpalastMovie, HosterInfo
 
 
@@ -62,6 +64,8 @@ def test_movie_subscription_remove_rolls_back_on_save_failure(monkeypatch):
     original = {"key": "tmdb:1", "title": "Film", "pending_slug": ""}
     server.state.movie_subscriptions = [original]
     monkeypatch.setattr(server.appconfig, "save_movie_subscriptions", lambda _items: False)
+    events = []
+    monkeypatch.setattr(server, "broadcast", events.append)
 
     with pytest.raises(HTTPException) as raised:
         asyncio.run(server.api_movie_subscriptions_remove(
@@ -70,6 +74,28 @@ def test_movie_subscription_remove_rolls_back_on_save_failure(monkeypatch):
 
     _assert_persistence_error(raised.value, "movie_subscriptions")
     assert server.state.movie_subscriptions == [original]
+    assert events == []
+
+
+def test_movie_subscription_save_and_remove_broadcast_committed_snapshots(monkeypatch):
+    server.state.movie_subscriptions = []
+    monkeypatch.setattr(server.appconfig, "save_movie_subscriptions", lambda _items: True)
+    monkeypatch.setattr(api_library_router, "_personal_taste_store", lambda _request: (None, ""))
+    events = []
+    monkeypatch.setattr(server, "broadcast", events.append)
+
+    saved = asyncio.run(server.api_movie_subscription_save(server.MovieSubscriptionBody(
+        source_slug="movie", title="Film", tmdb_id=1,
+    )))
+    assert len(saved["movie_subscriptions"]) == 1
+    assert events == [{"type": "movie_subscriptions_update", **saved}]
+    key = saved["movie_subscriptions"][0]["key"]
+    removed = asyncio.run(server.api_movie_subscriptions_remove(
+        server.MovieSubscriptionKeysBody(keys=[key]),
+    ))
+    assert removed["movie_subscriptions"] == []
+    assert removed["persistence"]["ok"] is True
+    assert events[-1] == {"type": "movie_subscriptions_update", **removed}
 
 
 def test_movie_subscription_add_rolls_back_on_save_failure(monkeypatch):
@@ -124,6 +150,8 @@ def test_watchlist_remove_keeps_auxiliary_state_on_save_failure(monkeypatch):
     server.state.watchlist = [entry]
     server.state.watchlist_new_slugs["show"] = {"show-s01e01"}
     monkeypatch.setattr(server.appconfig, "save_watchlist", lambda _items: False)
+    events = []
+    monkeypatch.setattr(server, "broadcast", events.append)
 
     with pytest.raises(HTTPException) as raised:
         asyncio.run(server.api_watchlist_remove(
@@ -133,6 +161,32 @@ def test_watchlist_remove_keeps_auxiliary_state_on_save_failure(monkeypatch):
     _assert_persistence_error(raised.value, "watchlist")
     assert server.state.watchlist == [entry]
     assert server.state.watchlist_new_slugs["show"] == {"show-s01e01"}
+    assert events == []
+
+
+def test_watchlist_removal_broadcasts_the_committed_snapshot(monkeypatch):
+    server.state.watchlist = [{"base_slug": "removed"}, {"base_slug": "retained"}]
+    monkeypatch.setattr(server.state, "series_cache", {})
+    monkeypatch.setattr(server.state, "watchlist_new_slugs", {})
+    monkeypatch.setattr(server.state, "dl_queue", SimpleNamespace(
+        remove_pending=lambda _predicate: [], cancel_active=lambda _predicate: None,
+    ))
+    monkeypatch.setattr(server.appconfig, "save_watchlist", lambda _items: True)
+    monkeypatch.setattr(server, "build_queue_payload", lambda: {"groups": []})
+    monkeypatch.setattr(server, "watchlist_payload", lambda: {"watchlist": deepcopy(server.state.watchlist)})
+    monkeypatch.setattr(server, "_release_removed_queue_slugs", lambda _slugs: None)
+    events = []
+    monkeypatch.setattr(server, "broadcast", events.append)
+
+    payload = asyncio.run(server.api_watchlist_remove(
+        server.WatchlistRemoveBody(base_slugs=["removed"]),
+    ))
+
+    assert payload == {"watchlist": [{"base_slug": "retained"}]}
+    assert events == [
+        {"type": "queue_update", "queue": {"groups": []}},
+        {"type": "watchlist_update", **payload},
+    ]
 
 
 def test_queue_add_releases_claim_when_initial_persistence_fails(monkeypatch):

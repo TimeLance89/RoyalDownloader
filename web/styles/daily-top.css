@@ -1,0 +1,11 @@
+.home-card.is-ranked .daily-top-movement{
+        align-self:flex-start;display:inline-flex;align-items:center;justify-content:center;
+        min-width:34px;height:20px;padding:0 7px;margin:2px 0 4px;border-radius:999px;
+        border:1px solid rgba(255,255,255,.16);background:rgba(8,11,19,.72);
+        color:#c7cfdf;font-size:10px;font-weight:800;letter-spacing:.04em;line-height:1;
+        backdrop-filter:blur(8px);box-shadow:0 4px 14px rgba(0,0,0,.18)
+      }
+      .home-card.is-ranked .daily-top-movement.is-up{color:#8fe5b1;border-color:rgba(93,211,139,.28)}
+      .home-card.is-ranked .daily-top-movement.is-down{color:#e4a3a9;border-color:rgba(224,112,126,.25)}
+      .home-card.is-ranked .daily-top-movement.is-new{color:#f2d68b;border-color:rgba(225,184,75,.3)}
+      .home-card.is-ranked .daily-top-movement.is-flat{color:#aeb7c9}

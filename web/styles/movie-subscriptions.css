@@ -19,7 +19,7 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: #e50914;
+  background: var(--color-accent);
 }
 
 #tab-filme .movie-subscriptions .subscriptions-head {
@@ -72,7 +72,7 @@
   width: 5px;
   height: 5px;
   border: 0;
-  background: #e50914;
+  background: var(--color-accent);
   box-shadow: 0 0 12px rgba(229, 9, 20, .85);
 }
 
@@ -82,13 +82,13 @@
   bottom: 50%;
   width: 1px;
   height: 14px;
-  background: linear-gradient(transparent, #e50914);
+  background: linear-gradient(transparent, var(--color-accent));
   transform: rotate(38deg);
   transform-origin: 50% 100%;
 }
 
 #tab-filme .movie-subscriptions-kicker {
-  color: #e50914;
+  color: var(--color-accent);
   font: 700 6.5px/1.2 "JetBrains Mono", monospace;
   letter-spacing: .16em;
 }
@@ -121,7 +121,7 @@
 #tab-filme .movie-subscriptions .subscriptions-head .btn:hover:not(:disabled),
 #tab-filme .movie-subscriptions .subscriptions-head .btn:focus-visible {
   border-color: rgba(255, 255, 255, .26);
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .09);
   box-shadow: none;
   transform: none;
@@ -189,11 +189,11 @@
   height: 48px;
   border: 0;
   border-radius: 5px;
-  color: #fff;
+  color: var(--color-white);
   background:
     linear-gradient(145deg, rgba(229, 9, 20, .9), rgba(87, 2, 8, .68)),
     #2a080a;
-  box-shadow: 0 8px 18px -10px #000;
+  box-shadow: 0 8px 18px -10px var(--color-black);
   font: 750 12px/1 "Archivo", sans-serif;
 }
 
@@ -243,7 +243,7 @@
 
 #tab-filme .subscription-card:hover .movie-subscription-open,
 #tab-filme .subscription-card:focus-visible .movie-subscription-open {
-  color: #fff;
+  color: var(--color-white);
   transform: translateX(2px);
 }
 

@@ -5,16 +5,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_frontend_reloads_when_backend_build_changes():
-    source = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+    source = (ROOT / "web/js/features/system/server-build.js").read_text(encoding="utf-8")
 
     for contract in [
-        "async function checkRoyalServerBuild()",
-        'fetch("/api/v1/capabilities"',
+        "async function refresh(current = scope)",
+        'client.get("/api/v1/capabilities"',
         'cache: "no-store"',
-        "royalServerBuild && royalServerBuild !== build",
+        "build && build !== nextBuild",
         "location.reload()",
-        "scheduleRoyalServerHeartbeat",
-        'document.addEventListener("visibilitychange"',
+        "schedule(current)",
+        'scope.listen(document, "visibilitychange"',
     ]:
         assert contract in source
 

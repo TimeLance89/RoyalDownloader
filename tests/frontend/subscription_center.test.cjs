@@ -1,16 +1,9 @@
 const assert = require("node:assert/strict");
-const { readFileSync } = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
 const { test } = require("node:test");
 
-const source = readFileSync(path.join(__dirname, "../../web/screens/notifications.js"), "utf8");
-
-function loadInbox(globals = {}) {
-  const context = vm.createContext({ ...globals });
-  vm.runInContext(source, context, { filename: "notifications.js" });
-  return context;
-}
+const model = require("../../web/js/features/notifications/model.js");
+const { createNotifications } = require("../../web/js/features/notifications/index.js");
+function loadInbox() { return model; }
 
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -201,6 +194,9 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   addEventListener(name, callback) { (this.listeners[name] ??= []).push(callback); }
+  removeEventListener(name, callback) { this.listeners[name] = (this.listeners[name] || []).filter(item => item !== callback); }
+  contains(target) { return this === target || this.children.some(child => child.contains(target)); }
+  focus() {}
   async fire(name) {
     for (const callback of this.listeners[name] || []) {
       await callback({ stopPropagation() {}, preventDefault() {}, target: this });
@@ -229,6 +225,7 @@ function renderFixture(items, health = {}, options = {}) {
   const head = new Element("head");
   const document = {
     body, head,
+    addEventListener() {}, removeEventListener() {},
     createElement: (tag) => new Element(tag),
     getElementById: (id) => body.querySelector(`#${id}`) || head.querySelector(`#${id}`),
     querySelectorAll: (selector) => [...body.querySelectorAll(selector), ...head.querySelectorAll(selector)],
@@ -236,7 +233,7 @@ function renderFixture(items, health = {}, options = {}) {
   };
   for (const id of [
     "notif-bell", "notif-badge", "notif-trigger-label", "notif-summary",
-    "notif-subscription-count", "notif-list", "notif-refresh", "notif-dropdown",
+    "notif-subscription-count", "notif-list", "notif-refresh", "notif-dropdown", "notif-feedback", "notif-close", "notif-library",
   ]) {
     const element = new Element();
     element.id = id;
@@ -253,31 +250,35 @@ function renderFixture(items, health = {}, options = {}) {
     button.append(label, count);
     body.append(button);
   }
-  const calls = { read: [], checks: [], opened: [], applied: [], refreshed: 0 };
+  const calls = { signals: [], read: [], checks: [], opened: [], applied: [], refreshed: 0 };
   const state = { wl: { items, health, notifFilter: "all", checkRunning: false } };
-  const inbox = loadInbox({
-    document, state,
-    subscriptionMonogram: (title) => title.slice(0, 2),
-    watchlistStatusText: () => "Abo-Status",
-    api: {
-      coverUrl: (url) => url,
-      async watchlistDownloadsRead(...args) {
-        calls.read.push(args);
+  body.ownerDocument = document;
+  const controller = createNotifications(body, {
+    getSnapshot: () => state.wl,
+    getSnapshotVersion: options.getSnapshotVersion,
+    subscriptionMonogram: title => title.slice(0, 2), libraryCheckedLabel: () => "Gerade geprüft",
+    coverUrl: url => url, openLibrary() {}, openEntry: slug => calls.opened.push(slug),
+    onSnapshot: data => calls.applied.push(data),
+    requests: {
+      async acknowledge(entry, signal) {
+        calls.signals.push(signal);
+        if (options.ackWait) await options.ackWait;
+        const receipt = entry.last_unread_downloaded_episode || entry.last_downloaded_episode;
+        calls.read.push([entry.base_slug, Number(receipt?.downloaded_at || 0)]);
         if (options.readError) throw options.readError;
         return { watchlist: [], health };
       },
+      async snapshot() { calls.refreshed++; options.snapshotStarted?.(); if (options.snapshotWait) await options.snapshotWait; return { watchlist: items, health }; },
     },
-    applyWatchlist: (...args) => calls.applied.push(args),
-    refreshWatchlist: async () => { calls.refreshed += 1; },
-    performWatchlistCheck: async (slugs) => {
+    check: async slugs => {
       calls.checks.push(slugs);
       if (options.checkError) throw options.checkError;
       return { watchlist: items, health };
     },
   });
-  // The screen's navigation implementation is covered elsewhere; observe the row's action here.
-  inbox.openWatchlistEntry = (slug) => calls.opened.push(slug);
-  return { inbox, document, state, calls };
+  controller.mount();
+  const inbox = { ...model, renderNotifBell() { controller.open(); controller.refresh(); } };
+  return { inbox, document, state, calls, controller };
 }
 
 test("rendered counters match filter contents and global errors remain visible beside other notices", () => {
@@ -289,7 +290,7 @@ test("rendered counters match filter contents and global errors remain visible b
   const { inbox, state, document } = fixture;
   const model = inbox.buildSubscriptionInbox(state.wl.items, state.wl.health);
   for (const filter of ["all", "new", "queued", "downloaded", "issue"]) {
-    state.wl.notifFilter = filter;
+    document.querySelectorAll("[data-notif-filter]").find(button => button.dataset.notifFilter === filter).fire("click");
     inbox.renderNotifBell();
     const list = document.getElementById("notif-list");
     assert.equal(list.querySelectorAll(".notif-item").length, inbox.inboxEntriesForFilter(model, filter).length, filter);
@@ -327,7 +328,8 @@ test("explicitly marking a mixed row read uses its unread timestamp and fetches 
   await button.fire("click");
   assert.deepEqual(calls.read, [["mixed", 123]]);
   assert.equal(calls.refreshed, 1);
-  assert.equal(calls.applied.length, 0, "the acknowledgement response may already be stale");
+  assert.equal(calls.applied.length, 1, "apply only the freshly fetched snapshot");
+  assert.equal(calls.applied[0].watchlist[0].base_slug, "mixed");
   assert.equal(button.disabled, false);
 });
 
@@ -364,4 +366,43 @@ test("a failed subscription check displays the error and restores the button", a
   await button.fire("click");
   assert.equal(button.disabled, false);
   assert.match(document.body.textContent, /Quelle nicht erreichbar/);
+});
+
+
+test("closing the inbox aborts read work and prevents a late follow-up snapshot", async () => {
+  let resolve;
+  const ackWait = new Promise(done => { resolve = done; });
+  const { controller, inbox, document, calls } = renderFixture([subscription("slow", { downloaded_count: 1 })], {}, { ackWait });
+  inbox.renderNotifBell();
+  const pending = document.getElementById("notif-list").querySelector(".notif-item-read").fire("click");
+  controller.close();
+  assert.equal(calls.signals[0].aborted, true);
+  resolve(); await pending;
+  assert.equal(calls.refreshed, 0);
+  assert.equal(calls.applied.length, 0);
+});
+
+test("repeated shell mounts and unmounts preserve one bell listener", () => {
+  const { controller, document } = renderFixture([]);
+  for (let i = 0; i < 3; i++) { controller.unmount(); controller.mount(); controller.mount(); }
+  assert.equal(document.getElementById("notif-bell").listeners.click.length, 1);
+  controller.unmount();
+  assert.equal(document.getElementById("notif-bell").listeners.click.length, 0);
+});
+
+
+test("a newer live snapshot wins over a pending acknowledgement refresh", async () => {
+  let finish, started, revision = 0;
+  const snapshotWait = new Promise(resolve => { finish = resolve; });
+  const requested = new Promise(resolve => { started = resolve; });
+  const { inbox, document, calls } = renderFixture([subscription("live", { downloaded_count: 1 })], {}, {
+    snapshotWait, snapshotStarted: started, getSnapshotVersion: () => revision,
+  });
+  inbox.renderNotifBell();
+  const pending = document.getElementById("notif-list").querySelector(".notif-item-read").fire("click");
+  await requested;
+  revision++;
+  finish(); await pending;
+  assert.equal(calls.refreshed, 1);
+  assert.equal(calls.applied.length, 0);
 });

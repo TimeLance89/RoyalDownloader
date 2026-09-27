@@ -1,0 +1,7 @@
+/* States shared by module-based features. Existing component geometry stays intact. */
+.queue-error:empty { display: none; }
+.queue-error [data-view-state="error"] {
+  color: var(--color-danger);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 12px;
+}

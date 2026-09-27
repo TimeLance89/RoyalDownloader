@@ -1,0 +1,27 @@
+{
+  "skippedRails": [
+    "home-explore-track"
+  ],
+  "results": [
+    {
+      "mode": "auto",
+      "layoutCount": 0,
+      "layoutMs": 0
+    },
+    {
+      "mode": "visible",
+      "layoutCount": 40,
+      "layoutMs": 206.0350000000002
+    },
+    {
+      "mode": "visible",
+      "layoutCount": 40,
+      "layoutMs": 218.86199999999988
+    },
+    {
+      "mode": "auto",
+      "layoutCount": 0,
+      "layoutMs": 0
+    }
+  ]
+}

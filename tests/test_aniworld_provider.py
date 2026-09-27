@@ -101,11 +101,11 @@ def test_existing_installation_enables_aniworld_once(monkeypatch):
 
 
 def test_german_aniworld_settings_remain_visible_without_english():
-    core = (Path(__file__).parents[1] / "web" / "core.js").read_text(encoding="utf-8")
+    core = (Path(__file__).parents[1] / "web" / "js/shell/actions.js").read_text(encoding="utf-8")
 
     assert 'querySelectorAll(".anime-tab-button")' in core
     assert 'querySelectorAll(".provider-source-lane.is-anime")' in core
-    assert 'state.providers.contentLanguages.has(providerLanguage(provider))' in core
+    assert 'getProviders().get().contentLanguages.has(providerLanguage(provider))' in core
 
 
 def test_detail_and_episode_hosters_preserve_track_and_season():
@@ -408,7 +408,9 @@ def test_companion_movies_are_included_as_season_zero_and_resolve():
 
 def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
     root = Path(__file__).parents[1]
-    screen = (root / "web" / "screens" / "aniworld.js").read_text(encoding="utf-8")
+    screen = (root / "web/index.html").read_text(encoding="utf-8") + (
+        root / "web/js/features/discovery/aniworld.js"
+    ).read_text(encoding="utf-8")
     styles = (root / "web" / "styles" / "aniworld.css").read_text(encoding="utf-8")
 
     for expected in (
@@ -434,7 +436,7 @@ def test_dedicated_aniworld_ui_contains_complete_catalog_and_episode_controls():
     assert 'id="aniworld-catalog-btn" class="is-active"' in screen
     assert "hydrateAniworldPosters" in screen
     assert 'aniworldBrowse("catalog", 1)' in (
-        root / "web" / "core.js"
+        root / "web" / "js/shell/actions.js"
     ).read_text(encoding="utf-8")
     assert 'episode.kind === "movie"' in screen
     assert "aniworldSelectableEpisodes" in screen

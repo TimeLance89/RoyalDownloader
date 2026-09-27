@@ -644,7 +644,9 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody, request: Requ
         ).start()
         return movie_subscriptions_payload()
 
-    return await run_in_threadpool(_work)
+    payload = await run_in_threadpool(_work)
+    broadcast({"type": "movie_subscriptions_update", **payload})
+    return payload
 
 
 @router.get("/api/v1/movie-subscriptions")
@@ -691,7 +693,9 @@ async def api_movie_subscriptions_remove(body: MovieSubscriptionKeysBody):
             _cancel_queue_slugs(pending, "Film-Abo entfernt")
         return movie_subscriptions_payload()
 
-    return await run_in_threadpool(_work)
+    payload = await run_in_threadpool(_work)
+    broadcast({"type": "movie_subscriptions_update", **payload})
+    return payload
 
 
 # ── Bibliothek (Watchlist) ───────────────────────────────────────────────────
@@ -991,6 +995,7 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
 
     queue, payload = await run_in_threadpool(_work)
     broadcast({"type": "queue_update", "queue": queue})
+    broadcast({"type": "watchlist_update", **payload})
     return payload
 
 

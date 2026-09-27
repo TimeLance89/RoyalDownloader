@@ -268,7 +268,7 @@
 
 .media-modal .detail-similar-copy strong {
   overflow: hidden;
-  color: #fff;
+  color: var(--color-white);
   font-size: 14px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -308,7 +308,7 @@
   place-items: center;
   width: 48px;
   height: 48px;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(8, 8, 10, .72);
   border: 1px solid rgba(255, 255, 255, .74);
   border-radius: 50%;
@@ -552,7 +552,7 @@
   width: 38px;
   height: 38px;
   padding: 0;
-  color: #fff;
+  color: var(--color-white);
   background: rgba(18, 18, 18, .82);
   border: 1px solid rgba(255, 255, 255, .48);
   border-radius: 50%;
@@ -569,8 +569,8 @@
 .media-modal .detail-hero-mute:hover,
 .media-modal .detail-hero-mute:focus-visible {
   outline: none;
-  background: #fff;
-  border-color: #fff;
+  background: var(--color-white);
+  border-color: var(--color-white);
   transform: scale(1.06);
 }
 
@@ -649,7 +649,7 @@
 
 #tab-home .home-card-art {
   overflow: hidden;
-  background: #1b1b1b;
+  background: var(--color-surface-elevated);
 }
 
 #tab-home .home-card-art::after {
@@ -863,7 +863,7 @@
   margin: -42px var(--home-gutter) 27px;
   border-color: rgba(255, 255, 255, .12);
   background: rgba(24, 24, 24, .9);
-  box-shadow: inset 3px 0 0 #e50914, 0 18px 42px rgba(0, 0, 0, .42);
+  box-shadow: inset 3px 0 0 var(--color-accent), 0 18px 42px rgba(0, 0, 0, .42);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }

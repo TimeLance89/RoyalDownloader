@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_tmdb_artwork_is_upgraded_for_high_density_displays():
-    api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+    api = (ROOT / "web" / "js/shared/utils/artwork-url.js").read_text(encoding="utf-8")
     assert "_upgradeTmdbImageUrl" in api
     assert '.replace(/^\\/t\\/p\\/w500\\//, "/t/p/w780/")' in api
     assert '.replace(/^\\/t\\/p\\/w1280\\//, "/t/p/original/")' in api
@@ -13,11 +13,11 @@ def test_tmdb_artwork_is_upgraded_for_high_density_displays():
 
 
 def test_catalog_posters_use_bandwidth_appropriate_thumbnails():
-    api = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
-    movies = (ROOT / "web" / "screens" / "movies.js").read_text(encoding="utf-8")
+    api = (ROOT / "web" / "js/shared/utils/artwork-url.js").read_text(encoding="utf-8")
+    movies = (ROOT / "web" / "js/shared/components/result-card.js").read_text(encoding="utf-8")
     assert "coverThumbnailCandidates(url)" in api
     assert '"/t/p/w500/"' in api
-    assert "api.coverThumbnailCandidates(media?.cover_url)" in movies
+    assert "coverCandidates(media?.cover_url)" in movies
 
 
 def test_catalog_artwork_is_not_softened_by_css_filters():

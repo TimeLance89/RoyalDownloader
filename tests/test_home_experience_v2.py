@@ -2,14 +2,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPERIENCE = (ROOT / "web" / "home_experience_v2.js").read_text(encoding="utf-8")
-API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+EXPERIENCE = (ROOT / "web/js/features/home/hero-selection.js").read_text(encoding="utf-8")
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js")))
 
 
 def test_home_experience_loads_after_taste_profile_v2():
-    assert 'script.src = "/taste_v2.js?v=royal-20260824-1"' in API
-    assert 'script.src = "/home_experience_v2.js?v=royal-20260830-1"' in API
-    assert "window.setTimeout(loadRoyalHomeExperienceV2, 0)" in API
+    assert "createTasteRanking" in API
+    assert "createHeroSelection" in API
+    assert "window.homeHeroCandidates =" not in EXPERIENCE
 
 
 def test_hero_uses_five_personal_plus_trend_plus_adjacent_discovery():

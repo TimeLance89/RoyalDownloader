@@ -129,16 +129,11 @@ def test_legacy_provider_search_hit_collapses_to_current_monster_series(monkeypa
 
 def test_provider_authoritative_series_use_tmdb_for_artwork_only():
     runtime = (
-        Path(__file__).resolve().parents[1] / "web" / "global-search-runtime.js"
+        Path(__file__).resolve().parents[1] / "web/js/features/discovery/artwork.js"
     ).read_text(encoding="utf-8")
-
-    assert 'item?.metadata_policy === "provider_authoritative"' in runtime
-    assert "const artworkClones = authoritativeItems.map" in runtime
-    assert '["cover_url", "backdrop_url"]' in runtime
-    assert "target[field] = clone[field]" in runtime
-    assert "tmdb_id" not in runtime.split("const artworkClones", 1)[1].split(
-        "function uniqueCatalogContentEntries", 1,
-    )[0]
+    assert 'item.metadata_policy === "provider_authoritative" ? {} : metadata' in runtime
+    assert 'cover_url: metadata.cover_url || item.cover_url || ""' in runtime
+    assert 'backdrop_url: metadata.backdrop_url || item.backdrop_url || ""' in runtime
 
 
 def test_canonical_provider_detail_load_never_falls_back_to_other_series(monkeypatch):

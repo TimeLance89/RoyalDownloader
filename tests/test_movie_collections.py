@@ -46,7 +46,7 @@ def test_movie_collection_sorts_parts_and_keeps_unreleased_films():
 
 
 def test_collection_flow_checks_jellyfin_before_providers_and_uses_queue_truth():
-    source = (ROOT / "web" / "screens" / "movie-collections.js").read_text(
+    source = (ROOT / "web" / "js/features/collections/index.js").read_text(
         encoding="utf-8",
     )
     open_flow = source[source.index("async function openMovieCollection"):]
@@ -56,7 +56,7 @@ def test_collection_flow_checks_jellyfin_before_providers_and_uses_queue_truth()
     assert 'status === "owned"' in source
     assert "collectionReleaseIsFuture(part)" in source
     assert "response.skipped_details?.[slug]" in source
-    assert "state.queuedSlugs.has(part.slug)" in source
+    assert "getQueuedSlugs().has(part.slug)" in source
     assert "selected: true" in source
     assert 'normalized.includes("in jellyfin vorhanden")' in source
     assert "requests.length; index += 100" in source
@@ -66,6 +66,6 @@ def test_collection_flow_checks_jellyfin_before_providers_and_uses_queue_truth()
     assert 'normalized.includes("sicherheitsprüfung")' in source
     assert "retryMovieCollectionJellyfinPart(part)" in source
     retry_flow = source[source.index("async function retryMovieCollectionJellyfinPart"):]
-    assert retry_flow.index("await api.jellyfinMatches") < retry_flow.index(
+    assert retry_flow.index("await checkJellyfin") < retry_flow.index(
         "await queueCollectionMovies([part.slug])",
     )

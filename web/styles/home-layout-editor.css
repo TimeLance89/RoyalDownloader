@@ -87,7 +87,7 @@
   height: 42px;
   border: 1px solid rgba(255,255,255,.13);
   border-radius: 50%;
-  color: #fff;
+  color: var(--color-white);
   background: #14161a;
   font-size: 25px;
   cursor: pointer;
@@ -197,7 +197,7 @@
 .home-layout-footer > div { display: flex; gap: 9px; }
 .home-layout-footer button { min-height: 40px; padding: 0 17px; border-radius: 9px; font-weight: 750; cursor: pointer; }
 #home-layout-cancel { border: 1px solid rgba(255,255,255,.14); color: #ddd; background: #14161a; }
-#home-layout-save { border: 1px solid #ef3445; color: #fff; background: #e51f32; }
+#home-layout-save { border: 1px solid #ef3445; color: var(--color-white); background: #e51f32; }
 #home-layout-save:disabled { opacity: .5; cursor: wait; }
 body.home-layout-editor-open { overflow: hidden; }
 

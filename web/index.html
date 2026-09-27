@@ -1248,6 +1248,116 @@
       </div>
     </section>
 
+    <section class="tab-content aniworld-tab-content" id="tab-aniworld">
+      <header class="aniworld-hero">
+        <div class="aniworld-hero-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="aniworld-hero-copy">
+          <span class="aniworld-kicker">DEUTSCHES ANIME-ARCHIV · ANIWORLD</span>
+          <h1>Staffeln. Filme.<br><em>Keine Lücken.</em></h1>
+          <p>Durchsuche den vollständigen Katalog, wähle jede verfügbare Sprachspur und plane ganze Staffeln oder einzelne Folgen ein.</p>
+          <div class="aniworld-hero-tracks" aria-label="Unterstützte Sprachspuren">
+            <span><b>DUB</b> Deutsch</span><span><b>SUB</b> Deutsche Untertitel</span><span><b>EN</b> Englisch</span>
+          </div>
+        </div>
+        <button id="aniworld-featured" class="aniworld-featured" type="button" hidden>
+          <span id="aniworld-featured-art" class="aniworld-featured-art" aria-hidden="true"></span>
+          <span class="aniworld-featured-shade" aria-hidden="true"></span>
+          <span class="aniworld-featured-copy">
+            <small>ARCHIV-EMPFEHLUNG</small>
+            <strong id="aniworld-featured-title">Anime entdecken</strong>
+            <span id="aniworld-featured-meta">AniWorld · DE</span>
+          </span>
+          <span class="aniworld-featured-open" aria-hidden="true">↗</span>
+        </button>
+        <dl class="aniworld-hero-metrics">
+          <div><dt id="aniworld-result-count">—</dt><dd>Titel im Ergebnis</dd></div>
+          <div><dt>3</dt><dd>Sprachspuren</dd></div>
+          <div><dt id="aniworld-source-state">LIVE</dt><dd>Quellenstatus</dd></div>
+        </dl>
+      </header>
+
+      <section class="aniworld-console" aria-labelledby="aniworld-console-title">
+        <div class="aniworld-console-head">
+          <div><span>ARCHIVSTEUERUNG</span><h2 id="aniworld-console-title">Was möchtest du laden?</h2></div>
+          <span id="aniworld-status" role="status" aria-live="polite">Der vollständige Katalog wird beim Öffnen geladen …</span>
+        </div>
+        <div class="aniworld-command-row">
+          <label class="aniworld-search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="aniworld-search" type="search" autocomplete="off" placeholder="Titel oder Alternativtitel suchen">
+          </label>
+          <button id="aniworld-search-btn" class="aniworld-search-submit" type="button">Suchen</button>
+          <div class="aniworld-mode-switch" role="group" aria-label="Katalogansicht">
+            <button id="aniworld-updates-btn" type="button">Neue Folgen</button>
+            <button id="aniworld-latest-btn" type="button">Neue Anime</button>
+            <button id="aniworld-trending-btn" type="button">Trending</button>
+            <button id="aniworld-popular-btn" type="button">Beliebt</button>
+            <button id="aniworld-catalog-btn" class="is-active" type="button">A–Z</button>
+          </div>
+        </div>
+        <div id="aniworld-filters" class="aniworld-filter-deck">
+          <div id="aniworld-letter-filter" class="aniworld-letter-filter" role="group" aria-label="Anfangsbuchstabe"></div>
+          <label><span>Genre</span><select id="aniworld-genre-filter"><option value="">Alle Genres</option></select></label>
+          <button id="aniworld-filter-reset" type="button">Filter löschen</button>
+        </div>
+      </section>
+
+      <section class="aniworld-catalog-panel" aria-labelledby="aniworld-catalog-title">
+        <header class="aniworld-catalog-head">
+          <div><span class="aniworld-section-code">ANIWORLD / KATALOG</span><h2 id="aniworld-catalog-title">Vollständiger A–Z-Katalog</h2></div>
+          <span id="aniworld-catalog-summary">Titel werden geladen</span>
+        </header>
+        <div id="aniworld-results" class="aniworld-grid" aria-label="AniWorld-Ergebnisse"></div>
+        <div id="aniworld-infinite" class="catalog-infinite aniworld-infinite hidden" role="status" aria-live="polite" aria-atomic="true">
+          <span class="catalog-infinite-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="aniworld-infinite-label">Weitere Anime werden beim Scrollen geladen</span>
+          <button id="aniworld-infinite-retry" class="btn btn-ghost btn-sm" type="button" hidden>Erneut versuchen</button>
+        </div>
+      </section>
+
+      <div id="aniworld-detail-modal" class="media-modal aniworld-detail-modal" role="dialog" aria-modal="true" aria-labelledby="aniworld-detail-title" hidden>
+        <div class="media-modal-backdrop" data-modal-close="aniworld-detail-modal" aria-hidden="true"></div>
+        <div class="aniworld-detail-panel media-modal-panel" tabindex="-1">
+          <button class="media-modal-close" type="button" data-modal-close="aniworld-detail-modal" aria-label="AniWorld-Details schließen">×</button>
+          <div id="aniworld-detail-banner" class="aniworld-detail-banner" aria-hidden="true"></div>
+          <div class="aniworld-detail-scroll">
+            <section class="aniworld-detail-profile">
+              <div class="aniworld-detail-visual">
+                <img id="aniworld-detail-cover" alt="">
+                <span id="aniworld-detail-type">DE Anime</span>
+              </div>
+              <article class="aniworld-detail-copy">
+                <span class="aniworld-kicker">ANIWORLD / TITELAKTE</span>
+                <h2 id="aniworld-detail-title">Anime auswählen</h2>
+                <div id="aniworld-detail-meta" class="aniworld-detail-meta"></div>
+                <p id="aniworld-detail-alternatives" class="aniworld-detail-alternatives"></p>
+                <p id="aniworld-detail-description"></p>
+                <dl id="aniworld-detail-credits" class="aniworld-detail-credits"></dl>
+              </article>
+            </section>
+            <section class="aniworld-episode-console" aria-labelledby="aniworld-track-title">
+              <header class="aniworld-track-head">
+                <div><span>SPRACHE · STAFFEL · FOLGEN</span><h3 id="aniworld-track-title">Folgen auswählen</h3></div>
+                <strong id="aniworld-pick-count">0 ausgewählt</strong>
+              </header>
+              <div id="aniworld-track-options" class="aniworld-track-options"></div>
+              <div id="aniworld-season-options" class="aniworld-season-options" role="group" aria-label="Staffel wählen"></div>
+              <div class="aniworld-episode-tools aniworld-season-toolbar">
+                <div><strong id="aniworld-current-season">Staffel</strong><span id="aniworld-episode-count">Folgen werden geladen</span></div>
+                <button id="aniworld-select-all" type="button">Alle auswählen</button>
+                <button id="aniworld-select-none" type="button">Auswahl leeren</button>
+              </div>
+              <div id="aniworld-episode-grid" class="aniworld-episode-grid"></div>
+              <div class="aniworld-download-bar">
+                <span><strong id="aniworld-download-count">Keine Folgen ausgewählt</strong><small>Die Auswahl landet direkt in der Warteschlange.</small></span>
+                <button id="aniworld-add-btn" class="aniworld-add-button" type="button" disabled>Auswahl herunterladen</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="tab-content" id="tab-bibliothek">
       <header class="library-hero">
         <div id="library-hero-art" class="library-hero-art" aria-hidden="true"></div>
@@ -2525,40 +2635,6 @@
   </div>
 </div>
 
-<script src="/loading.js?v=royal-20260827-1"></script>
-<script src="/api.js?v=royal-20260921-2"></script>
-<script src="/i18n.js?v=royal-20260909-3"></script>
-<script src="/store.js?v=royal-20260921-1"></script>
-<script src="/screens/login.js?v=royal-20260920-1"></script>
-<script src="/core.js?v=royal-20260913-1"></script>
-<script src="/home_card_dock.js?v=royal-20260811-10"></script>
-<script src="/home_rail_runtime.js?v=royal-20260922-1"></script>
-<script src="/screens/home.js?v=royal-20260922-1"></script>
-<script src="/screens/taste-onboarding.js?v=royal-20260921-2"></script>
-<script src="/home_layout_editor.js?v=royal-20260915-2"></script>
-<script src="/screens/mood.js?v=royal-20260825-2"></script>
-<script src="/trailer-runtime.js?v=royal-20260810-2"></script>
-<script src="/catalog-runtime.js?v=royal-20260905-1"></script>
-<script src="/detail-hero-scroll.js?v=royal-20260824-1"></script>
-<script src="/screens/movie_download_feedback.js?v=royal-20260822-1"></script>
-<script src="/screens/movie-detail-discovery.js?v=royal-20260824-1"></script>
-<script src="/screens/movies.js?v=royal-20260905-1"></script>
-<script src="/screens/movie-collections.js?v=royal-20260913-1"></script>
-<script src="/screens/movie_filters.js?v=royal-20260811-1"></script>
-<script src="/screens/series-detail-discovery.js?v=royal-20260824-1"></script>
-<script src="/screens/series.js?v=royal-20260915-2"></script>
-<script src="/screens/series-calendar.js?v=royal-20260912-1"></script>
-<script src="/screens/movie-releases.js?v=royal-20260912-1"></script>
-<script src="/screens/anime.js?v=royal-20260805-3"></script>
-<script src="/screens/aniworld.js?v=royal-20260823-2"></script>
-<script src="/screens/library.js?v=royal-20260823-1"></script>
-<script src="/screens/notifications.js?v=royal-20260921-2"></script>
-<script src="/screens/settings.js?v=royal-20260823-1"></script>
-<script src="/ai-discovery.js?v=royal-20260920-3"></script>
-<script src="/screens/account.js?v=royal-20260921-2"></script>
-<script src="/screens/user-profile.js?v=royal-20260921-3"></script>
-<script src="/screens/setup.js?v=royal-20260823-1"></script>
-<script src="/jellyfin-resume.js?v=royal-20260825-1"></script>
-<script src="/app.js?v=royal-20260921-1"></script>
+<script type="module" src="/app.js?v=royal-20260921-1"></script>
 </body>
 </html>

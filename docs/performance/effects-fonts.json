@@ -1,0 +1,128 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "typography": {
+    "Archivo, \"Arial Black\", sans-serif / 800": 1,
+    "Archivo, sans-serif / 600": 1,
+    "\"DM Sans\", sans-serif / 720": 2,
+    "\"DM Sans\", sans-serif / 620": 4,
+    "\"DM Sans\", sans-serif / 680": 1,
+    "Archivo, sans-serif / 800": 4,
+    "Arial / 700": 1,
+    "Arial / 400": 2,
+    "Archivo, sans-serif / 700": 4,
+    "\"DM Sans\", \"Helvetica Neue\", Arial, sans-serif / 700": 3,
+    "\"DM Sans\", \"Helvetica Neue\", Arial, sans-serif / 500": 1,
+    "\"DM Sans\", sans-serif / 700": 8,
+    "\"DM Sans\", sans-serif / 500": 3,
+    "\"JetBrains Mono\", monospace / 600": 1,
+    "\"JetBrains Mono\", monospace / 700": 2,
+    "\"JetBrains Mono\", Consolas, monospace / 700": 3,
+    "\"DM Sans\", sans-serif / 750": 2,
+    "\"JetBrains Mono\", Consolas, monospace / 800": 1,
+    "\"JetBrains Mono\", Consolas, monospace / 500": 1,
+    "Archivo, \"DM Sans\", sans-serif / 750": 1,
+    "\"DM Sans\", sans-serif / 650": 1,
+    "\"JetBrains Mono\", Consolas, monospace / 600": 1
+  },
+  "loadedFontFaces": [
+    {
+      "family": "Archivo",
+      "weight": "500",
+      "display": "swap"
+    },
+    {
+      "family": "Archivo",
+      "weight": "600",
+      "display": "swap"
+    },
+    {
+      "family": "Archivo",
+      "weight": "700",
+      "display": "swap"
+    },
+    {
+      "family": "Archivo",
+      "weight": "800",
+      "display": "swap"
+    },
+    {
+      "family": "DM Sans",
+      "weight": "400",
+      "display": "swap"
+    },
+    {
+      "family": "DM Sans",
+      "weight": "500",
+      "display": "swap"
+    },
+    {
+      "family": "DM Sans",
+      "weight": "600",
+      "display": "swap"
+    },
+    {
+      "family": "DM Sans",
+      "weight": "700",
+      "display": "swap"
+    },
+    {
+      "family": "JetBrains Mono",
+      "weight": "500",
+      "display": "swap"
+    }
+  ],
+  "fontResources": [
+    {
+      "url": "https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+      "durationMs": 166.40000000596046,
+      "transferSize": 1392
+    }
+  ],
+  "effects": [
+    {
+      "selector": "tab-home",
+      "area": 1177920,
+      "backdropFilter": "none",
+      "filter": "blur(0px)"
+    },
+    {
+      "selector": "home-hero-art",
+      "area": 904111,
+      "backdropFilter": "none",
+      "filter": "saturate(1.04) contrast(1.06) brightness(0.92)"
+    },
+    {
+      "selector": "home-program",
+      "area": 177913,
+      "backdropFilter": "blur(18px)",
+      "filter": "none"
+    },
+    {
+      "selector": "panel queue-panel",
+      "area": 141120,
+      "backdropFilter": "blur(18px)",
+      "filter": "none"
+    },
+    {
+      "selector": "topbar",
+      "area": 120960,
+      "backdropFilter": "blur(22px) saturate(1.16)",
+      "filter": "none"
+    },
+    {
+      "selector": "log-console",
+      "area": 86440,
+      "backdropFilter": "blur(18px)",
+      "filter": "none"
+    },
+    {
+      "selector": "home-hero-controls",
+      "area": 4788,
+      "backdropFilter": "blur(8px)",
+      "filter": "none"
+    }
+  ]
+}

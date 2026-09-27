@@ -2,15 +2,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY_JS = ROOT / "web" / "automation-policy.js"
+POLICY_DIR = ROOT / "web/js/features/automation"
+
+def policy_source():
+    return "\n".join(path.read_text(encoding="utf-8") for path in POLICY_DIR.glob("*.js"))
 POLICY_CSS = ROOT / "web" / "styles" / "automation-policy.css"
-GLOBAL_RUNTIME = ROOT / "web" / "global-search-runtime.js"
+GLOBAL_RUNTIME = ROOT / "web/js/features/search/index.js"
 DOMAIN_ROUTER = ROOT / "api" / "api_domain_routers.py"
 RUNTIME = ROOT / "application_services" / "runtime.py"
 
 
 def test_smart_automation_frontend_exposes_all_requested_controls():
-    js = POLICY_JS.read_text(encoding="utf-8")
+    js = policy_source()
     for identifier in (
         "weekday-custom-start",
         "weekday-custom-end",
@@ -32,7 +35,7 @@ def test_smart_automation_frontend_exposes_all_requested_controls():
 
 
 def test_schedule_uses_friendly_modes_and_clock_inputs_instead_of_raw_hours():
-    js = POLICY_JS.read_text(encoding="utf-8")
+    js = policy_source()
     assert 'name="weekday-mode"' in js
     assert 'name="weekend-mode"' in js
     assert "Jederzeit" in js
@@ -47,18 +50,18 @@ def test_schedule_uses_friendly_modes_and_clock_inputs_instead_of_raw_hours():
 
 
 def test_live_policy_refresh_does_not_overwrite_unsaved_settings():
-    js = POLICY_JS.read_text(encoding="utf-8")
+    js = policy_source()
     assert "settingsHaveUnsavedChanges" in js
     assert 'byId("settings-saved-status")' in js
     assert '=== "Ungespeicherte Änderungen."' in js
-    assert "!injectUi() || settingsHaveUnsavedChanges()" in js
+    assert "section.hidden || settingsHaveUnsavedChanges()" in js
 
 
 def test_smart_automation_frontend_is_loaded_and_styled():
     runtime = GLOBAL_RUNTIME.read_text(encoding="utf-8")
     css = POLICY_CSS.read_text(encoding="utf-8")
-    assert "/automation-policy.js?v=royal-20260821-1" in runtime
-    assert "data-royal-smart-automation" in runtime
+    assert "/automation-policy.js" not in runtime
+    assert "createAutomation" in "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
     assert ".smart-automation-policy" in css
     assert ".smart-schedule-choice" in css
     assert ".smart-time-window" in css

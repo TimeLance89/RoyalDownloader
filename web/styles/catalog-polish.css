@@ -209,7 +209,7 @@
   min-width: 190px;
   gap: 4px;
   padding-left: 15px;
-  border-left: 2px solid #e50914;
+  border-left: 2px solid var(--color-accent);
   text-align: right;
 }
 
@@ -313,7 +313,7 @@
 
 #tab-filme .movie-filter-actions button:hover:not(:disabled),
 #tab-filme .movie-filter-actions button:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: #292b30;
   border-color: rgba(255, 255, 255, .32);
   outline: none;
@@ -451,7 +451,7 @@
   .topbar .tabs > .tab-btn:focus-visible,
   .topbar .nav-menu-trigger:hover,
   .topbar .nav-menu-trigger:focus-visible {
-    color: #fff;
+    color: var(--color-white);
     background: rgba(255, 255, 255, .075);
     outline: 0;
     transform: none;
@@ -464,7 +464,7 @@
 
   .topbar .tabs > .tab-btn.active {
     padding-inline: clamp(18px, 1.35vw, 25px);
-    color: #fff;
+    color: var(--color-white);
     background: rgba(255, 255, 255, .18);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 7px 22px rgba(0, 0, 0, .18);
     font-weight: 700;
@@ -483,7 +483,7 @@
 
   .topbar #settings-btn:hover,
   .topbar #settings-btn:focus-visible {
-    color: #fff;
+    color: var(--color-white);
     background: rgba(42, 42, 42, .88);
     border-color: rgba(255, 255, 255, .24);
   }
@@ -549,7 +549,7 @@
 .nav-menu-item:hover,
 .nav-menu-item:focus-visible,
 .nav-menu-item.active {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .085);
   outline: 0;
 }
@@ -593,7 +593,7 @@
 .nav-menu-item:focus-visible .nav-menu-icon,
 .nav-menu-item.active .nav-menu-icon,
 .nav-menu-item--mood .nav-menu-icon {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(229, 9, 20, .18);
   border-color: rgba(229, 9, 20, .32);
 }
@@ -605,6 +605,7 @@
 }
 
 .nav-menu-scrim { display: none; }
+.nav-menu-scrim[hidden] { display: none; }
 
 @media (min-width: 821px) and (max-width: 1450px) {
   .topbar { padding-inline: 24px; gap: 16px; }
@@ -654,7 +655,7 @@
   .mobile-tabs .nav-menu-trigger .nav-menu-marker { display: none; }
 
   .mobile-tabs .nav-menu-trigger.is-open {
-    color: #fff;
+    color: var(--color-white);
     box-shadow: inset 0 3px 0 var(--accent);
   }
 
@@ -700,7 +701,7 @@
    untouched; this section only changes how the existing information reads. */
 
 #queue-dock .queue-panel {
-  --dock-accent: #e50914;
+  --dock-accent: var(--color-accent);
   --dock-accent-soft: rgba(229, 9, 20, .14);
   --dock-ready: #63c77b;
   --dock-warn: #e1b85b;
@@ -737,7 +738,7 @@
 }
 
 #queue-dock .download-stage[data-state="active"] .download-state-icon {
-  color: #fff;
+  color: var(--color-white);
   border-color: rgba(229, 9, 20, .58);
   background: linear-gradient(145deg, rgba(229, 9, 20, .34), rgba(229, 9, 20, .11));
   box-shadow: 0 0 0 5px rgba(229, 9, 20, .06), 0 0 28px rgba(229, 9, 20, .16);
@@ -762,7 +763,7 @@
 }
 
 #queue-dock .download-percent {
-  color: #fff;
+  color: var(--color-white);
   font-family: "DM Sans", sans-serif;
   font-weight: 700;
   letter-spacing: -.03em;
@@ -775,7 +776,7 @@
 }
 
 #queue-dock .progress-fill {
-  background: linear-gradient(90deg, #bb0711, #e50914 55%, #ff4d57);
+  background: linear-gradient(90deg, #bb0711, var(--color-accent) 55%, #ff4d57);
   border-radius: inherit;
   box-shadow: 0 0 16px rgba(229, 9, 20, .28);
   transition: width .3s ease;
@@ -898,7 +899,7 @@
 #queue-dock .queue-item-progress i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #b90812, #e50914, #ff4a55);
+  background: linear-gradient(90deg, #b90812, var(--color-accent), #ff4a55);
   border-radius: inherit;
 }
 
@@ -933,7 +934,7 @@
 
 #queue-dock .queue-action-btn:hover,
 #queue-dock .queue-action-btn:focus-visible {
-  color: #fff;
+  color: var(--color-white);
   background: rgba(255, 255, 255, .085);
   border-color: rgba(255, 255, 255, .18);
   outline: none;
@@ -1090,7 +1091,7 @@
 
   #queue-dock .queue-dock-toggle:hover,
   #queue-dock .queue-dock-toggle:focus-visible {
-    color: #fff;
+    color: var(--color-white);
     background: rgba(255, 255, 255, .09);
     border-color: rgba(255, 255, 255, .18);
     transform: none;
@@ -1121,7 +1122,7 @@
   }
 
   #queue-dock .queue-drawer-heading .panel-title {
-    color: #f5f5f5;
+    color: var(--color-text);
     font-family: "DM Sans", sans-serif;
     font-size: 20px;
     font-weight: 750;
@@ -1153,7 +1154,7 @@
   }
 
   #queue-dock .queue-drawer-actions #cancel-btn:not(:disabled) {
-    color: #fff;
+    color: var(--color-white);
     border-color: rgba(229, 9, 20, .24);
     background: rgba(229, 9, 20, .08);
   }
@@ -1264,7 +1265,7 @@
   }
 
   #queue-dock .queue-drawer-heading .panel-title {
-    color: #f5f5f5;
+    color: var(--color-text);
     font-family: "DM Sans", sans-serif;
     font-size: 19px;
     letter-spacing: -.02em;
@@ -1434,7 +1435,7 @@
 
   #queue-dock .progress-fill {
     position: relative;
-    background: linear-gradient(90deg, #a90009, #e50914 70%, #ff5861);
+    background: linear-gradient(90deg, #a90009, var(--color-accent) 70%, #ff5861);
     border-radius: 2px;
     box-shadow: 0 0 18px rgba(229, 9, 20, .42);
   }
@@ -1446,8 +1447,8 @@
     right: -2px;
     width: 7px;
     height: 7px;
-    background: #fff;
-    border: 2px solid #e50914;
+    background: var(--color-white);
+    border: 2px solid var(--color-accent);
     border-radius: 50%;
     box-shadow: 0 0 13px rgba(255, 255, 255, .72);
     transform: translateY(-50%);

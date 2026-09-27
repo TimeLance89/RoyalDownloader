@@ -1,0 +1,34 @@
+{
+  "skippedRails": [
+    "home-explore-track",
+    "home-gems-track",
+    "home-new-track",
+    "home-new-movies-track",
+    "home-new-series-track",
+    "home-high-rated-track",
+    "home-movie-night-track",
+    "home-library-track"
+  ],
+  "results": [
+    {
+      "mode": "auto",
+      "layoutCount": 0,
+      "layoutMs": 0
+    },
+    {
+      "mode": "visible",
+      "layoutCount": 40,
+      "layoutMs": 212.6699999999999
+    },
+    {
+      "mode": "visible",
+      "layoutCount": 40,
+      "layoutMs": 220.30600000000013
+    },
+    {
+      "mode": "auto",
+      "layoutCount": 0,
+      "layoutMs": 0
+    }
+  ]
+}

@@ -2,14 +2,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TASTE = (ROOT / "web" / "taste_v2.js").read_text(encoding="utf-8")
-API = (ROOT / "web" / "api.js").read_text(encoding="utf-8")
+TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf-8")
+API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js")))
 RUNTIME = (ROOT / "application_services" / "runtime.py").read_text(encoding="utf-8")
 
 
 def test_taste_v2_is_loaded_after_legacy_discovery_installers():
-    assert 'script.src = "/taste_v2.js?v=royal-20260824-1"' in API
-    assert "window.setTimeout(loadRoyalTasteProfileV2, 0)" in API
+    assert "createTasteRanking" in API
+    assert "window.createHomeCard =" not in TASTE
 
 
 def test_personal_lane_is_strict_five_plus_two_without_forced_surprise():
@@ -23,7 +23,8 @@ def test_manual_shuffle_penalizes_current_session_exposure():
     assert "const sessionExposure = new Set()" in TASTE
     assert "sessionExposure.add(key)" in TASTE
     assert "const sessionPenalty = sessionExposure.has(key) ? 18 : 0" in TASTE
-    assert 'shuffleButton.addEventListener("click", recordVisiblePersonalForReshuffle, { capture: true })' in TASTE
+    assert "beforeShuffle: recordVisiblePersonalForReshuffle" in TASTE
+    assert "services.tasteRanking.beforeShuffle()" in "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
 
 
 def test_home_cards_offer_direct_not_for_me_feedback_and_reason():

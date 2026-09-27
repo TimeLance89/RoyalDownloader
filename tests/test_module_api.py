@@ -83,3 +83,27 @@ def test_relevant_configuration_endpoints_trigger_module_reconciliation():
         "seerr-sync",
     ):
         assert f'state.module_manager.reconcile("{module_id}")' in source
+
+
+def test_module_health_contract_is_additive_and_applies_to_reads_and_writes():
+    app = FastAPI()
+    app.include_router(create_module_router(_manager()))
+    client = TestClient(app)
+    payload = client.get("/api/modules").json()
+    assert payload["health_schema_version"] == 1
+    assert payload["modules"][0]["health"] == "healthy"
+    assert payload["modules"][0]["integration_health"] == {"state": "healthy", "detail": "läuft"}
+    changed = client.put("/api/modules/child", json={"enabled": False}).json()
+    child = next(module for module in changed["modules"] if module["id"] == "child")
+    assert child["integration_health"]["state"] == "disabled"
+
+
+def test_integration_health_uses_explicit_states_without_guessing_error_text():
+    from api.integration_health import HEALTH_STATES, integration_health
+
+    for state in HEALTH_STATES:
+        assert integration_health({"health": state, "enabled": True})["state"] == state
+    assert integration_health({"health": "healthy", "enabled": False})["state"] == "disabled"
+    assert integration_health({"health": "healthy", "missing_optional": ["tmdb"]})["state"] == "degraded"
+    assert integration_health({"health": "unavailable", "health_detail": "401 offline"})["state"] == "degraded"
+    assert integration_health({"health_detail": "401 offline"})["state"] == "unknown"

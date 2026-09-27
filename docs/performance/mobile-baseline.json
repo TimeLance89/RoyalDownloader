@@ -1,0 +1,53 @@
+[
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "start": 4795,
+    "left": 4795,
+    "right": 4795,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": false,
+    "verticalDelta": 215,
+    "tabDelta": 3296,
+    "orientationMoved": false,
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 430,
+      "height": 932
+    },
+    "start": 5268,
+    "left": 5268,
+    "right": 5268,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": false,
+    "verticalDelta": 215,
+    "tabDelta": 3621,
+    "orientationMoved": false,
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "start": 5297,
+    "left": 5297,
+    "right": 5297,
+    "stable": true,
+    "swipeClicks": 0,
+    "gestureWrites": [],
+    "tapOpened": false,
+    "verticalDelta": 215,
+    "tabDelta": 3641,
+    "orientationMoved": false,
+    "errors": []
+  }
+]

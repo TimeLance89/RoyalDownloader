@@ -1,13 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
+import { createSeriesPresentation } from "../web/js/features/discovery/series-presentation.js";
 import test from "node:test";
 
-const source = readFileSync(new URL("../web/screens/series.js", import.meta.url), "utf8");
 function summary(result, cache = {}) {
-  const context = vm.createContext({ state: { series: { cache } } });
-  vm.runInContext(source, context);
-  return context.seriesCardSeasonSummary(result);
+  return createSeriesPresentation({}, {}, { seriesState: { cache } }).seriesCardSeasonSummary(result);
 }
 
 test("unknown series structure offers navigation without invented counts", () => {
