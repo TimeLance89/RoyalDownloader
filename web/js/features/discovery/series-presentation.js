@@ -359,7 +359,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     if (!sourceLabels.length && result.provider_label) previewMeta.push(result.provider_label);
     renderSeriesDetailMeta(previewMeta);
     byId("series-desc").textContent =
-      "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
+      result.description || "Die Serie ist geöffnet. Staffel- und Episodenstruktur wird beim Anbieter eingelesen.";
     configureSeriesTrailer(result);
     renderSeriesDetailDiscovery(result);
     const tiles = byId("series-tiles");

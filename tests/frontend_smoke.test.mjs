@@ -529,9 +529,9 @@ test("movie catalog combines practical filters without rebuilding stable cards",
 test("movie details keep catalog artwork while full metadata loads directly", () => {
   assert.match(app, /cover_url: item\.cover_url \|\| ""/);
   assert.match(app, /backdrop_url: item\.backdrop_url \|\| ""/);
-  assert.match(app, /if \(!metadata\?\.details_loaded\)/);
-  assert.match(app, /const detailResponse = await client\.post\("\/api\/tmdb\/movie"/);
-  assert.match(app, /setFpDetailAvailability\("Metadaten nicht verfügbar", "error"\)/);
+  assert.match(app, /if \(metadata\.details_loaded\) return/);
+  assert.match(app, /const response = await client\.post\("\/api\/tmdb\/movie"/);
+  assert.match(app, /detail\.metadataState = "failed"/);
 });
 
 test("Top 10 rotates daily instead of weekly", () => {
@@ -1013,7 +1013,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
   assert.match(app, /Download fehlgeschlagen:/);
   assert.match(
     app,
-    /await loadFpMetadata\(item, owner\);[\s\S]*?if \(!current\(owner, slug\)\) return;[\s\S]*?await client\.get\(`/,
+    /client\.get\(`[\s\S]*?if \(!current\(\)\) return;/,
   );
   assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
   assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);

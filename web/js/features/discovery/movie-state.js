@@ -6,6 +6,6 @@ export function createMovieState() {
     metadataCache: {}, requestSeq: 0, metadataRequestSeq: 0, sources: [], loadingMore: false,
     loadError: "", searchActive: false, searchReturn: null,
     previewFromHome: false, lastCatalogRefreshAt: 0,
-    downloadSelections: new Map(),
+    downloadSelections: new Map(), detail: null,
   };
 }

@@ -364,7 +364,13 @@ async def api_movie(slug: str, tmdb_id: int | None = None):
     def _work():
         movie = state.fp_movies.get(slug)
         if movie is None or not getattr(movie, "hosters", None):
-            movie = load_movie_for_slug(slug)
+            try:
+                movie = load_movie_for_slug(slug)
+            except Exception as exc:
+                if tmdb_id is None or slug.casefold() == f"tmdb:{tmdb_id}":
+                    raise
+                log(f"Direkte Filmquelle fehlgeschlagen ({slug}), suche TMDB-Fallback: {exc}", "warn")
+                movie = None
         if (
             (movie is None or not getattr(movie, "hosters", None))
             and tmdb_id is not None
@@ -381,8 +387,13 @@ async def api_movie(slug: str, tmdb_id: int | None = None):
 
     try:
         payload = await run_in_threadpool(_work)
-    except (LookupError, ValueError) as exc:
-        raise HTTPException(404, str(exc)) from exc
+    except LookupError as exc:
+        log(f"Filmquelle nicht verfügbar ({slug}): {exc}", "warn")
+        payload = None
+    except Exception as exc:
+        log(f"Filmprüfung fehlgeschlagen ({slug}): {exc}", "warn")
+        raise HTTPException(502, {"code": "movie_provider_unavailable",
+                                 "message": "Anbieter derzeit nicht erreichbar."}) from exc
     if payload is None:
         raise HTTPException(
             404,
@@ -433,6 +444,7 @@ class SeriesMetadataItem(BaseModel):
     base_slug: str
     title: str
     year: str = ""
+    tmdb_id: int | None = None
 
 
 class SeriesMetadataBody(BaseModel):
@@ -657,10 +669,10 @@ async def api_tmdb_series(body: SeriesMetadataBody):
         unique = {}
         for item in body.items[:100]:
             title = strip_source_suffix(item.title)
-            key = (_norm_title(title), str(item.year or ""))
+            key = (_norm_title(title), str(item.year or ""), item.tmdb_id)
             group = unique.setdefault(
                 key,
-                {"title": title, "year": item.year, "base_slugs": []},
+                {"title": title, "year": item.year, "tmdb_id": item.tmdb_id, "base_slugs": []},
             )
             group["base_slugs"].append(item.base_slug)
 
@@ -673,16 +685,17 @@ async def api_tmdb_series(body: SeriesMetadataBody):
                 "series",
                 _norm_title(group["title"]),
                 str(group.get("year") or ""),
+                group["tmdb_id"],
             )
             created = False
             with _TMDB_METADATA_INFLIGHT_LOCK:
                 future = _TMDB_METADATA_INFLIGHT.get(job_key)
                 if future is None:
-                    future = _TMDB_SERIES_METADATA_POOL.submit(
-                        client.series_summary,
-                        group["title"],
-                        group["year"],
-                    )
+                    future = (_TMDB_SERIES_METADATA_POOL.submit(
+                        client.series_by_id, group["tmdb_id"], group["title"],
+                    ) if group["tmdb_id"] else _TMDB_SERIES_METADATA_POOL.submit(
+                        client.series_summary, group["title"], group["year"],
+                    ))
                     _TMDB_METADATA_INFLIGHT[job_key] = future
                     created = True
             if created:
