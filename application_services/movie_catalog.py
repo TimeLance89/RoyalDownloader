@@ -35,6 +35,40 @@ _MOVIE_CATALOG_PREFETCH_POOL = ThreadPoolExecutor(
 _MOVIE_CATALOG_PREFETCH_INFLIGHT = set()
 _MOVIE_CATALOG_PREFETCH_LOCK = threading.Lock()
 
+# Interactive TMDB resolution must not wait for the slowest provider. Bound
+# outstanding work as well as response time; running scraper calls retain their
+# own network timeouts and cannot be forcibly interrupted by Python threads.
+MOVIE_DETAIL_SEARCH_BUDGET_SECONDS = 4.0
+MOVIE_DETAIL_LOAD_BUDGET_SECONDS = 8.0
+_MOVIE_DETAIL_POOL = ThreadPoolExecutor(max_workers=12, thread_name_prefix="movie-detail")
+_MOVIE_DETAIL_SLOTS = threading.BoundedSemaphore(36)
+
+
+def _bounded_movie_details(jobs, budget):
+    futures = {}
+    for key, job in jobs:
+        if not _MOVIE_DETAIL_SLOTS.acquire(blocking=False):
+            log(f"Filmprüfung ausgelastet: {key}", "warn")
+            continue
+        try:
+            future = _MOVIE_DETAIL_POOL.submit(job)
+        except Exception:
+            _MOVIE_DETAIL_SLOTS.release()
+            raise
+        future.add_done_callback(lambda _done: _MOVIE_DETAIL_SLOTS.release())
+        futures[future] = key
+    done, pending = wait(futures, timeout=budget)
+    for future in pending:
+        future.cancel()
+        log(f"Filmprüfung Zeitlimit: {futures[future]}", "warn")
+    results = []
+    for future in done:
+        try:
+            results.append((futures[future], future.result()))
+        except Exception as exc:
+            log(f"Filmprüfung {futures[future]} fehlgeschlagen: {exc}", "warn")
+    return results
+
 
 def strip_source_suffix(title: str) -> str:
     """Entfernt die UI-Markierung ``[Anbieter]``."""
@@ -334,7 +368,7 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
     return movie
 
 
-def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
+def search_movie_candidates(query: str, *, interactive: bool = False) -> List[FilmpalastSearchResult]:
     """Durchsucht alle Filmanbieter; gemeinsame Basis für Web und Telegram."""
     q = query.strip()
     if not q:
@@ -366,6 +400,15 @@ def search_movie_candidates(query: str) -> List[FilmpalastSearchResult]:
         for key in provider_priority("movies")
     ]
     results: List[FilmpalastSearchResult] = []
+    if not tasks:
+        return results
+    if interactive:
+        completed = _bounded_movie_details(
+            [(key, fn) for key, _name, fn in tasks], MOVIE_DETAIL_SEARCH_BUDGET_SECONDS,
+        )
+        for key, values in completed:
+            results.extend(_apply_provider_metadata_many(values, key))
+        return results
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = [(key, name, pool.submit(fn)) for key, name, fn in tasks]
         for key, name, future in futures:
@@ -487,7 +530,7 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
     seen_candidates: set[str] = set()
     provider_candidate_counts: Counter = Counter()
     for search_title in search_titles:
-        for candidate in search_movie_candidates(search_title):
+        for candidate in search_movie_candidates(search_title, interactive=True):
             provider = str(candidate.provider or provider_for_value(candidate.slug)).casefold()
             if provider_candidate_counts[provider] >= 3 or candidate.slug in seen_candidates:
                 continue
@@ -519,11 +562,10 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
 
     loaded_sources: List[FilmpalastMovie] = []
     if candidates:
-        with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as pool:
-            loaded_sources = [
-                movie for movie in pool.map(_load, candidates)
-                if movie is not None
-            ]
+        loaded_sources = [movie for _key, movie in _bounded_movie_details(
+            [(candidate.slug, lambda item=candidate: _load(item)) for candidate in candidates],
+            MOVIE_DETAIL_LOAD_BUDGET_SECONDS,
+        ) if movie is not None]
 
     positions = {
         provider: index for index, provider in enumerate(provider_priority("movies"))

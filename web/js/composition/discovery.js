@@ -106,6 +106,8 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         updateSeriesOverview: (...args) => services.seriesActions.updateSeriesOverview(...args), updateWatchBtn: (...args) => services.seriesActions.updateWatchBtn(...args), renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args),
       }),
   seriesDetailsLoader: createSeriesDetailsLoader(document.getElementById("series-detail-modal"), document.getElementById("series-status"), {
+        updateSeriesOverview: (...args) => services.seriesActions.updateSeriesOverview(...args),
+        updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args),
         seriesState, trackDiscoveryPreference: (...args) => getHome().actions.trackDiscoveryPreference(...args), updateSeriesResultSelection: (...args) => services.seriesActions.updateSeriesResultSelection(...args), showSeriesLoading: (...args) => services.seriesActions.showSeriesLoading(...args),
         openMediaModal: (...args) => getCore().actions.openMediaModal(...args), findSeriesResultCard: (...args) => services.seriesActions.findSeriesResultCard(...args), showSeriesDetail: (...args) => services.seriesActions.showSeriesDetail(...args), updateSeriesStatus: (...args) => services.movieActions.updateSeriesStatus(...args),
         refreshSeriesJellyfinStatus: (...args) => services.movieActions.refreshSeriesJellyfinStatus(...args), switchTab: (...args) => getCore().actions.switchTab(...args), firstEpisodeSlug: (...args) => services.seriesActions.firstEpisodeSlug(...args), seriesEpisodes: (...args) => services.seriesActions.seriesEpisodes(...args), isEpisodeSelectable: (...args) => services.seriesActions.isEpisodeSelectable(...args),

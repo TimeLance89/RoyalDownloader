@@ -104,8 +104,8 @@ export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadS
       card.append(artwork, copy);
       actions.set(card, () => {
         root.querySelector(kind === "movie" ? "#fp-detail-panel" : ".series-detail-panel").scrollTop = 0;
-        if (kind === "movie") void selectFpRow(slug, { ...item, slug, cover_url: "", genres: [], runtime: "", hosters: [], metadata_source: "TMDB" });
-        else void loadSeries({ ...item, sample_slug: item.title, base_slug: "", cover_url: "", genres: [], sources: [], metadata_source: "TMDB" });
+        if (kind === "movie") void selectFpRow(slug, { ...item, slug, hosters: [], metadata_source: "TMDB" });
+        else void loadSeries({ ...item, sample_slug: item.title, base_slug: "", sources: [], metadata_source: "TMDB" });
       });
       container.appendChild(card);
     }

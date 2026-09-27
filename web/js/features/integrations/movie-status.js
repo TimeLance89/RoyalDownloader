@@ -21,8 +21,11 @@ export function createMovieStatus({ movieState, refreshCatalogJellyfinStatus, ho
     }
   }
 
-  function refreshFpJellyfinStatus(items = null) {
+  function refreshFpJellyfinStatus(items = null, { signal } = {}) {
     if (!active) return Promise.resolve();
+    // Detail navigation must not queue behind an unrelated catalog batch.
+    if (signal) return refreshCatalogJellyfinStatus(items.map(homeMovieEntry), null, { signal })
+      .then(() => { if (active && !signal.aborted) updateFpJellyfinBadges(); });
     const targets = Array.isArray(items) ? [...items] : [...movieState.results];
     if (!items) {
       const selectedHomeMovie = homeMovieBySlug(movieState.selectedSlug);

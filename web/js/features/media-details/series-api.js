@@ -3,5 +3,5 @@ export function loadSeriesDetails(client, sampleSlug, baseSlug = "", { refreshJe
   return client.post(special ? "/api/series/monster-tmdb-load" : "/api/series/load", {
     ...(special ? { tmdb_id: Number(special[1]) } : { sample_slug: sampleSlug, base_slug: baseSlug }),
     refresh_jellyfin: refreshJellyfin, defer_checks: deferChecks,
-  }, { signal });
+  }, { signal, timeoutMs: 20_000 });
 }

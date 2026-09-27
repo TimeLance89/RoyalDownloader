@@ -149,14 +149,16 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
       const posterBadge = row.querySelector(".result-card-library-badge");
       if (result && posterBadge) setFpPosterJellyfinBadge(posterBadge, mediaJellyfinStatus(result));
     }
-    const selected = resultsBySlug.get(movieState.selectedSlug) || homeMovieBySlug(movieState.selectedSlug);
+    const selected = resultsBySlug.get(movieState.selectedSlug) || homeMovieBySlug(movieState.selectedSlug)
+      || movieState.metadataCache[movieState.selectedSlug];
     if (selected) {
       const selectedStatus = mediaJellyfinStatus(selected);
       setFpDetailJellyfinStatus(selectedStatus === "owned" ? true
         : selectedStatus === "missing" ? false : selectedStatus);
       const movie = movieState.moviesCache[selected.slug]
         || metadataPreviewMovie(movieState.metadataCache[selected.slug] || basicMovieMetadata(selected));
-      configureFpDetailAction(selected.slug, movie, !movieState.moviesCache[selected.slug]);
+      configureFpDetailAction(selected.slug, movie, movieState.detail?.slug === selected.slug
+        ? movieState.detail.availabilityState === "checking" : !movieState.moviesCache[selected.slug]);
     }
     if (fpSmartFilters().availability !== "all") applyFpSmartFilters();
   }
@@ -471,6 +473,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function fpDetailJellyfinValue(slug, movie) {
+    const status = movieState.metadataCache[slug]?.jellyfin_status;
+    if (status) return status === "owned" ? true : status === "missing" ? false : status;
     const catalogItem = movieState.results.find((item) => item.slug === slug)
       || homeMovieBySlug(slug);
     if (typeof catalogItem?.in_jellyfin === "boolean") return catalogItem.in_jellyfin;
@@ -694,6 +698,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
       detailPanel.style.removeProperty("--detail-backdrop-image");
     }
     cover.alt = movie.title ? `Poster zu ${movie.title}` : "Filmplakat";
+    if (movie.backdrop_url) detailPanel.style.setProperty("--detail-backdrop-image",
+      `url("${coverUrl(movie.backdrop_url).replace(/"/g, "%22")}")`);
     byId("fp-detail-title").textContent = movie.title;
     const metaParts = [];
     if (movie.year) metaParts.push(movie.year);

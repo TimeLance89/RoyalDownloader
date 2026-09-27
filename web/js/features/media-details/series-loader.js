@@ -1,12 +1,13 @@
 import { loadSeriesDetails } from "./series-api.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { mergeDetailMetadata } from "./metadata.js";
 
 export function createSeriesDetailsLoader(root, status, {
   seriesState, trackDiscoveryPreference, updateSeriesResultSelection, showSeriesLoading,
   openMediaModal, findSeriesResultCard, showSeriesDetail, updateSeriesStatus,
   refreshSeriesJellyfinStatus, switchTab, firstEpisodeSlug, seriesEpisodes, isEpisodeSelectable,
-  renderSeriesTiles, syncWatchlistSnapshot, client = api,
+  renderSeriesTiles, syncWatchlistSnapshot, updateSeriesOverview, updateSeriesJellyfinBadge, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null;
@@ -34,8 +35,7 @@ export function createSeriesDetailsLoader(root, status, {
         episodes: [...episodes.values()].sort((left, right) => left.episode - right.episode),
       }));
     return {
-      ...previous,
-      ...fresh,
+      ...mergeDetailMetadata(previous, fresh),
       seasons: mergedSeasons,
       episode_count: mergedSeasons.reduce((total, season) => total + season.episodes.length, 0),
       backdrop_url: fresh.backdrop_url || previous.backdrop_url || "",
@@ -63,6 +63,40 @@ export function createSeriesDetailsLoader(root, status, {
     }
 
     status.textContent = `Öffne Staffeln für «${result.title}» …`;
+    const metadataWork = (async () => {
+      if (!result.tmdb_id || result.metadata_source !== "TMDB") return;
+      try {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const response = await client.post("/api/tmdb/series", { items: [{
+            base_slug: cacheKey, title: result.title, year: result.year || "", tmdb_id: result.tmdb_id,
+          }] }, { signal: owner.signal, timeoutMs: 4_000 });
+          if (!owner.active || requestId !== seriesState.requestSeq) return;
+          const metadata = response.series?.[cacheKey];
+          if (metadata) {
+            result = mergeDetailMetadata(result, metadata);
+            if (seriesState.current) {
+              const enriched = mergeSeriesDetailPayload(seriesState.current, result);
+              seriesState.current = enriched;
+              seriesState.cache[enriched.base_slug] = enriched;
+              updateSeriesOverview(enriched);
+            } else updateSeriesOverview({ ...result, seasons: [], episode_count: 0 });
+            return;
+          }
+          if (!response.pending?.includes(cacheKey)) return;
+        }
+      } catch (error) { if (owner.active) console.warn("Serienmetadaten nicht erreichbar:", error); }
+    })();
+    // Preview identity is sufficient for a library check, even without a provider.
+    if (result.tmdb_id) void client.post("/api/series/jellyfin-status", {
+      title: result.title, tmdb_id: result.tmdb_id, episodes: [],
+    }, { signal: owner.signal, timeoutMs: 15_000 }).then(response => {
+      if (!owner.active || requestId !== seriesState.requestSeq || seriesState.current) return;
+      updateSeriesJellyfinBadge({ jellyfin_configured: response.configured, jellyfin_available: response.available, seasons: [] });
+    }).catch(error => {
+      if (!owner.active || requestId !== seriesState.requestSeq || seriesState.current) return;
+      console.warn("Serienbibliothek nicht erreichbar:", error);
+      updateSeriesJellyfinBadge({ jellyfin_configured: true, jellyfin_available: false });
+    });
     try {
       const loaded = await loadSeriesDetails(client, result.sample_slug, result.base_slug || "", {
       deferChecks: true, signal: owner.signal,
@@ -76,12 +110,15 @@ export function createSeriesDetailsLoader(root, status, {
       if (!owner.active || requestId !== seriesState.requestSeq) return;
       seriesState.pendingBaseSlug = "";
       updateSeriesResultSelection();
-      status.textContent = `Fehler: ${e.message}`;
-      byId("series-detail-title").textContent = `${result.title} · Laden fehlgeschlagen`;
-      byId("series-desc").textContent = e.message;
+      console.warn("Serienanbieter nicht erreichbar:", e);
+      status.textContent = "Anbieter derzeit nicht erreichbar";
+      byId("series-detail-title").textContent = result.title;
+      byId("series-desc").textContent = result.description || "Metadaten derzeit nicht verfügbar";
       const loading = root.querySelector("#series-tiles .series-loading");
-      if (loading) loading.textContent = "Serie konnte nicht geladen werden";
+      if (loading) loading.textContent = "Staffeln derzeit nicht verfügbar";
+      byId("series-pick-count").textContent = "Keine Episoden verfügbar";
     }
+    await metadataWork;
   }
 
   async function openWatchlistEntry(baseSlug) {
