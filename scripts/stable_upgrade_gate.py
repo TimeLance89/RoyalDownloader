@@ -25,6 +25,21 @@ MARKER = legacy.DATA_DIR / "stable-upgrade.json"
 RUNTIME = Path(os.environ["ROYAL_GATE_RUNTIME"])
 
 
+def running_source_sha():
+    """Read the immutable source marker written into the built image.
+
+    APP_COMMIT_SHA is intentionally build-only: the final runtime stage must not
+    retain a stale image environment value after an in-app runtime switch.
+    """
+    for name in (".app_commit_sha", "BUILD_COMMIT"):
+        marker = Path.cwd() / name
+        if marker.is_file():
+            value = marker.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+    return None
+
+
 def settings():
     return {name: getattr(config, name)() for name in (
         "load", "load_series_path", "load_automation", "load_updater",
@@ -35,7 +50,7 @@ def settings():
 
 
 def seed():
-    assert os.environ.get("APP_COMMIT_SHA") == STABLE_SHA
+    assert running_source_sha() == STABLE_SHA
     assert APP_VERSION == "1.0.0", "Published v1.1.0's historical metadata changed"
     legacy.seed_upgrade_rc()
     import server  # Register the same application config extensions as on restart.
@@ -70,7 +85,7 @@ def seed():
 
 def verify(mode):
     if mode == "rollback":
-        assert os.environ.get("APP_COMMIT_SHA") == STABLE_SHA
+        assert running_source_sha() == STABLE_SHA
         assert APP_VERSION == "1.0.0"
     else:
         assert APP_VERSION == "1.2.0"
