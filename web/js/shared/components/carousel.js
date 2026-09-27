@@ -1,5 +1,5 @@
 import { createScope } from "../../core/lifecycle.js";
-import { carouselWrap } from "./carousel-geometry.js";
+import { carouselPosition, carouselPhase, carouselWrap } from "./carousel-geometry.js";
 
 /** Reusable looped carousel; state holds only scroll offsets/targets. */
 export function createCarousel(root, localState = { railScrollPositions: {}, railScrollTargets: {} }) {
@@ -72,14 +72,17 @@ function prepareHomeRailLoop(track, logicalCount, { stride = 0, leading = 0, pos
   }
   const place = () => {
     if (track.dataset.homeLoopReady !== "true") {
-      track.scrollLeft = position ?? leading * stride;
+      track.scrollLeft = carouselPosition(0, leading, stride, logicalCount, Math.max(0, track.scrollWidth - track.clientWidth));
       track.dataset.homeLoopReady = "true";
     } else {
       normalizeHomeRailLoop(track);
     }
   };
   // A single synchronous correction prevents a later frame from resetting a gesture.
-  if (Number.isFinite(position) && !touching.has(track) && !nativeMotion.has(track)) track.scrollLeft = position;
+  if (Number.isFinite(position) && !touching.has(track) && !nativeMotion.has(track)) {
+    const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+    track.scrollLeft = carouselPosition(carouselPhase(position, leading, stride, logicalCount), leading, stride, logicalCount, maximum);
+  }
   place();
 }
 
@@ -116,6 +119,8 @@ function homeRailStoredScroll(track, fallback = 0) {
 
 function rememberHomeRailScroll(track, { force = false } = {}) {
   if (!track?.id) return;
+  // display:none / skipped ancestors may report a transient zero scroll offset.
+  if (track.checkVisibility?.({ contentVisibilityAuto: true }) === false) return;
   state.home.railScrollPositions ||= {};
   state.home.railScrollTargets ||= {};
   const target = Number(state.home.railScrollTargets[track.id]);

@@ -94,10 +94,11 @@ export function createRailRenderer(root, {
     // but adjacent bounding rects include the shell's temporary entrance scale.
     // Spanning n-1 gaps bounds the cycle error to about one CSS pixel, without
     // multiplying either per-card rounding or a transient transform by n.
-    const stride = originals.length > 1
+    const measuredStride = originals.length > 1
       ? (originals.at(-1).offsetLeft - originals[0].offsetLeft) / (originals.length - 1) : 0;
     const width = track.clientWidth;
-    const buffer = loop && logicalCount > 1 ? carouselBuffer(logicalCount, width, stride) : 0;
+    const stride = width > 0 ? measuredStride : oldStride;
+    const buffer = loop && logicalCount > 1 ? (width > 0 ? carouselBuffer(logicalCount, width, stride) : oldLeading) : 0;
     for (let i = -buffer; i < 0; i++) nodes.push(node(specs[((i % logicalCount) + logicalCount) % logicalCount], 0, i));
     nodes.push(...originals);
     for (let i = 0; i < buffer; i++) nodes.push(node(specs[i % logicalCount], 2, i));
@@ -105,11 +106,14 @@ export function createRailRenderer(root, {
     for (const card of [...track.children]) if (!keep.has(card)) card.remove();
     nodes.forEach((card, index) => { if (track.children[index] !== card) track.insertBefore(card, track.children[index] || null); });
     const geometryChanged = oldStride !== stride || oldLeading !== buffer;
-    const position = geometryChanged && oldStride > 0 && oldCount === logicalCount
-      ? (buffer + carouselPhase(oldPosition, oldLeading, oldStride, oldCount)) * stride
+    const previousPosition = previous?.width === 0 ? carousel.homeRailStoredScroll(track, oldPosition) : oldPosition;
+    const position = width > 0 && (geometryChanged || previous?.width === 0) && oldStride > 0 && oldCount === logicalCount
+      ? (buffer + carouselPhase(previousPosition, oldLeading, oldStride, oldCount)) * stride
       : undefined;
-    prepareHomeRailLoop(track, buffer ? logicalCount : 0, { stride, leading: buffer, position });
-    carousel.rememberHomeRailScroll(track, { force: geometryChanged });
+    if (width > 0) {
+      prepareHomeRailLoop(track, buffer ? logicalCount : 0, { stride, leading: buffer, position });
+      carousel.rememberHomeRailScroll(track, { force: geometryChanged });
+    }
     const hasCards = Boolean(originals[0]?.classList?.contains?.('home-card'));
     rails.set(track, { specs, loop, width, hasCards });
     // Re-observe so unchanged-height data refreshes also re-enable auto skipping.

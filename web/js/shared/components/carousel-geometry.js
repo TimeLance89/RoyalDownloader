@@ -10,6 +10,15 @@ export function carouselPhase(position, leading, stride, count) {
   return (((position / stride - leading) % count) + count) % count;
 }
 
+export function carouselPosition(phase, leading, stride, count, maximum) {
+  const size = stride * count;
+  if (!(size > 0)) return 0;
+  let position = (leading + phase) * stride;
+  if (position > maximum) position -= Math.ceil((position - maximum) / size) * size;
+  if (position < 0) position += Math.ceil(-position / size) * size;
+  return Math.max(0, Math.min(position, maximum));
+}
+
 /** An equivalent position must fit in the physical scroll range in its entirety. */
 export function carouselWrap(position, size, maximum) {
   const overlap = maximum - size;

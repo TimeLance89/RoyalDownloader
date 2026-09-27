@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { carouselBuffer, carouselPhase, carouselWrap } from '../../web/js/shared/components/carousel-geometry.js';
+import { carouselBuffer, carouselPhase, carouselPosition, carouselWrap } from '../../web/js/shared/components/carousel-geometry.js';
 import { edgeResidual } from './visual-diff.cjs';
 
 test('bounded clone zones contain an equivalent viewport at both physical edges', () => {
@@ -25,6 +25,18 @@ test('buffer depends on viewport rather than catalog size', () => {
   assert.equal(carouselBuffer(100, 1370, 233), 4);
   assert.equal(carouselBuffer(1, 1370, 233), 0);
   assert.equal(carouselBuffer(16, 0, 0), 0);
+});
+
+test('resizing represents every phase without clamping away titles at a wide viewport edge', () => {
+  for (const count of [2, 3, 16, 100]) for (const width of [378, 1370, 4000]) {
+    const stride = 233, leading = carouselBuffer(count, width, stride);
+    const maximum = (count + 2 * leading) * stride - width;
+    for (let phase = 0; phase < count; phase += 0.25) {
+      const position = carouselPosition(phase, leading, stride, count, maximum);
+      assert.ok(position >= 0 && position <= maximum);
+      assert.ok(Math.abs(carouselPhase(position, leading, stride, count) - phase) < 1e-9);
+    }
+  }
 });
 
 test('visual edge tolerance cannot hide a changed fill or removed component', () => {

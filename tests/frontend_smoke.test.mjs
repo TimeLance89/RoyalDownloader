@@ -4,7 +4,7 @@ import { createHomeCatalog } from "../web/js/features/home/catalog.js";
 import { createMoodModel } from "../web/js/features/mood/model.js";
 import { MOOD_GENRE_COMPASS } from "../web/js/features/mood/config.js";
 import { createRailRenderer } from "../web/js/features/home/rail-renderer.js";
-import { carouselWrap } from "../web/js/shared/components/carousel-geometry.js";
+import { carouselPosition, carouselPhase, carouselWrap } from "../web/js/shared/components/carousel-geometry.js";
 import { createHomeData } from "../web/js/features/home/data.js";
 import { createCatalogArtwork } from "../web/js/features/discovery/artwork.js";
 import assert from "node:assert/strict";
@@ -766,7 +766,7 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
     clearTimeout: () => {},
     window: { setTimeout: () => 1 },
     updateHomeRailNavigation: () => {},
-    carouselWrap,
+    carouselPosition, carouselPhase, carouselWrap,
     createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null,
       get offsetLeft() { return this.parentElement.children.indexOf(this) * 200; },
       remove() { if (this.parentElement) { const a = this.parentElement.children; a.splice(a.indexOf(this), 1); this.parentElement = null; } },

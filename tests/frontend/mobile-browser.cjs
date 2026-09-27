@@ -138,6 +138,7 @@ const results = [];
       const tabGeometry = await page.locator(tabTrack).evaluate(e => ({ id: e.id, width: e.clientWidth, stride: e.dataset.homeLoopStride, count: e.dataset.homeLoopCount, leading: e.dataset.homeLoopLeading }));
       await page.evaluate(() => fixtureApp.core.actions.switchTab('releases'));
       await page.waitForTimeout(200);
+      await page.evaluate(() => fixtureApp.home.homePresenter.render());
       await page.evaluate(() => fixtureApp.core.actions.switchTab('home'));
       await page.waitForTimeout(350);
       const afterTab = await page.locator(tabTrack).evaluate(e => e.scrollLeft);
