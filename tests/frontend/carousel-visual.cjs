@@ -4,12 +4,16 @@ const { resolve, dirname } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { mkdirSync, writeFileSync } = require('node:fs');
 const assert = require('node:assert/strict');
+const { edgeResidual } = require('./visual-diff.cjs');
 const tooling = dirname(require.resolve(process.env.ROYAL_PLAYWRIGHT || 'playwright'));
 const { PNG } = require(require.resolve('pngjs', { paths: [tooling] }));
 const output = resolve(process.env.ROYAL_PERF_OUTPUT || 'artifacts/frontend-performance');
 const baseline = process.env.ROYAL_VISUAL_BASELINE_WEB;
 if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/web');
 
+// One CSS pixel of raster phase is already bounded by the geometry assertions.
+// Require each changed edge pixel to have a matching neighbour in BOTH images;
+// broad colour/image changes cannot disappear behind a larger raw diff budget.
 (async () => {
   const { default: pixelmatch } = await import(pathToFileURL(require.resolve('pixelmatch', { paths: [tooling] })).href);
   mkdirSync(output, { recursive: true });
@@ -69,10 +73,11 @@ if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/
       const b = captures[1][i].image;
       assert.equal(a.width, b.width, id + ' width'); assert.equal(a.height, b.height, id + ' height');
       const diff = new PNG({ width: a.width, height: a.height });
-      const pixels = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.15 });
-      const ratio = pixels / (a.width * a.height);
+      const pixels = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.15, diffMask: true });
+      const rawRatio = pixels / (a.width * a.height);
+      const ratio = edgeResidual(a, b, diff, viewport.width < 1000 ? 3 : 1);
       writeFileSync(resolve(output, `${viewport.width}-${id}-diff.png`), PNG.sync.write(diff));
-      results.push({ viewport, id, ratio });
+      results.push({ viewport, id, rawRatio, ratio });
       assert.ok(ratio < 0.005, `${viewport.width} ${id}: ${(ratio * 100).toFixed(3)}% changed pixels`);
     });
   }

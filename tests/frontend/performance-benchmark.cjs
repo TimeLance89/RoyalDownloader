@@ -1,6 +1,7 @@
 const { fixture, swipe } = require("./performance-fixture.cjs");
 const { mkdirSync, writeFileSync } = require("node:fs");
-const { resolve } = require("node:path");
+const { resolve, dirname } = require("node:path");
+const { platform, arch } = require('node:os');
 const { execFileSync } = require("node:child_process");
 const output = resolve(process.env.ROYAL_PERF_OUTPUT || "artifacts/frontend-performance");
 const profiles = [
@@ -27,6 +28,7 @@ const profiles = [
         domNodes: document.querySelectorAll("*").length,
         cards: document.querySelectorAll("#tab-home .home-track .home-card").length,
         logicalCards: [...document.querySelectorAll("[data-fixture-logical-count]")].reduce((n, e) => n + Number(e.dataset.fixtureLogicalCount), 0),
+        logicalCardsRendered: [...document.querySelectorAll('[data-fixture-logical-count]')].reduce((n, e) => n + new Set([...e.querySelectorAll('.home-card')].map(card => card.dataset.key)).size, 0),
       }));
       const track = "#home-series-track";
       await page.locator(track).scrollIntoViewIfNeeded();
@@ -63,7 +65,10 @@ const profiles = [
     } finally { await f.close(); }
   }
   writeFileSync(resolve(output, "metrics.json"), JSON.stringify({
-    commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    commit: execFileSync("git", ['-C', process.env.ROYAL_WEB_ROOT ? dirname(resolve(process.env.ROYAL_WEB_ROOT)) : resolve(__dirname, '../..'), "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    sourceDirty: Boolean(execFileSync('git', ['-C', process.env.ROYAL_WEB_ROOT ? dirname(resolve(process.env.ROYAL_WEB_ROOT)) : resolve(__dirname, '../..'), 'status', '--porcelain', '--', 'web'], { encoding: 'utf8' }).trim()),
+    platform: platform(), architecture: arch(),
     capturedAt: new Date().toISOString(), results,
   }, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; });

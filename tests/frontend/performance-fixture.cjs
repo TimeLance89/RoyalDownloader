@@ -5,7 +5,7 @@ const { resolve, extname, sep } = require("node:path");
 const playwright = require(process.env.ROYAL_PLAYWRIGHT || "playwright");
 const defaultWeb = resolve(process.env.ROYAL_WEB_ROOT || resolve(__dirname, "../../web"));
 
-async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium", webRoot = defaultWeb } = {}) {
+async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = false, rate = 1, engine = "chromium", webRoot = defaultWeb, externalFonts = false } = {}) {
   const web = resolve(webRoot);
   const server = createServer(async (req, res) => {
     const path = resolve(web, `.${new URL(req.url, "http://local").pathname.replace(/\/$/, "/index.html")}`);
@@ -31,6 +31,7 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
   await page.routeWebSocket("**/ws", () => {});
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
+    if (externalFonts && ['fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return route.continue();
     if (url.hostname !== "127.0.0.1") return route.fulfill({ contentType: "text/css", body: "" });
     if (url.pathname === "/fixture-art.svg") return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="780" height="440"><defs><linearGradient id="g"><stop stop-color="#162844"/><stop offset="1" stop-color="#88533a"/></linearGradient></defs><path fill="url(#g)" d="M0 0h780v440H0z"/><circle fill="#bea172" cx="550" cy="160" r="90"/></svg>' });
     if (!url.pathname.startsWith("/api/")) return route.continue();
@@ -50,6 +51,7 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
     await route.fulfill({ json: data });
   });
   await page.addInitScript(() => {
+    performance.setResourceTimingBufferSize(2000);
     window.perfSample = { longTasks: [], lcp: 0, events: [] };
     for (const type of ["longtask", "largest-contentful-paint", "event"]) {
       if (!PerformanceObserver.supportedEntryTypes.includes(type)) continue;

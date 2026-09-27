@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { carouselBuffer, carouselPhase, carouselWrap } from '../../web/js/shared/components/carousel-geometry.js';
+import { edgeResidual } from './visual-diff.cjs';
 
 test('bounded clone zones contain an equivalent viewport at both physical edges', () => {
   for (const count of [2, 3, 16, 24, 100]) for (const width of [378, 756, 1370, 2560]) {
@@ -24,4 +25,17 @@ test('buffer depends on viewport rather than catalog size', () => {
   assert.equal(carouselBuffer(100, 1370, 233), 4);
   assert.equal(carouselBuffer(1, 1370, 233), 0);
   assert.equal(carouselBuffer(16, 0, 0), 0);
+});
+
+test('visual edge tolerance cannot hide a changed fill or removed component', () => {
+  const bitmap = fn => ({ width: 20, height: 20, data: Uint8Array.from({ length: 1600 }, (_, i) => {
+    if (i % 4 === 3) return 255;
+    return fn(Math.floor(i / 4) % 20, Math.floor(i / 80));
+  }) });
+  const mask = bitmap(() => 255), dark = bitmap(() => 0), bright = bitmap(() => 255);
+  const card = bitmap((x, y) => x >= 4 && x <= 14 && y >= 4 && y <= 14 ? 255 : 0);
+  const shifted = bitmap((x, y) => x >= 5 && x <= 15 && y >= 4 && y <= 14 ? 255 : 0);
+  assert.equal(edgeResidual(dark, bright, mask, 1), 1, 'changed background fails');
+  assert.ok(edgeResidual(card, dark, mask, 1) > 0.2, 'missing component fails');
+  assert.equal(edgeResidual(card, shifted, mask, 1), 0, 'one-pixel raster offset is tolerated');
 });

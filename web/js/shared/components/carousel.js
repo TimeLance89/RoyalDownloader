@@ -236,7 +236,7 @@ function initHomeRailScrolling() {
   const document = root.ownerDocument || globalThis.document;
   scope.listen(document, "touchend", endTouch, { passive: true });
   scope.listen(document, "touchcancel", endTouch, { passive: true });
-  scope.listen(document, "pointerup", event => { if (event.pointerType === "pen") endTouch(); }, { passive: true });
+  scope.listen(document, "pointerup", event => { if (event.pointerType === "pen" || event.pointerType === "touch") endTouch(); }, { passive: true });
   scope.listen(document, "pointercancel", event => { if (event.pointerType === "pen") endTouch(); }, { passive: true });
 }
 

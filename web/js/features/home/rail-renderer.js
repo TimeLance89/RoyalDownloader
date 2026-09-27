@@ -13,7 +13,9 @@ export function createRailRenderer(root, {
   const updateHomeRailNavigation = (...args) => carousel.updateHomeRailNavigation(...args);
   let scope = null, bound = new WeakSet();
   const rails = new Map();
-  let resizeObserver;
+  let resizeObserver, visibilityObserver, nearSections = new WeakSet();
+  const pendingSizes = new Map();
+  let resizeFrame = null;
   function homeRailCardSignature(entry, rank = 0, variant = "") {
     const media = homeEntryMedia(entry);
     const artwork = rank
@@ -56,6 +58,10 @@ export function createRailRenderer(root, {
       rails.set(track, { ...previous, specs, loop, retry });
       return;
     }
+    // Updates and orientation changes get one real measurement. ResizeObserver
+    // re-enables offscreen skipping with the new, exact content-box height.
+    const section = track.closest?.('.home-rail');
+    if (section?.style.contentVisibility === 'auto') section.style.contentVisibility = 'visible';
     const oldPosition = track.scrollLeft;
     const oldStride = Number(track.dataset?.homeLoopStride || 0);
     const oldLeading = Number(track.dataset?.homeLoopLeading || 0);
@@ -100,7 +106,9 @@ export function createRailRenderer(root, {
     prepareHomeRailLoop(track, buffer ? logicalCount : 0, { stride, leading: buffer, position });
     carousel.rememberHomeRailScroll(track, { force: geometryChanged });
     rails.set(track, { specs, loop, width });
-    resizeObserver?.observe(track);
+    // Re-observe so unchanged-height data refreshes also re-enable auto skipping.
+    if (section) { resizeObserver?.unobserve(section); resizeObserver?.observe(section); }
+    if (section) visibilityObserver?.observe(section);
     updateHomeRailNavigation(track);
     primeHomeRailPosters(track);
   }
@@ -141,18 +149,45 @@ return {
   mount() {
     if (scope?.active) return;
     scope = createScope();
+    if (window.IntersectionObserver) {
+      visibilityObserver = new window.IntersectionObserver(entries => {
+        for (const { target, isIntersecting } of entries) {
+          if (isIntersecting) nearSections.add(target); else nearSections.delete(target);
+          if (target.style.containIntrinsicBlockSize) target.style.contentVisibility = isIntersecting ? 'visible' : 'auto';
+        }
+      }, { rootMargin: '900px 0px' });
+      scope.observe(visibilityObserver);
+    }
     if (window.ResizeObserver) {
       resizeObserver = new window.ResizeObserver(entries => {
-        for (const { target } of entries) {
-          const rail = rails.get(target);
-          if (rail && target.clientWidth > 0 && target.clientWidth !== rail.width) reconcileHomeRail(target, rail.specs, { loop: rail.loop });
-        }
+        for (const { target, contentRect } of entries) pendingSizes.set(target, contentRect.height);
+        if (resizeFrame) return;
+        // Do not resize an observed box during ResizeObserver delivery (WebKit
+        // reports an undelivered-notifications loop). Read all widths first.
+        resizeFrame = scope.frame(() => {
+          resizeFrame = null;
+          const sizes = [...pendingSizes].map(([target, height]) => {
+            const track = target.querySelector('.home-track');
+            return { target, height, track, rail: rails.get(track), width: track?.clientWidth || 0 };
+          });
+          pendingSizes.clear();
+          for (const { target, height, track, rail, width } of sizes) {
+            if (rail && width > 0 && width !== rail.width) reconcileHomeRail(track, rail.specs, { loop: rail.loop });
+            if (rail && height > 0) {
+              target.style.containIntrinsicBlockSize = `${height}px`;
+              target.style.contentVisibility = visibilityObserver && !nearSections.has(target) ? 'auto' : 'visible';
+            }
+          }
+        });
       });
       scope.observe(resizeObserver);
-      for (const track of rails.keys()) resizeObserver.observe(track);
+      for (const track of rails.keys()) {
+        const section = track.closest('.home-rail');
+        if (section) { resizeObserver.observe(section); visibilityObserver?.observe(section); }
+      }
     }
     for (const track of root.querySelectorAll(".home-track")) primeHomeRailPosters(track);
   },
-  unmount() { scope?.dispose(); scope = null; resizeObserver = null; bound = new WeakSet(); },
+  unmount() { scope?.dispose(); scope = null; resizeObserver = null; visibilityObserver = null; resizeFrame = null; pendingSizes.clear(); nearSections = new WeakSet(); bound = new WeakSet(); },
 };
 }

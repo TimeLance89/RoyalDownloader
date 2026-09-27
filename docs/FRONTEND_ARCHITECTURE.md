@@ -283,3 +283,56 @@ starten. Unter Windows sind zwei bestehende Plattformabweichungen bekannt:
 POSIX-0600-Dateirechte und `/external`-Pfadnormalisierung. Beide wurden am
 unveränderten Overnight-Stand reproduziert. Die vollständige Linux-CI prüft diese
 Verträge samt Coverage, Security, Container, E2E und Upgrade/Rollback.
+
+## Carousel- und Rendering-Verträge
+
+`shared/components/carousel-geometry.js` berechnet viewportabhängige Randpuffer
+und äquivalente Schleifenpositionen. `features/home/rail-renderer.js` besitzt die
+Card-Identitäten, Artwork-Vorbereitung und die scoped Resize-/Visibility-Observer.
+Alle Originale bleiben zugänglich; nur Randkopien sind `aria-hidden`/ohne Tabstopp.
+Neue Rails verwenden denselben Renderer statt eigene Scroll-Listener oder Vollkopien.
+
+`shared/components/carousel.js` lässt native Touch-/Pen-Gesten und Momentum laufen.
+Loop-Korrektur erst bei `scrollend` oder nach 180 ms Ruhe und beendetem Kontakt.
+`pointercancel` eines Touch-Pointers bedeutet natives Panning, nicht Finger-abheben.
+Endlose Rails verzichten auf erneutes CSS-Snapping am Wrap; endliche Rails behalten
+das bestehende Proximity-Snap. Resize erhält eine logische Position, keine alte Pixelzahl.
+
+Weit entfernte Rail-Abschnitte nutzen `content-visibility:auto` mit gemessener
+Intrinsic-Höhe. In/nahe dem Viewport bleibt die bisherige Paint-Darstellung erhalten.
+Der Scroll-Container selbst wird nicht skipped: Das würde Browser-Scrollpositionen
+und Schatten beeinträchtigen. ResizeObserver-Schreibzugriffe erfolgen im nächsten
+Frame statt während der Observer-Auslieferung (insbesondere für WebKit).
+
+Zusätzliche lokale Tests:
+
+```text
+node tests/frontend/mobile-browser.cjs
+node tests/frontend/webkit-mobile.cjs
+node tests/frontend/offscreen-browser.cjs
+node tests/frontend/performance-benchmark.cjs
+node tests/frontend/performance-budget.cjs baseline/metrics.json current/metrics.json
+node tests/frontend/carousel-visual.cjs
+```
+
+Für den gefüllten Bildvergleich `ROYAL_VISUAL_BASELINE_WEB` auf `web/` eines
+unveränderten Worktrees von `d3aada9` setzen. Testwerkzeuge bleiben isoliert:
+Playwright 1.62.1, PNGJS 7.0.0 und Pixelmatch 7.2.0. Keine App-/Build-Abhängigkeiten.
+`ROYAL_SCROLLEND_FALLBACK=1` prüft den Touch-Fallback ohne scrollend-Auslieferung.
+
+`verify` benötigt Chromium-Browser, WebKit-Mobile und Performance-Gate. Das
+Performance-Gate misst eingefrorene Baseline und aktuellen Stand auf demselben
+Worker, drei Samples pro CPU-Profil. Mindestens 40 % weniger volle Cards bei
+weiterhin 97 tatsächlich gerenderten logischen Fixture-Titeln sind verpflichtend.
+Medianschranken für Render-/Layout-/Style-/Script-Zeit und TBT besitzen Spielraum
+für gemeinsam genutzte Runner. Rohwerte und Bilddifferenzen werden archiviert.
+
+Chromium injiziert echte kontinuierliche Touch-Gesten. WebKit prüft echte Touch-
+Taps, Layout und Resize/Scroll-Verträge; seine öffentliche Playwright-API kann
+keine kontinuierlichen nativen Swipes einspeisen. Ein physischer Safari-Test wird
+damit nicht behauptet. WebKit läuft auf PRs sowie über Quality vor Releases;
+der zusätzliche geplante Overnight-Lauf wird von GitHub erst aktiviert, sobald
+die Workflowdatei auch auf dem Default-Branch vorhanden ist.
+
+Messungen und bewusst unveränderte Effekte/Fonts:
+[Baseline](FRONTEND_PERFORMANCE_BASELINE.md), [Ergebnis](FRONTEND_PERFORMANCE_RESULT.md).

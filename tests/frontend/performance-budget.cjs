@@ -11,6 +11,7 @@ for (const name of ['desktop', 'desktop-4x', 'desktop-6x', 'mobile-4x']) {
   for (const result of after) {
     assert.deepEqual(result.errors, [], name + ': browser errors');
     assert.equal(result.logicalCards, 97, name + ': unchanged fixture content');
+    assert.equal(result.logicalCardsRendered, 97, name + ': every logical title actually rendered');
     assert.ok(result.cards <= median(before.map(r => r.cards)) * 0.6, name + ': at least 40% fewer full cards');
     assert.ok(Math.abs(result.swipeEnd - result.swipeStart) > 20, name + ': working interaction');
   }
