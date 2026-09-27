@@ -26,6 +26,20 @@ const results = [];
         } });
         document.getElementById("home-series-track").addEventListener("click", () => touchAudit.clicks++);
       });
+      // Actual touch tap on a visible card: it must still open real movie details.
+      const tapPoint = await page.locator(track).evaluate(e => {
+        const r = e.getBoundingClientRect();
+        const card = [...e.querySelectorAll('.home-card')].find(c => {
+          const b = c.getBoundingClientRect(); return b.right > 60 && b.left < innerWidth - 60;
+        });
+        const b = card.getBoundingClientRect();
+        return { x: Math.max(30, Math.min(innerWidth - 30, (Math.max(b.left, 0) + Math.min(b.right, innerWidth)) / 2)), y: r.top + r.height * 0.7 };
+      });
+      await page.touchscreen.tap(tapPoint.x, tapPoint.y);
+      const tapOpened = await page.waitForFunction(() => !document.getElementById("fp-detail-modal").hidden, null, { timeout: diagnostic ? 600 : 5000 }).then(() => true, error => { if (!diagnostic) throw error; return false; });
+      await page.evaluate(() => fixtureApp.core.actions.closeAllMediaModals(false));
+      await page.waitForTimeout(350);
+      await page.evaluate(() => { touchAudit.clicks = 0; touchAudit.writes = []; });
       const position = () => page.locator(track).evaluate(e => e.scrollLeft);
       const start = await position();
       await swipe(page, cdp, track, -230);
@@ -54,18 +68,10 @@ const results = [];
       await page.waitForTimeout(700);
       const pageAfter = await page.evaluate(() => scrollY);
       await page.locator(track).scrollIntoViewIfNeeded();
-      // Actual touch tap on a visible card: it must still open real movie details.
-      const tapPoint = await page.locator(track).evaluate(e => {
-        const r = e.getBoundingClientRect();
-        const card = [...e.querySelectorAll('.home-card')].find(c => {
-          const b = c.getBoundingClientRect(); return b.right > 60 && b.left < innerWidth - 60;
-        });
-        const b = card.getBoundingClientRect();
-        return { x: Math.max(30, Math.min(innerWidth - 30, (Math.max(b.left, 0) + Math.min(b.right, innerWidth)) / 2)), y: r.top + r.height * 0.7 };
-      });
-      await page.touchscreen.tap(tapPoint.x, tapPoint.y);
-      const tapOpened = await page.waitForFunction(() => !document.getElementById("fp-detail-modal").hidden, null, { timeout: diagnostic ? 600 : 5000 }).then(() => true, error => { if (!diagnostic) throw error; return false; });
-      await page.evaluate(() => fixtureApp.core.actions.closeAllMediaModals(false));
+      await page.evaluate(() => new Promise(resolve => {
+        let last = scrollY, quiet = performance.now();
+        const tick = () => { if (scrollY !== last) { last = scrollY; quiet = performance.now(); } if (performance.now() - quiet > 400) resolve(); else requestAnimationFrame(tick); }; tick();
+      }));
       const beforeTab = await position();
       await page.evaluate(() => { fixtureApp.core.actions.switchTab("releases"); fixtureApp.core.actions.switchTab("home"); });
       // Fixture re-supplies the same catalog after the empty API-backed presenter refresh.

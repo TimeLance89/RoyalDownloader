@@ -70,7 +70,7 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
     application.home.recommendations.unmount();
     window.fixtureEntries = Array.from({ length: 24 }, (_, id) => ({ kind: "movie", item: {
       slug: `performance-${id}`, title: `Royal Performance ${String(id + 1).padStart(2, "0")}`, year: "2026", rating: 7.8,
-      cover_url: "/fixture-art.svg", backdrop_url: "/fixture-art.svg", genres: ["Drama"],
+      cover_url: "/fixture-art.svg", backdrop_url: "/fixture-art.svg", genres: ["Drama"], hosters: [],
     } }));
     application.home.homeData.get().newMovies.push(...fixtureEntries.map(e => e.item));
     for (const entry of fixtureEntries) application.discovery.movieState.moviesCache[entry.item.slug] = entry.item;

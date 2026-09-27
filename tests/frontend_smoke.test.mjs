@@ -739,7 +739,8 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
   assert.match(carousel, /HOME_RAIL_SCROLL_STEP_RATIO = 0\.68/);
   assert.match(carousel, /HOME_RAIL_WHEEL_FACTOR = 0\.78/);
   assert.match(carousel, /behavior: reducedMotion \? "auto" : "smooth"/);
-  assert.doesNotMatch(carousel, /pointermove/);
+  const pointerMovement = carousel.slice(carousel.indexOf('scope.listen(home, "pointermove"'), carousel.indexOf("const endTouch"));
+  assert.doesNotMatch(pointerMovement, /scrollLeft\s*=|scrollTo|preventDefault/);
   assert.match(carousel, /normalizeHomeRailLoop\(track/);
 
 

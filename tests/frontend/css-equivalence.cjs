@@ -36,6 +36,10 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       return script.match(/style\.textContent = `([\s\S]*?)`;/)?.[1] || "";
     }).join("\n");
     async function rankingFixture(withLegacyStyles) {
+      // Intentional state bug fix, not a new visual baseline: legacy mobile CSS
+      // paints the CLOSED menu's hidden scrim over the whole page. Compare the
+      // intended closed state; its open-state styles remain unchanged.
+      if (withLegacyStyles) await page.addStyleTag({ content: ".nav-menu-scrim[hidden] { display: none !important; }" });
       if (withLegacyStyles) await page.evaluate(async () => {
         for (const path of ["movie-releases", "storage-manager", "automation-policy", "subscription-center"]) {
           const link = document.createElement("link"); link.rel = "stylesheet"; link.href = `/styles/${path}.css`;

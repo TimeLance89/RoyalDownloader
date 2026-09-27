@@ -605,6 +605,7 @@
 }
 
 .nav-menu-scrim { display: none; }
+.nav-menu-scrim[hidden] { display: none; }
 
 @media (min-width: 821px) and (max-width: 1450px) {
   .topbar { padding-inline: 24px; gap: 16px; }
