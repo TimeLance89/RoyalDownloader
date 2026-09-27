@@ -5,7 +5,7 @@
 
 ## Release status
 
-The current official Stable release is **`v1.2.2`**. It preserves the existing
+The current official Stable release is **`v1.2.3`**. It preserves the existing
 HTTP, `/api/v1`, WebSocket, Docker, update, and persistent-data contracts and
 should still be validated on the target NAS before unattended operation.
 
@@ -64,7 +64,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.2.2` and reports the source revision separately
+`application_version` as `1.2.3` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -103,7 +103,9 @@ published v1.1.0 tag incorrectly reports application version 1.0.0; identify tha
 installation by its source commit, not the historical version label. v1.2.0 fixes
 the metadata inconsistency. v1.2.1 fixes catalog rendering and Home queue actions. v1.2.2 isolates metadata,
 library checks and provider availability when navigating similar titles;
-see [the patch release notes](releases/v1.2.2.md).
+see [v1.2.2 notes](releases/v1.2.2.md). v1.2.3 adds bounded recovery for
+transient series pagination failures and prevents incomplete follow-up pages
+from advancing the cursor; see [the patch release notes](releases/v1.2.3.md).
 
 The release gates retain the RC3 soak and additionally test the actual v1.1.0
 commit with populated accounts, sessions, queue, subscriptions, taste profiles,
@@ -185,5 +187,5 @@ The release workflow runs the complete Quality workflow before creating an
 annotated tag and its GitHub Release. Both operations are idempotent, so a safe
 rerun accepts only the same tag target and never duplicates an existing
 Release. Tags with a semantic pre-release suffix, for example `v1.0.0-rc.3`,
-are marked as pre-releases. The Stable tag `v1.2.2` is published without the
+are marked as pre-releases. The Stable tag `v1.2.3` is published without the
 pre-release flag by the same workflow.
