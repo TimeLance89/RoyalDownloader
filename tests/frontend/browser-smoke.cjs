@@ -458,6 +458,19 @@ const server = createServer(async (req, res) => {
     assert.equal(await largeRail.evaluateAll(cards => new Set(cards.map(c => c.dataset.key)).size), 100);
     assert.equal(await largeRail.evaluateAll(cards => cards.filter(c => !c.hasAttribute('aria-hidden')).length), 100);
     assert.equal(await page.locator("#home-movies-track script").count(), 0);
+    const retained = await page.evaluate(() => {
+      const track = document.getElementById('home-movies-track');
+      const original = [...track.children].find(c => !c.hasAttribute('aria-hidden'));
+      const meta = original.querySelector('.home-card-year');
+      const button = original.querySelector('.home-card-primary-action');
+      button.focus({ preventScroll: true });
+      const entries = Array.from({ length: 100 }, (_, id) => ({ kind: 'movie', item: {
+        slug: `fixture-${id}`, title: id ? `Fixture ${id}` : '<script>throw "injected"</script>', year: '2026',
+      } }));
+      renderHomeRail('home-movies-track', entries);
+      return { card: original.isConnected, meta: meta === original.querySelector('.home-card-year'), focus: document.activeElement === button };
+    });
+    assert.deepEqual(retained, { card: true, meta: true, focus: true }, 'unchanged refresh retains card, metadata nodes and focus');
 
     // Intelligence is owned by the visible Home; late refinements cannot repaint it.
     await page.evaluate(() => {

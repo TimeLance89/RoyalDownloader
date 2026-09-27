@@ -16,6 +16,8 @@ export function createRailRenderer(root, {
   let resizeObserver, visibilityObserver, nearSections = new WeakSet();
   const pendingSizes = new Map();
   let resizeFrame = null;
+  const pendingPosters = new Set(), metadata = new WeakMap();
+  let posterFrame = null;
   function homeRailCardSignature(entry, rank = 0, variant = "") {
     const media = homeEntryMedia(entry);
     const artwork = rank
@@ -34,9 +36,12 @@ export function createRailRenderer(root, {
     const badge = card.querySelector(".catalog-jellyfin-badge");
     if (badge) setCatalogJellyfinBadge(badge, status);
     const title = card.querySelector(".home-card-overlay > strong");
-    if (title) title.textContent = media.title || "";
+    if (title && title.textContent !== (media.title || "")) title.textContent = media.title || "";
     const meta = card.querySelector(".home-card-overlay > span:last-child");
-    if (meta) setMediaCardMeta(meta, media, entry.kind);
+    const metaKey = JSON.stringify([media.year, media.rating, entry.kind]);
+    if (meta && metadata.get(meta) !== metaKey) {
+      setMediaCardMeta(meta, media, entry.kind); metadata.set(meta, metaKey);
+    }
     const action = card.querySelector(".home-card-primary-action");
     if (action) {
       const kindLabel = entry.kind === "movie" ? "Film" : entry.kind === "anime" ? "Anime" : "Serie";
@@ -105,43 +110,62 @@ export function createRailRenderer(root, {
       : undefined;
     prepareHomeRailLoop(track, buffer ? logicalCount : 0, { stride, leading: buffer, position });
     carousel.rememberHomeRailScroll(track, { force: geometryChanged });
-    rails.set(track, { specs, loop, width });
+    const hasCards = Boolean(originals[0]?.classList?.contains?.('home-card'));
+    rails.set(track, { specs, loop, width, hasCards });
     // Re-observe so unchanged-height data refreshes also re-enable auto skipping.
-    if (section) { resizeObserver?.unobserve(section); resizeObserver?.observe(section); }
-    if (section) visibilityObserver?.observe(section);
+    if (section) {
+      resizeObserver?.unobserve(section);
+      if (hasCards) { resizeObserver?.observe(section); visibilityObserver?.observe(section); }
+      else {
+        visibilityObserver?.unobserve(section); pendingSizes.delete(section);
+        nearSections.delete(section); section.style.containIntrinsicBlockSize = '';
+      }
+    }
     updateHomeRailNavigation(track);
     primeHomeRailPosters(track);
   }
 
-  function primeHomeRailPosters(track) {
-    if (!track?.getBoundingClientRect || !track.addEventListener) return;
-    const hydrate = () => {
+  function posterReads(track) {
+      const jobs = [];
       const bounds = track.getBoundingClientRect();
       const viewportWidth = document.documentElement?.clientWidth || window.innerWidth || 0;
       const viewportHeight = document.documentElement?.clientHeight || window.innerHeight || 0;
       const verticallyNear = bounds.bottom >= -320 && bounds.top <= viewportHeight + 640;
-      if (!verticallyNear) return;
+      if (!verticallyNear) return jobs;
       [...track.children].forEach((card) => {
         const image = card.querySelector?.(".home-card-art img");
-        if (!image) return;
+        if (!image || (artwork.needsStart && !artwork.needsStart(image))) return;
         const rect = card.getBoundingClientRect();
         const nearViewport = rect.right >= bounds.left - 240 && rect.left <= bounds.right + 420;
         if (!nearViewport) return;
         const visible = rect.right > 0 && rect.left < viewportWidth
           && rect.bottom > 0 && rect.top < viewportHeight;
-        startHomeCardArtwork(image, visible ? "high" : "auto");
+        jobs.push({ image, visible });
       });
-    };
-    hydrate();
+      return jobs;
+  }
+
+  function hydratePosters() {
+    posterFrame = null;
+    // Collect geometry for ALL pending rails before any class/src/priority write.
+    const jobs = [...pendingPosters].flatMap(posterReads);
+    pendingPosters.clear();
+    for (const { image, visible } of jobs) startHomeCardArtwork(image, visible ? "high" : "auto");
+  }
+
+  function queuePosters(track) {
+    pendingPosters.add(track);
+    if (!scope?.active) { hydratePosters(); return; }
+    if (!posterFrame) posterFrame = scope.frame(hydratePosters);
+  }
+
+  function primeHomeRailPosters(track) {
+    if (!track?.getBoundingClientRect || !track.addEventListener) return;
+    queuePosters(track);
     if (!scope?.active) return;
-    scope.frame(hydrate);
     if (bound.has(track)) return;
     bound.add(track);
-    let frame = 0;
-    scope.listen(track, "scroll", () => {
-      if (frame) return;
-      frame = scope.frame(() => { frame = 0; hydrate(); });
-    }, { passive: true });
+    scope.listen(track, "scroll", () => queuePosters(track), { passive: true });
   }
 
 return {
@@ -181,13 +205,13 @@ return {
         });
       });
       scope.observe(resizeObserver);
-      for (const track of rails.keys()) {
+      for (const [track, rail] of rails) {
         const section = track.closest('.home-rail');
-        if (section) { resizeObserver.observe(section); visibilityObserver?.observe(section); }
+        if (section && rail.hasCards) { resizeObserver.observe(section); visibilityObserver?.observe(section); }
       }
     }
     for (const track of root.querySelectorAll(".home-track")) primeHomeRailPosters(track);
   },
-  unmount() { scope?.dispose(); scope = null; resizeObserver = null; visibilityObserver = null; resizeFrame = null; pendingSizes.clear(); nearSections = new WeakSet(); bound = new WeakSet(); },
+  unmount() { scope?.dispose(); scope = null; resizeObserver = null; visibilityObserver = null; resizeFrame = null; posterFrame = null; pendingSizes.clear(); pendingPosters.clear(); nearSections = new WeakSet(); bound = new WeakSet(); },
 };
 }

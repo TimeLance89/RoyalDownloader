@@ -12,6 +12,8 @@ const touching = new Set();
 const nativeMotion = new Set();
 let touchStart = null;
 let suppressClickUntil = 0;
+const pendingNavigation = new Set();
+let navigationFrame = null;
 
 function setHomeRailCycleAccessibility(element, cycle) {
   const interactive = element.querySelectorAll?.("a, button, input, select, textarea, [tabindex]") || [];
@@ -83,15 +85,26 @@ function prepareHomeRailLoop(track, logicalCount, { stride = 0, leading = 0, pos
 
 function updateHomeRailNavigation(track) {
   if (!track?.id) return;
+  pendingNavigation.add(track);
+  if (!scope) { flushNavigation(); return; }
+  if (!navigationFrame) navigationFrame = scope.frame(flushNavigation);
+}
+
+function flushNavigation() {
+  navigationFrame = null;
+  const changes = [...pendingNavigation].flatMap(track => {
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
   const looping = Number(track.dataset.homeLoopCount || 0) > 1;
   const atStart = track.scrollLeft <= 2;
   const atEnd = track.scrollLeft >= maxScroll - 2;
-  root.querySelectorAll(`[data-home-scroll="${CSS.escape(track.id)}"]`).forEach((button) => {
+  return [...root.querySelectorAll(`[data-home-scroll="${CSS.escape(track.id)}"]`)].map((button) => {
     const direction = Number(button.dataset.direction) || 1;
-    button.hidden = !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
+    return { button, hidden: !canScroll || (!looping && (direction < 0 ? atStart : atEnd)) };
   });
+  });
+  pendingNavigation.clear();
+  for (const { button, hidden } of changes) if (button.hidden !== hidden) button.hidden = hidden;
 }
 
 function homeRailStoredScroll(track, fallback = 0) {
@@ -124,6 +137,7 @@ function restoreHomeRailScroll(track, scrollLeft = 0) {
   if (touching.has(track) || nativeMotion.has(track)) return;
   const desired = homeRailStoredScroll(track, scrollLeft);
   const restore = () => {
+    if (touching.has(track) || nativeMotion.has(track)) return;
     const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
     track.scrollLeft = Math.max(0, Math.min(desired, maximum));
     updateHomeRailNavigation(track);
@@ -248,6 +262,7 @@ function initHomeRailScrolling() {
       scope?.dispose(); scope = null;
       homeRailSettleTimers.clear();
       touching.clear(); nativeMotion.clear(); touchStart = null; suppressClickUntil = 0;
+      pendingNavigation.clear(); navigationFrame = null;
       root.querySelectorAll(".home-track").forEach(track => { delete track.dataset.homeLoopAnimating; });
     },
     setHomeRailCycleAccessibility,
