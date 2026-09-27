@@ -1,4 +1,5 @@
 import { createScope } from "../../core/lifecycle.js";
+import { carouselPosition, carouselPhase, carouselWrap } from "./carousel-geometry.js";
 
 /** Reusable looped carousel; state holds only scroll offsets/targets. */
 export function createCarousel(root, localState = { railScrollPositions: {}, railScrollTargets: {} }) {
@@ -7,6 +8,12 @@ export function createCarousel(root, localState = { railScrollPositions: {}, rai
 const HOME_RAIL_SCROLL_STEP_RATIO = 0.68;
 const HOME_RAIL_WHEEL_FACTOR = 0.78;
 const homeRailSettleTimers = new Map();
+const touching = new Set();
+const nativeMotion = new Set();
+let touchStart = null;
+let suppressClickUntil = 0;
+const pendingNavigation = new Set();
+let navigationFrame = null;
 
 function setHomeRailCycleAccessibility(element, cycle) {
   const interactive = element.querySelectorAll?.("a, button, input, select, textarea, [tabindex]") || [];
@@ -31,28 +38,29 @@ function setHomeRailCycleAccessibility(element, cycle) {
 function homeRailLoopSize(track) {
   const count = Number(track?.dataset?.homeLoopCount || 0);
   if (!track || count < 2) return 0;
-  const first = track.children[0];
-  const repeated = track.children[count];
-  const measured = Number(repeated?.offsetLeft) - Number(first?.offsetLeft);
-  return measured > 0 ? measured : track.scrollWidth / 3;
+  return Number(track.dataset.homeLoopStride || 0) * count;
 }
 
-function normalizeHomeRailLoop(track, { forceMiddle = false } = {}) {
+function normalizeHomeRailLoop(track) {
   const size = homeRailLoopSize(track);
   if (!size) return 0;
-  let next = track.scrollLeft;
-  if (forceMiddle && next < size * 0.5) next += size;
-  while (next < size * 0.2) next += size;
-  while (next > size * 1.8) next -= size;
+  if (touching.has(track) || nativeMotion.has(track)) return size;
+  const next = carouselWrap(track.scrollLeft, size, track.scrollWidth - track.clientWidth);
   if (Math.abs(next - track.scrollLeft) > 1) track.scrollLeft = next;
   return size;
 }
 
-function prepareHomeRailLoop(track, logicalCount) {
+function prepareHomeRailLoop(track, logicalCount, { stride = 0, leading = 0, position } = {}) {
   if (!track) return;
   track.dataset ||= {};
   const wasLooping = Number(track.dataset.homeLoopCount || 0) > 1;
   track.dataset.homeLoopCount = logicalCount > 1 ? String(logicalCount) : "0";
+  track.dataset.homeLoopStride = String(stride);
+  track.dataset.homeLoopLeading = String(leading);
+  // Circular rails preserve exact subpixel offsets. CSS snap would snap AGAIN
+  // after an equivalent wrap (especially a partial card at the physical end).
+  // Finite rails keep their original proximity snap; touch momentum stays native.
+  if (track.style) track.style.scrollSnapType = logicalCount > 1 ? "none" : "";
   if (logicalCount < 2) {
     if (wasLooping) {
       track.scrollLeft = 0;
@@ -62,29 +70,44 @@ function prepareHomeRailLoop(track, logicalCount) {
     delete track.dataset.homeLoopReady;
     return;
   }
-  const position = () => {
+  const place = () => {
     if (track.dataset.homeLoopReady !== "true") {
-      normalizeHomeRailLoop(track, { forceMiddle: true });
+      track.scrollLeft = carouselPosition(0, leading, stride, logicalCount, Math.max(0, track.scrollWidth - track.clientWidth));
       track.dataset.homeLoopReady = "true";
     } else {
       normalizeHomeRailLoop(track);
     }
   };
-  position();
-  if (scope) scope.frame(position);
+  // A single synchronous correction prevents a later frame from resetting a gesture.
+  if (Number.isFinite(position) && !touching.has(track) && !nativeMotion.has(track)) {
+    const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
+    track.scrollLeft = carouselPosition(carouselPhase(position, leading, stride, logicalCount), leading, stride, logicalCount, maximum);
+  }
+  place();
 }
 
 function updateHomeRailNavigation(track) {
   if (!track?.id) return;
+  pendingNavigation.add(track);
+  if (!scope) { flushNavigation(); return; }
+  if (!navigationFrame) navigationFrame = scope.frame(flushNavigation);
+}
+
+function flushNavigation() {
+  navigationFrame = null;
+  const changes = [...pendingNavigation].flatMap(track => {
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
   const canScroll = maxScroll > 2;
   const looping = Number(track.dataset.homeLoopCount || 0) > 1;
   const atStart = track.scrollLeft <= 2;
   const atEnd = track.scrollLeft >= maxScroll - 2;
-  root.querySelectorAll(`[data-home-scroll="${CSS.escape(track.id)}"]`).forEach((button) => {
+  return [...root.querySelectorAll(`[data-home-scroll="${CSS.escape(track.id)}"]`)].map((button) => {
     const direction = Number(button.dataset.direction) || 1;
-    button.hidden = !canScroll || (!looping && (direction < 0 ? atStart : atEnd));
+    return { button, hidden: !canScroll || (!looping && (direction < 0 ? atStart : atEnd)) };
   });
+  });
+  pendingNavigation.clear();
+  for (const { button, hidden } of changes) if (button.hidden !== hidden) button.hidden = hidden;
 }
 
 function homeRailStoredScroll(track, fallback = 0) {
@@ -96,6 +119,8 @@ function homeRailStoredScroll(track, fallback = 0) {
 
 function rememberHomeRailScroll(track, { force = false } = {}) {
   if (!track?.id) return;
+  // display:none / skipped ancestors may report a transient zero scroll offset.
+  if (track.checkVisibility?.({ contentVisibilityAuto: true }) === false) return;
   state.home.railScrollPositions ||= {};
   state.home.railScrollTargets ||= {};
   const target = Number(state.home.railScrollTargets[track.id]);
@@ -114,8 +139,10 @@ function rememberAllHomeRailScroll() {
 }
 
 function restoreHomeRailScroll(track, scrollLeft = 0) {
+  if (touching.has(track) || nativeMotion.has(track)) return;
   const desired = homeRailStoredScroll(track, scrollLeft);
   const restore = () => {
+    if (touching.has(track) || nativeMotion.has(track)) return;
     const maximum = Math.max(0, track.scrollWidth - track.clientWidth);
     track.scrollLeft = Math.max(0, Math.min(desired, maximum));
     updateHomeRailNavigation(track);
@@ -152,6 +179,8 @@ function scheduleHomeRailSettle(track, delay = 140) {
   if (previous) previous();
   const timer = scope?.timeout(() => {
     homeRailSettleTimers.delete(track);
+    if (touching.has(track)) { scheduleHomeRailSettle(track, 180); return; }
+    nativeMotion.delete(track);
     delete track.dataset.homeLoopAnimating;
     normalizeHomeRailLoop(track);
     delete state.home.railScrollTargets?.[track.id];
@@ -165,16 +194,23 @@ function initHomeRailScrolling() {
   scope = createScope();
   const home = root;
   scope.listen(home, "click", (event) => {
+    if (event.detail !== 0 && performance.now() < suppressClickUntil && event.target.closest?.(".home-card")) {
+      event.preventDefault(); event.stopImmediatePropagation(); return;
+    }
     const button = event.target.closest("[data-home-scroll]");
     if (button) moveHomeRail(button);
-  });
+  }, true);
   scope.listen(home, "scroll", (event) => {
     const track = event.target.closest?.(".home-track");
     if (!track) return;
-    if (track.dataset.homeLoopAnimating === "true") scheduleHomeRailSettle(track);
-    else normalizeHomeRailLoop(track);
+    // Native touch/momentum owns scrollLeft until scrollend or quiet fallback.
+    scheduleHomeRailSettle(track, 180);
     rememberHomeRailScroll(track);
     updateHomeRailNavigation(track);
+  }, true);
+  scope.listen(home, "scrollend", event => {
+    const track = event.target.closest?.(".home-track");
+    if (track && !touching.has(track)) scheduleHomeRailSettle(track, 0);
   }, true);
   scope.listen(home, "wheel", (event) => {
     const track = event.target.closest?.(".home-track");
@@ -192,16 +228,46 @@ function initHomeRailScrolling() {
     const track = event.target.closest?.(".home-track");
     if (!track?.id || event.target.closest?.("[data-home-scroll]")) return;
     delete state.home.railScrollTargets?.[track.id];
+    if (event.pointerType === "touch" || event.pointerType === "pen") {
+      suppressClickUntil = 0;
+      touching.add(track); nativeMotion.add(track);
+      touchStart = { track, x: event.clientX, y: event.clientY };
+      return;
+    }
     normalizeHomeRailLoop(track, { forceMiddle: true });
   }, true);
+  scope.listen(home, "pointermove", event => {
+    if (touchStart && Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y) > 10) {
+      suppressClickUntil = performance.now() + 450;
+    }
+  }, { passive: true, capture: true });
+  scope.listen(home, "touchmove", event => {
+    const point = event.touches[0];
+    if (point && touchStart && Math.hypot(point.clientX - touchStart.x, point.clientY - touchStart.y) > 10) {
+      suppressClickUntil = performance.now() + 450;
+    }
+  }, { passive: true, capture: true });
+  const endTouch = () => {
+    for (const track of touching) { touching.delete(track); scheduleHomeRailSettle(track, 180); }
+    touchStart = null;
+  };
+  // pointercancel begins native panning; it does NOT mean the finger lifted.
+  const document = root.ownerDocument || globalThis.document;
+  scope.listen(document, "touchend", endTouch, { passive: true });
+  scope.listen(document, "touchcancel", endTouch, { passive: true });
+  scope.listen(document, "pointerup", event => { if (event.pointerType === "pen" || event.pointerType === "touch") endTouch(); }, { passive: true });
+  scope.listen(document, "pointercancel", event => { if (event.pointerType === "pen") endTouch(); }, { passive: true });
 }
 
   return {
+    isInteracting: track => touching.has(track) || nativeMotion.has(track),
     mount: initHomeRailScrolling,
     unmount() {
       rememberAllHomeRailScroll();
       scope?.dispose(); scope = null;
       homeRailSettleTimers.clear();
+      touching.clear(); nativeMotion.clear(); touchStart = null; suppressClickUntil = 0;
+      pendingNavigation.clear(); navigationFrame = null;
       root.querySelectorAll(".home-track").forEach(track => { delete track.dataset.homeLoopAnimating; });
     },
     setHomeRailCycleAccessibility,

@@ -4,6 +4,7 @@ import { createHomeCatalog } from "../web/js/features/home/catalog.js";
 import { createMoodModel } from "../web/js/features/mood/model.js";
 import { MOOD_GENRE_COMPASS } from "../web/js/features/mood/config.js";
 import { createRailRenderer } from "../web/js/features/home/rail-renderer.js";
+import { carouselPosition, carouselPhase, carouselWrap } from "../web/js/shared/components/carousel-geometry.js";
 import { createHomeData } from "../web/js/features/home/data.js";
 import { createCatalogArtwork } from "../web/js/features/discovery/artwork.js";
 import assert from "node:assert/strict";
@@ -739,16 +740,22 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
   assert.match(carousel, /HOME_RAIL_SCROLL_STEP_RATIO = 0\.68/);
   assert.match(carousel, /HOME_RAIL_WHEEL_FACTOR = 0\.78/);
   assert.match(carousel, /behavior: reducedMotion \? "auto" : "smooth"/);
-  assert.doesNotMatch(carousel, /pointermove/);
+  const pointerMovement = carousel.slice(carousel.indexOf('scope.listen(home, "pointermove"'), carousel.indexOf("const endTouch"));
+  assert.doesNotMatch(pointerMovement, /scrollLeft\s*=|scrollTo|preventDefault/);
   assert.match(carousel, /normalizeHomeRailLoop\(track/);
 
 
   const animationFrames = [];
   const track = {
-    id: "home-test-track", scrollLeft: 640, scrollWidth: 1800, clientWidth: 600,
+    id: "home-test-track", scrollLeft: 640, clientWidth: 600,
+    get scrollWidth() { return this.children.length * 200; },
     children: [], classList: { toggle() {} },
     replaceChildren() { this.replaceCount = (this.replaceCount || 0) + 1; this.children = []; this.scrollLeft = 0; },
-    appendChild(child) { this.children.push(child); },
+    appendChild(child) { this.insertBefore(child, null); },
+    insertBefore(child, before) {
+      child.remove?.(); child.parentElement = this;
+      this.children.splice(before ? this.children.indexOf(before) : this.children.length, 0, child);
+    },
     scrollTo(options) { this.requestedScrollLeft = options.left; },
   };
   const context = vm.createContext({
@@ -759,14 +766,18 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
     clearTimeout: () => {},
     window: { setTimeout: () => 1 },
     updateHomeRailNavigation: () => {},
-    createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null }),
+    carouselPosition, carouselPhase, carouselWrap,
+    createHomeCard: (entry) => ({ ...entry, dataset: {}, querySelector: () => null,
+      get offsetLeft() { return this.parentElement.children.indexOf(this) * 200; },
+      remove() { if (this.parentElement) { const a = this.parentElement.children; a.splice(a.indexOf(this), 1); this.parentElement = null; } },
+    }),
     homeEntryMedia: (entry) => entry.item || entry,
     homeEntryKey: (entry) => String(entry.index),
     mediaJellyfinStatus: () => "unknown",
   });
   context.CSS = { escape: value => value };
   context.root = { querySelector: () => track, querySelectorAll: () => [] };
-  vm.runInContext(carousel.replace(/^import .*;\n/m, "").replace("export function", "function"), context);
+  vm.runInContext(carousel.replace(/^import .*;\n/gm, "").replace("export function", "function"), context);
   vm.runInContext("Object.assign(globalThis, createCarousel(root, state.home))", context);
   const renderer = createRailRenderer({ ownerDocument: { defaultView: {} } }, {
     artwork: { start() {} }, carousel: context,
@@ -779,20 +790,21 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
   context.entries = Array.from({ length: 12 }, (_, index) => ({ index }));
 
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
-  assert.equal(track.scrollLeft, 640);
+  assert.equal(track.scrollLeft, 600);
   assert.equal(track.replaceCount || 0, 0);
   animationFrames.forEach((callback) => callback());
-  assert.equal(track.scrollLeft, 640);
+  assert.equal(track.scrollLeft, 600);
 
   // Smooth scrolling starts asynchronously. A data refresh in the same frame
   // must restore the requested target, not the still-current zero position.
   track.scrollLeft = 0;
   vm.runInContext("moveHomeRail({ dataset: { homeScroll: 'home-test-track', direction: '1' } })", context);
-  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 1008) < 0.01);
+  assert.ok(Math.abs(context.state.home.railScrollTargets[track.id] - 2808) < 0.01);
   track.scrollLeft = 137;
   vm.runInContext('renderHomeRail("home-test-track", entries)', context);
   assert.equal(track.scrollLeft % 600, 137);
-  assert.equal(track.children.length, 36);
+  assert.equal(track.children.length, 18);
+  assert.equal(track.children.filter(card => card.dataset.renderSignature.startsWith('loop:1:')).length, 12);
   assert.equal(track.replaceCount || 0, 0);
 
   track.children = [];

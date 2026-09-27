@@ -683,8 +683,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     detailPanel.classList.remove("is-empty");
     detailPanel.classList.toggle("has-no-cover", !movie.cover_url);
     if (movie.cover_url) {
-      const coverUrl = coverUrl(movie.cover_url);
-      if (cover.getAttribute("src") !== coverUrl) cover.src = coverUrl;
+      const posterUrl = coverUrl(movie.cover_url);
+      if (cover.getAttribute("src") !== posterUrl) cover.src = posterUrl;
       const backdropUrl = coverUrl(movie.backdrop_url || movie.cover_url).replace(/"/g, "%22");
       detailPanel.style.setProperty("--detail-backdrop-image", `url("${backdropUrl}")`);
     } else if (cover.hasAttribute("src")) {

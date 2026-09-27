@@ -63,6 +63,10 @@ export function createCardArtwork(root, { window = root.ownerDocument.defaultVie
   }
   return {
     mount, start,
+    needsStart(image) {
+      const artwork = states.get(image);
+      return Boolean(artwork && !artwork.started && artwork.candidates.length);
+    },
     set(image, candidates, { eager = false } = {}) {
       states.set(image, { candidates: [...candidates], index: 0, started: false });
       if (eager) start(image); else observe(image);

@@ -47,19 +47,65 @@ jobs:
         if: ${{ !cancelled() }}
         run: node tests/frontend/setup-browser.cjs
 
+      - name: Native mobile gestures, seams, orientation and navigation
+        run: node tests/frontend/mobile-browser.cjs
+
+      - name: Mobile settle fallback without scrollend
+        env:
+          ROYAL_SCROLLEND_FALLBACK: "1"
+        run: node tests/frontend/mobile-browser.cjs
+
       - name: Frozen desktop and mobile CSS equivalence
         if: ${{ !cancelled() }}
         run: node tests/frontend/css-equivalence.cjs
 
+  frontend-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+      - name: Install isolated measurement tooling
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/royal-perf" --no-save --ignore-scripts playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0
+          "${RUNNER_TEMP}/royal-perf/node_modules/.bin/playwright" install --with-deps chromium
+          echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-perf/node_modules/playwright" >> "$GITHUB_ENV"
+          git worktree add --detach "${RUNNER_TEMP}/royal-perf-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
+      - name: Paired frozen baseline (same worker and browser)
+        run: |
+          ROYAL_WEB_ROOT="${RUNNER_TEMP}/royal-perf-baseline/web" ROYAL_PERF_OUTPUT=artifacts/frontend-performance/baseline node tests/frontend/performance-benchmark.cjs
+      - name: Current performance and content budgets
+        run: |
+          ROYAL_PERF_OUTPUT=artifacts/frontend-performance/current node tests/frontend/performance-benchmark.cjs
+          node tests/frontend/performance-budget.cjs artifacts/frontend-performance/baseline/metrics.json artifacts/frontend-performance/current/metrics.json
+      - name: Populated rail visual comparison
+        run: |
+          ROYAL_VISUAL_BASELINE_WEB="${RUNNER_TEMP}/royal-perf-baseline/web" node tests/frontend/carousel-visual.cjs
+      - name: Offscreen layout budget and stable page height
+        run: node tests/frontend/offscreen-browser.cjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: frontend-performance
+          path: artifacts/frontend-performance/
+
+  frontend-webkit:
+    uses: ./.github/workflows/frontend-webkit.yml
+
   verify:
-    needs: frontend-browser
+    needs: [frontend-browser, frontend-performance, frontend-webkit]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:
       - name: Require successful frontend browser gate
-        if: ${{ needs.frontend-browser.result != 'success' }}
+        if: ${{ needs.frontend-browser.result != 'success' || needs.frontend-performance.result != 'success' || needs.frontend-webkit.result != 'success' }}
         run: exit 1
 
       - name: Check out repository
@@ -91,7 +137,7 @@ jobs:
         run: find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Frontend contract smoke tests
-        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs
+        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs tests/frontend/carousel-geometry.test.mjs
 
       - name: Python correctness baseline
         run: ruff check --select E9,F63,F7,F82 .
