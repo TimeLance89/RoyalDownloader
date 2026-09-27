@@ -92,6 +92,7 @@ export function createCatalogMetadata({
         refreshMovieFeatureCandidates();
         const selected = movieState.selectedSlug;
         if (selected && batch.some((item) => item.slug === selected)
+            && movieState.detail?.slug !== selected
             && !movieState.moviesCache[selected] && movieState.metadataCache[selected]) {
           showFpDetail(selected, metadataPreviewMovie(movieState.metadataCache[selected]), true);
         }

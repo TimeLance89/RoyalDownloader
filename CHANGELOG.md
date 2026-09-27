@@ -4,6 +4,31 @@
 
 No unreleased changes.
 
+## v1.2.2 – 2026-09-27
+
+### Similar-title detail reliability
+
+- Keep known recommendation artwork, description, genres and language when opening
+  similar movies or series. Load full TMDB data independently of provider results.
+- Run movie metadata, Jellyfin and provider checks independently, with dialog-owned
+  cancellation. Late responses cannot overwrite the next selected title.
+- Preserve rich metadata when providers return sparse data or fail. Separate
+  unavailable sources from metadata errors and replace raw Cloudflare/origin text
+  with a concise availability message; technical diagnostics remain in logs.
+- Include virtual TMDB selections in library badge updates and prevent catalog
+  background enrichment from restarting a completed detail availability state.
+- Bound interactive cross-provider search and detail waits, preserving completed
+  matches and provider priority. Limit outstanding worker jobs; background scraper
+  calls retain their existing network timeouts. Download exhaustion rules remain.
+- Resolve similar-series metadata by TMDB ID, retain it after provider failure,
+  and keep the existing provider-based episode resolver and lifecycle checks.
+- Add desktop/mobile browser coverage for same-modal navigation, independent
+  failures, recovery, rapid selection changes, empty hosters and similar series,
+  plus loader and backend deadline/error-contract regression tests.
+- Preserve the catalog hotfix, layout, CSS, carousel and performance optimizations.
+
+See [v1.2.2 release notes](docs/releases/v1.2.2.md). No persistent-data migration.
+
 ## v1.2.1 – 2026-09-27
 
 ### Critical catalog hotfix
