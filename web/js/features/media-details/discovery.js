@@ -7,6 +7,7 @@ export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadS
   const setText = (id, value, fallback = "—") => { byId(id).textContent = value || fallback; };
   const actions = new WeakMap();
   let scope = null;
+  let similarSnapshot = null;
   function renderFpAbout(movie) {
     setText("fp-detail-about-title", movie.title, "den Film");
     setText("fp-detail-directors", (movie.directors || []).join(", "));
@@ -65,6 +66,10 @@ export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadS
     const recommendations = Array.isArray(titles)
       ? titles.filter((item) => Number(item?.tmdb_id) > 0 && item?.title && item?.backdrop_url).slice(0, 6)
       : [];
+    // Library/provider status updates must not replace a button under a finger.
+    const snapshot = JSON.stringify(recommendations);
+    if (snapshot === similarSnapshot) return;
+    similarSnapshot = snapshot;
     section.hidden = !recommendations.length;
     container.replaceChildren();
     for (const item of recommendations) {
