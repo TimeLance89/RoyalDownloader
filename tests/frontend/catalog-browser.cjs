@@ -19,6 +19,7 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
         year: i % 2 ? "2015" : "2026", rating: i % 2 ? 6 : 9, genres: ["Drama"],
         cover_url: "/fixture-art.svg", backdrop_url: "/fixture-art.svg", tmdb_id: 1000 + i,
         content_languages: [i % 2 ? "en" : "de"], provider: "filmpalast", hosters: [],
+        description: "Loaded catalog detail fixture",
       }));
       const series = movies.map((movie, i) => ({ ...movie,
         title: `Catalog Series ${String(i).padStart(2, "0")}`, base_slug: `serienstream:catalog-${i}`,
@@ -41,7 +42,7 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
           const body = route.request().postDataJSON();
           data = { movie: { ...movies.find(movie => movie.slug === body.slug), details_loaded: true, overview: "Catalog details fixture" } };
         } else if (path.startsWith("/api/movie/")) {
-          data = { movie: movies.find(movie => movie.slug === decodeURIComponent(path.slice("/api/movie/".length))) || movies[0] };
+          data = movies.find(movie => movie.slug === decodeURIComponent(path.slice("/api/movie/".length))) || movies[0];
         } else if (path === "/api/series/load") {
           const body = route.request().postDataJSON();
           data = { ...series.find(item => item.base_slug === body.base_slug), seasons: [{ season: 1, episodes: [{ season: 1, episode: 1, slug: "fixture-s01e01", title: "Episode one" }] }] };
@@ -105,6 +106,7 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
         await card.locator(".result-card-visual")[mobile ? "tap" : "click"]();
         await page.waitForSelector(`#${modal}-modal:not([hidden])`);
         assert.match(await page.locator(`#${modal}-title`).textContent(), new RegExp(title));
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent === "Loaded catalog detail fixture", tab === "filme" ? "#fp-detail-desc" : "#series-desc");
         await page.keyboard.press("Escape");
         await page.waitForSelector(`#${modal}-modal`, { state: "hidden" });
         await page.locator(`${selector}`).last().scrollIntoViewIfNeeded();
