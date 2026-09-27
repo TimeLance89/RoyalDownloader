@@ -364,7 +364,13 @@ async def api_movie(slug: str, tmdb_id: int | None = None):
     def _work():
         movie = state.fp_movies.get(slug)
         if movie is None or not getattr(movie, "hosters", None):
-            movie = load_movie_for_slug(slug)
+            try:
+                movie = load_movie_for_slug(slug)
+            except Exception as exc:
+                if tmdb_id is None or slug.casefold() == f"tmdb:{tmdb_id}":
+                    raise
+                log(f"Direkte Filmquelle fehlgeschlagen ({slug}), suche TMDB-Fallback: {exc}", "warn")
+                movie = None
         if (
             (movie is None or not getattr(movie, "hosters", None))
             and tmdb_id is not None

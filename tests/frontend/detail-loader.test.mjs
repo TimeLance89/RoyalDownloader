@@ -77,13 +77,30 @@ for (const code of ['request_timeout', 'movie_hoster_unavailable']) test(`provid
     await first;
     assert.equal(h.views.at(-1).movie.description, 'Full');
     assert.equal(h.movieState.detail.availabilityState, code === 'request_timeout' ? 'failed' : 'unavailable');
-    assert.equal(h.requests[1].options.timeoutMs, 20_000);
+    assert.ok(h.requests[1].options.timeoutMs > 0 && h.requests[1].options.timeoutMs <= 20_000);
     const second = h.loader.open('tmdb:8', h.item(8));
     h.requests[2].resolve({ movie: { ...h.item(8), details_loaded: true } });
     h.requests[3].resolve({ hosters: [{ name: 'VOE' }] });
     await second;
     assert.equal(h.movieState.detail.availabilityState, 'available');
     assert.equal(h.views.at(-1).movie.title, 'Movie 8');
+    assert.equal(h.views.at(-1).movie.hosters.length, 1);
+  } finally { h.loader.unmount(); }
+});
+
+test('provider-only catalog hit retries with late TMDB identity inside the original deadline', async () => {
+  const h = harness();
+  try {
+    const opened = h.loader.open('source-only', { slug: 'source-only', title: 'Movie' });
+    assert.equal(h.requests.length, 2);
+    h.requests[1].reject(Object.assign(new Error('Unavailable'), { code: 'movie_hoster_unavailable' }));
+    h.requests[0].resolve({ movie: { tmdb_id: 42, title: 'Movie', description: 'Complete', details_loaded: true } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(h.requests[2].url, /tmdb_id=42/);
+    assert.ok(h.requests[2].options.timeoutMs <= h.requests[1].options.timeoutMs);
+    h.requests[2].resolve({ hosters: [{ name: 'VOE' }] });
+    await opened;
+    assert.equal(h.views.at(-1).movie.description, 'Complete');
     assert.equal(h.views.at(-1).movie.hosters.length, 1);
   } finally { h.loader.unmount(); }
 });

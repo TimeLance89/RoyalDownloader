@@ -9,18 +9,23 @@ const { fixture } = require('./performance-fixture.cjs');
       const consoleErrors = [];
       page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
       const item = id => ({ tmdb_id: id, slug: `tmdb:${id}`, title: `Similar ${id}`, year: '2026', rating: 7.3,
-        backdrop_url: '/fixture-art.svg', cover_url: '/fixture-art.svg', description: `Recommendation ${id}`,
+        backdrop_url: '/fixture-art.svg', cover_url: id === 2 ? '' : '/fixture-art.svg', description: `Recommendation ${id}`,
         genres: ['Drama'], original_language: 'de', original_title: `Original ${id}`, metadata_source: 'TMDB' });
       const full = id => ({ ...item(id), description: `Complete metadata ${id}`, countries: ['Deutschland'],
         spoken_languages: ['Deutsch'], details_loaded: true, similar_titles: [item(id + 1), item(id + 2)] });
-      let releaseLibrary, releaseOld;
+      let releaseLibrary, releaseOld, releaseMetadata;
       const libraryGate = new Promise(resolve => { releaseLibrary = resolve; });
       const oldGate = new Promise(resolve => { releaseOld = resolve; });
+      const metadataGate = new Promise(resolve => { releaseMetadata = resolve; });
       const providerRequests = [];
       await page.route('**/api/**', async route => {
         const url = new URL(route.request().url());
         const path = url.pathname;
-        if (path === '/api/tmdb/movie') return route.fulfill({ json: { movie: full(route.request().postDataJSON().tmdb_id) } });
+        if (path === '/api/tmdb/movie') {
+          const id = route.request().postDataJSON().tmdb_id;
+          if (id === 2) await metadataGate;
+          return route.fulfill({ json: { movie: full(id) } });
+        }
         if (path === '/api/tmdb/series') {
           const items = route.request().postDataJSON().items;
           return route.fulfill({ json: { series: Object.fromEntries(items.filter(item => item.tmdb_id).map(item => [item.base_slug, full(item.tmdb_id)])), pending: [] } });
@@ -60,7 +65,10 @@ const { fixture } = require('./performance-fixture.cjs');
         fixtureApp.discovery.movieDiscovery.renderSimilarTitles(titles);
         return button === document.querySelector('#fp-detail-similar button');
       }, full(1).similar_titles), true, 'unchanged recommendations retain the actual touch target');
-      await similar(2); await waitMovie(2);
+      await similar(2);
+      await page.waitForFunction(() => document.getElementById('fp-detail-desc').textContent === 'Recommendation 2');
+      assert.match(await page.locator('#fp-detail-panel').evaluate(node => getComputedStyle(node, '::before').backgroundImage), /fixture-art/);
+      releaseMetadata(); await waitMovie(2);
       assert.equal(await page.locator('#fp-detail-availability').textContent(), 'Anbieter derzeit nicht erreichbar');
       assert.equal(await page.locator('#fp-detail-title').textContent(), 'Similar 2');
       assert.ok(providerRequests.includes(2), 'provider completes while Jellyfin is still blocked');

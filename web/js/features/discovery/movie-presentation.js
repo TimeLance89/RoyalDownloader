@@ -685,7 +685,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     cover.loading = "eager";
     cover.fetchPriority = "high";
     detailPanel.classList.remove("is-empty");
-    detailPanel.classList.toggle("has-no-cover", !movie.cover_url);
+    detailPanel.classList.toggle("has-no-cover", !movie.cover_url && !movie.backdrop_url);
     if (movie.cover_url) {
       const posterUrl = coverUrl(movie.cover_url);
       if (cover.getAttribute("src") !== posterUrl) cover.src = posterUrl;

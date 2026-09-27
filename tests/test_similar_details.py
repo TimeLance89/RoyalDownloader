@@ -55,3 +55,18 @@ def test_similar_series_metadata_uses_explicit_identity_without_provider(monkeyp
     ])))
     assert calls == [(923841, 'Same name')]
     assert response['series']['identity-923841']['description'] == 'Full metadata'
+
+
+def test_direct_provider_error_does_not_prevent_identity_fallback(monkeypatch):
+    calls = []
+    movie = SimpleNamespace(hosters=['available'])
+    def load(slug):
+        calls.append(slug)
+        if slug != 'tmdb:42':
+            raise RuntimeError('Cloudflare 520')
+        return movie
+    monkeypatch.setattr(router, 'state', SimpleNamespace(fp_movies={}))
+    monkeypatch.setattr(router, 'load_movie_for_slug', load)
+    monkeypatch.setattr(router, 'movie_detail_to_dict', lambda slug, movie: {'slug': slug, 'hosters': movie.hosters})
+    assert asyncio.run(router.api_movie('provider:title', tmdb_id=42))['hosters'] == ['available']
+    assert calls == ['provider:title', 'tmdb:42']

@@ -1013,7 +1013,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
   assert.match(app, /Download fehlgeschlagen:/);
   assert.match(
     app,
-    /await client\.get\(`[\s\S]*?if \(!current\(\)\) return;/,
+    /client\.get\(`[\s\S]*?if \(!current\(\)\) return;/,
   );
   assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
   assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);

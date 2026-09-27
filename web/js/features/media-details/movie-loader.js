@@ -60,11 +60,25 @@ export function createMovieDetailsLoader({
     }
     async function loadProvider() {
       if (provider) return;
-      try {
-        const query = Number(metadata.tmdb_id) > 0 ? `?${new URLSearchParams({ tmdb_id: String(metadata.tmdb_id) })}` : "";
-        const resolved = await client.get(`/api/movie/${encodeURIComponent(slug)}${query}`, {
-          signal: owner.signal, timeoutMs: 20_000,
+      const initialId = Number(metadata.tmdb_id) || 0;
+      const deadline = Date.now() + 20_000;
+      const requestProvider = tmdbId => {
+        const query = tmdbId > 0 ? `?${new URLSearchParams({ tmdb_id: String(tmdbId) })}` : "";
+        return client.get(`/api/movie/${encodeURIComponent(slug)}${query}`, {
+          signal: owner.signal, timeoutMs: Math.max(1, deadline - Date.now()),
         });
+      };
+      try {
+        let resolved;
+        try { resolved = await requestProvider(initialId); }
+        catch (error) {
+          // A provider-only catalog hit may learn its TMDB identity later.
+          // Preserve cross-provider fallback without serializing Similar clicks.
+          if (initialId || !current()) throw error;
+          await metadataWork;
+          if (!current() || !Number(metadata.tmdb_id) || Date.now() >= deadline) throw error;
+          resolved = await requestProvider(Number(metadata.tmdb_id));
+        }
         if (!current()) return;
         provider = resolved;
         movieState.moviesCache[slug] = resolved;
@@ -79,7 +93,8 @@ export function createMovieDetailsLoader({
     }
     // The catalog service owns library state and its 15-second timeout.
     const library = refreshFpJellyfinStatus([metadata], { signal: owner.signal });
-    await Promise.all([loadMetadata(), loadProvider(), library]);
+    const metadataWork = loadMetadata();
+    await Promise.all([metadataWork, loadProvider(), library]);
   }
   return { open: selectFpRow, unmount() { scope?.dispose(); scope = null; movieState.detail = null; } };
 }
