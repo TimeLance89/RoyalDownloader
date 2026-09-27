@@ -777,7 +777,9 @@ async def api_series(mode: str = "search", query: str = "", letter: str = "", pa
         try:
             catalog = series_catalog_page(browse_mode, page, letter)
         except SeriesCatalogColdLoadLimit as exc:
-            raise HTTPException(409, str(exc)) from exc
+            raise HTTPException(409, {
+                "code": "series_catalog_pending", "message": str(exc),
+            }, headers={"Retry-After": "1"}) from exc
         return {**catalog, "direct_series": None, "mode": browse_mode}
 
     data = await run_in_threadpool(_work)

@@ -183,7 +183,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
           loadNext: () => services.seriesActions.loadNextSeriesPage(), retry() {
             const mode = seriesState.browseMode;
             if (seriesState.loadingBrowse || !mode || mode === "search") return;
-            if (seriesState.lastPageFull) services.seriesActions.loadNextSeriesPage(); else services.seriesActions.seriesBrowse(mode, 1);
+            if (seriesState.lastPageFull) services.seriesActions.loadNextSeriesPage({ retry: true }); else services.seriesActions.seriesBrowse(mode, 1);
           },
         }),
         aniworld: createInfiniteScroll(document.getElementById("tab-aniworld"), {
