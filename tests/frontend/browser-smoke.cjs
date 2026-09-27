@@ -435,8 +435,14 @@ const server = createServer(async (req, res) => {
     await page.waitForFunction(() => document.querySelector('.queue-item-progress i')?.style.width === "55%");
     await page.evaluate(() => document.querySelector('.queue-item button[aria-label$="abbrechen"]').click());
     await page.waitForFunction(() => document.getElementById("queue-count").textContent === "0 Einträge");
+    const beforeQueueDoneSync = calls.filter(path => path === "/api/queue").length;
     socket.send(JSON.stringify({ type: "queue_done", done_jobs: 1, total_jobs: 1, failed_jobs: 0 }));
     await page.waitForFunction(() => document.getElementById("dl-state-title").textContent === "Abgeschlossen");
+    const queueDoneDeadline = Date.now() + 5_000;
+    while (calls.filter(path => path === "/api/queue").length <= beforeQueueDoneSync && Date.now() < queueDoneDeadline) {
+      await page.waitForTimeout(25);
+    }
+    assert.equal(calls.filter(path => path === "/api/queue").length, beforeQueueDoneSync + 1);
     const beforeReconnect = calls.filter(path => path === "/api/queue").length;
     socket.close({ code: 1012, reason: "fixture server restart" });
     const reconnectDeadline = Date.now() + 10_000;

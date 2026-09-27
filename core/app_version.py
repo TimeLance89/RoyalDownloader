@@ -2,4 +2,5 @@
 
 __all__ = ("APP_VERSION",)
 
-APP_VERSION = "1.0.0"
+# Updating this Stable version marker intentionally triggers the release workflow on main.
+APP_VERSION = "1.2.0"

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_application_version_has_expected_stable_value():
-    assert APP_VERSION == "1.0.0"
+    assert APP_VERSION == "1.2.0"
 
 
 def test_capabilities_add_version_without_changing_health_contracts():
@@ -94,8 +94,15 @@ def test_current_release_documents_use_the_central_semantic_version():
     assert f'"application_version": "{APP_VERSION}"' in android_api
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert changelog.index(f"## {stable_tag} –") < changelog.index("## v1.1.0 –")
     assert changelog.index("## v1.0.0 –") < changelog.index("## v1.0.0-rc.3")
     assert changelog.index("## v1.0.0-rc.3") < changelog.index("## v1.0.0-rc.2")
+
+    notes = (ROOT / "docs/releases" / f"{stable_tag}.md").read_text(encoding="utf-8")
+    assert notes.startswith(f"# RoyalDownloader {stable_tag}\n")
+    for section in ("Compatibility", "Upgrade", "Rollback", "Known limitations"):
+        assert f"## {section}" in notes
+    assert "**`v1.0.0` is the current Stable release.**" not in documents[0].read_text(encoding="utf-8")
 
 
 def test_tag_release_waits_for_quality_and_classifies_prereleases_from_tag():

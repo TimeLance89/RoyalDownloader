@@ -5,7 +5,7 @@
 
 ## Release status
 
-The current official Stable release is **`v1.0.0`**. It preserves the existing
+The current official Stable release is **`v1.2.0`**. It preserves the existing
 HTTP, `/api/v1`, WebSocket, Docker, update, and persistent-data contracts and
 should still be validated on the target NAS before unattended operation.
 
@@ -28,7 +28,7 @@ chat IDs, media paths, or unsanitized logs in GitHub issues.
 ## Fresh Docker installation
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.2.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -64,7 +64,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.0.0` and reports the source revision separately
+`application_version` as `1.2.0` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -95,16 +95,28 @@ git rev-parse HEAD > "$backup_dir/source-commit.txt"
 Back up movie and series libraries according to the storage system's own
 snapshot policy. Do not copy Seerr SQLite files while Seerr is running.
 
-## Upgrade from continuous `main`
+## Upgrade from v1.1.0 or continuous `main`
 
 This path moves an existing checkout that previously followed `main` to the
-current versioned Stable release without changing persistent formats:
+current versioned Stable release without changing persistent formats. The
+published v1.1.0 tag incorrectly reports application version 1.0.0; identify that
+installation by its source commit, not the historical version label. v1.2.0 fixes
+the metadata inconsistency. See [the release notes](releases/v1.2.0.md).
+
+The release gates retain the RC3 soak and additionally test the actual v1.1.0
+commit with populated accounts, sessions, queue, subscriptions, taste profiles,
+personal requests, settings, providers, Jellyfin and media paths. Candidate
+startup is repeated before rollback and backup recovery. A separate runtime
+volume marker is checked throughout. These fixtures complement runtime activation
+tests; they do not replace validation on the target NAS.
+
+Upgrade commands:
 
 ```bash
 docker compose down
 git fetch --tags origin
 git status --short
-git switch --detach v1.0.0
+git switch --detach v1.2.0
 APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 curl --fail http://127.0.0.1:8765/api/health
 ```
@@ -145,13 +157,17 @@ runtime can also atomically switch to its previous complete source and
 dependency set through **Settings → Updates → Rollback** or:
 
 ```bash
-docker compose run --rm seriendownloader \
-  cd /opt/seriendownloader && python -m updates.docker_bootstrap --rollback
+docker compose run --rm --entrypoint python seriendownloader \
+  -m updates.docker_bootstrap --rollback
 docker compose up -d
 ```
 
 Always verify `/api/health`, the displayed application version and build SHA,
 queue recovery, and both media mounts after rollback.
+
+When returning specifically to v1.1.0, its source commit is
+`31d91417c4d45bb054140de60b7125ac6b7dbd78` and its historical application-version
+display is 1.0.0. Do not mistake that known old metadata error for failed rollback.
 
 Channel changes use the same staged runtime and rollback point. Returning from
 Overnight to Stable is blocked behind an explicit confirmation when `main` is
@@ -167,5 +183,5 @@ The release workflow runs the complete Quality workflow before creating an
 annotated tag and its GitHub Release. Both operations are idempotent, so a safe
 rerun accepts only the same tag target and never duplicates an existing
 Release. Tags with a semantic pre-release suffix, for example `v1.0.0-rc.3`,
-are marked as pre-releases. The Stable tag `v1.0.0` is published without the
+are marked as pre-releases. The Stable tag `v1.2.0` is published without the
 pre-release flag by the same workflow.
