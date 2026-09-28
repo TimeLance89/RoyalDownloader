@@ -31,7 +31,7 @@ These concepts now have separate contracts:
   A suspicious last matching language route remains usable; a real circuit
   breaker remains closed until its bounded recovery opportunity.
 
-Sentinel hard quarantine requires either three consecutive explicit NXDOMAIN
+Sentinel hard quarantine requires either three consecutive target-boundary NXDOMAIN
 connectivity observations, or repeated production-equivalent tests with at
 least three independent failed detail paths and no successful details. Recent
 real success prevents these active observations from imposing a new quarantine.
@@ -365,5 +365,5 @@ confirmation. Existing architecture, browser, CSS, performance, security,
 upgrade/rollback and CodeQL gates remain mandatory.
 
 Provider sites can still change beyond these safe repair boundaries. Such failures
-are diagnosed and isolated; administrators inspect the steps and journal before
+are diagnosed; only proven routing failures are isolated. Administrators inspect the steps and journal before
 updating the adapter. No live provider success is asserted by fixture CI.

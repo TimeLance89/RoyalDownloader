@@ -27,7 +27,10 @@ class ProbeFailure(RuntimeError):
 
 
 def confirmed_dns_failure(error):
-    """Only an explicit NXDOMAIN signal, not a timeout or HTTP challenge."""
+    """Require target-boundary evidence, not a proxy/local DNS failure."""
+    from core.network_guard import UnsafeNetworkTarget
+    if not isinstance(error, UnsafeNetworkTarget):
+        return False
     seen = set()
     while error is not None and id(error) not in seen:
         seen.add(id(error))

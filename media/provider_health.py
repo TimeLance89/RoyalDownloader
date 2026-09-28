@@ -93,7 +93,12 @@ class ProviderHealth:
                             next_probe_at=0.0, failure_count=0, last_error="")
                 reconciled = True
         if reconciled:
-            self._write_locked()
+            try:
+                self._write_locked()
+            except OSError:
+                # Read-only storage must not turn diagnostic reconciliation
+                # into a startup outage. Next writable health update persists it.
+                pass
 
     def _write_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

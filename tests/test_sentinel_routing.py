@@ -87,7 +87,12 @@ def test_repeated_confirmed_domain_offline_can_quarantine(tmp_path):
 
 
 def test_only_explicit_nxdomain_is_hard_offline():
-    assert sentinel_runtime.confirmed_dns_failure(socket.gaierror(socket.EAI_NONAME, "not found"))
+    from core.network_guard import UnsafeNetworkTarget
+    target_error = UnsafeNetworkTarget("target resolution failed")
+    target_error.__cause__ = socket.gaierror(socket.EAI_NONAME, "not found")
+    assert sentinel_runtime.confirmed_dns_failure(target_error)
+    # A generic transport DNS failure might belong to a proxy or redirect.
+    assert not sentinel_runtime.confirmed_dns_failure(socket.gaierror(socket.EAI_NONAME, "not found"))
     assert not sentinel_runtime.confirmed_dns_failure(socket.gaierror(socket.EAI_AGAIN, "temporary"))
     assert not sentinel_runtime.confirmed_dns_failure(TimeoutError())
 
