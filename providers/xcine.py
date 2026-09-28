@@ -6,6 +6,8 @@ Serien werden bei XCine pro Staffel gespeichert. Dieser Adapter fasst diese
 Datensaetze zu einer Serie zusammen und erzeugt stabile Episoden-Slugs.
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import logging
 import re
 import unicodedata
@@ -62,6 +64,7 @@ _SEASON_SUFFIX_RE = re.compile(
 )
 
 
+@monitor_adapter("xcine")
 class XcineScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

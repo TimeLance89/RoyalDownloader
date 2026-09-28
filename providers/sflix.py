@@ -8,6 +8,8 @@ des ausgewählten Players benötigt den gemeinsamen Browser-Pool.
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import logging
 import os
 import re
@@ -88,6 +90,7 @@ class _Card:
     is_movie: bool
 
 
+@monitor_adapter("sflix")
 class SflixScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

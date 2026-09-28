@@ -12,6 +12,8 @@ Wir sammeln ALLE Hoster (VOE, Streamtape, Doodstream, Vidoza, Vidmoly, ...)
 und sortieren nach Sprache (Deutsch zuerst) + Qualität.
 """
 
+from providers.sentinel_runtime import monitor_adapter, apply_html_profile
+
 import logging
 import re
 from collections import OrderedDict
@@ -60,6 +62,7 @@ HOSTER_BLACKLIST = [
 ]
 
 
+@monitor_adapter("filmpalast")
 class FilmpalastScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info
@@ -70,7 +73,7 @@ class FilmpalastScraper:
 
     def _get_soup(self, url: str) -> BeautifulSoup:
         html = self.session.get(url)
-        return BeautifulSoup(html, "lxml")
+        return apply_html_profile("filmpalast", BeautifulSoup(html, "lxml"))
 
     @staticmethod
     def _abs_url(href: str) -> str:

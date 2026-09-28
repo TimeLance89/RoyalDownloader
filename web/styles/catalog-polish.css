@@ -660,10 +660,12 @@
   }
 
   .mobile-tabs .nav-menu-popover {
-    position: fixed;
+    /* Anchor to the dock: backdrop-filter makes it a containing block. */
+    position: absolute;
     z-index: 45;
     right: 10px;
-    bottom: calc(72px + env(safe-area-inset-bottom));
+    top: auto;
+    bottom: calc(100% + 8px);
     left: 10px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: auto;
