@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
 import time
 from dataclasses import asdict, is_dataclass
@@ -76,6 +77,22 @@ def episode_source(provider, detail):
     return payload(episodes[0]).get("slug") if episodes else None
 
 
+def valid_source_link(value):
+    # Syntax/structure only, no DNS lookup or media request. Actual resolution
+    # remains protected by the existing public-network transport boundary.
+    try:
+        url = urlsplit(str(value))
+        if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.port not in {None, 80, 443}:
+            return False
+        try:
+            address = ipaddress.ip_address(url.hostname)
+        except ValueError:
+            return "." in url.hostname and not url.hostname.endswith((".local", ".localhost", ".internal", ".lan", ".home"))
+        return address.is_global and not address.is_multicast and not address.is_reserved
+    except ValueError:
+        return False
+
+
 class ProviderProbe:
     def __init__(self, factory=create_adapter):
         self.factory = factory
@@ -145,7 +162,7 @@ class ProviderProbe:
                                 episode = step("episode_detail", lambda: adapter.get_episode(source) if media_type == "anime" else adapter.get_movie(source), sample=sample)
                                 hosters = payload(episode).get("hosters") or []
                         if (media_type == "movies" or intensity == "full") and not removed:
-                            valid = [payload(hoster) for hoster in hosters if urlsplit(str(payload(hoster).get("url") or "")).scheme in {"http", "https"}]
+                            valid = [payload(hoster) for hoster in hosters if valid_source_link(payload(hoster).get("url") or "")]
                             steps.append({"name": "hoster_structure", "sample": sample, "ok": bool(valid), "code": "ok" if valid else "missing_hosters", "count": len(valid), "duration_ms": 0, "http_status": 0})
                             steps.append({"name": "source_structure", "sample": sample, "ok": bool(valid), "code": "links_only" if valid else "missing_links", "duration_ms": 0, "http_status": 0})
                         else:

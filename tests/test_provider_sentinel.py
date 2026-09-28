@@ -510,3 +510,25 @@ def test_http_200_login_wall_is_verification_not_parser_repair(monkeypatch):
     assert diagnose(result) == "blocked"
     assert len(result["steps"]) == 1
     assert closed == [True]
+
+
+@pytest.mark.parametrize("url", ["http:", "https://user:secret@host.example/", "https://host.example:8443/", "http://127.0.0.1/", "http://[::1]/", "https://nas.local/", "https://[invalid/", "javascript:alert(1)"])
+def test_invalid_or_private_hoster_links_never_pass_probe_structure(url):
+    from application_services.provider_probe import valid_source_link
+    assert not valid_source_link(url)
+    assert valid_source_link("https://voe.example/e/canary")
+
+
+def test_manual_revalidation_replaces_stale_high_confidence_evidence(tmp_path):
+    result = {"steps": [], "responses": [], "canaries": [], "details": [{"identity": str(i), "source": str(i), "title": str(i), "media_type": "movies", "ok": True} for i in range(3)]}
+    monitor = ProviderMonitor(tmp_path / "state.json", ProviderHealth(tmp_path / "health.json"), lambda: ["filmpalast"], probe=SimpleNamespace(run=lambda *_args: result))
+    repair = {"id": "stale", "profile": {"title_selector": "h1.heading"}, "previous_profile": {}, "confidence": "high", "state": "available", "validation": {"shadow_passed": True}}
+    monitor.store.add_repair("filmpalast", repair)
+    monitor.store.update("filmpalast", requested_repair="stale", canaries=result["details"])
+    monitor.check("filmpalast", "full")
+    entry = monitor.store.entry("filmpalast")
+    assert not entry.get("active_repair")
+    assert entry["diagnosis"] == "needs_attention"
+    assert entry["repairs"][0]["confidence"] == "low"
+    assert not entry["repairs"][0]["validation"]["shadow_passed"]
+    monitor.stop()
