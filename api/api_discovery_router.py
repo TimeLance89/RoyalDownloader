@@ -21,7 +21,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from providers.aniworld import aniworld_episode_page
-from providers.catalog import provider_content_language
+from providers.catalog import provider_content_language, provider_content_languages, provider_track_language
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
 from providers.filmo import FilmoScraper
@@ -1251,6 +1251,7 @@ async def api_anime(
         "provider": "mkissa",
         "provider_label": PROVIDER_LABELS["mkissa"],
         "content_language": provider_content_language("mkissa"),
+        "provider_content_languages": list(provider_content_languages("mkissa")),
     }
 
 
@@ -1298,6 +1299,7 @@ async def api_anime_detail(
         return {
             **anime.public_dict(),
             "translation": track,
+            "content_language": provider_track_language("mkissa", track),
             "translation_labels": {
                 "dub": "English Dub",
                 "sub": "English Sub",
@@ -1332,7 +1334,7 @@ async def api_aniworld(
             "results": [], "mode": mode, "page": 1, "has_more": False,
             "total": 0, "disabled": True,
             "disabled_reason": (
-                "AniWorld ist pausiert. Aktiviere deutsche Inhalte und die "
+                "AniWorld ist pausiert. Aktiviere deutsche oder englische Inhalte und die "
                 "Anime-Quelle in den Einstellungen."
             ),
         }
@@ -1368,6 +1370,7 @@ async def api_aniworld(
         "provider": "aniworld",
         "provider_label": PROVIDER_LABELS["aniworld"],
         "content_language": provider_content_language("aniworld"),
+        "provider_content_languages": list(provider_content_languages("aniworld")),
     }
 
 
@@ -1414,7 +1417,7 @@ async def api_aniworld_detail(
         ))
         available = {
             track: count for track, count in anime.translations.items()
-            if ("en" if track == "eng" else "de") in enabled_languages
+            if provider_track_language("aniworld", track) in enabled_languages
         }
         track = requested_track if requested_track in available else (
             "dub" if available.get("dub") else
@@ -1440,6 +1443,10 @@ async def api_aniworld_detail(
             ))
         payload = anime.public_dict()
         payload["translations"] = available
+        payload["content_languages"] = list(dict.fromkeys(
+            provider_track_language("aniworld", track) for track in available
+        ))
+        payload["content_language"] = provider_track_language("aniworld", track)
         payload["episode_count"] = max(available.values(), default=0)
         payload["latest_tracks"] = [
             track for track in payload["latest_tracks"] if track in available

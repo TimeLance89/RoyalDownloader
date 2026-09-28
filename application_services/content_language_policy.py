@@ -23,7 +23,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from providers.catalog import normalize_content_language, provider_content_language
+from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages
 from providers.models import FilmpalastSearchResult, parse_episode_slug
 
 
@@ -63,7 +63,7 @@ def _provider_language(provider: str) -> str:
 def _result_language(provider: str, result) -> str:
     return _title_release_language(getattr(result, "title", "")) or normalize_content_language(
         str(getattr(result, "content_language", "") or "")
-    ) or _provider_language(provider)
+    ) or (_provider_language(provider) if len(provider_content_languages(provider)) == 1 else "")
 
 
 def _ordered_languages(values) -> list[str]:

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Multi-language provider capabilities
+
+- Separate legacy primary language, supported provider languages and concrete
+  title/episode tracks. AniWorld supports DE/EN selection; German dub/sub remain
+  distinct tracks but count as one German source. MKissa remains an EN provider,
+  with explicitly selected Japanese raw episodes correctly labeled and persisted.
+- Make setup, administration, priorities, monitoring and source settings use
+  language-set intersection. Existing configuration and queue language values
+  remain compatible without manual migration.
+- Evaluate only configured media/language paths, using fresh concrete track
+  evidence for multi-language availability instead of assuming every supported
+  track works. Show available and unavailable languages together only when an
+  area is affected; preserve the compact healthy overview and Sentinel safety.
+- Add offline catalog/setup/routing/persistence/evidence regressions and desktop,
+  390/430 px touch and WebKit source-selection/availability coverage.
+
 ### Source Sentinel availability overview
 
 - Replace the default diagnostic lists with a compact availability card for movies,

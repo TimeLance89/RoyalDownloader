@@ -105,7 +105,7 @@ def test_german_aniworld_settings_remain_visible_without_english():
 
     assert 'querySelectorAll(".anime-tab-button")' in core
     assert 'querySelectorAll(".provider-source-lane.is-anime")' in core
-    assert 'getProviders().get().contentLanguages.has(providerLanguage(provider))' in core
+    assert 'getProviders().matchesLanguages(provider)' in core
 
 
 def test_detail_and_episode_hosters_preserve_track_and_season():

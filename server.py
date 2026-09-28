@@ -57,6 +57,9 @@ from providers.catalog import (
     normalize_content_language,
     provider_catalog_payload,
     provider_content_language,
+    provider_content_languages,
+    provider_supports_languages,
+    selected_source_language_allowed,
     provider_for_source,
     provider_language_payload,
 )
@@ -457,7 +460,7 @@ def _sentinel_enabled_providers():
         return list(dict.fromkeys(
             provider for media_type in ("movies", "series", "anime")
             for provider in state.provider_enabled.get(media_type, ())
-            if provider_content_language(provider) in state.content_languages
+            if provider_supports_languages(provider, state.content_languages)
         ))
 
 
@@ -465,6 +468,7 @@ provider_monitor = ProviderMonitor(
     appconfig.data_dir() / "provider_monitor.json", state.provider_health,
     _sentinel_enabled_providers, hoster_intel=state.hoster_intel,
     priorities=_movie_catalog_service.provider_order,
+    languages=lambda: tuple(state.content_languages),
     notify=lambda event: broadcast({"type": "provider_diagnostics", **event}),
 )
 install_runtime(provider_monitor)

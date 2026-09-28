@@ -2,7 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
-from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely
+from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
+from providers.catalog import selected_source_language_allowed
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -118,7 +119,7 @@ def _extract_from_movie(
         hoster_language = _movie_content_language(
             movie, str(getattr(hoster, "language", "") or "")
         )
-        if hoster_language not in enabled_languages:
+        if not selected_source_language_allowed(res.provider, hoster_language, enabled_languages, getattr(movie, "url", "")):
             log(
                 f"  Überspringe {hoster.name}: Stream-Sprache "
                 f"{hoster_language.upper() or 'unbekannt'} ist nicht aktiviert.",
@@ -560,6 +561,8 @@ def _extract_from_movie(
             log(f"  Prüfe Hoster: {hoster.name}")
             ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin)
             observe_hoster_safely(name, play_url, ok, (time.monotonic() - resolve_started) * 1000, res.provider, probe_msg, stream_url if _stream_type != "web" else "")
+            if ok and stream_url and _stream_type != "web" and res.provider in PROVIDER_CATALOG and PROVIDER_CATALOG[res.provider].media_types == ("anime",):
+                observe_language_safely(res.provider, "anime", res.content_language)
             state.hoster_intel.record_probe(
                 play_url, ok, probe_msg, hoster_name=hoster.name,
             )

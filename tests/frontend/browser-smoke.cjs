@@ -764,6 +764,9 @@ const server = createServer(async (req, res) => {
     aniworldFixture = true;
     const hadGerman = await page.evaluate(() => sharedPresentation.providers.get().contentLanguages.has("de"));
     await page.evaluate(() => {
+      // The fixture has no provider-config endpoint; supply actual capabilities
+      // before testing capability-based navigation instead of relying on DE alone.
+      sharedPresentation.providers.get().catalog.aniworld = { content_language: "de", content_languages: ["de", "en"] };
       sharedPresentation.providers.get().contentLanguages.add("de"); syncAniworldNavigationVisibility();
       sharedPresentation.aniworld.get().loaded = false; switchTab("aniworld");
     });

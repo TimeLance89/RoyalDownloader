@@ -143,11 +143,16 @@ class ProviderProbe:
                         unavailable = not detail and detail_code in {"removed", "budget_exhausted", "rate_limit", "network_error", "temporary_http", "verification_required", "response_too_large"}
                         steps.append({"name": "metadata", "sample": sample, "ok": None if unavailable else metadata_ok, "code": detail_code if unavailable else "ok" if metadata_ok else "metadata_changed" if match else "identity_mismatch", "duration_ms": 0, "fields": metadata, "http_status": 0})
                         hosters = data.get("hosters") or []
+                        languages = []
                         if media_type != "movies" and intensity == "full" and detail:
                             source = episode_source(provider, detail)
                             if source:
                                 episode = step("episode_detail", lambda: adapter.get_episode(source) if media_type == "anime" else adapter.get_movie(source), sample=sample)
                                 hosters = payload(episode).get("hosters") or []
+                                if metadata_ok and any(valid_source_link(payload(h).get("url") or "") for h in hosters):
+                                    language = payload(episode).get("content_language")
+                                    if language in PROVIDER_CATALOG[provider].content_languages:
+                                        languages = [language]
                         if metadata_ok:
                             hoster_candidates.extend({"name": str(payload(hoster).get("name") or ""), "url": str(payload(hoster).get("url") or "")} for hoster in hosters[:20])
                         if (media_type == "movies" or intensity == "full") and not unavailable:
@@ -157,6 +162,7 @@ class ProviderProbe:
                         else:
                             steps.append({"name": "hoster_structure", "sample": sample, "ok": None, "code": detail_code if unavailable else "full_probe_required", "duration_ms": 0, "http_status": 0})
                         details.append({**ref, "ok": metadata_ok and bool(detail), "metadata": metadata,
+                                        "content_languages": languages,
                                         "cover_identity": identity(data["cover_url"]) if data.get("cover_url") else "",
                                         "hoster_count": len(hosters), "hoster_names": sorted({str(payload(h).get("name") or "")[:50] for h in hosters})[:20]})
                 return {"steps": steps, "canaries": references, "details": details, "responses": context.responses, "hoster_candidates": hoster_candidates[:100]}
