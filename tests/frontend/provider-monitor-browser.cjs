@@ -147,12 +147,21 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[name="monitor-interval"]').fill("6");
       await monitor.locator('[name="monitor-intensity"]').selectOption("full");
       await monitor.locator('[data-action="save"]').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-action="save"]');
+        return button && !button.disabled;
+      });
       assert.equal(config.interval_hours, 6);
       assert.equal(config.intensity, "full");
       await monitor.locator('[data-action="all"]').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-action="all"]');
+        return button && !button.disabled;
+      });
       assert.equal(calls.filter(call => call.path.endsWith("/probe-all")).length, 1);
       await monitor.locator('[data-action="tab"][data-tab="hosters"]').click();
       const hosters = monitor.locator('[data-monitor="hosters"]');
+      await hosters.waitFor({ state: "visible" });
       await hosters.locator('[data-panel="hoster-voe"] > summary').click();
       assert.match(await hosters.textContent(), /Median 1250 ms/);
       assert.match(await hosters.textContent(), /HTTP-Pfad nicht bestätigt/);
