@@ -499,3 +499,14 @@ def test_runtime_domain_override_retains_public_network_boundary(monkeypatch):
     assert seen[0][0] == "https://new.example/path?query=value"
     assert seen[0][1]["verify"] is True
     assert seen[0][1]["proxies"]["https"].startswith("http://127.0.0.1:")
+
+
+def test_http_200_login_wall_is_verification_not_parser_repair(monkeypatch):
+    transport = FixtureSession()
+    closed = []
+    transport.close = lambda: closed.append(True)
+    transport.get = lambda url, **_options: SimpleNamespace(text='<html><title>Login required</title><form><input type="password"></form></html>', status_code=200, url=url)
+    result = real_probe(monkeypatch, transport).run("filmpalast", "full")
+    assert diagnose(result) == "blocked"
+    assert len(result["steps"]) == 1
+    assert closed == [True]

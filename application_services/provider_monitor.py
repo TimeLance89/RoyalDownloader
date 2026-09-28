@@ -157,11 +157,15 @@ class ProviderMonitor:
             self.store.update(provider, requested_repair=None)
             if candidate:
                 profile, evidence = self.repairs.validate(provider, candidate["profile"], result, repair_canaries)
+                candidate.update(profile=profile, validation=evidence, confidence="high" if evidence["shadow_passed"] else "low",
+                                 state="available" if evidence["shadow_passed"] else "needs_attention")
+                self.store.update(provider, repairs=previous["repairs"])
                 if evidence["shadow_passed"]:
-                    candidate.update(profile=profile, validation=evidence, confidence="high")
-                    self.store.update(provider, repairs=previous["repairs"])
                     self.repairs.activate(provider, requested)
                     self.health.mark_success(provider)
+                else:
+                    self.store.update(provider, diagnosis="needs_attention")
+                    diagnosis = "needs_attention"
         elif diagnosis in {"broken", "healthy"} and not previous.get("active_repair") and len(canaries) >= 3:
             candidates = self.repairs.propose(provider, result, repair_canaries)
             validated = next((candidate for candidate in candidates if candidate["confidence"] == "high"), None)

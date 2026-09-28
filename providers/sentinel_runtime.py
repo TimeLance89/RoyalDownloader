@@ -6,6 +6,7 @@ the ContextVar never changes a shared browser or a user's provider session.
 from __future__ import annotations
 
 import time
+import re
 from functools import wraps
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -157,6 +158,12 @@ class AdapterSession:
     def post(self, url, **kwargs):
         return self._request("post", url, kwargs)
 
+    def close(self):
+        transport = getattr(self.session, "_curl", self.session)
+        close = getattr(transport, "close", None)
+        if close:
+            close()
+
     def _request(self, method, url, kwargs):
         context = _context.get()
         probing = bool(context and context.provider == self.provider)
@@ -187,9 +194,10 @@ class AdapterSession:
                                           "status": status, "signature": structural_signature(text),
                                           "text": text[:250_000], "url": url})
                 low = text[:30000].casefold()
+                login_wall = "password" in low and bool(re.search(r"<title\b[^>]*>[^<]*(?:login|sign in|anmeld)[^<]*</title>", low))
                 if status == 429:
                     raise ProbeFailure("rate_limit", status)
-                if status in {401, 403} or any(marker in low for marker in ("cf-chl-", "cf-turnstile", "g-recaptcha", "challenge-form", "checking your browser")):
+                if status in {401, 403} or login_wall or any(marker in low for marker in ("cf-chl-", "cf-turnstile", "g-recaptcha", "challenge-form", "checking your browser")):
                     raise ProbeFailure("verification_required", status)
                 if status >= 500:
                     raise ProbeFailure("temporary_http", status)

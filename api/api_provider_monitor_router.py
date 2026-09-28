@@ -99,8 +99,9 @@ def create_provider_monitor_router(monitor, current_user):
             raise HTTPException(400, "Aktivierung muss bestätigt werden.")
         # Manual activation schedules a fresh full shadow probe. Never trust
         # stale evidence merely because an administrator clicked a button.
-        repair = next((item for item in monitor.store.entry(provider).get("repairs", []) if item["id"] == repair_id), None)
-        if not repair or repair["confidence"] != "high":
+        entry = monitor.store.entry(provider)
+        repair = next((item for item in entry.get("repairs", []) if item["id"] == repair_id), None)
+        if not repair or repair["confidence"] != "high" or repair["state"] != "available" or entry.get("active_repair"):
             raise HTTPException(409, "Reparatur nicht eindeutig validiert.")
         if not monitor.request(provider, "full", repair_id=repair_id):
             raise HTTPException(429, "Prüfbudget ist belegt.")
