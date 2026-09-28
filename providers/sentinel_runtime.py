@@ -324,7 +324,7 @@ def monitor_adapter(provider):
                         if _runtime and not probing and not (isinstance(error, ProbeFailure) and error.code == "provider_cooldown"):
                             status = int(getattr(error, "status", 0) or getattr(getattr(error, "response", None), "status_code", 0) or 0)
                             observe_safely(provider, False, time.monotonic() - started, identity, None, operation,
-                                           runtime_failure=status not in {404, 410})
+                                           runtime_failure=status not in {400, 404, 409, 410, 422} and not isinstance(error, ValueError) and type(error) is not LookupError)
                         raise
                     if _runtime and not probing:
                         usable = bool(result.get("results")) if isinstance(result, dict) and "results" in result else bool(result)

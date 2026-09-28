@@ -23,7 +23,9 @@ These concepts now have separate contracts:
   `last_runtime_success_at`; active probe/repair successes do not masquerade
   as real runtime use. Three different failing production detail requests in
   15 minutes open the existing cooldown. Repeated failures of the same title,
-  missing results and removed-title HTTP 404/410 do not satisfy this threshold.
+  missing results, removed-title HTTP 404/410 and invalid input/track errors do
+  not satisfy this threshold. Different episodes/tracks of one title count as
+  one identity rather than independent provider failures.
   Failure identities are hashed, limited to eight and contain no source URL.
 * **Routing eligibility** is published separately as `routing.allowed` and
   `routing.evidence`. Diagnostic warnings reorder usable providers behind

@@ -97,6 +97,31 @@ def test_only_explicit_nxdomain_is_hard_offline():
     assert not sentinel_runtime.confirmed_dns_failure(TimeoutError())
 
 
+def test_tracks_and_episodes_of_one_title_are_not_independent_outages(tmp_path, monkeypatch):
+    monitor = owner(tmp_path)
+    monkeypatch.setattr(sentinel_runtime, "_runtime", monitor)
+
+    @sentinel_runtime.monitor_adapter("aniworld")
+    class Adapter:
+        def __init__(self):
+            self.session = SimpleNamespace()
+
+        def get_episode(self, slug):
+            raise ValueError("track/input not available")
+
+    try:
+        for track in ("dub", "sub", "eng"):
+            monitor.observe("aniworld", False, .1, f"aniworld:title|{track}-s01e001",
+                            operation="get_episode", runtime_failure=True)
+        assert monitor.health.status("aniworld")["runtime_failure_count"] == 1
+        for title in ("one", "two", "three"):
+            with pytest.raises(ValueError):
+                Adapter().get_episode(f"aniworld:{title}|dub-s01e001")
+        assert monitor.health.request_allowed("aniworld")
+    finally:
+        monitor.pool.shutdown(wait=True)
+
+
 def test_old_sentinel_quarantine_reconciled_runtime_breaker_preserved(tmp_path):
     path = tmp_path / "health.json"
     path.write_text(json.dumps({"providers": {

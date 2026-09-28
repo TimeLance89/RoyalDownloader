@@ -259,7 +259,9 @@ class ProviderMonitor:
         if not self.stopped:
             # Record actual adapter outcomes before stricter repair-identity
             # checks. A changed poster is not a production provider outage.
-            self.health.record_runtime(provider, ok, source if runtime_failure and operation.startswith("get_") else "")
+            episode = parse_episode_slug(source)
+            runtime_source = episode[0].split("|", 1)[0] if episode else source
+            self.health.record_runtime(provider, ok, runtime_source if runtime_failure and operation.startswith("get_") else "")
         if not source or self.stopped:
             return
         with self.lock:
