@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import re
 import time
 from dataclasses import asdict, is_dataclass
 from urllib.parse import urlsplit
 
+from core.source_urls import valid_source_link
 from providers.catalog import PROVIDER_CATALOG
 from providers.probe_contracts import contract, create_adapter
 from providers.sentinel_runtime import ProbeFailure, probe_context
@@ -77,20 +77,6 @@ def episode_source(provider, detail):
     return payload(episodes[0]).get("slug") if episodes else None
 
 
-def valid_source_link(value):
-    # Syntax/structure only, no DNS lookup or media request. Actual resolution
-    # remains protected by the existing public-network transport boundary.
-    try:
-        url = urlsplit(str(value))
-        if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.port not in {None, 80, 443}:
-            return False
-        try:
-            address = ipaddress.ip_address(url.hostname)
-        except ValueError:
-            return "." in url.hostname and not url.hostname.endswith((".local", ".localhost", ".internal", ".lan", ".home"))
-        return address.is_global and not address.is_multicast and not address.is_reserved
-    except ValueError:
-        return False
 
 
 class ProviderProbe:
@@ -99,7 +85,7 @@ class ProviderProbe:
 
     def run(self, provider, intensity="standard", profile=None, canaries=()):
         adapter = self.factory(provider)
-        steps, references, details = [], [], []
+        steps, references, details, hoster_candidates = [], [], [], []
         limit = 5 if intensity == "full" else 3
 
         def step(name, function, check=bool, sample=""):
@@ -162,6 +148,8 @@ class ProviderProbe:
                             if source:
                                 episode = step("episode_detail", lambda: adapter.get_episode(source) if media_type == "anime" else adapter.get_movie(source), sample=sample)
                                 hosters = payload(episode).get("hosters") or []
+                        if metadata_ok:
+                            hoster_candidates.extend({"name": str(payload(hoster).get("name") or ""), "url": str(payload(hoster).get("url") or "")} for hoster in hosters[:20])
                         if (media_type == "movies" or intensity == "full") and not unavailable:
                             valid = [payload(hoster) for hoster in hosters if valid_source_link(payload(hoster).get("url") or "")]
                             steps.append({"name": "hoster_structure", "sample": sample, "ok": bool(valid), "code": "ok" if valid else "missing_hosters", "count": len(valid), "duration_ms": 0, "http_status": 0})
@@ -171,7 +159,7 @@ class ProviderProbe:
                         details.append({**ref, "ok": metadata_ok and bool(detail), "metadata": metadata,
                                         "cover_identity": identity(data["cover_url"]) if data.get("cover_url") else "",
                                         "hoster_count": len(hosters), "hoster_names": sorted({str(payload(h).get("name") or "")[:50] for h in hosters})[:20]})
-                return {"steps": steps, "canaries": references, "details": details, "responses": context.responses}
+                return {"steps": steps, "canaries": references, "details": details, "responses": context.responses, "hoster_candidates": hoster_candidates[:100]}
         finally:
             close = getattr(adapter.session, "close", None)
             if close:

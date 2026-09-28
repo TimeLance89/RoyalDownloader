@@ -48,7 +48,7 @@ jobs:
       - name: Series pagination recovery
         run: node tests/frontend/series-pagination-browser.cjs
 
-      - name: Provider Sentinel settings and repair confirmation
+      - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
       - name: Similar title navigation and independent detail failures

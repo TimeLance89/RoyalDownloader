@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Source Sentinel: Hoster hardening
+
+- Extend the existing Provider Sentinel with separate hoster contracts, staged
+  resolver probes, bounded runtime success/timing metrics and independent health.
+- Preserve provider health when only an external hoster fails; apply hoster health
+  as an additional fail-open ranking factor so working alternatives are preferred.
+- Share scheduling, resource limits, atomic storage, repair activation and rollback.
+  Keep embed canaries and raw player evidence ephemeral, with no persisted tokens.
+- Validate declarative player/JSON/attribute/domain repair profiles against five
+  proven independent canaries before activation; monitor real outcomes for rollback.
+- Extend Settings → Sources with Provider, Hoster and Repairs/history tabs, protected
+  admin actions, offline mutation contracts and desktop/mobile browser coverage.
+
+
 ### Provider Sentinel and conservative self-healing
 
 - Monitor enabled movie, series and anime providers through their existing

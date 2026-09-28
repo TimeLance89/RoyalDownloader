@@ -3,7 +3,7 @@ const { fixture } = require("./performance-fixture.cjs");
 
 (async () => {
   for (const mobile of [false, true]) {
-    const run = await fixture({ mobile, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
     const { page, errors } = run;
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
@@ -16,12 +16,26 @@ const { fixture } = require("./performance-fixture.cjs");
       repairs: [{ id: "fixture-repair", state: "active", confidence: "high", previous_profile: {}, profile: { title_selector: "h1.media-heading" }, validation: { known_detail_pages: 5, validated_detail_pages: 5 } }],
       history: [{ timestamp: 1000, event: "probe", diagnosis: "healthy", changed: true }],
     };
+    const hoster = {
+      hoster: "voe", label: "VOE", diagnosis: "broken", domains: ["voe.example"], providers: ["filmpalast"], running: false,
+      contract: { resolver: "extract_stream_url", capabilities: ["embed", "resolver"] },
+      metrics_24h: { attempts: 15, success_rate: .2, median_resolve_ms: 1250 }, metrics_7d: { attempts: 30, success_rate: .5 },
+      steps: [{ name: "resolver", ok: false, code: "parser_error", duration_ms: 12 }], history: [{ timestamp: 1000, event: "parser_error" }],
+      active_repair: null, repairs: [{ id: "hoster-repair", confidence: "high", state: "available", previous_profile: {}, profile: { player_selector: "script#config", player_json_path: ["player", "sources", 0, "url"] }, validation: { known_detail_pages: 5, validated_detail_pages: 5 } }],
+    };
     try {
+      await page.route("**/api/hosters/**", async route => {
+        const request = route.request(), path = new URL(request.url()).pathname;
+        calls.push({ path, method: request.method(), body: request.method() === "GET" ? null : request.postDataJSON() });
+        if (path.endsWith("/activate")) { hoster.active_repair = "hoster-repair"; hoster.repairs[0].state = "active"; }
+        if (path.endsWith("/rollback")) { hoster.active_repair = null; hoster.repairs[0].state = "rolled_back"; }
+        return route.fulfill({ json: { started: true } });
+      });
       await page.route("**/api/providers/**", async route => {
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
-        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, providers: [provider], summary: { healthy: 1 } } });
+        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
         if (path.endsWith("/monitor/config")) { config = body; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
@@ -36,17 +50,17 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('details[data-provider="filmpalast"] > summary').click();
       assert.match(await monitor.textContent(), /Gesund/);
       await monitor.locator('[data-panel="filmpalast-repairs"] > summary').click();
-      await monitor.locator('[data-action="rollback"]').click();
+      await monitor.locator('[data-action="rollback"]:not([data-kind])').click();
       assert.equal(calls.some(call => call.path.endsWith("/rollback")), false);
       await monitor.locator('[data-action="cancel"]').click();
       assert.equal(calls.some(call => call.path.endsWith("/rollback")), false);
-      await monitor.locator('[data-action="rollback"]').click();
+      await monitor.locator('[data-action="rollback"]:not([data-kind])').click();
       await monitor.locator('[data-action="confirm"]').click();
-      await page.waitForFunction(() => !document.querySelector('#provider-monitor [data-action="rollback"]'));
+      await page.waitForFunction(() => !document.querySelector('#provider-monitor [data-action="rollback"]:not([data-kind])'));
       assert.equal(calls.filter(call => call.path.endsWith("/rollback")).length, 1);
       assert.equal(await monitor.locator('[data-panel="filmpalast-repairs"]').evaluate(node => node.open), true);
-      await monitor.locator('[data-action="probe"]').click();
-      await monitor.locator('[data-action="full"]').click();
+      await monitor.locator('[data-action="probe"]:not([data-kind])').click();
+      await monitor.locator('[data-action="full"]:not([data-kind])').click();
       assert.deepEqual(calls.filter(call => call.path.endsWith("/probe")).map(call => call.body.intensity), ["standard", "full"]);
       await monitor.locator('[name="monitor-interval"]').fill("6");
       await monitor.locator('[name="monitor-intensity"]').selectOption("full");
@@ -55,6 +69,24 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(config.intensity, "full");
       await monitor.locator('[data-action="all"]').click();
       assert.equal(calls.filter(call => call.path.endsWith("/probe-all")).length, 1);
+      await monitor.locator('[data-action="tab"][data-tab="hosters"]').click();
+      const hosters = monitor.locator('[data-monitor="hosters"]');
+      await hosters.locator('[data-panel="hoster-voe"] > summary').click();
+      assert.match(await hosters.textContent(), /Median 1250 ms/);
+      await hosters.locator('[data-action="probe"]').click();
+      await hosters.locator('[data-action="full"]').click();
+      assert.deepEqual(calls.filter(call => call.path === "/api/hosters/voe/probe").map(call => call.body.intensity), ["standard", "full"]);
+      await hosters.locator('details details > summary').first().click();
+      await hosters.locator('[data-action="activate"]').click();
+      assert.equal(calls.some(call => call.path.endsWith("/activate")), false);
+      await monitor.locator('[data-action="confirm"]').click();
+      await hosters.locator('[data-action="rollback"]').waitFor();
+      assert.equal(calls.filter(call => call.path.endsWith("/activate"))[0].body.confirmed, true);
+      await hosters.locator('[data-action="rollback"]').click();
+      await monitor.locator('[data-action="confirm"]').click();
+      assert.equal(calls.filter(call => call.path === "/api/hosters/voe/repairs/hoster-repair/rollback").length, 1);
+      await monitor.locator('[data-action="tab"][data-tab="history"]').click();
+      assert.match(await monitor.locator('[data-monitor="history"]').textContent(), /parser_error/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${mobile ? "mobile" : "desktop"}: diagnostics, probe, config, confirmation and rollback passed`);

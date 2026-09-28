@@ -1006,6 +1006,7 @@ def extract_stream_url(
     pool: Optional[VOEBrowserPool] = None,
     referer: str = "https://filmpalast.to/",
     browser_wait_seconds: int = 25,
+    repair_profile: Optional[dict] = None,
 ) -> Optional[Tuple[str, str]]:
     """
     Haupt-Einstiegspunkt für eine VOE.SX-URL.
@@ -1037,10 +1038,16 @@ def extract_stream_url(
         else:
             html = first_html
     except Exception as exc:
-        logger.error("Fetch fehlgeschlagen: %s", exc)
+        if log_cb:
+            _log(f"Fetch fehlgeschlagen: {exc}")
+        else:
+            logger.error("Fetch fehlgeschlagen: %s", exc)
         return None
 
     result = _extract_regex(html)
+    if result is None and repair_profile:
+        from media.hoster_profiles import extract_profile
+        result = extract_profile(html, alias_url or url, repair_profile)
     if result:
         try:
             ensure_public_http_url(result[0])

@@ -46,6 +46,26 @@ def install_runtime(runtime):
     _runtime = runtime
 
 
+def observe_hoster_safely(name, url, ok, duration_ms=0, provider="", message="", media_url=""):
+    if _runtime is None or _context.get() is not None:
+        return
+    try:
+        _runtime.hosters.observe(name, url, ok, duration_ms, provider, message, media_url)
+    except Exception:
+        # Technical monitoring must not alter production resolution outcomes.
+        pass
+
+
+def hoster_profile_safely(name, url):
+    if _runtime is None:
+        return {}
+    try:
+        from media.hoster_contracts import hoster_key
+        return _runtime.hosters.repairs.profile(hoster_key(name, url))
+    except Exception:
+        return {}
+
+
 @contextmanager
 def runtime_recovery(provider):
     """Permit only the existing owner of an acquired ProviderHealth probe."""
