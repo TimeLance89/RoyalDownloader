@@ -17,7 +17,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
   let scope, pending, value, dirty = false, tab = "providers";
   const status = () => root.querySelector('[data-monitor="status"]');
   const technical = () => root.querySelector('[data-monitor="technical"]');
-  const text = (name, copy) => { root.querySelector(`[data-monitor="${name}"]`).textContent = copy; };
+  const text = (name, copy) => { const node = root.querySelector(`[data-monitor="${name}"]`); if (node.textContent !== copy) node.textContent = copy; };
   function renderService() {
     const service = value.service;
     const state = service?.service_health || "degraded";
@@ -25,11 +25,13 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     text("health-title", state === "healthy" ? "Alles funktioniert" : state === "action_required" ? "Aktion erforderlich" : service?.user_impact === "reduced_redundancy" ? "Eingeschränkte Verfügbarkeit" : "Verfügbarkeit wird geprüft");
     text("health-copy", service?.active_sources === 0 ? "Aktiviere mindestens eine passende Quelle für deine Medien." : state === "healthy" ? "Royal nutzt bei Bedarf automatisch Alternativen." : state === "action_required" ? "Für einen eingerichteten Bereich fehlt eine verfügbare Quelle. Prüfe, ob du weitere passende Quellen aktivieren kannst." : service?.user_impact === "reduced_redundancy" ? "Royal verwendet verfügbare Alternativen. In einzelnen Bereichen stehen weniger Ausweichquellen bereit." : "Die Verfügbarkeit ist noch nicht vollständig bestätigt. Royal sammelt Prüfergebnisse und Ergebnisse der tatsächlichen Nutzung.");
     const coverage = { healthy: "✓ Verfügbar", degraded: "⚠ Weniger Ausweichquellen", action_required: "✕ Keine verfügbare Quelle", unconfirmed: "○ Noch nicht bestätigt", not_configured: "○ Nicht eingerichtet" };
-    root.querySelector('[data-monitor="coverage"]').innerHTML = Object.entries({ movies: "Filme", series: "Serien", anime: "Anime" }).map(([key, label]) => {
+    const coverageMarkup = Object.entries({ movies: "Filme", series: "Serien", anime: "Anime" }).map(([key, label]) => {
       const affected = (service?.paths || []).filter(path => path.media_type === key && path.state === "action_required");
       const languages = affected.map(path => ({ de: "Deutsch", en: "Englisch" })[path.language] || path.language);
       return `<li><strong>${label}</strong><span>${coverage[service?.coverage?.[key]] || coverage.unconfirmed}${languages.length ? ` (${escapeHtml(languages.join(", "))})` : ""}</span></li>`;
     }).join("");
+    const coverageNode = root.querySelector('[data-monitor="coverage"]');
+    if (coverageNode.innerHTML !== coverageMarkup) coverageNode.innerHTML = coverageMarkup;
     text("counts", service ? `${service.active_sources} ${service.active_sources === 1 ? "Quelle" : "Quellen"} aktiv · ${service.available_video_services} Videoanbieter verfügbar` : "Noch keine Verfügbarkeitsdaten");
     text("impact", state === "healthy" ? "Downloads: Keine Einschränkungen erkannt." : state === "action_required" ? "Auswirkung auf Downloads: Mindestens ein eingerichteter Bereich ist derzeit nicht verfügbar." : service?.user_impact === "reduced_redundancy" ? "Auswirkung auf Downloads: Verfügbare Alternativen bleiben nutzbar." : "Auswirkung auf Downloads: Noch nicht zuverlässig bewertet.");
     text("required", `Aktion erforderlich: ${service?.action_required ? "Ja – betroffene Quellen prüfen." : "Nein"}`);
