@@ -50,6 +50,9 @@ def create_provider_monitor_router(monitor, current_user):
         now = monitor.clock()
         for index, provider in enumerate(monitor.enabled()):
             monitor.store.update(provider, next_check_at=now + index * 30, requested_intensity=body.intensity)
+        for index, hoster in enumerate(monitor.hosters.inventory):
+            if monitor.hosters.candidates(hoster):
+                monitor.hosters.store.update(hoster, next_check_at=now + index * 30, requested_intensity=body.intensity)
         monitor.wake.set()
         return {"scheduled": True}
 

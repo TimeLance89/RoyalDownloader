@@ -25,6 +25,7 @@ class HosterRepair(SourceRepairJournal):
         after = {row["identity"] for row in shadow["details"] if row["ok"]}
         # Independent success-established identities; no voting from unknown pages.
         proven = {row["identity"] for row in canaries if row.get("proven")}
+        independent_media = {row.get("media_signature") for row in canaries if row.get("media_signature")}
         identities_preserved = all(row.get("media_signature") and row["media_signature"] == expected.get("media_signature") for row in shadow["details"] for expected in canaries if row["identity"] == expected["identity"])
         routing = bool(candidate.get("embed_domain") or candidate.get("embed_path_prefix"))
         domain_identity = True
@@ -33,7 +34,7 @@ class HosterRepair(SourceRepairJournal):
                 domain_identity = not any(candidate["embed_domain"] in entry.get("domains", []) for key, entry in self.store.store.data["hosters"].items() if key != hoster)
         routing_proven = {row["identity"] for row in current["responses"] if row.get("original_url") and urlsplit(row["original_url"]).scheme == "https" and urlsplit(row["url"]).scheme == "https" and profile_url(row["original_url"], candidate).split("?", 1)[0] == row["url"].split("?", 1)[0]}
         improvement = before < after or routing
-        passed = bool(len(known) >= 5 and known <= proven and after == known and improvement and identities_preserved and domain_identity and (not routing or known <= routing_proven))
+        passed = bool(len(known) >= 5 and len(independent_media) >= 5 and known <= proven and after == known and improvement and identities_preserved and domain_identity and (not routing or known <= routing_proven))
         return profile, {"known_detail_pages": len(known), "validated_detail_pages": len(after), "current_detail_pages": len(before), "shadow_passed": passed, "identity_preserved": identities_preserved, "steps": shadow["steps"]}
 
     def propose(self, hoster, current, canaries):

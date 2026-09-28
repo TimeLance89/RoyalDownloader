@@ -45,7 +45,7 @@ def health(samples):
     if len(independent) >= 3 and len(recent) >= 5 and success / len(recent) < .3:
         if all(row["code"] in {"network_error", "timeout"} for row in failed):
             return "offline"
-        if any(row["code"] == "parser_error" for row in failed):
+        if any(row["code"] in {"parser_error", "media_invalid"} for row in failed):
             return "broken"
     if failed:
         return "degraded"
@@ -70,7 +70,7 @@ class HosterMonitor:
                     self.inventory[key] = runtime_contract(key)
 
     def observe(self, name, url, ok, duration_ms=0, provider="", message="", media_url=""):
-        if not valid_source_link(url) or len(url) > 8192:
+        if self.owner.stopped or not valid_source_link(url) or len(url) > 8192:
             return
         contract = runtime_contract(name, url)
         key = contract.hoster
@@ -202,14 +202,16 @@ class HosterMonitor:
         self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + jitter)
 
     def penalty(self, name, url=""):
-        entry = self.store.entry(hoster_key(name, url), ("diagnosis", "samples", "last_check_at"))
-        samples = [row for row in entry.get("samples", []) if self.clock() - row["timestamp"] < 86400]
-        state = health(samples) if samples else entry.get("diagnosis", "unknown") if self.clock() - entry.get("last_check_at", 0) < 86400 else "unknown"
+        entry = self.store.entry(hoster_key(name, url), ("diagnosis", "last_check_at", "last_success_at", "last_failure_at"))
+        observed = max(entry.get(field, 0) or 0 for field in ("last_check_at", "last_success_at", "last_failure_at"))
+        state = entry.get("diagnosis", "unknown") if 0 <= self.clock() - observed < 86400 else "unknown"
         return {"broken": -100, "offline": -100, "blocked": -80, "degraded": -20, "needs_attention": -40}.get(state, 0)
 
     def diagnostics(self):
         rows = []
-        for key, contract in sorted(self.inventory.items()):
+        with self.lock:
+            contracts = sorted(self.inventory.items())
+        for key, contract in contracts:
             entry = self.store.entry(key)
             samples = entry.get("samples", [])
             rows.append({"hoster": key, "label": key, "contract": contract.public_dict(), "diagnosis": entry.get("diagnosis", "unknown"),

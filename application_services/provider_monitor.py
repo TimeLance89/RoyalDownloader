@@ -75,6 +75,8 @@ class ProviderMonitor:
         config = self.store.configure(values)
         for provider in self.enabled():
             self._schedule(provider)
+        for hoster in list(self.hosters.inventory):
+            self.hosters.schedule(hoster)
         self.wake.set()
         return config
 
