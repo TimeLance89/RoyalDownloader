@@ -133,7 +133,15 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(calls.filter(call => call.path.endsWith("/rollback")).length, 1);
       assert.equal(await monitor.locator('[data-panel="filmpalast-repairs"]').evaluate(node => node.open), true);
       await monitor.locator('[data-action="probe"]:not([data-kind])').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-action="probe"]:not([data-kind])');
+        return button && !button.disabled;
+      });
       await monitor.locator('[data-action="full"]:not([data-kind])').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-action="full"]:not([data-kind])');
+        return button && !button.disabled;
+      });
       assert.deepEqual(calls.filter(call => call.path.endsWith("/probe")).map(call => call.body.intensity), ["standard", "full"]);
       await monitor.locator('[data-monitor="advanced-settings"] > summary')[interact]();
       await monitor.locator('[name="monitor-interval"]').fill("6");
@@ -152,7 +160,15 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.match(await hosters.textContent(), /⚠/);
       assert.doesNotMatch(await hosters.textContent(), /(?:^|\s)0 ms/);
       await hosters.locator('[data-action="probe"]').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-monitor="hosters"] [data-action="probe"]');
+        return button && !button.disabled;
+      });
       await hosters.locator('[data-action="full"]').click();
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#provider-monitor [data-monitor="hosters"] [data-action="full"]');
+        return button && !button.disabled;
+      });
       assert.deepEqual(calls.filter(call => call.path === "/api/hosters/voe/probe").map(call => call.body.intensity), ["standard", "full"]);
       await hosters.locator('details details > summary').first().click();
       await hosters.locator('[data-action="activate"]').click();
