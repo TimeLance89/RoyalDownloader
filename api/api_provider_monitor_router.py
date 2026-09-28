@@ -50,6 +50,9 @@ def create_provider_monitor_router(monitor, current_user):
         now = monitor.clock()
         for index, provider in enumerate(monitor.enabled()):
             monitor.store.update(provider, next_check_at=now + index * 30, requested_intensity=body.intensity)
+        for index, hoster in enumerate(monitor.hosters.inventory):
+            if monitor.hosters.candidates(hoster):
+                monitor.hosters.store.update(hoster, next_check_at=now + index * 30, requested_intensity=body.intensity)
         monitor.wake.set()
         return {"scheduled": True}
 
@@ -104,6 +107,67 @@ def create_provider_monitor_router(monitor, current_user):
         if not repair or repair["confidence"] != "high" or repair["state"] != "available" or entry.get("active_repair"):
             raise HTTPException(409, "Reparatur nicht eindeutig validiert.")
         if not monitor.request(provider, "full", repair_id=repair_id):
+            raise HTTPException(429, "Prüfbudget ist belegt.")
+        return {"validation_started": True}
+
+    def check_hoster(hoster):
+        if hoster not in monitor.hosters.inventory:
+            raise HTTPException(404, "Hoster nicht gefunden.")
+
+    @router.get("/api/hosters/diagnostics")
+    @router.get("/api/v1/hosters/diagnostics")
+    def hoster_overview():
+        return {"hosters": monitor.hosters.diagnostics()}
+
+    @router.get("/api/hosters/{hoster}/diagnostics")
+    @router.get("/api/v1/hosters/{hoster}/diagnostics")
+    def hoster_detail(hoster: str):
+        check_hoster(hoster)
+        return next(row for row in monitor.hosters.diagnostics() if row["hoster"] == hoster)
+
+    @router.get("/api/hosters/{hoster}/history")
+    @router.get("/api/v1/hosters/{hoster}/history")
+    def hoster_history(hoster: str):
+        check_hoster(hoster)
+        return {"history": monitor.hosters.store.entry(hoster).get("history", [])}
+
+    @router.get("/api/hosters/{hoster}/repairs")
+    @router.get("/api/v1/hosters/{hoster}/repairs")
+    def hoster_repairs(hoster: str):
+        check_hoster(hoster)
+        return {"repairs": monitor.hosters.store.entry(hoster).get("repairs", [])}
+
+    @router.post("/api/hosters/{hoster}/probe")
+    @router.post("/api/v1/hosters/{hoster}/probe")
+    def hoster_probe(hoster: str, body: ProbeBody):
+        check_hoster(hoster)
+        if not monitor.request(f"hoster:{hoster}", body.intensity):
+            raise HTTPException(429, "Prüfbudget ist belegt.", headers={"Retry-After": "60"})
+        return {"started": True}
+
+    @router.post("/api/hosters/{hoster}/repairs/{repair_id}/rollback")
+    @router.post("/api/v1/hosters/{hoster}/repairs/{repair_id}/rollback")
+    def hoster_rollback(hoster: str, repair_id: str, body: RepairActionBody):
+        check_hoster(hoster)
+        if not body.confirmed:
+            raise HTTPException(400, "Rollback muss bestätigt werden.")
+        try:
+            monitor.hosters.repairs.rollback(hoster, repair_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"rolled_back": True}
+
+    @router.post("/api/hosters/{hoster}/repairs/{repair_id}/activate")
+    @router.post("/api/v1/hosters/{hoster}/repairs/{repair_id}/activate")
+    def hoster_activate(hoster: str, repair_id: str, body: RepairActionBody):
+        check_hoster(hoster)
+        if not body.confirmed:
+            raise HTTPException(400, "Aktivierung muss bestätigt werden.")
+        entry = monitor.hosters.store.entry(hoster)
+        repair = next((item for item in entry.get("repairs", []) if item["id"] == repair_id), None)
+        if not repair or repair["state"] not in {"available", "needs_attention"} or entry.get("active_repair"):
+            raise HTTPException(409, "Reparatur nicht verfügbar.")
+        if not monitor.request(f"hoster:{hoster}", "full", repair_id=repair_id):
             raise HTTPException(429, "Prüfbudget ist belegt.")
         return {"validation_started": True}
 

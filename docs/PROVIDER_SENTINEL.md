@@ -1,9 +1,9 @@
-# Provider Sentinel
+# Royal Source Sentinel
 
 Sentinel extends the existing provider catalog, adapters, ProviderHealth,
 HosterIntel and background services. It does not replace provider parsers or
 introduce another download stack. The administrative surface is **Settings →
-Sources → Provider monitor**. This feature is developed on Overnight; the
+Sources → Source monitor (Provider / Hoster / Repairs and history)**. This feature is developed on Overnight; the
 published application version remains unchanged until a separate stable release.
 
 ## Scheduling and resources
@@ -62,11 +62,79 @@ cannot release quarantine. Non-light recovery probes automatically use full
 intensity, including episode hosters. Exhausted budgets are inconclusive rather
 than fabricated metadata/hoster failures. No provider configuration is deleted.
 
-HosterIntel remains independent. A found URL proves only link structure. The
-monitor reports known hoster cooldowns and otherwise unknown availability; it
-does not claim that a hoster can play/download merely because parsing succeeded.
-Live redirect resolution and playback validation are intentionally not probe
-capabilities in this implementation.
+HosterIntel remains the ranking owner. Provider probes establish link structure;
+separate hoster probes establish resolver plausibility. A failed hoster never
+quarantines a provider whose catalog/details/hoster extraction still work.
+Hoster health contributes an additional bounded ranking penalty, preserving static
+scores, learned download speed and existing circuits. Errors in Sentinel fail open.
+
+### Hoster contracts and evidence
+
+The resolver contract inventory mirrors production's dedicated extractors, direct
+media paths and yt-dlp fallback. Newly observed labels are registered (maximum 64
+families). Domains and provider associations are learned from real adapter results
+and resolution. Capabilities determine recognition/embed/redirect/player/resolver/
+manifest tests. A 200 response alone is insufficient. Existing extractors run with
+bounded disposable transports; generic embeds use the existing no-download simulator.
+No new browser pool is started. Browser-only results without usable HTTP evidence
+remain inconclusive. `manifest: plausible_locator` means the resolver produced a
+plausible manifest URL, not that every fragment was downloaded or verified.
+
+Hoster probes share the same two scheduler slots, minimum manual interval,
+configuration, jitter and exception backoff. Each candidate uses at most 12 HTTP
+requests / 30 seconds and 2 MB; standard/full probes stop starting candidates after
+60/90 seconds. Binary response bodies are never consumed. Redirects use the public
+network guard and at most five hops. CAPTCHA, Turnstile, login, DRM and rate limits
+are classified; no challenge, encryption or token protocol is rewritten.
+
+At most eight canaries per family are kept **only in memory**, with seven-day expiry.
+Provider probes seed fresh embeds, and successful production resolution proves
+canary identities. Token rotations on the same hostname/path do not establish
+independent canaries. Provider redirect links are excluded until their provider
+owner resolves them. Restart requires fresh evidence; there are no persisted embed
+URLs, tokens, media URLs, user identities, titles or raw pages in hoster diagnostics.
+
+Passive outcomes store fixed technical codes, hashed independent identities,
+resolve times and domains/provider names. Counters cover seven days in bounded
+minute buckets (24-hour/7-day windows have minute precision). Medians use at most
+1,024 recent bounded timing samples and are descriptive, not an unbounded event
+archive. History retains 120 events / 30 days using the existing store policy.
+Single removed titles or repeated failures of one embed cannot establish a family
+outage. Broken/offline states require multiple independent signals; successful
+alternatives remain preferred without rewriting user provider order.
+
+### Hoster repair profiles
+
+The same activation/rollback journal supports simple player tag/class/id selectors,
+allowlisted data attributes, bounded JSON key/index paths, media kind and an
+HTTPS embed-domain override. Profiles are data, never code. Discovery only considers
+unambiguous structured media paths. Domain moves require five independent HTTPS
+redirects with retained paths plus verified media identity; arbitrary foreign
+redirects and changed CDN/media identity stay manual.
+
+Automatic activation requires five previously successful independent canaries,
+five candidate successes, preserved known media identity and concrete improvement.
+Unknown canaries, multiple credible interpretations, expired evidence and new
+technical protocols cannot auto-activate. Current/candidate probes are shadow runs;
+manual activation also requests fresh full validation. After activation, at least
+five real runtime outcomes with three independent failures and success below 50%
+roll back the profile automatically. No runtime outcomes are fabricated from probes.
+Previous profiles and audit history are preserved.
+
+### Hoster administration and extension
+
+The existing monitor exposes Provider / Hoster / Repairs and history tabs, aggregate
+source health, per-hoster domains/provider associations, 24-hour/7-day metrics,
+probe steps, active versions and confirmed rollback/revalidation. `/api/hosters`
+and `/api/v1/hosters` diagnostic/probe/history/repair routes use the same admin
+authorization and application write protections as provider routes.
+
+To add a dedicated hoster, declare its resolver/capabilities and aliases in
+`media/hoster_contracts.py`, keep resolver implementation in the existing extractor
+layer, and route production resolution through that contract. Generic observed
+hosters are inventoried automatically. Add offline normal/changed/blocked fixtures,
+identity/shadow/rollback tests and a settings-browser case. Additional repair fields
+must be explicitly validated and fixture-tested before entering the allowlist.
 
 ## Self-healing levels
 

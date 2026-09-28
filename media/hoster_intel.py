@@ -72,6 +72,7 @@ class HosterIntel:
         self.path = path
         self._lock = threading.RLock()
         self.stats = self._load()
+        self.health_penalty = None
 
     def rank(self, hosters: Iterable) -> List:
         return sorted(hosters, key=self.score, reverse=True)
@@ -124,6 +125,12 @@ class HosterIntel:
             score -= 35
         elif 0 <= slow_age < SLOW_PENALTY_SOFT_SECONDS:
             score -= 15
+        if self.health_penalty:
+            try:
+                score += max(-100, min(0, float(self.health_penalty(name, getattr(hoster, "url", "")))))
+            except Exception:
+                # Sentinel is advisory and must never become a download dependency.
+                pass
         return score
 
     def record_probe(

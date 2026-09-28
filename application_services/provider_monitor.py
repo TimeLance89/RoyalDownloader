@@ -32,6 +32,14 @@ class ProviderMonitor:
         self.thread = None
         self.stopped = False
         self.generation = 0
+        from application_services.hoster_monitor import HosterMonitor
+        self.hosters = HosterMonitor(self)
+        if hoster_intel is not None:
+            hoster_intel.health_penalty = self.hosters.penalty
+
+    def _notify(self, key, diagnosis, kind="provider"):
+        if self.store.config()["notify_changes"]:
+            self.notify({"provider": key, "source_kind": kind, "diagnosis": diagnosis})
 
     def profile(self, provider):
         return self.repairs.profile(provider)
@@ -67,6 +75,8 @@ class ProviderMonitor:
         config = self.store.configure(values)
         for provider in self.enabled():
             self._schedule(provider)
+        for hoster in list(self.hosters.inventory):
+            self.hosters.schedule(hoster)
         self.wake.set()
         return config
 
@@ -82,11 +92,24 @@ class ProviderMonitor:
                     elif entry["next_check_at"] <= self.clock():
                         if self.request(provider, entry.get("requested_intensity"), manual=False):
                             self.store.update(provider, requested_intensity=None)
+            for hoster in list(self.hosters.inventory):
+                entry = self.hosters.store.entry(hoster)
+                if not self.store.config()["enabled"] and not entry.get("requested_intensity"):
+                    continue
+                if not self.hosters.candidates(hoster):
+                    continue
+                if not entry.get("next_check_at"):
+                    self.hosters.schedule(hoster, 300)
+                elif entry["next_check_at"] <= self.clock():
+                    self.request(f"hoster:{hoster}", entry.get("requested_intensity"), manual=False)
             self.wake.wait(30)
             self.wake.clear()
 
     def request(self, provider, intensity=None, manual=True, repair_id=None):
-        if provider not in PROVIDER_CATALOG:
+        is_hoster = provider.startswith("hoster:")
+        key = provider.split(":", 1)[1] if is_hoster else provider
+        store = self.hosters.store if is_hoster else self.store
+        if key not in (self.hosters.inventory if is_hoster else PROVIDER_CATALOG):
             raise KeyError(provider)
         intensity = intensity or self.store.config()["intensity"]
         if intensity not in {"light", "standard", "full"}:
@@ -94,13 +117,13 @@ class ProviderMonitor:
         with self.lock:
             if self.stopped or provider in self.active or len(self.active) >= 2:
                 return False
-            previous = self.store.entry(provider).get("last_check_at", 0)
+            previous = store.entry(key).get("last_check_at", 0)
             if self.clock() - max(previous, self.last_manual.get(provider, 0)) < 60:
                 return False
             self.last_manual[provider] = self.clock()
             self.active.add(provider)
             if repair_id:
-                self.store.update(provider, requested_repair=repair_id)
+                store.update(key, requested_repair=repair_id)
             try:
                 self.pool.submit(self._execute, provider, intensity, self.generation)
             except Exception:
@@ -110,12 +133,20 @@ class ProviderMonitor:
 
     def _execute(self, provider, intensity, generation):
         try:
-            self.check(provider, intensity, generation=generation)
+            if provider.startswith("hoster:"):
+                self.hosters.check(provider.split(":", 1)[1], intensity, generation=generation)
+            else:
+                self.check(provider, intensity, generation=generation)
         except Exception:
             # Persist only fixed diagnostic codes, never exception URLs/headers.
             if generation == self.generation and not self.stopped:
-                self.store.record(provider, {"event": "probe_error", "reason": "internal_probe_error"})
-                self._schedule(provider, 900)
+                if provider.startswith("hoster:"):
+                    key = provider.split(":", 1)[1]
+                    self.hosters.store.record(key, {"event": "probe_error", "reason": "internal_probe_error"})
+                    self.hosters.schedule(key, 900)
+                else:
+                    self.store.record(provider, {"event": "probe_error", "reason": "internal_probe_error"})
+                    self._schedule(provider, 900)
         finally:
             with self.lock:
                 self.active.discard(provider)
@@ -131,6 +162,8 @@ class ProviderMonitor:
         if self.stopped or (generation is not None and generation != self.generation):
             return
         diagnosis = diagnose(result, previous.get("fingerprints"))
+        for candidate in result.get("hoster_candidates", []):
+            self.hosters.seed(candidate["name"], candidate["url"], provider)
         successes = [item for item in result["details"] if item["ok"]]
         canaries = previous.get("canaries", [])
         if successes:
@@ -210,6 +243,10 @@ class ProviderMonitor:
                 if expected.get("media_type") == "movies":
                     ok = ok and len(data.get("hosters") or []) >= expected.get("hoster_count", 0)
             is_episode = operation == "get_episode" or parse_episode_slug(source) is not None
+            if ok:
+                for hoster in (data.get("hosters") or [])[:20]:
+                    row = payload(hoster)
+                    self.hosters.seed(str(row.get("name") or ""), str(row.get("url") or ""), provider)
             if ok and result and not is_episode and self.clock() - self.last_canary_observation.get(provider, 0) >= 60:
                 media_type = "anime" if operation == "get_anime" or PROVIDER_CATALOG[provider].media_types == ("anime",) else "series" if operation == "get_series" or hasattr(result, "seasons") else "movies"
                 canary = reference(result, media_type)
@@ -245,7 +282,8 @@ class ProviderMonitor:
             history = [item for item in entry.get("history", []) if self.clock() - item["timestamp"] < 86400 and item["event"] == "probe"]
             failed = sum(item["diagnosis"] != "healthy" for item in history)
             hoster_names = {str(name) for item in entry.get("history", []) for name in item.get("hoster_names", [])}
-            hosters = [{"name": name, "state": "cooldown" if self.hoster_intel and self.hoster_intel.cooldown(hoster_name=name)[0] else "unknown"} for name in sorted(hoster_names)]
+            from media.hoster_contracts import hoster_key
+            hosters = [{"name": name, "state": self.hosters.store.entry(hoster_key(name), ("diagnosis",)).get("diagnosis", "unknown")} for name in sorted(hoster_names)]
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
                          "domain": self.profile(key).get("domain") or definition.domains[0],
                          "contract": contract(key).public_dict(), "runtime": self.health.status(key),
@@ -258,7 +296,9 @@ class ProviderMonitor:
                          "error_rate_24h": round(failed / len(history), 3) if history else None,
                          "average_duration_ms": round(sum(item["duration_ms"] for item in history) / len(history), 1) if history else None})
         active = [row for row in rows if row["enabled"]]
-        return {"config": self.store.config(), "providers": rows,
+        hoster_rows = self.hosters.diagnostics()
+        return {"config": self.store.config(), "providers": rows, "hosters": hoster_rows,
+                "hoster_summary": {state: sum(row["diagnosis"] == state for row in hoster_rows) for state in {"healthy", "degraded", "offline", "broken", "blocked", "unknown", "needs_attention", "repair_available"}},
                 "last_complete_check_at": min((row["last_check_at"] for row in active), default=0),
                 "next_check_at": min((row["next_check_at"] for row in active if row["next_check_at"]), default=0),
                 "summary": {state: sum(row["diagnosis"] == state for row in active) for state in {"healthy", "degraded", "broken", "blocked", "unknown", "needs_attention", "repair_available"}}}

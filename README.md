@@ -35,10 +35,11 @@ fallbacks, persistent download jobs, automation, and updates into one responsive
 web application. It avoids offering media already present in Jellyfin and keeps
 the complete path from request to library visible and controllable.
 
-On Overnight, **Settings → Sources → Provider monitor** adds scheduled provider
-diagnostics and conservative declarative repair with shadow validation and
-rollback. See [Provider Sentinel](docs/PROVIDER_SENTINEL.md) for capabilities and
-limits; monitoring reuses the existing adapters and never downloads media.
+On Overnight, **Settings → Sources → Source monitor** adds provider and hoster
+diagnostics, bounded runtime metrics, health-aware hoster ranking and conservative
+declarative repair with shadow validation and rollback. See
+[Royal Source Sentinel](docs/PROVIDER_SENTINEL.md) for capabilities and limits;
+monitoring reuses existing adapters/resolvers and never downloads media.
 
 
 <p align="center">
