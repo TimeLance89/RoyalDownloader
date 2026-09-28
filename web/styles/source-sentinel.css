@@ -1,0 +1,21 @@
+/* Source availability uses Royal's existing settings palette and typography. */
+#provider-monitor .source-service { --source-signal: var(--settings-gold, #dbb85d); border-left: 3px solid var(--source-signal); padding: 4px 0 4px 16px; margin: 12px 0 20px; }
+#provider-monitor .source-service[data-state="healthy"] { --source-signal: var(--settings-green, #83d49a); }
+#provider-monitor .source-service[data-state="action_required"] { --source-signal: var(--settings-red, #f03845); }
+#provider-monitor .source-service h4 { color: var(--source-signal); font-size: 20px; margin: 0 0 10px; }
+#provider-monitor .source-service p { max-width: 65ch; line-height: 1.5; margin: 8px 0; }
+#provider-monitor .source-coverage { list-style: none; padding: 0; margin: 14px 0; }
+#provider-monitor .source-coverage li { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--settings-line, rgba(236,230,216,.12)); }
+#provider-monitor .source-coverage span { text-align: right; }
+#provider-monitor .source-controls { display: grid; gap: 12px; margin-bottom: 16px; }
+#provider-monitor .source-controls label { display: flex; align-items: flex-start; gap: 9px; line-height: 1.5; }
+#provider-monitor .source-controls input { flex: 0 0 auto; margin-top: 4px; }
+#provider-monitor .source-disclosure { padding: 14px 0; border-top: 1px solid var(--settings-line, rgba(236,230,216,.12)); }
+#provider-monitor .source-disclosure > summary { cursor: pointer; min-height: 44px; }
+#provider-monitor .source-disclosure > label { display: block; margin: 14px 0; }
+#provider-monitor .source-disclosure nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+#provider-monitor details, #provider-monitor .table-scroll { min-width: 0; overflow-wrap: anywhere; }
+#provider-monitor pre { white-space: pre-wrap; }
+
+#provider-monitor > p:empty { display: none; }
+#provider-monitor [hidden] { display: none !important; }

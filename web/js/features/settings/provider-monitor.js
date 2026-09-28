@@ -3,14 +3,44 @@ import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml } from "../../shared/utils/escape-html.js";
 import { websocket } from "../../core/websocket.js";
 
-const labels = { offline: "Nicht erreichbar", repairing: "Reparatur läuft", changed: "Verändert", healthy: "Gesund", degraded: "Eingeschränkt", broken: "Defekt", blocked: "Verifikation erforderlich", unknown: "Noch nicht geprüft", needs_attention: "Manuelle Prüfung nötig", repair_available: "Reparatur verfügbar", cooldown: "Cooldown", probing: "Prüfung läuft" };
+const labels = { offline: "Nicht erreichbar", repairing: "Reparatur läuft", changed: "Verändert", healthy: "Gesund", degraded: "Eingeschränkt", broken: "Defekt", blocked: "Verifikation erforderlich", unknown: "Noch nicht geprüft", needs_attention: "Nicht vollständig geprüft", repair_available: "Reparatur verfügbar", cooldown: "Cooldown", probing: "Prüfung läuft" };
 const steps = { reachability: "Erreichbarkeit", embed: "Embed", redirect: "Weiterleitung", player: "Player", resolver: "Resolver", media_result: "Medienquelle", connectivity: "Erreichbarkeit", catalog: "Katalog", search: "Suche", detail: "Details", metadata: "Metadaten", hoster_structure: "Hosterstruktur", source_structure: "Quellstruktur", episode_detail: "Episodendetails" };
 const reasons = { browser_fallback_required: "HTTP-Pfad nicht bestätigt · Browser-Fallback nicht aktiv geprüft", runtime_validation_required: "HTTP-Probe unvollständig · Produktionspfad benötigt Runtime-Evidenz", metadata_changed: "Metadaten verändert", invalid_reference: "Ungültige Medienreferenzen", response_too_large: "Antwort überschreitet Prüfbudget", http_error: "HTTP-Fehler", internal_probe_error: "Interner Prüffehler", ok: "Bestanden", empty_extraction: "Keine Ergebnisse erkannt", removed: "Referenztitel entfernt", identity_mismatch: "Identität nicht bestätigt", missing_hosters: "Keine Hoster erkannt", missing_links: "Keine Quellen erkannt", verification_required: "Benutzer-Verifikation erforderlich", rate_limit: "Rate-Limit", network_error: "Netzwerkfehler", temporary_http: "Temporärer HTTP-Fehler", budget_exhausted: "Prüfbudget erreicht", full_probe_required: "Nur im vollständigen Test", links_only: "Linkstruktur geprüft; kein Download", parser_error: "Parserfehler" };
 const date = value => value ? new Date(value * 1000).toLocaleString() : "—";
+const recentDate = value => {
+  if (!value) return "Noch keine Prüfung";
+  const minutes = Math.max(0, Math.floor((Date.now() / 1000 - value) / 60));
+  return minutes < 1 ? "gerade eben" : minutes < 60 ? `vor ${minutes} Minuten` : minutes < 1440 ? `vor ${Math.floor(minutes / 60)} Stunden` : date(value);
+};
 
 export function createProviderMonitor(root, { client = api, events = websocket } = {}) {
   let scope, pending, value, dirty = false, tab = "providers";
   const status = () => root.querySelector('[data-monitor="status"]');
+  const technical = () => root.querySelector('[data-monitor="technical"]');
+  const text = (name, copy) => { root.querySelector(`[data-monitor="${name}"]`).textContent = copy; };
+  function renderService() {
+    const service = value.service;
+    const state = service?.service_health || "degraded";
+    root.querySelector('[data-monitor="overview"]').dataset.state = state;
+    text("health-title", state === "healthy" ? "Alles funktioniert" : state === "action_required" ? "Aktion erforderlich" : service?.user_impact === "reduced_redundancy" ? "Eingeschränkte Verfügbarkeit" : "Verfügbarkeit wird geprüft");
+    text("health-copy", service?.active_sources === 0 ? "Aktiviere mindestens eine passende Quelle für deine Medien." : state === "healthy" ? "Royal nutzt bei Bedarf automatisch Alternativen." : state === "action_required" ? "Für einen eingerichteten Bereich fehlt eine verfügbare Quelle. Prüfe, ob du weitere passende Quellen aktivieren kannst." : service?.user_impact === "reduced_redundancy" ? "Royal verwendet verfügbare Alternativen. In einzelnen Bereichen stehen weniger Ausweichquellen bereit." : "Die Verfügbarkeit ist noch nicht vollständig bestätigt. Royal sammelt Prüfergebnisse und Ergebnisse der tatsächlichen Nutzung.");
+    const coverage = { healthy: "✓ Verfügbar", degraded: "⚠ Weniger Ausweichquellen", action_required: "✕ Keine verfügbare Quelle", unconfirmed: "○ Noch nicht bestätigt", not_configured: "○ Nicht eingerichtet" };
+    root.querySelector('[data-monitor="coverage"]').innerHTML = Object.entries({ movies: "Filme", series: "Serien", anime: "Anime" }).map(([key, label]) => {
+      const affected = (service?.paths || []).filter(path => path.media_type === key && path.state === "action_required");
+      const languages = affected.map(path => ({ de: "Deutsch", en: "Englisch" })[path.language] || path.language);
+      return `<li><strong>${label}</strong><span>${coverage[service?.coverage?.[key]] || coverage.unconfirmed}${languages.length ? ` (${escapeHtml(languages.join(", "))})` : ""}</span></li>`;
+    }).join("");
+    text("counts", service ? `${service.active_sources} ${service.active_sources === 1 ? "Quelle" : "Quellen"} aktiv · ${service.available_video_services} Videoanbieter verfügbar` : "Noch keine Verfügbarkeitsdaten");
+    text("impact", state === "healthy" ? "Downloads: Keine Einschränkungen erkannt." : state === "action_required" ? "Auswirkung auf Downloads: Mindestens ein eingerichteter Bereich ist derzeit nicht verfügbar." : service?.user_impact === "reduced_redundancy" ? "Auswirkung auf Downloads: Verfügbare Alternativen bleiben nutzbar." : "Auswirkung auf Downloads: Noch nicht zuverlässig bewertet.");
+    text("required", `Aktion erforderlich: ${service?.action_required ? "Ja – betroffene Quellen prüfen." : "Nein"}`);
+    text("last-check", `Letzte Prüfung: ${recentDate(service?.last_check_at)}`);
+    root.querySelector('[data-action="details"]').hidden = !service?.action_required;
+  }
+  function sourceImpact(kind, key) {
+    const impact = value.service?.sources?.[kind]?.[key];
+    const label = { none: "Keine", unconfirmed: "Noch nicht bestätigt", relevant: "Weniger Ausweichquellen", blocking: "Blockierend" };
+    return `<p>Auswirkung auf Royal: ${label[impact?.impact] || "Noch nicht bewertet"}<br>Aktion erforderlich: ${impact?.action_required ? "Ja" : "Nein"}${impact?.availability === "available" ? "<br>Bestätigt verfügbar" : ""}</p>`;
+  }
   function render() {
     if (!value) return;
     if (!dirty) {
@@ -20,6 +50,8 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       root.querySelector('[name="monitor-interval"]').value = value.config.interval_hours;
       root.querySelector('[name="monitor-intensity"]').value = value.config.intensity;
     }
+    renderService();
+    if (!technical().open) return;
     root.querySelector('[data-monitor="summary"]').textContent = `${value.providers.filter(p => p.enabled).length} aktive Quellen · ${Object.entries(value.summary).filter(([, count]) => count).map(([state, count]) => `${count} ${labels[state] || state}`).join(" · ")} · Hoster: ${Object.entries(value.hoster_summary || {}).filter(([, count]) => count).map(([state, count]) => `${count} ${labels[state] || state}`).join(" · ") || "Noch keine Diagnose"} · Letzte Komplettprüfung: ${date(value.last_complete_check_at)} · Nächste Prüfung: ${value.config.enabled ? date(value.next_check_at) : "Pausiert"}`;
     const list = root.querySelector('[data-monitor="providers"]');
     const opened = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.panel || node.dataset.provider));
@@ -28,6 +60,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       const repair = provider.repairs.find(item => item.id === provider.active_repair);
       return `<details data-provider="${id}" ${opened.has(provider.provider) ? "open" : ""}>
         <summary><strong>${esc(provider.label)}</strong> · ${provider.enabled ? labels[provider.diagnosis] || esc(provider.diagnosis) : "Pausiert"}${provider.running ? " · Prüfung läuft" : ""}${repair ? " · Reparatur aktiv" : ""}</summary>
+        ${sourceImpact("providers", provider.provider)}
         <p class="dim">${esc(provider.domain)} · ${esc(provider.contract.media_types.join(", "))} · Runtime: ${esc(labels[provider.runtime.state] || provider.runtime.state)}<br>Priorität: ${Object.entries(provider.priority || {}).map(([media, rank]) => `${esc(media)} ${rank}`).join(" · ") || "—"}<br>Letzter Prüfungsfehler: ${esc(reasons[provider.last_error] || provider.last_error || "—")}</p>
         <p>Letzte Prüfung: ${date(provider.last_check_at)} · Nächste Prüfung: ${provider.enabled && value.config.enabled ? date(provider.next_check_at) : "Automatisch pausiert"}<br>Letzter Erfolg: ${date(provider.last_success_at)}<br>Fehlerquote der Prüfungen (24 h): ${provider.error_rate_24h === null ? "—" : `${Math.round(provider.error_rate_24h * 100)} %`} · Durchschnittliche Prüfdauer: ${provider.average_duration_ms ?? "—"} ms</p>
         <div class="table-scroll"><table><thead><tr><th>Test</th><th>Ergebnis</th><th>Zeit</th></tr></thead><tbody>${provider.steps.map(step => `<tr><td>${esc(steps[step.name] || step.name)}${step.sample && !["movies", "series", "anime"].includes(step.sample) ? ` · ${esc(step.sample.slice(0, 6))}` : ""}</td><td>${step.ok === null ? "—" : step.ok ? "✓" : "✕"} ${esc(reasons[step.code] || step.code)}${step.http_status ? ` (HTTP ${step.http_status})` : ""}</td><td>${step.duration_ms} ms</td></tr>`).join("")}</tbody></table></div>
@@ -42,13 +75,15 @@ export function createProviderMonitor(root, { client = api, events = websocket }
   }
   function renderHosters() {
     const list = root.querySelector('[data-monitor="hosters"]');
-    if (!list) return;
+    if (!list || !technical().open) return;
     const opened = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.panel));
     const esc = escapeHtml;
     list.innerHTML = (value.hosters || []).map(hoster => {
       const id = esc(hoster.hoster), panel = `hoster-${hoster.hoster}`;
       const metric = hoster.metrics_24h;
       return `<details data-panel="${esc(panel)}" ${opened.has(panel) ? "open" : ""}><summary><strong>${esc(hoster.label)}</strong> · ${esc(labels[hoster.diagnosis] || hoster.diagnosis)}${hoster.active_repair ? " · Reparatur aktiv" : ""}</summary>
+        ${sourceImpact("hosters", hoster.hoster)}
+        <p>Letzte tatsächliche Nutzung: ${!hoster.metrics_24h.attempts ? "Noch keine aktuellen Ergebnisse" : (hoster.last_success_at || 0) > (hoster.last_failure_at || 0) ? "Erfolgreich" : "Nicht erfolgreich"}</p>
         <p>Domains: ${hoster.domains.map(esc).join(", ") || "Noch keine beobachtet"}<br>Resolver: ${esc(hoster.contract.resolver)}${hoster.contract.browser_fallback ? " · Browser-Fallback vorhanden (nicht aktiv geprüft)" : hoster.contract.probe_mode === "runtime_only" ? " · Produktionspfad nicht vollständig aktiv geprüft" : ""}<br>Provider: ${hoster.providers.map(esc).join(", ") || "—"}<br>Fähigkeiten: ${hoster.contract.capabilities.map(esc).join(", ")}</p>
         <p>24 h: ${metric.attempts} Versuche · Erfolg ${metric.success_rate === null ? "—" : `${Math.round(metric.success_rate * 100)} %`} · Median ${metric.median_resolve_ms ?? "—"} ms<br>7 Tage: ${hoster.metrics_7d.attempts} Versuche · Erfolg ${hoster.metrics_7d.success_rate === null ? "—" : `${Math.round(hoster.metrics_7d.success_rate * 100)} %`}<br>Letzter Erfolg: ${date(hoster.last_success_at)} · Letzter Fehler: ${date(hoster.last_failure_at)}<br>Letzte Prüfung: ${date(hoster.last_check_at)} · Nächste Prüfung: ${date(hoster.next_check_at)}</p>
         <div class="table-scroll"><table><thead><tr><th>Test</th><th>Ergebnis</th><th>Zeit</th></tr></thead><tbody>${hoster.steps.map(step => `<tr><td>${esc(steps[step.name] || step.name)}</td><td>${["browser_fallback_required", "runtime_validation_required"].includes(step.code) ? "⚠" : step.ok === null ? "—" : step.ok ? "✓" : "✕"} ${esc(reasons[step.code] || step.code)}</td><td>${step.duration_ms ? `${step.duration_ms} ms` : "—"}</td></tr>`).join("")}</tbody></table></div>
@@ -71,7 +106,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       if (!result?.config || !Array.isArray(result.providers)) throw new Error("Provider-Diagnosen sind derzeit nicht verfügbar.");
       value = result; render(); renderHosters(); status().textContent = "";
     } catch (error) {
-      if (current.active) status().textContent = error.status === 403 ? "Provider-Überwachung ist nur für Administratoren verfügbar." : error.message;
+      if (current.active) status().textContent = error.status === 403 ? "Die Quellenübersicht ist nur für Administratoren verfügbar." : "Die Quellenübersicht ist vorübergehend nicht erreichbar. Bitte später erneut versuchen.";
     } finally { if (current.active) pending = false; }
   }
   async function action(event) {
@@ -79,6 +114,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     if (!button || !scope?.active) return;
     const current = scope;
     const { action: name, provider, repair, kind } = button.dataset;
+    if (name === "details") { technical().open = true; render(); renderHosters(); technical().querySelector("summary").focus(); return; }
     if (name === "tab") { tab = button.dataset.tab; renderHosters(); return; }
     const sourcePath = kind === "hoster" ? "hosters" : "providers";
     if (["rollback", "activate"].includes(name)) {
@@ -109,8 +145,8 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       } else {
         await client.post(`/api/${sourcePath}/${encodeURIComponent(provider)}/probe`, { intensity: name === "full" ? "full" : "standard" }, { signal: current.signal });
       }
-      if (current.active) { status().textContent = "Übernommen. Prüfungen werden mit begrenztem Budget ausgeführt."; await refresh(); }
-    } catch (error) { if (current.active) status().textContent = error.message; }
+      if (current.active) { status().textContent = "Übernommen. Royal kümmert sich um die Prüfung."; await refresh(); }
+    } catch (error) { if (current.active) status().textContent = error.status === 429 ? "Eine Prüfung läuft bereits. Bitte kurz warten." : "Die Änderung konnte nicht übernommen werden. Bitte erneut versuchen."; }
     finally { if (current.active) button.disabled = false; }
   }
   return {
@@ -119,10 +155,12 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       scope = createScope(); pending = false;
       scope.listen(root, "click", event => { void action(event); });
       scope.listen(root, "input", () => { dirty = true; });
+      scope.listen(technical(), "toggle", () => { if (value && technical().open) { render(); renderHosters(); } });
       scope.interval(() => { if (!root.ownerDocument.hidden) void refresh(); }, 15000);
       scope.add(events.subscribe("provider_diagnostics", event => {
         if (!value?.config.notify_changes) return;
-        root.querySelector('[data-monitor="notice"]').textContent = `${event.provider}: ${labels[event.diagnosis] || event.diagnosis}`;
+        const notices = { source_recovered: "Die betroffenen Bereiche sind wieder verfügbar.", source_unavailable: "Ein eingerichteter Bereich ist nicht verfügbar. Bitte Quellen prüfen.", source_redundancy_reduced: "In einem Bereich stehen weniger Ausweichquellen bereit. Royal verwendet Alternativen." };
+        root.querySelector('[data-monitor="notice"]').textContent = notices[event.message_code] || "";
         void refresh();
       }));
       void refresh();

@@ -2,17 +2,22 @@ const assert = require("node:assert/strict");
 const { fixture } = require("./performance-fixture.cjs");
 
 (async () => {
-  for (const mobile of [false, true]) {
-    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
+  for (const width of [1440, 390, 430]) {
+    const mobile = width !== 1440;
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: { width, height: width === 430 ? 932 : mobile ? 844 : 1000 } });
     const { page, errors } = run;
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
+    let unavailable = false, failSave = false;
+    const service = { service_health: "healthy", user_impact: "none", action_required: false,
+      coverage: { movies: "healthy", series: "healthy", anime: "not_configured" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
+      sources: { providers: { filmpalast: { availability: "available", impact: "none", action_required: false } }, hosters: { voe: { availability: "available", impact: "none", action_required: false } } } };
     const provider = {
       provider: "filmpalast", label: "Filmpalast", enabled: true, domain: "filmpalast.to", diagnosis: "healthy", running: false,
       contract: { media_types: ["movies", "series"] }, runtime: { state: "healthy" },
       last_check_at: 1000, next_check_at: 45000, last_success_at: 1000, error_rate_24h: 0, average_duration_ms: 120,
       steps: [{ name: "catalog", sample: "movies", ok: true, code: "ok", duration_ms: 120, http_status: 200 }],
-      changed: true, active_repair: "fixture-repair", hosters: [],
+      last_error: "The origin web server returned an invalid or incomplete response to Cloudflare", changed: true, active_repair: "fixture-repair", hosters: [],
       repairs: [{ id: "fixture-repair", state: "active", confidence: "high", previous_profile: {}, profile: { title_selector: "h1.media-heading" }, validation: { known_detail_pages: 5, validated_detail_pages: 5 } }],
       history: [{ timestamp: 1000, event: "probe", diagnosis: "healthy", changed: true }],
     };
@@ -35,8 +40,8 @@ const { fixture } = require("./performance-fixture.cjs");
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
-        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
-        if (path.endsWith("/monitor/config")) { config = body; return route.fulfill({ json: config }); }
+        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
+        if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
         return route.fulfill({ json: { started: true } });
@@ -47,7 +52,33 @@ const { fixture } = require("./performance-fixture.cjs");
       } else await page.locator("#settings-btn").click();
       await page.locator('[data-settings-open="settings-sources"]:visible').first()[mobile ? "tap" : "click"]();
       const monitor = page.locator("#provider-monitor");
-      await monitor.locator('details[data-provider="filmpalast"] > summary').click();
+      const interact = mobile ? "tap" : "click";
+      await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
+      assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), false);
+      assert.equal(await monitor.locator('[data-monitor="providers"] details').count(), 0, "Technical rows mount only on demand");
+      assert.equal(await monitor.locator('[data-action="all"]').isVisible(), false);
+      assert.equal(await monitor.locator('[name="monitor-interval"]').isVisible(), false);
+      const plain = await monitor.innerText();
+      assert.doesNotMatch(plain, /Resolver|Hoster|Parserfehler|Browser-Fallback|Runtime|Repair Candidate|Cloudflare/);
+      assert.match(plain, /Keine Einschränkungen/);
+      assert.match(plain, /Aktion erforderlich: Nein/);
+      assert.equal(await monitor.locator("table:visible").count(), 0);
+      const rect = await monitor.boundingBox();
+      await monitor.screenshot({ path: `${require("node:os").tmpdir()}/royal-source-summary-${width}.png` });
+      if (mobile) assert.ok(rect.height < 850, `Compact default monitor: ${rect.height}`);
+      failSave = true;
+      await monitor.locator('[data-action="save"]')[interact]();
+      await monitor.locator('[data-monitor="status"]').getByText(/nicht übernommen/).waitFor();
+      assert.doesNotMatch(await monitor.innerText(), /Cloudflare|token=secret/);
+      failSave = false;
+      unavailable = true;
+      await monitor.locator('[data-action="save"]')[interact]();
+      await monitor.locator('[data-monitor="health-title"]').getByText("Aktion erforderlich").waitFor();
+      assert.match(await monitor.locator('[data-monitor="coverage"]').innerText(), /Serien.*Keine verfügbare Quelle/s);
+      await monitor.locator('[data-action="details"]')[interact]();
+      assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), true);
+      unavailable = false;
+      await monitor.locator('details[data-provider="filmpalast"] > summary')[interact]();
       assert.match(await monitor.textContent(), /Gesund/);
       await monitor.locator('[data-panel="filmpalast-repairs"] > summary').click();
       await monitor.locator('[data-action="rollback"]:not([data-kind])').click();
@@ -62,6 +93,7 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-action="probe"]:not([data-kind])').click();
       await monitor.locator('[data-action="full"]:not([data-kind])').click();
       assert.deepEqual(calls.filter(call => call.path.endsWith("/probe")).map(call => call.body.intensity), ["standard", "full"]);
+      await monitor.locator('[data-monitor="advanced-settings"] > summary')[interact]();
       await monitor.locator('[name="monitor-interval"]').fill("6");
       await monitor.locator('[name="monitor-intensity"]').selectOption("full");
       await monitor.locator('[data-action="save"]').click();
@@ -92,8 +124,11 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-action="tab"][data-tab="history"]').click();
       assert.match(await monitor.locator('[data-monitor="history"]').textContent(), /parser_error/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+      await monitor.locator('[data-monitor="technical"] > summary')[interact]();
+      await monitor.locator('[data-monitor="advanced-settings"] > summary')[interact]();
+      assert.doesNotMatch(await monitor.innerText(), /Resolver|Hoster|Parserfehler|Browser-Fallback|Runtime|Cloudflare/);
       assert.deepEqual(errors, []);
-      console.log(`provider monitor ${mobile ? "mobile" : "desktop"}: diagnostics, probe, config, confirmation and rollback passed`);
+      console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
