@@ -545,3 +545,33 @@ def test_real_anime_canaries_keep_domain_and_episode_traffic_cannot_replace_them
     monitor.observe("mkissa", True, .1, "mkissa:canary123|sub-s01e001", FilmpalastMovie(title="Canary S01E01", url="https://media.example/episode"), "get_episode")
     assert monitor.store.entry("mkissa")["canaries"] == baseline
     monitor.stop()
+
+
+def test_exhausted_probe_budget_does_not_fabricate_parser_failure_or_quarantine(monkeypatch, tmp_path):
+    from providers.sentinel_runtime import probe_context as original_context
+    probe = real_probe(monkeypatch, FixtureSession())
+    baseline = probe.run("filmpalast", "full")
+    monkeypatch.setattr("application_services.provider_probe.probe_context", lambda provider, profile, **_options: original_context(provider, profile, maximum_requests=3))
+    result = probe.run("filmpalast", "full", canaries=baseline["details"])
+    assert diagnose(result) == "degraded"
+    assert all(step["ok"] is None for step in result["steps"] if step["name"] in {"metadata", "hoster_structure"})
+    monitor = ProviderMonitor(tmp_path / "state.json", ProviderHealth(tmp_path / "health.json"), lambda: ["filmpalast"], probe=SimpleNamespace(run=lambda *_args: result))
+    monitor.check("filmpalast")
+    monitor.check("filmpalast")
+    assert monitor.health.request_allowed("filmpalast")
+    monitor.stop()
+
+
+def test_quarantine_recovery_escalates_standard_to_full(tmp_path):
+    intensities = []
+    def run(_provider, intensity, *_args):
+        intensities.append(intensity)
+        return {"steps": [], "details": [], "responses": [], "canaries": []}
+    health = ProviderHealth(tmp_path / "health.json")
+    health.mark_blocked("serienstream", "fixture")
+    monitor = ProviderMonitor(tmp_path / "state.json", health, lambda: ["serienstream"], probe=SimpleNamespace(run=run))
+    monitor.check("serienstream", "standard")
+    monitor.check("serienstream", "light")
+    assert intensities == ["full", "light"]
+    assert not health.request_allowed("serienstream")
+    monitor.stop()

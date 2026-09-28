@@ -149,24 +149,25 @@ class ProviderProbe:
                     for ref in candidates:
                         sample = ref["identity"]
                         detail = step("detail", lambda: adapter.get_anime(ref["source"], force=True) if media_type == "anime" else adapter.get_movie(ref["source"]) if media_type == "movies" else adapter.get_series(ref["source"]), sample=sample)
+                        detail_code = steps[-1]["code"]
                         data = payload(detail)
                         match = bool(data.get("title")) and title_key(data["title"]) == title_key(ref["title"])
                         metadata = {field: bool(data.get(field)) for field in ("title", "cover_url", "description", "genres", "year")}
                         metadata_ok = match and all(not expected or metadata.get(field) for field, expected in ref.get("metadata", {}).items())
-                        removed = steps[-1]["code"] == "removed"
-                        steps.append({"name": "metadata", "sample": sample, "ok": None if removed else metadata_ok, "code": "removed" if removed else "ok" if metadata_ok else "metadata_changed" if match else "identity_mismatch", "duration_ms": 0, "fields": metadata, "http_status": 0})
+                        unavailable = not detail and detail_code in {"removed", "budget_exhausted", "rate_limit", "network_error", "temporary_http", "verification_required", "response_too_large"}
+                        steps.append({"name": "metadata", "sample": sample, "ok": None if unavailable else metadata_ok, "code": detail_code if unavailable else "ok" if metadata_ok else "metadata_changed" if match else "identity_mismatch", "duration_ms": 0, "fields": metadata, "http_status": 0})
                         hosters = data.get("hosters") or []
                         if media_type != "movies" and intensity == "full" and detail:
                             source = episode_source(provider, detail)
                             if source:
                                 episode = step("episode_detail", lambda: adapter.get_episode(source) if media_type == "anime" else adapter.get_movie(source), sample=sample)
                                 hosters = payload(episode).get("hosters") or []
-                        if (media_type == "movies" or intensity == "full") and not removed:
+                        if (media_type == "movies" or intensity == "full") and not unavailable:
                             valid = [payload(hoster) for hoster in hosters if valid_source_link(payload(hoster).get("url") or "")]
                             steps.append({"name": "hoster_structure", "sample": sample, "ok": bool(valid), "code": "ok" if valid else "missing_hosters", "count": len(valid), "duration_ms": 0, "http_status": 0})
                             steps.append({"name": "source_structure", "sample": sample, "ok": bool(valid), "code": "links_only" if valid else "missing_links", "duration_ms": 0, "http_status": 0})
                         else:
-                            steps.append({"name": "hoster_structure", "sample": sample, "ok": None, "code": "full_probe_required", "duration_ms": 0, "http_status": 0})
+                            steps.append({"name": "hoster_structure", "sample": sample, "ok": None, "code": detail_code if unavailable else "full_probe_required", "duration_ms": 0, "http_status": 0})
                         details.append({**ref, "ok": metadata_ok and bool(detail), "metadata": metadata,
                                         "cover_identity": identity(data["cover_url"]) if data.get("cover_url") else "",
                                         "hoster_count": len(hosters), "hoster_names": sorted({str(payload(h).get("name") or "")[:50] for h in hosters})[:20]})

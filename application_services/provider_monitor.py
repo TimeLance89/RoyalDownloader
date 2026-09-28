@@ -123,6 +123,10 @@ class ProviderMonitor:
 
     def check(self, provider, intensity="standard", generation=None):
         previous = self.store.entry(provider)
+        if intensity != "light" and not self.health.request_allowed(provider):
+            # Recovery must also prove series/anime episode hosters; a standard
+            # detail-only success cannot reopen a source isolated by full tests.
+            intensity = "full"
         result = self.probe.run(provider, intensity, self.profile(provider), previous.get("canaries", []))
         if self.stopped or (generation is not None and generation != self.generation):
             return

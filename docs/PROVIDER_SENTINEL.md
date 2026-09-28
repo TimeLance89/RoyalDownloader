@@ -58,7 +58,9 @@ Isolation requires two failed rounds plus independent failed samples, or repeate
 explicit verification blocking. Existing ProviderHealth then excludes that source
 from normal transport/routing while configured alternatives remain available.
 Three successful independent detail checks can restore health; a light check
-cannot release quarantine. No provider configuration is deleted.
+cannot release quarantine. Non-light recovery probes automatically use full
+intensity, including episode hosters. Exhausted budgets are inconclusive rather
+than fabricated metadata/hoster failures. No provider configuration is deleted.
 
 HosterIntel remains independent. A found URL proves only link structure. The
 monitor reports known hoster cooldowns and otherwise unknown availability; it
