@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Source Sentinel availability overview
+
+- Replace the default diagnostic lists with a compact availability card for movies,
+  series and anime, automatic monitoring/repairs and clear action requirements.
+- Evaluate configured media/language paths and working alternatives centrally;
+  distinguish missing evidence from confirmed outages without changing source
+  health, ranking or conservative repair qualification.
+- Keep complete provider, video-service and repair diagnostics behind Technical
+  details; move interval/intensity/manual checks into Advanced settings.
+- Suppress alarms for safely handled individual failures and incomplete probes,
+  notify only on meaningful service-impact transitions, and hide raw external
+  error bodies from everyday messages.
+- Cover compact 390/430 px touch layouts, desktop and WebKit disclosure/actions
+  alongside offline availability-policy and notification regressions.
+
 ### Hoster probe evidence correction
 
 - Distinguish HTTP-only probes from browser-assisted production resolvers, including

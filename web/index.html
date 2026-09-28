@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
 <link rel="stylesheet" href="/style.css?v=royal-20260921-3">
+<link rel="stylesheet" href="/styles/source-sentinel.css">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -1636,10 +1637,47 @@
               <span class="settings-section-mark is-source" aria-hidden="true">⇄</span>
               <div>
                 <span>DOWNLOAD-ROUTING</span>
-                <h2 id="settings-sources-title">Quellen und Prioritäten</h2>
-                <p>Aktive Kataloge wählen und deren Fallback-Reihenfolge festlegen.</p>
+                <h2 id="settings-sources-title">Quellen &amp; Verfügbarkeit</h2>
+                <p>Verfügbarkeit prüfen und Quellen, Sprachen und Ausweichquellen anpassen.</p>
               </div>
             </header>
+        <section id="provider-monitor" class="settings-group settings-card provider-settings" aria-labelledby="provider-monitor-title">
+          <h3 id="provider-monitor-title">Quellen &amp; Verfügbarkeit</h3>
+          <div class="source-service" data-monitor="overview">
+            <h4 data-monitor="health-title" role="status" aria-live="polite">Verfügbarkeit wird geprüft</h4>
+            <p data-monitor="health-copy">Royal ermittelt den aktuellen Zustand deiner Quellen.</p>
+            <ul class="source-coverage" data-monitor="coverage"></ul>
+            <p class="dim" data-monitor="counts"></p>
+            <p data-monitor="impact"></p>
+            <p data-monitor="required"></p>
+            <p class="dim" data-monitor="last-check"></p>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="details" hidden>Problem ansehen</button>
+          </div>
+          <div class="source-controls">
+            <label><input name="monitor-enabled" type="checkbox" checked> Quellen automatisch überwachen</label>
+            <label><input name="monitor-auto-repair" type="checkbox" checked> Eindeutig validierte Reparaturen automatisch durchführen</label>
+            <label><input name="monitor-notify" type="checkbox"> Nur wichtige Probleme melden</label>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="save">Überwachung speichern</button>
+          <p data-monitor="status" role="status" aria-live="polite"></p>
+          <p data-monitor="notice" role="status" aria-live="polite"></p>
+          <details class="source-disclosure" data-monitor="advanced-settings">
+            <summary>Erweiterte Einstellungen</summary>
+            <label>Prüfintervall (Stunden) <input name="monitor-interval" type="number" min="1" max="168" value="12"></label>
+            <label>Prüfintensität <select name="monitor-intensity"><option value="light">Leicht</option><option value="standard" selected>Standard</option><option value="full">Vollständig</option></select></label>
+            <p class="dim">Royal prüft automatisch. Eine zusätzliche Prüfung ist normalerweise nicht notwendig.</p>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="all">Alle aktiven Quellen prüfen</button>
+          </details>
+          <details class="source-disclosure" data-monitor="technical">
+            <summary>Technische Details anzeigen</summary>
+            <p data-monitor="summary"></p>
+            <nav aria-label="Quellenüberwachung"><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="providers" aria-pressed="true">Provider</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="hosters" aria-pressed="false">Hoster</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="history" aria-pressed="false">Reparaturen / Verlauf</button></nav>
+            <div data-monitor="providers"></div>
+            <div data-monitor="hosters" hidden></div>
+            <div data-monitor="history" hidden></div>
+          </details>
+          <div data-monitor="confirmation" hidden><p></p><button type="button" class="btn btn-ghost btn-sm" data-action="confirm">Bestätigen</button><button type="button" class="btn btn-ghost btn-sm" data-action="cancel">Abbrechen</button></div>
+        </section>
         <div class="settings-group settings-card provider-settings">
           <div class="provider-heading">
             <div>
@@ -1697,24 +1735,7 @@
           </div>
           <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
         </div>
-        <section id="provider-monitor" class="settings-group settings-card provider-settings" aria-labelledby="provider-monitor-title">
-          <h3 id="provider-monitor-title">Quellen-Überwachung</h3>
-          <p class="dim">Zeitgesteuerte Prüfungen von Katalog, Suche und Details. Eindeutig validierte Reparaturen können automatisch aktiviert und zurückgerollt werden.</p>
-          <label><input name="monitor-enabled" type="checkbox" checked> Automatische Provider-Prüfung</label>
-          <label>Prüfintervall (Stunden) <input name="monitor-interval" type="number" min="1" max="168" value="12"></label>
-          <label>Intensität <select name="monitor-intensity"><option value="light">Leicht</option><option value="standard" selected>Standard</option><option value="full">Vollständig</option></select></label>
-          <label><input name="monitor-auto-repair" type="checkbox" checked> Eindeutig validierte Reparaturen automatisch aktivieren</label>
-          <label><input name="monitor-notify" type="checkbox"> Relevante Zustandswechsel im Monitor melden</label>
-          <div class="path-input-row"><button type="button" class="btn-ghost" data-action="save">Überwachung speichern</button><button type="button" class="btn-ghost" data-action="all">Alle aktiven Quellen prüfen</button></div>
-          <p data-monitor="summary" role="status"></p>
-          <p data-monitor="status" role="status" aria-live="polite"></p>
-          <p data-monitor="notice" role="status" aria-live="polite"></p>
-          <div data-monitor="confirmation" hidden><p></p><button type="button" class="btn-ghost" data-action="confirm">Bestätigen</button><button type="button" class="btn-ghost" data-action="cancel">Abbrechen</button></div>
-          <nav aria-label="Quellenüberwachung"><button type="button" class="btn-ghost" data-action="tab" data-tab="providers" aria-pressed="true">Provider</button><button type="button" class="btn-ghost" data-action="tab" data-tab="hosters" aria-pressed="false">Hoster</button><button type="button" class="btn-ghost" data-action="tab" data-tab="history" aria-pressed="false">Reparaturen / Verlauf</button></nav>
-          <div data-monitor="providers"></div>
-          <div data-monitor="hosters" hidden></div>
-          <div data-monitor="history" hidden></div>
-        </section>
+
           </section>
 
           <section id="settings-media" class="settings-section" data-settings-section aria-labelledby="settings-media-title">

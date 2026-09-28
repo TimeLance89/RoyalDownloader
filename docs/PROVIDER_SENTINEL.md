@@ -6,6 +6,48 @@ introduce another download stack. The administrative surface is **Settings →
 Sources → Source monitor (Provider / Hoster / Repairs and history)**. This feature is developed on Overnight; the
 published application version remains unchanged until a separate stable release.
 
+## Availability for everyday use
+
+Settings → Sources opens with a compact **Sources & availability** card, not a
+list of diagnostic states. Movies, series and anime show their own availability;
+monitoring, validated automatic repairs and important notifications are the only
+routine controls. Interval/intensity/manual checks are under **Advanced settings**.
+Provider/hoster metrics, steps, domains, repair evidence and history remain under
+**Technical details** and render only when that section is opened. Existing admin
+API authorization and repair confirmations remain in force.
+
+`application_services/source_service_health.py` is the single presentation-only
+policy. The diagnostics API adds `service`: `service_health`, `user_impact`,
+`action_required`, media `coverage`, configured media/language `paths`, source
+impacts and counts. It does not mutate ProviderHealth, HosterIntel or repair rules.
+Enabled provider priorities determine relevant media; a working English source
+cannot hide loss of a configured German path. Unconfigured media are neutral.
+
+Availability requires fresh (24-hour) successful provider evidence and an observed
+working video-service path. Runtime success can confirm browser-assisted services
+whose cheap HTTP probes are inconclusive. Default circuit state alone, unknown
+associations and stale results are not proof of availability. Associations describe
+observed routing, not a guarantee that every individual title is downloadable.
+
+- **Healthy:** confirmed working paths retain sufficient redundancy. Inconclusive
+  extra sources or protected services with working alternatives do not cause alarms.
+- **Reduced redundancy:** a configured path has lost confirmed alternatives but a
+  working path remains. No user action is required.
+- **Unconfirmed:** evidence is missing/stale; the card states that availability is
+  still being checked, without claiming an outage or reassuring falsely.
+- **Action required:** a configured path has no working or unconfirmed alternative,
+  or no media source is configured. The affected media type is prominent.
+
+Per-source impacts distinguish none, unconfirmed, relevant and blocking. Healthy
+services are not blamed for failures elsewhere. Notifications are deduplicated by
+impact transition, emitted only for actual loss of availability/redundancy or its
+recovery, never merely for `degraded`, HTTP-probe limitations or repair candidates.
+Initial unconfirmed-to-healthy discovery is not a recovery alarm. Standard UI
+messages use fixed plain-language text; raw transport/provider error bodies are
+never rendered there. All technical evidence and self-healing security requirements
+remain unchanged. Offline policy tests and real desktop/touch/WebKit tests cover
+progressive disclosure, important failures, safe messages and admin actions.
+
 ## Scheduling and resources
 
 Monitoring starts with the existing post-setup background services. Defaults:

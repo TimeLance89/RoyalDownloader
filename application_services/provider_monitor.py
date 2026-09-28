@@ -12,6 +12,7 @@ from media.provider_monitor_store import ProviderMonitorStore
 from providers.catalog import PROVIDER_CATALOG
 from providers.probe_contracts import contract
 from providers.models import parse_episode_slug
+from application_services.source_service_health import source_service_health
 
 
 class ProviderMonitor:
@@ -22,6 +23,7 @@ class ProviderMonitor:
         self.repairs = ProviderRepair(self.store, self.probe)
         self.clock, self.notify = clock, notify or (lambda _event: None)
         self.priorities = priorities or (lambda _media: [])
+        self.has_priorities = priorities is not None
         self.lock = threading.RLock()
         self.active = set()
         self.last_manual = {}
@@ -32,14 +34,28 @@ class ProviderMonitor:
         self.thread = None
         self.stopped = False
         self.generation = 0
+        self.last_service_notice = None
+        self.notice_lock = threading.Lock()
         from application_services.hoster_monitor import HosterMonitor
         self.hosters = HosterMonitor(self)
         if hoster_intel is not None:
             hoster_intel.health_penalty = self.hosters.penalty
 
     def _notify(self, key, diagnosis, kind="provider"):
-        if self.store.config()["notify_changes"]:
-            self.notify({"provider": key, "source_kind": kind, "diagnosis": diagnosis})
+        if not self.store.config()["notify_changes"]:
+            return
+        service = self.diagnostics()["service"]
+        signature = tuple((path["media_type"], path["language"], path["state"]) for path in service["paths"])
+        with self.notice_lock:
+            previous = self.last_service_notice
+            self.last_service_notice = (service["user_impact"], signature)
+            important = service["action_required"] or service["user_impact"] == "reduced_redundancy"
+            recovered = previous and previous[0] in {"blocking", "reduced_redundancy"} and service["service_health"] == "healthy"
+            changed = previous != self.last_service_notice
+        if (important or recovered) and changed:
+            self.notify({"provider": key, "source_kind": kind, "diagnosis": diagnosis,
+                         "service_health": service["service_health"], "action_required": service["action_required"],
+                         "message_code": "source_recovered" if recovered else "source_unavailable" if service["action_required"] else "source_redundancy_reduced"})
 
     def profile(self, provider):
         return self.repairs.profile(provider)
@@ -222,8 +238,8 @@ class ProviderMonitor:
             self.store.update(provider, diagnosis="needs_attention")
             diagnosis = "needs_attention"
         self._schedule(provider, min(3600, self.store.config()["interval_hours"] * 3600) if isolated else None)
-        if self.store.config()["notify_changes"] and diagnosis != previous.get("diagnosis", "unknown") and diagnosis in {"broken", "blocked", "repaired", "needs_attention"}:
-            self.notify({"provider": provider, "diagnosis": diagnosis})
+        if self.store.config()["notify_changes"] and diagnosis != previous.get("diagnosis", "unknown") and diagnosis in {"healthy", "broken", "blocked", "repaired", "needs_attention"}:
+            self._notify(provider, diagnosis)
         return self.store.entry(provider)
 
     def observe(self, provider, ok, duration, source="", result=None, operation=""):
@@ -269,7 +285,7 @@ class ProviderMonitor:
                 self.repairs.rollback(provider, repair, "three_independent_runtime_failures")
                 self.store.update(provider, diagnosis="needs_attention")
                 if self.store.config()["notify_changes"]:
-                    self.notify({"provider": provider, "diagnosis": "repair_rolled_back"})
+                    self._notify(provider, "repair_rolled_back")
 
     def diagnostics(self, provider=None):
         enabled = set(self.enabled())
@@ -277,8 +293,6 @@ class ProviderMonitor:
         hoster_states = {row["hoster"]: row["diagnosis"] for row in hoster_rows}
         rows = []
         for key, definition in PROVIDER_CATALOG.items():
-            if provider and key != provider:
-                continue
             entry = self.store.entry(key)
             priority = {media: order.index(key) + 1 for media in definition.media_types if key in (order := self.priorities(media))}
             history = [item for item in entry.get("history", []) if self.clock() - item["timestamp"] < 86400 and item["event"] == "probe"]
@@ -289,6 +303,7 @@ class ProviderMonitor:
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
                          "domain": self.profile(key).get("domain") or definition.domains[0],
                          "contract": contract(key).public_dict(), "runtime": self.health.status(key),
+                         "content_language": definition.content_language, "enabled_media_types": [media for media in definition.media_types if not self.has_priorities or key in self.priorities(media)],
                          "diagnosis": entry.get("diagnosis", "unknown"), "running": key in self.active,
                          "last_check_at": entry.get("last_check_at", 0), "next_check_at": entry.get("next_check_at", 0),
                          "last_success_at": entry.get("last_success_at", 0), "steps": entry.get("steps", []),
@@ -297,8 +312,14 @@ class ProviderMonitor:
                          "repairs": entry.get("repairs", []), "history": entry.get("history", []), "hosters": hosters,
                          "error_rate_24h": round(failed / len(history), 3) if history else None,
                          "average_duration_ms": round(sum(item["duration_ms"] for item in history) / len(history), 1) if history else None})
+        service = source_service_health(rows, hoster_rows, self.clock())
+        for row in rows:
+            row["user_impact"] = service["sources"]["providers"].get(row["provider"], {"impact": "none", "action_required": False})
+        if provider:
+            rows = [row for row in rows if row["provider"] == provider]
         active = [row for row in rows if row["enabled"]]
         return {"config": self.store.config(), "providers": rows, "hosters": hoster_rows,
+                "service": service,
                 "hoster_summary": {state: sum(row["diagnosis"] == state for row in hoster_rows) for state in {"healthy", "degraded", "offline", "broken", "blocked", "unknown", "needs_attention", "repair_available"}},
                 "last_complete_check_at": min((row["last_check_at"] for row in active), default=0),
                 "next_check_at": min((row["next_check_at"] for row in active if row["next_check_at"]), default=0),
