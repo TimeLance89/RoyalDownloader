@@ -52,6 +52,7 @@ const { fixture } = require("./performance-fixture.cjs");
       } else await page.locator("#settings-btn").click();
       await page.locator('[data-settings-open="settings-sources"]:visible').first()[mobile ? "tap" : "click"]();
       const monitor = page.locator("#provider-monitor");
+      assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-monitor", "Availability comes before source configuration");
       const interact = mobile ? "tap" : "click";
       await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
       assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), false);
