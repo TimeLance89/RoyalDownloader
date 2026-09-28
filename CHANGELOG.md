@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Stabilize Source Sentinel controls during background polling: preserve action
+  feedback and unchanged diagnostic elements, await overlapping refreshes after
+  mutations, and cover WebKit navigation and in-flight poll/action races.
+
 - Keep incomplete Source Sentinel diagnostics separate from production-provider
   routing: AniWorld and other usable sources remain available despite parser,
   track or HTTP-only probe warnings. Preserve real runtime cooldowns, bounded

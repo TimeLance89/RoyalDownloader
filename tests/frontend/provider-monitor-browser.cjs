@@ -8,7 +8,7 @@ const { fixture } = require("./performance-fixture.cjs");
     const { page, errors } = run;
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
-    let unavailable = false, failSave = false, languageProblem = false, diagnosticOnly = false;
+    let unavailable = false, failSave = false, languageProblem = false, diagnosticOnly = false, diagnosticsUnavailable = false;
     const service = { service_health: "healthy", user_impact: "none", action_required: false,
       coverage: { movies: "healthy", series: "healthy", anime: "healthy" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
       paths: ["de", "en"].map(language => ({ media_type: "anime", language, state: "healthy" })),
@@ -41,6 +41,7 @@ const { fixture } = require("./performance-fixture.cjs");
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
+        if (path.endsWith("/diagnostics") && diagnosticsUnavailable) return route.fulfill({ status: 502, json: { detail: "Cloudflare token=secret" } });
         if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: diagnosticOnly ? { ...service, service_health: "degraded", user_impact: "unconfirmed", coverage: { ...service.coverage, anime: "unconfirmed" }, paths: [{ media_type: "anime", language: "de", state: "unconfirmed" }] } : languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
         if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
@@ -53,6 +54,13 @@ const { fixture } = require("./performance-fixture.cjs");
       } else await page.locator("#settings-btn").click();
       await page.locator('[data-settings-open="settings-sources"]:visible').first()[mobile ? "tap" : "click"]();
       const monitor = page.locator("#provider-monitor");
+      const command = async (button, path, method = "POST", interaction = "click") => {
+        await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
+        const response = page.waitForResponse(response => new URL(response.url()).pathname === path && response.request().method() === method);
+        await button[interaction]();
+        await (await response).finished();
+        await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
+      };
       assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-monitor", "Availability comes before source configuration");
       const interact = mobile ? "tap" : "click";
       await page.evaluate(async () => { await fixtureApp.settings.providers.initialize(); fixtureApp.settings.providers.apply({
@@ -88,7 +96,7 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.match(await coverage.innerText(), /Anime.*Verfügbar/s);
       assert.equal(await coverage.locator('.source-language-path').count(), 0, "Healthy language coverage stays compact");
       languageProblem = true;
-      await monitor.locator('[data-action="save"]')[interact]();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await coverage.getByText("Deutsch: ✕ Nicht verfügbar").waitFor();
       assert.equal(await coverage.getByText("Englisch: ✓ Verfügbar").isVisible(), true);
       assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), false);
@@ -97,13 +105,13 @@ const { fixture } = require("./performance-fixture.cjs");
         await monitor.screenshot({ path: `${require("node:os").tmpdir()}/royal-source-languages-${width}.png` });
       }
       languageProblem = false;
-      await monitor.locator('[data-action="save"]')[interact]();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
       assert.equal(await coverage.locator('.source-language-path').count(), 0);
       // AniWorld is the only configured German anime route. Incomplete
       // diagnostics must neither claim an outage nor disable its catalog.
       diagnosticOnly = true;
-      await monitor.locator('[data-action="save"]')[interact]();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await coverage.getByText("○ Noch nicht bestätigt (Deutsch)").waitFor();
       assert.doesNotMatch(await monitor.innerText(), /Keine verfügbare Quelle|Aktion erforderlich: Ja/);
       await page.route("**/api/aniworld?**", route => route.fulfill({ json: { results: [{ id: "routing-fixture", title: "Routing Fixture", cover_url: "/fixture-art.svg", translations: { dub: 1 } }], page: 1, has_more: false, disabled: false } }));
@@ -114,14 +122,26 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.doesNotMatch(await page.locator("#tab-aniworld").innerText(), /AniWorld ist nicht verfügbar|AniWorld ist pausiert/);
       await page.evaluate(() => fixtureApp.core.actions.switchTab("einstellungen"));
       await monitor.waitFor({ state: "visible" });
+      await page.evaluate(() => {
+        // Capture the real scoped poll without waiting 15 seconds or replacing
+        // its callback. Lifecycle remount also verifies listener ownership.
+        fixtureApp.settings.providers.settings.unmount();
+        const original = window.setInterval;
+        window.setInterval = (callback, delay, ...args) => {
+          if (delay === 15000) window.sentinelPoll = callback;
+          return original(callback, delay, ...args);
+        };
+        try { fixtureApp.settings.providers.settings.mount(); }
+        finally { window.setInterval = original; }
+      });
       diagnosticOnly = false;
       failSave = true;
-      await monitor.locator('[data-action="save"]')[interact]();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await monitor.locator('[data-monitor="status"]').getByText(/nicht übernommen/).waitFor();
       assert.doesNotMatch(await monitor.innerText(), /Cloudflare|token=secret/);
       failSave = false;
       unavailable = true;
-      await monitor.locator('[data-action="save"]')[interact]();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await monitor.locator('[data-monitor="health-title"]').getByText("Aktion erforderlich").waitFor();
       assert.match(await monitor.locator('[data-monitor="coverage"]').innerText(), /Serien.*Keine verfügbare Quelle/s);
       await monitor.locator('[data-action="details"]')[interact]();
@@ -143,16 +163,16 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-action="cancel"]').click();
       assert.equal(calls.some(call => call.path.endsWith("/rollback")), false);
       await monitor.locator('[data-action="rollback"]:not([data-kind])').click();
-      await monitor.locator('[data-action="confirm"]').click();
+      await command(monitor.locator('[data-action="confirm"]'), "/api/providers/filmpalast/repairs/fixture-repair/rollback");
       await page.waitForFunction(() => !document.querySelector('#provider-monitor [data-action="rollback"]:not([data-kind])'));
       assert.equal(calls.filter(call => call.path.endsWith("/rollback")).length, 1);
       assert.equal(await monitor.locator('[data-panel="filmpalast-repairs"]').evaluate(node => node.open), true);
-      await monitor.locator('[data-action="probe"]:not([data-kind])').click();
+      await command(monitor.locator('[data-action="probe"]:not([data-kind])'), "/api/providers/filmpalast/probe");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-action="probe"]:not([data-kind])');
         return button && !button.disabled;
       });
-      await monitor.locator('[data-action="full"]:not([data-kind])').click();
+      await command(monitor.locator('[data-action="full"]:not([data-kind])'), "/api/providers/filmpalast/probe");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-action="full"]:not([data-kind])');
         return button && !button.disabled;
@@ -161,20 +181,57 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-monitor="advanced-settings"] > summary')[interact]();
       await monitor.locator('[name="monitor-interval"]').fill("6");
       await monitor.locator('[name="monitor-intensity"]').selectOption("full");
-      await monitor.locator('[data-action="save"]').click();
+      await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-action="save"]');
         return button && !button.disabled;
       });
       assert.equal(config.interval_hours, 6);
       assert.equal(config.intensity, "full");
-      await monitor.locator('[data-action="all"]').click();
+      // Hold a real poll in flight: the mutation must await it and then fetch
+      // fresh diagnostics, rather than declaring completion with stale data.
+      let releasePoll;
+      const heldPoll = new Promise(resolve => { releasePoll = resolve; });
+      let firstPoll = true;
+      const holdDiagnostics = async route => {
+        if (firstPoll) { firstPoll = false; await heldPoll; }
+        await route.fallback();
+      };
+      await page.route("**/api/providers/diagnostics", holdDiagnostics);
+      const diagnosticCount = calls.filter(call => call.path === "/api/providers/diagnostics").length;
+      const polling = page.waitForRequest(request => new URL(request.url()).pathname === "/api/providers/diagnostics");
+      await page.evaluate(() => sentinelPoll());
+      await polling;
+      const mutation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/providers/probe-all");
+      const completed = command(monitor.locator('[data-action="all"]'), "/api/providers/probe-all");
+      await mutation;
+      assert.equal(await monitor.getAttribute("aria-busy"), "true", "Mutation waits for overlapping poll");
+      releasePoll();
+      await completed;
+      await page.unroute("**/api/providers/diagnostics", holdDiagnostics);
+      assert.ok(calls.filter(call => call.path === "/api/providers/diagnostics").length >= diagnosticCount + 2, "Mutation refreshes after pending poll");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-action="all"]');
         return button && !button.disabled;
       });
       assert.equal(calls.filter(call => call.path.endsWith("/probe-all")).length, 1);
-      await monitor.locator('[data-action="tab"][data-tab="hosters"]').click();
+      const hosterTab = monitor.locator('[data-action="tab"][data-tab="hosters"]');
+      if (!mobile) {
+        await hosterTab.evaluate(node => node.scrollIntoView({ block: "center", behavior: "instant" }));
+        const box = await hosterTab.boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        const feedback = await monitor.locator('[data-monitor="status"]').textContent();
+        assert.ok(feedback, "Completed action retains its feedback");
+        await monitor.locator('[data-action="probe"]:not([data-kind])').evaluate(node => { window.polledControl = node; });
+        const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === "/api/providers/diagnostics");
+        await page.evaluate(() => sentinelPoll());
+        await (await refreshed).finished();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await monitor.locator('[data-monitor="status"]').textContent(), feedback, "Polling preserves layout during pointer gesture");
+        assert.equal(await page.evaluate(() => polledControl.isConnected), true, "Unchanged polling preserves existing controls");
+        await page.mouse.up();
+      } else await hosterTab.tap();
       const hosters = monitor.locator('[data-monitor="hosters"]');
       await hosters.waitFor({ state: "visible" });
       await hosters.locator('[data-panel="hoster-voe"] > summary').click();
@@ -183,12 +240,12 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.match(await hosters.textContent(), /Browser-Fallback nicht aktiv geprüft/);
       assert.match(await hosters.textContent(), /⚠/);
       assert.doesNotMatch(await hosters.textContent(), /(?:^|\s)0 ms/);
-      await hosters.locator('[data-action="probe"]').click();
+      await command(hosters.locator('[data-action="probe"]'), "/api/hosters/voe/probe");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-monitor="hosters"] [data-action="probe"]');
         return button && !button.disabled;
       });
-      await hosters.locator('[data-action="full"]').click();
+      await command(hosters.locator('[data-action="full"]'), "/api/hosters/voe/probe");
       await page.waitForFunction(() => {
         const button = document.querySelector('#provider-monitor [data-monitor="hosters"] [data-action="full"]');
         return button && !button.disabled;
@@ -197,11 +254,11 @@ const { fixture } = require("./performance-fixture.cjs");
       await hosters.locator('details details > summary').first().click();
       await hosters.locator('[data-action="activate"]').click();
       assert.equal(calls.some(call => call.path.endsWith("/activate")), false);
-      await monitor.locator('[data-action="confirm"]').click();
+      await command(monitor.locator('[data-action="confirm"]'), "/api/hosters/voe/repairs/hoster-repair/activate");
       await hosters.locator('[data-action="rollback"]').waitFor();
       assert.equal(calls.filter(call => call.path.endsWith("/activate"))[0].body.confirmed, true);
       await hosters.locator('[data-action="rollback"]').click();
-      await monitor.locator('[data-action="confirm"]').click();
+      await command(monitor.locator('[data-action="confirm"]'), "/api/hosters/voe/repairs/hoster-repair/rollback");
       assert.equal(calls.filter(call => call.path === "/api/hosters/voe/repairs/hoster-repair/rollback").length, 1);
       await monitor.locator('[data-action="tab"][data-tab="history"]').click();
       assert.match(await monitor.locator('[data-monitor="history"]').textContent(), /parser_error/);
@@ -209,6 +266,15 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-monitor="technical"] > summary')[interact]();
       await monitor.locator('[data-monitor="advanced-settings"] > summary')[interact]();
       assert.doesNotMatch(await monitor.innerText(), /Resolver|Hoster|Parserfehler|Browser-Fallback|Runtime|Cloudflare/);
+      diagnosticsUnavailable = true;
+      await page.evaluate(() => sentinelPoll());
+      await monitor.locator('[data-monitor="status"]').getByText(/vorübergehend nicht erreichbar/).waitFor();
+      assert.match(await monitor.locator('[data-monitor="status"]').textContent(), /vorübergehend nicht erreichbar/);
+      assert.doesNotMatch(await monitor.innerText(), /Cloudflare|token=secret/);
+      diagnosticsUnavailable = false;
+      await page.evaluate(() => sentinelPoll());
+      await page.waitForFunction(() => document.querySelector('#provider-monitor [data-monitor="status"]').textContent === "");
+      assert.equal(await monitor.locator('[data-monitor="status"]').textContent(), "", "Recovered polling clears its own error");
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
     } finally { await run.close(); }
