@@ -26,6 +26,9 @@ SECRET_PATTERNS = {
 }
 ACTION_SHA_RE = re.compile(r"^\s*uses:\s*([^#\s]+)(?:\s*#.*)?$", re.MULTILINE)
 INLINE_SCRIPT_RE = re.compile(r"<script(?![^>]*\bsrc\s*=)[^>]*>", re.IGNORECASE)
+# Inert third-party hoster fixtures may contain inline player scripts.
+# They are test data and are never served as Royal UI.
+CSP_EXEMPT_HTML_PREFIXES = ("tests/fixtures/hoster-sentinel/",)
 SHELL_TRUE_RE = re.compile(r"\bshell\s*=\s*" + "True" + r"\b")
 URLOPEN_RE = re.compile(r"\burllib\.request\.urlopen\s*\(")
 SANDBOX_BYPASS = "--no-" + "sandbox"
@@ -68,6 +71,12 @@ def text_files() -> list[Path]:
     return result
 
 
+def inline_script_conflicts_with_csp(relative: str, text: str) -> bool:
+    # Keep the exception deliberately narrow: arbitrary test HTML remains covered.
+    exempt = any(relative.startswith(prefix) for prefix in CSP_EXEMPT_HTML_PREFIXES)
+    return not exempt and bool(INLINE_SCRIPT_RE.search(text))
+
+
 def scan() -> list[str]:
     failures: list[str] = []
     texts: dict[Path, str] = {}
@@ -101,7 +110,7 @@ def scan() -> list[str]:
                     failures.append(
                         f"{relative}: GitHub Action must use a full commit SHA: {target}"
                     )
-        if path.suffix == ".html" and INLINE_SCRIPT_RE.search(text):
+        if path.suffix == ".html" and inline_script_conflicts_with_csp(relative, text):
             failures.append(f"{relative}: inline script conflicts with strict CSP")
 
     for path, text in texts.items():
