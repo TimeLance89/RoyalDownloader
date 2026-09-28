@@ -69,6 +69,14 @@ class HosterMonitor:
                 if key != "unknown" and hoster_key(key) == key and len(self.inventory) < MAX_HOSTERS:
                     self.inventory[key] = runtime_contract(key)
 
+    def begin(self, name, url, provider=""):
+        if self.owner.stopped or not valid_source_link(url) or len(url) > 8192:
+            return
+        self.seed(name, url, provider)
+        key = hoster_key(name, url)
+        if key in self.inventory:
+            self.store.record(key, {"event": "resolve_attempt"})
+
     def observe(self, name, url, ok, duration_ms=0, provider="", message="", media_url=""):
         if self.owner.stopped or not valid_source_link(url) or len(url) > 8192:
             return

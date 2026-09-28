@@ -56,6 +56,15 @@ def observe_hoster_safely(name, url, ok, duration_ms=0, provider="", message="",
         pass
 
 
+def hoster_attempt_safely(name, url, provider=""):
+    if _runtime is None or _context.get() is not None:
+        return
+    try:
+        _runtime.hosters.begin(name, url, provider)
+    except Exception:
+        pass
+
+
 def hoster_profile_safely(name, url):
     if _runtime is None:
         return {}

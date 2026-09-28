@@ -179,6 +179,16 @@ def test_contract_inventory_and_aliases():
     assert "embed" not in CONTRACTS["filmfrei24"].capabilities
 
 
+def test_attempt_event_does_not_invent_completed_success(tmp_path):
+    owner = monitor(tmp_path)
+    owner.hosters.begin("VOE", "https://voe.example/known?token=secret", "filmpalast")
+    entry = owner.hosters.store.entry("voe")
+    assert entry["history"][-1]["event"] == "resolve_attempt"
+    assert entry.get("samples", []) == []
+    assert not owner.hosters.candidates("voe")[0]["proven"]
+    assert "token=secret" not in owner.store.path.read_text()
+
+
 @pytest.mark.parametrize("code,state", [("parser_error", "broken"), ("network_error", "offline"), ("blocked", "blocked"), ("resolve_success", "healthy"), ("removed", "unknown")])
 def test_health_contract(code, state):
     rows = [{"identity": str(index), "code": code} for index in range(6)]

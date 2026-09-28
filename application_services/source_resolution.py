@@ -2,7 +2,7 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
-from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely
+from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -261,6 +261,7 @@ def _extract_from_movie(
             continue
 
         resolve_started = time.monotonic()
+        hoster_attempt_safely(name, play_url, res.provider)
         resolve_error = "parser_error"
         def resolve_log(message, level="info"):
             nonlocal resolve_error
