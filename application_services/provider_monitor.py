@@ -251,7 +251,7 @@ class ProviderMonitor:
             self.store.update(provider, diagnosis="needs_attention")
             diagnosis = "needs_attention"
         self._schedule(provider, min(3600, self.store.config()["interval_hours"] * 3600) if isolated else None)
-        if self.store.config()["notify_changes"] and diagnosis != previous.get("diagnosis", "unknown") and diagnosis in {"healthy", "broken", "blocked", "repaired", "needs_attention"}:
+        if self.store.config()["notify_changes"] and (diagnosis != previous.get("diagnosis", "unknown") or isolated and runtime["state"] == "healthy") and diagnosis in {"healthy", "broken", "offline", "blocked", "repaired", "needs_attention"}:
             self._notify(provider, diagnosis)
         return self.store.entry(provider)
 
@@ -261,7 +261,15 @@ class ProviderMonitor:
             # checks. A changed poster is not a production provider outage.
             episode = parse_episode_slug(source)
             runtime_source = episode[0].split("|", 1)[0] if episode else source
-            self.health.record_runtime(provider, ok, runtime_source if runtime_failure and operation.startswith("get_") else "")
+            previous_runtime = self.health.status(provider)
+            runtime = self.health.record_runtime(provider, ok, runtime_source if runtime_failure and operation.startswith("get_") else "")
+            if runtime["state"] != previous_runtime["state"]:
+                if runtime["state"] == "cooldown":
+                    # The existing bounded scheduler owns automatic recovery;
+                    # do not leave a real circuit waiting for a 12h diagnosis.
+                    self.store.update(provider, next_check_at=runtime["next_probe_at"])
+                    self.wake.set()
+                self._notify(provider, self.store.entry(provider, ("diagnosis",)).get("diagnosis", "unknown"))
         if not source or self.stopped:
             return
         with self.lock:

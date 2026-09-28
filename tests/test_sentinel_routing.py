@@ -67,6 +67,7 @@ def test_independent_real_failures_close_circuit_not_removed_titles(tmp_path):
             monitor.observe("aniworld", False, .1, title, operation="get_anime", runtime_failure=True)
         assert not monitor.health.routing_allowed("aniworld")
         assert monitor.health.status("aniworld")["reason"] == "runtime_independent_failures"
+        assert monitor.store.entry("aniworld")["next_check_at"] == monitor.health.next_probe_at("aniworld")
         assert "third" not in (tmp_path / "health.json").read_text()
     finally:
         monitor.pool.shutdown(wait=True)

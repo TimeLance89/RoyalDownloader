@@ -47,6 +47,10 @@ whole real operation in its recovery scope. Competing workers cannot acquire
 another probe. A successful real browse/detail reopens routing immediately,
 without restart. A failed/empty recovery resumes cooldown. Existing download
 worker recovery ownership and repair/rollback requirements remain intact.
+New runtime cooldowns schedule the existing bounded Sentinel at the recovery
+deadline instead of waiting for the ordinary 12-hour diagnostic interval.
+Important notifications follow actual routing loss/restoration even when the
+diagnostic label itself has not changed.
 
 Startup reconciles only the obsolete persisted reason
 `sentinel_confirmed_failure`, clearing its unsupported cooldown without claiming
