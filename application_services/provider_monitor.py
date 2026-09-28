@@ -9,14 +9,15 @@ from concurrent.futures import ThreadPoolExecutor
 from application_services.provider_probe import ProviderProbe, diagnose, identity, reference, payload, title_key
 from application_services.provider_repair import ProviderRepair
 from media.provider_monitor_store import ProviderMonitorStore
-from providers.catalog import PROVIDER_CATALOG
+from providers.catalog import PROVIDER_CATALOG, provider_content_languages, normalize_content_language
 from providers.probe_contracts import contract
 from providers.models import parse_episode_slug
 from application_services.source_service_health import source_service_health
+from core.source_urls import valid_source_link
 
 
 class ProviderMonitor:
-    def __init__(self, path, health, enabled, *, hoster_intel=None, probe=None, notify=None, priorities=None, clock=time.time):
+    def __init__(self, path, health, enabled, *, hoster_intel=None, probe=None, notify=None, priorities=None, languages=None, clock=time.time):
         self.store = ProviderMonitorStore(path, clock)
         self.health, self.enabled, self.hoster_intel = health, enabled, hoster_intel
         self.probe = probe or ProviderProbe()
@@ -24,6 +25,7 @@ class ProviderMonitor:
         self.clock, self.notify = clock, notify or (lambda _event: None)
         self.priorities = priorities or (lambda _media: [])
         self.has_priorities = priorities is not None
+        self.languages = languages
         self.lock = threading.RLock()
         self.active = set()
         self.last_manual = {}
@@ -181,6 +183,9 @@ class ProviderMonitor:
         for candidate in result.get("hoster_candidates", []):
             self.hosters.seed(candidate["name"], candidate["url"], provider)
         successes = [item for item in result["details"] if item["ok"]]
+        for item in successes:
+            for language in item.get("content_languages", []):
+                self.record_language_success(provider, item["media_type"], language)
         canaries = previous.get("canaries", [])
         if successes:
             canaries = [{k: item[k] for k in ("source", "title", "media_type", "identity", "metadata", "hoster_count", "cover_identity") if k in item} for item in successes][:8]
@@ -263,6 +268,8 @@ class ProviderMonitor:
                 for hoster in (data.get("hosters") or [])[:20]:
                     row = payload(hoster)
                     self.hosters.seed(str(row.get("name") or ""), str(row.get("url") or ""), provider)
+                if is_episode and any(valid_source_link(payload(h).get("url") or "") for h in data.get("hosters", [])) and PROVIDER_CATALOG[provider].media_types == ("anime",):
+                    self.record_language_success(provider, "anime", data.get("content_language"))
             if ok and result and not is_episode and self.clock() - self.last_canary_observation.get(provider, 0) >= 60:
                 media_type = "anime" if operation == "get_anime" or PROVIDER_CATALOG[provider].media_types == ("anime",) else "series" if operation == "get_series" or hasattr(result, "seasons") else "movies"
                 canary = reference(result, media_type)
@@ -287,6 +294,24 @@ class ProviderMonitor:
                 if self.store.config()["notify_changes"]:
                     self._notify(provider, "repair_rolled_back")
 
+    def record_language_success(self, provider, media_type, language):
+        """Bounded capability evidence, without episode/user/source identifiers."""
+        definition = PROVIDER_CATALOG.get(provider)
+        language = normalize_content_language(language)
+        if self.stopped or not definition or media_type not in definition.media_types or language not in definition.content_languages:
+            return
+        with self.lock:
+            now = self.clock()
+            old = self.store.entry(provider, ("language_evidence",)).get("language_evidence", {})
+            evidence = {media: {lang: timestamp for lang, timestamp in values.items()
+                                if lang in definition.content_languages and 0 <= now - timestamp < 86400}
+                        for media, values in old.items() if media in definition.media_types}
+            # Avoid a disk write for every resolve of the same language.
+            if now - evidence.get(media_type, {}).get(language, 0) < 60:
+                return
+            evidence.setdefault(media_type, {})[language] = now
+            self.store.update(provider, language_evidence=evidence)
+
     def diagnostics(self, provider=None):
         enabled = set(self.enabled())
         hoster_rows = self.hosters.diagnostics()
@@ -303,7 +328,9 @@ class ProviderMonitor:
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
                          "domain": self.profile(key).get("domain") or definition.domains[0],
                          "contract": contract(key).public_dict(), "runtime": self.health.status(key),
-                         "content_language": definition.content_language, "enabled_media_types": [media for media in definition.media_types if not self.has_priorities or key in self.priorities(media)],
+                         "content_language": definition.content_language, "content_languages": list(provider_content_languages(key)),
+                         "language_evidence": entry.get("language_evidence", {}),
+                         "enabled_media_types": [media for media in definition.media_types if not self.has_priorities or key in self.priorities(media)],
                          "diagnosis": entry.get("diagnosis", "unknown"), "running": key in self.active,
                          "last_check_at": entry.get("last_check_at", 0), "next_check_at": entry.get("next_check_at", 0),
                          "last_success_at": entry.get("last_success_at", 0), "steps": entry.get("steps", []),
@@ -312,7 +339,7 @@ class ProviderMonitor:
                          "repairs": entry.get("repairs", []), "history": entry.get("history", []), "hosters": hosters,
                          "error_rate_24h": round(failed / len(history), 3) if history else None,
                          "average_duration_ms": round(sum(item["duration_ms"] for item in history) / len(history), 1) if history else None})
-        service = source_service_health(rows, hoster_rows, self.clock())
+        service = source_service_health(rows, hoster_rows, self.clock(), self.languages() if self.languages else None)
         for row in rows:
             row["user_impact"] = service["sources"]["providers"].get(row["provider"], {"impact": "none", "action_required": False})
         if provider:

@@ -15,6 +15,7 @@
 #provider-monitor .source-disclosure > label { display: block; margin: 14px 0; }
 #provider-monitor .source-disclosure nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 #provider-monitor details, #provider-monitor .table-scroll { min-width: 0; overflow-wrap: anywhere; }
+#provider-monitor .source-language-path { display: block; }
 #provider-monitor pre { white-space: pre-wrap; }
 
 #provider-monitor > p:empty { display: none; }

@@ -1,5 +1,6 @@
 import { createScope } from "../../core/lifecycle.js";
 import { createDialog } from "../../shared/components/dialog.js";
+import { supportedProviderLanguages } from "../../shared/utils/provider-languages.js";
 
 export function createMediaLanguage(document, { getProviders }) {
   let owner = null, modal = null, dialog = null, pending = null;
@@ -16,7 +17,8 @@ function mediaContentLanguages(media = {}) {
   };
   const providerLanguage = (provider) => {
     const key = String(provider || "").trim().toLowerCase();
-    return getProviders().catalog?.[key]?.content_language || "";
+    const metadata = getProviders().catalog?.[key];
+    return supportedProviderLanguages(metadata).length === 1 ? metadata.content_language || "" : "";
   };
 
   add(media.content_language);

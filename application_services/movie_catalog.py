@@ -150,7 +150,7 @@ def provider_priority(media_type: str) -> List[str]:
     matching = [
         provider
         for provider in ordered
-        if provider_content_language(provider) in languages
+        if provider_supports_languages(provider, languages)
     ]
     active = [provider for provider in matching if provider in enabled]
     if media_type == "anime":
@@ -359,7 +359,7 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
             for value in state.content_languages
             if normalize_content_language(value)
         }
-    if enabled_languages and language and language not in enabled_languages:
+    if enabled_languages and language and not selected_source_language_allowed(provider, language, enabled_languages, slug):
         log(
             f"{PROVIDER_LABELS.get(provider, provider)} übersprungen: "
             f"Release-Sprache {language.upper()} ist nicht aktiviert.",
@@ -1078,6 +1078,7 @@ def movie_catalog_page(mode: str, page: int = 1, genre: str = "") -> dict:
             "key": provider,
             "label": PROVIDER_LABELS[provider],
             "content_language": provider_content_language(provider),
+            "provider_content_languages": list(provider_content_languages(provider)),
             "language_label": PROVIDER_CATALOG[provider].language_label,
             "count": source_counts[provider],
         }

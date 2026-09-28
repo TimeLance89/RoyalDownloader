@@ -8,9 +8,10 @@ const { fixture } = require("./performance-fixture.cjs");
     const { page, errors } = run;
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
-    let unavailable = false, failSave = false;
+    let unavailable = false, failSave = false, languageProblem = false;
     const service = { service_health: "healthy", user_impact: "none", action_required: false,
-      coverage: { movies: "healthy", series: "healthy", anime: "not_configured" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
+      coverage: { movies: "healthy", series: "healthy", anime: "healthy" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
+      paths: ["de", "en"].map(language => ({ media_type: "anime", language, state: "healthy" })),
       sources: { providers: { filmpalast: { availability: "available", impact: "none", action_required: false } }, hosters: { voe: { availability: "available", impact: "none", action_required: false } } } };
     const provider = {
       provider: "filmpalast", label: "Filmpalast", enabled: true, domain: "filmpalast.to", diagnosis: "healthy", running: false,
@@ -40,7 +41,7 @@ const { fixture } = require("./performance-fixture.cjs");
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
-        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
+        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
         if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
@@ -54,6 +55,22 @@ const { fixture } = require("./performance-fixture.cjs");
       const monitor = page.locator("#provider-monitor");
       assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-monitor", "Availability comes before source configuration");
       const interact = mobile ? "tap" : "click";
+      await page.evaluate(async () => { await fixtureApp.settings.providers.initialize(); fixtureApp.settings.providers.apply({
+        movies: ["filmpalast", "sflix"], series: ["serienstream", "sflix"], anime: ["aniworld", "mkissa"],
+        enabled_movies: ["filmpalast", "sflix"], enabled_series: ["serienstream", "sflix"], enabled_anime: ["aniworld", "mkissa"],
+        content_languages: ["de", "en"], languages: { de: "Deutsch", en: "English" },
+        catalog: { filmpalast: { content_language: "de" }, serienstream: { content_language: "de" }, sflix: { content_language: "en" },
+          aniworld: { content_language: "de", content_languages: ["de", "en"], language_labels: ["Deutsch", "English"] }, mkissa: { content_language: "en" } },
+      }); });
+      await page.locator('#content-language-options [data-language="de"]')[interact]();
+      const animeRow = page.locator('#anime-provider-priority [data-provider="aniworld"] input');
+      assert.equal(await animeRow.isChecked(), true, "Removing German preserves bilingual AniWorld");
+      assert.equal(await animeRow.isEnabled(), true);
+      assert.equal(await page.evaluate(() => fixtureApp.core.actions.aniworldNavigationAvailable()), true);
+      await page.locator('#content-language-options [data-language="de"]')[interact]();
+      await page.locator('#content-language-options [data-language="en"]')[interact]();
+      assert.equal(await animeRow.isChecked(), true, "German-only AniWorld remains selectable");
+      assert.equal(await page.locator('#anime-provider-priority [data-provider="mkissa"] input').isEnabled(), false);
       await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
       assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), false);
       assert.equal(await monitor.locator('[data-monitor="providers"] details').count(), 0, "Technical rows mount only on demand");
@@ -67,6 +84,22 @@ const { fixture } = require("./performance-fixture.cjs");
       const rect = await monitor.boundingBox();
       await monitor.screenshot({ path: `${require("node:os").tmpdir()}/royal-source-summary-${width}.png` });
       if (mobile) assert.ok(rect.height < 850, `Compact default monitor: ${rect.height}`);
+      const coverage = monitor.locator('[data-monitor="coverage"]');
+      assert.match(await coverage.innerText(), /Anime.*Verfügbar/s);
+      assert.equal(await coverage.locator('.source-language-path').count(), 0, "Healthy language coverage stays compact");
+      languageProblem = true;
+      await monitor.locator('[data-action="save"]')[interact]();
+      await coverage.getByText("Deutsch: ✕ Nicht verfügbar").waitFor();
+      assert.equal(await coverage.getByText("Englisch: ✓ Verfügbar").isVisible(), true);
+      assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), false);
+      if (mobile) {
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+        await monitor.screenshot({ path: `${require("node:os").tmpdir()}/royal-source-languages-${width}.png` });
+      }
+      languageProblem = false;
+      await monitor.locator('[data-action="save"]')[interact]();
+      await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
+      assert.equal(await coverage.locator('.source-language-path').count(), 0);
       failSave = true;
       await monitor.locator('[data-action="save"]')[interact]();
       await monitor.locator('[data-monitor="status"]').getByText(/nicht übernommen/).waitFor();

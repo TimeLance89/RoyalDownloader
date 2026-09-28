@@ -8,6 +8,7 @@ Antwort liefert ihre eigentlichen Daten wiederum AES-GCM-verschlüsselt.
 from __future__ import annotations
 
 from providers.sentinel_runtime import monitor_adapter
+from providers.catalog import provider_track_language
 
 import base64
 import hashlib
@@ -146,6 +147,12 @@ class MkissaAnime:
 
     def public_dict(self) -> dict:
         payload = asdict(self)
+        payload["content_languages"] = list(dict.fromkeys(
+            provider_track_language(self.provider, track)
+            for track, count in self.translations.items() if count
+        ))
+        if payload["content_languages"]:
+            payload["content_language"] = payload["content_languages"][0]
         payload["episode_count"] = max(self.translations.values(), default=0)
         return payload
 
@@ -375,7 +382,7 @@ class MkissaScraper:
             genres=anime.genres,
             hosters=hosters,
             provider="mkissa",
-            content_language="en",
+            content_language=provider_track_language("mkissa", translation),
         )
 
     def _episode_sources(
@@ -775,6 +782,7 @@ def anime_episode_page(
             {
                 "number": episode,
                 "label": f"Episode {episode}",
+                "content_language": provider_track_language("mkissa", translation),
                 "slug": anime_episode_slug(anime.id, translation, episode),
             }
             for episode in range(start, end + 1)

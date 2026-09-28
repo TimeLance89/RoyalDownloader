@@ -27,7 +27,7 @@ from integrations.jellyfin_client import JellyfinClient
 from storage.media_paths import prepare_media_directory, recover_misplaced_media
 from providers.catalog import (
     provider_catalog_payload,
-    provider_content_language,
+    provider_supports_languages,
     provider_language_payload,
 )
 from integrations.seerr_client import SeerrClient
@@ -474,7 +474,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     if not content_languages:
         raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
     if any(
-        provider_content_language(provider) not in content_languages
+        not provider_supports_languages(provider, content_languages)
         for provider in movie_providers + series_providers + anime_providers
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
@@ -906,7 +906,7 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
     if not content_languages:
         raise HTTPException(400, "Mindestens eine Inhaltssprache muss aktiv sein.")
     if any(
-        provider_content_language(provider) not in content_languages
+        not provider_supports_languages(provider, content_languages)
         for provider in enabled_movies + enabled_series + enabled_anime
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")

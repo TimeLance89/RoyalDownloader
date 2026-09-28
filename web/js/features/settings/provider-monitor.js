@@ -26,9 +26,15 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     text("health-copy", service?.active_sources === 0 ? "Aktiviere mindestens eine passende Quelle für deine Medien." : state === "healthy" ? "Royal nutzt bei Bedarf automatisch Alternativen." : state === "action_required" ? "Für einen eingerichteten Bereich fehlt eine verfügbare Quelle. Prüfe, ob du weitere passende Quellen aktivieren kannst." : service?.user_impact === "reduced_redundancy" ? "Royal verwendet verfügbare Alternativen. In einzelnen Bereichen stehen weniger Ausweichquellen bereit." : "Die Verfügbarkeit ist noch nicht vollständig bestätigt. Royal sammelt Prüfergebnisse und Ergebnisse der tatsächlichen Nutzung.");
     const coverage = { healthy: "✓ Verfügbar", degraded: "⚠ Weniger Ausweichquellen", action_required: "✕ Keine verfügbare Quelle", unconfirmed: "○ Noch nicht bestätigt", not_configured: "○ Nicht eingerichtet" };
     const coverageMarkup = Object.entries({ movies: "Filme", series: "Serien", anime: "Anime" }).map(([key, label]) => {
-      const affected = (service?.paths || []).filter(path => path.media_type === key && path.state === "action_required");
-      const languages = affected.map(path => ({ de: "Deutsch", en: "Englisch" })[path.language] || path.language);
-      return `<li><strong>${label}</strong><span>${coverage[service?.coverage?.[key]] || coverage.unconfirmed}${languages.length ? ` (${escapeHtml(languages.join(", "))})` : ""}</span></li>`;
+      const paths = (service?.paths || []).filter(path => path.media_type === key);
+      const affected = paths.some(path => path.state !== "healthy");
+      const detail = affected && paths.length > 1 ? paths.map(path => {
+        const language = ({ de: "Deutsch", en: "Englisch" })[path.language] || path.language;
+        const state = { healthy: "✓ Verfügbar", degraded: "⚠ Weniger Ausweichquellen", action_required: "✕ Nicht verfügbar", unconfirmed: "○ Noch nicht bestätigt" }[path.state] || "○ Noch nicht bestätigt";
+        return `<span class="source-language-path">${escapeHtml(language)}: ${state}</span>`;
+      }).join("") : "";
+      const singleLanguage = affected && paths.length === 1 ? ` (${escapeHtml(({ de: "Deutsch", en: "Englisch" })[paths[0].language] || paths[0].language)})` : "";
+      return `<li><strong>${label}</strong><span>${detail || `${coverage[service?.coverage?.[key]] || coverage.unconfirmed}${singleLanguage}`}</span></li>`;
     }).join("");
     const coverageNode = root.querySelector('[data-monitor="coverage"]');
     if (coverageNode.innerHTML !== coverageMarkup) coverageNode.innerHTML = coverageMarkup;

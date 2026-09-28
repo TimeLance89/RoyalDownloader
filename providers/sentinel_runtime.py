@@ -56,6 +56,16 @@ def observe_hoster_safely(name, url, ok, duration_ms=0, provider="", message="",
         pass
 
 
+def observe_language_safely(provider, media_type, language):
+    """Optional bounded evidence; monitoring failure never changes a resolve."""
+    if _runtime is None or _context.get() is not None:
+        return
+    try:
+        _runtime.record_language_success(provider, media_type, language)
+    except Exception:
+        pass
+
+
 def hoster_attempt_safely(name, url, provider=""):
     if _runtime is None or _context.get() is not None:
         return

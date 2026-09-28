@@ -1,8 +1,7 @@
 """Zentraler Katalog aller Medienanbieter.
 
-Die ``content_language`` beschreibt die erwartete Sprache des angebotenen
-Streams. Eine konkrete Hoster-Sprachangabe darf diesen Anbieter-Standard später
-überschreiben.
+``content_language`` ist die Primär-/Legacy-Sprache, ``content_languages`` die
+möglichen Providerfähigkeiten. Konkrete Titel und Episoden bestimmen ihre Tracks.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ LANGUAGE_NAMES = {
     "pt": "Português",
     "tr": "Türkçe",
     "uk": "Українська",
+    "ja": "日本語",
 }
 
 _LANGUAGE_ALIASES = {
@@ -75,6 +75,9 @@ _LANGUAGE_ALIASES = {
     "ukrainisch": "uk",
     "ukrainian": "uk",
     "українська": "uk",
+    "ja": "ja",
+    "japanese": "ja",
+    "japanisch": "ja",
 }
 
 
@@ -110,6 +113,16 @@ class ProviderDefinition:
     anime_priority: Optional[int] = None
     source_prefixes: tuple[str, ...] = ()
     domains: tuple[str, ...] = ()
+    content_languages: tuple[str, ...] = ()
+    track_languages: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self):
+        languages = tuple(dict.fromkeys((self.content_language, *self.content_languages)))
+        object.__setattr__(self, "content_languages", languages)
+
+    @property
+    def primary_language(self) -> str:
+        return self.content_language
 
     @property
     def language_label(self) -> str:
@@ -122,7 +135,11 @@ class ProviderDefinition:
         payload.pop("anime_priority", None)
         payload.pop("source_prefixes", None)
         payload.pop("domains", None)
+        payload.pop("track_languages", None)
         payload["media_types"] = list(self.media_types)
+        payload["primary_language"] = self.primary_language
+        payload["content_languages"] = list(self.content_languages)
+        payload["language_labels"] = [LANGUAGE_NAMES.get(lang, lang.upper()) for lang in self.content_languages]
         payload["language_label"] = self.language_label
         payload["homepage"] = (
             f"https://{self.domains[0]}"
@@ -256,6 +273,7 @@ PROVIDER_CATALOG = {
         anime_priority=10,
         source_prefixes=("mkissa:",),
         domains=("mkissa.to", "api.mkissa.net"),
+        track_languages=(("dub", "en"), ("sub", "en"), ("raw", "ja")),
     ),
     "aniworld": ProviderDefinition(
         key="aniworld",
@@ -265,6 +283,8 @@ PROVIDER_CATALOG = {
         anime_priority=5,
         source_prefixes=("aniworld:",),
         domains=("aniworld.to",),
+        content_languages=("de", "en"),
+        track_languages=(("dub", "de"), ("sub", "de"), ("eng", "en")),
     ),
     "serienstream": ProviderDefinition(
         key="serienstream",
@@ -311,15 +331,53 @@ def provider_for_source(value: str, default: str = "filmpalast") -> str:
 
 
 def provider_content_language(provider: str, default: str = "") -> str:
+    """Primary/legacy default; not proof of title or episode track availability."""
     definition = PROVIDER_CATALOG.get(str(provider or "").strip().casefold())
     return definition.content_language if definition else default
+
+
+def provider_content_languages(provider: str) -> tuple[str, ...]:
+    definition = PROVIDER_CATALOG.get(str(provider or "").strip().casefold())
+    return definition.content_languages if definition else ()
+
+
+def provider_supports_languages(provider: str, languages) -> bool:
+    return bool(set(provider_content_languages(provider)) & {
+        normalize_content_language(language) for language in languages
+    })
+
+
+def provider_track_language(provider: str, track: str) -> str:
+    definition = PROVIDER_CATALOG.get(str(provider or "").strip().casefold())
+    return dict(definition.track_languages).get(str(track or "").casefold(), "") if definition else ""
+
+
+def selected_episode_language(provider: str, source: str) -> str:
+    """Language of an explicitly selected adapter track, not a capability guess."""
+    from providers.models import parse_episode_slug
+    parsed = parse_episode_slug(str(source or ""))
+    if not parsed or not parsed[0].startswith(f"{provider}:"):
+        return ""
+    descriptor, separator, track = parsed[0].partition("|")
+    return provider_track_language(provider, track) if separator and descriptor else ""
+
+
+def selected_source_language_allowed(provider: str, language: str, enabled, source: str = "") -> bool:
+    """Global language policy, with explicitly selected auxiliary episode tracks."""
+    language = normalize_content_language(language)
+    if language in enabled:
+        return True
+    return bool(language and language not in provider_content_languages(provider)
+                and selected_episode_language(provider, source) == language
+                and provider_supports_languages(provider, enabled))
 
 
 def provider_language_keys() -> tuple[str, ...]:
     """Inhaltssprachen in stabiler Katalog-Reihenfolge."""
     return tuple(dict.fromkeys(
-        definition.content_language
+        language
         for definition in PROVIDER_CATALOG.values()
+        for language in definition.content_languages
     ))
 
 

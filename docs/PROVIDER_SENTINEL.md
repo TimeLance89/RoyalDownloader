@@ -290,6 +290,12 @@ refreshes; unsaved monitor controls are retained.
 
 ## Validation
 
+Provider language capabilities and concrete title/episode languages are separate;
+see [Provider language model](PROVIDER_LANGUAGES.md). The availability summary
+evaluates selected language paths and retains unconfirmed coverage when a
+multi-language provider lacks fresh concrete track evidence. Provider health,
+probe budgets and repair eligibility remain provider-wide.
+
 Normal CI uses offline fixtures exclusively. Tests exercise every adapter's
 declared contract against empty responses, real Filmpalast HTML and MegaKino JSON
 parsers, harmless layout mutations, selector/domain/schema recovery, lost metadata

@@ -27,7 +27,7 @@ def video_state(row, now):
     return "unconfirmed"
 
 
-def source_service_health(providers, hosters, now):
+def source_service_health(providers, hosters, now, enabled_languages=None):
     """Evaluate configured media/language paths, not counts of red diagnostic badges.
 
     Unknown or stale evidence is not a confirmed outage or confirmed availability.
@@ -51,7 +51,16 @@ def source_service_health(providers, hosters, now):
         provider_states[key] = route
         for media in provider.get("enabled_media_types", provider["contract"]["media_types"]):
             if media in MEDIA_TYPES:
-                paths.setdefault((media, provider.get("content_language", "default")), []).append((key, route))
+                supported = tuple(dict.fromkeys(provider.get("content_languages") or [provider.get("content_language", "default")]))
+                for language in supported:
+                    if enabled_languages is not None and language not in enabled_languages:
+                        continue
+                    path_route = route
+                    # Provider-wide health does not prove every track capability.
+                    if len(supported) > 1 and route != "unavailable":
+                        proven = fresh(provider.get("language_evidence", {}).get(media, {}).get(language), now)
+                        path_route = "available" if proven and "available" in states else "unconfirmed"
+                    paths.setdefault((media, language), []).append((key, path_route))
     coverage, path_rows = {}, []
     for (media, language), routes in paths.items():
         good = sum(state == "available" for _, state in routes)
