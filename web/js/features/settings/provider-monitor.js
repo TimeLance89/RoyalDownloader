@@ -14,7 +14,14 @@ const recentDate = value => {
 };
 
 export function createProviderMonitor(root, { client = api, events = websocket } = {}) {
-  let scope, pending, value, dirty = false, tab = "providers";
+  let scope, pending, value, dirty = false, tab = "providers", actionPending = false;
+  const snapshots = new WeakMap();
+  function updateList(node, data, markup) {
+    const snapshot = JSON.stringify(data);
+    if (snapshots.get(node) === snapshot) return;
+    node.innerHTML = markup();
+    snapshots.set(node, snapshot);
+  }
   const status = () => root.querySelector('[data-monitor="status"]');
   const technical = () => root.querySelector('[data-monitor="technical"]');
   const text = (name, copy) => { const node = root.querySelector(`[data-monitor="${name}"]`); if (node.textContent !== copy) node.textContent = copy; };
@@ -63,7 +70,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     root.querySelector('[data-monitor="summary"]').textContent = `${value.providers.filter(p => p.enabled).length} aktive Quellen · ${Object.entries(value.summary).filter(([, count]) => count).map(([state, count]) => `${count} ${labels[state] || state}`).join(" · ")} · Hoster: ${Object.entries(value.hoster_summary || {}).filter(([, count]) => count).map(([state, count]) => `${count} ${labels[state] || state}`).join(" · ") || "Noch keine Diagnose"} · Letzte Komplettprüfung: ${date(value.last_complete_check_at)} · Nächste Prüfung: ${value.config.enabled ? date(value.next_check_at) : "Pausiert"}`;
     const list = root.querySelector('[data-monitor="providers"]');
     const opened = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.panel || node.dataset.provider));
-    list.innerHTML = value.providers.map(provider => {
+    updateList(list, [value.providers, value.config.enabled, value.service?.sources?.providers], () => value.providers.map(provider => {
       const esc = escapeHtml, id = esc(provider.provider);
       const repair = provider.repairs.find(item => item.id === provider.active_repair);
       return `<details data-provider="${id}" ${opened.has(provider.provider) ? "open" : ""}>
@@ -79,14 +86,14 @@ export function createProviderMonitor(root, { client = api, events = websocket }
         <details data-panel="${id}-repairs" ${opened.has(`${provider.provider}-repairs`) ? "open" : ""}><summary>Reparaturen (${provider.repairs.length})</summary>${provider.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · Sicherheit: ${esc(item.confidence)}<br>Validierung: ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages} unabhängige bekannte Titel</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div>${item.id === provider.active_repair ? `<button type="button" class="btn-ghost" data-action="rollback" data-provider="${id}" data-repair="${esc(item.id)}">Reparatur zurücksetzen</button>` : item.state === "available" && item.confidence === "high" ? `<button type="button" class="btn-ghost" data-action="activate" data-provider="${id}" data-repair="${esc(item.id)}">Erneut validieren und aktivieren</button>` : ""}</article>`).join("")}</details>
         <details data-panel="${id}-history" ${opened.has(`${provider.provider}-history`) ? "open" : ""}><summary>Verlauf (${provider.history.length})</summary><ul>${provider.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(labels[event.diagnosis] || event.reason || "")}${event.changed ? " · Strukturänderung" : ""}${event.isolated ? " · temporär isoliert" : ""}</li>`).join("")}</ul></details>
       </details>`;
-    }).join("");
+    }).join(""));
   }
   function renderHosters() {
     const list = root.querySelector('[data-monitor="hosters"]');
     if (!list || !technical().open) return;
     const opened = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.panel));
     const esc = escapeHtml;
-    list.innerHTML = (value.hosters || []).map(hoster => {
+    updateList(list, [value.hosters, value.service?.sources?.hosters], () => (value.hosters || []).map(hoster => {
       const id = esc(hoster.hoster), panel = `hoster-${hoster.hoster}`;
       const metric = hoster.metrics_24h;
       return `<details data-panel="${esc(panel)}" ${opened.has(panel) ? "open" : ""}><summary><strong>${esc(hoster.label)}</strong> · ${esc(labels[hoster.diagnosis] || hoster.diagnosis)}${hoster.active_repair ? " · Reparatur aktiv" : ""}</summary>
@@ -98,24 +105,31 @@ export function createProviderMonitor(root, { client = api, events = websocket }
         <button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-action="probe" ${hoster.running ? "disabled" : ""}>Jetzt prüfen</button><button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-action="full" ${hoster.running ? "disabled" : ""}>Vollständigen Test starten</button>
         <details data-panel="${esc(panel)}-repairs" ${opened.has(`${panel}-repairs`) ? "open" : ""}><summary>Reparaturen (${hoster.repairs.length})</summary>${hoster.repairs.map(item => `<article><p>Repair ${esc(item.id.slice(0, 8))} · ${esc(item.state)} · ${esc(item.confidence)} · Shadow ${item.validation.validated_detail_pages}/${item.validation.known_detail_pages}</p><div class="table-scroll"><pre>${esc(JSON.stringify({ vorher: item.previous_profile, nachher: item.profile }, null, 2))}</pre></div><button type="button" class="btn-ghost" data-kind="hoster" data-provider="${id}" data-repair="${esc(item.id)}" data-action="${hoster.active_repair === item.id ? "rollback" : "activate"}">${hoster.active_repair === item.id ? "Reparatur zurücksetzen" : "Erneut validieren und aktivieren"}</button></article>`).join("")}</details>
         <details data-panel="${esc(panel)}-history" ${opened.has(`${panel}-history`) ? "open" : ""}><summary>Verlauf</summary><ul>${hoster.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details></details>`;
-    }).join("");
+    }).join(""));
     const history = root.querySelector('[data-monitor="history"]');
-    if (history) history.innerHTML = [...value.providers, ...(value.hosters || [])].map(source => `<details><summary>${esc(source.label)} · ${source.repairs.length} Reparaturen</summary><ul>${source.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details>`).join("");
+    if (history) updateList(history, [value.providers, value.hosters], () => [...value.providers, ...(value.hosters || [])].map(source => `<details><summary>${esc(source.label)} · ${source.repairs.length} Reparaturen</summary><ul>${source.history.slice().reverse().map(event => `<li>${date(event.timestamp)} · ${esc(event.event)} · ${esc(event.reason || event.diagnosis || "")}</li>`).join("")}</ul></details>`).join(""));
     for (const name of ["providers", "hosters", "history"]) root.querySelector(`[data-monitor="${name}"]`).hidden = name !== tab;
     for (const button of root.querySelectorAll('[data-action="tab"]')) button.setAttribute("aria-pressed", String(button.dataset.tab === tab));
   }
-  async function refresh() {
-    if (!scope?.active || pending) return;
+  async function refresh({ afterMutation = false } = {}) {
+    if (!scope?.active) return;
     const current = scope;
-    pending = true;
-    try {
+    if (pending) {
+      await pending;
+      if (!afterMutation || !current.active) return;
+    }
+    const request = (async () => { try {
       const result = await client.get("/api/providers/diagnostics", { signal: current.signal });
       if (!current.active) return;
       if (!result?.config || !Array.isArray(result.providers)) throw new Error("Provider-Diagnosen sind derzeit nicht verfügbar.");
-      value = result; render(); renderHosters(); status().textContent = "";
+      // Background polling must not remove feedback and move controls between
+      // pointerdown and pointerup. A new action/mount owns status replacement.
+      value = result; render(); renderHosters();
     } catch (error) {
       if (current.active) status().textContent = error.status === 403 ? "Die Quellenübersicht ist nur für Administratoren verfügbar." : "Die Quellenübersicht ist vorübergehend nicht erreichbar. Bitte später erneut versuchen.";
-    } finally { if (current.active) pending = false; }
+    } finally { if (current.active) pending = null; } })();
+    pending = request;
+    await request;
   }
   async function action(event) {
     const button = event.target.closest("button[data-action]");
@@ -134,6 +148,9 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       confirm.focus(); return;
     }
     if (name === "cancel") { root.querySelector('[data-monitor="confirmation"]').hidden = true; return; }
+    if (actionPending) return;
+    actionPending = true;
+    root.setAttribute("aria-busy", "true");
     button.disabled = true;
     try {
       if (name === "save") {
@@ -153,14 +170,15 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       } else {
         await client.post(`/api/${sourcePath}/${encodeURIComponent(provider)}/probe`, { intensity: name === "full" ? "full" : "standard" }, { signal: current.signal });
       }
-      if (current.active) { status().textContent = "Übernommen. Royal kümmert sich um die Prüfung."; await refresh(); }
+      if (current.active) { status().textContent = "Übernommen. Royal kümmert sich um die Prüfung."; await refresh({ afterMutation: true }); }
     } catch (error) { if (current.active) status().textContent = error.status === 429 ? "Eine Prüfung läuft bereits. Bitte kurz warten." : "Die Änderung konnte nicht übernommen werden. Bitte erneut versuchen."; }
-    finally { if (current.active) button.disabled = false; }
+    finally { if (current.active) { button.disabled = false; actionPending = false; root.setAttribute("aria-busy", "false"); } }
   }
   return {
     mount() {
       if (!root || scope) return;
-      scope = createScope(); pending = false;
+      scope = createScope(); pending = null; actionPending = false;
+      root.setAttribute("aria-busy", "false"); status().textContent = "";
       scope.listen(root, "click", event => { void action(event); });
       scope.listen(root, "input", () => { dirty = true; });
       scope.listen(technical(), "toggle", event => {
@@ -177,6 +195,6 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       }));
       void refresh();
     }, refresh,
-    unmount() { scope?.dispose(); scope = null; pending = false; },
+    unmount() { scope?.dispose(); scope = null; pending = null; actionPending = false; root.setAttribute("aria-busy", "false"); },
   };
 }
