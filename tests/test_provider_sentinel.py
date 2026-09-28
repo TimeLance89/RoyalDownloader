@@ -532,3 +532,16 @@ def test_manual_revalidation_replaces_stale_high_confidence_evidence(tmp_path):
     assert entry["repairs"][0]["confidence"] == "low"
     assert not entry["repairs"][0]["validation"]["shadow_passed"]
     monitor.stop()
+
+
+def test_real_anime_canaries_keep_domain_and_episode_traffic_cannot_replace_them(tmp_path):
+    from providers.mkissa import MkissaAnime
+    from providers.models import FilmpalastMovie
+    monitor = ProviderMonitor(tmp_path / "state.json", ProviderHealth(tmp_path / "health.json"), lambda: ["mkissa"])
+    monitor.observe("mkissa", True, .1, "canary123", MkissaAnime(id="canary123", title="Canary"), "get_anime")
+    baseline = monitor.store.entry("mkissa")["canaries"]
+    assert baseline[0]["media_type"] == "anime"
+    monitor.last_canary_observation.clear()
+    monitor.observe("mkissa", True, .1, "mkissa:canary123|sub-s01e001", FilmpalastMovie(title="Canary S01E01", url="https://media.example/episode"), "get_episode")
+    assert monitor.store.entry("mkissa")["canaries"] == baseline
+    monitor.stop()

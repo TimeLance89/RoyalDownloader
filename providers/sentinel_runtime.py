@@ -250,10 +250,10 @@ def monitor_adapter(provider):
                         result = function(self, *args, **kwargs)
                     except Exception as error:
                         if _runtime and not probing and operation.startswith("get_") and not (isinstance(error, ProbeFailure) and error.code == "provider_cooldown"):
-                            observe_safely(provider, False, time.monotonic() - started, identity)
+                            observe_safely(provider, False, time.monotonic() - started, identity, None, operation)
                         raise
                     if _runtime and not probing and operation.startswith("get_"):
-                        observe_safely(provider, bool(result), time.monotonic() - started, identity, result)
+                        observe_safely(provider, bool(result), time.monotonic() - started, identity, result, operation)
                     return result
                 return call
             setattr(cls, name, instrument(method, name))

@@ -11,6 +11,7 @@ from application_services.provider_repair import ProviderRepair
 from media.provider_monitor_store import ProviderMonitorStore
 from providers.catalog import PROVIDER_CATALOG
 from providers.probe_contracts import contract
+from providers.models import parse_episode_slug
 
 
 class ProviderMonitor:
@@ -188,7 +189,7 @@ class ProviderMonitor:
             self.notify({"provider": provider, "diagnosis": diagnosis})
         return self.store.entry(provider)
 
-    def observe(self, provider, ok, duration, source="", result=None):
+    def observe(self, provider, ok, duration, source="", result=None, operation=""):
         if not source or self.stopped:
             return
         with self.lock:
@@ -201,8 +202,12 @@ class ProviderMonitor:
                 ok = title_key(data.get("title")) == title_key(expected["title"]) and all(
                     not present or bool(data.get(field)) for field, present in expected.get("metadata", {}).items()
                 )
-            if ok and result and self.clock() - self.last_canary_observation.get(provider, 0) >= 60:
-                media_type = "series" if hasattr(result, "seasons") else "anime" if hasattr(result, "episodes") else "movies"
+                ok = ok and (not expected.get("cover_identity") or identity(data.get("cover_url", "")) == expected["cover_identity"])
+                if expected.get("media_type") == "movies":
+                    ok = ok and len(data.get("hosters") or []) >= expected.get("hoster_count", 0)
+            is_episode = operation == "get_episode" or parse_episode_slug(source) is not None
+            if ok and result and not is_episode and self.clock() - self.last_canary_observation.get(provider, 0) >= 60:
+                media_type = "anime" if operation == "get_anime" or PROVIDER_CATALOG[provider].media_types == ("anime",) else "series" if operation == "get_series" or hasattr(result, "seasons") else "movies"
                 canary = reference(result, media_type)
                 if canary:
                     canary["metadata"] = {field: bool(data.get(field)) for field in ("title", "cover_url", "description", "genres", "year")}
