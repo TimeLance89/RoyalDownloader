@@ -14,7 +14,7 @@ const recentDate = value => {
 };
 
 export function createProviderMonitor(root, { client = api, events = websocket } = {}) {
-  let scope, pending, value, dirty = false, tab = "providers", actionPending = false;
+  let scope, pending, value, dirty = false, tab = "providers", actionPending = false, refreshError = false;
   const snapshots = new WeakMap();
   function updateList(node, data, markup) {
     const snapshot = JSON.stringify(data);
@@ -125,8 +125,9 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       // Background polling must not remove feedback and move controls between
       // pointerdown and pointerup. A new action/mount owns status replacement.
       value = result; render(); renderHosters();
+      if (refreshError) { status().textContent = ""; refreshError = false; }
     } catch (error) {
-      if (current.active) status().textContent = error.status === 403 ? "Die Quellenübersicht ist nur für Administratoren verfügbar." : "Die Quellenübersicht ist vorübergehend nicht erreichbar. Bitte später erneut versuchen.";
+      if (current.active) { refreshError = true; status().textContent = error.status === 403 ? "Die Quellenübersicht ist nur für Administratoren verfügbar." : "Die Quellenübersicht ist vorübergehend nicht erreichbar. Bitte später erneut versuchen."; }
     } finally { if (current.active) pending = null; } })();
     pending = request;
     await request;
@@ -170,14 +171,14 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       } else {
         await client.post(`/api/${sourcePath}/${encodeURIComponent(provider)}/probe`, { intensity: name === "full" ? "full" : "standard" }, { signal: current.signal });
       }
-      if (current.active) { status().textContent = "Übernommen. Royal kümmert sich um die Prüfung."; await refresh({ afterMutation: true }); }
-    } catch (error) { if (current.active) status().textContent = error.status === 429 ? "Eine Prüfung läuft bereits. Bitte kurz warten." : "Die Änderung konnte nicht übernommen werden. Bitte erneut versuchen."; }
+      if (current.active) { refreshError = false; status().textContent = "Übernommen. Royal kümmert sich um die Prüfung."; await refresh({ afterMutation: true }); }
+    } catch (error) { if (current.active) { refreshError = false; status().textContent = error.status === 429 ? "Eine Prüfung läuft bereits. Bitte kurz warten." : "Die Änderung konnte nicht übernommen werden. Bitte erneut versuchen."; } }
     finally { if (current.active) { button.disabled = false; actionPending = false; root.setAttribute("aria-busy", "false"); } }
   }
   return {
     mount() {
       if (!root || scope) return;
-      scope = createScope(); pending = null; actionPending = false;
+      scope = createScope(); pending = null; actionPending = false; refreshError = false;
       root.setAttribute("aria-busy", "false"); status().textContent = "";
       scope.listen(root, "click", event => { void action(event); });
       scope.listen(root, "input", () => { dirty = true; });
