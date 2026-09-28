@@ -157,7 +157,11 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       scope = createScope(); pending = false;
       scope.listen(root, "click", event => { void action(event); });
       scope.listen(root, "input", () => { dirty = true; });
-      scope.listen(technical(), "toggle", () => { if (value && technical().open) { render(); renderHosters(); } });
+      scope.listen(technical(), "toggle", event => {
+        // Nested disclosure events must not rebuild the control being opened.
+        if (event.target !== technical()) return;
+        if (value && technical().open) { render(); renderHosters(); }
+      });
       scope.interval(() => { if (!root.ownerDocument.hidden) void refresh(); }, 15000);
       scope.add(events.subscribe("provider_diagnostics", event => {
         if (!value?.config.notify_changes) return;
