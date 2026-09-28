@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Keep incomplete Source Sentinel diagnostics separate from production-provider
+  routing: AniWorld and other usable sources remain available despite parser,
+  track or HTTP-only probe warnings. Preserve real runtime cooldowns, bounded
+  recovery and confirmed-outage quarantine; reconcile obsolete Sentinel-only
+  persisted locks automatically. Source availability and anime API messages now
+  distinguish unconfirmed diagnostics, user settings and actual outages.
+
 ### Multi-language provider capabilities
 
 - Separate legacy primary language, supported provider languages and concrete

@@ -10,7 +10,7 @@ NOW = 2_000_000
 
 def provider(key, media=("movies", "series"), language="de", state="healthy"):
     return {"provider": key, "enabled": True, "contract": {"media_types": media}, "content_language": language,
-            "runtime": {"state": "healthy"}, "diagnosis": state, "last_check_at": NOW - 60, "last_error_at": 0}
+            "runtime": {"state": "cooldown" if state == "broken" else "healthy"}, "routing": {"allowed": state != "broken"}, "diagnosis": state, "last_check_at": NOW - 60, "last_error_at": 0}
 
 
 def hoster(key, providers, state="healthy"):

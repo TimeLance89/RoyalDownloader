@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import time
 import re
+import socket
 from functools import wraps
 from contextlib import contextmanager
+from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
@@ -22,6 +24,20 @@ class ProbeFailure(RuntimeError):
     def __init__(self, code, status=0):
         self.code, self.status = code, status
         super().__init__(code)
+
+
+def confirmed_dns_failure(error):
+    """Require target-boundary evidence, not a proxy/local DNS failure."""
+    from core.network_guard import UnsafeNetworkTarget
+    if not isinstance(error, UnsafeNetworkTarget):
+        return False
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, socket.gaierror) and error.errno == socket.EAI_NONAME:
+            return True
+        error = error.__cause__ or error.__context__
+    return False
 
 
 @dataclass
@@ -44,6 +60,15 @@ def install_runtime(runtime):
     """Composition-root binding; adapters never import server/state."""
     global _runtime
     _runtime = runtime
+
+
+def provider_routing_penalty(provider):
+    """Diagnostics reorder usable routes; they never veto them."""
+    try:
+        diagnosis = _runtime.store.entry(provider, ("diagnosis",)).get("diagnosis") if _runtime else None
+        return 1 if diagnosis in {"degraded", "needs_attention", "broken", "blocked", "repair_available"} else 0
+    except Exception:
+        return 0
 
 
 def observe_hoster_safely(name, url, ok, duration_ms=0, provider="", message="", media_url=""):
@@ -254,7 +279,7 @@ class AdapterSession:
             return result
         except Exception as error:
             if probing:
-                context.failures.append((error.code, error.status) if isinstance(error, ProbeFailure) else ("network_error", 0))
+                context.failures.append((error.code, error.status) if isinstance(error, ProbeFailure) else ("domain_offline" if confirmed_dns_failure(error) else "network_error", 0))
             raise
 
 
@@ -285,14 +310,28 @@ def monitor_adapter(provider):
                     probing = context and context.provider == provider
                     started = time.monotonic()
                     identity = str(args[0]) if args and operation.startswith("get_") else ""
+                    recovery = False
+                    if _runtime and hasattr(_runtime, "health") and not probing and _recovery.get() != provider and not _runtime.allowed(provider):
+                        recovery = _runtime.health.begin_probe(provider)
+                        if not recovery:
+                            raise ProbeFailure("provider_cooldown")
                     try:
-                        result = function(self, *args, **kwargs)
+                        with runtime_recovery(provider) if recovery else nullcontext():
+                            result = function(self, *args, **kwargs)
                     except Exception as error:
-                        if _runtime and not probing and operation.startswith("get_") and not (isinstance(error, ProbeFailure) and error.code == "provider_cooldown"):
-                            observe_safely(provider, False, time.monotonic() - started, identity, None, operation)
+                        if recovery:
+                            _runtime.health.finish_probe_error(provider, "runtime_recovery_failed")
+                        if _runtime and not probing and not (isinstance(error, ProbeFailure) and error.code == "provider_cooldown"):
+                            status = int(getattr(error, "status", 0) or getattr(getattr(error, "response", None), "status_code", 0) or 0)
+                            observe_safely(provider, False, time.monotonic() - started, identity, None, operation,
+                                           runtime_failure=status not in {400, 404, 409, 410, 422} and not isinstance(error, ValueError) and type(error) is not LookupError)
                         raise
-                    if _runtime and not probing and operation.startswith("get_"):
-                        observe_safely(provider, bool(result), time.monotonic() - started, identity, result, operation)
+                    if _runtime and not probing:
+                        usable = bool(result.get("results")) if isinstance(result, dict) and "results" in result else bool(result)
+                        if usable or operation.startswith("get_"):
+                            observe_safely(provider, usable, time.monotonic() - started, identity, result, operation)
+                        if recovery and not usable:
+                            _runtime.health.finish_probe_error(provider, "runtime_recovery_empty")
                     return result
                 return call
             setattr(cls, name, instrument(method, name))
@@ -300,11 +339,11 @@ def monitor_adapter(provider):
     return decorate
 
 
-def observe_safely(*args):
+def observe_safely(*args, **kwargs):
     # Diagnostics must never replace an adapter result/error with a disk or
     # notification failure. No exception text (possibly credentials) is logged.
     try:
-        _runtime.observe(*args)
+        _runtime.observe(*args, **kwargs)
     except Exception:
         import logging
         logging.getLogger(__name__).warning("Provider Sentinel runtime observation unavailable")

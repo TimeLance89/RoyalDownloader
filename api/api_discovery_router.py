@@ -21,7 +21,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from providers.aniworld import aniworld_episode_page
-from providers.catalog import provider_content_language, provider_content_languages, provider_track_language
+from providers.catalog import provider_content_language, provider_content_languages, provider_track_language, provider_supports_languages
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
 from providers.filmo import FilmoScraper
@@ -36,6 +36,16 @@ from providers.sflix import SflixScraper
 from providers.xcine import XcineScraper
 
 router = APIRouter(tags=["discovery"])
+
+
+def aniworld_unavailable_reason():
+    if "aniworld" not in state.provider_enabled.get("anime", []):
+        return "AniWorld ist in den Quellen deaktiviert."
+    if not provider_supports_languages("aniworld", state.content_languages):
+        return "AniWorld bietet keine der aktuell aktivierten Inhaltssprachen."
+    if not state.provider_health.routing_allowed("aniworld"):
+        return "AniWorld ist momentan nicht erreichbar. Royal versucht die Quelle automatisch erneut."
+    return ""
 
 TMDB_METADATA_BATCH_BUDGET_SECONDS = 3.0
 JELLYFIN_BADGE_WAIT_SECONDS = 12.0
@@ -1329,14 +1339,12 @@ async def api_aniworld(
 ):
     if page < 1 or page > 50:
         raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
-    if "aniworld" not in provider_priority("anime"):
+    if reason := aniworld_unavailable_reason():
         return {
             "results": [], "mode": mode, "page": 1, "has_more": False,
-            "total": 0, "disabled": True,
-            "disabled_reason": (
-                "AniWorld ist pausiert. Aktiviere deutsche oder englische Inhalte und die "
-                "Anime-Quelle in den Einstellungen."
-            ),
+            "total": 0, "disabled": "aniworld" not in state.provider_enabled.get("anime", []) or not provider_supports_languages("aniworld", state.content_languages),
+            "disabled_reason": reason,
+            "temporarily_unavailable": state.provider_health.status("aniworld")["state"] != "healthy",
         }
     browse_mode = mode if mode in {
         "search", "latest", "popular", "trending", "updates", "catalog",
@@ -1362,7 +1370,7 @@ async def api_aniworld(
         payload = await run_in_threadpool(_work)
     except Exception as exc:
         log(f"AniWorld-Katalog fehlgeschlagen: {exc}", "warn")
-        raise HTTPException(502, f"AniWorld ist gerade nicht erreichbar: {exc}") from exc
+        raise HTTPException(502, "AniWorld ist gerade nicht erreichbar. Bitte später erneut versuchen.") from exc
     return {
         **payload,
         "mode": browse_mode,
@@ -1377,8 +1385,8 @@ async def api_aniworld(
 @router.post("/api/v1/aniworld/posters")
 @router.post("/api/aniworld/posters")
 async def api_aniworld_posters(body: AniWorldPosterBody):
-    if "aniworld" not in provider_priority("anime"):
-        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    if reason := aniworld_unavailable_reason():
+        raise HTTPException(409, reason)
     anime_ids = list(dict.fromkeys(
         str(anime_id or "").strip() for anime_id in body.ids if anime_id
     ))[:50]
@@ -1405,8 +1413,8 @@ async def api_aniworld_detail(
     episode_page: int = 1,
     season: int | None = None,
 ):
-    if "aniworld" not in provider_priority("anime"):
-        raise HTTPException(409, "AniWorld ist in den Quellen deaktiviert.")
+    if reason := aniworld_unavailable_reason():
+        raise HTTPException(409, reason)
     requested_track = str(translation or "").strip().casefold()
 
     def _work():

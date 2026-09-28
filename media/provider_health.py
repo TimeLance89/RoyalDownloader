@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import threading
 import time
@@ -53,7 +54,9 @@ class ProviderHealth:
             "blocked_at": 0.0,
             "next_probe_at": 0.0,
             "last_success_at": 0.0,
+            "last_runtime_success_at": 0.0,
             "last_error": "",
+            "runtime_failures": [],
         }
 
     def _load(self) -> None:
@@ -64,6 +67,7 @@ class ProviderHealth:
         providers = raw.get("providers", raw) if isinstance(raw, dict) else {}
         if not isinstance(providers, dict):
             return
+        reconciled = False
         for key, value in providers.items():
             if not isinstance(value, dict):
                 continue
@@ -82,6 +86,19 @@ class ProviderHealth:
                     float(item.get("next_probe_at") or 0), self.clock(),
                 )
             self._providers[provider] = item
+            # The old Sentinel treated incomplete HTTP diagnoses as runtime
+            # outages. Only that obsolete provenance is reconciled here.
+            if item["blocked_reason"] == "sentinel_confirmed_failure":
+                item.update(state=HEALTHY, blocked_reason="", blocked_at=0.0,
+                            next_probe_at=0.0, failure_count=0, last_error="")
+                reconciled = True
+        if reconciled:
+            try:
+                self._write_locked()
+            except OSError:
+                # Read-only storage must not turn diagnostic reconciliation
+                # into a startup outage. Next writable health update persists it.
+                pass
 
     def _write_locked(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,7 +163,7 @@ class ProviderHealth:
             self._write_locked()
             return True
 
-    def mark_success(self, provider: str, *, reset_failures: bool = True) -> dict:
+    def mark_success(self, provider: str, *, reset_failures: bool = True, runtime: bool = True) -> dict:
         with self._lock:
             item = self._entry_locked(provider)
             item.update({
@@ -159,6 +176,9 @@ class ProviderHealth:
             })
             if reset_failures:
                 item["failure_count"] = 0
+                item["runtime_failures"] = []
+            if runtime:
+                item["last_runtime_success_at"] = self.clock()
             self._write_locked()
             return dict(item)
 
@@ -168,6 +188,38 @@ class ProviderHealth:
     def request_allowed(self, provider: str) -> bool:
         with self._lock:
             return self._entry_locked(provider)["state"] == HEALTHY
+
+    def routing_allowed(self, provider: str) -> bool:
+        """An expired cooldown permits one adapter-owned recovery attempt."""
+        with self._lock:
+            item = self._entry_locked(provider)
+            return item["state"] == HEALTHY or item["state"] == COOLDOWN and self.clock() >= float(item.get("next_probe_at") or 0)
+
+    def record_runtime(self, provider: str, ok: bool, source: str = "") -> dict:
+        """Three independent real failures in 15 minutes open the circuit.
+
+        Store only bounded hashed identities, never titles or source URLs.
+        Active Sentinel probes must never call this method.
+        """
+        with self._lock:
+            item = self._entry_locked(provider)
+            now = self.clock()
+            if ok:
+                # Successful browsing need not fsync on every request.
+                if item["state"] != HEALTHY or item.get("runtime_failures") or now - float(item.get("last_runtime_success_at") or 0) >= 60:
+                    return self.mark_success(provider)
+                return dict(item)
+            if not source:
+                return dict(item)
+            sample = hashlib.sha256(source.encode()).hexdigest()[:24]
+            rows = [row for row in item.get("runtime_failures", [])
+                    if 0 <= now - row["timestamp"] < 900 and row["sample"] != sample]
+            rows.append({"sample": sample, "timestamp": now})
+            item["runtime_failures"] = rows[-8:]
+            if len(rows) >= 3:
+                return self.mark_blocked(provider, "runtime_independent_failures")
+            self._write_locked()
+            return dict(item)
 
     def status(self, provider: str, *, waiting_episode_count: int = 0) -> dict:
         with self._lock:
@@ -179,6 +231,7 @@ class ProviderHealth:
                 "reason": item.get("blocked_reason", ""),
                 "remaining_seconds": remaining,
                 "waiting_episode_count": max(0, int(waiting_episode_count)),
+                "runtime_failure_count": len([row for row in item.get("runtime_failures", []) if 0 <= self.clock() - row["timestamp"] < 900]),
             })
             return item
 

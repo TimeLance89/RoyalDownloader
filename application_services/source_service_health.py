@@ -41,9 +41,12 @@ def source_service_health(providers, hosters, now, enabled_languages=None):
     for provider in active:
         key = provider["provider"]
         runtime = provider.get("runtime", {})
-        current_success = fresh(runtime.get("last_success_at"), now) and runtime.get("last_success_at", 0) >= (provider.get("last_error_at") or 0)
+        current_success = fresh(runtime.get("last_runtime_success_at", runtime.get("last_success_at")), now)
         confirmed = runtime.get("state") == "healthy" and (current_success or provider.get("diagnosis") == "healthy" and fresh(provider.get("last_check_at"), now))
-        unavailable = runtime.get("state") in {"blocked", "cooldown", "probing"} or provider.get("diagnosis") in UNAVAILABLE and fresh(provider.get("last_check_at"), now) and not current_success
+        # Diagnostics alone cannot remove a production route. The circuit
+        # breaker/routing contract is authoritative for provider availability.
+        routable = provider.get("routing", {}).get("allowed", runtime.get("state") not in {"blocked", "cooldown", "probing"})
+        unavailable = not routable
         related = [h for h in hosters if key in h.get("providers", [])]
         # Missing observed edges remain unconfirmed rather than presumed working.
         states = [video[h["hoster"]] for h in related]
@@ -86,7 +89,7 @@ def source_service_health(providers, hosters, now, enabled_languages=None):
         impact = "blocking" if any(p["state"] == "action_required" for p in related) else "relevant" if any(p["state"] == "degraded" for p in related) else "unconfirmed" if any(p["state"] == "unconfirmed" for p in related) else "none"
         if provider_states[provider["provider"]] == "available":
             impact = "none"
-        source_impacts["providers"][provider["provider"]] = {"availability": provider_states[provider["provider"]], "impact": impact, "action_required": impact == "blocking"}
+        source_impacts["providers"][provider["provider"]] = {"availability": provider_states[provider["provider"]], "impact": impact, "action_required": impact == "blocking", "routable": provider.get("routing", {}).get("allowed", provider.get("runtime", {}).get("state") not in {"blocked", "cooldown", "probing"})}
     for hoster in hosters:
         related = [source_impacts["providers"][key] for key in hoster.get("providers", []) if key in source_impacts["providers"]]
         impact = max((p["impact"] for p in related), key={"none": 0, "unconfirmed": 1, "relevant": 2, "blocking": 3}.get, default="none")

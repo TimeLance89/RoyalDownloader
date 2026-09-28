@@ -194,18 +194,26 @@ class ProviderMonitor:
         changed = bool(previous.get("fingerprints") and fingerprints != previous["fingerprints"])
         failed_rounds = previous.get("failed_rounds", 0) + 1 if diagnosis != "healthy" else 0
         failures = [step for step in result["steps"] if step.get("ok") is False]
-        independent = {step["sample"] for step in result["steps"] if step.get("ok") is False and step["sample"] and step["code"] not in {"removed", "budget_exhausted"}}
-        isolated = failed_rounds >= 2 and (len(independent) >= 2 or diagnosis == "blocked")
+        # HTTP-only probes omit production browser recovery. Parser/hoster/
+        # track failures remain diagnostics, even across independent titles.
+        independent = {step["sample"] for step in failures if step.get("name") == "detail" and step.get("sample") and step["code"] not in {"removed", "budget_exhausted", "missing_hosters"}}
+        runtime = self.health.status(provider)
+        runtime_success = runtime.get("last_runtime_success_at", 0)
+        recent_success = 0 <= self.clock() - runtime_success < 86400 and bool(runtime_success)
+        complete_failure = result.get("production_equivalent") is True and len(independent) >= 3 and not successes
+        domain_offline = any(step.get("name") == "connectivity" and step.get("code") == "domain_offline" for step in failures)
+        offline_rounds = previous.get("offline_rounds", 0) + 1 if domain_offline else 0
+        isolated = (failed_rounds >= 2 and complete_failure or offline_rounds >= 3) and not recent_success
         if isolated:
-            self.health.mark_blocked(provider, "sentinel_confirmed_failure", diagnosis)
+            self.health.mark_blocked(provider, "sentinel_production_failure", diagnosis)
         elif diagnosis == "healthy" and len(successes) >= 3:
             # A homepage-only success cannot recover a quarantined provider.
-            self.health.mark_success(provider)
+            self.health.mark_success(provider, runtime=False)
         self.store.update(provider, diagnosis=diagnosis, last_check_at=self.clock(), steps=result["steps"],
                           last_error=failures[-1]["code"] if failures else previous.get("last_error", ""),
                           last_error_at=self.clock() if failures else previous.get("last_error_at", 0),
                           canaries=canaries, fingerprints=fingerprints if diagnosis == "healthy" else previous.get("fingerprints", []),
-                          changed=changed, failed_rounds=failed_rounds, last_success_at=self.clock() if diagnosis == "healthy" else previous.get("last_success_at", 0))
+                          changed=changed, failed_rounds=failed_rounds, offline_rounds=offline_rounds, last_success_at=self.clock() if diagnosis == "healthy" else previous.get("last_success_at", 0))
         self.store.record(provider, {"event": "probe", "diagnosis": diagnosis, "changed": changed,
                                      "duration_ms": round(sum(step["duration_ms"] for step in result["steps"]), 1),
                                      "isolated": isolated, "steps": result["steps"],
@@ -221,7 +229,7 @@ class ProviderMonitor:
                 self.store.update(provider, repairs=previous["repairs"])
                 if evidence["shadow_passed"]:
                     self.repairs.activate(provider, requested)
-                    self.health.mark_success(provider)
+                    self.health.mark_success(provider, runtime=False)
                 else:
                     self.store.update(provider, diagnosis="needs_attention")
                     diagnosis = "needs_attention"
@@ -230,7 +238,7 @@ class ProviderMonitor:
             validated = next((candidate for candidate in candidates if candidate["confidence"] == "high"), None)
             if validated and self.store.config()["auto_repair"] and not self.stopped and (generation is None or generation == self.generation):
                 self.repairs.activate(provider, validated["id"])
-                self.health.mark_success(provider)
+                self.health.mark_success(provider, runtime=False)
                 self.store.update(provider, diagnosis="healthy", failed_rounds=0)
                 diagnosis = "repaired"
             elif candidates:
@@ -243,11 +251,25 @@ class ProviderMonitor:
             self.store.update(provider, diagnosis="needs_attention")
             diagnosis = "needs_attention"
         self._schedule(provider, min(3600, self.store.config()["interval_hours"] * 3600) if isolated else None)
-        if self.store.config()["notify_changes"] and diagnosis != previous.get("diagnosis", "unknown") and diagnosis in {"healthy", "broken", "blocked", "repaired", "needs_attention"}:
+        if self.store.config()["notify_changes"] and (diagnosis != previous.get("diagnosis", "unknown") or isolated and runtime["state"] == "healthy") and diagnosis in {"healthy", "broken", "offline", "blocked", "repaired", "needs_attention"}:
             self._notify(provider, diagnosis)
         return self.store.entry(provider)
 
-    def observe(self, provider, ok, duration, source="", result=None, operation=""):
+    def observe(self, provider, ok, duration, source="", result=None, operation="", *, runtime_failure=False):
+        if not self.stopped:
+            # Record actual adapter outcomes before stricter repair-identity
+            # checks. A changed poster is not a production provider outage.
+            episode = parse_episode_slug(source)
+            runtime_source = episode[0].split("|", 1)[0] if episode else source
+            previous_runtime = self.health.status(provider)
+            runtime = self.health.record_runtime(provider, ok, runtime_source if runtime_failure and operation.startswith("get_") else "")
+            if runtime["state"] != previous_runtime["state"]:
+                if runtime["state"] == "cooldown":
+                    # The existing bounded scheduler owns automatic recovery;
+                    # do not leave a real circuit waiting for a 12h diagnosis.
+                    self.store.update(provider, next_check_at=runtime["next_probe_at"])
+                    self.wake.set()
+                self._notify(provider, self.store.entry(provider, ("diagnosis",)).get("diagnosis", "unknown"))
         if not source or self.stopped:
             return
         with self.lock:
@@ -328,6 +350,7 @@ class ProviderMonitor:
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
                          "domain": self.profile(key).get("domain") or definition.domains[0],
                          "contract": contract(key).public_dict(), "runtime": self.health.status(key),
+                         "routing": {"allowed": self.health.routing_allowed(key), "evidence": self.health.status(key)["reason"]},
                          "content_language": definition.content_language, "content_languages": list(provider_content_languages(key)),
                          "language_evidence": entry.get("language_evidence", {}),
                          "enabled_media_types": [media for media in definition.media_types if not self.has_priorities or key in self.priorities(media)],
