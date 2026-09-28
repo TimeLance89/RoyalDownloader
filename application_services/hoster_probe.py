@@ -113,27 +113,30 @@ class HosterProbe:
         self.session_factory = session_factory
 
     def run(self, hoster, intensity="standard", profile=None, canaries=()):
-        contract = runtime_contract(hoster)
         details, responses, steps = [], [], []
         deadline = time.monotonic() + (90 if intensity == "full" else 60)
         for canary in canaries[:5 if intensity == "full" else 3]:
             if time.monotonic() >= deadline:
                 break
             started, session = time.monotonic(), self.session_factory()
+            contract = runtime_contract(hoster, canary["url"], canary.get("provider", ""))
             if hasattr(session, "deadline"):
                 session.deadline = min(session.deadline, deadline)
-            code, result = "parser_error", None
+            code, result, resolver_started = "parser_error", None, None
             sample = canary["identity"]
             try:
                 url = canary["url"]
                 if profile:
                     url = profile_url(url, profile)
                 response = session.get(url)
-                steps.append({"name": "reachability", "ok": True, "code": "ok", "sample": sample, "duration_ms": 0})
+                reachability_ms = round((time.monotonic() - started) * 1000, 1)
+                steps.append({"name": "reachability", "ok": True, "code": "ok", "sample": sample, "duration_ms": reachability_ms})
                 if "embed" in contract.capabilities:
-                    steps.append({"name": "embed", "ok": bool(response.text), "code": "ok" if response.text else "empty_extraction", "sample": sample, "duration_ms": 0})
+                    steps.append({"name": "embed", "ok": bool(response.text), "code": "ok" if response.text else "empty_extraction", "sample": sample, "duration_ms": None})
                 if "redirect" in contract.capabilities:
-                    steps.append({"name": "redirect", "ok": True, "code": "ok", "sample": sample, "duration_ms": 0})
+                    steps.append({"name": "redirect", "ok": True, "code": "ok", "sample": sample, "duration_ms": None})
+                if intensity != "light":
+                    resolver_started = time.monotonic()
                 if intensity == "light":
                     code = "recognition_only"
                 elif profile and profile.get("player_selector"):
@@ -167,16 +170,20 @@ class HosterProbe:
                 code = getattr(exc, "code", classify_failure(exc))
             finally:
                 duration = round((time.monotonic() - started) * 1000, 1)
+                resolver_duration = round((time.monotonic() - resolver_started) * 1000, 1) if resolver_started is not None else None
                 for response in session.responses:
                     # Raw pages/URLs remain ephemeral, never sent to diagnostics/store.
                     responses.append({"text": response.text, "url": response.url, "original_url": canary["url"], "identity": sample})
                 session.close()
             ok = code == "ok"
+            complete = ok or contract.probe_mode == "http_only"
+            if not ok and code == "parser_error" and not complete:
+                code = "browser_fallback_required" if contract.browser_fallback else "runtime_validation_required"
             for name in ("player", "resolver", "media_result"):
                 if name in {"player", "resolver"} and name not in contract.capabilities:
                     continue
-                steps.append({"name": name, "ok": None if intensity == "light" else ok, "code": code, "sample": sample, "duration_ms": duration})
+                steps.append({"name": name, "ok": None if intensity == "light" or not complete else ok, "code": code, "sample": sample, "duration_ms": resolver_duration if name == "resolver" else None})
             if result and result[1] in {"hls", "dash"} and "manifest" in contract.capabilities:
-                steps.append({"name": "manifest", "ok": True, "code": "plausible_locator", "sample": sample, "duration_ms": 0})
-            details.append({"identity": sample, "ok": ok, "code": code, "duration_ms": duration, "media_signature": media_identity(result[0]) if result and result[1] != "web" else ""})
+                steps.append({"name": "manifest", "ok": True, "code": "plausible_locator", "sample": sample, "duration_ms": None})
+            details.append({"identity": sample, "ok": ok, "code": code, "duration_ms": duration, "probe_complete": complete, "probe_mode": contract.probe_mode, "provider": canary.get("provider", ""), "media_signature": media_identity(result[0]) if result and result[1] != "web" else ""})
         return {"details": details, "steps": steps, "responses": responses}

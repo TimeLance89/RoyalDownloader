@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Hoster probe evidence correction
+
+- Distinguish HTTP-only probes from browser-assisted production resolvers, including
+  provider-dependent generic embeds. Unconfirmed HTTP parsing no longer falsely
+  marks VOE/Veev and similar hosters broken or applies the hard ranking penalty.
+- Combine active probe completeness with independent production outcomes; retain
+  defect detection for complete HTTP resolvers and real runtime failures.
+- Explain browser/runtime validation limitations in Settings, correct legacy cached
+  diagnoses and omit synthetic zero-millisecond step durations.
+- Preserve repair validation, rollback and resource/security limits; add offline
+  regression coverage and desktop/mobile diagnostic UI checks.
+
 ### Source Sentinel: Hoster hardening
 
 - Extend the existing Provider Sentinel with separate hoster contracts, staged

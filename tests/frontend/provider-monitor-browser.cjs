@@ -17,10 +17,10 @@ const { fixture } = require("./performance-fixture.cjs");
       history: [{ timestamp: 1000, event: "probe", diagnosis: "healthy", changed: true }],
     };
     const hoster = {
-      hoster: "voe", label: "VOE", diagnosis: "broken", domains: ["voe.example"], providers: ["filmpalast"], running: false,
-      contract: { resolver: "extract_stream_url", capabilities: ["embed", "resolver"] },
+      hoster: "voe", label: "VOE", diagnosis: "degraded", domains: ["voe.example"], providers: ["filmpalast"], running: false,
+      contract: { resolver: "extract_stream_url", capabilities: ["embed", "resolver"], browser_fallback: true, probe_mode: "browser_capable" },
       metrics_24h: { attempts: 15, success_rate: .2, median_resolve_ms: 1250 }, metrics_7d: { attempts: 30, success_rate: .5 },
-      steps: [{ name: "resolver", ok: false, code: "parser_error", duration_ms: 12 }], history: [{ timestamp: 1000, event: "parser_error" }],
+      steps: [{ name: "reachability", ok: true, code: "ok", duration_ms: 25 }, { name: "redirect", ok: true, code: "ok", duration_ms: null }, { name: "resolver", ok: null, code: "browser_fallback_required", duration_ms: 12 }], history: [{ timestamp: 1000, event: "parser_error" }],
       active_repair: null, repairs: [{ id: "hoster-repair", confidence: "high", state: "available", previous_profile: {}, profile: { player_selector: "script#config", player_json_path: ["player", "sources", 0, "url"] }, validation: { known_detail_pages: 5, validated_detail_pages: 5 } }],
     };
     try {
@@ -73,6 +73,10 @@ const { fixture } = require("./performance-fixture.cjs");
       const hosters = monitor.locator('[data-monitor="hosters"]');
       await hosters.locator('[data-panel="hoster-voe"] > summary').click();
       assert.match(await hosters.textContent(), /Median 1250 ms/);
+      assert.match(await hosters.textContent(), /HTTP-Pfad nicht bestätigt/);
+      assert.match(await hosters.textContent(), /Browser-Fallback nicht aktiv geprüft/);
+      assert.match(await hosters.textContent(), /⚠/);
+      assert.doesNotMatch(await hosters.textContent(), /(?:^|\s)0 ms/);
       await hosters.locator('[data-action="probe"]').click();
       await hosters.locator('[data-action="full"]').click();
       assert.deepEqual(calls.filter(call => call.path === "/api/hosters/voe/probe").map(call => call.body.intensity), ["standard", "full"]);

@@ -273,6 +273,8 @@ class ProviderMonitor:
 
     def diagnostics(self, provider=None):
         enabled = set(self.enabled())
+        hoster_rows = self.hosters.diagnostics()
+        hoster_states = {row["hoster"]: row["diagnosis"] for row in hoster_rows}
         rows = []
         for key, definition in PROVIDER_CATALOG.items():
             if provider and key != provider:
@@ -283,7 +285,7 @@ class ProviderMonitor:
             failed = sum(item["diagnosis"] != "healthy" for item in history)
             hoster_names = {str(name) for item in entry.get("history", []) for name in item.get("hoster_names", [])}
             from media.hoster_contracts import hoster_key
-            hosters = [{"name": name, "state": self.hosters.store.entry(hoster_key(name), ("diagnosis",)).get("diagnosis", "unknown")} for name in sorted(hoster_names)]
+            hosters = [{"name": name, "state": hoster_states.get(hoster_key(name), "unknown")} for name in sorted(hoster_names)]
             rows.append({"provider": key, "label": definition.label, "enabled": key in enabled, "priority": priority,
                          "domain": self.profile(key).get("domain") or definition.domains[0],
                          "contract": contract(key).public_dict(), "runtime": self.health.status(key),
@@ -296,7 +298,6 @@ class ProviderMonitor:
                          "error_rate_24h": round(failed / len(history), 3) if history else None,
                          "average_duration_ms": round(sum(item["duration_ms"] for item in history) / len(history), 1) if history else None})
         active = [row for row in rows if row["enabled"]]
-        hoster_rows = self.hosters.diagnostics()
         return {"config": self.store.config(), "providers": rows, "hosters": hoster_rows,
                 "hoster_summary": {state: sum(row["diagnosis"] == state for row in hoster_rows) for state in {"healthy", "degraded", "offline", "broken", "blocked", "unknown", "needs_attention", "repair_available"}},
                 "last_complete_check_at": min((row["last_check_at"] for row in active), default=0),
