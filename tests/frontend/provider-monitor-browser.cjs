@@ -82,6 +82,14 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('details[data-provider="filmpalast"] > summary')[interact]();
       assert.match(await monitor.textContent(), /Gesund/);
       await monitor.locator('[data-panel="filmpalast-repairs"] > summary').click();
+      await monitor.locator('[data-panel="filmpalast-repairs"]').evaluate(node => {
+        const button = node.querySelector('[data-action="rollback"]');
+        node.dispatchEvent(new Event("toggle", { bubbles: true }));
+        assertDisclosureStable(node, button);
+        function assertDisclosureStable(panel, control) {
+          if (!panel.isConnected || !control.isConnected || !panel.open) throw new Error("Nested toggle rebuilt or closed repair controls");
+        }
+      });
       await monitor.locator('[data-action="rollback"]:not([data-kind])').click();
       assert.equal(calls.some(call => call.path.endsWith("/rollback")), false);
       await monitor.locator('[data-action="cancel"]').click();
