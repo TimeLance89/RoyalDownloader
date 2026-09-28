@@ -6,6 +6,64 @@ introduce another download stack. The administrative surface is **Settings →
 Sources → Source monitor (Provider / Hoster / Repairs and history)**. This feature is developed on Overnight; the
 published application version remains unchanged until a separate stable release.
 
+## Diagnostic health, runtime evidence and routing
+
+Routing audit at Overnight `dbb0e52` confirmed the AniWorld failure chain:
+two non-healthy HTTP probe rounds with independent failed samples called
+`mark_blocked(..., "sentinel_confirmed_failure")`; persisted cooldown then
+removed AniWorld from `provider_priority("anime")`, and the catalog API wrongly
+reported it as user-disabled. This was not a language-capability failure.
+
+These concepts now have separate contracts:
+
+* **Diagnostic state** remains in the Sentinel store, including broken,
+  changed, blocked and needs_attention. An incomplete HTTP probe, optional
+  track, missing title or failed hoster is not a production-provider outage.
+* **Runtime state** belongs to ProviderHealth. Real adapter successes record
+  `last_runtime_success_at`; active probe/repair successes do not masquerade
+  as real runtime use. Three different failing production detail requests in
+  15 minutes open the existing cooldown. Repeated failures of the same title,
+  missing results and removed-title HTTP 404/410 do not satisfy this threshold.
+  Failure identities are hashed, limited to eight and contain no source URL.
+* **Routing eligibility** is published separately as `routing.allowed` and
+  `routing.evidence`. Diagnostic warnings reorder usable providers behind
+  healthy ones without removing them or editing user priorities/selections.
+  A suspicious last matching language route remains usable; a real circuit
+  breaker remains closed until its bounded recovery opportunity.
+
+Sentinel hard quarantine requires either three consecutive explicit NXDOMAIN
+connectivity observations, or repeated production-equivalent tests with at
+least three independent failed detail paths and no successful details. Recent
+real success prevents these active observations from imposing a new quarantine.
+Current HTTP-only provider probes **do not** claim production equivalence;
+timeouts, HTTP challenges, parser failures and hoster failures cannot fabricate
+that evidence. No browser is launched to settle an inconclusive probe.
+
+After cooldown, routing permits a recovery attempt; the decorated adapter
+atomically acquires the existing `begin_probe` ownership before running the
+whole real operation in its recovery scope. Competing workers cannot acquire
+another probe. A successful real browse/detail reopens routing immediately,
+without restart. A failed/empty recovery resumes cooldown. Existing download
+worker recovery ownership and repair/rollback requirements remain intact.
+
+Startup reconciles only the obsolete persisted reason
+`sentinel_confirmed_failure`, clearing its unsupported cooldown without claiming
+a runtime success. Runtime, CAPTCHA/rate-limit and new production-evidence
+quarantines are preserved. No manual JSON deletion is needed.
+
+Service health uses routing eligibility rather than red diagnostic badges:
+configured but unconfirmed German AniWorld remains **unconfirmed**, whereas
+a genuinely closed German route can be **action_required**. Hoster availability
+is evaluated separately. DE/EN support and actual track/language evidence remain
+separate; an English alternative cannot hide a confirmed German outage.
+The AniWorld API distinguishes user-disabled, no matching language and
+temporary circuit cooldown; a diagnostic warning still attempts the catalog.
+
+Offline fixtures cover the original AniWorld DE-only regression, EN-only
+selection, runtime evidence, persistence reconciliation, recovery and hard
+outages. The existing desktop/390/430 touch and WebKit Sentinel browser gate
+also opens the real anime view with incomplete diagnostic coverage.
+
 ## Availability for everyday use
 
 Settings → Sources opens with a compact **Sources & availability** card, not a
@@ -96,9 +154,10 @@ separate: `healthy`, `degraded`, `broken`, `blocked`, `repair_available` or
 rate limits, verification gates, empty extraction and identity/metadata failures.
 Unsupported structural changes require manual attention.
 
-Isolation requires two failed rounds plus independent failed samples, or repeated
-explicit verification blocking. Existing ProviderHealth then excludes that source
-from normal transport/routing while configured alternatives remain available.
+Isolation follows the production-evidence thresholds documented above;
+independent HTTP-only parsing failures or verification pages remain diagnostics.
+Existing ProviderHealth excludes proven failures from normal transport/routing
+while configured alternatives remain available.
 Three successful independent detail checks can restore health; a light check
 cannot release quarantine. Non-light recovery probes automatically use full
 intensity, including episode hosters. Exhausted budgets are inconclusive rather

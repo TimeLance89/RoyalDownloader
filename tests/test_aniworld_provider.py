@@ -192,7 +192,8 @@ def test_aniworld_detail_hides_disabled_english_track(monkeypatch):
     monkeypatch.setattr(
         discovery, "state",
         SimpleNamespace(
-            content_languages={"de"}, aniworld_lock=threading.RLock(),
+            content_languages={"de"}, provider_enabled={"anime": ["aniworld"]},
+            provider_health=SimpleNamespace(routing_allowed=lambda _p: True), aniworld_lock=threading.RLock(),
             picked=set(),
         ),
     )
@@ -227,7 +228,8 @@ def test_aniworld_detail_rejects_english_only_anime_under_german_setting(
     monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["aniworld"])
     monkeypatch.setattr(
         discovery, "state",
-        SimpleNamespace(content_languages={"de"}, aniworld_lock=threading.RLock()),
+        SimpleNamespace(content_languages={"de"}, provider_enabled={"anime": ["aniworld"]},
+                        provider_health=SimpleNamespace(routing_allowed=lambda _p: True), aniworld_lock=threading.RLock()),
     )
     monkeypatch.setattr(
         discovery, "get_aniworld_scraper",

@@ -168,11 +168,12 @@ def test_store_history_is_bounded_atomic_and_survives_restart(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
 
 
-def test_independent_failures_isolate_and_full_success_recovers(tmp_path):
+def test_production_equivalent_failures_isolate_and_full_success_recovers(tmp_path):
     healthy = {"steps": [{"name": "metadata", "sample": str(i), "ok": True, "code": "ok", "duration_ms": 1} for i in range(3)], "details": [{"identity": str(i), "source": str(i), "title": str(i), "media_type": "movies", "ok": True} for i in range(3)], "responses": [], "canaries": []}
     broken = copy.deepcopy(healthy)
+    broken["production_equivalent"] = True
     for step in broken["steps"]:
-        step.update(ok=False, code="identity_mismatch")
+        step.update(name="detail", ok=False, code="parser_error")
     for detail in broken["details"]:
         detail["ok"] = False
     result = [broken]

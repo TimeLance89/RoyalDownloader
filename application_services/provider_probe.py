@@ -175,6 +175,8 @@ class ProviderProbe:
 def diagnose(result, previous=None):
     failed = [step for step in result["steps"] if step.get("ok") is False and step["code"] != "removed"]
     codes = {step["code"] for step in failed}
+    if "domain_offline" in codes:
+        return "offline"
     if "verification_required" in codes:
         return "blocked"
     if codes & {"rate_limit", "network_error", "temporary_http", "budget_exhausted", "response_too_large"}:

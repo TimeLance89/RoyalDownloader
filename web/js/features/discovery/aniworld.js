@@ -275,9 +275,9 @@ export function createAniworld(root, modal, {
       data.mode = mode; data.query = query;
       data.page = Number(response.page) || page; data.hasMore = !!response.has_more;
       data.total = Number(response.total) || 0; data.loaded = true;
-      data.disabledReason = response.disabled ? response.disabled_reason : "";
+      data.disabledReason = response.disabled || response.temporarily_unavailable ? response.disabled_reason : "";
       if (response.facets) data.facets = response.facets;
-      byId("aniworld-status").textContent = response.disabled ? response.disabled_reason : `${data.total.toLocaleString("de-DE")} Titel gefunden`;
+      byId("aniworld-status").textContent = data.disabledReason || `${data.total.toLocaleString("de-DE")} Titel gefunden`;
       if (mode === "catalog") renderAniworldFacets();
       renderAniworldResults(appendFrom);
       void hydrateAniworldPosters(incoming);

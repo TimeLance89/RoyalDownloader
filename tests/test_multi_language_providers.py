@@ -107,7 +107,7 @@ def source(key, supported, language, evidence=(), broken=False):
             "content_language": language, "content_languages": list(supported),
             "language_evidence": {"anime": {lang: NOW - 30 for lang in evidence}},
             "diagnosis": "broken" if broken else "healthy", "last_check_at": NOW - 60,
-            "runtime": {"state": "healthy"}}
+            "runtime": {"state": "cooldown" if broken else "healthy"}, "routing": {"allowed": not broken}}
 
 
 def health(ani=True, mk=True, languages=("de", "en"), evidence=("de", "en")):
@@ -237,7 +237,7 @@ def test_english_only_aniworld_detail_uses_actual_english_tracks(monkeypatch):
     anime = AniWorldAnime("fixture", "Fixture", translations={"dub": 1, "sub": 1, "eng": 1},
                           episodes=[AniWorldEpisode(1, 1, tracks=("dub", "sub", "eng"))])
     monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["aniworld"])
-    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"en"}, aniworld_lock=threading.RLock(), picked=set()))
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"en"}, provider_enabled={"anime": ["aniworld"]}, provider_health=SimpleNamespace(routing_allowed=lambda _p: True), aniworld_lock=threading.RLock(), picked=set()))
     monkeypatch.setattr(discovery, "get_aniworld_scraper", lambda: SimpleNamespace(get_anime=lambda _id: anime))
     monkeypatch.setattr(discovery, "_existing_valid_episode_path", lambda *_args: None)
     detail = asyncio.run(discovery.api_aniworld_detail("fixture", translation="dub"))

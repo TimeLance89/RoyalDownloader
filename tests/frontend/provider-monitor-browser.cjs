@@ -8,7 +8,7 @@ const { fixture } = require("./performance-fixture.cjs");
     const { page, errors } = run;
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
-    let unavailable = false, failSave = false, languageProblem = false;
+    let unavailable = false, failSave = false, languageProblem = false, diagnosticOnly = false;
     const service = { service_health: "healthy", user_impact: "none", action_required: false,
       coverage: { movies: "healthy", series: "healthy", anime: "healthy" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
       paths: ["de", "en"].map(language => ({ media_type: "anime", language, state: "healthy" })),
@@ -41,7 +41,7 @@ const { fixture } = require("./performance-fixture.cjs");
         const request = route.request(), path = new URL(request.url()).pathname;
         const body = request.method() === "GET" ? null : request.postDataJSON();
         calls.push({ path, method: request.method(), body });
-        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
+        if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: diagnosticOnly ? { ...service, service_health: "degraded", user_impact: "unconfirmed", coverage: { ...service.coverage, anime: "unconfirmed" }, paths: [{ media_type: "anime", language: "de", state: "unconfirmed" }] } : languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
         if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
@@ -100,6 +100,21 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('[data-action="save"]')[interact]();
       await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();
       assert.equal(await coverage.locator('.source-language-path').count(), 0);
+      // AniWorld is the only configured German anime route. Incomplete
+      // diagnostics must neither claim an outage nor disable its catalog.
+      diagnosticOnly = true;
+      await monitor.locator('[data-action="save"]')[interact]();
+      await coverage.getByText("○ Noch nicht bestätigt (Deutsch)").waitFor();
+      assert.doesNotMatch(await monitor.innerText(), /Keine verfügbare Quelle|Aktion erforderlich: Ja/);
+      await page.route("**/api/aniworld?**", route => route.fulfill({ json: { results: [{ id: "routing-fixture", title: "Routing Fixture", cover_url: "/fixture-art.svg", translations: { dub: 1 } }], page: 1, has_more: false, disabled: false } }));
+      const catalogRequest = page.waitForResponse(response => new URL(response.url()).pathname === "/api/aniworld");
+      await page.evaluate(() => fixtureApp.core.actions.switchTab("aniworld"));
+      assert.equal((await (await catalogRequest).json()).disabled, false);
+      await page.locator("#aniworld-results button.aniworld-card").waitFor();
+      assert.doesNotMatch(await page.locator("#tab-aniworld").innerText(), /AniWorld ist nicht verfügbar|AniWorld ist pausiert/);
+      await page.evaluate(() => fixtureApp.core.actions.switchTab("einstellungen"));
+      await monitor.waitFor({ state: "visible" });
+      diagnosticOnly = false;
       failSave = true;
       await monitor.locator('[data-action="save"]')[interact]();
       await monitor.locator('[data-monitor="status"]').getByText(/nicht übernommen/).waitFor();
