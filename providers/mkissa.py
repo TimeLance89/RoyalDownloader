@@ -7,6 +7,8 @@ Antwort liefert ihre eigentlichen Daten wiederum AES-GCM-verschlüsselt.
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import base64
 import hashlib
 import json
@@ -148,6 +150,7 @@ class MkissaAnime:
         return payload
 
 
+@monitor_adapter("mkissa")
 class MkissaScraper:
     """GraphQL-Client mit dynamischer MKissa-Quellentschlüsselung."""
 

@@ -1697,6 +1697,21 @@
           </div>
           <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
         </div>
+        <section id="provider-monitor" class="settings-group settings-card provider-settings" aria-labelledby="provider-monitor-title">
+          <h3 id="provider-monitor-title">Provider-Überwachung</h3>
+          <p class="dim">Zeitgesteuerte Prüfungen von Katalog, Suche und Details. Eindeutig validierte Reparaturen können automatisch aktiviert und zurückgerollt werden.</p>
+          <label><input name="monitor-enabled" type="checkbox" checked> Automatische Provider-Prüfung</label>
+          <label>Prüfintervall (Stunden) <input name="monitor-interval" type="number" min="1" max="168" value="12"></label>
+          <label>Intensität <select name="monitor-intensity"><option value="light">Leicht</option><option value="standard" selected>Standard</option><option value="full">Vollständig</option></select></label>
+          <label><input name="monitor-auto-repair" type="checkbox" checked> Eindeutig validierte Reparaturen automatisch aktivieren</label>
+          <label><input name="monitor-notify" type="checkbox"> Relevante Zustandswechsel im Monitor melden</label>
+          <div class="path-input-row"><button type="button" class="btn-ghost" data-action="save">Überwachung speichern</button><button type="button" class="btn-ghost" data-action="all">Alle aktiven Quellen prüfen</button></div>
+          <p data-monitor="summary" role="status"></p>
+          <p data-monitor="status" role="status" aria-live="polite"></p>
+          <p data-monitor="notice" role="status" aria-live="polite"></p>
+          <div data-monitor="confirmation" hidden><p></p><button type="button" class="btn-ghost" data-action="confirm">Bestätigen</button><button type="button" class="btn-ghost" data-action="cancel">Abbrechen</button></div>
+          <div data-monitor="providers"></div>
+        </section>
           </section>
 
           <section id="settings-media" class="settings-section" data-settings-section aria-labelledby="settings-media-title">

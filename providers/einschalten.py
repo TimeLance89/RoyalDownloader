@@ -15,6 +15,8 @@ Rebrand). Die eigentliche Stream-Extraktion laeuft ueber
 extractor.extract_doodstream_url().
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import logging
 import re
 from typing import Callable, Dict, List, Optional
@@ -34,6 +36,7 @@ SOURCE_PREFIX = "einschalten:"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
 
+@monitor_adapter("einschalten")
 class EinschaltenScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

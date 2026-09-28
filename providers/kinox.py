@@ -21,6 +21,8 @@ Artikel ohne konsistente Verlinkung zwischen den Staffeln -> hier bewusst
 nicht unterstuetzt, nur Filme (analog zum Einschalten-Adapter).
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -50,6 +52,7 @@ GENRES: Dict[str, str] = {
 _TRAILER_HOSTS = ("youtube.com", "youtu.be")
 
 
+@monitor_adapter("kinox")
 class KinoxScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

@@ -8,6 +8,8 @@ eigentliche Stream-Auflösung übernimmt der gemeinsame Extraktor.
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import json
 import logging
 import os
@@ -95,6 +97,7 @@ class _Card:
     is_movie: bool
 
 
+@monitor_adapter("ridomovies")
 class RidomoviesScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

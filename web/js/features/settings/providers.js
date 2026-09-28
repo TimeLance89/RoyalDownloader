@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml } from "../../shared/utils/escape-html.js";
+import { createProviderMonitor } from "./provider-monitor.js";
 
 /** Shared provider draft; backend acknowledgements replace it on load/save. */
 export function createProviderSettings(settingsRoot, setupRoot, {
@@ -14,6 +15,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
   let owner = createScope();
   let pending;
   let revision = 0;
+  const monitor = createProviderMonitor(settingsRoot?.querySelector("#provider-monitor"), { client });
   function providerEnabledSet(mediaType) {
     if (mediaType === "movies") return data.enabledMovies;
     if (mediaType === "anime") return data.enabledAnime;
@@ -325,9 +327,9 @@ export function createProviderSettings(settingsRoot, setupRoot, {
   }
   function view(root) {
     return {
-      mount() { if (active.has(root)) return; active.add(root); renderAllProviderBoards(); },
+      mount() { if (active.has(root)) return; active.add(root); renderAllProviderBoards(); if (root === settingsRoot) monitor.mount(); },
       refresh: renderAllProviderBoards,
-      unmount() { if (!active.delete(root)) return; renderAllProviderBoards(); },
+      unmount() { if (!active.delete(root)) return; if (root === settingsRoot) monitor.unmount(); renderAllProviderBoards(); },
     };
   }
   return {
@@ -340,7 +342,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       if (current.active && !signal?.aborted && revision === atRevision) applyProviderPriority(value);
       return value;
     },
-    unmount() { owner.dispose(); rows.dispose(); active.clear(); pending = null; },
+    unmount() { owner.dispose(); rows.dispose(); monitor.unmount(); active.clear(); pending = null; },
     mount() { if (!owner.active) owner = createScope(); },
   };
 }

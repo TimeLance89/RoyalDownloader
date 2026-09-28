@@ -2,7 +2,36 @@
 
 ## Unreleased
 
-No unreleased changes.
+### Provider Sentinel and conservative self-healing
+
+- Monitor enabled movie, series and anime providers through their existing
+  adapters, with staggered scheduling, configurable intensity and bounded HTTP
+  concurrency. Connectivity, catalog, search, details, metadata and extracted
+  hoster/source structures have separate diagnostic results.
+- Feed confirmed independent failures into existing ProviderHealth cooldowns and
+  fallback routing without changing provider selections. Successful independent
+  detail probes restore availability automatically.
+- Detect structural changes with bounded fingerprints and dynamic reference
+  titles. Persist bounded diagnostics and versioned repair evidence separately
+  from provider sessions, settings and download jobs.
+- Validate trusted HTTPS domain redirects, Filmpalast catalog/title/poster
+  selector changes and MegaKino catalog JSON-path changes in full shadow probes
+  against at least three known titles. Preserve identities, metadata, artwork
+  and hoster extraction before activating a declarative profile.
+- Roll back active repairs after three independent real-request failures;
+  administrators can inspect evidence, request probes and confirm rollback in
+  **Settings → Sources → Provider monitor**. Optional state-change notices use
+  the existing WebSocket transport.
+- Keep challenges, rate limits and unsupported protocol changes separate from
+  parser repairs. Probes never download media, launch verification browsers or
+  generate application code. Source checks validate extracted link structure,
+  not live playback availability.
+- Add offline adapter/repair/mutation/security tests and desktop/touch settings
+  regression coverage to CI. Fix mobile More-menu positioning so settings remain
+  reachable above the navigation dock.
+
+See [Provider Sentinel](docs/PROVIDER_SENTINEL.md) for supported repair levels,
+resource limits, API access, persistence and operational limitations.
 
 ## v1.2.3 – 2026-09-27
 

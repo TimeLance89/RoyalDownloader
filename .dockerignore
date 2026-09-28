@@ -41,6 +41,7 @@ tests/
 .idea/
 .vscode/
 .update_files.json
+provider_monitor.json
 *.part
 *.crdownload
 *.ytdl

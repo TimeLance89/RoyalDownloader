@@ -154,8 +154,9 @@ def provider_priority(media_type: str) -> List[str]:
     ]
     active = [provider for provider in matching if provider in enabled]
     if media_type == "anime":
-        return active
-    return active or matching[:1] or ordered[:1]
+        return [provider for provider in active if state.provider_health.request_allowed(provider)]
+    candidates = active or matching[:1] or ordered[:1]
+    return [provider for provider in candidates if state.provider_health.request_allowed(provider)]
 
 
 def provider_for_value(value: str) -> str:

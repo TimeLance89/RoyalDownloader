@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import logging
 import re
 from typing import Callable, List, Optional
@@ -20,6 +22,7 @@ SOURCE_PREFIX = "filmo:"
 _MOVIE_PATH_RE = re.compile(r"^/movies/([a-z0-9-]+)$", re.IGNORECASE)
 
 
+@monitor_adapter("filmo")
 class FilmoScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

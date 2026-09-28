@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import html
 import math
 import re
@@ -79,6 +81,7 @@ class AniWorldAnime:
         return payload
 
 
+@monitor_adapter("aniworld")
 class AniWorldScraper:
     def __init__(
         self,

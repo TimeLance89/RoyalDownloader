@@ -7,6 +7,8 @@ und Episoden zerlegen. Erst die spaetere Stream-Aufloesung braucht je nach
 Mirror den vorhandenen Vidara-/VOE-/Browser-Fallback.
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import ast
 import logging
 import re
@@ -89,6 +91,7 @@ class _Card:
     content_language: str = ""
 
 
+@monitor_adapter("kinoger")
 class KinogerScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

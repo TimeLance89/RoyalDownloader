@@ -88,4 +88,5 @@ captures/
 Thumbs.db
 Desktop.ini
 movie_releases_cache.json
+provider_monitor.json
 movie_releases_cache.tmp
