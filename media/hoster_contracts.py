@@ -1,5 +1,5 @@
 """Resolver contracts shared by runtime attribution and Source Sentinel."""
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 import re
 import hashlib
 from urllib.parse import urlsplit
@@ -13,6 +13,8 @@ class HosterContract:
     resolver: str
     capabilities: tuple
     markers: tuple = ()
+    browser_fallback: bool = False
+    probe_mode: str = "http_only"
 
     def public_dict(self):
         return asdict(self)
@@ -29,6 +31,7 @@ SPECIAL = {
     "firestream": ("extract_firestream_url", ("firestream",)),
 }
 GENERIC = {"streamruby", "upcloud", "vidsrc", "closeload", "rapidrame", "upstream", "vinovo", "luluvid", "netu"}
+BROWSER_EMBED_PROVIDERS = frozenset({"megakino", "sflix", "ridomovies", "mkissa"})
 CONTRACTS = {}
 for name in set(BASE_SCORE) | set(SPECIAL) | GENERIC:
     key = re.sub(r"[^a-z0-9]", "", name)
@@ -36,7 +39,8 @@ for name in set(BASE_SCORE) | set(SPECIAL) | GENERIC:
         CONTRACTS[key] = HosterContract(key, "direct", ("recognition", "manifest", "direct_media"), ("filmfrei24",))
     else:
         resolver, markers = SPECIAL.get(key, ("yt_dlp", (key,)))
-        CONTRACTS[key] = HosterContract(key, resolver, ("recognition", "embed", "redirect", "player", "resolver", "manifest", "direct_media"), markers)
+        browser = resolver == "extract_stream_url"
+        CONTRACTS[key] = HosterContract(key, resolver, ("recognition", "embed", "redirect", "player", "resolver", "manifest", "direct_media"), markers, browser, "browser_capable" if browser else "runtime_only" if resolver == "yt_dlp" else "http_only")
 
 
 def hoster_key(name, url=""):
@@ -51,9 +55,20 @@ def hoster_key(name, url=""):
     return label or "unknown"
 
 
-def runtime_contract(name, url=""):
+def runtime_contract(name, url="", provider=""):
     key = hoster_key(name, url)
-    return CONTRACTS.get(key, HosterContract(key, "yt_dlp", ("recognition", "embed", "redirect", "resolver", "manifest", "direct_media")))
+    contract = CONTRACTS.get(key, HosterContract(key, "yt_dlp", ("recognition", "embed", "redirect", "resolver", "manifest", "direct_media"), probe_mode="runtime_only"))
+    # Production dispatches dedicated extractors before provider-specific embeds.
+    if contract.resolver == "yt_dlp":
+        browser = provider in BROWSER_EMBED_PROVIDERS
+        return replace(contract, browser_fallback=browser, probe_mode="browser_capable" if browser else "http_only" if provider else "runtime_only")
+    return contract
+
+
+def source_contract(name, providers=()):
+    """Conservative aggregate for a family used through multiple provider paths."""
+    contracts = [runtime_contract(name, provider=provider) for provider in providers] or [runtime_contract(name)]
+    return next((contract for contract in contracts if contract.browser_fallback), contracts[0])
 
 
 def canary_identity(url):

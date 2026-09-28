@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from application_services.hoster_probe import HosterProbe, classify_failure
 from application_services.hoster_repair import HosterRepair
-from media.hoster_contracts import CONTRACTS, runtime_contract, hoster_key, canary_identity, media_identity
+from media.hoster_contracts import CONTRACTS, runtime_contract, hoster_key, canary_identity, media_identity, source_contract
 from media.provider_monitor_store import HosterStore
 from application_services.provider_probe import valid_source_link
 
@@ -52,6 +52,23 @@ def health(samples):
     if success >= 3:
         return "healthy"
     return "unknown"
+
+
+def source_health(name, entry, now):
+    """Active evidence cannot claim capabilities that its HTTP path never tested."""
+    runtime = [row for row in entry.get("samples", []) if 0 <= now - row["timestamp"] < 86400]
+    probes = [row for row in entry.get("probe_evidence", []) if 0 <= now - row["timestamp"] < 86400 and row["code"] not in {"recognition_only", "removed"}]
+    providers = set(entry.get("providers", [])) | {row["provider"] for row in probes if row.get("provider")}
+    contract = source_contract(name, providers)
+    complete = [row for row in probes if row["code"] not in {"browser_fallback_required", "runtime_validation_required"}
+                and (row.get("ok") or contract.probe_mode == "http_only" and row.get("probe_complete", True))]
+    partial = len(complete) < len(probes)
+    # Actual failures of independent production resolves remain authoritative.
+    real_state = health(runtime)
+    if real_state in {"broken", "offline", "blocked", "needs_attention"}:
+        return real_state
+    state = health(sorted([*runtime, *complete], key=lambda row: row["timestamp"]))
+    return "degraded" if state == "unknown" and partial else state
 
 
 class HosterMonitor:
@@ -105,10 +122,10 @@ class HosterMonitor:
                 buckets.append(bucket)
             bucket["attempts"] += 1
             bucket["successes"] += int(ok)
-            state = health([row for row in samples if now - row["timestamp"] < 86400])
             providers = sorted(set(entry.get("providers", [])) | ({provider} if provider in self.owner.enabled() else set()))[:15]
+            state = source_health(key, {**entry, "samples": samples, "providers": providers}, now)
             domains = sorted(set(entry.get("domains", [])) | {domain})[:16]
-            self.store.update(key, samples=samples, runtime_buckets=buckets[-10081:], diagnosis=state, providers=providers, domains=domains,
+            self.store.update(key, samples=samples, runtime_buckets=buckets[-10081:], diagnosis=state, health_evidence_version=2, providers=providers, domains=domains,
                               last_success_at=now if ok else entry.get("last_success_at", 0),
                               last_failure_at=now if not ok else entry.get("last_failure_at", 0), last_error="" if ok else code)
             self.store.record(key, {"event": code, "duration_ms": row["duration_ms"]})
@@ -142,7 +159,11 @@ class HosterMonitor:
             domains = sorted(set(entry.get("domains", [])) | {hostname})[:16]
             providers = sorted(set(entry.get("providers", [])) | ({provider} if provider in self.owner.enabled() else set()))[:15]
             if domains != entry.get("domains") or providers != entry.get("providers"):
-                self.store.update(key, domains=domains, providers=providers)
+                fields = {"domains": domains, "providers": providers}
+                if providers != entry.get("providers"):
+                    evidence = self.store.entry(key, ("samples", "probe_evidence"))
+                    fields.update(diagnosis=source_health(key, {**evidence, "providers": providers}, now), health_evidence_version=2)
+                self.store.update(key, **fields)
             identity = canary_identity(url)
             rows = [row for row in self.canaries.get(key, []) if now - row["seen_at"] <= CANARY_TTL]
             prior = next((row for row in rows if row["identity"] == identity), {})
@@ -166,11 +187,8 @@ class HosterMonitor:
         evidence = [{**row, "timestamp": self.clock(), "code": "resolve_success" if row["ok"] else row["code"]} for row in result["details"]]
         accumulated = [row for row in previous.get("probe_evidence", []) if self.clock() - row["timestamp"] < 86400] + evidence
         accumulated = accumulated[-30:]
-        state = health(accumulated) if evidence else "unknown"
-        # A no-browser check cannot prove a JS-only mechanism has failed.
-        if len({row["identity"] for row in accumulated}) < 3 and state in {"broken", "offline", "blocked"}:
-            state = "degraded"
-        self.store.update(key, diagnosis=state, steps=result["steps"], last_check_at=self.clock(), requested_intensity=None, probe_evidence=accumulated)
+        state = source_health(key, {**previous, "probe_evidence": accumulated}, self.clock())
+        self.store.update(key, diagnosis=state, health_evidence_version=2, steps=result["steps"], last_check_at=self.clock(), requested_intensity=None, probe_evidence=accumulated)
         self.store.record(key, {"event": "sentinel_probe", "diagnosis": state, "tested": len(evidence), "successful": sum(row["ok"] for row in result["details"])})
         for row in result["details"]:
             if row["ok"]:
@@ -210,9 +228,14 @@ class HosterMonitor:
         self.store.update(key, next_check_at=self.clock() + (delay if delay is not None else self.store.config()["interval_hours"] * 3600) + jitter)
 
     def penalty(self, name, url=""):
-        entry = self.store.entry(hoster_key(name, url), ("diagnosis", "last_check_at", "last_success_at", "last_failure_at"))
+        key = hoster_key(name, url)
+        entry = self.store.entry(key, ("diagnosis", "last_check_at", "last_success_at", "last_failure_at", "health_evidence_version"))
         observed = max(entry.get(field, 0) or 0 for field in ("last_check_at", "last_success_at", "last_failure_at"))
         state = entry.get("diagnosis", "unknown") if 0 <= self.clock() - observed < 86400 else "unknown"
+        if entry.get("health_evidence_version") != 2 and state in {"broken", "offline", "blocked"}:
+            # Old persisted HTTP-only false positives are corrected on upgrade,
+            # without waiting for a new canary or changing any repair profile.
+            state = source_health(key, self.store.entry(key, ("samples", "probe_evidence", "providers")), self.clock())
         return {"broken": -100, "offline": -100, "blocked": -80, "degraded": -20, "needs_attention": -40}.get(state, 0)
 
     def diagnostics(self):
@@ -221,9 +244,18 @@ class HosterMonitor:
             contracts = sorted(self.inventory.items())
         for key, contract in contracts:
             entry = self.store.entry(key)
+            contract = source_contract(key, entry.get("providers", []))
+            diagnosis = entry.get("diagnosis", "unknown")
+            if entry.get("health_evidence_version") != 2 and diagnosis in {"broken", "offline", "blocked"}:
+                diagnosis = source_health(key, entry, self.clock())
+            steps = entry.get("steps", [])
+            if contract.probe_mode != "http_only":
+                limitation = "browser_fallback_required" if contract.browser_fallback else "runtime_validation_required"
+                steps = [{**step, "ok": None, "code": limitation} if step["name"] in {"player", "resolver", "media_result"} and step["code"] == "parser_error" else step for step in steps]
             samples = entry.get("samples", [])
-            rows.append({"hoster": key, "label": key, "contract": contract.public_dict(), "diagnosis": entry.get("diagnosis", "unknown"),
+            rows.append({"hoster": key, "label": key, "contract": contract.public_dict(), "diagnosis": diagnosis,
                          "domains": entry.get("domains", []), "providers": entry.get("providers", []), "running": f"hoster:{key}" in self.owner.active,
                          "metrics_24h": metrics(samples, self.clock(), buckets=entry.get("runtime_buckets")), "metrics_7d": metrics(samples, self.clock(), 7, entry.get("runtime_buckets")),
                          **{field: entry.get(field, [] if field in {"steps", "history", "repairs"} else None) for field in ("last_check_at", "next_check_at", "last_success_at", "last_failure_at", "last_error", "steps", "history", "repairs", "active_repair")}})
+            rows[-1]["steps"] = steps
         return rows

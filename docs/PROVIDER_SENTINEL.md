@@ -103,6 +103,42 @@ Single removed titles or repeated failures of one embed cannot establish a famil
 outage. Broken/offline states require multiple independent signals; successful
 alternatives remain preferred without rewriting user provider order.
 
+### HTTP probe completeness and browser fallback
+
+Contracts distinguish `http_only`, `browser_capable` and `runtime_only` production
+paths. Sentinel always uses the bounded HTTP path and never starts a browser.
+
+| Production path | HTTP probe coverage |
+| --- | --- |
+| VOE, Veev, Moflix, KinoGer and their aliases | Browser fallback exists; HTTP failure is inconclusive |
+| Generic embeds from MegaKino, SFlix, Ridomovies or MKissa | Provider-dependent browser fallback; HTTP failure is inconclusive |
+| Generic embed without known provider | Production coverage unknown; runtime validation required |
+| Dedicated HTTP extractors and generic known HTTP-only routes | Resolver failures can establish a defect with independent evidence |
+
+Dedicated extractors take precedence over provider-specific generic fallbacks,
+matching production routing. A family used through different providers cannot be
+marked globally broken from a failed HTTP route while another production route
+has an untested browser fallback.
+
+`browser_fallback_required` and `runtime_validation_required` are diagnostic
+limitations, not confirmed resolver failures. Settings shows a warning and states
+that the browser fallback was not actively tested. Untimed recognition/redirect/
+player/media steps show no duration; reachability and resolver timings are measured
+separately. No invented zero-millisecond measurements are displayed.
+
+Health combines independent active and passive evidence from the last 24 hours.
+Incomplete HTTP failures cannot establish `broken`, `offline` or a hard ranking
+penalty. One production success plus five failed HTTP-only VOE/Veev canaries yields
+`degraded` (small penalty), not `broken`. Multiple independent production failures
+can still establish a real defect. Three production successes may establish health
+while the probe limitation remains visible. Existing persisted false-positive
+HTTP-only diagnoses are re-evaluated before exposing diagnostics or applying a
+hard penalty, including before a fresh probe. Provider health remains separate.
+
+Repair qualification, five proven canaries, preserved media identity, shadow
+validation, ambiguity rejection and runtime rollback remain unchanged. Probe
+limitations do not grant repair activation or bypass challenge/security boundaries.
+
 ### Hoster repair profiles
 
 The same activation/rollback journal supports simple player tag/class/id selectors,
