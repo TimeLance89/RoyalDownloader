@@ -1751,20 +1751,20 @@
             <div class="settings-card-grid settings-service-grid">
         <div class="settings-group settings-card settings-card-wide">
           <h3>Jellyfin (NAS)</h3>
-          <p class="dim settings-hint">Vorhandene Folgen werden übersprungen. Ein Wiedergabeprofil steuert Abos nach Gesehen-Status.</p>
+          <p class="dim settings-hint">Server und API-Schlüssel gelten für den ganzen Haushalt. Persönliche Jellyfin-Profile werden unter „Mein Profil“ verknüpft.</p>
           <div class="path-input-row">
             <input id="jellyfin-url" type="text" placeholder="http://192.168.178.47:8096">
           </div>
           <div class="path-input-row">
             <input id="jellyfin-api-key" type="password" autocomplete="new-password" placeholder="API-Schlüssel (Dashboard → API-Schlüssel)">
           </div>
-          <label class="dim auto-lbl" for="jellyfin-user-id">Gesehen-Status von</label>
+          <label class="dim auto-lbl" for="jellyfin-user-id">Legacy-/Automatik-Fallback</label>
           <div class="jellyfin-user-row">
             <span class="jellyfin-profile-mark" aria-hidden="true">▶</span>
             <select id="jellyfin-user-id" aria-label="Jellyfin-Benutzer"><option value="">Benutzer laden …</option></select>
             <button id="jellyfin-users-load" class="btn btn-ghost btn-sm" type="button">Benutzer laden</button>
           </div>
-          <div id="jellyfin-user-status" class="dim small-status">Für „Nächste Staffel“ und automatische Löschregeln erforderlich.</div>
+          <div id="jellyfin-user-status" class="dim small-status">Nur als Fallback für bestehende Installationen und globale Automatik. Persönliche Lernsignale kommen aus „Mein Profil“.</div>
           <fieldset class="cleanup-default-card">
             <legend>
               <span>STANDARD · NEUE ABOS</span>
