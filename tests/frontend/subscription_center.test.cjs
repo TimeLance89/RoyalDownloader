@@ -303,13 +303,14 @@ test("rendered counters match filter contents and global errors remain visible b
   }
 });
 
-test("header badge only signals real problems, not passive inbox entries", () => {
+test("header badge only signals actionable attention, not passive inbox entries", () => {
   const passive = renderFixture([
     subscription("language", { waiting_language_count: 8, status: "waiting_for_language" }),
     subscription("source", { waiting_release_count: 2, status: "waiting_release" }),
     subscription("upcoming", { upcoming_count: 3 }),
     subscription("downloaded", { downloaded_count: 5 }),
   ]);
+  passive.state.wl.loaded = true;
   passive.inbox.renderNotifBell();
 
   const passiveBell = passive.document.getElementById("notif-bell");
@@ -326,6 +327,7 @@ test("header badge only signals real problems, not passive inbox entries", () =>
     subscription("open-one", { open_count: 3, new_count: 3 }),
     subscription("downloaded", { downloaded_count: 1 }),
   ]);
+  attention.state.wl.loaded = true;
   attention.inbox.renderNotifBell();
 
   const attentionBell = attention.document.getElementById("notif-bell");
