@@ -10,7 +10,11 @@ from features.taste_recommender import TasteJellyfinAPI, run_unified_recommender
 def _sync_household_jellyfin_profiles(config) -> int:
     """Refresh Jellyfin playback evidence independently for each Royal user."""
     state = backend_value("state")
-    users = backend_value("USER_STORE").list()
+    user_store = backend_value("USER_STORE")
+    users = [
+        user_store.get(str(item.get("id") or "")) or item
+        for item in user_store.list()
+    ]
     client = TasteJellyfinAPI(
         config.jellyfin_url,
         config.api_key,
