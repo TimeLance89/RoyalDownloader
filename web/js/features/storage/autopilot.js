@@ -81,7 +81,7 @@ export function createStorageAutopilot(root) {
     if (!scope?.active || busy) return;
     const current = scope; busy = true;
     find("storage-autopilot").setAttribute("aria-busy", "true");
-    try { const message = await operation(createStorageApi(current)); if (current.active) { dirty = false; status(message || "Speicherregeln übernommen."); await refresh(true, true); } }
+    try { const message = await operation(createStorageApi(current)); if (current.active) { dirty = false; status(typeof message === "string" ? message : "Speicherregeln übernommen."); await refresh(true, true); } }
     catch (error) { if (current.active && !isAbortError(error)) status("Aktion nicht übernommen. Prüfe Speicherverfügbarkeit und freigegebene Regeln."); }
     finally { if (current.active) { busy = false; find("storage-autopilot").setAttribute("aria-busy", "false"); } }
   }
@@ -108,7 +108,10 @@ export function createStorageAutopilot(root) {
     if (name === "apply" && !window.confirm("Diesen Inhalt sicher auf das vorgeschlagene Volume verschieben? Die Quelle wird erst nach vollständiger Zielprüfung entfernt.")) return;
     if (name === "mount" && !window.confirm("Ist der richtige Datenträger unter diesem Mount eingebunden? Seine aktuelle Identität wird bestätigt.")) return;
     void run(async api => {
-      if (["apply", "dismiss"].includes(name)) await api.post(`/api/storage/recommendations/${encodeURIComponent(button.dataset.id)}/${name}`, { confirm: true });
+      if (["apply", "dismiss"].includes(name)) {
+        await api.post(`/api/storage/recommendations/${encodeURIComponent(button.dataset.id)}/${name}`, { confirm: true });
+        return name === "apply" ? "Sichere Verschiebung wurde geplant." : "Empfehlung während der Ruhezeit ausgeblendet.";
+      }
       else if (name === "recommend") await api.get("/api/storage/recommendations");
       else if (name === "mount") await api.put("/api/storage/autopilot/volume", { root: button.dataset.root, policy: {}, confirm_mount: true });
       else if (name === "confirm-delete") { await api.put("/api/storage/autopilot", { policy: { auto_delete: true, delete_categories: ["royal_partials"] }, delete_confirmed: true }); find("storage-cleanup-preview").hidden = true; }

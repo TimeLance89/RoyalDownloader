@@ -59,6 +59,7 @@ const { fixture } = require("./performance-fixture.cjs");
         await interact(locator);
         await (await response).finished();
         await page.waitForFunction(() => document.querySelector("#storage-autopilot").getAttribute("aria-busy") === "false");
+        assert.doesNotMatch(await panel.locator("#storage-autopilot-status").innerText(), /\[object Object\]/);
       };
       await interact(panel.locator('[name="storage-autonomy"][value="automatic"]'));
       await command(panel.locator('#storage-autopilot-form button[type="submit"]'), "/api/storage/autopilot", "PUT");
