@@ -303,6 +303,41 @@ test("rendered counters match filter contents and global errors remain visible b
   }
 });
 
+test("header badge only signals real problems, not passive inbox entries", () => {
+  const passive = renderFixture([
+    subscription("language", { waiting_language_count: 8, status: "waiting_for_language" }),
+    subscription("source", { waiting_release_count: 2, status: "waiting_release" }),
+    subscription("upcoming", { upcoming_count: 3 }),
+    subscription("downloaded", { downloaded_count: 5 }),
+  ]);
+  passive.inbox.renderNotifBell();
+
+  const passiveBell = passive.document.getElementById("notif-bell");
+  const passiveBadge = passive.document.getElementById("notif-badge");
+  assert.equal(passiveBadge.textContent, "0");
+  assert.ok(passiveBadge.classList.contains("hidden"));
+  assert.ok(!passiveBell.classList.contains("is-active"));
+  assert.equal(passive.document.getElementById("notif-trigger-label").textContent, "Alles aktuell");
+  assert.equal(passive.document.getElementById("notif-summary").textContent, "4 Einträge");
+
+  const attention = renderFixture([
+    subscription("problem-one", { failed_count: 1, status: "failed" }),
+    subscription("problem-two", { cleanup_last_error: "permission denied" }),
+    subscription("downloaded", { downloaded_count: 1 }),
+  ]);
+  attention.inbox.renderNotifBell();
+
+  const attentionBell = attention.document.getElementById("notif-bell");
+  const attentionBadge = attention.document.getElementById("notif-badge");
+  assert.equal(attentionBadge.textContent, "2");
+  assert.ok(!attentionBadge.classList.contains("hidden"));
+  assert.ok(attentionBell.classList.contains("is-active"));
+  assert.equal(attention.document.getElementById("notif-trigger-label").textContent, "2 Probleme");
+  assert.equal(attention.document.getElementById("notif-summary").textContent, "3 Einträge");
+  assert.ok(attention.document.getElementById("notif-issue-badge").classList.contains("hidden"));
+});
+
+
 test("opening a mixed-state row navigates without implicitly acknowledging download receipts", async () => {
   const { inbox, document, calls } = renderFixture([
     subscription("mixed", { open_count: 2, new_count: 2, downloaded_count: 1, failed_count: 1 }),
