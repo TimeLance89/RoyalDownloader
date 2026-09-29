@@ -11,5 +11,6 @@ export function createStorageApi(scope) {
   return {
     get: url => request("GET", url),
     post: (url, body) => request("POST", url, body),
+    put: (url, body) => request("PUT", url, body),
   };
 }

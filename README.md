@@ -258,6 +258,11 @@ under **Settings → General → Operating mode**.
 | **Start** | `start_windows.cmd` or `python server.py` | Docker Compose or `start.sh` |
 | **Storage** | Local folders | Mounted media directories |
 
+The existing storage settings also provide an optional
+[Royal Storage Autopilot](docs/STORAGE_AUTOPILOT.md): volume roles, explainable
+placement, reservations, safe balancing and separately confirmed cleanup.
+Monitoring is the default and preserves current download destinations.
+
 When only `.env.example` exists, setup creates a matching `.env` automatically.
 Custom variables are preserved when the operating mode is changed later.
 
@@ -380,7 +385,7 @@ RoyalDownloader/
 ├─ features/                movie, series, taste, and automation policies
 ├─ integrations/            Jellyfin, TMDB, Seerr, Telegram, and AI clients
 ├─ media/                   downloading, extraction, and provider sessions
-├─ storage/                 media-location and storage-management helpers
+├─ storage/                 media locations, guarded moves and optional Storage Autopilot
 ├─ updates/                 release detection and versioned runtime updates
 ├─ providers/               isolated movie, series, and anime adapters
 ├─ web/                     responsive framework-free web application

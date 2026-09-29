@@ -29,3 +29,7 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/provider-monitor-browser.cjs
+      - name: Storage Autopilot mobile permissions and confirmations
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/storage-autopilot-browser.cjs

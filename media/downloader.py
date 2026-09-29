@@ -179,11 +179,15 @@ class _ByteGrowthWatchdog:
         return self.last_rate_bps < self.minimum_bps
 
 
-def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 60) -> int:
+def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 60,
+                          *, staging_roots=None, protected_attempts=(), strict=False,
+                          preview=False, max_items=100):
     """Entfernt nach einem Absturz zurückgebliebene Staging-Artefakte."""
     cutoff = time.time() - max(0, older_than_seconds)
     roots = {STAGING_DIR.resolve(strict=False)}
-    for target in target_roots or ():
+    if staging_roots is not None:
+        roots = {Path(path).absolute() for path in staging_roots}
+    for target in (() if staging_roots is not None else target_roots or ()):
         try:
             base = Path(target).expanduser().resolve(strict=False)
             # Filme liegen direkt im Ziel, Serien üblicherweise in
@@ -201,14 +205,25 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
         except (OSError, TypeError):
             continue
     removed = 0
+    planned = []
+    examined = 0
     for root in roots:
-        if not root.is_dir():
+        if strict and examined >= max(1, min(1000, max_items)):
+            break
+        if not root.is_dir() or strict and any(path.is_symlink() for path in (root, *root.parents)):
             continue
         try:
-            children = list(root.iterdir())
+            if strict:
+                from itertools import islice
+                children = list(islice(root.iterdir(), max(1, min(1000, max_items))))
+            else:
+                children = list(root.iterdir())
         except OSError:
             continue
         for child in children:
+            examined += 1
+            if strict and examined > max(1, min(1000, max_items)):
+                break
             try:
                 # Nur eindeutig markierte eigene Jobverzeichnisse anfassen.
                 # `.downloading` kann auch von anderen Anwendungen genutzt werden.
@@ -216,12 +231,37 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
                     child.is_symlink()
                     or not child.is_dir()
                     or re.fullmatch(r"[0-9a-f]{32}", child.name) is None
+                    or child.name in protected_attempts
                 ):
                     continue
                 marker = child / ".royal-downloader-job"
-                if not marker.is_file() or marker.read_text(encoding="ascii").strip() != child.name:
+                if marker.is_symlink() or not marker.is_file() or marker.read_text(encoding="ascii").strip() != child.name:
                     continue
                 if child.stat(follow_symlinks=False).st_mtime > cutoff:
+                    continue
+                if strict:
+                    files = list(islice(child.iterdir(), 129))
+                    if len(files) > 128 or any(
+                        entry.is_symlink() or not entry.is_file() or (
+                            entry != marker and not re.fullmatch(
+                                r"download\.(?:mp4|mkv|webm|m4v|ts)(?:\.(?:part(?:-Frag\d+)?|ytdl|tmp))?", entry.name
+                            )
+                        ) for entry in files
+                    ):
+                        continue
+                    planned.append({"path": str(child), "category": "royal_partials",
+                                    "size_bytes": sum(entry.stat().st_size for entry in files),
+                                    "modified_at": child.stat().st_mtime})
+                    if preview:
+                        continue
+                    # Delete only recognized files, never a recursive foreign tree.
+                    for entry in files:
+                        if entry != marker:
+                            entry.unlink()
+                    if list(child.iterdir()) == [marker]:
+                        marker.unlink()
+                        child.rmdir()
+                    removed += 1
                     continue
                 if child.parent.resolve(strict=False) == root:
                     shutil.rmtree(child)
@@ -231,10 +271,12 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
             except OSError as exc:
                 logger.warning("Altes Staging-Artefakt nicht löschbar (%s): %s", child, exc)
         try:
+            if preview:
+                continue
             root.rmdir()
         except OSError:
             pass
-    return removed
+    return planned if preview else removed
 
 
 def validate_media_file(path: Path) -> tuple:
@@ -545,7 +587,7 @@ class DownloadJob:
                 and not self._cancelled
                 and self.stream_type == "mp4"
                 and ".m3u8" not in self.stream_url.lower()
-                and self.failure_kind != "slow"
+                and self.failure_kind not in ("slow", "storage")
             ):
                 ytdlp_msg = msg
                 self._cleanup_staging()
@@ -663,6 +705,10 @@ class DownloadJob:
                     except OSError:
                         pass
         return False, "; ".join(errors)
+
+    def _storage_budget_check(self, *, force=False) -> str:
+        """Application-owned reserve guard; standalone downloader stays usable."""
+        return ""
 
     def _collision_target(self, target: Path, attempt: int = 0) -> Path:
         identity = self.queue_slug or str(self.out_path)
@@ -869,8 +915,14 @@ class DownloadJob:
         last_output = time.monotonic()
         stalled = False
         slow = False
+        storage_error = ""
         speed_watchdog = None if self.allow_slow else _LowSpeedWatchdog()
         while True:
+            storage_error = self._storage_budget_check()
+            if storage_error:
+                self.failure_kind = "storage"
+                self._terminate_process_tree()
+                break
             try:
                 raw_line = output_queue.get(timeout=1)
             except queue.Empty:
@@ -925,6 +977,8 @@ class DownloadJob:
             self._proc.wait()
         if self._cancelled:
             return False, "Abgebrochen"
+        if storage_error:
+            return False, storage_error
         if slow:
             return False, f"{SLOW_FAILURE_PREFIX} ({self._format_speed(self.average_speed_bps)})"
         if stalled:
@@ -1051,6 +1105,10 @@ class DownloadJob:
                 for chunk in resp.iter_content(chunk_size=1024 * 256):
                     if self._cancelled:
                         return False, "Abgebrochen"
+                    storage_error = self._storage_budget_check()
+                    if storage_error:
+                        self.failure_kind = "storage"
+                        return False, storage_error
                     f.write(chunk)
                     downloaded += len(chunk)
                     self.downloaded_bytes = downloaded
