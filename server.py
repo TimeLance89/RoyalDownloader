@@ -735,13 +735,10 @@ def _jellyfin_profile_payload(user: dict) -> dict:
     jellyfin_user_name = str(user.get("jellyfin_user_name") or "").strip()
     inherited_legacy = False
 
-    # Existing installations used one global Jellyfin user. Keep the migrated
-    # first administrator working until that profile explicitly saves a link.
     if not jellyfin_user_id and royal_user_id == "admin-legacy":
         jellyfin_user_id = str(cfg.get("user_id") or "").strip()
         jellyfin_user_name = str(cfg.get("user_name") or "").strip()
         inherited_legacy = bool(jellyfin_user_id)
-
     users = []
     available = configured
     if configured:
@@ -759,7 +756,6 @@ def _jellyfin_profile_payload(user: dict) -> dict:
             )
             if selected:
                 jellyfin_user_name = selected["name"]
-
     return {
         "configured": configured,
         "available": available,
@@ -775,7 +771,6 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
     royal_user_id = str(user.get("id") or "").strip()
     if not royal_user_id:
         raise ValueError("Royal-Profil nicht gefunden.")
-
     selected_id = str(jellyfin_user_id or "").strip()
     selected_name = ""
     if selected_id:
@@ -793,11 +788,9 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
         if selected is None:
             raise ValueError("Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
         selected_name = str(selected.get("name") or "")
-
     updated = USER_STORE.set_jellyfin_user(
         royal_user_id, selected_id, selected_name,
     )
-    # Never retain playback evidence from a previously linked Jellyfin person.
     state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items([])
     try:
         _recommender_wake_event.set()
