@@ -57,6 +57,10 @@ class HouseholdSwitchBody(BaseModel):
     password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
 
+class JellyfinProfileBody(BaseModel):
+    user_id: str = Field(default="", max_length=128)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -84,6 +88,8 @@ class AuthDependencies:
     current_user: Callable[[Any, Any], dict | None]
     profile_summary: Callable[[dict], dict] | None = None
     delete_user_data: Callable[[str], dict] | None = None
+    jellyfin_profile: Callable[[dict], dict] | None = None
+    set_jellyfin_profile: Callable[[dict, str], dict] | None = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -275,6 +281,33 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         if not dependencies.profile_summary:
             return {"user": dependencies.user_store().public(user)}
         return dependencies.profile_summary(user)
+
+    @router.get("/api/v1/me/jellyfin-profile")
+    @router.get("/api/me/jellyfin-profile")
+    async def api_me_jellyfin_profile(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        return await run_in_threadpool(dependencies.jellyfin_profile, user)
+
+    @router.post("/api/v1/me/jellyfin-profile")
+    @router.post("/api/me/jellyfin-profile")
+    async def api_me_jellyfin_profile_set(body: JellyfinProfileBody, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.set_jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        try:
+            return await run_in_threadpool(
+                dependencies.set_jellyfin_profile, user, body.user_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ConnectionError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @router.get("/api/me/household")
     async def api_me_household(request: Request):
