@@ -174,14 +174,16 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     const summary = model.counts.all
       ? `${model.counts.all} ${model.counts.all === 1 ? "Eintrag" : "Einträge"}`
       : getSnapshot().loaded ? "Keine Meldungen" : "Wird geladen …";
-    const attention = model.counts.issue;
+    const attention = model.entries.filter((item) => item.openCount > 0 || item.hasIssue).length
+      + (model.globalError ? 1 : 0);
     const triggerSummary = !getSnapshot().loaded
       ? "Wird geladen …"
       : attention
-        ? `${attention} ${attention === 1 ? "Problem" : "Probleme"}`
+        ? `${attention} ${attention === 1 ? "Hinweis" : "Hinweise"}`
         : "Alles aktuell";
     // The header badge is an attention signal, not an inbox-size counter.
-    // Passive states (language/source waits, upcoming episodes and download
+    // Only actionable open episodes and real errors count. Passive states
+    // (language/source waits, upcoming episodes, queued work and download
     // receipts) stay visible inside the inbox without making the bell look urgent.
     badge.textContent = String(attention);
     badge.classList.toggle("hidden", attention === 0);
