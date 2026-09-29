@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Royal Storage Autopilot
+
+- Extend the existing storage manager with optional Monitor, Advisor, Automatic
+  and Full modes. Monitor preserves current download destinations; automation
+  remains explicitly permissioned, with deletion independently off by default.
+- Add Primary/Overflow/Archive/Monitor roles, media filters, utilization targets,
+  warnings, critical thresholds and physical-volume minimum reserves. Explain
+  download placement with deterministic scores, series affinity and shared
+  pending/download/move reservations; recheck actual free space during downloads.
+- Add bounded persistent inventory, pressure-aware recommendations, dismissal
+  cooldowns, content protection, time windows and operation history. Full mode
+  can archive age-qualified content without inventing last-viewed information.
+- Execute balancing only through the existing serial, verified, restart-safe
+  move runtime. Require complete unchanged Royal ownership for automatic moves;
+  active queue work, uncertain Jellyfin playback, changed mounts, collisions and
+  insufficient reserves block unsafe actions.
+- Keep automatic cleanup separately confirmed through a preview. Only strictly
+  recognized orphan Royal staging artifacts qualify; media, foreign files,
+  backups, symlinks and active attempts are excluded.
+- Preserve existing manual storage actions and add administrator-only API
+  aliases, compact mobile controls, Chromium/WebKit regression gates and
+  deterministic safety/restart/permission tests. See
+  [Storage Autopilot](docs/STORAGE_AUTOPILOT.md) for limits and operation.
+
 - Stabilize Source Sentinel controls during background polling: preserve action
   feedback and unchanged diagnostic elements, await overlapping refreshes after
   mutations, and cover WebKit navigation and in-flight poll/action races.

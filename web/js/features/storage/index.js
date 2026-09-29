@@ -5,6 +5,7 @@ import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
 import { createStorageApi } from "./api.js";
 import { createStorageJobs } from "./jobs.js";
+import { createStorageAutopilot } from "./autopilot.js";
 import { formatBytes } from "../../shared/formatters/bytes.js";
 
 export function createStorage(root) {
@@ -69,7 +70,9 @@ export function createStorage(root) {
       const payload = await api.get("/api/storage/status");
       if (!current.active) return;
       currentLocations = Array.isArray(payload.locations) ? payload.locations : [];
-      view.status(payload);
+      await autopilot.refresh();
+      if (!current.active) return;
+      view.status({ ...payload, autopilot: autopilot.snapshot() });
     }
     catch (error) {
       if (!current.active || isAbortError(error)) return;
@@ -337,6 +340,7 @@ export function createStorage(root) {
 
 
   function stopView() {
+    autopilot.unmount();
     jobs.unmount(); scope?.dispose(); scope = null; statusRequest = null;
     scanRunning = false; closeMove();
     find("storage-scan").disabled = false;
@@ -353,11 +357,13 @@ export function createStorage(root) {
     if (scope?.active) return;
     scope = createScope();
     bindView(); jobs.mount();
+    autopilot.mount();
     void refreshStatus(false);
     scope.interval(() => { if (!document.hidden) void refreshStatus(true); }, POLL_MS);
     scope.listen(document, "visibilitychange", () => { if (!document.hidden) void refreshStatus(true); });
   }
   installStorageUi(root);
+  const autopilot = createStorageAutopilot(root);
   return {
     mount() {
       if (shell?.active) return;

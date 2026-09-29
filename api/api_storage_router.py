@@ -20,8 +20,12 @@ from storage.storage_locations import (
 )
 from storage.storage_move import plan_move_candidate
 from storage.storage_move_runtime import create_move_job, list_move_jobs
+from api.api_storage_autopilot_router import router as autopilot_router
+from storage.storage_inventory import observe_scan, record_cleanup
+from application_services.storage_autopilot_runtime import wake
 
 router = APIRouter(tags=["administration", "storage"])
+router.routes.extend(autopilot_router.routes)
 
 
 def _media_paths() -> dict[str, str]:
@@ -107,6 +111,7 @@ async def api_storage_location_save(body: StorageLocationBody):
         )
     except (OSError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
+    wake()
     return {"saved": True, "location": location}
 
 
@@ -116,18 +121,25 @@ async def api_storage_location_remove(body: StorageLocationRemoveBody):
     removed = await run_in_threadpool(remove_storage_location, body.location_id)
     if not removed:
         raise HTTPException(404, "Der Speicherort wurde nicht gefunden.")
+    wake()
     return {"removed": True, "location_id": body.location_id}
 
 
 @router.post("/api/v1/storage/scan")
 @router.post("/api/storage/scan")
 async def api_storage_scan(body: StorageScanBody):
-    return await run_in_threadpool(
+    result = await run_in_threadpool(
         scan_configured_storage,
         _media_paths(),
         load_storage_locations(),
         max_candidates=body.max_candidates,
     )
+    try:
+        await run_in_threadpool(observe_scan, result.get("candidates", []))
+    except (OSError, ValueError):
+        pass  # Explicit analysis remains usable if optional inventory is unavailable.
+    wake()
+    return result
 
 
 @router.post("/api/v1/storage/move/plan")
@@ -180,7 +192,7 @@ async def api_storage_cleanup(body: StorageCleanupBody):
     if not body.confirm:
         raise HTTPException(400, "Die dauerhafte Bereinigung muss ausdrücklich bestätigt werden.")
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             cleanup_configured_candidate,
             _media_paths(),
             load_storage_locations(),
@@ -194,3 +206,9 @@ async def api_storage_cleanup(body: StorageCleanupBody):
         raise HTTPException(409, "Der Inhalt existiert nicht mehr. Bitte erneut scannen.") from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
+    try:
+        await run_in_threadpool(record_cleanup, result)
+    except (OSError, ValueError):
+        pass  # Verified cleanup does not depend on optional inventory storage.
+    wake()
+    return result

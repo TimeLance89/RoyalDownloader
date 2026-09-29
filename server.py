@@ -490,6 +490,8 @@ def start_background_services():
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
     state.module_manager.start_enabled()
     provider_monitor.start()
+    from application_services.storage_autopilot_runtime import start as start_storage_autopilot
+    start_storage_autopilot()
 
 register_builtin_worker_controllers(state.module_manager)
 
@@ -565,6 +567,8 @@ async def lifespan(app: FastAPI):
     _main_loop = None
     state.module_manager.stop_all()
     provider_monitor.stop()
+    from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
+    stop_storage_autopilot()
     cache_maintenance_task.cancel()
     if state.voe_pool is not None:
         try:

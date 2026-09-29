@@ -51,6 +51,9 @@ jobs:
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
+      - name: Storage Autopilot permissions, volume policy and touch layouts
+        run: node tests/frontend/storage-autopilot-browser.cjs
+
       - name: Similar title navigation and independent detail failures
         run: node tests/frontend/similar-browser.cjs
 

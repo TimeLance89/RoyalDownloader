@@ -692,6 +692,13 @@ def _enqueue_hoster_attempt(
     logical_attempt_id = attempt_id or str(logical_job.get("attempt_id") or "")
     if attempt_id and logical_job.get("attempt_id") != attempt_id:
         return False
+    from application_services.storage_autopilot_runtime import place_download
+    try:
+        out_path = place_download(logical_job, out_path, provider=result.provider or _movie_provider(movie, movie_slug))
+    except (OSError, ValueError) as exc:
+        on_job_done(False, f"Speicherziel nicht verfügbar: {exc}", label, out_path,
+                    slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
+        return True
     updated = _update_queue_job(
         movie_slug,
         expected_job_id=logical_job["job_id"],
@@ -701,6 +708,7 @@ def _enqueue_hoster_attempt(
         provider=result.provider or _movie_provider(movie, movie_slug),
         hoster=hoster_used,
         quality=result.quality,
+        final_path=str(out_path),
         content_language=(
             result.content_language
             or _movie_content_language(movie, fallback=movie_slug)
