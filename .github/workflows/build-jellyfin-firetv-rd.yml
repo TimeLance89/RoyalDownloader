@@ -1,0 +1,61 @@
+name: Build Jellyfin RD Fire TV
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/jellyfin-firetv-rd
+    paths:
+      - "tools/jellyfin-firetv-rd/**"
+      - ".github/workflows/build-jellyfin-firetv-rd.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout integration scripts
+        uses: actions/checkout@v4
+
+      - name: Checkout Jellyfin Android TV v0.19.10
+        uses: actions/checkout@v4
+        with:
+          repository: jellyfin/jellyfin-androidtv
+          ref: v0.19.10
+          path: jellyfin
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: jellyfin/**/*.gradle*
+
+      - name: Apply RoyalDownloader integration
+        run: python3 tools/jellyfin-firetv-rd/patch_jellyfin.py jellyfin
+
+      - name: Show patch summary
+        working-directory: jellyfin
+        run: git diff --stat && git diff --check
+
+      - name: Build debug APK
+        working-directory: jellyfin
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp jellyfin/app/build/outputs/apk/debug/*.apk out/Jellyfin-RD-FireTV-v0.19.10-debug.apk
+          sha256sum out/Jellyfin-RD-FireTV-v0.19.10-debug.apk | tee out/SHA256SUMS.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jellyfin-RD-FireTV-v0.19.10
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
