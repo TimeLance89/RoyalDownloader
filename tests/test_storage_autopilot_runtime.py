@@ -56,6 +56,43 @@ def test_actual_reserve_includes_other_jobs_and_stops_on_offline_mount(destinati
     assert "offline" in guard._storage_budget_check(job, force=True)
 
 
+def test_cross_volume_staging_retains_entire_target_reservation(destination, monkeypatch):
+    root, job = destination
+    monkeypatch.setattr(guard, "_same_filesystem", lambda *_paths: False)
+    monkeypatch.setattr(guard.shutil, "disk_usage", lambda _path: SimpleNamespace(free=100 * GIB))
+    job.total_bytes = 30 * GIB
+    job.downloaded_bytes = 29 * GIB
+    assert guard._storage_budget_check(job, force=True) == ""
+    reservation = inventory.read_state()["reservations"][job.job_id]
+    assert reservation["size_bytes"] == 30 * GIB
+    monkeypatch.setattr(guard.shutil, "disk_usage", lambda _path: SimpleNamespace(free=79 * GIB))
+    assert guard._storage_budget_check(job, force=True)
+
+
+def test_publication_uses_exact_copy_budget_and_preserves_source_when_unsafe(destination, monkeypatch):
+    root, job = destination
+    source = job.out_path.parent / "verified.mp4"
+    source.write_bytes(b"validated media")
+    monkeypatch.setattr(guard, "_same_filesystem", lambda *_paths: False)
+    monkeypatch.setattr(guard.shutil, "disk_usage", lambda _path: SimpleNamespace(free=50 * GIB + source.stat().st_size - 1))
+    with pytest.raises(OSError, match="Speicherreserve"):
+        guard._commit_file(job, source, job.out_path)
+    assert source.exists() and not job.out_path.exists() and job.failure_kind == "storage"
+    monkeypatch.setattr(guard.shutil, "disk_usage", lambda _path: SimpleNamespace(free=50 * GIB + source.stat().st_size))
+    assert guard._storage_budget_check(job, force=True, publishing_source=source) == ""
+    assert inventory.read_state()["reservations"][job.job_id]["size_bytes"] == source.stat().st_size
+
+
+def test_same_volume_publication_drops_unknown_estimate_without_second_copy(destination, monkeypatch):
+    root, job = destination
+    source = job.out_path.parent / "verified.mp4"
+    source.write_bytes(b"validated media")
+    monkeypatch.setattr(guard, "_same_filesystem", lambda *_paths: True)
+    monkeypatch.setattr(guard.shutil, "disk_usage", lambda _path: SimpleNamespace(free=50 * GIB))
+    assert guard._storage_budget_check(job, force=True, publishing_source=source) == ""
+    assert inventory.read_state()["reservations"][job.job_id]["size_bytes"] == 0
+
+
 def test_corrupt_safety_data_cannot_silently_lower_reserve(destination):
     root, job = destination
     inventory.state_path().write_text("broken", encoding="utf-8")

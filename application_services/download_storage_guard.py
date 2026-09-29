@@ -48,7 +48,11 @@ def _prepare_staging(self):
     return _ORIGINAL_PREPARE_STAGING(self)
 
 
-def _storage_budget_check(self, *, force=False):
+def _same_filesystem(first: Path, second: Path) -> bool:
+    return first.stat().st_dev == second.stat().st_dev
+
+
+def _storage_budget_check(self, *, force=False, publishing_source=None):
     """Check actual destination and staging floors at most every five seconds.
 
     The legacy mode retains its start guard. Enabled placement also accounts
@@ -87,14 +91,23 @@ def _storage_budget_check(self, *, force=False):
         reservation = document["reservations"].get(self.job_id, {})
         expected = max(int(self.total_bytes or 0), int(reservation.get("expected_total_bytes", reservation.get("size_bytes", 0))),
                        int(document["policy"]["unknown_download_gib"] * GIB) if not self.total_bytes else 0)
-        remaining = max(0, expected - int(self.downloaded_bytes or 0))
+        destination = _existing_ancestor(self.out_path.parent)
+        staging = _existing_ancestor(Path(publishing_source).parent if publishing_source else self.staging_dir.parent)
+        same_disk = _same_filesystem(destination, staging)
+        if publishing_source:
+            # Validated media has a known exact size. Same-volume publication
+            # needs no second copy; fallback staging needs the entire target size.
+            expected = Path(publishing_source).stat().st_size
+            remaining = 0 if same_disk else expected
+        else:
+            # Bytes on another staging disk have not consumed destination space.
+            remaining = max(0, expected - int(self.downloaded_bytes or 0)) if same_disk else expected
         budgets = reserved_by_volume(document, current["roots"], jobs, list_move_jobs()["jobs"], exclude=self.job_id)
         floor = max(_MIN_FREE_BYTES, int(root["policy"]["reserve_gib"] * GIB))
-        free = int(shutil.disk_usage(_existing_ancestor(self.out_path.parent)).free)
+        free = int(shutil.disk_usage(destination).free)
         if free - remaining - budgets.get(root.get("volume_id"), 0) < floor:
             return "Speicherreserve einschließlich geplanter Downloads nicht mehr gewährleistet."
-        staging = _existing_ancestor(self.staging_dir.parent)
-        if int(shutil.disk_usage(staging).free) < _MIN_FREE_BYTES:
+        if not publishing_source and int(shutil.disk_usage(staging).free) < _MIN_FREE_BYTES:
             return "Freie Staging-Reserve unterschritten."
         if reservation and (reservation["size_bytes"] != remaining or reservation.get("expected_total_bytes") != expected):
             def update(state):
@@ -129,7 +142,7 @@ def _record_download(self, url, ok, hoster_name="", speed_bps=0, failure_kind=""
 
 
 def _commit_file(self, source, target):
-    error = _storage_budget_check(self, force=True)
+    error = _storage_budget_check(self, force=True, publishing_source=source)
     if error:
         self.failure_kind = "storage"
         raise OSError(error)
