@@ -23,12 +23,18 @@ import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URLEncoder
+import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLHandshakeException
 
 object RoyalDownloaderBridge {
     private const val PREFS = "royal_downloader"
@@ -72,51 +78,83 @@ object RoyalDownloaderBridge {
         }
 
         return try {
-            val hits = mutableListOf<RoyalItem>()
+            // Fail fast on connection/authentication before provider searches. This
+            // keeps network/login errors distinguishable from a slow provider.
+            probeApi()
+            ensureToken()
+
             val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-
-            val movieResults = authorizedRequest("GET", "/api/v1/movies?mode=search&query=$encoded")
-                .optJSONArray("results") ?: JSONArray()
-            for (index in 0 until movieResults.length()) {
-                val item = movieResults.optJSONObject(index) ?: continue
-                val slug = item.optString("slug")
-                val title = item.optString("title")
-                if (slug.isBlank() || title.isBlank()) continue
-                hits += RoyalItem(
-                    kind = Kind.MOVIE,
-                    title = title,
-                    year = item.optString("year"),
-                    slug = slug,
-                    detail = "Film • über Royal Downloader verfügbar",
-                )
+            val executor = Executors.newFixedThreadPool(2)
+            val movieFuture = executor.submit<JSONObject> {
+                authorizedRequest("GET", "/api/v1/movies?mode=search&query=$encoded", readTimeoutMs = 35_000)
+            }
+            val seriesFuture = executor.submit<JSONObject> {
+                authorizedRequest("GET", "/api/v1/series?mode=search&query=$encoded", readTimeoutMs = 35_000)
             }
 
-            val seriesResults = authorizedRequest("GET", "/api/v1/series?mode=search&query=$encoded")
-                .optJSONArray("results") ?: JSONArray()
-            for (index in 0 until seriesResults.length()) {
-                val item = seriesResults.optJSONObject(index) ?: continue
-                val baseSlug = item.optString("base_slug")
-                val sampleSlug = item.optString("sample_slug")
-                val title = item.optString("title")
-                if (baseSlug.isBlank() || title.isBlank()) continue
-                hits += RoyalItem(
-                    kind = Kind.SERIES,
-                    title = title,
-                    year = item.optString("year"),
-                    baseSlug = baseSlug,
-                    sampleSlug = sampleSlug,
-                    detail = "Serie • fehlende Episoden über Royal Downloader",
-                )
+            val hits = mutableListOf<RoyalItem>()
+            var firstSearchError: Throwable? = null
+            try {
+                try {
+                    val movieResults = movieFuture.get(40, TimeUnit.SECONDS).optJSONArray("results") ?: JSONArray()
+                    for (index in 0 until movieResults.length()) {
+                        val item = movieResults.optJSONObject(index) ?: continue
+                        val slug = item.optString("slug")
+                        val title = item.optString("title")
+                        if (slug.isBlank() || title.isBlank()) continue
+                        hits += RoyalItem(
+                            kind = Kind.MOVIE,
+                            title = title,
+                            year = item.optString("year"),
+                            slug = slug,
+                            detail = "Film • über Royal Downloader verfügbar",
+                        )
+                    }
+                } catch (error: Throwable) {
+                    firstSearchError = unwrapFutureError(error)
+                }
+
+                try {
+                    val seriesResults = seriesFuture.get(40, TimeUnit.SECONDS).optJSONArray("results") ?: JSONArray()
+                    for (index in 0 until seriesResults.length()) {
+                        val item = seriesResults.optJSONObject(index) ?: continue
+                        val baseSlug = item.optString("base_slug")
+                        val sampleSlug = item.optString("sample_slug")
+                        val title = item.optString("title")
+                        if (baseSlug.isBlank() || title.isBlank()) continue
+                        hits += RoyalItem(
+                            kind = Kind.SERIES,
+                            title = title,
+                            year = item.optString("year"),
+                            baseSlug = baseSlug,
+                            sampleSlug = sampleSlug,
+                            detail = "Serie • fehlende Episoden über Royal Downloader",
+                        )
+                    }
+                } catch (error: Throwable) {
+                    if (firstSearchError == null) firstSearchError = unwrapFutureError(error)
+                }
+            } finally {
+                executor.shutdownNow()
             }
+
+            if (hits.isEmpty() && firstSearchError != null) throw firstSearchError as Throwable
 
             val unique = hits.distinctBy { Triple(it.kind, it.title.lowercase(), it.year) }.take(24)
-            val missing = filterOwned(unique).take(12)
+            val missing = try {
+                filterOwned(unique).take(12)
+            } catch (_: Exception) {
+                // A temporary Jellyfin ownership check must not hide otherwise
+                // valid RoyalDownloader provider results.
+                unique.take(12)
+            }
             missing.map(::toBaseItem)
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
+            val diagnosed = diagnose(error)
             listOf(toBaseItem(RoyalItem(
                 Kind.ERROR,
-                "Royal Downloader nicht erreichbar",
-                detail = error.message?.take(140) ?: "Verbindung fehlgeschlagen",
+                diagnosed.first,
+                detail = diagnosed.second,
             )))
         }
     }
@@ -155,7 +193,7 @@ object RoyalDownloaderBridge {
             setPadding(pad, pad / 2, pad, 0)
         }
         val url = EditText(context).apply {
-            hint = "RD-Adresse, z. B. http://192.168.178.47:8000"
+            hint = "RD-Adresse, z. B. https://royal-downloader.de"
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setText(prefs.getString(KEY_URL, ""))
@@ -180,15 +218,33 @@ object RoyalDownloaderBridge {
             .setMessage("Verbindung für die Jellyfin-Suche einrichten")
             .setView(layout)
             .setNegativeButton("Abbrechen", null)
-            .setPositiveButton("Speichern") { _, _ ->
-                val normalizedUrl = url.text.toString().trim().trimEnd('/')
+            .setPositiveButton("Speichern & testen") { _, _ ->
+                val rawUrl = url.text.toString().trim()
+                val normalizedUrl = when {
+                    rawUrl.startsWith("http://", ignoreCase = true) || rawUrl.startsWith("https://", ignoreCase = true) -> rawUrl
+                    rawUrl.isNotBlank() -> "https://$rawUrl"
+                    else -> rawUrl
+                }.trimEnd('/')
                 prefs.edit()
                     .putString(KEY_URL, normalizedUrl)
                     .putString(KEY_USER, user.text.toString().trim())
                     .putString(KEY_PASSWORD, password.text.toString())
                     .remove(KEY_TOKEN)
                     .apply()
-                Toast.makeText(context, "Royal Downloader gespeichert – Suche erneut starten", Toast.LENGTH_LONG).show()
+
+                scope.launch {
+                    val message = try {
+                        probeApi()
+                        ensureToken()
+                        "Royal Downloader: Verbindung und Anmeldung OK"
+                    } catch (error: Throwable) {
+                        val diagnosed = diagnose(error)
+                        "${diagnosed.first}: ${diagnosed.second}"
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             .show()
     }
@@ -273,6 +329,13 @@ object RoyalDownloaderBridge {
         )
     }
 
+    private fun probeApi() {
+        val response = rawRequest("GET", "/api/v1/health", null, null, readTimeoutMs = 8_000)
+        if (response.optString("status") != "ok") {
+            throw IllegalStateException("RD-Healthcheck antwortet unerwartet")
+        }
+    }
+
     private fun ensureToken(): String {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getString(KEY_TOKEN, "").orEmpty().takeIf { it.isNotBlank() }?.let { return it }
@@ -280,48 +343,100 @@ object RoyalDownloaderBridge {
             .put("username", prefs.getString(KEY_USER, "").orEmpty())
             .put("password", prefs.getString(KEY_PASSWORD, "").orEmpty())
             .put("device_label", "Jellyfin Fire TV")
-        val response = rawRequest("POST", "/api/v1/auth/login", login, null)
+        val response = rawRequest("POST", "/api/v1/auth/login", login, null, readTimeoutMs = 20_000)
         val token = response.optString("access_token")
         if (token.isBlank()) throw IllegalStateException("RD-Anmeldung lieferte kein Token")
         prefs.edit().putString(KEY_TOKEN, token).apply()
         return token
     }
 
-    private fun authorizedRequest(method: String, path: String, body: JSONObject? = null): JSONObject {
+    private fun authorizedRequest(
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+        readTimeoutMs: Int = 30_000,
+    ): JSONObject {
         var token = ensureToken()
         return try {
-            rawRequest(method, path, body, token)
+            rawRequest(method, path, body, token, readTimeoutMs)
         } catch (error: RoyalHttpException) {
             if (error.status != 401) throw error
             appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_TOKEN).apply()
             token = ensureToken()
-            rawRequest(method, path, body, token)
+            rawRequest(method, path, body, token, readTimeoutMs)
         }
     }
 
-    private fun rawRequest(method: String, path: String, body: JSONObject?, token: String?): JSONObject {
+    private fun unwrapFutureError(error: Throwable): Throwable {
+        return error.cause ?: error
+    }
+
+    private fun diagnose(error: Throwable): Pair<String, String> {
+        val root = generateSequence(error) { it.cause }.last()
+        return when (root) {
+            is RoyalHttpException -> {
+                val message = root.message.orEmpty()
+                when {
+                    root.status == 401 -> "RD: Anmeldung fehlgeschlagen" to message
+                    root.status == 400 && message.contains("Host", ignoreCase = true) ->
+                        "RD: Host nicht erlaubt" to "ROYAL_ALLOWED_HOSTS blockiert diese Adresse. $message"
+                    else -> "RD: HTTP ${root.status}" to message
+                }
+            }
+            is UnknownHostException -> "RD: Domain nicht auflösbar" to (root.message ?: "DNS-Fehler")
+            is ConnectException -> "RD: Server nicht erreichbar" to (root.message ?: "Verbindungsfehler")
+            is SocketTimeoutException -> "RD: Zeitüberschreitung" to "Der Server antwortet, aber die Anfrage dauert zu lange."
+            is SSLHandshakeException -> "RD: HTTPS-Zertifikat abgewiesen" to (root.message ?: "TLS-Handshake fehlgeschlagen")
+            else -> "RD: Fehler" to (root.message ?: error.message ?: error.javaClass.simpleName)
+        }
+    }
+
+    private fun rawRequest(
+        method: String,
+        path: String,
+        body: JSONObject?,
+        token: String?,
+        readTimeoutMs: Int = 30_000,
+    ): JSONObject {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val base = prefs.getString(KEY_URL, "").orEmpty().trimEnd('/')
+        val base = prefs.getString(KEY_URL, "").orEmpty().trim().trimEnd('/')
         if (base.isBlank()) throw IllegalStateException("RD-Adresse fehlt")
         val uri = URI.create(base + path)
         val connection = uri.toURL().openConnection() as HttpURLConnection
         connection.requestMethod = method
+        connection.instanceFollowRedirects = true
         connection.connectTimeout = 8_000
-        connection.readTimeout = 20_000
+        connection.readTimeout = readTimeoutMs
         connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "Jellyfin-RD-FireTV/0.2")
+        connection.setRequestProperty("Connection", "close")
         if (!token.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
         if (body != null) {
+            val bytes = body.toString().toByteArray(StandardCharsets.UTF_8)
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { it.write(body.toString()) }
+            connection.setFixedLengthStreamingMode(bytes.size)
+            connection.outputStream.use { it.write(bytes) }
         }
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val text = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() }.orEmpty()
         connection.disconnect()
         if (status !in 200..299) {
-            val detail = try { JSONObject(text).optString("detail") } catch (_: Exception) { text }
-            throw RoyalHttpException(status, "HTTP $status${if (detail.isBlank()) "" else ": $detail"}")
+            var detail = text
+            var code = ""
+            try {
+                val payload = JSONObject(text)
+                detail = payload.optString("detail").ifBlank { text }
+                code = payload.optString("code")
+            } catch (_: Exception) {
+                // Keep raw response text.
+            }
+            val suffix = buildString {
+                if (detail.isNotBlank()) append(": ").append(detail)
+                if (code.isNotBlank()) append(" [").append(code).append("]")
+            }
+            throw RoyalHttpException(status, "HTTP $status$suffix")
         }
         return if (text.isBlank()) JSONObject() else JSONObject(text)
     }
@@ -383,7 +498,7 @@ text = path.read_text(encoding="utf-8")
 if 'name="lbl_royal_downloader"' not in text:
     text = text.replace(
         '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin Debug</string>',
-        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
+        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD 0.2</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
         1,
     )
 path.write_text(text, encoding="utf-8")
