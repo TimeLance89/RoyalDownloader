@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Storage Autopilot hotfix
+
+- Ignore internal queue preparation workers in storage reservation accounting so
+  Automatic/Full placement cannot fail on helper jobs without `job_id`.
+- Add a regression for an active preparation worker alongside a real pending
+  media download.
+
 ### Royal Storage Autopilot
 
 - Extend the existing storage manager with optional Monitor, Advisor, Automatic
