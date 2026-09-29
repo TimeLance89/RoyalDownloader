@@ -29,8 +29,15 @@ class UserStore:
             if not isinstance(item, dict) or not item.get("id") or not item.get("username"): continue
             stored = dict(item)
             is_legacy_admin = str(stored["id"]) == "admin-legacy"
-            if "taste_onboarding_required" not in stored or "taste_onboarding_completed_at" not in stored:
+            if (
+                "taste_onboarding_required" not in stored
+                or "taste_onboarding_completed_at" not in stored
+                or "jellyfin_user_id" not in stored
+                or "jellyfin_user_name" not in stored
+            ):
                 migrated = True
+            stored.setdefault("jellyfin_user_id", "")
+            stored.setdefault("jellyfin_user_name", "")
             stored.setdefault("taste_onboarding_required", not is_legacy_admin)
             stored.setdefault(
                 "taste_onboarding_completed_at",
@@ -53,7 +60,7 @@ class UserStore:
 
     def _migrate_legacy(self, account: dict) -> None:
         username = validate_username(account["username"])
-        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "taste_onboarding_required": False, "taste_onboarding_completed_at": time.time(), "created_at": time.time(), "updated_at": time.time()}
+        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "jellyfin_user_id": "", "jellyfin_user_name": "", "taste_onboarding_required": False, "taste_onboarding_completed_at": time.time(), "created_at": time.time(), "updated_at": time.time()}
         self._save()
 
     def ensure_legacy(self, account: dict) -> None:
@@ -79,6 +86,19 @@ class UserStore:
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]
 
+    def list_jellyfin_profiles(self) -> list[dict]:
+        """Return internal Jellyfin mappings without widening the public account API."""
+        with self._lock:
+            return [
+                {
+                    "id": str(item.get("id") or ""),
+                    "enabled": bool(item.get("enabled")),
+                    "jellyfin_user_id": str(item.get("jellyfin_user_id") or ""),
+                    "jellyfin_user_name": str(item.get("jellyfin_user_name") or ""),
+                }
+                for item in self._users.values()
+            ]
+
     def create(self, display_name: str, username: str, role: str) -> dict:
         username = validate_username(username)
         if role not in {ADMIN, MEMBER}: raise ValueError("Ungültige Rolle.")
@@ -86,8 +106,22 @@ class UserStore:
         with self._lock:
             if self.find(username): raise ValueError("Benutzername ist bereits vergeben.")
             now, user_id = time.time(), secrets.token_urlsafe(12)
-            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
+            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "jellyfin_user_id": "", "jellyfin_user_name": "", "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
             self._users[user_id] = user; self._save(); return self.public(user)
+
+    def set_jellyfin_user(self, user_id: str, jellyfin_user_id: str, jellyfin_user_name: str = "") -> dict:
+        """Persist the Jellyfin identity linked to one Royal household profile."""
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            user.update(
+                jellyfin_user_id=str(jellyfin_user_id or "").strip()[:128],
+                jellyfin_user_name=str(jellyfin_user_name or "").strip()[:120],
+                updated_at=time.time(),
+            )
+            self._save()
+            return dict(user)
 
     def set_password(self, user_id: str, password_hash: str) -> dict:
         with self._lock:

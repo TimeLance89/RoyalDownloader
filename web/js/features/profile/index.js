@@ -19,10 +19,15 @@ export function createProfile(root, { switchTab, userRoleLabel, applyUser, showH
     if (!current?.active) return Promise.resolve();
     if (pending) return pending;
     showState("loading", "Profil wird geladen …");
-    const request = api.get("/api/me/profile-summary", { signal: current.signal }).then(summary => {
+    const request = Promise.all([
+      api.get("/api/me/profile-summary", { signal: current.signal }),
+      api.get("/api/me/jellyfin-profile", { signal: current.signal }).catch(error => ({
+        configured: false, available: false, users: [], user_id: "", user_name: "", error: error.message,
+      })),
+    ]).then(([summary, jellyfin]) => {
       if (!current.active) return;
       applyUser(summary.user);
-      view.render(summary);
+      view.render({ ...summary, jellyfin });
       root.dataset.viewState = "ready";
     }).catch(error => {
       if (!current.active || isAbortError(error)) return;
@@ -49,6 +54,20 @@ export function createProfile(root, { switchTab, userRoleLabel, applyUser, showH
       scope.listen(find("profile-household-open"), "click", showHousehold);
       scope.listen(find("profile-open-library"), "click", () => switchTab("bibliothek"));
       scope.listen(find("profile-security"), "click", openSecurity);
+      scope.listen(find("profile-jellyfin-save"), "click", async () => {
+        const select = find("profile-jellyfin-user");
+        const status = find("profile-jellyfin-status");
+        status.textContent = "Verknüpfung wird gespeichert …";
+        try {
+          await api.post("/api/me/jellyfin-profile", { user_id: select.value }, { signal: current.signal });
+          if (current.active) {
+            status.textContent = select.value ? "Jellyfin-Profil verknüpft." : "Jellyfin-Verknüpfung entfernt.";
+            await refresh();
+          }
+        } catch (error) {
+          if (current.active && !isAbortError(error)) status.textContent = error.message;
+        }
+      });
       root.querySelectorAll("[data-profile-security]").forEach(button => scope.listen(button, "click", openSecurity));
       void refresh();
     },

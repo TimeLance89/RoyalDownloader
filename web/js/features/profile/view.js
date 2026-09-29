@@ -32,6 +32,37 @@ export function createProfileView(root, { switchTab, userRoleLabel }) {
     find("profile-activity-ratings").textContent = String(ratings);
     find("profile-download-count").textContent = String(summary.downloads_requested || 0);
     find("profile-subscription-count").textContent = String(summary.subscriptions || 0);
+    const jellyfin = summary.jellyfin || {};
+    const jellyfinSelect = find("profile-jellyfin-user");
+    const jellyfinStatus = find("profile-jellyfin-status");
+    const jellyfinSave = find("profile-jellyfin-save");
+    const users = Array.isArray(jellyfin.users) ? jellyfin.users : [];
+    const options = [Object.assign(document.createElement("option"), { value: "", textContent: "Nicht verknüpft" })];
+    users.forEach(user => {
+      const option = document.createElement("option");
+      option.value = user.id || "";
+      option.textContent = user.name || user.id || "Jellyfin";
+      options.push(option);
+    });
+    jellyfinSelect.replaceChildren(...options);
+    if (jellyfin.user_id && !users.some(user => user.id === jellyfin.user_id)) {
+      const stale = document.createElement("option");
+      stale.value = jellyfin.user_id;
+      stale.textContent = jellyfin.user_name || "Bisher verknüpfter Jellyfin-Benutzer";
+      jellyfinSelect.append(stale);
+    }
+    jellyfinSelect.value = jellyfin.user_id || "";
+    jellyfinSelect.disabled = !jellyfin.configured || jellyfin.available === false;
+    jellyfinSave.disabled = jellyfinSelect.disabled;
+    jellyfinStatus.textContent = jellyfin.error
+      ? jellyfin.error
+      : !jellyfin.configured
+        ? "Jellyfin zuerst unter Einstellungen → Dienste einrichten."
+        : jellyfin.available === false
+          ? "Jellyfin-Benutzer sind gerade nicht erreichbar."
+          : jellyfin.user_id
+            ? `Verknüpft mit ${jellyfin.user_name || "Jellyfin"}.`
+            : "Noch kein Jellyfin-Profil verknüpft.";
     const genres = Object.entries(taste.genres || {}).filter(([, score]) => Number(score) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5);
     const maximum = Math.max(1, ...genres.map(([, score]) => Math.abs(Number(score) || 0)));
     find("profile-top-genre-count").textContent = String(genres.length);

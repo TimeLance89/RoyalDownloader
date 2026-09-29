@@ -5,8 +5,13 @@ user. The original `taste_profile.json` remains assigned to the migrated first
 administrator. Additional profiles live below `taste_profiles/` under a
 SHA-256-derived filename; a new user therefore starts with no inherited
 signals. Catalog, library, queue and downloads remain shared household state.
-The instance-wide Jellyfin adapter remains attached to that legacy
-administrator; its playback history never seeds a newly created account.
+The Jellyfin server URL and API key remain instance-wide, while every Royal
+household profile can link its own Jellyfin user. Playback history, favorites
+and ratings are synchronized only into the linked Royal taste profile. Existing
+installations keep the former global Jellyfin user as a compatibility fallback
+for the migrated `admin-legacy` profile until that profile saves an explicit
+link. New household profiles start unlinked and never inherit another person's
+Jellyfin playback evidence.
 
 ## Cold-start onboarding
 

@@ -59,10 +59,19 @@ def get_jellyfin_client() -> JellyfinClient:
 def _build_recommender_config() -> JellyfinRecommenderConfig:
     """Baut die Laufkonfiguration aus der persistenten settings.ini."""
     jellyfin = appconfig.load_jellyfin()
+    recommender_user_id = jellyfin.get("user_id", "")
+    try:
+        legacy_admin = backend_value("USER_STORE").get("admin-legacy") or {}
+        recommender_user_id = (
+            str(legacy_admin.get("jellyfin_user_id") or "").strip()
+            or recommender_user_id
+        )
+    except Exception:
+        pass
     env = {
         "JELLYFIN_URL": jellyfin.get("url", ""),
         "JELLYFIN_API_KEY": jellyfin.get("api_key", ""),
-        "JELLYFIN_USER_ID": jellyfin.get("user_id", ""),
+        "JELLYFIN_USER_ID": recommender_user_id,
         "COLLECTION_NAME": os.environ.get("COLLECTION_NAME", "Für dich empfohlen"),
         "TOP_N": os.environ.get("TOP_N", "20"),
         "RECENCY_HALF_LIFE_DAYS": os.environ.get("RECENCY_HALF_LIFE_DAYS", "180"),
