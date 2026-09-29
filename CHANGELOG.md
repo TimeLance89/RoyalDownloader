@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+No changes yet.
+
+## v1.3.0 – 2026-09-29
+
 ### Royal Storage Autopilot
 
 - Extend the existing storage manager with optional Monitor, Advisor, Automatic
@@ -127,6 +131,8 @@
 
 See [Provider Sentinel](docs/PROVIDER_SENTINEL.md) for supported repair levels,
 resource limits, API access, persistence and operational limitations.
+
+See [v1.3.0 release notes](docs/releases/v1.3.0.md). Existing persistent configuration remains compatible; back up `.env`, `data/` and `runtime/` before upgrading.
 
 ## v1.2.3 – 2026-09-27
 
