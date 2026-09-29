@@ -37,11 +37,28 @@ def queue_context() -> list[dict]:
         jobs = [dict(job) for job in state.queue_jobs.values() if job.get("status") not in ("completed", "failed", "cancelled")]
     ids = {job["job_id"] for job in jobs}
     for job in state.dl_queue.active_jobs() + state.dl_queue.pending_jobs():
-        if job.job_id not in ids:
-            jobs.append({"job_id": job.job_id, "attempt_id": job.attempt_id,
-                         "status": "downloading", "final_path": str(job.out_path),
-                         "media_type": "anime" if job.provider in ("aniworld", "mkissa") else media_type_for_slug(job.queue_slug),
-                         "total_bytes": job.total_bytes, "downloaded_bytes": job.downloaded_bytes})
+        # Preparation jobs share the physical scheduler but are not media
+        # downloads. They intentionally have no job_id/out_path/byte counters
+        # and must never participate in storage reservation accounting.
+        if getattr(job, "is_preparation_job", False):
+            continue
+        job_id = str(getattr(job, "job_id", "") or "")
+        if not job_id or job_id in ids:
+            continue
+        jobs.append({
+            "job_id": job_id,
+            "attempt_id": str(getattr(job, "attempt_id", "") or ""),
+            "status": "downloading",
+            "final_path": str(getattr(job, "out_path", "") or ""),
+            "media_type": (
+                "anime"
+                if str(getattr(job, "provider", "") or "").casefold() in ("aniworld", "mkissa")
+                else media_type_for_slug(str(getattr(job, "queue_slug", "") or ""))
+            ),
+            "total_bytes": getattr(job, "total_bytes", None),
+            "downloaded_bytes": int(getattr(job, "downloaded_bytes", 0) or 0),
+        })
+        ids.add(job_id)
     return jobs
 
 

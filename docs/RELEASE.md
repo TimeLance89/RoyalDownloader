@@ -5,7 +5,7 @@
 
 ## Release status
 
-The current official Stable release is **`v1.3.0`**. It preserves the existing
+The current official Stable release is **`v1.3.1`**. It preserves the existing
 HTTP, `/api/v1`, WebSocket, Docker, update, and persistent-data contracts and
 should still be validated on the target NAS before unattended operation.
 
@@ -28,7 +28,7 @@ chat IDs, media paths, or unsanitized logs in GitHub issues.
 ## Fresh Docker installation
 
 ```bash
-git clone --branch v1.3.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.3.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -64,7 +64,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.3.0` and reports the source revision separately
+`application_version` as `1.3.1` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -110,6 +110,10 @@ from advancing the cursor; see [the patch release notes](releases/v1.2.3.md).
 v1.3.0 promotes the tested Overnight work for Source Sentinel, multi-language
 provider capabilities and Storage Autopilot. See [v1.3.0 notes](releases/v1.3.0.md).
 
+v1.3.1 fixes a critical Storage Autopilot queue integration regression that could
+block all downloads in Automatic or Full mode while an internal preparation job
+was present. See [v1.3.1 notes](releases/v1.3.1.md).
+
 The release gates retain the RC3 soak and additionally test the actual v1.1.0
 commit with populated accounts, sessions, queue, subscriptions, taste profiles,
 personal requests, settings, providers, Jellyfin and media paths. Candidate
@@ -123,7 +127,7 @@ Upgrade commands:
 docker compose down
 git fetch --tags origin
 git status --short
-git switch --detach v1.3.0
+git switch --detach v1.3.1
 APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 curl --fail http://127.0.0.1:8765/api/health
 ```

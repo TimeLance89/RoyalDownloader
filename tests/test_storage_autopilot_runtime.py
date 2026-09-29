@@ -146,6 +146,34 @@ def test_worker_fallback_classifies_real_media_and_reconciles_stale_reservation(
 _REAL_QUEUE_CONTEXT = runtime.queue_context
 
 
+def test_queue_context_ignores_internal_preparation_jobs_without_job_identity(monkeypatch, tmp_path):
+    movie = DownloadJob(
+        "https://media.example/video.mp4",
+        "mp4",
+        tmp_path / "Movie.mp4",
+        provider="filmpalast",
+        queue_slug="movie:movie",
+        job_id="movie-job",
+    )
+    preparation = SimpleNamespace(is_preparation_job=True)
+    state = SimpleNamespace(
+        queue_claim_lock=threading.RLock(),
+        queue_jobs={},
+        dl_queue=SimpleNamespace(
+            active_jobs=lambda: [preparation],
+            pending_jobs=lambda: [movie],
+        ),
+    )
+    monkeypatch.setattr(runtime, "backend_value", lambda _key: state)
+
+    jobs = _REAL_QUEUE_CONTEXT()
+
+    assert len(jobs) == 1
+    assert jobs[0]["job_id"] == "movie-job"
+    assert jobs[0]["final_path"] == str(movie.out_path)
+    assert jobs[0]["media_type"] == "movie"
+
+
 @pytest.mark.parametrize("url", ["file:///secret", "ftp://host", "http://[invalid"])
 def test_playback_check_rejects_unsafe_or_invalid_config_without_network(monkeypatch, url):
     monkeypatch.setattr(runtime.appconfig, "load_jellyfin", lambda: {"url": url, "api_key": "secret"})

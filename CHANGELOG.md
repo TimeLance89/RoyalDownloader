@@ -4,6 +4,24 @@
 
 No changes yet.
 
+## v1.3.1 – 2026-09-29
+
+### Critical Storage Autopilot download hotfix
+
+- Fix Automatic and Full storage modes failing download preparation with
+  `'_QueuePreparationJob' object has no attribute 'job_id'`.
+- Exclude internal queue preparation workers from physical download reservation
+  accounting; only real media download jobs contribute job IDs, output paths and
+  byte counters.
+- Make the physical queue snapshot defensive around job attributes so scheduler
+  helper objects cannot break storage placement.
+- Add a regression test reproducing an active internal preparation job alongside
+  a real pending movie download.
+- Preserve placement scoring, reservations, queue semantics and the Monitor /
+  Advisor compatibility path. No persistent-data migration is required.
+
+See [v1.3.1 release notes](docs/releases/v1.3.1.md).
+
 ## v1.3.0 – 2026-09-29
 
 ### Royal Storage Autopilot
