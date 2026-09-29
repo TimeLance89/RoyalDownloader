@@ -323,17 +323,18 @@ test("header badge only signals real problems, not passive inbox entries", () =>
   const attention = renderFixture([
     subscription("problem-one", { failed_count: 1, status: "failed" }),
     subscription("problem-two", { cleanup_last_error: "permission denied" }),
+    subscription("open-one", { open_count: 3, new_count: 3 }),
     subscription("downloaded", { downloaded_count: 1 }),
   ]);
   attention.inbox.renderNotifBell();
 
   const attentionBell = attention.document.getElementById("notif-bell");
   const attentionBadge = attention.document.getElementById("notif-badge");
-  assert.equal(attentionBadge.textContent, "2");
+  assert.equal(attentionBadge.textContent, "3");
   assert.ok(!attentionBadge.classList.contains("hidden"));
   assert.ok(attentionBell.classList.contains("is-active"));
-  assert.equal(attention.document.getElementById("notif-trigger-label").textContent, "2 Probleme");
-  assert.equal(attention.document.getElementById("notif-summary").textContent, "3 Einträge");
+  assert.equal(attention.document.getElementById("notif-trigger-label").textContent, "3 Hinweise");
+  assert.equal(attention.document.getElementById("notif-summary").textContent, "4 Einträge");
   assert.ok(attention.document.getElementById("notif-issue-badge").classList.contains("hidden"));
 });
 
