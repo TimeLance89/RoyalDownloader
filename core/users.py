@@ -108,7 +108,7 @@ class UserStore:
                 updated_at=time.time(),
             )
             self._save()
-            return self.public(user)
+            return dict(user)
 
     def set_password(self, user_id: str, password_hash: str) -> dict:
         with self._lock:
