@@ -4,10 +4,11 @@
 
 ### Abo-Inbox attention badge
 
-- Make the top-bar Abo-Inbox badge represent actual problems that need attention
-  instead of the total number of visible inbox entries.
-- Keep passive states such as waiting for language/source, upcoming episodes and
-  unread download receipts visible inside the inbox without an alarming badge.
+- Make the top-bar Abo-Inbox badge represent actionable open subscriptions and
+  actual problems instead of the total number of visible inbox entries.
+- Keep passive states such as waiting for language/source, queued work, upcoming
+  episodes and unread download receipts visible inside the inbox without an
+  alarming badge.
 - Show "Alles aktuell" on the closed trigger when there is no problem while the
   inbox itself keeps its full entry count and filters.
 
