@@ -17,6 +17,10 @@ def test_user_store_persists_jellyfin_identity_per_profile(tmp_path):
     assert store.get(first["id"])["jellyfin_user_name"] == "Alice JF"
     assert store.get(second["id"])["jellyfin_user_id"] == ""
     assert store.get(second["id"])["jellyfin_user_name"] == ""
+    assert "jellyfin_user_id" not in store.list()[0]
+    mappings = {item["id"]: item for item in store.list_jellyfin_profiles()}
+    assert mappings[first["id"]]["jellyfin_user_id"] == "jf-alice"
+    assert mappings[second["id"]]["jellyfin_user_id"] == ""
 
 
 def test_profile_ui_exposes_personal_jellyfin_mapping():
@@ -33,5 +37,6 @@ def test_profile_ui_exposes_personal_jellyfin_mapping():
 def test_household_jellyfin_sync_is_per_royal_user():
     runtime = (ROOT / "application_services" / "taste_recommender_runtime.py").read_text(encoding="utf-8")
 
+    assert 'list_jellyfin_profiles()' in runtime
     assert 'user.get("jellyfin_user_id")' in runtime
     assert "state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items(watched)" in runtime
