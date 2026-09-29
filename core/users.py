@@ -86,6 +86,19 @@ class UserStore:
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]
 
+    def list_jellyfin_profiles(self) -> list[dict]:
+        """Return internal Jellyfin mappings without widening the public account API."""
+        with self._lock:
+            return [
+                {
+                    "id": str(item.get("id") or ""),
+                    "enabled": bool(item.get("enabled")),
+                    "jellyfin_user_id": str(item.get("jellyfin_user_id") or ""),
+                    "jellyfin_user_name": str(item.get("jellyfin_user_name") or ""),
+                }
+                for item in self._users.values()
+            ]
+
     def create(self, display_name: str, username: str, role: str) -> dict:
         username = validate_username(username)
         if role not in {ADMIN, MEMBER}: raise ValueError("Ungültige Rolle.")
