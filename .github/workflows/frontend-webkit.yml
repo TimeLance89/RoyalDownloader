@@ -25,3 +25,11 @@ jobs:
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-webkit/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Mobile WebKit real taps and layout contracts
         run: node tests/frontend/webkit-mobile.cjs
+      - name: Source Sentinel settings and hoster repair confirmation
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/provider-monitor-browser.cjs
+      - name: Storage Autopilot mobile permissions and confirmations
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/storage-autopilot-browser.cjs

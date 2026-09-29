@@ -2,7 +2,137 @@
 
 ## Unreleased
 
-No unreleased changes.
+No changes yet.
+
+## v1.3.0 – 2026-09-29
+
+### Royal Storage Autopilot
+
+- Extend the existing storage manager with optional Monitor, Advisor, Automatic
+  and Full modes. Monitor preserves current download destinations; automation
+  remains explicitly permissioned, with deletion independently off by default.
+- Add Primary/Overflow/Archive/Monitor roles, media filters, utilization targets,
+  warnings, critical thresholds and physical-volume minimum reserves. Explain
+  download placement with deterministic scores, series affinity and shared
+  pending/download/move reservations; recheck actual free space during downloads.
+- Keep the full destination reservation when fallback staging is on another
+  filesystem. Before publication, reserve the exact validated file size for a
+  cross-volume copy; same-volume atomic publication needs no duplicate space.
+- Add bounded persistent inventory, pressure-aware recommendations, dismissal
+  cooldowns, content protection, time windows and operation history. Full mode
+  can archive age-qualified content without inventing last-viewed information.
+- Execute balancing only through the existing serial, verified, restart-safe
+  move runtime. Require complete unchanged Royal ownership for automatic moves;
+  active queue work, uncertain Jellyfin playback, changed mounts, collisions and
+  insufficient reserves block unsafe actions.
+- Keep automatic cleanup separately confirmed through a preview. Only strictly
+  recognized orphan Royal staging artifacts qualify; media, foreign files,
+  backups, symlinks and active attempts are excluded.
+- Preserve existing manual storage actions and add administrator-only API
+  aliases, compact mobile controls, Chromium/WebKit regression gates and
+  deterministic safety/restart/permission tests. See
+  [Storage Autopilot](docs/STORAGE_AUTOPILOT.md) for limits and operation.
+
+- Stabilize Source Sentinel controls during background polling: preserve action
+  feedback and unchanged diagnostic elements, await overlapping refreshes after
+  mutations, and cover WebKit navigation and in-flight poll/action races.
+
+- Keep incomplete Source Sentinel diagnostics separate from production-provider
+  routing: AniWorld and other usable sources remain available despite parser,
+  track or HTTP-only probe warnings. Preserve real runtime cooldowns, bounded
+  recovery and confirmed-outage quarantine; reconcile obsolete Sentinel-only
+  persisted locks automatically. Source availability and anime API messages now
+  distinguish unconfirmed diagnostics, user settings and actual outages.
+
+### Multi-language provider capabilities
+
+- Separate legacy primary language, supported provider languages and concrete
+  title/episode tracks. AniWorld supports DE/EN selection; German dub/sub remain
+  distinct tracks but count as one German source. MKissa remains an EN provider,
+  with explicitly selected Japanese raw episodes correctly labeled and persisted.
+- Make setup, administration, priorities, monitoring and source settings use
+  language-set intersection. Existing configuration and queue language values
+  remain compatible without manual migration.
+- Evaluate only configured media/language paths, using fresh concrete track
+  evidence for multi-language availability instead of assuming every supported
+  track works. Show available and unavailable languages together only when an
+  area is affected; preserve the compact healthy overview and Sentinel safety.
+- Add offline catalog/setup/routing/persistence/evidence regressions and desktop,
+  390/430 px touch and WebKit source-selection/availability coverage.
+
+### Source Sentinel availability overview
+
+- Replace the default diagnostic lists with a compact availability card for movies,
+  series and anime, automatic monitoring/repairs and clear action requirements.
+- Evaluate configured media/language paths and working alternatives centrally;
+  distinguish missing evidence from confirmed outages without changing source
+  health, ranking or conservative repair qualification.
+- Keep complete provider, video-service and repair diagnostics behind Technical
+  details; move interval/intensity/manual checks into Advanced settings.
+- Suppress alarms for safely handled individual failures and incomplete probes,
+  notify only on meaningful service-impact transitions, and hide raw external
+  error bodies from everyday messages.
+- Cover compact 390/430 px touch layouts, desktop and WebKit disclosure/actions
+  alongside offline availability-policy and notification regressions.
+
+### Hoster probe evidence correction
+
+- Distinguish HTTP-only probes from browser-assisted production resolvers, including
+  provider-dependent generic embeds. Unconfirmed HTTP parsing no longer falsely
+  marks VOE/Veev and similar hosters broken or applies the hard ranking penalty.
+- Combine active probe completeness with independent production outcomes; retain
+  defect detection for complete HTTP resolvers and real runtime failures.
+- Explain browser/runtime validation limitations in Settings, correct legacy cached
+  diagnoses and omit synthetic zero-millisecond step durations.
+- Preserve repair validation, rollback and resource/security limits; add offline
+  regression coverage and desktop/mobile diagnostic UI checks.
+
+### Source Sentinel: Hoster hardening
+
+- Extend the existing Provider Sentinel with separate hoster contracts, staged
+  resolver probes, bounded runtime success/timing metrics and independent health.
+- Preserve provider health when only an external hoster fails; apply hoster health
+  as an additional fail-open ranking factor so working alternatives are preferred.
+- Share scheduling, resource limits, atomic storage, repair activation and rollback.
+  Keep embed canaries and raw player evidence ephemeral, with no persisted tokens.
+- Validate declarative player/JSON/attribute/domain repair profiles against five
+  proven independent canaries before activation; monitor real outcomes for rollback.
+- Extend Settings → Sources with Provider, Hoster and Repairs/history tabs, protected
+  admin actions, offline mutation contracts and desktop/mobile browser coverage.
+
+
+### Provider Sentinel and conservative self-healing
+
+- Monitor enabled movie, series and anime providers through their existing
+  adapters, with staggered scheduling, configurable intensity and bounded HTTP
+  concurrency. Connectivity, catalog, search, details, metadata and extracted
+  hoster/source structures have separate diagnostic results.
+- Feed confirmed independent failures into existing ProviderHealth cooldowns and
+  fallback routing without changing provider selections. Successful independent
+  detail probes restore availability automatically.
+- Detect structural changes with bounded fingerprints and dynamic reference
+  titles. Persist bounded diagnostics and versioned repair evidence separately
+  from provider sessions, settings and download jobs.
+- Validate trusted HTTPS domain redirects, Filmpalast catalog/title/poster
+  selector changes and MegaKino catalog JSON-path changes in full shadow probes
+  against at least three known titles. Preserve identities, metadata, artwork
+  and hoster extraction before activating a declarative profile.
+- Roll back active repairs after three independent real-request failures;
+  administrators can inspect evidence, request probes and confirm rollback in
+  **Settings → Sources → Provider monitor**. Optional state-change notices use
+  the existing WebSocket transport.
+- Keep challenges, rate limits and unsupported protocol changes separate from
+  parser repairs. Probes never download media, launch verification browsers or
+  generate application code. Source checks validate extracted link structure,
+  not live playback availability.
+- Add offline adapter/repair/mutation/security tests and desktop/touch settings
+  regression coverage to CI. Fix mobile More-menu positioning so settings remain
+  reachable above the navigation dock.
+
+See [Provider Sentinel](docs/PROVIDER_SENTINEL.md) for supported repair levels,
+resource limits, API access, persistence and operational limitations.
+
+See [v1.3.0 release notes](docs/releases/v1.3.0.md). Existing persistent configuration remains compatible; back up `.env`, `data/` and `runtime/` before upgrading.
 
 ## v1.2.3 – 2026-09-27
 

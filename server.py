@@ -57,6 +57,9 @@ from providers.catalog import (
     normalize_content_language,
     provider_catalog_payload,
     provider_content_language,
+    provider_content_languages,
+    provider_supports_languages,
+    selected_source_language_allowed,
     provider_for_source,
     provider_language_payload,
 )
@@ -447,6 +450,29 @@ from application_services import automation as _automation_service
 
 refresh_services()
 
+from application_services.provider_monitor import ProviderMonitor
+from providers.sentinel_runtime import install_runtime
+from api.api_provider_monitor_router import create_provider_monitor_router
+
+
+def _sentinel_enabled_providers():
+    with state.provider_priority_lock:
+        return list(dict.fromkeys(
+            provider for media_type in ("movies", "series", "anime")
+            for provider in state.provider_enabled.get(media_type, ())
+            if provider_supports_languages(provider, state.content_languages)
+        ))
+
+
+provider_monitor = ProviderMonitor(
+    appconfig.data_dir() / "provider_monitor.json", state.provider_health,
+    _sentinel_enabled_providers, hoster_intel=state.hoster_intel,
+    priorities=_movie_catalog_service.provider_order,
+    languages=lambda: tuple(state.content_languages),
+    notify=lambda event: broadcast({"type": "provider_diagnostics", **event}),
+)
+install_runtime(provider_monitor)
+
 # ---------------------------------------------------------------------------
 # FastAPI-App
 # ---------------------------------------------------------------------------
@@ -463,6 +489,9 @@ def start_background_services():
     threading.Thread(target=watchlist_auto_check_loop, daemon=True).start()
     threading.Thread(target=restore_persisted_queue, daemon=True).start()
     state.module_manager.start_enabled()
+    provider_monitor.start()
+    from application_services.storage_autopilot_runtime import start as start_storage_autopilot
+    start_storage_autopilot()
 
 register_builtin_worker_controllers(state.module_manager)
 
@@ -537,6 +566,9 @@ async def lifespan(app: FastAPI):
     # den auslaufenden Event-Loop einstellen.
     _main_loop = None
     state.module_manager.stop_all()
+    provider_monitor.stop()
+    from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
+    stop_storage_autopilot()
     cache_maintenance_task.cancel()
     if state.voe_pool is not None:
         try:
@@ -805,6 +837,7 @@ app.router.routes.extend(queue_router.routes)
 
 
 administration_router = create_administration_router(sys.modules[__name__])
+administration_router.routes.extend(create_provider_monitor_router(provider_monitor, current_user).routes)
 register_domain_router("administration", administration_router)
 app.router.routes.extend(administration_router.routes)
 app.include_router(create_setup_router(SetupDependencies(

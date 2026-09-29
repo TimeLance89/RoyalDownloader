@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import html
 import math
 import re
@@ -16,6 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from providers.models import FilmpalastMovie, HosterInfo, parse_episode_slug
+from providers.catalog import provider_track_language
 
 BASE_URL = "https://aniworld.to"
 SOURCE_PREFIX = "aniworld:"
@@ -72,6 +75,12 @@ class AniWorldAnime:
     def public_dict(self) -> dict:
         payload = asdict(self)
         payload.pop("episodes", None)
+        payload["content_languages"] = list(dict.fromkeys(
+            provider_track_language(self.provider, track)
+            for track, count in self.translations.items() if count
+        ))
+        if payload["content_languages"]:
+            payload["content_language"] = payload["content_languages"][0]
         payload["episode_count"] = len(self.episodes) or max(
             self.translations.values(),
             default=0,
@@ -79,6 +88,7 @@ class AniWorldAnime:
         return payload
 
 
+@monitor_adapter("aniworld")
 class AniWorldScraper:
     def __init__(
         self,
@@ -654,7 +664,7 @@ class AniWorldScraper:
             genres=anime.genres,
             hosters=hosters,
             provider="aniworld",
-            content_language="en" if track == "eng" else "de",
+            content_language=provider_track_language("aniworld", track),
         )
 
     @staticmethod
@@ -740,6 +750,7 @@ def aniworld_episode_page(
                 "title": episode.title,
                 "original_title": episode.original_title,
                 "hosters": list(episode.hosters),
+                "content_language": provider_track_language("aniworld", track),
                 "kind": episode.kind,
                 "slug": aniworld_episode_slug(
                     anime.id,

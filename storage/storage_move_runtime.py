@@ -11,6 +11,7 @@ container restart without persisting the short-lived scan token.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import shutil
@@ -476,7 +477,7 @@ def _execute(job_id: str) -> dict:
     source, destination, work = _validate_layout(job)
     existing = _existing_bytes(job, source, work)
     remaining = max(0, int(job.get("size_bytes") or 0) - existing)
-    reserve = _reserve_bytes(int(job.get("size_bytes") or 0))
+    reserve = max(_reserve_bytes(int(job.get("size_bytes") or 0)), int(job.get("minimum_reserve_bytes") or 0))
     if int(shutil.disk_usage(destination.parent).free) < remaining + reserve:
         raise OSError("Nicht genügend freier Speicher, um den Transfer sicher fortzusetzen.")
     _set_progress(job_id, existing, force=True)
@@ -526,6 +527,13 @@ def _finish(job_id: str, *, result: dict | None = None, error: str = "") -> None
         _HISTORY.insert(0, job)
         del _HISTORY[HISTORY_LIMIT:]
         _save_locked()
+    # Inventory failures must never turn a safely completed transfer into a
+    # failed move. Run outside the move lock to preserve lock ordering.
+    try:
+        from storage.storage_inventory import record_move_completion
+        record_move_completion(_public(job))
+    except (OSError, ValueError):
+        logging.getLogger(__name__).warning("Storage inventory update deferred after move completion")
 
 
 def _run(job_id: str) -> None:
@@ -585,7 +593,11 @@ def create_move_job(
     expected_size: int,
     expires_at: int,
     destination_root: str,
+    autopilot_id: str = "",
+    minimum_reserve_bytes: int = 0,
 ) -> dict:
+    if not 0 <= minimum_reserve_bytes <= 4096 * 1024 ** 3:
+        raise ValueError("Ungültige Speicherreserve.")
     plan = plan_move_candidate(
         media_paths,
         locations,
@@ -627,6 +639,8 @@ def create_move_job(
         job = {
             "job_id": job_id,
             "operation": "move",
+            "autopilot_id": str(autopilot_id)[:64],
+            "minimum_reserve_bytes": int(minimum_reserve_bytes),
             "status": "queued",
             "source_root": str(plan.get("source_root") or root_key),
             "source_label": str(plan.get("source_label") or root_key),

@@ -8,6 +8,8 @@ CAPTCHA-Fallback.
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import re
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlparse
@@ -36,6 +38,7 @@ _BLOCK_MARKERS = (
 )
 
 
+@monitor_adapter("huhu")
 class HuhuScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or (lambda _message: None)

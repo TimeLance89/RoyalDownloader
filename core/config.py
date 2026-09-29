@@ -689,7 +689,7 @@ def load_content_languages() -> List[str]:
         language
         for language in CONTENT_LANGUAGE_DEFAULTS
         if any(
-            definition.content_language == language and key in active
+            language in definition.content_languages and key in active
             for key, definition in PROVIDER_CATALOG.items()
         )
     ]

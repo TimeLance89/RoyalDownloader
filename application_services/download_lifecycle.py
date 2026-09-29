@@ -668,7 +668,9 @@ def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
 def _execute_provider_probe(item: Optional[dict]) -> None:
     log("SerienStream-Probe gestartet.")
     with state.queue_prepare_lock:
-        successful = _probe_serienstream_once(item)
+        from providers.sentinel_runtime import runtime_recovery
+        with runtime_recovery("serienstream"):
+            successful = _probe_serienstream_once(item)
     if not successful:
         return
     reset_failures = bool(item and (

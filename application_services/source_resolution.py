@@ -2,6 +2,9 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
+from providers.catalog import selected_source_language_allowed
+
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -116,7 +119,7 @@ def _extract_from_movie(
         hoster_language = _movie_content_language(
             movie, str(getattr(hoster, "language", "") or "")
         )
-        if hoster_language not in enabled_languages:
+        if not selected_source_language_allowed(res.provider, hoster_language, enabled_languages, getattr(movie, "url", "")):
             log(
                 f"  Überspringe {hoster.name}: Stream-Sprache "
                 f"{hoster_language.upper() or 'unbekannt'} ist nicht aktiviert.",
@@ -258,19 +261,45 @@ def _extract_from_movie(
             )
             continue
 
-        if name == "voe":
+        resolve_started = time.monotonic()
+        hoster_attempt_safely(name, play_url, res.provider)
+        resolve_error = "parser_error"
+        def resolve_log(message, level="info"):
+            nonlocal resolve_error
+            if any(word in str(message).lower() for word in ("timeout", "timed out", "fehler", "failed", "captcha", "challenge", "nicht ladbar")):
+                resolve_error = str(message)
+            log(message, level)
+        profile = hoster_profile_safely(name, play_url)
+        if profile.get("embed_domain") or profile.get("embed_path_prefix"):
+            from media.hoster_profiles import profile_url
+            play_url = profile_url(play_url, profile)
+            res.hoster_url_used = play_url
+        if profile.get("player_selector"):
+            try:
+                res.stream_info = extract_stream_url(play_url, session=session, log_cb=resolve_log, pool=None, referer=play_url, repair_profile=profile)
+                if res.stream_info:
+                    res.referer = play_url
+                    parsed_repair_origin = urlparse(play_url)
+                    res.origin = f"{parsed_repair_origin.scheme}://{parsed_repair_origin.netloc}"
+            except Exception:
+                res.stream_info = None
+        if res.stream_info:
+            pass
+        elif name == "voe":
             pool = _shared_browser_pool("VOE-Fallback")
             if pool is None:
                 continue
             check = pre_check_voe(play_url, session=session)
             if check == VOE_NOT_FOUND:
                 log("  VOE 404 – nächster Hoster", "warn")
+                observe_hoster_safely(name, play_url, False, (time.monotonic() - resolve_started) * 1000, res.provider, "404")
                 continue
             try:
                 res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=pool,
+                    play_url, session=session, log_cb=resolve_log, pool=pool,
                 )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  VOE-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -293,7 +322,7 @@ def _extract_from_movie(
             )
             try:
                 res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
+                    play_url, session=session, log_cb=resolve_log, pool=None,
                     referer=embed_referer,
                 )
                 if res.stream_info is None:
@@ -309,11 +338,12 @@ def _extract_from_movie(
                     if pool is None:
                         continue
                     res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=pool,
+                        play_url, session=session, log_cb=resolve_log, pool=pool,
                         referer=embed_referer,
                         browser_wait_seconds=6,
                     )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  Embed-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -323,7 +353,7 @@ def _extract_from_movie(
             referer = movie.url or "https://kinoger.com/"
             try:
                 res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
+                    play_url, session=session, log_cb=resolve_log, pool=None,
                     referer=referer,
                 )
                 if res.stream_info is None:
@@ -331,11 +361,12 @@ def _extract_from_movie(
                     if pool is None:
                         continue
                     res.stream_info = extract_stream_url(
-                        play_url, session=session, log_cb=log, pool=pool,
+                        play_url, session=session, log_cb=resolve_log, pool=pool,
                         referer=referer,
                         browser_wait_seconds=8,
                     )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  KinoGer-Mirror fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -343,8 +374,9 @@ def _extract_from_movie(
             res.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
         elif name == "doodstream":
             try:
-                res.stream_info = extract_doodstream_url(play_url, session=session, log_cb=log)
+                res.stream_info = extract_doodstream_url(play_url, session=session, log_cb=resolve_log)
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  Doodstream-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -354,8 +386,9 @@ def _extract_from_movie(
             # VIDARA (vidmatrixa.com u.a.) – von yt-dlp nicht unterstützt, eigener
             # Extraktor (POST /api/stream → streaming_url, HLS).
             try:
-                res.stream_info = extract_vidara_url(play_url, session=session, log_cb=log)
+                res.stream_info = extract_vidara_url(play_url, session=session, log_cb=resolve_log)
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  VIDARA-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -365,8 +398,9 @@ def _extract_from_movie(
             # Vidsonic (vidsonic.net) – von yt-dlp nicht unterstützt, eigener
             # Extraktor (hex-kodierte + umgekehrte URL im HTML, HLS).
             try:
-                res.stream_info = extract_vidsonic_url(play_url, session=session, log_cb=log)
+                res.stream_info = extract_vidsonic_url(play_url, session=session, log_cb=resolve_log)
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  Vidsonic-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -374,8 +408,9 @@ def _extract_from_movie(
             res.origin = f"{parsed.scheme}://{parsed.netloc}"
         elif name == "firestream":
             try:
-                res.stream_info = extract_firestream_url(play_url, session=session, log_cb=log)
+                res.stream_info = extract_firestream_url(play_url, session=session, log_cb=resolve_log)
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  FireStream-Extraktion fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             parsed = urlparse(play_url)
@@ -389,18 +424,19 @@ def _extract_from_movie(
             referer = movie.url or "https://megakino.org/"
             try:
                 res.stream_info = extract_stream_url(
-                    play_url, session=session, log_cb=log, pool=None,
+                    play_url, session=session, log_cb=resolve_log, pool=None,
                     referer=referer,
                 )
                 if res.stream_info is None:
                     pool = _shared_browser_pool("MegaKino-Hoster")
                     if pool is not None:
                         res.stream_info = extract_stream_url(
-                            play_url, session=session, log_cb=log, pool=pool,
+                            play_url, session=session, log_cb=resolve_log, pool=pool,
                             referer=referer,
                             browser_wait_seconds=8,
                         )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  MegaKino-Hoster fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             if res.stream_info is None:
@@ -417,7 +453,7 @@ def _extract_from_movie(
                 res.stream_info = extract_stream_url(
                     play_url,
                     session=session,
-                    log_cb=log,
+                    log_cb=resolve_log,
                     pool=None,
                     referer=referer,
                 )
@@ -427,12 +463,13 @@ def _extract_from_movie(
                         res.stream_info = extract_stream_url(
                             play_url,
                             session=session,
-                            log_cb=log,
+                            log_cb=resolve_log,
                             pool=pool,
                             referer=referer,
                             browser_wait_seconds=8,
                         )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  SFlix-Hoster fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             if res.stream_info is None:
@@ -448,7 +485,7 @@ def _extract_from_movie(
                 res.stream_info = extract_stream_url(
                     play_url,
                     session=session,
-                    log_cb=log,
+                    log_cb=resolve_log,
                     pool=None,
                     referer=referer,
                 )
@@ -458,12 +495,13 @@ def _extract_from_movie(
                         res.stream_info = extract_stream_url(
                             play_url,
                             session=session,
-                            log_cb=log,
+                            log_cb=resolve_log,
                             pool=pool,
                             referer=referer,
                             browser_wait_seconds=8,
                         )
             except Exception as exc:
+                resolve_error = str(exc)
                 log(f"  Ridomovies-Hoster fehlgeschlagen: {exc}", "warn")
                 res.stream_info = None
             if res.stream_info is None:
@@ -483,7 +521,7 @@ def _extract_from_movie(
                     res.stream_info = extract_stream_url(
                         play_url,
                         session=session,
-                        log_cb=log,
+                        log_cb=resolve_log,
                         pool=None,
                         referer=referer,
                     )
@@ -493,12 +531,13 @@ def _extract_from_movie(
                             res.stream_info = extract_stream_url(
                                 play_url,
                                 session=session,
-                                log_cb=log,
+                                log_cb=resolve_log,
                                 pool=pool,
                                 referer=referer,
                                 browser_wait_seconds=8,
                             )
                 except Exception as exc:
+                    resolve_error = str(exc)
                     log(f"  MKissa-Hoster fehlgeschlagen: {exc}", "warn")
                     res.stream_info = None
                 if res.stream_info is None:
@@ -521,6 +560,9 @@ def _extract_from_movie(
             stream_url, _stream_type = res.stream_info
             log(f"  Prüfe Hoster: {hoster.name}")
             ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin)
+            observe_hoster_safely(name, play_url, ok, (time.monotonic() - resolve_started) * 1000, res.provider, probe_msg, stream_url if _stream_type != "web" else "")
+            if ok and stream_url and _stream_type != "web" and res.provider in PROVIDER_CATALOG and PROVIDER_CATALOG[res.provider].media_types == ("anime",):
+                observe_language_safely(res.provider, "anime", res.content_language)
             state.hoster_intel.record_probe(
                 play_url, ok, probe_msg, hoster_name=hoster.name,
             )
@@ -546,6 +588,7 @@ def _extract_from_movie(
                 continue
             break
         else:
+            observe_hoster_safely(name, play_url, False, (time.monotonic() - resolve_started) * 1000, res.provider, resolve_error)
             # Der Extraktor lief vollständig durch, ohne eine Stream-URL zu
             # finden. Innerhalb dieses Laufs nicht erneut versuchen.
             barren_hoster_urls.add(hoster.url)
@@ -649,6 +692,13 @@ def _enqueue_hoster_attempt(
     logical_attempt_id = attempt_id or str(logical_job.get("attempt_id") or "")
     if attempt_id and logical_job.get("attempt_id") != attempt_id:
         return False
+    from application_services.storage_autopilot_runtime import place_download
+    try:
+        out_path = place_download(logical_job, out_path, provider=result.provider or _movie_provider(movie, movie_slug))
+    except (OSError, ValueError) as exc:
+        on_job_done(False, f"Speicherziel nicht verfügbar: {exc}", label, out_path,
+                    slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
+        return True
     updated = _update_queue_job(
         movie_slug,
         expected_job_id=logical_job["job_id"],
@@ -658,6 +708,7 @@ def _enqueue_hoster_attempt(
         provider=result.provider or _movie_provider(movie, movie_slug),
         hoster=hoster_used,
         quality=result.quality,
+        final_path=str(out_path),
         content_language=(
             result.content_language
             or _movie_content_language(movie, fallback=movie_slug)

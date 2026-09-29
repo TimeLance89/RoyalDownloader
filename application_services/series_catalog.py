@@ -371,6 +371,7 @@ def _series_catalog_sources(entries: List[_SeriesCatalogEntry], priority: List[s
             "key": provider,
             "label": PROVIDER_LABELS[provider],
             "content_language": provider_content_language(provider),
+            "provider_content_languages": list(provider_content_languages(provider)),
             "language_label": PROVIDER_CATALOG[provider].language_label,
             "count": counts[provider],
         }
@@ -384,6 +385,7 @@ def _series_entry_to_dict(entry: _SeriesCatalogEntry) -> dict:
     payload["title"] = strip_source_suffix(entry.result.title)
     payload["provider"] = entry.provider
     payload["provider_label"] = PROVIDER_LABELS.get(entry.provider, entry.provider)
+    payload["provider_content_languages"] = list(provider_content_languages(entry.provider))
     payload["content_language"] = provider_content_language(entry.provider)
     payload["language_label"] = PROVIDER_CATALOG[entry.provider].language_label
     payload["sources"] = [
@@ -1137,6 +1139,7 @@ def series_to_dict(
         "content_language": provider_content_language(provider),
         "language_label": PROVIDER_CATALOG[provider].language_label,
         "enabled_content_languages": sorted(state.content_languages),
+        "provider_content_languages": list(provider_content_languages(provider)),
         "episode_count": len(series.all_episodes),
         "watchlisted": watchlist_entry is not None,
         "availability_pending": defer_checks,

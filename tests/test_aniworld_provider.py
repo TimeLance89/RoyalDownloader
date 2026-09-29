@@ -105,7 +105,7 @@ def test_german_aniworld_settings_remain_visible_without_english():
 
     assert 'querySelectorAll(".anime-tab-button")' in core
     assert 'querySelectorAll(".provider-source-lane.is-anime")' in core
-    assert 'getProviders().get().contentLanguages.has(providerLanguage(provider))' in core
+    assert 'getProviders().matchesLanguages(provider)' in core
 
 
 def test_detail_and_episode_hosters_preserve_track_and_season():
@@ -192,7 +192,8 @@ def test_aniworld_detail_hides_disabled_english_track(monkeypatch):
     monkeypatch.setattr(
         discovery, "state",
         SimpleNamespace(
-            content_languages={"de"}, aniworld_lock=threading.RLock(),
+            content_languages={"de"}, provider_enabled={"anime": ["aniworld"]},
+            provider_health=SimpleNamespace(routing_allowed=lambda _p: True), aniworld_lock=threading.RLock(),
             picked=set(),
         ),
     )
@@ -227,7 +228,8 @@ def test_aniworld_detail_rejects_english_only_anime_under_german_setting(
     monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["aniworld"])
     monkeypatch.setattr(
         discovery, "state",
-        SimpleNamespace(content_languages={"de"}, aniworld_lock=threading.RLock()),
+        SimpleNamespace(content_languages={"de"}, provider_enabled={"anime": ["aniworld"]},
+                        provider_health=SimpleNamespace(routing_allowed=lambda _p: True), aniworld_lock=threading.RLock()),
     )
     monkeypatch.setattr(
         discovery, "get_aniworld_scraper",

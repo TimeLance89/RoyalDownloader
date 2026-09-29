@@ -1,4 +1,14 @@
 import { createProfileActions } from "../../web/js/features/profile/actions.js";
+import { supportedProviderLanguages, providerMatchesLanguages } from "../../web/js/shared/utils/provider-languages.js";
+
+test("provider capabilities intersect selection without duplicating legacy primary language", () => {
+  const bilingual = { content_language: "de", content_languages: ["de", "en", "de"] };
+  assert.deepEqual(supportedProviderLanguages(bilingual), ["de", "en"]);
+  assert.equal(providerMatchesLanguages(bilingual, new Set(["en"])), true);
+  assert.equal(providerMatchesLanguages(bilingual, new Set(["de"])), true);
+  assert.equal(providerMatchesLanguages({ content_language: "en" }, new Set(["de"])), false);
+  assert.deepEqual(supportedProviderLanguages({ content_language: "de" }), ["de"]);
+});
 import { createHomeActions } from "../../web/js/features/home/actions.js";
 
 test("home action instances keep injected catalogs isolated and resolve late peers", () => {

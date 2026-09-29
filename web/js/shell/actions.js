@@ -57,7 +57,7 @@ export function createShellActions({
       element.classList.toggle("hidden", !visible);
     });
     const providerLaneVisible = (getProviders().get().anime || []).some(
-      (provider) => getProviders().get().contentLanguages.has(providerLanguage(provider)),
+      (provider) => getProviders().matchesLanguages(provider),
     );
     document.querySelectorAll(".provider-source-lane.is-anime").forEach((element) => {
       element.classList.toggle("hidden", !providerLaneVisible);
@@ -68,7 +68,7 @@ export function createShellActions({
   }
 
   function aniworldNavigationAvailable() {
-    return getProviders().get().contentLanguages.has("de");
+    return getProviders().matchesLanguages("aniworld");
   }
 
   function syncAniworldNavigationVisibility() {

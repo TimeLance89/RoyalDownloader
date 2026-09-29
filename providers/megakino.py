@@ -5,6 +5,8 @@ kommen aus oeffentlichen JSON-Endpunkten; ein UI-Browser ist dafuer nicht
 noetig. Die API fuehrt pro Serie einen Datensatz je Staffel.
 """
 
+from providers.sentinel_runtime import monitor_adapter, catalog_json
+
 import logging
 import re
 import time
@@ -51,6 +53,7 @@ _SKIP_DOMAINS = {
 }
 
 
+@monitor_adapter("megakino")
 class MegaKinoScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info
@@ -222,6 +225,7 @@ class MegaKinoScraper:
             "page": max(1, int(page or 1)),
             "limit": PAGE_SIZE,
         })
+        data = catalog_json("megakino", data)
         rows = data.get("movies") if isinstance(data, dict) else []
         return [row for row in rows or [] if isinstance(row, dict)]
 

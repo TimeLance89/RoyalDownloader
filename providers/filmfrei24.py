@@ -13,6 +13,8 @@ deshalb lokal auf dem kurzzeitig gecachten Gesamtkatalog.
 
 from __future__ import annotations
 
+from providers.sentinel_runtime import monitor_adapter
+
 import json
 import logging
 import re
@@ -58,6 +60,7 @@ def clear_cache() -> None:
         _availability_cache_until = 0.0
 
 
+@monitor_adapter("filmfrei24")
 class FilmFrei24Scraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

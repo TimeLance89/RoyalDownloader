@@ -5,6 +5,8 @@ Die Seite ist eine SPA und liefert Such-, Detail- und Watch-Daten in
 window.bootstrapData. Wir lesen diese Daten ohne UI-Browser aus.
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import json
 import logging
 import re
@@ -43,6 +45,7 @@ GENRE_QUERY = {
 }
 
 
+@monitor_adapter("moflix")
 class MoflixScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None):
         self._log = progress_cb or logger.info

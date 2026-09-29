@@ -24,6 +24,8 @@ Hoster-Embed-URL (z.B. https://voe.sx/e/...) zeigt. Diese Auflösung ist teuer
 (resolve_play_url()), und zwar nur für die Hoster, die wirklich versucht werden.
 """
 
+from providers.sentinel_runtime import monitor_adapter
+
 import html as ihtml
 import logging
 import re
@@ -77,6 +79,7 @@ LANG_LABEL = {"1": "Deutsch", "2": "Englisch", "3": "Deutsch (Untertitel)"}
 LANG_PRIORITY = {"1": 0, "3": 1, "2": 2}
 
 
+@monitor_adapter("serienstream")
 class SerienstreamScraper:
     def __init__(self, progress_cb: Optional[Callable[[str], None]] = None,
                  session: Optional[SessionManager] = None):

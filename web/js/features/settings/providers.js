@@ -1,6 +1,8 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml } from "../../shared/utils/escape-html.js";
+import { createProviderMonitor } from "./provider-monitor.js";
+import { supportedProviderLanguages, providerMatchesLanguages } from "../../shared/utils/provider-languages.js";
 
 /** Shared provider draft; backend acknowledgements replace it on load/save. */
 export function createProviderSettings(settingsRoot, setupRoot, {
@@ -14,6 +16,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
   let owner = createScope();
   let pending;
   let revision = 0;
+  const monitor = createProviderMonitor(settingsRoot?.querySelector("#provider-monitor"), { client });
   function providerEnabledSet(mediaType) {
     if (mediaType === "movies") return data.enabledMovies;
     if (mediaType === "anime") return data.enabledAnime;
@@ -24,9 +27,14 @@ export function createProviderSettings(settingsRoot, setupRoot, {
     return String(data.catalog[provider]?.content_language || "").toLowerCase();
   }
 
+  function providerLanguages(provider) { return supportedProviderLanguages(data.catalog[provider]); }
+  function matchesLanguages(provider, selected = data.contentLanguages) {
+    return providerMatchesLanguages(data.catalog[provider], selected);
+  }
+
   function providersForLanguage(language, mediaType) {
     return (data[mediaType] || []).filter(
-      (provider) => providerLanguage(provider) === language,
+      (provider) => providerLanguages(provider).includes(language),
     );
   }
 
@@ -68,10 +76,10 @@ export function createProviderSettings(settingsRoot, setupRoot, {
             const remaining = new Set(selected);
             remaining.delete(language);
             const leavesMovies = data.movies.some(
-              (provider) => remaining.has(providerLanguage(provider)),
+              (provider) => matchesLanguages(provider, remaining),
             );
             const leavesSeries = data.series.some(
-              (provider) => remaining.has(providerLanguage(provider)),
+              (provider) => matchesLanguages(provider, remaining),
             );
             if (!leavesMovies || !leavesSeries) {
               setProviderSelectionStatus(
@@ -84,7 +92,9 @@ export function createProviderSettings(settingsRoot, setupRoot, {
             selected.delete(language);
             for (const mediaType of ["movies", "series", "anime"]) {
               const enabled = providerEnabledSet(mediaType);
-              providersForLanguage(language, mediaType).forEach((provider) => enabled.delete(provider));
+              providersForLanguage(language, mediaType).forEach((provider) => {
+                if (!matchesLanguages(provider)) enabled.delete(provider);
+              });
             }
           } else {
             selected.add(language);
@@ -159,11 +169,11 @@ export function createProviderSettings(settingsRoot, setupRoot, {
     list.innerHTML = providers.map((provider, index) => {
       const meta = data.catalog[provider] || {};
       const label = data.labels[provider] || meta.label || provider;
-      const languageActive = data.contentLanguages.has(providerLanguage(provider));
+      const languageActive = matchesLanguages(provider);
       const active = languageActive && enabled.has(provider);
       const logoUrl = providerLogoUrl(meta);
-      const languageCode = String(meta.content_language || "").toUpperCase();
-      const languageLabel = meta.language_label || languageCode;
+      const languageCode = providerLanguages(provider).map(language => language.toUpperCase()).join(" + ");
+      const languageLabel = (meta.language_labels || [meta.language_label || languageCode]).join(" + ");
       return `
         <li class="provider-source-card ${active ? "is-enabled" : "is-disabled"} ${languageActive ? "" : "is-language-muted"} ${mediaType === "series" ? "is-series" : ""}"
             data-provider="${escapeHtml(provider)}">
@@ -252,7 +262,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       }
       const enabledCount = providerEnabledSet(mediaType).size;
       const eligibleCount = (data[mediaType] || []).filter(
-        (provider) => data.contentLanguages.has(providerLanguage(provider)),
+        (provider) => matchesLanguages(provider),
       ).length;
       const summary = `${enabledCount} aktiv · ${eligibleCount} passend`;
       const ids = {
@@ -286,15 +296,17 @@ export function createProviderSettings(settingsRoot, setupRoot, {
     );
     if (!Object.keys(data.languages).length) {
       for (const meta of Object.values(data.catalog)) {
-        const language = String(meta.content_language || "").toLowerCase();
-        if (language) data.languages[language] = meta.language_label || language.toUpperCase();
+        for (const language of supportedProviderLanguages(meta)) {
+          const index = supportedProviderLanguages(meta).indexOf(language);
+          data.languages[language] = meta.language_labels?.[index] || meta.language_label || language.toUpperCase();
+        }
       }
     }
     const inferredLanguages = [
       ...data.enabledMovies,
       ...data.enabledSeries,
       ...data.enabledAnime,
-    ].map(providerLanguage).filter(Boolean);
+    ].flatMap(providerLanguages).filter(Boolean);
     data.contentLanguages = new Set(
       cfg.content_languages?.length
         ? cfg.content_languages
@@ -303,7 +315,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
     for (const mediaType of ["movies", "series", "anime"]) {
       const enabled = providerEnabledSet(mediaType);
       [...enabled].forEach((provider) => {
-        if (!data.contentLanguages.has(providerLanguage(provider))) enabled.delete(provider);
+        if (!matchesLanguages(provider)) enabled.delete(provider);
       });
     }
     onApply();
@@ -325,13 +337,13 @@ export function createProviderSettings(settingsRoot, setupRoot, {
   }
   function view(root) {
     return {
-      mount() { if (active.has(root)) return; active.add(root); renderAllProviderBoards(); },
+      mount() { if (active.has(root)) return; active.add(root); renderAllProviderBoards(); if (root === settingsRoot) monitor.mount(); },
       refresh: renderAllProviderBoards,
-      unmount() { if (!active.delete(root)) return; renderAllProviderBoards(); },
+      unmount() { if (!active.delete(root)) return; if (root === settingsRoot) monitor.unmount(); renderAllProviderBoards(); },
     };
   }
   return {
-    get: () => Object.freeze({ ...data }), language: providerLanguage, apply: applyProviderPriority,
+    get: () => Object.freeze({ ...data }), language: providerLanguage, matchesLanguages, apply: applyProviderPriority,
     settings: view(settingsRoot), setup: view(setupRoot), initialize,
     async save({ signal } = {}) {
       const current = owner;
@@ -340,7 +352,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       if (current.active && !signal?.aborted && revision === atRevision) applyProviderPriority(value);
       return value;
     },
-    unmount() { owner.dispose(); rows.dispose(); active.clear(); pending = null; },
+    unmount() { owner.dispose(); rows.dispose(); monitor.unmount(); active.clear(); pending = null; },
     mount() { if (!owner.active) owner = createScope(); },
   };
 }

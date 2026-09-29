@@ -119,6 +119,10 @@ class JellyfinClient:
             except Exception as exc:
                 logger.warning("%s fehlgeschlagen (%s%s): %s", label, self.base_url, endpoint, exc)
                 return None
+            if endpoint == "/Sessions":
+                if not isinstance(data, list) or len(data) > 2000 or any(not isinstance(item, dict) for item in data):
+                    return None
+                return data
             if not isinstance(data, dict):
                 logger.warning(
                     "%s lieferte ein ungültiges Antwortobjekt (%s%s)",
@@ -156,6 +160,13 @@ class JellyfinClient:
             logger.warning("%s überschritt das Seitenlimit (%s%s)", label, self.base_url, endpoint)
             return None
         return result
+
+    def has_active_playback(self) -> Optional[bool]:
+        """Unknown activity is not evidence that media is safe to reorganize."""
+        sessions = self._list_endpoint_items("/Sessions", {}, 200, "Wiedergabeprüfung")
+        if sessions is None:
+            return None
+        return any(session.get("NowPlayingItem") or session.get("TranscodingInfo") for session in sessions)
 
     def _list_items(self, params: dict, page_size: int, label: str) -> Optional[List[dict]]:
         """Liest /Items vollständig; Jellyfin begrenzt große Antworten serverseitig."""

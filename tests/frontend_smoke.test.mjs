@@ -938,6 +938,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/catalog-polish.css",
     "styles/movie-releases.css",
     "styles/storage-manager.css",
+    "styles/storage-autopilot.css",
     "styles/storage-move.css",
     "styles/storage-move-jobs.css",
     "styles/movie-language.css",
