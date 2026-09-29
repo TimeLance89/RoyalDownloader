@@ -150,12 +150,16 @@ const { fixture } = require("./performance-fixture.cjs");
       await monitor.locator('details[data-provider="filmpalast"] > summary')[interact]();
       assert.match(await monitor.textContent(), /Gesund/);
       await monitor.locator('[data-panel="filmpalast-repairs"] > summary').click();
+      // WebKit may finish the click before the native disclosure task. Wait
+      // for its default action, then independently check that our bubbling
+      // toggle handler preserves the exact panel and repair control.
+      await page.waitForFunction(() => document.querySelector('#provider-monitor [data-panel="filmpalast-repairs"]')?.open);
       await monitor.locator('[data-panel="filmpalast-repairs"]').evaluate(node => {
         const button = node.querySelector('[data-action="rollback"]');
         node.dispatchEvent(new Event("toggle", { bubbles: true }));
         assertDisclosureStable(node, button);
         function assertDisclosureStable(panel, control) {
-          if (!panel.isConnected || !control.isConnected || !panel.open) throw new Error("Nested toggle rebuilt or closed repair controls");
+          if (!panel.isConnected || !control.isConnected || !panel.open) throw new Error(`Nested toggle changed repair controls: panelConnected=${panel.isConnected}, controlConnected=${control.isConnected}, open=${panel.open}`);
         }
       });
       await monitor.locator('[data-action="rollback"]:not([data-kind])').click();

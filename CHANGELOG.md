@@ -11,6 +11,9 @@
   warnings, critical thresholds and physical-volume minimum reserves. Explain
   download placement with deterministic scores, series affinity and shared
   pending/download/move reservations; recheck actual free space during downloads.
+- Keep the full destination reservation when fallback staging is on another
+  filesystem. Before publication, reserve the exact validated file size for a
+  cross-volume copy; same-volume atomic publication needs no duplicate space.
 - Add bounded persistent inventory, pressure-aware recommendations, dismissal
   cooldowns, content protection, time windows and operation history. Full mode
   can archive age-qualified content without inventing last-viewed information.

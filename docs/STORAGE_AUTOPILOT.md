@@ -51,7 +51,11 @@ logical job ID, survive retries and are reconciled with live/pending queue work.
 Pending jobs with known final paths are charged to that root; unplaced jobs use
 the existing movie/series destination. Active moves reserve their target space.
 Actual download guards recheck destination/staging reserves and remaining known
-bytes, at most every five seconds, and stop safely if the budget is lost. Storage
+bytes, at most every five seconds, and stop safely if the budget is lost. Fallback
+staging on another filesystem retains the full destination reservation until
+publication; its downloaded bytes do not prematurely release target capacity.
+Publication uses the exact validated size for a cross-volume copy and no second
+copy budget for a same-volume atomic publication. Storage
 failures do not blame the external hoster. Completed publication releases the
 reservation and records the actual path, including collision-renamed files.
 
