@@ -111,6 +111,17 @@ def test_healthy_volume_and_cooldown_do_not_shuffle_content(disks):
     assert plan_recommendations(disks, document, now=1_000_000) == []
 
 
+def test_healthy_archives_are_not_periodically_rearchived(disks):
+    document = inventory.read_state()
+    document["policy"]["mode"] = "full"
+    document["volumes"]["location:overflow"]["role"] = "archive"
+    key = inventory.identity("location:overflow", "Old.mp4")
+    document["inventory"][key] = {"id": key, "root": "location:overflow", "relative_path": "Old.mp4",
+                                  "name": "Old", "size_bytes": 100 * GIB, "media_type": "movies",
+                                  "owned": True, "modified_at": 1}
+    assert plan_recommendations(disks, document, now=100_000_000) == []
+
+
 def test_corrupt_state_is_fail_closed_and_not_overwritten(disks):
     path = inventory.state_path()
     path.write_text("broken", encoding="utf-8")

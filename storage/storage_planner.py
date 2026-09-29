@@ -27,7 +27,8 @@ def plan_recommendations(roots: list[dict], document: dict, *, now: float,
             continue
         pressure = storage_pressure(source, source_policy, reserved.get(source.get("volume_id"), 0))
         age = max(0, now - item.get("modified_at", now)) / 86400
-        archive = policy["mode"] in ("advisor", "full") and age >= policy["archive_age_days"] and not protection.get("no_archive")
+        archive = (source_policy["role"] != "archive" and policy["mode"] in ("advisor", "full")
+                   and age >= policy["archive_age_days"] and not protection.get("no_archive"))
         if pressure not in ("warning", "critical", "emergency") and not archive:
             continue
         size = int(item.get("size_bytes", 0))
