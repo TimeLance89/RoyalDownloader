@@ -81,7 +81,7 @@ class UserStore:
             item = self._users.get(str(user_id)); return dict(item) if item else None
 
     def public(self, user: dict) -> dict:
-        return {key: user.get(key) for key in ("id", "username", "display_name", "role", "enabled", "setup_required", "jellyfin_user_id", "jellyfin_user_name", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")}
+        return {key: user.get(key) for key in ("id", "username", "display_name", "role", "enabled", "setup_required", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")}
 
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]
