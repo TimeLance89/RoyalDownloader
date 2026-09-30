@@ -47,7 +47,7 @@ export function createStorageView(root) {
     const paths = (volume.paths || []).map((path) => html(path)).join(" · ");
     const modeText = volume.mode === "media" ? "Smart Scan und Medienaktionen aktiv" : "Nur Live-Monitoring · keine Medienaktionen";
     const policies = autopilotRoots.filter(root => root.volume_id === volume.id);
-    const roles = { primary: "Primär", overflow: "Overflow", archive: "Archiv", monitor: "Nur überwachen" };
+    const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archive: "Archiv", monitor: "Nur überwachen" };
     const storagePolicy = policies.length ? `<p class="storage-volume-policy-summary">${[...new Set(policies.map(root => roles[root.policy.role]))].join(" · ")}<br>Ziel: unter ${Math.min(...policies.map(root => root.policy.target_percent))} % · Reserve: ${Math.max(...policies.map(root => root.policy.reserve_gib))} GiB<br>${[...new Set(policies.flatMap(root => root.policy.media_types))].map(kind => ({ movies: "Filme", series: "Serien", anime: "Anime" })[kind]).join(" · ")}</p>` : "";
     return `
       <article class="storage-volume-card">
