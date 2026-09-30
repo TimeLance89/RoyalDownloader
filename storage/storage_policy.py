@@ -94,13 +94,15 @@ def volume_policy(root: dict, policies: dict) -> dict:
         kind for kind in root.get("allowed_media_types", [])
         if kind in MEDIA_TYPES
     ]
-    if allowed_media_types:
+    routing_explicit = bool(root.get("allowed_media_types_explicit"))
+    if routing_explicit and allowed_media_types:
         defaults["media_types"] = allowed_media_types
     policy = validate_volume(policies.get(root["key"], {}), defaults)
-    # For additional media locations the simple "what belongs here?" choice is
-    # authoritative. Advanced volume rules may tune capacity/roles, but must not
-    # silently widen a folder to unrelated media types.
-    if allowed_media_types:
+    # Once the administrator explicitly chooses "what belongs here?" on an
+    # additional location, that beginner-facing choice is authoritative.
+    # Legacy locations keep any existing advanced media filter until they are
+    # edited, avoiding a silent widening during upgrade.
+    if routing_explicit and allowed_media_types:
         policy["media_types"] = allowed_media_types
     policy.update(root.get("_physical_policy", {}))
     if root.get("location_mode") == "monitor":
