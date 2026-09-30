@@ -104,7 +104,7 @@ export function createStorage(root) {
     syncLocationMediaFields();
     const save = find("storage-location-save");
     const cancel = find("storage-location-cancel");
-    if (save) save.textContent = "Speicher hinzufügen";
+    if (save) save.textContent = "Speicherort hinzufügen";
     if (cancel) cancel.hidden = true;
   }
 
@@ -160,7 +160,7 @@ export function createStorage(root) {
       if (status) status.textContent = `Speicherort konnte nicht gespeichert werden · ${error.message}`;
     } finally {
       if (!current.active) return;
-      if (save) { save.disabled = false; save.textContent = editingLocationId ? "Änderungen speichern" : "Speicher hinzufügen"; }
+      if (save) { save.disabled = false; save.textContent = editingLocationId ? "Änderungen speichern" : "Speicherort hinzufügen"; }
     }
   }
 
@@ -376,7 +376,7 @@ export function createStorage(root) {
     find("storage-scan").disabled = false;
     find("storage-scan").textContent = "Große Inhalte analysieren";
     find("storage-location-save").disabled = false;
-    find("storage-location-save").textContent = editingLocationId ? "Änderungen speichern" : "Speicher hinzufügen";
+    find("storage-location-save").textContent = editingLocationId ? "Änderungen speichern" : "Speicherort hinzufügen";
     for (const id of ["storage-move-confirm", "storage-move-cancel", "storage-move-close"]) find(id).disabled = false;
     find("storage-move-confirm").textContent = "Jetzt verschieben";
     root.querySelectorAll("[data-storage-move], [data-storage-cleanup]").forEach(button => { button.disabled = false; });
