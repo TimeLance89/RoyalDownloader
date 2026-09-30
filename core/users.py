@@ -131,7 +131,13 @@ class UserStore:
             raise ValueError("Profilname ist zu lang.")
         avatar = str(avatar_id or "").strip()
         if avatar and avatar not in PROFILE_AVATARS:
-            raise ValueError("Unbekanntes Profilbild.")
+            is_custom = (
+                avatar.startswith("custom-")
+                and len(avatar) == 23
+                and all(char in "0123456789abcdef" for char in avatar[7:])
+            )
+            if not is_custom:
+                raise ValueError("Unbekanntes Profilbild.")
         with self._lock:
             user = self._users.get(str(user_id))
             if not user:
@@ -157,6 +163,23 @@ class UserStore:
             )
             self._save()
             return dict(user)
+
+    def clear_avatar_id(self, avatar_id: str) -> int:
+        """Reset profiles that reference an avatar removed by an administrator."""
+        target = str(avatar_id or "").strip()
+        if not target:
+            return 0
+        with self._lock:
+            changed = 0
+            for user in self._users.values():
+                if str(user.get("avatar_id") or "") != target:
+                    continue
+                user["avatar_id"] = ""
+                user["updated_at"] = time.time()
+                changed += 1
+            if changed:
+                self._save()
+            return changed
 
     def set_password(self, user_id: str, password_hash: str) -> dict:
         with self._lock:
