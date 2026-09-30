@@ -14,6 +14,7 @@ def test_storage_runtime_exposes_multi_volume_management_cleanup_and_move_ui():
     source = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "web/js/features/storage").glob("*.js"))
     for marker in (
         'id="settings-storage"',
+        'id="storage-standard-target-list"',
         'id="storage-location-form"',
         'id="storage-location-mode"',
         'id="storage-location-media-types"',
@@ -61,6 +62,8 @@ def test_storage_runtime_explains_true_move_semantics_and_mount_requirements():
 def test_storage_styles_cover_volume_registry_desktop_and_mobile_layouts():
     css = (ROOT / "web" / "styles" / "storage-manager.css").read_text(encoding="utf-8")
     assert ".storage-summary-ring" in css
+    assert ".storage-standard-targets-card" in css
+    assert ".storage-standard-target" in css
     assert ".storage-locations-card" in css
     assert ".storage-location-form" in css
     assert ".storage-location-media-types" in css
