@@ -6,7 +6,7 @@ administrator. Additional profiles live below `taste_profiles/` under a
 SHA-256-derived filename; a new user therefore starts with no inherited
 signals. Catalog, library, queue and downloads remain shared household state.
 The Jellyfin server URL and API key remain instance-wide, while every Royal
-household profile can link its own Jellyfin user from **Wer schaut gerade? → ⚙**.
+household profile is managed from **Wer schaut gerade? → ⚙**, including its display name, bundled local avatar and personal Jellyfin user link.
 Playback history, favorites and ratings are synchronized only into the linked
 Royal taste profile. Existing
 installations keep the former global Jellyfin user as a compatibility fallback
