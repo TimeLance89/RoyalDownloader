@@ -50,9 +50,12 @@ def test_household_chooser_owns_personal_jellyfin_mapping_ui():
     assert 'id="household-manage-save"' in markup
     assert 'id="household-profile-name"' in markup
     assert 'id="household-avatar-grid"' in markup
+    assert 'id="household-password-repeat"' in markup
     assert "household-user-settings" in household
     assert "/profile" in household
     assert "PROFILE_AVATARS" in household
+    assert '"first-login"' in household
+    assert "Das Passwort des aktuell aktiven Profils" in household
     assert '"/api/me/household/unlock"' in household
     assert "/jellyfin-profile" in household
     assert 'id="profile-jellyfin-user"' not in markup

@@ -20,6 +20,21 @@ def test_user_first_login_and_last_admin_guard(tmp_path):
         users.set_enabled(admin["id"], False)
 
 
+def test_login_name_can_change_without_changing_profile_name(tmp_path):
+    users = UserStore(tmp_path / "users.json", {})
+    steffen = users.create("Steffen", "jester", "admin")
+    other = users.create("Jacqueline", "jacqueline", "member")
+
+    changed = users.set_username(steffen["id"], "steffen")
+
+    assert changed["username"] == "steffen"
+    assert changed["display_name"] == "Steffen"
+    assert users.find("jester") is None
+    assert users.find("STEFFEN")["id"] == steffen["id"]
+    with pytest.raises(ValueError, match="bereits vergeben"):
+        users.set_username(steffen["id"], other["username"])
+
+
 def test_user_taste_profiles_are_isolated_and_legacy_stays_with_admin(tmp_path):
     legacy_path = tmp_path / "taste_profile.json"
     legacy = TasteProfileStore(legacy_path, clock=time.time)

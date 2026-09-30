@@ -50,24 +50,41 @@ class FakeSessionStore:
         return True
 
     def switch_user(self, _token, user_id, kind=None):
-        if not self.unlocked:
-            return False
         self.current_user_id = user_id
+        self.unlocked = False
         return True
 
 
-def auth_client(*, valid_password="secret"):
+def auth_client(*, valid_password="secret", second_setup_required=False, current_role="admin"):
     store = FakeSessionStore()
     store.jellyfin_links = {"user-1": "", "user-2": ""}
     account = {"configured": True, "username": "royal", "source": "settings"}
     config = SimpleNamespace(is_initialized=lambda: True, save_auth=lambda *_args: True)
-    user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": "admin", "enabled": True, "setup_required": False}
-    second_user = {"id": "user-2", "username": "guest", "display_name": "Guest", "role": "member", "enabled": True, "setup_required": False}
+    user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": current_role, "enabled": True, "setup_required": False}
+    second_user = {"id": "user-2", "username": "guest", "display_name": "Guest", "role": "member", "enabled": True, "setup_required": second_setup_required}
+    def find_user(username):
+        key = str(username or "").casefold()
+        if key == str(user["username"]).casefold():
+            return user
+        if key == str(second_user["username"]).casefold():
+            return second_user
+        return None
+
+    def set_username(user_id, username):
+        target = user if user_id == "user-1" else second_user if user_id == "user-2" else None
+        if not target:
+            raise ValueError("Benutzer nicht gefunden.")
+        if find_user(username) not in (None, target):
+            raise ValueError("Benutzername ist bereits vergeben.")
+        target["username"] = username
+        return target
+
     users = SimpleNamespace(
-        find=lambda username: user if username == "royal" else second_user if username == "guest" else None,
+        find=find_user,
         get=lambda user_id: user if user_id == "user-1" else second_user if user_id == "user-2" else None,
         public=lambda value: value,
         list=lambda: [user, second_user],
+        set_username=set_username,
     )
     dependencies = AuthDependencies(
         api_version=1,
@@ -82,7 +99,9 @@ def auth_client(*, valid_password="secret"):
         setup_required=lambda: False,
         request_is_authenticated=lambda *_args, **_kwargs: False,
         request_auth_method=lambda *_args, **_kwargs: "bearer",
-        verify_credentials=lambda _username, password: password == valid_password,
+        verify_credentials=lambda username, password: (
+            password == (valid_password if str(username).casefold() == str(user["username"]).casefold() else "guest-secret")
+        ),
         authenticated_web_token=lambda _cookies: "web-token",
         authenticated_mobile_token=lambda _headers, **_kwargs: "mobile-token",
         bearer_token=lambda headers: headers.get("authorization", "").removeprefix("Bearer "),
@@ -164,28 +183,62 @@ def test_invalid_login_and_native_logout_keep_status_contracts():
     assert store.revoked == [("mobile-session", appauth.SESSION_KIND_MOBILE)]
 
 
-def test_household_switch_requires_password_only_once_per_session():
+def test_household_switch_authenticates_the_target_profile_each_time():
     client, store = auth_client()
     client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
 
-    rejected = client.post(
-        "/api/me/household/switch",
-        json={"user_id": "user-2", "password": "wrong"},
-    )
-    first = client.post(
+    wrong_identity_password = client.post(
         "/api/me/household/switch",
         json={"user_id": "user-2", "password": "secret"},
     )
-    second = client.post(
+    guest = client.post(
         "/api/me/household/switch",
-        json={"user_id": "user-1", "password": ""},
+        json={"user_id": "user-2", "password": "guest-secret"},
     )
 
-    assert rejected.status_code == 403
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert store.unlocked is True
-    assert store.current_user_id == "user-1"
+    assert wrong_identity_password.status_code == 403
+    assert "Guest" in wrong_identity_password.json()["detail"]
+    assert guest.status_code == 200
+    assert guest.json()["household_unlocked"] is False
+    assert store.unlocked is False
+    assert store.current_user_id == "user-2"
+
+
+def test_household_switch_rejects_profiles_that_need_first_login():
+    client, _store = auth_client(second_setup_required=True)
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    response = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-2", "password": "guest-secret"},
+    )
+
+    assert response.status_code == 409
+    assert "zuerst ein eigenes Passwort" in response.json()["detail"]
+
+
+def test_non_admin_cannot_unlock_other_profile_management():
+    client, _store = auth_client(current_role="member")
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    response = client.post("/api/me/household/unlock", json={"password": "secret"})
+
+    assert response.status_code == 403
+    assert "Administratorrechte" in response.json()["detail"]
+
+
+def test_current_user_can_change_login_name_without_changing_profile_name():
+    client, _store = auth_client()
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    changed = client.post(
+        "/api/me/username",
+        json={"username": "steffen", "current_password": "secret"},
+    )
+
+    assert changed.status_code == 200
+    assert changed.json()["user"]["username"] == "steffen"
+    assert changed.json()["user"]["display_name"] == "Royal"
 
 
 def test_household_profile_settings_require_one_unlock_for_other_profiles():

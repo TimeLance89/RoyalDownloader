@@ -105,12 +105,19 @@ def setup_required() -> bool:
 
 def verify_credentials(username: str, password: str) -> bool:
     """Prüft Zugangsdaten zeitkonstant und aktualisiert alte Hashparameter."""
-    user = backend_value("USER_STORE").find(username)
+    user_store = backend_value("USER_STORE")
+    user = user_store.find(username)
     if not user:
-        # Compatibility and timing hardening: exercise the legacy admin hash
-        # for an unknown name as well. The migrated user store remains the
-        # authoritative successful-login source.
+        # Once the household store contains accounts it is authoritative.
+        # Falling back to the legacy admin credentials here would make an old
+        # username keep working after a deliberate login-name change.
+        existing_users = user_store.list()
         legacy = auth_account()
+        if existing_users:
+            appauth.verify_password(str(password or ""), legacy.get("password_hash", ""))
+            return False
+        # Compatibility for installations that have not migrated into the
+        # household store yet.
         if not legacy.get("configured"):
             return False
         if not secrets.compare_digest(str(username or "").casefold(), str(legacy.get("username", "")).casefold()):

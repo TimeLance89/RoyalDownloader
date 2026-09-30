@@ -1449,10 +1449,12 @@
         <h1 id="household-title">Wer schaut gerade?</h1>
         <div id="household-users" class="household-users"></div>
         <form id="household-unlock" class="household-unlock" hidden>
-          <strong id="household-unlock-title">Profilwechsel freigeben</strong>
-          <span id="household-unlock-copy">Einmal Passwort eingeben. Danach wechselst du in dieser Sitzung direkt.</span>
-          <label for="household-password">Passwort</label>
+          <strong id="household-unlock-title">Profil bestätigen</strong>
+          <span id="household-unlock-copy">Gib das Passwort des Profils ein, zu dem du wechseln möchtest.</span>
+          <label id="household-password-label" for="household-password">Passwort</label>
           <div><input id="household-password" type="password" autocomplete="current-password" required><button type="submit">Weiter</button></div>
+          <label id="household-password-repeat-label" for="household-password-repeat" hidden>Passwort wiederholen</label>
+          <input id="household-password-repeat" type="password" autocomplete="new-password" hidden>
           <small id="household-status" role="status" aria-live="polite"></small>
         </form>
         <form id="household-manage" class="household-manage" hidden>
@@ -1966,14 +1968,18 @@
             </header>
             <div class="settings-card-grid">
         <div id="account-card" class="settings-group settings-card account-settings" data-state="unknown">
-          <h3>Konto</h3>
+          <h3>Login &amp; Passwort</h3>
           <div id="account-warning" class="account-warning hidden">
             <strong>Diese Instanz ist ungeschützt.</strong>
-            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Benutzername und Passwort fest.</span>
+            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Loginname und Passwort fest.</span>
           </div>
           <p id="account-state" class="dim settings-hint" role="status" aria-live="polite">Wird geladen …</p>
-          <label class="dim auto-lbl" for="account-username">Benutzername</label>
+          <label class="dim auto-lbl" for="account-username">Loginname</label>
           <input id="account-username" type="text" autocomplete="username">
+          <p id="account-username-hint" class="dim account-login-hint">Der Loginname ist nur für die Anmeldung. Deinen sichtbaren Profilnamen änderst du unter „Wer schaut gerade?“.</p>
+          <div class="account-actions account-login-actions">
+            <button id="account-username-save" class="btn btn-ghost btn-sm" type="button" hidden>Loginname ändern</button>
+          </div>
           <label id="account-current-label" class="dim auto-lbl" for="account-current-password">Aktuelles Passwort</label>
           <input id="account-current-password" type="password" autocomplete="current-password" placeholder="Zur Bestätigung">
           <label class="dim auto-lbl" for="account-password">Neues Passwort</label>
@@ -1996,11 +2002,11 @@
         </div>
         <div id="account-users-card" class="settings-group settings-card account-sessions" hidden>
           <h3>Benutzer</h3>
-          <p class="dim settings-hint">Neue Benutzer legen ihr Passwort selbst beim ersten Login fest. Konten können hier samt persönlichen Daten vollständig entfernt werden.</p>
+          <p class="dim settings-hint">Jedes Konto hat einen sichtbaren Profilnamen und einen separaten Loginnamen. Neue Benutzer legen ihr Passwort beim ersten Wechsel oder Login selbst fest.</p>
           <div id="account-users-list" class="small-status">Wird geladen …</div>
-          <label class="dim auto-lbl" for="new-user-display-name">Anzeigename</label>
+          <label class="dim auto-lbl" for="new-user-display-name">Profilname</label>
           <input id="new-user-display-name" type="text" autocomplete="off">
-          <label class="dim auto-lbl" for="new-user-username">Benutzername</label>
+          <label class="dim auto-lbl" for="new-user-username">Loginname</label>
           <input id="new-user-username" type="text" autocomplete="off">
           <label class="dim auto-lbl" for="new-user-role">Rolle</label>
           <select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select>

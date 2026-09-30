@@ -6,6 +6,8 @@
   font-size: 12px;
 }
 
+.has-profile-avatar{background-size:cover;background-position:center;background-repeat:no-repeat}
+
 /* Household profile management: selection stays simple, settings live under each profile. */
 .household-profile{display:grid;justify-items:center;align-content:start;gap:10px}
 .household-user-settings{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:76px;padding:6px 10px;border:1px solid transparent;border-radius:999px;color:#92949a;background:transparent;font:600 11px/1 "DM Sans",sans-serif;cursor:pointer}
