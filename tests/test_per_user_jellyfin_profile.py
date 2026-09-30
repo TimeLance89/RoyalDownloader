@@ -65,3 +65,24 @@ def test_household_jellyfin_sync_is_per_royal_user():
     assert 'list_jellyfin_profiles()' in runtime
     assert 'user.get("jellyfin_user_id")' in runtime
     assert "state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items(watched)" in runtime
+
+
+def test_bundled_profile_avatar_assets_exist():
+    avatar_dir = ROOT / "web" / "assets" / "profile-avatars"
+    expected = {
+        "avatar-red.svg",
+        "avatar-blue.svg",
+        "avatar-gold.svg",
+        "avatar-green.svg",
+        "avatar-purple.svg",
+        "avatar-cyan.svg",
+        "avatar-orange.svg",
+        "avatar-slate.svg",
+    }
+
+    assert expected <= {path.name for path in avatar_dir.glob("*.svg")}
+    for name in expected:
+        data = (avatar_dir / name).read_text(encoding="utf-8")
+        assert "<svg" in data
+        assert "http://" not in data.replace("http://www.w3.org/2000/svg", "")
+        assert "https://" not in data
