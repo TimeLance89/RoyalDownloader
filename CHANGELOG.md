@@ -2,7 +2,19 @@
 
 ## Unreleased
 
-No changes yet.
+### Storage routing clarity
+
+- Rename the legacy movie/series paths to **Standard-Zielordner** and explain that
+  they are safe starting/fallback destinations rather than a limit on Storage
+  Autopilot placement.
+- Let every additional media location explicitly allow movies, series and/or
+  anime. These simple per-folder choices are authoritative for automatic
+  download placement, preventing two folders on the same disk from competing for
+  the wrong media type.
+- Simplify Storage Autopilot wording for new users and keep advanced roles,
+  thresholds and reserves behind progressive disclosure.
+- Preserve existing installations: previously registered media locations default
+  to all media types until an administrator narrows them in the Storage UI.
 
 ## v1.4.0 – 2026-09-30
 
