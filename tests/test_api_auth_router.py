@@ -58,6 +58,7 @@ class FakeSessionStore:
 
 def auth_client(*, valid_password="secret"):
     store = FakeSessionStore()
+    store.jellyfin_links = {"user-1": "", "user-2": ""}
     account = {"configured": True, "username": "royal", "source": "settings"}
     config = SimpleNamespace(is_initialized=lambda: True, save_auth=lambda *_args: True)
     user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": "admin", "enabled": True, "setup_required": False}
@@ -92,6 +93,25 @@ def auth_client(*, valid_password="secret"):
         log=lambda *_args, **_kwargs: None,
         user_store=lambda: users,
         current_user=lambda *_args: user,
+        jellyfin_profile=lambda target: {
+            "configured": True,
+            "available": True,
+            "user_id": store.jellyfin_links.get(target["id"], ""),
+            "user_name": "Alice JF" if store.jellyfin_links.get(target["id"]) == "jf-alice" else "",
+            "users": [{"id": "jf-alice", "name": "Alice JF"}, {"id": "jf-bob", "name": "Bob JF"}],
+            "inherited_legacy": False,
+        },
+        set_jellyfin_profile=lambda target, jellyfin_user_id: (
+            store.jellyfin_links.__setitem__(target["id"], jellyfin_user_id)
+            or {
+                "configured": True,
+                "available": True,
+                "user_id": jellyfin_user_id,
+                "user_name": "Alice JF" if jellyfin_user_id == "jf-alice" else "Bob JF" if jellyfin_user_id == "jf-bob" else "",
+                "users": [{"id": "jf-alice", "name": "Alice JF"}, {"id": "jf-bob", "name": "Bob JF"}],
+                "inherited_legacy": False,
+            }
+        ),
     )
     application = FastAPI()
     application.include_router(create_auth_router(dependencies))
@@ -166,3 +186,27 @@ def test_household_switch_requires_password_only_once_per_session():
     assert second.status_code == 200
     assert store.unlocked is True
     assert store.current_user_id == "user-1"
+
+
+def test_household_profile_settings_require_one_unlock_for_other_profiles():
+    client, store = auth_client()
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    own = client.get("/api/me/household/user-1/jellyfin-profile")
+    locked = client.get("/api/me/household/user-2/jellyfin-profile")
+    rejected = client.post("/api/me/household/unlock", json={"password": "wrong"})
+    unlocked = client.post("/api/me/household/unlock", json={"password": "secret"})
+    other = client.get("/api/me/household/user-2/jellyfin-profile")
+    saved = client.post(
+        "/api/me/household/user-2/jellyfin-profile",
+        json={"user_id": "jf-bob"},
+    )
+
+    assert own.status_code == 200
+    assert locked.status_code == 423
+    assert rejected.status_code == 403
+    assert unlocked.json() == {"unlocked": True}
+    assert other.status_code == 200
+    assert saved.status_code == 200
+    assert saved.json()["user_id"] == "jf-bob"
+    assert store.jellyfin_links["user-2"] == "jf-bob"
