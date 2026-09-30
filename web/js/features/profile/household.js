@@ -56,7 +56,7 @@ export function createHousehold(root, { userRoleLabel }) {
     const name = document.createElement("strong");
     name.textContent = user.display_name;
     const role = document.createElement("small");
-    role.textContent = userRoleLabel(user);
+    role.textContent = user.setup_required ? `${userRoleLabel(user)} · Einrichtung ausstehend` : userRoleLabel(user);
     details.append(name, role);
     button.append(avatar, details);
 
@@ -147,7 +147,7 @@ export function createHousehold(root, { userRoleLabel }) {
     find("household-unlock-copy").textContent = action === "manage"
       ? `Administrator bestätigen: Gib das Passwort von ${currentUser?.display_name || currentUser?.username || 'deinem Administratorkonto'} ein.`
       : firstLogin
-        ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest.`
+        ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest. Loginname: „${user.username}“.`
         : `Gib das Passwort von ${user.display_name} ein. Das Passwort des aktuell aktiven Profils wird hier nicht verwendet.`;
     find("household-password-label").textContent = firstLogin ? "Neues Passwort" : "Passwort";
     password.autocomplete = firstLogin ? "new-password" : "current-password";
