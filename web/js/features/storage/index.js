@@ -401,7 +401,7 @@ export function createStorage(root) {
       shell.listen(root.querySelector('[data-settings-target="settings-storage"]'), "click", (event) => {
         event.preventDefault(); activateStorage();
       });
-      root.querySelectorAll('[data-settings-open="settings-storage"]').forEach((button) => {
+      root.querySelectorAll('[data-settings-open="settings-storage"], [data-storage-open-manager]').forEach((button) => {
         shell.listen(button, "click", activateStorage);
       });
 
