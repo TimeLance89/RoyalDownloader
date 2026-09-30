@@ -38,6 +38,7 @@ def _normalize_location(raw: dict, *, require_id: bool = True) -> dict | None:
     label = str(raw.get("label") or "").strip()
     path = str(raw.get("path") or "").strip()
     mode = str(raw.get("mode") or LOCATION_MODE_MONITOR).strip().casefold()
+    media_types_explicit = bool(raw.get("media_types_explicit", "media_types" in raw))
     raw_media_types = raw.get("media_types", list(LOCATION_MEDIA_TYPES))
     if require_id and (not location_id or len(location_id) > 64):
         return None
@@ -63,6 +64,7 @@ def _normalize_location(raw: dict, *, require_id: bool = True) -> dict | None:
         "path": path,
         "mode": mode,
         "media_types": media_types,
+        "media_types_explicit": media_types_explicit,
     }
 
 
@@ -133,6 +135,7 @@ def save_storage_location(
         "path": path,
         "mode": mode,
         "media_types": list(LOCATION_MEDIA_TYPES) if media_types is None else media_types,
+        "media_types_explicit": True,
     })
     if not normalized:
         raise ValueError("Ungültiger Speicherort.")
@@ -193,6 +196,7 @@ def _status_root_for_location(location: dict, deployment_mode: str) -> dict:
         "location_id": location["id"],
         "location_mode": location["mode"],
         "allowed_media_types": list(location.get("media_types") or []),
+        "allowed_media_types_explicit": bool(location.get("media_types_explicit")),
     })
     return source
 
