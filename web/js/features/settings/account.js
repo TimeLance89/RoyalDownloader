@@ -190,7 +190,11 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       status.textContent = cleared
         ? `✓ Profilbild gelöscht. ${cleared} Profil(e) wurden auf Initialen zurückgesetzt.`
         : "✓ Profilbild gelöscht.";
-      await refreshProfileAvatars();
+      if (getUser()?.avatar_id === avatar.id) {
+        const currentUser = await client.get("/api/me", { signal: currentScope.signal });
+        if (currentScope.active) onSaved({ user: currentUser, configured: true }, currentUser.username);
+      }
+      if (currentScope.active) await refreshAccountUsers();
     } catch (error) {
       if (!currentScope.active) return;
       status.textContent = error.message;
@@ -283,6 +287,48 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     }
   }
 
+  async function saveUsername() {
+    if (!scope?.active || !getUser()) return;
+    const currentScope = scope;
+    const button = byId("account-username-save");
+    if (button.disabled) return;
+    const username = byId("account-username").value.trim();
+    const currentPassword = byId("account-current-password").value;
+    if (!username) {
+      setAccountStatus("Der Loginname fehlt.", true);
+      return;
+    }
+    if (username === getUser()?.username) {
+      setAccountStatus("Der Loginname ist bereits aktuell.");
+      return;
+    }
+    if (!currentPassword) {
+      setAccountStatus("Gib zur Änderung dein aktuelles Passwort ein.", true);
+      byId("account-current-password").focus();
+      return;
+    }
+    button.disabled = true;
+    setAccountStatus("Loginname wird geändert …");
+    try {
+      const result = await client.post(
+        "/api/me/username",
+        { username, current_password: currentPassword },
+        { signal: currentScope.signal },
+      );
+      if (!currentScope.active) return;
+      byId("account-current-password").value = "";
+      onSaved(result, username);
+      applyAccountCfg(result);
+      setAccountStatus(`✓ Neuer Loginname: „${result.user?.username || username}“. Dein Profilname bleibt unverändert.`);
+      void refreshAccountUsers();
+    } catch (error) {
+      if (!currentScope.active) return;
+      setAccountStatus(error.message, true);
+    } finally {
+      if (currentScope.active) button.disabled = false;
+    }
+  }
+
   async function saveAccount() {
     if (!scope?.active) return;
     const currentScope = scope;
@@ -292,8 +338,8 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     const password = byId("account-password").value;
     const repeat = byId("account-password-repeat").value;
     const current = byId("account-current-password").value;
-    if (!username) {
-      setAccountStatus("Der Benutzername fehlt.", true);
+    if (!getUser() && !username) {
+      setAccountStatus("Der Loginname fehlt.", true);
       return;
     }
     if (!password) {
@@ -360,8 +406,9 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     mount() {
       if (scope) return;
       scope = createScope();
-      for (const id of ["account-save", "new-user-create", "account-revoke", "account-avatar-upload"]) byId(id).disabled = false;
+      for (const id of ["account-save", "account-username-save", "new-user-create", "account-revoke", "account-avatar-upload"]) byId(id).disabled = false;
       scope.listen(byId("account-save"), "click", saveAccount);
+      scope.listen(byId("account-username-save"), "click", saveUsername);
       scope.listen(byId("account-logout"), "click", logout);
       scope.listen(byId("account-revoke"), "click", revokeOtherSessions);
       scope.listen(byId("new-user-create"), "click", createAccountUser);
