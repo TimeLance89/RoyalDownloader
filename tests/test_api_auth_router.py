@@ -55,13 +55,13 @@ class FakeSessionStore:
         return True
 
 
-def auth_client(*, valid_password="secret"):
+def auth_client(*, valid_password="secret", second_setup_required=False, current_role="admin"):
     store = FakeSessionStore()
     store.jellyfin_links = {"user-1": "", "user-2": ""}
     account = {"configured": True, "username": "royal", "source": "settings"}
     config = SimpleNamespace(is_initialized=lambda: True, save_auth=lambda *_args: True)
-    user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": "admin", "enabled": True, "setup_required": False}
-    second_user = {"id": "user-2", "username": "guest", "display_name": "Guest", "role": "member", "enabled": True, "setup_required": False}
+    user = {"id": "user-1", "username": "royal", "display_name": "Royal", "role": current_role, "enabled": True, "setup_required": False}
+    second_user = {"id": "user-2", "username": "guest", "display_name": "Guest", "role": "member", "enabled": True, "setup_required": second_setup_required}
     def find_user(username):
         key = str(username or "").casefold()
         if key == str(user["username"]).casefold():
@@ -205,15 +205,26 @@ def test_household_switch_authenticates_the_target_profile_each_time():
 
 
 def test_household_switch_rejects_profiles_that_need_first_login():
-    client, _store = auth_client()
+    client, _store = auth_client(second_setup_required=True)
     client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
 
-    # The fake target object is mutable and returned directly by the fixture.
-    target = client.app.routes  # keep the client alive before mutating through closure-backed API
-    del target
-    # Trigger setup-required through the exposed user object returned by household data.
-    # Rebuild a tiny client fixture with the target state set through its response object is
-    # intentionally avoided; the route contract is covered by frontend first-login tests.
+    response = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-2", "password": "guest-secret"},
+    )
+
+    assert response.status_code == 409
+    assert "zuerst ein eigenes Passwort" in response.json()["detail"]
+
+
+def test_non_admin_cannot_unlock_other_profile_management():
+    client, _store = auth_client(current_role="member")
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    response = client.post("/api/me/household/unlock", json={"password": "secret"})
+
+    assert response.status_code == 403
+    assert "Administratorrechte" in response.json()["detail"]
 
 
 def test_current_user_can_change_login_name_without_changing_profile_name():
