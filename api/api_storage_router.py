@@ -67,7 +67,7 @@ class StorageLocationBody(BaseModel):
     mode: Literal["monitor", "media"] = LOCATION_MODE_MONITOR
     media_types: list[Literal["movies", "series", "anime"]] = Field(
         default_factory=lambda: ["movies", "series", "anime"],
-        min_length=1,
+        min_length=0,
         max_length=3,
     )
 
