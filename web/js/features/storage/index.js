@@ -401,7 +401,9 @@ export function createStorage(root) {
       shell.listen(root.querySelector('[data-settings-target="settings-storage"]'), "click", (event) => {
         event.preventDefault(); activateStorage();
       });
-      shell.listen(root.querySelector('[data-settings-open="settings-storage"]'), "click", activateStorage);
+      root.querySelectorAll('[data-settings-open="settings-storage"]').forEach((button) => {
+        shell.listen(button, "click", activateStorage);
+      });
 
       const observer = new MutationObserver(updateActivity);
       observer.observe(find("settings-storage"), { attributes: true, attributeFilter: ["class", "hidden"] });
