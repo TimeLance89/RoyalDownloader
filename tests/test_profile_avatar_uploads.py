@@ -59,10 +59,15 @@ def test_custom_avatar_management_is_exposed_in_admin_ui():
     account = (root / "web/js/features/settings/account.js").read_text(encoding="utf-8")
     household = (root / "web/js/features/profile/household.js").read_text(encoding="utf-8")
     identity = (root / "web/js/features/profile/identity.js").read_text(encoding="utf-8")
+    components = (root / "web/styles/components.css").read_text(encoding="utf-8")
 
     assert 'id="account-avatar-card"' in markup
     assert 'id="account-avatar-file"' in markup
     assert 'id="account-avatar-library"' in markup
     assert '"/api/auth/profile-avatars"' in account
+    assert '"Profilbild löschen"' in account
+    assert 'onSaved({ user: currentUser' in account
     assert '"/api/profile-avatars"' in household
     assert 'avatar.startsWith("custom-")' in identity
+    assert ".has-profile-avatar" in components
+    assert "background-size:cover" in components
