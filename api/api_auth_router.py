@@ -57,6 +57,10 @@ class HouseholdSwitchBody(BaseModel):
     password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
 
+class HouseholdUnlockBody(BaseModel):
+    password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
+
+
 class JellyfinProfileBody(BaseModel):
     user_id: str = Field(default="", max_length=128)
 
@@ -326,6 +330,66 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 for item in users if item.get("enabled")
             ],
         }
+
+    def household_profile_access(request: Request, target_user_id: str) -> tuple[dict, dict]:
+        current = dependencies.current_user(request.headers, request.cookies)
+        if not current:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        target = dependencies.user_store().get(target_user_id)
+        if not target or not target.get("enabled"):
+            raise HTTPException(404, "Profil nicht gefunden.")
+        if str(target.get("id")) != str(current.get("id")):
+            token = dependencies.session_token(request.cookies)
+            if not dependencies.session_store().household_unlocked(
+                token, kind=appauth.SESSION_KIND_WEB,
+            ):
+                raise HTTPException(423, "Profilverwaltung ist gesperrt.")
+        return current, target
+
+    @router.post("/api/me/household/unlock")
+    async def api_me_household_unlock(body: HouseholdUnlockBody, request: Request):
+        current = dependencies.current_user(request.headers, request.cookies)
+        if not current:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        token = dependencies.session_token(request.cookies)
+        session_store = dependencies.session_store()
+        if session_store.household_unlocked(token, kind=appauth.SESSION_KIND_WEB):
+            return {"unlocked": True}
+        confirmed = await run_in_threadpool(
+            dependencies.verify_credentials,
+            str(current.get("username") or ""),
+            body.password,
+        )
+        if not confirmed:
+            raise HTTPException(403, "Das Passwort ist falsch.")
+        if not session_store.unlock_household(token, kind=appauth.SESSION_KIND_WEB):
+            raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
+        return {"unlocked": True}
+
+    @router.get("/api/me/household/{user_id}/jellyfin-profile")
+    async def api_household_jellyfin_profile(user_id: str, request: Request):
+        _current, target = household_profile_access(request, user_id)
+        if not dependencies.jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        return await run_in_threadpool(dependencies.jellyfin_profile, target)
+
+    @router.post("/api/me/household/{user_id}/jellyfin-profile")
+    async def api_household_jellyfin_profile_set(
+        user_id: str,
+        body: JellyfinProfileBody,
+        request: Request,
+    ):
+        _current, target = household_profile_access(request, user_id)
+        if not dependencies.set_jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        try:
+            return await run_in_threadpool(
+                dependencies.set_jellyfin_profile, target, body.user_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ConnectionError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @router.post("/api/me/household/switch")
     async def api_me_household_switch(body: HouseholdSwitchBody, request: Request):
