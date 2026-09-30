@@ -65,6 +65,11 @@ class JellyfinProfileBody(BaseModel):
     user_id: str = Field(default="", max_length=128)
 
 
+class HouseholdProfileBody(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    avatar_id: str = Field(default="", max_length=64)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -326,7 +331,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 token, kind=appauth.SESSION_KIND_WEB,
             ),
             "users": [
-                {key: item.get(key) for key in ("id", "display_name", "role", "enabled")}
+                {key: item.get(key) for key in ("id", "display_name", "avatar_id", "role", "enabled")}
                 for item in users if item.get("enabled")
             ],
         }
@@ -365,6 +370,24 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         if not session_store.unlock_household(token, kind=appauth.SESSION_KIND_WEB):
             raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
         return {"unlocked": True}
+
+    @router.post("/api/me/household/{user_id}/profile")
+    async def api_household_profile_set(
+        user_id: str,
+        body: HouseholdProfileBody,
+        request: Request,
+    ):
+        _current, target = household_profile_access(request, user_id)
+        try:
+            return {
+                "user": dependencies.user_store().set_profile_identity(
+                    str(target["id"]),
+                    body.display_name,
+                    body.avatar_id,
+                ),
+            }
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @router.get("/api/me/household/{user_id}/jellyfin-profile")
     async def api_household_jellyfin_profile(user_id: str, request: Request):
