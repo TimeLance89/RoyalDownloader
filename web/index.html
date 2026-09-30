@@ -1449,10 +1449,12 @@
         <h1 id="household-title">Wer schaut gerade?</h1>
         <div id="household-users" class="household-users"></div>
         <form id="household-unlock" class="household-unlock" hidden>
-          <strong id="household-unlock-title">Profilwechsel freigeben</strong>
-          <span id="household-unlock-copy">Einmal Passwort eingeben. Danach wechselst du in dieser Sitzung direkt.</span>
-          <label for="household-password">Passwort</label>
+          <strong id="household-unlock-title">Profil bestätigen</strong>
+          <span id="household-unlock-copy">Gib das Passwort des Profils ein, zu dem du wechseln möchtest.</span>
+          <label id="household-password-label" for="household-password">Passwort</label>
           <div><input id="household-password" type="password" autocomplete="current-password" required><button type="submit">Weiter</button></div>
+          <label id="household-password-repeat-label" for="household-password-repeat" hidden>Passwort wiederholen</label>
+          <input id="household-password-repeat" type="password" autocomplete="new-password" hidden>
           <small id="household-status" role="status" aria-live="polite"></small>
         </form>
         <form id="household-manage" class="household-manage" hidden>
