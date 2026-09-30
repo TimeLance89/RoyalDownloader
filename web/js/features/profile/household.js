@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
+import { appStore } from "../../core/store.js";
 import { applyUserAvatar } from "./identity.js";
 
 const PROFILE_AVATARS = [
@@ -328,13 +329,24 @@ export function createHousehold(root, { userRoleLabel }) {
 
       const saved = profile.user || { ...user, display_name: name, avatar_id: selectedAvatarId };
       Object.assign(user, saved);
-      status.textContent = `✓ Profil „${saved.display_name || name}“ gespeichert.`;
+      const linkedName = managedJellyfinWritable && select.value
+        ? (select.selectedOptions[0]?.textContent || "Jellyfin")
+        : "";
+      status.textContent = linkedName
+        ? `✓ ${saved.display_name || name} ist mit ${linkedName} verknüpft.`
+        : `✓ Profil „${saved.display_name || name}“ gespeichert.`;
 
       if (user.id === householdState?.current_user_id) {
-        location.reload();
-        return;
+        appStore.set({ user: saved });
+        const title = document.getElementById("profile-title");
+        if (title) title.textContent = saved.display_name || saved.username || "Royal";
+        applyUserAvatar(document.getElementById("profile-avatar"), saved);
       }
-      await showHousehold();
+
+      const cards = find("household-users");
+      if (cards && householdState) {
+        cards.replaceChildren(...householdState.users.map(item => profileCard(item, current)));
+      }
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
       status.textContent = error.message;
