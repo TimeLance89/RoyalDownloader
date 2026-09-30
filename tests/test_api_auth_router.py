@@ -27,6 +27,7 @@ class FakeSessionStore:
         self.revoked = []
         self.current_user_id = "user-1"
         self.unlocked = False
+        self.switching_unlocked = False
 
     def create(self, *, label, kind, user_id=""):
         self.created.append((label, kind, user_id))
@@ -47,6 +48,13 @@ class FakeSessionStore:
 
     def unlock_household(self, _token, kind=None):
         self.unlocked = True
+        return True
+
+    def profile_switch_unlocked(self, _token, kind=None):
+        return self.switching_unlocked
+
+    def unlock_profile_switching(self, _token, kind=None):
+        self.switching_unlocked = True
         return True
 
     def switch_user(self, _token, user_id, kind=None):
@@ -111,7 +119,7 @@ def auth_client(*, valid_password="secret", second_setup_required=False, current
         ),
         log=lambda *_args, **_kwargs: None,
         user_store=lambda: users,
-        current_user=lambda *_args: user,
+        current_user=lambda *_args: user if store.current_user_id == "user-1" else second_user,
         jellyfin_profile=lambda target: {
             "configured": True,
             "available": True,
@@ -183,7 +191,7 @@ def test_invalid_login_and_native_logout_keep_status_contracts():
     assert store.revoked == [("mobile-session", appauth.SESSION_KIND_MOBILE)]
 
 
-def test_household_switch_authenticates_the_target_profile_each_time():
+def test_household_switch_requires_target_password_only_once_per_session():
     client, store = auth_client()
     client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
 
@@ -195,13 +203,21 @@ def test_household_switch_authenticates_the_target_profile_each_time():
         "/api/me/household/switch",
         json={"user_id": "user-2", "password": "guest-secret"},
     )
+    back_without_password = client.post(
+        "/api/me/household/switch",
+        json={"user_id": "user-1", "password": ""},
+    )
 
     assert wrong_identity_password.status_code == 403
     assert "Guest" in wrong_identity_password.json()["detail"]
     assert guest.status_code == 200
     assert guest.json()["household_unlocked"] is False
+    assert guest.json()["switching_unlocked"] is True
+    assert back_without_password.status_code == 200
+    assert back_without_password.json()["switching_unlocked"] is True
+    assert store.switching_unlocked is True
     assert store.unlocked is False
-    assert store.current_user_id == "user-2"
+    assert store.current_user_id == "user-1"
 
 
 def test_household_switch_rejects_profiles_that_need_first_login():

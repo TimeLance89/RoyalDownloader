@@ -6,9 +6,10 @@
 
 - Separate the visible **Profilname** from the **Loginname** in the UI and allow
   authenticated users to change their own login name with password confirmation.
-- Authenticate profile switches with the **target profile's password** instead of
-  the currently active account; administrator unlock is now reserved for managing
-  other profiles and never carries across a profile switch.
+- Authenticate the first protected profile switch with the **target profile's password** instead of
+  the currently active account, then remember that confirmation for the current browser session so
+  later profile switches are password-free. Administrator unlock remains separate and never carries
+  across a profile switch.
 - Handle first-time household profiles directly from **Wer schaut gerade?** by
   guiding them through their own password setup instead of returning a misleading
   wrong-password error.

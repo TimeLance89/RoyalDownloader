@@ -349,6 +349,9 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             "unlocked": dependencies.session_store().household_unlocked(
                 token, kind=appauth.SESSION_KIND_WEB,
             ),
+            "switching_unlocked": dependencies.session_store().profile_switch_unlocked(
+                token, kind=appauth.SESSION_KIND_WEB,
+            ),
             "users": [
                 {
                     key: item.get(key)
@@ -461,37 +464,48 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         target = dependencies.user_store().get(body.user_id)
         if not target or not target.get("enabled"):
             raise HTTPException(404, "Profil nicht gefunden.")
+        token = dependencies.session_token(request.cookies)
+        session_store = dependencies.session_store()
+        switching_unlocked = session_store.profile_switch_unlocked(
+            token, kind=appauth.SESSION_KIND_WEB,
+        )
         if str(target.get("id")) == str(current.get("id")):
             return {
                 "user": dependencies.user_store().public(target),
-                "household_unlocked": dependencies.session_store().household_unlocked(
-                    dependencies.session_token(request.cookies),
-                    kind=appauth.SESSION_KIND_WEB,
+                "household_unlocked": session_store.household_unlocked(
+                    token, kind=appauth.SESSION_KIND_WEB,
                 ),
+                "switching_unlocked": switching_unlocked,
             }
         if target.get("setup_required"):
             raise HTTPException(
                 409,
                 f"„{target.get('display_name') or target.get('username')}“ muss zuerst ein eigenes Passwort einrichten.",
             )
-        confirmed = await run_in_threadpool(
-            dependencies.verify_credentials,
-            str(target.get("username") or ""),
-            body.password,
-        )
-        if not confirmed:
-            raise HTTPException(
-                403,
-                f"Das Passwort für „{target.get('display_name') or target.get('username')}“ ist falsch.",
+        if not switching_unlocked:
+            confirmed = await run_in_threadpool(
+                dependencies.verify_credentials,
+                str(target.get("username") or ""),
+                body.password,
             )
-        token = dependencies.session_token(request.cookies)
-        if not dependencies.session_store().switch_user(
+            if not confirmed:
+                raise HTTPException(
+                    403,
+                    f"Das Passwort für „{target.get('display_name') or target.get('username')}“ ist falsch.",
+                )
+            if not session_store.unlock_profile_switching(
+                token, kind=appauth.SESSION_KIND_WEB,
+            ):
+                raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
+            switching_unlocked = True
+        if not session_store.switch_user(
             token, str(target["id"]), kind=appauth.SESSION_KIND_WEB,
         ):
             raise HTTPException(409, "Das Profil konnte nicht gewechselt werden.")
         return {
             "user": dependencies.user_store().public(target),
             "household_unlocked": False,
+            "switching_unlocked": switching_unlocked,
         }
 
     @router.post("/api/me/username")
@@ -582,6 +596,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
         dependencies.user_store().set_password(user["id"], await run_in_threadpool(appauth.hash_password, password))
         token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"])
+        if not dependencies.session_store().unlock_profile_switching(
+            token, kind=appauth.SESSION_KIND_WEB,
+        ):
+            raise HTTPException(500, "Die Profilumschaltung konnte nicht freigegeben werden.")
         response = JSONResponse({"ok": True, "authenticated": True, "user": dependencies.user_store().public(dependencies.user_store().get(user["id"]))})
         set_session_cookie(response, request, token)
         return response

@@ -55,7 +55,7 @@ def test_household_chooser_owns_personal_jellyfin_mapping_ui():
     assert "/profile" in household
     assert "PROFILE_AVATARS" in household
     assert '"first-login"' in household
-    assert "Das Passwort des aktuell aktiven Profils" in household
+    assert "Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln." in household
     assert '"/api/me/household/unlock"' in household
     assert "/jellyfin-profile" in household
     assert 'id="profile-jellyfin-user"' not in markup

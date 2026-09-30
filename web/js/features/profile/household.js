@@ -113,6 +113,7 @@ export function createHousehold(root, { userRoleLabel }) {
     if (!current.active) return;
     householdState = household;
     panel.dataset.unlocked = String(Boolean(household.unlocked));
+    panel.dataset.switchingUnlocked = String(Boolean(household.switching_unlocked));
     target.replaceChildren(...household.users.map(user => profileCard(user, current)));
     hideAuxiliaryPanels();
     current.timeout(() => target.querySelector(".household-user")?.focus(), 0);
@@ -148,7 +149,7 @@ export function createHousehold(root, { userRoleLabel }) {
       ? `Administrator bestätigen: Gib das Passwort von ${currentUser?.display_name || currentUser?.username || 'deinem Administratorkonto'} ein.`
       : firstLogin
         ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest. Loginname: „${user.username}“.`
-        : `Gib das Passwort von ${user.display_name} ein. Das Passwort des aktuell aktiven Profils wird hier nicht verwendet.`;
+        : `Gib einmal das Passwort von ${user.display_name} ein. Danach kannst du in dieser Sitzung frei zwischen den Profilen wechseln.`;
     find("household-password-label").textContent = firstLogin ? "Neues Passwort" : "Passwort";
     password.autocomplete = firstLogin ? "new-password" : "current-password";
     repeat.hidden = !firstLogin;
@@ -183,6 +184,10 @@ export function createHousehold(root, { userRoleLabel }) {
   function selectHouseholdUser(user) {
     if (user.setup_required) {
       showUnlock(user, "first-login");
+      return;
+    }
+    if (root.dataset.switchingUnlocked === "true") {
+      void switchHouseholdUser(user);
       return;
     }
     showUnlock(user, "switch");
