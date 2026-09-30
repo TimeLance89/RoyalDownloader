@@ -25,8 +25,16 @@ export function createHousehold(root, { userRoleLabel }) {
     find("household-unlock").hidden = true;
     find("household-manage").hidden = true;
     find("household-password").value = "";
+    find("household-password-repeat").value = "";
+    find("household-password-repeat").hidden = true;
+    find("household-password-repeat-label").hidden = true;
+    find("household-password").autocomplete = "current-password";
     find("household-status").textContent = "";
     find("household-status").classList.remove("error");
+  }
+
+  function currentHouseholdUser() {
+    return householdState?.users?.find(user => user.id === householdState?.current_user_id) || null;
   }
 
   function profileCard(user, current) {
@@ -62,16 +70,21 @@ export function createHousehold(root, { userRoleLabel }) {
       current.listen(button, "click", () => selectHouseholdUser(user));
     }
 
-    const settings = document.createElement("button");
-    settings.type = "button";
-    settings.className = "household-user-settings";
-    settings.dataset.userId = user.id;
-    settings.setAttribute("aria-label", `${user.display_name} verwalten`);
-    settings.title = `${user.display_name} verwalten`;
-    settings.innerHTML = '<span aria-hidden="true">⚙</span><small>Profil</small>';
-    current.listen(settings, "click", () => manageHouseholdUser(user));
-
-    wrapper.append(button, settings);
+    const currentUser = currentHouseholdUser();
+    const mayManage = user.id === householdState?.current_user_id || currentUser?.role === "admin";
+    if (mayManage) {
+      const settings = document.createElement("button");
+      settings.type = "button";
+      settings.className = "household-user-settings";
+      settings.dataset.userId = user.id;
+      settings.setAttribute("aria-label", `${user.display_name} verwalten`);
+      settings.title = `${user.display_name} verwalten`;
+      settings.innerHTML = '<span aria-hidden="true">⚙</span><small>Profil</small>';
+      current.listen(settings, "click", () => manageHouseholdUser(user));
+      wrapper.append(button, settings);
+    } else {
+      wrapper.append(button);
+    }
     return wrapper;
   }
 
@@ -121,14 +134,28 @@ export function createHousehold(root, { userRoleLabel }) {
     pendingHouseholdUser = user;
     pendingHouseholdAction = action;
     find("household-manage").hidden = true;
+    const currentUser = currentHouseholdUser();
+    const password = find("household-password");
+    const repeat = find("household-password-repeat");
+    const repeatLabel = find("household-password-repeat-label");
+    const firstLogin = action === "first-login";
     find("household-unlock-title").textContent = action === "manage"
       ? `${user.display_name} verwalten`
-      : `Zu ${user.display_name} wechseln`;
+      : firstLogin
+        ? `Passwort für ${user.display_name} festlegen`
+        : `Zu ${user.display_name} wechseln`;
     find("household-unlock-copy").textContent = action === "manage"
-      ? "Einmal Passwort eingeben. Danach kannst du die Profile in dieser Sitzung verwalten."
-      : "Einmal Passwort eingeben. Danach wechselst du in dieser Sitzung direkt.";
+      ? `Administrator bestätigen: Gib das Passwort von ${currentUser?.display_name || currentUser?.username || 'deinem Administratorkonto'} ein.`
+      : firstLogin
+        ? `Dieser Zugang wird zum ersten Mal verwendet. Lege jetzt ein eigenes Passwort für ${user.display_name} fest.`
+        : `Gib das Passwort von ${user.display_name} ein. Das Passwort des aktuell aktiven Profils wird hier nicht verwendet.`;
+    find("household-password-label").textContent = firstLogin ? "Neues Passwort" : "Passwort";
+    password.autocomplete = firstLogin ? "new-password" : "current-password";
+    repeat.hidden = !firstLogin;
+    repeatLabel.hidden = !firstLogin;
+    repeat.required = firstLogin;
     find("household-unlock").hidden = false;
-    find("household-password").focus();
+    password.focus();
   }
 
   async function switchHouseholdUser(user, password = "") {
@@ -154,11 +181,39 @@ export function createHousehold(root, { userRoleLabel }) {
   }
 
   function selectHouseholdUser(user) {
-    if (root.dataset.unlocked === "true") {
-      void switchHouseholdUser(user);
+    if (user.setup_required) {
+      showUnlock(user, "first-login");
       return;
     }
     showUnlock(user, "switch");
+  }
+
+  async function completeFirstLogin(user, password, repeat) {
+    const current = opened;
+    if (!current?.active) return;
+    const status = find("household-status");
+    status.classList.remove("error");
+    if (!password || password !== repeat) {
+      status.textContent = "Die beiden Passwörter stimmen nicht überein.";
+      status.classList.add("error");
+      find("household-password-repeat").focus();
+      return;
+    }
+    status.textContent = `Passwort für ${user.display_name} wird eingerichtet …`;
+    try {
+      await api.post(
+        "/api/auth/first-login",
+        { username: user.username, password, password_repeat: repeat },
+        { signal: current.signal },
+      );
+      if (!current.active) return;
+      location.reload();
+    } catch (error) {
+      if (!current.active || isAbortError(error)) return;
+      status.textContent = error.message;
+      status.classList.add("error");
+      find("household-password").select();
+    }
   }
 
   async function unlockHousehold(password) {
@@ -253,6 +308,13 @@ export function createHousehold(root, { userRoleLabel }) {
     const current = opened;
     if (!current?.active) return;
     const isCurrent = user.id === householdState?.current_user_id;
+    const currentUser = currentHouseholdUser();
+    if (!isCurrent && currentUser?.role !== "admin") {
+      const status = find("household-status");
+      status.textContent = "Nur Administratoren dürfen andere Profile verwalten.";
+      status.classList.add("error");
+      return;
+    }
     if (!isCurrent && root.dataset.unlocked !== "true") {
       showUnlock(user, "manage");
       return;
@@ -405,6 +467,14 @@ export function createHousehold(root, { userRoleLabel }) {
           if (await unlockHousehold(find("household-password").value)) {
             await manageHouseholdUser(user);
           }
+          return;
+        }
+        if (pendingHouseholdAction === "first-login") {
+          void completeFirstLogin(
+            pendingHouseholdUser,
+            find("household-password").value,
+            find("household-password-repeat").value,
+          );
           return;
         }
         void switchHouseholdUser(pendingHouseholdUser, find("household-password").value);
