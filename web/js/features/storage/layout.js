@@ -54,9 +54,10 @@ export function installStorageUi(root) {
               <label><input type="checkbox" name="storage-location-media" value="anime" checked><span>Anime</span></label>
               <small>Royal verteilt nur passende Inhalte in diesen Ordner. So landen Filme nicht versehentlich im Serien-Ordner.</small>
             </fieldset>
-            <div class="storage-location-form-actions"><button id="storage-location-save" class="btn btn-primary btn-sm" type="submit">Speicher hinzufügen</button><button id="storage-location-cancel" class="btn btn-ghost btn-sm" type="button" hidden>Abbrechen</button></div>
+            <div class="storage-location-form-actions"><button id="storage-location-save" class="btn btn-primary btn-sm" type="submit">Speicherort hinzufügen</button><button id="storage-location-cancel" class="btn btn-ghost btn-sm" type="button" hidden>Abbrechen</button></div>
           </form>
           <div id="storage-location-list" class="storage-location-list"><div class="storage-empty-state"><strong>Noch kein zusätzlicher Speicherort</strong><span>Der Film- und Serien-Speicher wird trotzdem automatisch live gemessen.</span></div></div>
+          <p class="storage-mount-hint"><span>i</span><span><strong>Für automatische Verteilung:</strong> Zusätzliche Medienziele werden für neue Downloads erst verwendet, wenn du beim Storage Autopilot „Automatisch verteilen“ oder „Automatisch + Archiv“ auswählst.</span></p>
           <p class="storage-mount-hint"><span>i</span><span><strong>Docker/NAS:</strong> Der Ordner muss zuerst als Bind-Mount im Royal-Container sichtbar sein. Danach trägst du hier den Container-Pfad ein, zum Beispiel <code>/movies_vol2</code>. Royal bindet Laufwerke nicht selbst ein.</span></p>
         </section>
 
