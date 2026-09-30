@@ -204,6 +204,7 @@ class SessionStore:
                     "kind": kind,
                     "user_id": str(entry.get("user_id") or ""),
                     "household_unlocked": bool(entry.get("household_unlocked")),
+                    "profile_switch_unlocked": bool(entry.get("profile_switch_unlocked")),
                     "_persisted_last_seen": last_seen,
                 }))
             # Auch eine manipulierte oder beschädigte Datei darf das konfigurierte
@@ -286,6 +287,7 @@ class SessionStore:
                 "kind": kind,
                 "user_id": str(user_id or "")[:120],
                 "household_unlocked": False,
+                "profile_switch_unlocked": False,
                 "_persisted_last_seen": now,
             }
             try:
@@ -302,6 +304,32 @@ class SessionStore:
         with self._lock:
             entry = self._sessions.get(_token_fingerprint(token)) or {}
             return bool(entry.get("household_unlocked"))
+
+    def profile_switch_unlocked(self, token: str, kind: Optional[str] = None) -> bool:
+        """Return whether household profile switching was confirmed once for this session."""
+        if not self.validate(token, kind):
+            return False
+        with self._lock:
+            entry = self._sessions.get(_token_fingerprint(token)) or {}
+            return bool(entry.get("profile_switch_unlocked"))
+
+    def unlock_profile_switching(self, token: str, kind: Optional[str] = None) -> bool:
+        """Allow password-free household profile switching for the current session."""
+        if not self.validate(token, kind):
+            return False
+        fingerprint = _token_fingerprint(token)
+        with self._lock:
+            entry = self._sessions.get(fingerprint)
+            if entry is None:
+                return False
+            previous = bool(entry.get("profile_switch_unlocked"))
+            entry["profile_switch_unlocked"] = True
+            try:
+                self._save_locked()
+            except SessionPersistenceError:
+                entry["profile_switch_unlocked"] = previous
+                raise
+            return True
 
     def unlock_household(self, token: str, kind: Optional[str] = None) -> bool:
         """Unlock administration of other household profiles for this identity."""
@@ -322,7 +350,7 @@ class SessionStore:
             return True
 
     def switch_user(self, token: str, user_id: str, kind: Optional[str] = None) -> bool:
-        """Move a valid session to a separately authenticated household identity."""
+        """Move a valid session to another household identity."""
         target = str(user_id or "").strip()[:120]
         if not target or not self.validate(token, kind):
             return False
@@ -332,16 +360,17 @@ class SessionStore:
             if entry is None:
                 return False
             previous_user = str(entry.get("user_id") or "")
-            previous_unlock = bool(entry.get("household_unlocked"))
+            previous_admin_unlock = bool(entry.get("household_unlocked"))
             entry["user_id"] = target
-            # An administrator unlock must never follow the session into a
-            # different household identity.
+            # Profile switching may stay unlocked for the browser session, but
+            # privileged profile administration must be confirmed again after
+            # changing identities.
             entry["household_unlocked"] = False
             try:
                 self._save_locked()
             except SessionPersistenceError:
                 entry["user_id"] = previous_user
-                entry["household_unlocked"] = previous_unlock
+                entry["household_unlocked"] = previous_admin_unlock
                 raise
             return True
 
