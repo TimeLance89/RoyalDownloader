@@ -22,6 +22,7 @@ def test_storage_locations_persist_update_and_remove(isolated_storage_registry):
     )
     assert created["id"]
     assert created["media_types"] == []
+    assert created["media_types_explicit"] is True
     assert sl.load_storage_locations() == [created]
 
     updated = sl.save_storage_location(
