@@ -308,6 +308,11 @@
   background: linear-gradient(145deg, #f3364c, #980b1e);
   box-shadow: 0 0 0 1px rgba(255, 211, 117, .28), 0 8px 19px rgba(87, 0, 17, .42);
 }
+.topbar .user-menu-avatar.has-profile-avatar {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
 .topbar .user-menu-copy { gap: 3px; }
 .topbar .user-menu-copy strong { max-width: 96px; overflow: hidden; color: var(--color-white); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .user-menu-copy small { color: #7f8b96; font-size: 9px; }
