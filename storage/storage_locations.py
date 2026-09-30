@@ -16,6 +16,7 @@ MAX_STORAGE_LOCATIONS = 12
 LOCATION_MODE_MONITOR = "monitor"
 LOCATION_MODE_MEDIA = "media"
 LOCATION_MODES = {LOCATION_MODE_MONITOR, LOCATION_MODE_MEDIA}
+LOCATION_MEDIA_TYPES = ("movies", "series", "anime")
 _STORAGE_FILE_NAME = "storage_locations.json"
 _storage_lock = threading.RLock()
 
@@ -37,6 +38,7 @@ def _normalize_location(raw: dict, *, require_id: bool = True) -> dict | None:
     label = str(raw.get("label") or "").strip()
     path = str(raw.get("path") or "").strip()
     mode = str(raw.get("mode") or LOCATION_MODE_MONITOR).strip().casefold()
+    raw_media_types = raw.get("media_types", list(LOCATION_MEDIA_TYPES))
     if require_id and (not location_id or len(location_id) > 64):
         return None
     if not label or len(label) > 80 or any(ch in label for ch in "\r\n\x00"):
@@ -45,11 +47,22 @@ def _normalize_location(raw: dict, *, require_id: bool = True) -> dict | None:
         return None
     if mode not in LOCATION_MODES:
         mode = LOCATION_MODE_MONITOR
+    if not isinstance(raw_media_types, (list, tuple)):
+        return None
+    media_types = [
+        kind for kind in LOCATION_MEDIA_TYPES
+        if kind in {str(value or "").strip().casefold() for value in raw_media_types}
+    ]
+    if mode == LOCATION_MODE_MONITOR:
+        media_types = []
+    elif not media_types:
+        return None
     return {
         "id": location_id,
         "label": label,
         "path": path,
         "mode": mode,
+        "media_types": media_types,
     }
 
 
@@ -111,6 +124,7 @@ def save_storage_location(
     label: str,
     path: str,
     mode: str = LOCATION_MODE_MONITOR,
+    media_types: list[str] | None = None,
     location_id: str = "",
 ) -> dict:
     normalized = _normalize_location({
@@ -118,6 +132,7 @@ def save_storage_location(
         "label": label,
         "path": path,
         "mode": mode,
+        "media_types": list(LOCATION_MEDIA_TYPES) if media_types is None else media_types,
     })
     if not normalized:
         raise ValueError("Ungültiger Speicherort.")
@@ -177,6 +192,7 @@ def _status_root_for_location(location: dict, deployment_mode: str) -> dict:
         "source": "custom",
         "location_id": location["id"],
         "location_mode": location["mode"],
+        "allowed_media_types": list(location.get("media_types") or []),
     })
     return source
 
@@ -222,6 +238,7 @@ def combined_storage_status(
             "source": root.get("source") or "media",
             "mode": root.get("location_mode") or LOCATION_MODE_MEDIA,
             "location_id": root.get("location_id") or "",
+            "media_types": list(root.get("allowed_media_types") or []),
         })
 
     volumes = list(volume_by_id.values())
@@ -254,6 +271,7 @@ def combined_storage_status(
         "volumes": volumes,
         "locations": normalized_locations,
         "location_modes": [LOCATION_MODE_MONITOR, LOCATION_MODE_MEDIA],
+        "media_types": list(LOCATION_MEDIA_TYPES),
         "max_locations": MAX_STORAGE_LOCATIONS,
         "summary": {
             "total_bytes": total,
