@@ -7,12 +7,12 @@ export function installAutopilotUi(root) {
         <p id="storage-autopilot-impact">Royal behält deine Speicherorte im Blick.</p><p id="storage-autopilot-capacity" class="dim"></p></header>
       <form id="storage-autopilot-form">
         <fieldset class="storage-autonomy"><legend>Wie selbstständig darf Royal handeln?</legend>
-          <label><input type="radio" name="storage-autonomy" value="monitor" checked><span><strong>Überwachen</strong><small>Kapazität anzeigen. Keine Zieländerung, Verschiebung oder Löschung.</small></span></label>
-          <label><input type="radio" name="storage-autonomy" value="advisor"><span><strong>Beraten</strong><small>Konkrete Vorschläge. Du bestätigst jede Aktion.</small></span></label>
-          <label><input type="radio" name="storage-autonomy" value="automatic"><span><strong>Automatisch</strong><small>Downloads sinnvoll platzieren und volle Volumes sicher entlasten.</small></span></label>
-          <label><input type="radio" name="storage-autonomy" value="full"><span><strong>Vollautomatisch</strong><small>Zusätzlich ältere Inhalte auf freigegebene Archiv-Volumes verlagern.</small></span></label>
+          <label><input type="radio" name="storage-autonomy" value="monitor" checked><span><strong>Nur überwachen</strong><small>Royal zeigt den Speicher an. Neue Downloads bleiben in den Standard-Zielordnern.</small></span></label>
+          <label><input type="radio" name="storage-autonomy" value="advisor"><span><strong>Vorschläge machen</strong><small>Royal zeigt bessere Speicherziele, ändert den Downloadpfad aber nicht selbst.</small></span></label>
+          <label><input type="radio" name="storage-autonomy" value="automatic"><span><strong>Automatisch verteilen</strong><small>Neue Downloads landen automatisch auf einem passenden freigegebenen Speicherort. Volle Volumes können sicher entlastet werden.</small></span></label>
+          <label><input type="radio" name="storage-autonomy" value="full"><span><strong>Automatisch + Archiv</strong><small>Wie „Automatisch verteilen“, zusätzlich dürfen ältere Inhalte auf ausdrücklich freigegebene Archiv-Speicher verschoben werden.</small></span></label>
         </fieldset>
-        <p>Keine Stufe erlaubt automatisch das Löschen von Medien.</p>
+        <p><strong>Einfach erklärt:</strong> Die Standard-Zielordner sind der Startpunkt. Erst mit „Automatisch verteilen“ darf Royal für jeden neuen Download einen anderen passenden Medien-Speicher auswählen. Keine Stufe löscht automatisch deine Filme oder Serien.</p>
         <details id="storage-autopilot-advanced"><summary>Erweiterte Einstellungen</summary>
           <div class="storage-policy-grid">
             <label><span>Zeitfenster nutzen</span><input name="window_enabled" type="checkbox" checked></label>
@@ -34,7 +34,7 @@ export function installAutopilotUi(root) {
       <section aria-labelledby="storage-recommendations-title"><h4 id="storage-recommendations-title">Empfehlungen</h4><div id="storage-placement-advice"></div><div id="storage-recommendations">Keine Empfehlungen geladen.</div>
         <button class="btn btn-ghost btn-sm" type="button" data-autopilot-action="recommend">Empfehlungen aktualisieren</button>
       </section>
-      <details id="storage-volume-policies"><summary>Volume-Rollen und Speicherziele</summary><div id="storage-volume-policy-list"></div></details>
+      <details id="storage-volume-policies"><summary>Erweiterte Speicherregeln</summary><p class="dim">Optional: Rollen, Auslastungsgrenzen und Reserven fein einstellen. Für die normale Nutzung reichen die Auswahl oben und die erlaubten Inhalte je Speicherort.</p><div id="storage-volume-policy-list"></div></details>
       <details id="storage-cleanup-permission" class="storage-cleanup-permission"><summary>Automatische Bereinigung</summary>
         <p>Diese Freigabe ist unabhängig vom Autopilot-Modus. Medien und unbekannte Dateien werden niemals automatisch gelöscht.</p>
         <label><input id="storage-auto-delete" type="checkbox"> Automatisches Löschen eindeutig markierter Royal-Downloadreste erlauben</label>
