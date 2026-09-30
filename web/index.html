@@ -1633,14 +1633,15 @@
         </div>
 
         <div id="settings-storage-card" class="settings-group settings-card">
-          <h3>Speicherorte</h3>
-          <p class="dim settings-hint">Getrennte Zielordner für Filme und Serien.</p>
-          <label class="dim auto-lbl">Filme</label>
+          <h3>Standard-Zielordner</h3>
+          <p class="dim settings-hint">Hier starten Filme und Serien standardmäßig. Wenn du unter <strong>Speicher</strong> „Automatisch verteilen“ aktivierst, darf Royal neue Downloads stattdessen auf einen anderen passenden Medien-Speicher legen.</p>
+          <button class="btn btn-ghost btn-sm" type="button" data-settings-open="settings-storage">Speicher &amp; automatische Verteilung öffnen</button>
+          <label class="dim auto-lbl">Standard für Filme</label>
           <div class="path-input-row">
             <input id="save-path" type="text" placeholder="/Deluxe/downloads/Filme">
             <button id="browse-dir-btn" class="btn btn-ghost btn-sm">…</button>
           </div>
-          <label class="dim auto-lbl">Serien</label>
+          <label class="dim auto-lbl">Standard für Serien</label>
           <div class="path-input-row">
             <input id="series-path" type="text" placeholder="/Deluxe/downloads/Serien">
             <button id="browse-series-btn" class="btn btn-ghost btn-sm">…</button>
@@ -2413,14 +2414,14 @@
         <div class="setup-panel hidden" data-setup-step="3">
           <div id="setup-storage-fields">
           <label class="setup-field" for="setup-save-path">
-            <span>Filmordner <em>Erforderlich</em></span>
+            <span>Standardordner für Filme <em>Erforderlich</em></span>
             <div class="setup-path-row">
               <input id="setup-save-path" type="text" autocomplete="off" placeholder="/downloads/Filme">
               <button id="setup-browse-movies" class="btn btn-ghost" type="button" aria-label="Filmordner auswählen">Ordner</button>
             </div>
           </label>
           <label class="setup-field" for="setup-series-path">
-            <span>Ordner für Serien <em>Erforderlich</em></span>
+            <span>Standardordner für Serien <em>Erforderlich</em></span>
             <div class="setup-path-row">
               <input id="setup-series-path" type="text" autocomplete="off" placeholder="/downloads/Serien">
               <button id="setup-browse-series" class="btn btn-ghost" type="button" aria-label="Serienordner auswählen">Ordner</button>
@@ -2429,7 +2430,7 @@
           </div>
           <div class="setup-callout">
             <span class="setup-callout-icon">2</span>
-            <div><strong>Zwei parallele Downloads</strong><p>Neue Inhalte starten automatisch und warten bei voller Auslastung in der Queue.</p></div>
+            <div><strong>Das sind die sicheren Standardziele</strong><p>Royal nutzt diese Ordner immer als Ausgangspunkt. Zusätzliche Festplatten und automatische Verteilung kannst du danach unter „Speicher“ einrichten.</p></div>
           </div>
         </div>
 
