@@ -65,6 +65,11 @@ class StorageLocationBody(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     path: str = Field(min_length=1, max_length=2048)
     mode: Literal["monitor", "media"] = LOCATION_MODE_MONITOR
+    media_types: list[Literal["movies", "series", "anime"]] = Field(
+        default_factory=lambda: ["movies", "series", "anime"],
+        min_length=1,
+        max_length=3,
+    )
 
 
 class StorageLocationRemoveBody(BaseModel):
@@ -89,6 +94,7 @@ async def api_storage_locations():
     return {
         "locations": locations,
         "modes": ["monitor", "media"],
+        "media_types": ["movies", "series", "anime"],
     }
 
 
@@ -107,6 +113,7 @@ async def api_storage_location_save(body: StorageLocationBody):
             label=body.label,
             path=body.path,
             mode=body.mode,
+            media_types=body.media_types,
             location_id=body.location_id,
         )
     except (OSError, ValueError) as exc:
