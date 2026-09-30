@@ -7,6 +7,9 @@ the composition root so this module stays independent from ``server.py``.
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -70,6 +73,12 @@ class HouseholdProfileBody(BaseModel):
     avatar_id: str = Field(default="", max_length=64)
 
 
+class ProfileAvatarUploadBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=160)
+    content_type: str = Field(default="", max_length=80)
+    data_base64: str = Field(min_length=4, max_length=6_000_000)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -99,6 +108,11 @@ class AuthDependencies:
     delete_user_data: Callable[[str], dict] | None = None
     jellyfin_profile: Callable[[dict], dict] | None = None
     set_jellyfin_profile: Callable[[dict, str], dict] | None = None
+    list_profile_avatars: Callable[[], list[dict]] | None = None
+    read_profile_avatar: Callable[[str], tuple[bytes, str] | None] | None = None
+    save_profile_avatar: Callable[[str, str, bytes], dict] | None = None
+    delete_profile_avatar: Callable[[str], dict] | None = None
+    profile_avatar_exists: Callable[[str], bool] | None = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -378,12 +392,19 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         request: Request,
     ):
         _current, target = household_profile_access(request, user_id)
+        avatar_id = body.avatar_id.strip()
+        if avatar_id.startswith("custom-"):
+            if not dependencies.profile_avatar_exists:
+                raise HTTPException(400, "Eigene Profilbilder sind nicht verfügbar.")
+            exists = await run_in_threadpool(dependencies.profile_avatar_exists, avatar_id)
+            if not exists:
+                raise HTTPException(400, "Das gewählte Profilbild existiert nicht mehr.")
         try:
             return {
                 "user": dependencies.user_store().set_profile_identity(
                     str(target["id"]),
                     body.display_name,
-                    body.avatar_id,
+                    avatar_id,
                 ),
             }
         except ValueError as exc:
@@ -528,6 +549,75 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     async def api_users(request: Request):
         require_admin(request)
         return {"users": dependencies.user_store().list()}
+
+    @router.get("/api/profile-avatars")
+    async def api_profile_avatars(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.list_profile_avatars:
+            return {"avatars": []}
+        avatars = await run_in_threadpool(dependencies.list_profile_avatars)
+        return {
+            "avatars": [
+                {**item, "url": f"/api/profile-avatars/{item['id']}"}
+                for item in avatars
+            ],
+        }
+
+    @router.get("/api/profile-avatars/{avatar_id}")
+    async def api_profile_avatar_file(avatar_id: str, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.read_profile_avatar:
+            raise HTTPException(404, "Profilbild nicht gefunden.")
+        payload = await run_in_threadpool(dependencies.read_profile_avatar, avatar_id)
+        if not payload:
+            raise HTTPException(404, "Profilbild nicht gefunden.")
+        data, content_type = payload
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+    @router.post("/api/auth/profile-avatars")
+    async def api_profile_avatar_upload(body: ProfileAvatarUploadBody, request: Request):
+        require_admin(request)
+        if not dependencies.save_profile_avatar:
+            raise HTTPException(503, "Profilbild-Upload ist nicht verfügbar.")
+        try:
+            raw = base64.b64decode(body.data_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(400, "Das Profilbild ist nicht gültig kodiert.") from exc
+        try:
+            avatar = await run_in_threadpool(
+                dependencies.save_profile_avatar,
+                body.filename,
+                body.content_type,
+                raw,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, "Das Profilbild konnte nicht gespeichert werden.") from exc
+        dependencies.log(f"Eigenes Profilbild „{avatar.get('name') or avatar.get('id')}“ hochgeladen.")
+        return {"avatar": {**avatar, "url": f"/api/profile-avatars/{avatar['id']}"}}
+
+    @router.delete("/api/auth/profile-avatars/{avatar_id}")
+    async def api_profile_avatar_delete(avatar_id: str, request: Request):
+        require_admin(request)
+        if not dependencies.delete_profile_avatar:
+            raise HTTPException(503, "Profilbild-Verwaltung ist nicht verfügbar.")
+        try:
+            result = await run_in_threadpool(dependencies.delete_profile_avatar, avatar_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, "Das Profilbild konnte nicht gelöscht werden.") from exc
+        dependencies.log(f"Eigenes Profilbild „{result.get('name') or avatar_id}“ gelöscht.")
+        return {"deleted": result}
 
     @router.post("/api/auth/users")
     async def api_users_create(body: UserCreateBody, request: Request):

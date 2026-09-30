@@ -221,6 +221,7 @@ from api.api_administration_router import (
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from core.app_state import AppState, _PreparationSlots
 from core.users import UserStore
+from core.profile_avatars import ProfileAvatarStore, auth_dependency_callbacks
 from core.websocket_manager import WSManager, _WSClient
 from api.api_websocket_router import (
     WebSocketDependencies,
@@ -343,6 +344,7 @@ WEBSOCKET_CLIENT_QUEUE_SIZE = 128
 SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
 USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
+PROFILE_AVATAR_STORE = ProfileAvatarStore(data_dir() / "profile_avatars")
 LOGIN_GUARD = appauth.LoginGuard()
 BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
@@ -895,6 +897,7 @@ app.include_router(create_auth_router(AuthDependencies(
     profile_summary=_profile_summary,
     jellyfin_profile=_jellyfin_profile_payload,
     set_jellyfin_profile=_set_jellyfin_profile,
+    **auth_dependency_callbacks(PROFILE_AVATAR_STORE, USER_STORE),
 )))
 
 

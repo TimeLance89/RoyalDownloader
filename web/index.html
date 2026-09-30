@@ -2006,6 +2006,21 @@
           <div class="account-actions"><button id="new-user-create" class="btn btn-primary btn-sm" type="button">Benutzer hinzufügen</button></div>
           <div id="account-users-status" class="dim small-status" role="status"></div>
         </div>
+        <div id="account-avatar-card" class="settings-group settings-card account-avatar-settings" hidden>
+          <div class="account-avatar-heading">
+            <div>
+              <h3>Profilbilder verwalten</h3>
+              <p class="dim settings-hint">Eigene Bilder hochladen, die anschließend unter „Wer schaut gerade?“ von allen Profilen ausgewählt werden können.</p>
+            </div>
+            <span class="account-avatar-admin-badge">ADMIN</span>
+          </div>
+          <div id="account-avatar-library" class="account-avatar-library" aria-live="polite"></div>
+          <label class="dim auto-lbl" for="account-avatar-file">Neues Profilbild</label>
+          <input id="account-avatar-file" type="file" accept="image/png,image/jpeg,image/webp">
+          <p class="dim account-avatar-note">PNG, JPEG oder WebP · maximal 4 MB · quadratische Bilder funktionieren am besten.</p>
+          <div class="account-actions"><button id="account-avatar-upload" class="btn btn-primary btn-sm" type="button">Profilbild hochladen</button></div>
+          <div id="account-avatar-status" class="dim small-status" role="status" aria-live="polite"></div>
+        </div>
             </div>
           </section>
 

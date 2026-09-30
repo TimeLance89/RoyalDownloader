@@ -6,7 +6,9 @@ export function userInitials(user) {
 
 export function profileAvatarUrl(user) {
   const avatar = String(user?.avatar_id || "").trim();
-  return avatar ? `${PROFILE_AVATAR_PATH}${avatar}.svg` : "";
+  if (!avatar) return "";
+  if (avatar.startsWith("custom-")) return `/api/profile-avatars/${encodeURIComponent(avatar)}`;
+  return `${PROFILE_AVATAR_PATH}${avatar}.svg`;
 }
 
 export function applyUserAvatar(element, user) {

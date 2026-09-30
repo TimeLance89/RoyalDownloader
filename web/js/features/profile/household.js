@@ -18,6 +18,7 @@ export function createHousehold(root, { userRoleLabel }) {
   let managedHouseholdUser = null;
   let selectedAvatarId = "";
   let managedJellyfinWritable = false;
+  let customProfileAvatars = [];
   const find = id => root.querySelector(`#${id}`);
 
   function hideAuxiliaryPanels() {
@@ -85,7 +86,12 @@ export function createHousehold(root, { userRoleLabel }) {
     target.textContent = "Profile werden geladen …";
     let household;
     try {
-      household = await api.get("/api/me/household", { signal: current.signal });
+      const [householdResult, avatarResult] = await Promise.all([
+        api.get("/api/me/household", { signal: current.signal }),
+        api.get("/api/profile-avatars", { signal: current.signal }).catch(() => ({ avatars: [] })),
+      ]);
+      household = householdResult;
+      customProfileAvatars = Array.isArray(avatarResult.avatars) ? avatarResult.avatars : [];
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
       target.textContent = `Profile konnten nicht geladen werden: ${error.message}`;
@@ -179,8 +185,10 @@ export function createHousehold(root, { userRoleLabel }) {
   }
 
   function renderAvatarChoices(user) {
-    selectedAvatarId = PROFILE_AVATARS.includes(String(user.avatar_id || ""))
-      ? String(user.avatar_id || "")
+    const currentAvatar = String(user.avatar_id || "");
+    const customIds = new Set(customProfileAvatars.map(item => String(item.id || "")));
+    selectedAvatarId = PROFILE_AVATARS.includes(currentAvatar) || customIds.has(currentAvatar)
+      ? currentAvatar
       : "";
     const grid = find("household-avatar-grid");
     const choices = [];
@@ -205,6 +213,23 @@ export function createHousehold(root, { userRoleLabel }) {
       button.setAttribute("aria-label", `Profilbild ${avatarId.replace("avatar-", "")}`);
       const image = document.createElement("img");
       image.src = `/assets/profile-avatars/${avatarId}.svg`;
+      image.alt = "";
+      image.loading = "lazy";
+      button.append(image);
+      choices.push(button);
+    });
+
+    customProfileAvatars.forEach(avatar => {
+      const avatarId = String(avatar.id || "");
+      if (!avatarId) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "household-avatar-choice is-custom";
+      button.dataset.avatarId = avatarId;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-label", avatar.name || "Eigenes Profilbild");
+      const image = document.createElement("img");
+      image.src = avatar.url || `/api/profile-avatars/${encodeURIComponent(avatarId)}`;
       image.alt = "";
       image.loading = "lazy";
       button.append(image);
