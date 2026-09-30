@@ -21,6 +21,8 @@ def test_storage_locations_persist_update_and_remove(isolated_storage_registry):
         mode="monitor",
     )
     assert created["id"]
+    assert created["media_types"] == []
+    assert created["media_types_explicit"] is True
     assert sl.load_storage_locations() == [created]
 
     updated = sl.save_storage_location(
@@ -31,11 +33,34 @@ def test_storage_locations_persist_update_and_remove(isolated_storage_registry):
     )
     assert updated["id"] == created["id"]
     assert updated["mode"] == "media"
+    assert updated["media_types"] == ["movies", "series", "anime"]
     assert sl.load_storage_locations() == [updated]
 
     assert sl.remove_storage_location(created["id"]) is True
     assert sl.load_storage_locations() == []
     assert sl.remove_storage_location(created["id"]) is False
+
+
+def test_media_location_persists_explicit_content_types(isolated_storage_registry):
+    created = sl.save_storage_location(
+        label="Serien auf Volume 2",
+        path="/series-vol2",
+        mode="media",
+        media_types=["series", "anime"],
+    )
+    assert created["media_types"] == ["series", "anime"]
+    loaded = sl.load_storage_locations()[0]
+    assert loaded["media_types"] == ["series", "anime"]
+
+
+def test_media_location_rejects_empty_content_types(isolated_storage_registry):
+    with pytest.raises(ValueError, match="Ungültiger Speicherort"):
+        sl.save_storage_location(
+            label="Leeres Ziel",
+            path="/empty",
+            mode="media",
+            media_types=[],
+        )
 
 
 def test_duplicate_storage_path_is_rejected(isolated_storage_registry):

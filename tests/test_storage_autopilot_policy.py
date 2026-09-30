@@ -44,6 +44,26 @@ def test_monitor_permission_cannot_be_overridden():
     assert policy["allow_moves_in"] is policy["allow_moves_out"] is False
 
 
+def test_explicit_custom_location_media_types_are_authoritative():
+    custom = root(
+        key="location:movies2",
+        allowed_media_types=["movies"],
+        allowed_media_types_explicit=True,
+    )
+    policy = volume_policy(custom, {"location:movies2": {"media_types": ["series", "anime"]}})
+    assert policy["media_types"] == ["movies"]
+
+
+def test_legacy_custom_location_keeps_existing_advanced_media_filter():
+    custom = root(
+        key="location:legacy",
+        allowed_media_types=["movies", "series", "anime"],
+        allowed_media_types_explicit=False,
+    )
+    policy = volume_policy(custom, {"location:legacy": {"media_types": ["series"]}})
+    assert policy["media_types"] == ["series"]
+
+
 @pytest.mark.parametrize("changes,policy", [
     ({"available": False}, {}), ({"writable": False}, {}),
     ({"location_mode": "monitor"}, {}), ({}, {"media_types": ["anime"]}),

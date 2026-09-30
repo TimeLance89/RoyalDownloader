@@ -81,13 +81,30 @@ export function createStorage(root) {
     }
   }
 
+  function selectedLocationMediaTypes() {
+    return [...root.querySelectorAll('input[name="storage-location-media"]:checked')].map((input) => input.value);
+  }
+
+  function syncLocationMediaFields({ selectDefaults = false } = {}) {
+    const mode = find("storage-location-mode")?.value || "monitor";
+    const group = find("storage-location-media-types");
+    if (!group) return;
+    const inputs = [...group.querySelectorAll('input[name="storage-location-media"]')];
+    if (mode === "media" && selectDefaults && !inputs.some((input) => input.checked)) {
+      inputs.forEach((input) => { input.checked = true; });
+    }
+    group.hidden = mode !== "media";
+    inputs.forEach((input) => { input.disabled = mode !== "media"; });
+  }
+
   function resetLocationForm() {
     editingLocationId = "";
     const form = find("storage-location-form");
     form?.reset();
+    syncLocationMediaFields();
     const save = find("storage-location-save");
     const cancel = find("storage-location-cancel");
-    if (save) save.textContent = "Speicher hinzufügen";
+    if (save) save.textContent = "Speicherort hinzufügen";
     if (cancel) cancel.hidden = true;
   }
 
@@ -98,6 +115,11 @@ export function createStorage(root) {
     find("storage-location-label").value = location.label;
     find("storage-location-path").value = location.path;
     find("storage-location-mode").value = location.mode;
+    const allowed = new Set(Array.isArray(location.media_types) ? location.media_types : ["movies", "series", "anime"]);
+    root.querySelectorAll('input[name="storage-location-media"]').forEach((input) => {
+      input.checked = allowed.has(input.value);
+    });
+    syncLocationMediaFields({ selectDefaults: location.mode === "media" });
     const save = find("storage-location-save");
     const cancel = find("storage-location-cancel");
     if (save) save.textContent = "Änderungen speichern";
@@ -113,9 +135,14 @@ export function createStorage(root) {
     const label = find("storage-location-label")?.value.trim() || "";
     const path = find("storage-location-path")?.value.trim() || "";
     const mode = find("storage-location-mode")?.value || "monitor";
+    const mediaTypes = mode === "media" ? selectedLocationMediaTypes() : [];
     const save = find("storage-location-save");
     const status = find("storage-cleanup-status");
     if (!label || !path) return;
+    if (mode === "media" && !mediaTypes.length) {
+      if (status) status.textContent = "Wähle mindestens eine Medienart aus: Filme, Serien oder Anime.";
+      return;
+    }
     if (save) { save.disabled = true; save.textContent = "Speichere …"; }
     try {
       await api.post("/api/storage/locations/save", {
@@ -123,6 +150,7 @@ export function createStorage(root) {
         label,
         path,
         mode,
+        media_types: mediaTypes,
       });
       if (!current.active) return;
       if (status) status.textContent = `${label} gespeichert. Die Live-Werte werden neu eingelesen.`;
@@ -132,7 +160,7 @@ export function createStorage(root) {
       if (status) status.textContent = `Speicherort konnte nicht gespeichert werden · ${error.message}`;
     } finally {
       if (!current.active) return;
-      if (save) { save.disabled = false; save.textContent = editingLocationId ? "Änderungen speichern" : "Speicher hinzufügen"; }
+      if (save) { save.disabled = false; save.textContent = editingLocationId ? "Änderungen speichern" : "Speicherort hinzufügen"; }
     }
   }
 
@@ -321,6 +349,7 @@ export function createStorage(root) {
     scope.listen(find("storage-refresh"), "click", () => refreshStatus(false));
     scope.listen(find("storage-scan"), "click", scanStorage);
     scope.listen(find("storage-location-form"), "submit", saveLocation);
+    scope.listen(find("storage-location-mode"), "change", () => syncLocationMediaFields({ selectDefaults: true }));
     scope.listen(find("storage-location-cancel"), "click", resetLocationForm);
     scope.listen(find("storage-location-list"), "click", handleLocationAction);
     scope.listen(find("storage-large-content-list"), "click", (event) => {
@@ -336,6 +365,7 @@ export function createStorage(root) {
     scope.listen(find("storage-move-modal"), "click", (event) => {
       if (event.target.id === "storage-move-modal") closeMove();
     });
+    syncLocationMediaFields();
   }
 
 
@@ -346,7 +376,7 @@ export function createStorage(root) {
     find("storage-scan").disabled = false;
     find("storage-scan").textContent = "Große Inhalte analysieren";
     find("storage-location-save").disabled = false;
-    find("storage-location-save").textContent = editingLocationId ? "Änderungen speichern" : "Speicher hinzufügen";
+    find("storage-location-save").textContent = editingLocationId ? "Änderungen speichern" : "Speicherort hinzufügen";
     for (const id of ["storage-move-confirm", "storage-move-cancel", "storage-move-close"]) find(id).disabled = false;
     find("storage-move-confirm").textContent = "Jetzt verschieben";
     root.querySelectorAll("[data-storage-move], [data-storage-cleanup]").forEach(button => { button.disabled = false; });
@@ -371,7 +401,9 @@ export function createStorage(root) {
       shell.listen(root.querySelector('[data-settings-target="settings-storage"]'), "click", (event) => {
         event.preventDefault(); activateStorage();
       });
-      shell.listen(root.querySelector('[data-settings-open="settings-storage"]'), "click", activateStorage);
+      root.querySelectorAll('[data-settings-open="settings-storage"], [data-storage-open-manager]').forEach((button) => {
+        shell.listen(button, "click", activateStorage);
+      });
 
       const observer = new MutationObserver(updateActivity);
       observer.observe(find("settings-storage"), { attributes: true, attributeFilter: ["class", "hidden"] });

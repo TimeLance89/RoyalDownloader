@@ -84,12 +84,19 @@ def _root_for_key(
     location = next((item for item in locations if str(item.get("id") or "") == location_id), None)
     if not location or location.get("mode") != LOCATION_MODE_MEDIA:
         raise ValueError("Dieser Speicherort ist nicht für Medienaktionen freigegeben.")
+    media_types = set(location.get("media_types") or ("movies", "series", "anime"))
+    if media_types and media_types <= {"series", "anime"}:
+        role = "series"
+    elif media_types == {"movies"}:
+        role = "movies"
+    else:
+        role = "custom"
     return _Root(
         key,
         str(location.get("label") or "Medienspeicher"),
         _resolved_directory(location.get("path", "")),
-        "movies",
-        "custom",
+        "series" if role == "series" else "movies",
+        role,
     )
 
 
@@ -251,8 +258,14 @@ def _target_payload(source: _ValidatedMove, target: _Root) -> dict:
     reserve = min(max(_MIN_FREE_RESERVE, int(source.size * 0.01)), 2 * 1024 * 1024 * 1024)
     required = source.size + reserve
     free = int(usage.free)
-    eligible = not same_volume and not overlaps and not collision and free >= required
-    if same_volume:
+    media_mismatch = (
+        source.source_kind == "series" and target.role == "movies"
+        or source.source_kind == "movie" and target.role == "series"
+    )
+    eligible = not same_volume and not overlaps and not collision and not media_mismatch and free >= required
+    if media_mismatch:
+        reason = "Dieser Speicherort ist nicht für diese Medienart freigegeben."
+    elif same_volume:
         reason = "Liegt auf demselben physischen Volume."
     elif overlaps:
         reason = "Quell- und Zielpfad überlappen sich."

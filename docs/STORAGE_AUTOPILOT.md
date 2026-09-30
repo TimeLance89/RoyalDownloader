@@ -26,6 +26,20 @@ Monitor and Advisor never execute this background cleanup.
 
 ## Locations, pressure and placement
 
+The two paths configured under **Settings → Operation & storage → Standard
+destinations** remain the safe movie/series starting points and fallback
+destinations. They are not a global restriction: in Automatic or Full mode the
+placement step may redirect a new download to another eligible registered media
+root while preserving its relative movie/series path. Monitor and Advisor modes
+never change that original destination.
+
+Each additional registered media root explicitly declares which content types it
+may receive (movies, series and/or anime). This simple per-folder routing choice
+is authoritative, so two folders on the same physical disk can safely be used as
+separate movie and series destinations. Advanced volume rules can still tune the
+role, thresholds, reserve and move permissions, but cannot silently widen the
+content types selected for that folder.
+
 Each registered media root has a role: Primary, Overflow, Archive or Monitor,
 allowed media types (movies/series/anime), target/warning/critical thresholds,
 minimum free GiB and move-in/move-out permissions. A location registered as

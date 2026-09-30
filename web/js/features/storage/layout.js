@@ -22,8 +22,8 @@ export function installStorageUi(root) {
       <section id="settings-storage" class="settings-section royal-storage-section" data-settings-section aria-labelledby="settings-storage-title" aria-hidden="true" hidden>
         <header class="settings-section-heading">
           <span class="settings-section-mark is-storage" aria-hidden="true">▰</span>
-          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher überwachen &amp; bereinigen</h2>
-          <p>Alle eingebundenen Datenträger live sehen, zusätzliche Speicherorte verwalten und große Medien sicher finden.</p></div>
+          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher verwalten &amp; Downloads verteilen</h2>
+          <p>Sieh alle Datenträger, gib zusätzliche Download-Ziele frei und entscheide, wie selbstständig Royal freien Platz nutzen darf.</p></div>
         </header>
         <div class="storage-live-toolbar">
           <div class="storage-live-indicator"><i></i><span>LIVE</span><strong id="storage-live-state">wird geladen …</strong></div>
@@ -40,17 +40,25 @@ export function installStorageUi(root) {
 
         <section class="storage-locations-card" aria-labelledby="storage-locations-title">
           <header class="storage-locations-head">
-            <div><span>SPEICHERORTE</span><h3 id="storage-locations-title">Zusätzliche Datenträger</h3><p>Externe HDDs oder weitere NAS-Mounts hinzufügen. „Nur überwachen“ misst ausschließlich Kapazität; „Medien“ erlaubt zusätzlich Smart Scan, Verschieben und die sichere Bereinigung.</p></div>
+            <div><span>SPEICHERZIELE</span><h3 id="storage-locations-title">Zusätzliche Speicherorte</h3><p>Hier legst du fest, welche eingebundenen Ordner Royal zusätzlich nutzen darf. Bei „Medien“ kannst du direkt auswählen, ob dort Filme, Serien oder Anime landen dürfen. „Nur überwachen“ zeigt nur die Belegung an.</p></div>
             <strong id="storage-location-count">0 zusätzlich</strong>
           </header>
           <form id="storage-location-form" class="storage-location-form">
             <label><span>Name</span><input id="storage-location-label" maxlength="80" autocomplete="off" placeholder="z. B. Externe Festplatte" required></label>
             <label class="is-path"><span>Pfad im Royal-Container</span><input id="storage-location-path" maxlength="2048" autocomplete="off" placeholder="z. B. /external-media" required></label>
-            <label><span>Typ</span><select id="storage-location-mode"><option value="monitor">Nur überwachen</option><option value="media">Medien</option></select></label>
-            <div class="storage-location-form-actions"><button id="storage-location-save" class="btn btn-primary btn-sm" type="submit">Speicher hinzufügen</button><button id="storage-location-cancel" class="btn btn-ghost btn-sm" type="button" hidden>Abbrechen</button></div>
+            <label><span>Verwendung</span><select id="storage-location-mode"><option value="monitor">Nur anzeigen</option><option value="media">Für Downloads &amp; Medien nutzen</option></select></label>
+            <fieldset id="storage-location-media-types" class="storage-location-media-types" hidden>
+              <legend>Was darf hier gespeichert werden?</legend>
+              <label><input type="checkbox" name="storage-location-media" value="movies" checked><span>Filme</span></label>
+              <label><input type="checkbox" name="storage-location-media" value="series" checked><span>Serien</span></label>
+              <label><input type="checkbox" name="storage-location-media" value="anime" checked><span>Anime</span></label>
+              <small>Royal verteilt nur passende Inhalte in diesen Ordner. So landen Filme nicht versehentlich im Serien-Ordner.</small>
+            </fieldset>
+            <div class="storage-location-form-actions"><button id="storage-location-save" class="btn btn-primary btn-sm" type="submit">Speicherort hinzufügen</button><button id="storage-location-cancel" class="btn btn-ghost btn-sm" type="button" hidden>Abbrechen</button></div>
           </form>
           <div id="storage-location-list" class="storage-location-list"><div class="storage-empty-state"><strong>Noch kein zusätzlicher Speicherort</strong><span>Der Film- und Serien-Speicher wird trotzdem automatisch live gemessen.</span></div></div>
-          <p class="storage-mount-hint"><span>i</span><span>Bei Docker/NAS muss die Festplatte als Bind-Mount im Royal-Container sichtbar sein. Royal mountet keine Host-Laufwerke selbst und zeigt einen nicht erreichbaren Pfad klar als offline an.</span></p>
+          <p class="storage-mount-hint"><span>i</span><span><strong>Für automatische Verteilung:</strong> Zusätzliche Medienziele werden für neue Downloads erst verwendet, wenn du beim Storage Autopilot „Automatisch verteilen“ oder „Automatisch + Archiv“ auswählst.</span></p>
+          <p class="storage-mount-hint"><span>i</span><span><strong>Docker/NAS:</strong> Der Ordner muss zuerst als Bind-Mount im Royal-Container sichtbar sein. Danach trägst du hier den Container-Pfad ein, zum Beispiel <code>/movies_vol2</code>. Royal bindet Laufwerke nicht selbst ein.</span></p>
         </section>
 
         <div id="storage-volume-grid" class="storage-volume-grid" aria-live="polite"></div>
