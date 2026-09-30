@@ -23,13 +23,14 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     card.dataset.state = configured ? "configured" : "open";
     byId("account-warning").classList.toggle("hidden", configured);
     byId("account-username").value = activeUser?.username || cfg.username || "";
-    byId("account-username").disabled = !!activeUser;
+    byId("account-username").disabled = false;
+    byId("account-username-save").hidden = !activeUser;
     // Ohne bestehendes Konto gibt es kein aktuelles Passwort zu bestätigen.
     byId("account-current-label").classList.toggle("hidden", !configured);
     byId("account-current-password").classList.toggle("hidden", !configured);
     byId("account-logout").classList.toggle("hidden", !configured);
     byId("account-state").textContent = activeUser
-      ? `Angemeldet als „${activeUser.display_name || activeUser.username}“ · ${activeUser.role === "admin" ? "Administrator" : "Mitglied"}. Hier änderst du ausschließlich dein eigenes Passwort.`
+      ? `Profil „${activeUser.display_name || activeUser.username}“ · Loginname „${activeUser.username}“ · ${activeUser.role === "admin" ? "Administrator" : "Mitglied"}. Profilname und Loginname sind bewusst getrennt.`
       : configured
       ? (cfg.source === "env"
         ? `Angemeldet als „${cfg.username}“ · Zugangsdaten stammen aus APP_USERNAME/APP_PASSWORD. Beim Speichern werden sie in die Einstellungen übernommen.`
@@ -72,15 +73,20 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     const name = root.ownerDocument.createElement("strong");
     name.textContent = avatar.name || "Eigenes Profilbild";
     const meta = root.ownerDocument.createElement("small");
-    meta.textContent = avatar.created_at
+    const assigned = users.filter(user => user.avatar_id === avatar.id);
+    const uploaded = avatar.created_at
       ? `Hochgeladen am ${new Date(avatar.created_at * 1000).toLocaleDateString("de-DE")}`
       : "Eigenes Profilbild";
+    meta.textContent = assigned.length
+      ? `${uploaded} · Verwendet von: ${assigned.map(user => user.display_name || user.username).join(", ")}`
+      : `${uploaded} · Nicht verwendet`;
     copy.append(name, meta);
     const remove = root.ownerDocument.createElement("button");
     remove.type = "button";
     remove.className = "btn btn-ghost btn-sm account-avatar-delete";
     remove.dataset.avatarId = avatar.id;
-    remove.textContent = "Löschen";
+    remove.setAttribute("aria-label", `Profilbild ${avatar.name || "Eigenes Profilbild"} löschen`);
+    remove.textContent = "Profilbild löschen";
     row.append(image, copy, remove);
     return row;
   }
