@@ -178,7 +178,9 @@ export function createHousehold(root, { userRoleLabel }) {
   }
 
   function renderAvatarChoices(user) {
-    selectedAvatarId = String(user.avatar_id || "");
+    selectedAvatarId = PROFILE_AVATARS.includes(String(user.avatar_id || ""))
+      ? String(user.avatar_id || "")
+      : "";
     const grid = find("household-avatar-grid");
     const choices = [];
 
