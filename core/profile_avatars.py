@@ -162,3 +162,19 @@ class ProfileAvatarStore:
             except OSError as exc:
                 raise OSError("Profilbild konnte nicht gelöscht werden.") from exc
             return {"id": avatar_id, "name": str(metadata.get("name") or "")}
+
+
+def auth_dependency_callbacks(store: ProfileAvatarStore, user_store) -> dict:
+    """Small composition adapter used by the auth router."""
+    def delete_avatar(avatar_id: str) -> dict:
+        result = store.delete(avatar_id)
+        result["cleared_profiles"] = user_store.clear_avatar_id(avatar_id)
+        return result
+
+    return {
+        "list_profile_avatars": store.list,
+        "read_profile_avatar": store.read,
+        "save_profile_avatar": store.save,
+        "delete_profile_avatar": delete_avatar,
+        "profile_avatar_exists": store.exists,
+    }
