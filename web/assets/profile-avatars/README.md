@@ -1,15 +1,10 @@
 # Profile avatar assets
 
-The bundled RoyalDownloader profile avatars are local SVG derivatives built from
-simple public-domain/CC0 avatar references found via Wikimedia Commons. They are
-stored locally so the profile chooser works offline and does not hotlink third
-party services.
+These profile avatars are original RoyalDownloader assets designed for the
+household profile chooser. They use the familiar streaming-profile pattern:
+square crops, bold color fields, expressive character faces and strong visual
+separation at TV distance.
 
-Reference sources:
-- Default profile picture (Public Domain): https://commons.wikimedia.org/wiki/File:Default_pfp.svg
-- Avatar 72032, The Noun Project (CC0): https://commons.wikimedia.org/wiki/File:Avatar_(72032)_-_The_Noun_Project.svg
-- NIH BioArt generic person/avatar illustrations (Public Domain, US Government):
-  https://commons.wikimedia.org/wiki/Category:Biology_illustrations_by_NIH_BioArt_from_2026
-
-The local SVGs use original simplified geometry and color treatments and do not
-contain third-party trademarks, photos, or hotlinked resources.
+They do not copy Netflix characters, logos, artwork or other branded profile
+icons. The SVG files contain only local vector geometry and no remote resources,
+so profile selection keeps working offline.
