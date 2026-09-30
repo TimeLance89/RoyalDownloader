@@ -27,10 +27,15 @@ export function createStorageView(root) {
       const status = locationStatus(location, roots);
       const available = Boolean(status?.available);
       const state = available ? `${formatPercent(status.used_percent)} belegt · ${formatBytes(status.free_bytes)} frei` : "nicht erreichbar";
+      const mediaLabels = { movies: "Filme", series: "Serien", anime: "Anime" };
+      const allowed = (location.media_types || []).map((kind) => mediaLabels[kind]).filter(Boolean);
+      const routing = location.mode === "media"
+        ? `Ziel für: ${allowed.join(" · ") || "keine Medienart"}`
+        : "Keine Downloads auf diesen Pfad";
       return `
         <article class="storage-location-row${available ? "" : " is-offline"}" data-location-id="${html(location.id)}">
           <div class="storage-location-icon" aria-hidden="true">▰</div>
-          <div class="storage-location-copy"><span>${location.mode === "media" ? "MEDIEN" : "NUR ÜBERWACHEN"}</span><strong>${html(location.label)}</strong><code title="${html(location.path)}">${html(location.path)}</code><small>${html(state)}</small></div>
+          <div class="storage-location-copy"><span>${location.mode === "media" ? "DOWNLOAD-ZIEL" : "NUR ANZEIGE"}</span><strong>${html(location.label)}</strong><code title="${html(location.path)}">${html(location.path)}</code><small>${html(routing)} · ${html(state)}</small></div>
           <div class="storage-location-actions"><button type="button" class="btn btn-ghost btn-sm" data-location-edit="${html(location.id)}">Bearbeiten</button><button type="button" class="storage-location-remove" data-location-remove="${html(location.id)}">Entfernen</button></div>
         </article>`;
     }).join("");
