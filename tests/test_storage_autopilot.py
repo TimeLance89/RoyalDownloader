@@ -51,6 +51,54 @@ def test_primary_then_overflow_and_retry_is_idempotent(disks):
     assert any("Ausweichspeicher" in reason for reason in second["reasons"])
 
 
+def test_custom_media_roots_on_same_volume_keep_movies_and_series_separate(disks):
+    from pathlib import Path
+
+    autopilot.save_policy({"mode": "automatic"})
+    disks[0].update(free_bytes=180 * GIB, used_percent=82)
+
+    shared = Path(disks[1]["path"])
+    movie_target = shared / "movies"
+    series_target = shared / "series"
+    series_source_path = Path(disks[0]["path"]).parent / "series-main"
+    movie_target.mkdir()
+    series_target.mkdir()
+    series_source_path.mkdir()
+
+    disks[1].update(
+        key="location:movies2", label="Filme Volume 2",
+        path=str(movie_target), resolved_path=str(movie_target),
+        volume_id="large-disk", free_bytes=900 * GIB, used_percent=10,
+        allowed_media_types=["movies"],
+    )
+    disks[2].update(
+        key="location:series2", label="Serien Volume 2",
+        path=str(series_target), resolved_path=str(series_target),
+        volume_id="large-disk", free_bytes=900 * GIB, used_percent=10,
+        allowed_media_types=["series", "anime"],
+    )
+    disks.append({
+        **disks[0],
+        "key": "series",
+        "label": "Serien",
+        "path": str(series_source_path),
+        "resolved_path": str(series_source_path),
+    })
+
+    movie = reserve_download(
+        "movie-vol2", Path(disks[0]["path"]) / "Movie.mkv", "movies", disks, [], [],
+    )
+    series = reserve_download(
+        "series-vol2", series_source_path / "Show" / "Season 1" / "E01.mkv",
+        "series", disks, [], [],
+    )
+
+    assert movie["root"] == "location:movies2"
+    assert Path(movie["path"]).parent == movie_target
+    assert series["root"] == "location:series2"
+    assert Path(series["path"]).relative_to(series_target) == Path("Show/Season 1/E01.mkv")
+
+
 def test_same_physical_roots_share_budget_and_strictest_reserve(disks):
     alias = {**disks[0], "key": "series", "label": "series"}
     disks.append(alias)
