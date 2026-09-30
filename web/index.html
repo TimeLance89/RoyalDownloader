@@ -1450,10 +1450,33 @@
         <div id="household-users" class="household-users"></div>
         <form id="household-unlock" class="household-unlock" hidden>
           <strong id="household-unlock-title">Profilwechsel freigeben</strong>
-          <span>Einmal Passwort eingeben. Danach wechselst du in dieser Sitzung direkt.</span>
+          <span id="household-unlock-copy">Einmal Passwort eingeben. Danach wechselst du in dieser Sitzung direkt.</span>
           <label for="household-password">Passwort</label>
           <div><input id="household-password" type="password" autocomplete="current-password" required><button type="submit">Weiter</button></div>
           <small id="household-status" role="status" aria-live="polite"></small>
+        </form>
+        <form id="household-manage" class="household-manage" hidden>
+          <div class="household-manage-heading">
+            <span aria-hidden="true">⚙</span>
+            <div><strong id="household-manage-title">Profil verwalten</strong><small>Name, Profilbild und Jellyfin-Zuordnung</small></div>
+          </div>
+
+          <label for="household-profile-name">Profilname</label>
+          <input id="household-profile-name" type="text" maxlength="120" autocomplete="off" placeholder="Profilname">
+
+          <fieldset class="household-avatar-fieldset">
+            <legend>Profilbild</legend>
+            <div id="household-avatar-grid" class="household-avatar-grid" role="radiogroup" aria-label="Profilbild auswählen"></div>
+          </fieldset>
+
+          <label for="household-jellyfin-user">Jellyfin-Benutzer</label>
+          <select id="household-jellyfin-user"><option value="">Nicht mit Jellyfin verknüpfen</option></select>
+          <p>Wiedergabeverlauf, Favoriten und Bewertungen dieses Jellyfin-Benutzers fließen nur in dieses Royal-Profil ein.</p>
+          <small id="household-manage-status" role="status" aria-live="polite"></small>
+          <div class="household-manage-actions">
+            <button id="household-manage-cancel" class="btn btn-ghost" type="button">Zurück</button>
+            <button id="household-manage-save" class="btn btn-primary" type="submit">Alles speichern</button>
+          </div>
         </form>
       </div>
     </section>
@@ -1750,20 +1773,20 @@
             <div class="settings-card-grid settings-service-grid">
         <div class="settings-group settings-card settings-card-wide">
           <h3>Jellyfin (NAS)</h3>
-          <p class="dim settings-hint">Vorhandene Folgen werden übersprungen. Ein Wiedergabeprofil steuert Abos nach Gesehen-Status.</p>
+          <p class="dim settings-hint">Server und API-Schlüssel gelten für den ganzen Haushalt. Persönliche Jellyfin-Profile werden über „Wer schaut gerade?“ → ⚙ verknüpft.</p>
           <div class="path-input-row">
             <input id="jellyfin-url" type="text" placeholder="http://192.168.178.47:8096">
           </div>
           <div class="path-input-row">
             <input id="jellyfin-api-key" type="password" autocomplete="new-password" placeholder="API-Schlüssel (Dashboard → API-Schlüssel)">
           </div>
-          <label class="dim auto-lbl" for="jellyfin-user-id">Gesehen-Status von</label>
+          <label class="dim auto-lbl" for="jellyfin-user-id">Legacy-/Automatik-Fallback</label>
           <div class="jellyfin-user-row">
             <span class="jellyfin-profile-mark" aria-hidden="true">▶</span>
             <select id="jellyfin-user-id" aria-label="Jellyfin-Benutzer"><option value="">Benutzer laden …</option></select>
             <button id="jellyfin-users-load" class="btn btn-ghost btn-sm" type="button">Benutzer laden</button>
           </div>
-          <div id="jellyfin-user-status" class="dim small-status">Für „Nächste Staffel“ und automatische Löschregeln erforderlich.</div>
+          <div id="jellyfin-user-status" class="dim small-status">Nur als Fallback für bestehende Installationen und globale Automatik. Persönliche Lernsignale werden über „Wer schaut gerade?“ → ⚙ zugeordnet.</div>
           <fieldset class="cleanup-default-card">
             <legend>
               <span>STANDARD · NEUE ABOS</span>
@@ -1982,6 +2005,21 @@
           <select id="new-user-role"><option value="member">Mitglied</option><option value="admin">Administrator</option></select>
           <div class="account-actions"><button id="new-user-create" class="btn btn-primary btn-sm" type="button">Benutzer hinzufügen</button></div>
           <div id="account-users-status" class="dim small-status" role="status"></div>
+        </div>
+        <div id="account-avatar-card" class="settings-group settings-card account-avatar-settings" hidden>
+          <div class="account-avatar-heading">
+            <div>
+              <h3>Profilbilder verwalten</h3>
+              <p class="dim settings-hint">Eigene Bilder hochladen, die anschließend unter „Wer schaut gerade?“ von allen Profilen ausgewählt werden können.</p>
+            </div>
+            <span class="account-avatar-admin-badge">ADMIN</span>
+          </div>
+          <div id="account-avatar-library" class="account-avatar-library" aria-live="polite"></div>
+          <label class="dim auto-lbl" for="account-avatar-file">Neues Profilbild</label>
+          <input id="account-avatar-file" type="file" accept="image/png,image/jpeg,image/webp">
+          <p class="dim account-avatar-note">PNG, JPEG oder WebP · maximal 4 MB · quadratische Bilder funktionieren am besten.</p>
+          <div class="account-actions"><button id="account-avatar-upload" class="btn btn-primary btn-sm" type="button">Profilbild hochladen</button></div>
+          <div id="account-avatar-status" class="dim small-status" role="status" aria-live="polite"></div>
         </div>
             </div>
           </section>

@@ -49,6 +49,21 @@ def settings():
     )}
 
 
+def normalized_users_for_upgrade(items):
+    """Normalize only additive, empty profile defaults across old releases.
+
+    The gate must still fail when any pre-existing account, role, onboarding,
+    timestamp or security value changes. New optional presentation fields are
+    allowed only at their migration default.
+    """
+    normalized = []
+    for item in items:
+        value = dict(item)
+        value.setdefault("avatar_id", "")
+        normalized.append(value)
+    return normalized
+
+
 def seed():
     assert running_source_sha() == STABLE_SHA
     assert APP_VERSION == "1.0.0", "Published v1.1.0's historical metadata changed"
@@ -88,7 +103,7 @@ def verify(mode):
         assert running_source_sha() == STABLE_SHA
         assert APP_VERSION == "1.0.0"
     else:
-        assert APP_VERSION == "1.3.1"
+        assert APP_VERSION == "1.4.0"
     import server
     marker = json.loads(MARKER.read_text(encoding="utf-8"))
     assert marker["source_sha"] == STABLE_SHA
@@ -96,7 +111,9 @@ def verify(mode):
     assert config.is_initialized()
     assert auth.verify_password(legacy.ADMIN_PASSWORD, config.load_auth()["password_hash"])
     users = UserStore(config.users_file(), config.load_auth())
-    assert users.list() == marker["users"], "Accounts/onboarding changed"
+    assert normalized_users_for_upgrade(users.list()) == normalized_users_for_upgrade(
+        marker["users"],
+    ), "Accounts/onboarding changed"
     assert auth.verify_password(legacy.ADMIN_PASSWORD, users.get(marker["user_id"])["password_hash"])
     assert server.SESSION_STORE.validate(marker["session"])
     assert server.SESSION_STORE.user_id(marker["session"]) == marker["user_id"]

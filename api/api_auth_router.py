@@ -7,6 +7,9 @@ the composition root so this module stays independent from ``server.py``.
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -57,6 +60,25 @@ class HouseholdSwitchBody(BaseModel):
     password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
 
 
+class HouseholdUnlockBody(BaseModel):
+    password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
+
+
+class JellyfinProfileBody(BaseModel):
+    user_id: str = Field(default="", max_length=128)
+
+
+class HouseholdProfileBody(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    avatar_id: str = Field(default="", max_length=64)
+
+
+class ProfileAvatarUploadBody(BaseModel):
+    filename: str = Field(min_length=1, max_length=160)
+    content_type: str = Field(default="", max_length=80)
+    data_base64: str = Field(min_length=4, max_length=6_000_000)
+
+
 @dataclass(frozen=True)
 class AuthDependencies:
     """Runtime collaborators supplied by the application composition root."""
@@ -84,6 +106,13 @@ class AuthDependencies:
     current_user: Callable[[Any, Any], dict | None]
     profile_summary: Callable[[dict], dict] | None = None
     delete_user_data: Callable[[str], dict] | None = None
+    jellyfin_profile: Callable[[dict], dict] | None = None
+    set_jellyfin_profile: Callable[[dict, str], dict] | None = None
+    list_profile_avatars: Callable[[], list[dict]] | None = None
+    read_profile_avatar: Callable[[str], tuple[bytes, str] | None] | None = None
+    save_profile_avatar: Callable[[str, str, bytes], dict] | None = None
+    delete_profile_avatar: Callable[[str], dict] | None = None
+    profile_avatar_exists: Callable[[str], bool] | None = None
 
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
@@ -276,6 +305,33 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             return {"user": dependencies.user_store().public(user)}
         return dependencies.profile_summary(user)
 
+    @router.get("/api/v1/me/jellyfin-profile")
+    @router.get("/api/me/jellyfin-profile")
+    async def api_me_jellyfin_profile(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        return await run_in_threadpool(dependencies.jellyfin_profile, user)
+
+    @router.post("/api/v1/me/jellyfin-profile")
+    @router.post("/api/me/jellyfin-profile")
+    async def api_me_jellyfin_profile_set(body: JellyfinProfileBody, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.set_jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        try:
+            return await run_in_threadpool(
+                dependencies.set_jellyfin_profile, user, body.user_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ConnectionError as exc:
+            raise HTTPException(502, str(exc)) from exc
+
     @router.get("/api/me/household")
     async def api_me_household(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
@@ -289,10 +345,95 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 token, kind=appauth.SESSION_KIND_WEB,
             ),
             "users": [
-                {key: item.get(key) for key in ("id", "display_name", "role", "enabled")}
+                {key: item.get(key) for key in ("id", "display_name", "avatar_id", "role", "enabled")}
                 for item in users if item.get("enabled")
             ],
         }
+
+    def household_profile_access(request: Request, target_user_id: str) -> tuple[dict, dict]:
+        current = dependencies.current_user(request.headers, request.cookies)
+        if not current:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        target = dependencies.user_store().get(target_user_id)
+        if not target or not target.get("enabled"):
+            raise HTTPException(404, "Profil nicht gefunden.")
+        if str(target.get("id")) != str(current.get("id")):
+            token = dependencies.session_token(request.cookies)
+            if not dependencies.session_store().household_unlocked(
+                token, kind=appauth.SESSION_KIND_WEB,
+            ):
+                raise HTTPException(423, "Profilverwaltung ist gesperrt.")
+        return current, target
+
+    @router.post("/api/me/household/unlock")
+    async def api_me_household_unlock(body: HouseholdUnlockBody, request: Request):
+        current = dependencies.current_user(request.headers, request.cookies)
+        if not current:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        token = dependencies.session_token(request.cookies)
+        session_store = dependencies.session_store()
+        if session_store.household_unlocked(token, kind=appauth.SESSION_KIND_WEB):
+            return {"unlocked": True}
+        confirmed = await run_in_threadpool(
+            dependencies.verify_credentials,
+            str(current.get("username") or ""),
+            body.password,
+        )
+        if not confirmed:
+            raise HTTPException(403, "Das Passwort ist falsch.")
+        if not session_store.unlock_household(token, kind=appauth.SESSION_KIND_WEB):
+            raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
+        return {"unlocked": True}
+
+    @router.post("/api/me/household/{user_id}/profile")
+    async def api_household_profile_set(
+        user_id: str,
+        body: HouseholdProfileBody,
+        request: Request,
+    ):
+        _current, target = household_profile_access(request, user_id)
+        avatar_id = body.avatar_id.strip()
+        if avatar_id.startswith("custom-"):
+            if not dependencies.profile_avatar_exists:
+                raise HTTPException(400, "Eigene Profilbilder sind nicht verfügbar.")
+            exists = await run_in_threadpool(dependencies.profile_avatar_exists, avatar_id)
+            if not exists:
+                raise HTTPException(400, "Das gewählte Profilbild existiert nicht mehr.")
+        try:
+            return {
+                "user": dependencies.user_store().set_profile_identity(
+                    str(target["id"]),
+                    body.display_name,
+                    avatar_id,
+                ),
+            }
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/api/me/household/{user_id}/jellyfin-profile")
+    async def api_household_jellyfin_profile(user_id: str, request: Request):
+        _current, target = household_profile_access(request, user_id)
+        if not dependencies.jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        return await run_in_threadpool(dependencies.jellyfin_profile, target)
+
+    @router.post("/api/me/household/{user_id}/jellyfin-profile")
+    async def api_household_jellyfin_profile_set(
+        user_id: str,
+        body: JellyfinProfileBody,
+        request: Request,
+    ):
+        _current, target = household_profile_access(request, user_id)
+        if not dependencies.set_jellyfin_profile:
+            raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
+        try:
+            return await run_in_threadpool(
+                dependencies.set_jellyfin_profile, target, body.user_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ConnectionError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @router.post("/api/me/household/switch")
     async def api_me_household_switch(body: HouseholdSwitchBody, request: Request):
@@ -408,6 +549,75 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     async def api_users(request: Request):
         require_admin(request)
         return {"users": dependencies.user_store().list()}
+
+    @router.get("/api/profile-avatars")
+    async def api_profile_avatars(request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.list_profile_avatars:
+            return {"avatars": []}
+        avatars = await run_in_threadpool(dependencies.list_profile_avatars)
+        return {
+            "avatars": [
+                {**item, "url": f"/api/profile-avatars/{item['id']}"}
+                for item in avatars
+            ],
+        }
+
+    @router.get("/api/profile-avatars/{avatar_id}")
+    async def api_profile_avatar_file(avatar_id: str, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not dependencies.read_profile_avatar:
+            raise HTTPException(404, "Profilbild nicht gefunden.")
+        payload = await run_in_threadpool(dependencies.read_profile_avatar, avatar_id)
+        if not payload:
+            raise HTTPException(404, "Profilbild nicht gefunden.")
+        data, content_type = payload
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+    @router.post("/api/auth/profile-avatars")
+    async def api_profile_avatar_upload(body: ProfileAvatarUploadBody, request: Request):
+        require_admin(request)
+        if not dependencies.save_profile_avatar:
+            raise HTTPException(503, "Profilbild-Upload ist nicht verfügbar.")
+        try:
+            raw = base64.b64decode(body.data_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(400, "Das Profilbild ist nicht gültig kodiert.") from exc
+        try:
+            avatar = await run_in_threadpool(
+                dependencies.save_profile_avatar,
+                body.filename,
+                body.content_type,
+                raw,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, "Das Profilbild konnte nicht gespeichert werden.") from exc
+        dependencies.log(f"Eigenes Profilbild „{avatar.get('name') or avatar.get('id')}“ hochgeladen.")
+        return {"avatar": {**avatar, "url": f"/api/profile-avatars/{avatar['id']}"}}
+
+    @router.delete("/api/auth/profile-avatars/{avatar_id}")
+    async def api_profile_avatar_delete(avatar_id: str, request: Request):
+        require_admin(request)
+        if not dependencies.delete_profile_avatar:
+            raise HTTPException(503, "Profilbild-Verwaltung ist nicht verfügbar.")
+        try:
+            result = await run_in_threadpool(dependencies.delete_profile_avatar, avatar_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, "Das Profilbild konnte nicht gelöscht werden.") from exc
+        dependencies.log(f"Eigenes Profilbild „{result.get('name') or avatar_id}“ gelöscht.")
+        return {"deleted": result}
 
     @router.post("/api/auth/users")
     async def api_users_create(body: UserCreateBody, request: Request):

@@ -174,12 +174,25 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     const summary = model.counts.all
       ? `${model.counts.all} ${model.counts.all === 1 ? "Eintrag" : "Einträge"}`
       : getSnapshot().loaded ? "Keine Meldungen" : "Wird geladen …";
-    badge.textContent = String(model.counts.all);
-    badge.classList.toggle("hidden", model.counts.all === 0);
-    issueBadge.classList.toggle("hidden", model.counts.issue === 0);
-    bell.classList.toggle("is-active", model.counts.all > 0);
-    bell.setAttribute("aria-label", `Abo-Inbox öffnen: ${summary}`);
-    find("notif-trigger-label").textContent = summary;
+    const attention = model.entries.filter((item) => item.openCount > 0 || item.hasIssue).length
+      + (model.globalError ? 1 : 0);
+    const triggerSummary = !getSnapshot().loaded
+      ? "Wird geladen …"
+      : attention
+        ? `${attention} ${attention === 1 ? "Hinweis" : "Hinweise"}`
+        : "Alles aktuell";
+    // The header badge is an attention signal, not an inbox-size counter.
+    // Only actionable open episodes and real errors count. Passive states
+    // (language/source waits, upcoming episodes, queued work and download
+    // receipts) stay visible inside the inbox without making the bell look urgent.
+    badge.textContent = String(attention);
+    badge.classList.toggle("hidden", attention === 0);
+    // Keep the legacy marker node for DOM compatibility; the numeric badge now
+    // carries the complete problem signal and avoids duplicate warning markers.
+    issueBadge.classList.add("hidden");
+    bell.classList.toggle("is-active", attention > 0);
+    bell.setAttribute("aria-label", `Abo-Inbox öffnen: ${triggerSummary}`);
+    find("notif-trigger-label").textContent = triggerSummary;
     find("notif-summary").textContent = inboxCheckBusy()
       ? "Abonnements werden geprüft …" : summary;
     find("notif-subscription-count").textContent =

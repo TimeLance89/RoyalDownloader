@@ -7,6 +7,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
   const byId = id => root.querySelector(`#${id}`);
   let scope;
   let users = [];
+  let profileAvatars = [];
   let pending = null;
   let cancelUsers = () => {};
   function setAccountStatus(message = "", error = false) {
@@ -60,6 +61,138 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     return row;
   }
 
+  function profileAvatarRow(avatar) {
+    const row = root.ownerDocument.createElement("div");
+    row.className = "account-avatar-item";
+    const image = root.ownerDocument.createElement("img");
+    image.src = avatar.url || `/api/profile-avatars/${encodeURIComponent(avatar.id)}`;
+    image.alt = "";
+    image.loading = "lazy";
+    const copy = root.ownerDocument.createElement("div");
+    const name = root.ownerDocument.createElement("strong");
+    name.textContent = avatar.name || "Eigenes Profilbild";
+    const meta = root.ownerDocument.createElement("small");
+    meta.textContent = avatar.created_at
+      ? `Hochgeladen am ${new Date(avatar.created_at * 1000).toLocaleDateString("de-DE")}`
+      : "Eigenes Profilbild";
+    copy.append(name, meta);
+    const remove = root.ownerDocument.createElement("button");
+    remove.type = "button";
+    remove.className = "btn btn-ghost btn-sm account-avatar-delete";
+    remove.dataset.avatarId = avatar.id;
+    remove.textContent = "Löschen";
+    row.append(image, copy, remove);
+    return row;
+  }
+
+  async function refreshProfileAvatars() {
+    const card = byId("account-avatar-card");
+    if (!scope?.active || getUser()?.role !== "admin") {
+      card.hidden = true;
+      return;
+    }
+    const currentScope = scope;
+    card.hidden = false;
+    const grid = byId("account-avatar-library");
+    grid.textContent = "Profilbilder werden geladen …";
+    try {
+      const result = await client.get("/api/profile-avatars", { signal: currentScope.signal });
+      if (!currentScope.active) return;
+      profileAvatars = Array.isArray(result.avatars) ? result.avatars : [];
+      grid.replaceChildren(...(profileAvatars.length
+        ? profileAvatars.map(profileAvatarRow)
+        : [Object.assign(root.ownerDocument.createElement("p"), {
+            className: "dim small-status",
+            textContent: "Noch keine eigenen Profilbilder hochgeladen.",
+          })]));
+    } catch (error) {
+      if (!currentScope.active) return;
+      grid.textContent = `Profilbilder nicht abrufbar: ${error.message}`;
+    }
+  }
+
+  function fileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error("Datei konnte nicht gelesen werden."));
+      reader.onload = () => {
+        const value = String(reader.result || "");
+        resolve(value.includes(",") ? value.split(",", 2)[1] : value);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadProfileAvatar() {
+    if (!scope?.active || getUser()?.role !== "admin") return;
+    const currentScope = scope;
+    const input = byId("account-avatar-file");
+    const button = byId("account-avatar-upload");
+    const status = byId("account-avatar-status");
+    const file = input.files?.[0];
+    status.classList.remove("error");
+    if (!file) {
+      status.textContent = "Bitte zuerst ein Bild auswählen.";
+      status.classList.add("error");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      status.textContent = "Das Profilbild darf höchstens 4 MB groß sein.";
+      status.classList.add("error");
+      return;
+    }
+    button.disabled = true;
+    status.textContent = "Profilbild wird hochgeladen …";
+    try {
+      const dataBase64 = await fileAsBase64(file);
+      await client.post("/api/auth/profile-avatars", {
+        filename: file.name,
+        content_type: file.type,
+        data_base64: dataBase64,
+      }, { signal: currentScope.signal, timeoutMs: 45_000 });
+      if (!currentScope.active) return;
+      input.value = "";
+      status.textContent = "✓ Profilbild hochgeladen. Es kann jetzt von allen Profilen ausgewählt werden.";
+      await refreshProfileAvatars();
+    } catch (error) {
+      if (!currentScope.active) return;
+      status.textContent = error.message;
+      status.classList.add("error");
+    } finally {
+      if (currentScope.active) button.disabled = false;
+    }
+  }
+
+  async function deleteProfileAvatar(event) {
+    const button = event.target.closest("[data-avatar-id]");
+    if (!scope?.active || getUser()?.role !== "admin" || !button || button.disabled) return;
+    const avatar = profileAvatars.find(item => item.id === button.dataset.avatarId);
+    if (!avatar) return;
+    if (!confirm(`Profilbild „${avatar.name || "Eigenes Profilbild"}“ löschen? Profile, die es verwenden, wechseln zurück zu ihren Initialen.`)) return;
+    const currentScope = scope;
+    const status = byId("account-avatar-status");
+    button.disabled = true;
+    status.classList.remove("error");
+    status.textContent = "Profilbild wird gelöscht …";
+    try {
+      const result = await client.delete(
+        `/api/auth/profile-avatars/${encodeURIComponent(avatar.id)}`,
+        { signal: currentScope.signal },
+      );
+      if (!currentScope.active) return;
+      const cleared = Number(result.deleted?.cleared_profiles || 0);
+      status.textContent = cleared
+        ? `✓ Profilbild gelöscht. ${cleared} Profil(e) wurden auf Initialen zurückgesetzt.`
+        : "✓ Profilbild gelöscht.";
+      await refreshProfileAvatars();
+    } catch (error) {
+      if (!currentScope.active) return;
+      status.textContent = error.message;
+      status.classList.add("error");
+      button.disabled = false;
+    }
+  }
+
   async function changeUser(event) {
     const button = event.target.closest("[data-user-action]");
     const user = users.find(item => String(item.id) === button?.dataset.userId);
@@ -100,6 +233,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       users = result.users || [];
       card.hidden = false;
       list.replaceChildren(...users.map(accountUserRow));
+      void refreshProfileAvatars();
     } catch (error) {
       if (!currentScope.active) return;
       card.hidden = [401, 403].includes(error.status);
@@ -135,6 +269,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       if (!currentScope.active) return;
       applyAccountCfg(config);
       void refreshAccountUsers();
+      if (getUser()?.role !== "admin") byId("account-avatar-card").hidden = true;
     } catch (error) {
       if (!currentScope.active) return;
       byId("account-state").textContent =
@@ -219,16 +354,18 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     mount() {
       if (scope) return;
       scope = createScope();
-      for (const id of ["account-save", "new-user-create", "account-revoke"]) byId(id).disabled = false;
+      for (const id of ["account-save", "new-user-create", "account-revoke", "account-avatar-upload"]) byId(id).disabled = false;
       scope.listen(byId("account-save"), "click", saveAccount);
       scope.listen(byId("account-logout"), "click", logout);
       scope.listen(byId("account-revoke"), "click", revokeOtherSessions);
       scope.listen(byId("new-user-create"), "click", createAccountUser);
       scope.listen(byId("account-users-list"), "click", changeUser);
+      scope.listen(byId("account-avatar-upload"), "click", uploadProfileAvatar);
+      scope.listen(byId("account-avatar-library"), "click", deleteProfileAvatar);
       void refresh();
     },
     unmount() {
-      scope?.dispose(); scope = null; pending = null; users = [];
+      scope?.dispose(); scope = null; pending = null; users = []; profileAvatars = [];
       for (const id of ["account-password", "account-password-repeat", "account-current-password"]) byId(id).value = "";
     },
   };

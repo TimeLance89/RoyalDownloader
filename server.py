@@ -221,6 +221,7 @@ from api.api_administration_router import (
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from core.app_state import AppState, _PreparationSlots
 from core.users import UserStore
+from core.profile_avatars import ProfileAvatarStore, auth_dependency_callbacks
 from core.websocket_manager import WSManager, _WSClient
 from api.api_websocket_router import (
     WebSocketDependencies,
@@ -343,6 +344,7 @@ WEBSOCKET_CLIENT_QUEUE_SIZE = 128
 SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
 USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
+PROFILE_AVATAR_STORE = ProfileAvatarStore(data_dir() / "profile_avatars")
 LOGIN_GUARD = appauth.LoginGuard()
 BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
@@ -725,6 +727,80 @@ def _profile_summary(user: dict) -> dict:
     }
 
 
+def _jellyfin_profile_payload(user: dict) -> dict:
+    """Return the current Royal profile's Jellyfin identity without credentials."""
+    with state.jellyfin_cache_lock:
+        cfg = dict(state.jellyfin_cfg)
+    configured = bool(cfg.get("url") and cfg.get("api_key"))
+    royal_user_id = str(user.get("id") or "")
+    jellyfin_user_id = str(user.get("jellyfin_user_id") or "").strip()
+    jellyfin_user_name = str(user.get("jellyfin_user_name") or "").strip()
+    inherited_legacy = False
+
+    if not jellyfin_user_id and royal_user_id == "admin-legacy":
+        jellyfin_user_id = str(cfg.get("user_id") or "").strip()
+        jellyfin_user_name = str(cfg.get("user_name") or "").strip()
+        inherited_legacy = bool(jellyfin_user_id)
+    users = []
+    available = configured
+    if configured:
+        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        if listed is None:
+            available = False
+        else:
+            users = [
+                {"id": str(item.get("id") or ""), "name": str(item.get("name") or "")}
+                for item in listed
+                if item.get("id")
+            ]
+            selected = next(
+                (item for item in users if item["id"] == jellyfin_user_id), None,
+            )
+            if selected:
+                jellyfin_user_name = selected["name"]
+    return {
+        "configured": configured,
+        "available": available,
+        "user_id": jellyfin_user_id,
+        "user_name": jellyfin_user_name,
+        "users": users,
+        "inherited_legacy": inherited_legacy,
+    }
+
+
+def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
+    """Link exactly one Jellyfin user to exactly one Royal household profile."""
+    royal_user_id = str(user.get("id") or "").strip()
+    if not royal_user_id:
+        raise ValueError("Royal-Profil nicht gefunden.")
+    selected_id = str(jellyfin_user_id or "").strip()
+    selected_name = ""
+    if selected_id:
+        with state.jellyfin_cache_lock:
+            cfg = dict(state.jellyfin_cfg)
+        if not cfg.get("url") or not cfg.get("api_key"):
+            raise ValueError("Jellyfin ist unter Externe Dienste noch nicht eingerichtet.")
+        listed = JellyfinClient(cfg["url"], cfg["api_key"]).list_users()
+        if listed is None:
+            raise ConnectionError("Jellyfin-Benutzer konnten nicht geladen werden.")
+        selected = next(
+            (item for item in listed if str(item.get("id") or "") == selected_id),
+            None,
+        )
+        if selected is None:
+            raise ValueError("Der gewählte Jellyfin-Benutzer ist nicht verfügbar.")
+        selected_name = str(selected.get("name") or "")
+    updated = USER_STORE.set_jellyfin_user(
+        royal_user_id, selected_id, selected_name,
+    )
+    state.taste_profiles.for_user(royal_user_id).replace_jellyfin_items([])
+    try:
+        _recommender_wake_event.set()
+    except NameError:
+        pass
+    return _jellyfin_profile_payload(updated)
+
+
 def _delete_user_owned_data(user_id: str) -> dict:
     """Erase all persisted data that belongs to a household account."""
     owner = str(user_id or "").strip()
@@ -819,6 +895,9 @@ app.include_router(create_auth_router(AuthDependencies(
     current_user=lambda headers, cookies: current_user(headers, cookies),
     delete_user_data=_delete_user_owned_data,
     profile_summary=_profile_summary,
+    jellyfin_profile=_jellyfin_profile_payload,
+    set_jellyfin_profile=_set_jellyfin_profile,
+    **auth_dependency_callbacks(PROFILE_AVATAR_STORE, USER_STORE),
 )))
 
 

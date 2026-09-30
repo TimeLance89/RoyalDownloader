@@ -4,6 +4,44 @@
 
 No changes yet.
 
+## v1.4.0 – 2026-09-30
+
+### Household profiles and personal Jellyfin learning
+
+- Link a separate Jellyfin user to every RoyalDownloader household profile while
+  keeping the Jellyfin server, API key, shared library and downloads instance-wide.
+- Synchronize Jellyfin playback evidence into the matching Royal Intelligence
+  taste profile instead of reusing one global household user.
+- Clear stale Jellyfin playback evidence when a profile link changes and preserve
+  the previous global Jellyfin user only as a compatibility fallback for the
+  migrated legacy administrator.
+- Move personal Jellyfin assignment into **Wer schaut gerade? → ⚙**, protected by
+  the existing one-time household unlock when another profile is managed.
+
+### Profile identity and avatar management
+
+- Let household profiles change their display name and select a bundled
+  streaming-style character avatar directly from the profile chooser.
+- Show the selected avatar consistently in **Wer schaut gerade?**, the account
+  menu and **Mein Profil**.
+- Add administrator-managed custom profile images under account settings. Uploaded
+  images become available to household profiles without external hotlinks.
+- Persist and validate profile/avatar metadata while keeping existing profiles
+  compatible; initials remain available as the fallback.
+
+### Abo-Inbox attention badge
+
+- Make the top-bar Abo-Inbox badge represent actionable open subscriptions and
+  actual problems instead of every visible inbox item.
+- Keep passive states such as waiting for a source/language, queued work,
+  upcoming episodes and download receipts visible inside the inbox without an
+  alarming badge.
+- Show **Alles aktuell** when no intervention is required.
+
+See [v1.4.0 release notes](docs/releases/v1.4.0.md). Existing media, queue,
+subscriptions and account data remain compatible; back up `.env`, `data/`
+and `runtime/` before upgrading.
+
 ## v1.3.1 – 2026-09-29
 
 ### Critical Storage Autopilot download hotfix

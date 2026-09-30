@@ -54,6 +54,7 @@ const server = createServer(async (req, res) => {
     let movieSubscriptions = [], movieSubscriptionWrites = [], movieSubscriptionChecks = 0, slowMovieSubscriptionSave = false, movieSubscriptionMode = "ready";
     let releaseMode = "ready", socket, sockets = 0;
     let moduleEnabled = true, moduleWrites = 0, profileMode = "ready", householdSlow = false;
+    let householdJellyfinUserId = "", householdJellyfinWrites = [];
     let storageJobs = [], storageHistory = [], storageMode = "ready", storageMoves = 0, storageSaves = 0;
     let policyMode = "ready", policyWrites = [];
     let policy = { auto_download: false, check_interval_min: 30, max_parallel_downloads: 2, weekday_window_start: null, weekday_window_end: null, weekend_window_start: null, weekend_window_end: null };
@@ -243,6 +244,21 @@ const server = createServer(async (req, res) => {
       if (url.pathname === "/api/me/household") {
         if (householdSlow) await new Promise(resolve => setTimeout(resolve, 400));
         data = { users: [user], current_user_id: user.id, unlocked: true };
+      }
+      if (url.pathname === `/api/me/household/${user.id}/jellyfin-profile`) {
+        if (route.request().method() === "POST") {
+          const body = route.request().postDataJSON();
+          householdJellyfinWrites.push(body);
+          householdJellyfinUserId = body.user_id || "";
+        }
+        data = {
+          configured: true,
+          available: true,
+          user_id: householdJellyfinUserId,
+          user_name: householdJellyfinUserId === "jf-fixture" ? "Fixture Jellyfin" : "",
+          users: [{ id: "jf-fixture", name: "Fixture Jellyfin" }],
+          inherited_legacy: false,
+        };
       }
       if (url.pathname === "/api/taste/profile") data = { profile: { interactions: 5 } };
       if (url.pathname === "/api/v1/capabilities") data = { build: "fixture" };
@@ -979,6 +995,17 @@ const server = createServer(async (req, res) => {
       assert.equal(calls.filter(path => path === "/api/me/profile-summary").length, profileCalls + i + 1);
       await page.locator("#profile-household-open").click();
       await page.locator(".household-user").waitFor();
+      await page.locator(".household-user-settings").waitFor();
+      if (i === 0) {
+        await page.locator(".household-user-settings").click();
+        await page.locator("#household-manage").waitFor({ state: "visible" });
+        await page.locator("#household-jellyfin-user").selectOption("jf-fixture");
+        await page.locator("#household-manage-save").click();
+        await page.getByText("✓ Test ist mit Fixture Jellyfin verknüpft.", { exact: true }).waitFor();
+        assert.deepEqual(householdJellyfinWrites, [{ user_id: "jf-fixture" }]);
+        await page.locator("#household-manage-cancel").click();
+        await page.locator("#household-manage").waitFor({ state: "hidden" });
+      }
       await page.locator("#household-close").click();
       await page.evaluate(() => switchTab("home"));
     }

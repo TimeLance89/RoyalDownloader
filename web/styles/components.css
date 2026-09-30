@@ -5,3 +5,26 @@
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: 12px;
 }
+
+/* Household profile management: selection stays simple, settings live under each profile. */
+.household-profile{display:grid;justify-items:center;align-content:start;gap:10px}
+.household-user-settings{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:76px;padding:6px 10px;border:1px solid transparent;border-radius:999px;color:#92949a;background:transparent;font:600 11px/1 "DM Sans",sans-serif;cursor:pointer}
+.household-user-settings span{font-size:15px;line-height:1}
+.household-user-settings small{font:inherit}
+.household-user-settings:hover,.household-user-settings:focus-visible{outline:0;border-color:#42454d;color:var(--color-white);background:#17191e}
+.household-manage{display:grid;width:min(520px,100%);gap:12px;margin:42px auto 0;padding:24px;border:1px solid #353943;border-radius:14px;background:#111319;text-align:left;box-shadow:0 22px 55px rgba(0,0,0,.28)}
+.household-manage[hidden]{display:none}
+.household-manage-heading{display:flex;align-items:center;gap:12px}
+.household-manage-heading>span{display:grid;width:38px;height:38px;place-items:center;border:1px solid #41454e;border-radius:50%;color:#f1f1f2;background:#191b20;font-size:18px}
+.household-manage-heading>div{display:grid;gap:3px}
+.household-manage-heading strong{color:var(--color-white);font:700 20px/1.2 Archivo,sans-serif}
+.household-manage-heading small,.household-manage>label,.household-manage>p,.household-manage>small{color:#9fa2aa;font:12px/1.45 "DM Sans",sans-serif}
+.household-manage>label{margin-top:4px;color:#d9dade;font-weight:650}
+.household-manage select{width:100%;min-height:44px;padding:0 12px;border:1px solid #41444d;border-radius:7px;color:var(--color-white);background:#090a0d}
+.household-manage select:disabled{opacity:.55}
+.household-manage>p{margin:0}
+.household-manage>small.error{color:#ff6673}
+.household-manage-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}
+.household-manage-actions .btn{min-width:108px}
+@media(max-width:760px){.household-profile{width:132px}.household-user-settings{min-width:70px}.household-manage{margin-top:30px;padding:18px}.household-manage-actions{display:grid;grid-template-columns:1fr 1fr}.household-manage-actions .btn{min-width:0}}
+
