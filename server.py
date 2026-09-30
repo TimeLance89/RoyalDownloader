@@ -221,6 +221,7 @@ from api.api_administration_router import (
 from api.api_security import SecurityDependencies, install_authentication_middleware
 from core.app_state import AppState, _PreparationSlots
 from core.users import UserStore
+from core.profile_avatars import ProfileAvatarStore
 from core.websocket_manager import WSManager, _WSClient
 from api.api_websocket_router import (
     WebSocketDependencies,
@@ -343,6 +344,7 @@ WEBSOCKET_CLIENT_QUEUE_SIZE = 128
 SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
 USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
+PROFILE_AVATAR_STORE = ProfileAvatarStore(data_dir() / "profile_avatars")
 LOGIN_GUARD = appauth.LoginGuard()
 BASIC_AUTH_GUARD = appauth.LoginGuard()
 # Die Anmeldemaske wird wie die restliche Oberfläche übersetzt; dafür muss
@@ -799,6 +801,12 @@ def _set_jellyfin_profile(user: dict, jellyfin_user_id: str) -> dict:
     return _jellyfin_profile_payload(updated)
 
 
+def _delete_custom_profile_avatar(avatar_id: str) -> dict:
+    result = PROFILE_AVATAR_STORE.delete(avatar_id)
+    result["cleared_profiles"] = USER_STORE.clear_avatar_id(avatar_id)
+    return result
+
+
 def _delete_user_owned_data(user_id: str) -> dict:
     """Erase all persisted data that belongs to a household account."""
     owner = str(user_id or "").strip()
@@ -895,6 +903,13 @@ app.include_router(create_auth_router(AuthDependencies(
     profile_summary=_profile_summary,
     jellyfin_profile=_jellyfin_profile_payload,
     set_jellyfin_profile=_set_jellyfin_profile,
+    list_profile_avatars=lambda: PROFILE_AVATAR_STORE.list(),
+    read_profile_avatar=lambda avatar_id: PROFILE_AVATAR_STORE.read(avatar_id),
+    save_profile_avatar=lambda filename, content_type, data: PROFILE_AVATAR_STORE.save(
+        filename, content_type, data,
+    ),
+    delete_profile_avatar=_delete_custom_profile_avatar,
+    profile_avatar_exists=lambda avatar_id: PROFILE_AVATAR_STORE.exists(avatar_id),
 )))
 
 
