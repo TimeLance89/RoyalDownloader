@@ -30,7 +30,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     byId("account-current-password").classList.toggle("hidden", !configured);
     byId("account-logout").classList.toggle("hidden", !configured);
     byId("account-state").textContent = activeUser
-      ? `Profil „${activeUser.display_name || activeUser.username}“ · Loginname „${activeUser.username}“ · ${activeUser.role === "admin" ? "Administrator" : "Mitglied"}. Profilname und Loginname sind bewusst getrennt.`
+      ? `Angemeldet: Profil „${activeUser.display_name || activeUser.username}“ · Loginname „${activeUser.username}“ · ${activeUser.role === "admin" ? "Administrator" : "Mitglied"}. Profilname und Loginname sind bewusst getrennt.`
       : configured
       ? (cfg.source === "env"
         ? `Angemeldet als „${cfg.username}“ · Zugangsdaten stammen aus APP_USERNAME/APP_PASSWORD. Beim Speichern werden sie in die Einstellungen übernommen.`
