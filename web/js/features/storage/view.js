@@ -13,6 +13,36 @@ export function createStorageView(root) {
     return roots.find((root) => root.location_id === location.id) || null;
   }
 
+  function renderStandardTargets(roots) {
+    const list = find("storage-standard-target-list");
+    if (!list) return;
+    const standard = (Array.isArray(roots) ? roots : []).filter((root) => root.source === "media" && (root.key === "movies" || root.key === "series"));
+    if (!standard.length) {
+      list.innerHTML = '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Betrieb und Speicher“.</span></div>';
+      return;
+    }
+    const ordered = ["movies", "series"].map((key) => standard.find((item) => item.key === key)).filter(Boolean);
+    list.innerHTML = ordered.map((target) => {
+      const kind = target.key === "movies" ? "Filme" : "Serien";
+      const extra = target.key === "series" ? " · Anime nutzt diesen Serienpfad als Standard" : "";
+      const available = Boolean(target.available);
+      const state = available
+        ? `${formatPercent(target.used_percent)} belegt · ${formatBytes(target.free_bytes)} frei`
+        : "nicht erreichbar";
+      return `
+        <article class="storage-standard-target${available ? "" : " is-offline"}">
+          <div class="storage-location-icon" aria-hidden="true">▰</div>
+          <div class="storage-location-copy">
+            <span>STANDARD FÜR ${html(kind.toUpperCase())}</span>
+            <strong>${html(kind)}</strong>
+            <code title="${html(target.resolved_path || target.path || "")}">${html(target.resolved_path || target.path || "Nicht konfiguriert")}</code>
+            <small>${html(state + extra)}</small>
+          </div>
+          <div class="storage-standard-target-note"><strong>Immer verfügbar</strong><span>Fallback &amp; Ausgangspunkt</span></div>
+        </article>`;
+    }).join("");
+  }
+
   function renderLocations(locations, roots) {
     const currentLocations = Array.isArray(locations) ? locations : [];
     const list = find("storage-location-list");
@@ -78,6 +108,7 @@ export function createStorageView(root) {
       const managed = autopilotRoots.find(item => item.key === root.key);
       return managed && !managed.available ? { ...root, available: false, error: managed.error || root.error } : root;
     });
+    renderStandardTargets(roots);
     renderLocations(payload.locations || [], roots);
     const total = payload.autopilot?.summary || payload.summary || {};
     const volumes = (payload.volumes || []).filter(volume => !autopilotRoots.length || autopilotRoots.some(root => root.available && root.volume_id === volume.id));
