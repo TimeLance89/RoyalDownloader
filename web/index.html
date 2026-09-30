@@ -1968,14 +1968,18 @@
             </header>
             <div class="settings-card-grid">
         <div id="account-card" class="settings-group settings-card account-settings" data-state="unknown">
-          <h3>Konto</h3>
+          <h3>Login &amp; Passwort</h3>
           <div id="account-warning" class="account-warning hidden">
             <strong>Diese Instanz ist ungeschützt.</strong>
-            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Benutzername und Passwort fest.</span>
+            <span>Ohne Konto kann jedes Gerät im Netzwerk den Downloader steuern. Lege jetzt Loginname und Passwort fest.</span>
           </div>
           <p id="account-state" class="dim settings-hint" role="status" aria-live="polite">Wird geladen …</p>
-          <label class="dim auto-lbl" for="account-username">Benutzername</label>
+          <label class="dim auto-lbl" for="account-username">Loginname</label>
           <input id="account-username" type="text" autocomplete="username">
+          <p id="account-username-hint" class="dim account-login-hint">Der Loginname ist nur für die Anmeldung. Deinen sichtbaren Profilnamen änderst du unter „Wer schaut gerade?“.</p>
+          <div class="account-actions account-login-actions">
+            <button id="account-username-save" class="btn btn-ghost btn-sm" type="button" hidden>Loginname ändern</button>
+          </div>
           <label id="account-current-label" class="dim auto-lbl" for="account-current-password">Aktuelles Passwort</label>
           <input id="account-current-password" type="password" autocomplete="current-password" placeholder="Zur Bestätigung">
           <label class="dim auto-lbl" for="account-password">Neues Passwort</label>
