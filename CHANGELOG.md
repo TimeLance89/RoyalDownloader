@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Account and household profile logic
+
+- Separate the visible **Profilname** from the **Loginname** in the UI and allow
+  authenticated users to change their own login name with password confirmation.
+- Authenticate profile switches with the **target profile's password** instead of
+  the currently active account; administrator unlock is now reserved for managing
+  other profiles and never carries across a profile switch.
+- Handle first-time household profiles directly from **Wer schaut gerade?** by
+  guiding them through their own password setup instead of returning a misleading
+  wrong-password error.
+- Render custom profile images consistently in the top bar and other avatar slots,
+  and make administrator-managed uploaded images clearly deletable with profile
+  fallback to initials when an image is removed.
 ### Storage routing clarity
 
 - Rename the legacy movie/series paths to **Standard-Zielordner** and explain that
