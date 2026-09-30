@@ -296,7 +296,7 @@ class SessionStore:
         return token
 
     def household_unlocked(self, token: str, kind: Optional[str] = None) -> bool:
-        """Return whether this browser session may switch household profiles."""
+        """Return whether this browser session may administer other household profiles."""
         if not self.validate(token, kind):
             return False
         with self._lock:
@@ -304,7 +304,7 @@ class SessionStore:
             return bool(entry.get("household_unlocked"))
 
     def unlock_household(self, token: str, kind: Optional[str] = None) -> bool:
-        """Unlock profile switching for the lifetime of one authenticated session."""
+        """Unlock administration of other household profiles for this identity."""
         if not self.validate(token, kind):
             return False
         fingerprint = _token_fingerprint(token)
@@ -322,21 +322,26 @@ class SessionStore:
             return True
 
     def switch_user(self, token: str, user_id: str, kind: Optional[str] = None) -> bool:
-        """Move an unlocked session to another enabled household identity."""
+        """Move a valid session to a separately authenticated household identity."""
         target = str(user_id or "").strip()[:120]
         if not target or not self.validate(token, kind):
             return False
         fingerprint = _token_fingerprint(token)
         with self._lock:
             entry = self._sessions.get(fingerprint)
-            if entry is None or not entry.get("household_unlocked"):
+            if entry is None:
                 return False
-            previous = str(entry.get("user_id") or "")
+            previous_user = str(entry.get("user_id") or "")
+            previous_unlock = bool(entry.get("household_unlocked"))
             entry["user_id"] = target
+            # An administrator unlock must never follow the session into a
+            # different household identity.
+            entry["household_unlocked"] = False
             try:
                 self._save_locked()
             except SessionPersistenceError:
-                entry["user_id"] = previous
+                entry["user_id"] = previous_user
+                entry["household_unlocked"] = previous_unlock
                 raise
             return True
 
