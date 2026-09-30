@@ -5,7 +5,7 @@ import { escapeHtml as html } from "../../shared/utils/escape-html.js";
 import { formatBytes } from "../../shared/formatters/bytes.js";
 import { isAbortError } from "../../core/errors.js";
 
-const roles = { primary: "Primär", overflow: "Overflow", archive: "Archiv", monitor: "Nur überwachen" };
+const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archive: "Archiv", monitor: "Nur überwachen" };
 const media = { movies: "Filme", series: "Serien", anime: "Anime" };
 const fields = ["window_start", "window_end", "window_enabled", "interval_hours", "cooldown_hours", "max_moves", "max_move_gib", "unknown_download_gib", "archive_age_days", "allow_series_split"];
 const flags = new Set(["window_enabled", "allow_series_split"]);
