@@ -49,7 +49,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     const state = !user.enabled ? "Deaktiviert" : user.setup_required ? "Einrichtung ausstehend" : "Aktiv";
     const identity = root.ownerDocument.createElement("span");
     identity.className = "account-user-identity";
-    identity.textContent = `${user.display_name} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
+    identity.textContent = `${user.display_name} · Login: ${user.username} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
     row.appendChild(identity);
     const action = (name, label, className = "") => {
       const button = root.ownerDocument.createElement("button");
