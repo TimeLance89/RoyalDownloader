@@ -22,8 +22,8 @@ export function installStorageUi(root) {
       <section id="settings-storage" class="settings-section royal-storage-section" data-settings-section aria-labelledby="settings-storage-title" aria-hidden="true" hidden>
         <header class="settings-section-heading">
           <span class="settings-section-mark is-storage" aria-hidden="true">▰</span>
-          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher überwachen &amp; bereinigen</h2>
-          <p>Alle eingebundenen Datenträger live sehen, zusätzliche Speicherorte verwalten und große Medien sicher finden.</p></div>
+          <div><span>SPEICHER</span><h2 id="settings-storage-title">Speicher verwalten &amp; Downloads verteilen</h2>
+          <p>Sieh alle Datenträger, gib zusätzliche Download-Ziele frei und entscheide, wie selbstständig Royal freien Platz nutzen darf.</p></div>
         </header>
         <div class="storage-live-toolbar">
           <div class="storage-live-indicator"><i></i><span>LIVE</span><strong id="storage-live-state">wird geladen …</strong></div>
