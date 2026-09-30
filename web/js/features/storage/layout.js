@@ -38,6 +38,16 @@ export function installStorageUi(root) {
           <div class="storage-summary-numbers"><span><small>Belegt</small><strong>—</strong></span><span><small>Frei</small><strong>—</strong></span><span><small>Kapazität</small><strong>—</strong></span></div>
         </div>
 
+        <section class="storage-standard-targets-card" aria-labelledby="storage-standard-targets-title">
+          <header class="storage-locations-head">
+            <div><span>STANDARD-ZIELE</span><h3 id="storage-standard-targets-title">Aktuelle Standard-Zielordner</h3><p>Diese beiden Ordner sind immer der sichere Ausgangspunkt für neue Downloads. Mit „Automatisch verteilen“ darf Royal stattdessen ein anderes passendes Download-Ziel wählen.</p></div>
+          </header>
+          <div id="storage-standard-target-list" class="storage-standard-target-list">
+            <div class="storage-empty-state"><strong>Standard-Zielordner werden geladen …</strong><span>Royal liest die aktuellen Film- und Serienpfade ein.</span></div>
+          </div>
+          <p class="storage-mount-hint"><span>i</span><span>Ändern kannst du diese beiden Pfade unter <strong>Betrieb und Speicher → Standard-Zielordner</strong>. Sie müssen hier nicht noch einmal als zusätzlicher Speicherort angelegt werden.</span></p>
+        </section>
+
         <section class="storage-locations-card" aria-labelledby="storage-locations-title">
           <header class="storage-locations-head">
             <div><span>SPEICHERZIELE</span><h3 id="storage-locations-title">Zusätzliche Speicherorte</h3><p>Hier legst du fest, welche eingebundenen Ordner Royal zusätzlich nutzen darf. Bei „Medien“ kannst du direkt auswählen, ob dort Filme, Serien oder Anime landen dürfen. „Nur überwachen“ zeigt nur die Belegung an.</p></div>
