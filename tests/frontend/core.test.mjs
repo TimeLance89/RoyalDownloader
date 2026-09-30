@@ -937,6 +937,53 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
 });
 
 
+
+test("catalog Jellyfin propagates one deduplicated series result to every visible instance", async () => {
+  const homeSeries = { base_slug: "moflix:42:stargate", title: "Stargate" };
+  const catalogSeries = { base_slug: "moflix:42:stargate", title: "Stargate" };
+  const entries = [
+    { kind: "series", item: homeSeries },
+    { kind: "series", item: catalogSeries },
+  ];
+  const uniqueHomeEntries = values => {
+    const seen = new Set();
+    return values.filter(entry => {
+      const key = `${entry.kind}:${entry.item.base_slug}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const model = createCatalogJellyfin({
+    uniqueHomeEntries,
+    homeEntryKey: entry => `${entry.kind}:${entry.item.base_slug}`,
+    getMovieMetadata: () => ({}),
+    getMovieInstances: () => [],
+    client: {
+      async post(_url, body) {
+        assert.equal(body.items.length, 1);
+        assert.equal(body.items[0].slug, "series:moflix:42:stargate");
+        return {
+          configured: true,
+          statuses: { "series:moflix:42:stargate": "owned" },
+          matches: { "series:moflix:42:stargate": true },
+        };
+      },
+    },
+  });
+
+  try {
+    await model.refresh(entries);
+    assert.equal(homeSeries.jellyfin_status, "owned");
+    assert.equal(catalogSeries.jellyfin_status, "owned");
+    assert.equal(homeSeries.in_jellyfin, true);
+    assert.equal(catalogSeries.in_jellyfin, true);
+  } finally {
+    model.unmount();
+  }
+});
+
+
 test("trailers own pending playback, preserve position and ignore disposed callbacks", t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const previousFrame = globalThis.requestAnimationFrame;

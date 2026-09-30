@@ -21,7 +21,8 @@ export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovi
   }
 async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
   if (!owner.active || signal?.aborted) return;
-  const unique = uniqueHomeEntries(entries.filter(entry => entry.kind !== "collection"));
+  const targets = entries.filter(entry => entry.kind !== "collection");
+  const unique = uniqueHomeEntries(targets);
   if (!unique.length) return;
   const current = createScope();
   const release = owner.add(() => current.dispose());
@@ -65,15 +66,26 @@ async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
       statusByKey.set(request.slug, status);
     });
   });
-  for (const entry of unique) {
+  const appliedMovieKeys = new Set();
+  for (const entry of targets) {
     const key = homeEntryKey(entry);
     if (!isCurrentCatalogJellyfinRequest(key, requestSequence)) continue;
     const status = statusByKey.get(key) || "unavailable";
-    if (entry.kind === "movie") applyMovieJellyfinStatus(entry.item.slug, status);
-    else {
-      statuses.set(key, status);
-      entry.item.jellyfin_status = status;
-      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
+    if (entry.kind === "movie") {
+      if (appliedMovieKeys.has(key)) continue;
+      appliedMovieKeys.add(key);
+      applyMovieJellyfinStatus(entry.item.slug, status);
+      continue;
+    }
+    // A series can exist as distinct object instances in Home, discovery and
+    // global search. The request is deduplicated by identity, but the resolved
+    // status must be propagated to every visible instance of that identity.
+    statuses.set(key, status);
+    entry.item.jellyfin_status = status;
+    if (status === "owned" || status === "missing") {
+      entry.item.in_jellyfin = status === "owned";
+    } else {
+      delete entry.item.in_jellyfin;
     }
   }
   if (render) render();
