@@ -1458,15 +1458,24 @@
         <form id="household-manage" class="household-manage" hidden>
           <div class="household-manage-heading">
             <span aria-hidden="true">⚙</span>
-            <div><strong id="household-manage-title">Profil verwalten</strong><small>Persönliche Jellyfin-Verknüpfung</small></div>
+            <div><strong id="household-manage-title">Profil verwalten</strong><small>Name, Profilbild und Jellyfin-Zuordnung</small></div>
           </div>
+
+          <label for="household-profile-name">Profilname</label>
+          <input id="household-profile-name" type="text" maxlength="120" autocomplete="off" placeholder="Profilname">
+
+          <fieldset class="household-avatar-fieldset">
+            <legend>Profilbild</legend>
+            <div id="household-avatar-grid" class="household-avatar-grid" role="radiogroup" aria-label="Profilbild auswählen"></div>
+          </fieldset>
+
           <label for="household-jellyfin-user">Jellyfin-Benutzer</label>
           <select id="household-jellyfin-user"><option value="">Nicht mit Jellyfin verknüpfen</option></select>
           <p>Wiedergabeverlauf, Favoriten und Bewertungen dieses Jellyfin-Benutzers fließen nur in dieses Royal-Profil ein.</p>
           <small id="household-manage-status" role="status" aria-live="polite"></small>
           <div class="household-manage-actions">
             <button id="household-manage-cancel" class="btn btn-ghost" type="button">Zurück</button>
-            <button id="household-manage-save" class="btn btn-primary" type="submit">Speichern</button>
+            <button id="household-manage-save" class="btn btn-primary" type="submit">Alles speichern</button>
           </div>
         </form>
       </div>

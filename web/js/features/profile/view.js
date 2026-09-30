@@ -1,4 +1,4 @@
-import { userInitials } from "./identity.js";
+import { applyUserAvatar } from "./identity.js";
 import { createScope } from "../../core/lifecycle.js";
 
 export function createProfileView(root, { switchTab, userRoleLabel }) {
@@ -13,7 +13,7 @@ export function createProfileView(root, { switchTab, userRoleLabel }) {
 
   function renderProfileSummary(summary) {
     find("profile-title").textContent = summary.user?.display_name || summary.user?.username || "Royal";
-    find("profile-avatar").textContent = userInitials(summary.user);
+    applyUserAvatar(find("profile-avatar"), summary.user);
     const taste = summary.taste || {};
     const confidence = Math.max(0, Math.min(1, Number(taste.confidence || 0)));
     const confidenceCopy = tasteConfidenceCopy(confidence, Number(taste.interactions || 0), taste.confidence_label);

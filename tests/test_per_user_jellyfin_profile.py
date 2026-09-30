@@ -23,6 +23,24 @@ def test_user_store_persists_jellyfin_identity_per_profile(tmp_path):
     assert mappings[second["id"]]["jellyfin_user_id"] == ""
 
 
+def test_user_store_persists_profile_name_and_avatar(tmp_path):
+    store = UserStore(tmp_path / "users.json", {})
+    user = store.create("Alice", "alice", "member")
+
+    saved = store.set_profile_identity(user["id"], "Alice Kino", "avatar-purple")
+
+    assert saved["display_name"] == "Alice Kino"
+    assert saved["avatar_id"] == "avatar-purple"
+    assert store.get(user["id"])["avatar_id"] == "avatar-purple"
+
+    try:
+        store.set_profile_identity(user["id"], "Alice", "../unsafe")
+    except ValueError as exc:
+        assert "Profilbild" in str(exc)
+    else:
+        raise AssertionError("unknown avatar id must be rejected")
+
+
 def test_household_chooser_owns_personal_jellyfin_mapping_ui():
     markup = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     household = (ROOT / "web/js/features/profile/household.js").read_text(encoding="utf-8")
@@ -30,7 +48,11 @@ def test_household_chooser_owns_personal_jellyfin_mapping_ui():
 
     assert 'id="household-jellyfin-user"' in markup
     assert 'id="household-manage-save"' in markup
+    assert 'id="household-profile-name"' in markup
+    assert 'id="household-avatar-grid"' in markup
     assert "household-user-settings" in household
+    assert "/profile" in household
+    assert "PROFILE_AVATARS" in household
     assert '"/api/me/household/unlock"' in household
     assert "/jellyfin-profile" in household
     assert 'id="profile-jellyfin-user"' not in markup

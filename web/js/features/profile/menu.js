@@ -1,6 +1,6 @@
 import { createScope } from "../../core/lifecycle.js";
 import { appStore } from "../../core/store.js";
-import { userInitials, userRoleLabel } from "./identity.js";
+import { applyUserAvatar, userRoleLabel } from "./identity.js";
 
 /** The account menu belongs to the authenticated shell, independently of profile navigation. */
 export function createUserMenu(root, { logout, navigate, openSecurity, openHousehold }) {
@@ -18,7 +18,7 @@ export function createUserMenu(root, { logout, navigate, openSecurity, openHouse
     if (!user) return;
     ["user-menu-name", "user-menu-popover-name"].forEach(id => { find(id).textContent = user.display_name || user.username; });
     ["user-menu-role", "user-menu-popover-role"].forEach(id => { find(id).textContent = userRoleLabel(user); });
-    find("user-menu-avatar").textContent = userInitials(user);
+    applyUserAvatar(find("user-menu-avatar"), user);
   }
   return {
     mount() {
