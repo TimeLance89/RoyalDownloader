@@ -30,7 +30,9 @@ export function createStorageView(root) {
       const mediaLabels = { movies: "Filme", series: "Serien", anime: "Anime" };
       const allowed = (location.media_types || []).map((kind) => mediaLabels[kind]).filter(Boolean);
       const routing = location.mode === "media"
-        ? `Ziel für: ${allowed.join(" · ") || "keine Medienart"}`
+        ? location.media_types_explicit === false
+          ? "Zielarten noch nicht festgelegt – bitte einmal bearbeiten"
+          : `Ziel für: ${allowed.join(" · ") || "keine Medienart"}`
         : "Keine Downloads auf diesen Pfad";
       return `
         <article class="storage-location-row${available ? "" : " is-offline"}" data-location-id="${html(location.id)}">
