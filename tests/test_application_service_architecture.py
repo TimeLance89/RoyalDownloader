@@ -143,6 +143,12 @@ def test_auth_policy_and_credential_paths_are_fail_closed(monkeypatch):
     assert auth_service.fail_closed_auth_enabled() is True
     assert auth_service.auth_required() is True
 
+    empty_users = SimpleNamespace(find=lambda _username: None, list=lambda: [])
+    monkeypatch.setattr(
+        auth_service,
+        "backend_value",
+        lambda name: empty_users if name == "USER_STORE" else None,
+    )
     monkeypatch.setattr(auth_service.appconfig, "is_initialized", lambda: False)
     monkeypatch.setattr(auth_service, "auth_configured", lambda: True)
     assert auth_service.setup_required() is True
@@ -168,6 +174,25 @@ def test_auth_policy_and_credential_paths_are_fail_closed(monkeypatch):
     )
     assert auth_service.verify_credentials("other", "wrong") is False
     assert password_checks == [("wrong", "hash")]
+
+    migrated_users = SimpleNamespace(
+        find=lambda _username: None,
+        list=lambda: [{"id": "user-1", "username": "renamed"}],
+    )
+    monkeypatch.setattr(
+        auth_service,
+        "backend_value",
+        lambda name: migrated_users if name == "USER_STORE" else None,
+    )
+    password_checks.clear()
+    assert auth_service.verify_credentials("admin", "wrong") is False
+    assert password_checks == [("wrong", "hash")]
+
+    monkeypatch.setattr(
+        auth_service,
+        "backend_value",
+        lambda name: empty_users if name == "USER_STORE" else None,
+    )
 
     monkeypatch.setattr(
         auth_service,
