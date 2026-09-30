@@ -69,13 +69,13 @@ def test_custom_media_roots_on_same_volume_keep_movies_and_series_separate(disks
         key="location:movies2", label="Filme Volume 2",
         path=str(movie_target), resolved_path=str(movie_target),
         volume_id="large-disk", free_bytes=900 * GIB, used_percent=10,
-        allowed_media_types=["movies"],
+        allowed_media_types=["movies"], allowed_media_types_explicit=True,
     )
     disks[2].update(
         key="location:series2", label="Serien Volume 2",
         path=str(series_target), resolved_path=str(series_target),
         volume_id="large-disk", free_bytes=900 * GIB, used_percent=10,
-        allowed_media_types=["series", "anime"],
+        allowed_media_types=["series", "anime"], allowed_media_types_explicit=True,
     )
     disks.append({
         **disks[0],
