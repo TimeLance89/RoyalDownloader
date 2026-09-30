@@ -23,15 +23,18 @@ def test_user_store_persists_jellyfin_identity_per_profile(tmp_path):
     assert mappings[second["id"]]["jellyfin_user_id"] == ""
 
 
-def test_profile_ui_exposes_personal_jellyfin_mapping():
+def test_household_chooser_owns_personal_jellyfin_mapping_ui():
     markup = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    controller = (ROOT / "web/js/features/profile/index.js").read_text(encoding="utf-8")
-    view = (ROOT / "web/js/features/profile/view.js").read_text(encoding="utf-8")
+    household = (ROOT / "web/js/features/profile/household.js").read_text(encoding="utf-8")
+    profile = (ROOT / "web/js/features/profile/index.js").read_text(encoding="utf-8")
 
-    assert 'id="profile-jellyfin-user"' in markup
-    assert 'id="profile-jellyfin-save"' in markup
-    assert '"/api/me/jellyfin-profile"' in controller
-    assert "jellyfin.user_id" in view
+    assert 'id="household-jellyfin-user"' in markup
+    assert 'id="household-manage-save"' in markup
+    assert "household-user-settings" in household
+    assert '"/api/me/household/unlock"' in household
+    assert "/jellyfin-profile" in household
+    assert 'id="profile-jellyfin-user"' not in markup
+    assert '"/api/me/jellyfin-profile"' not in profile
 
 
 def test_household_jellyfin_sync_is_per_royal_user():

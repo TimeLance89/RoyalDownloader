@@ -58,11 +58,17 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         document.body.append(language);
       }, { css: legacyRankingCss, withLegacyStyles });
     }
-    const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")].map(element => {
-      const style = getComputedStyle(element);
-      return [element.id || element.className || element.tagName,
-        ...["color", "backgroundColor", "backgroundImage", "borderTopColor", "borderRadius", "boxShadow", "fontSize", "padding", "display", "width", "height"].map(key => style[key])];
-    }));
+    const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")]
+      // The frozen baseline protects elements that already existed at 7d93908.
+      // The household profile editor is a new post-baseline component and has
+      // dedicated browser/API regressions, so there is no legacy visual state
+      // for this subtree to compare against.
+      .filter(element => !element.closest("#household-manage"))
+      .map(element => {
+        const style = getComputedStyle(element);
+        return [element.id || element.className || element.tagName,
+          ...["color", "backgroundColor", "backgroundImage", "borderTopColor", "borderRadius", "boxShadow", "fontSize", "padding", "display", "width", "height"].map(key => style[key])];
+      }));
     for (const width of [1440, 390]) {
       if (page) await page.close();
       page = await context.newPage();
