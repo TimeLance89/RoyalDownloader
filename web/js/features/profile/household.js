@@ -1,14 +1,22 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
+import { applyUserAvatar } from "./identity.js";
 
-export function createHousehold(root, { userInitials, userRoleLabel }) {
+const PROFILE_AVATARS = [
+  "avatar-red", "avatar-blue", "avatar-gold", "avatar-green",
+  "avatar-purple", "avatar-cyan", "avatar-orange", "avatar-slate",
+];
+
+export function createHousehold(root, { userRoleLabel }) {
   let scope;
   let opened;
   let householdState = null;
   let pendingHouseholdUser = null;
   let pendingHouseholdAction = "";
   let managedHouseholdUser = null;
+  let selectedAvatarId = "";
+  let managedJellyfinWritable = false;
   const find = id => root.querySelector(`#${id}`);
 
   function hideAuxiliaryPanels() {
@@ -33,7 +41,7 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
     );
 
     const avatar = document.createElement("i");
-    avatar.textContent = userInitials(user);
+    applyUserAvatar(avatar, user);
     const details = document.createElement("span");
     const name = document.createElement("strong");
     name.textContent = user.display_name;
@@ -169,6 +177,50 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
     }
   }
 
+  function renderAvatarChoices(user) {
+    selectedAvatarId = String(user.avatar_id || "");
+    const grid = find("household-avatar-grid");
+    const choices = [];
+
+    const initials = document.createElement("button");
+    initials.type = "button";
+    initials.className = "household-avatar-choice is-initials";
+    initials.dataset.avatarId = "";
+    initials.setAttribute("role", "radio");
+    initials.setAttribute("aria-label", "Initialen verwenden");
+    const initialsPreview = document.createElement("span");
+    initialsPreview.textContent = String(user.display_name || "R").trim().slice(0, 1).toLocaleUpperCase("de-DE");
+    initials.append(initialsPreview);
+    choices.push(initials);
+
+    PROFILE_AVATARS.forEach(avatarId => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "household-avatar-choice";
+      button.dataset.avatarId = avatarId;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-label", `Profilbild ${avatarId.replace("avatar-", "")}`);
+      const image = document.createElement("img");
+      image.src = `/assets/profile-avatars/${avatarId}.svg`;
+      image.alt = "";
+      image.loading = "lazy";
+      button.append(image);
+      choices.push(button);
+    });
+
+    const choose = avatarId => {
+      selectedAvatarId = avatarId;
+      choices.forEach(button => {
+        const active = button.dataset.avatarId === avatarId;
+        button.classList.toggle("is-selected", active);
+        button.setAttribute("aria-checked", String(active));
+      });
+    };
+    choices.forEach(button => opened?.listen(button, "click", () => choose(button.dataset.avatarId || "")));
+    grid.replaceChildren(...choices);
+    choose(selectedAvatarId);
+  }
+
   async function manageHouseholdUser(user) {
     const current = opened;
     if (!current?.active) return;
@@ -178,6 +230,7 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
       return;
     }
     managedHouseholdUser = user;
+    managedJellyfinWritable = false;
     pendingHouseholdUser = null;
     pendingHouseholdAction = "";
     find("household-unlock").hidden = true;
@@ -185,8 +238,11 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
     const select = find("household-jellyfin-user");
     const status = find("household-manage-status");
     find("household-manage-title").textContent = `${user.display_name} verwalten`;
+    find("household-profile-name").value = user.display_name || "";
+    renderAvatarChoices(user);
     select.disabled = true;
-    find("household-manage-save").disabled = true;
+    find("household-manage-save").disabled = false;
+    status.classList.remove("error");
     status.textContent = "Jellyfin-Profile werden geladen …";
     form.hidden = false;
 
@@ -217,19 +273,20 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
         select.append(stale);
       }
       select.value = config.user_id || "";
-      select.disabled = !config.configured || config.available === false;
-      find("household-manage-save").disabled = select.disabled;
+      managedJellyfinWritable = Boolean(config.configured && config.available !== false);
+      select.disabled = !managedJellyfinWritable;
       status.textContent = !config.configured
-        ? "Jellyfin zuerst unter Einstellungen → Dienste einrichten."
+        ? "Jellyfin ist nicht eingerichtet. Name und Profilbild können trotzdem gespeichert werden."
         : config.available === false
-          ? "Jellyfin-Benutzer sind gerade nicht erreichbar."
+          ? "Jellyfin-Benutzer sind gerade nicht erreichbar. Name und Profilbild bleiben bearbeitbar."
           : config.user_id
             ? `Verknüpft mit ${config.user_name || "Jellyfin"}.`
             : "Noch kein Jellyfin-Profil verknüpft.";
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
-      status.textContent = error.message;
-      status.classList.add("error");
+      managedJellyfinWritable = false;
+      select.disabled = true;
+      status.textContent = `Jellyfin: ${error.message}. Name und Profilbild können trotzdem gespeichert werden.`;
     }
   }
 
@@ -238,34 +295,56 @@ export function createHousehold(root, { userInitials, userRoleLabel }) {
     const user = managedHouseholdUser;
     if (!current?.active || !user) return;
     const select = find("household-jellyfin-user");
+    const name = find("household-profile-name").value.trim();
     const status = find("household-manage-status");
     const save = find("household-manage-save");
+    if (!name) {
+      status.textContent = "Bitte einen Profilnamen eingeben.";
+      status.classList.add("error");
+      find("household-profile-name").focus();
+      return;
+    }
     save.disabled = true;
     status.classList.remove("error");
-    status.textContent = "Jellyfin-Verknüpfung wird gespeichert …";
+    status.textContent = "Profil wird gespeichert …";
     try {
-      const config = await api.post(
-        `/api/me/household/${encodeURIComponent(user.id)}/jellyfin-profile`,
-        { user_id: select.value },
+      const profile = await api.post(
+        `/api/me/household/${encodeURIComponent(user.id)}/profile`,
+        { display_name: name, avatar_id: selectedAvatarId },
         { signal: current.signal },
       );
       if (!current.active || managedHouseholdUser?.id !== user.id) return;
-      status.textContent = config.user_id
-        ? `✓ ${user.display_name} ist mit ${config.user_name || "Jellyfin"} verknüpft.`
-        : `Jellyfin-Verknüpfung für ${user.display_name} entfernt.`;
+
+      if (managedJellyfinWritable) {
+        await api.post(
+          `/api/me/household/${encodeURIComponent(user.id)}/jellyfin-profile`,
+          { user_id: select.value },
+          { signal: current.signal },
+        );
+      }
+      if (!current.active) return;
+
+      const saved = profile.user || { ...user, display_name: name, avatar_id: selectedAvatarId };
+      Object.assign(user, saved);
+      status.textContent = `✓ Profil „${saved.display_name || name}“ gespeichert.`;
+
+      if (user.id === householdState?.current_user_id) {
+        location.reload();
+        return;
+      }
+      await showHousehold();
     } catch (error) {
       if (!current.active || isAbortError(error)) return;
       status.textContent = error.message;
       status.classList.add("error");
-    } finally {
-      if (current.active && managedHouseholdUser?.id === user.id) {
-        save.disabled = select.disabled;
-      }
+      save.disabled = false;
     }
   }
 
   function closeManagedProfile() {
     managedHouseholdUser = null;
+    selectedAvatarId = "";
+    managedJellyfinWritable = false;
     const form = find("household-manage");
     form.hidden = true;
     find("household-manage-status").textContent = "";
