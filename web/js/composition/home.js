@@ -47,6 +47,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         loadDiscoveryProfile: (...args) => services.actions.loadDiscoveryProfile(...args), stableDailyOrder: (...args) => services.actions.stableDailyOrder(...args), homeEntryMedia: (...args) => services.actions.homeEntryMedia(...args), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeTopEntries: (...args) => services.actions.homeTopEntries(...args),
         stableDiscoveryHash: (...args) => services.actions.stableDiscoveryHash(...args), localDateKey: (...args) => services.actions.localDateKey(...args), homeHeroCandidates: (...args) => services.actions.homeHeroCandidates(...args), homePersonalizedEntries: (...args) => services.actions.homePersonalizedEntries(...args), currentHomeLayout: (...args) => services.actions.currentHomeLayout(...args),
         mediaJellyfinStatus: (...args) => services.actions.mediaJellyfinStatus(...args), getJellyfinStatus: key => getIntegrations().catalogJellyfin.getStatus(key),
+        discoveryV2ExposurePenalty: (...args) => discoveryPolicy.discoveryV2ExposurePenalty(...args),
         getData: () => services.homeData.get(),
       }),
   homePresenter: createHomePresenter(document.getElementById("tab-home"), {
@@ -76,6 +77,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeEntryMedia: entry => services.actions.homeEntryMedia(entry), tasteMetadata: (...args) => services.actions.tasteMetadata(...args),
         discoveryV2ExposurePenalty: (...args) => discoveryPolicy.discoveryV2ExposurePenalty(...args), getHomeData: () => services.homeData.get(),
         homeMovieEntry: (...args) => services.actions.homeMovieEntry(...args), homeSeriesEntry: (...args) => services.actions.homeSeriesEntry(...args), mediaJellyfinStatus: (...args) => services.actions.mediaJellyfinStatus(...args), loadDiscoveryProfile: () => services.actions.loadDiscoveryProfile(), homeAllEntries: () => services.actions.homeAllEntries(),
+        localDateKey: () => services.actions.localDateKey(), stableDiscoveryHash: value => services.actions.stableDiscoveryHash(value),
       }),
   dailyTop: createDailyTop(document.getElementById("tab-home"), {
         fallbackEntries: discoveryPolicy.discoveryV2TopEntries, localDateKey: (...args) => services.actions.localDateKey(...args), homeEntryKey: (...args) => services.actions.homeEntryKey(...args),
