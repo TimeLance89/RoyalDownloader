@@ -75,7 +75,7 @@ export function createHomeLanes(root, {
     return result;
   }
 
-  function homeExploreEntries() {
+  function homeExploreCandidatePool() {
     const profile = loadDiscoveryProfile();
     const avoidedGenres = new Set(Object.entries(profile.genres)
       .filter(([, score]) => Number(score) > 0)
@@ -88,7 +88,21 @@ export function createHomeLanes(root, {
       const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
       return !genres.some((genre) => avoidedGenres.has(genre));
     });
-    return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore").slice(0, 24);
+    return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore");
+  }
+
+  // Keep the original candidates eligible for metadata hydration even before
+  // they have a backdrop. The visible Explore rail itself publishes only
+  // finished 16:9 artwork, so portrait posters/initial placeholders never
+  // become the final presentation.
+  function homeExploreArtworkCandidates() {
+    return homeExploreCandidatePool().slice(0, 24);
+  }
+
+  function homeExploreEntries() {
+    return homeExploreCandidatePool()
+      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
+      .slice(0, 24);
   }
 
   function homeGemEntries() {
@@ -160,14 +174,17 @@ export function createHomeLanes(root, {
 
   function homeArtworkEntriesInLayout() {
     const lanes = homeDiscoveryLanes();
-    const hidden = new Set(currentHomeLayout().hidden_rails);
+    const layout = currentHomeLayout();
+    const hidden = new Set(layout.hidden_rails);
+    const exploreVisible = layout.rail_order.includes("explore") && !hidden.has("explore");
     return uniqueHomeEntries([
-      ...currentHomeLayout().rail_order
+      ...layout.rail_order
         .filter((railId) => !hidden.has(railId))
         .flatMap((railId) => lanes[railId] || []),
+      ...(exploreVisible ? homeExploreArtworkCandidates() : []),
       ...homeHeroCandidates(),
     ]);
   }
 
-  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout };
+  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeExploreArtworkCandidates, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout };
 }
