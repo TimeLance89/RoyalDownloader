@@ -57,6 +57,7 @@ export function createHomeData({
         for (const field of ["tmdb_id", "release_date", "rating", "vote_count", "popularity", "backdrop_url"]) {
           if (cinema?.[field] != null) updated[field] = cinema[field];
         }
+        if (cinema?.genres?.length) updated.genres = cinema.genres;
         if (JSON.stringify(updated) !== JSON.stringify(details)) {
           metadata[item.slug] = updated;
           changed = true;

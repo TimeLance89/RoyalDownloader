@@ -557,6 +557,7 @@ class TMDBClient:
                     "slug": f"tmdb:{movie_id}",
                     "tmdb_id": int(movie_id),
                     "title": title,
+                    "genres": self._genre_names("movie", item.get("genre_ids") or []),
                     "year": _year_from_date(release),
                     "release_date": release,
                     "rating": round(float(item.get("vote_average") or 0), 1),
