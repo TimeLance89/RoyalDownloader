@@ -2,33 +2,72 @@
 
 ## Unreleased
 
-### Account and household profile logic
+_No unreleased changes._
 
-- Separate the visible **Profilname** from the **Loginname** in the UI and allow
-  authenticated users to change their own login name with password confirmation.
-- Authenticate the first protected profile switch with the **target profile's password** instead of
-  the currently active account, then remember that confirmation for the current browser session so
-  later profile switches are password-free. Administrator unlock remains separate and never carries
-  across a profile switch.
-- Handle first-time household profiles directly from **Wer schaut gerade?** by
-  guiding them through their own password setup instead of returning a misleading
-  wrong-password error.
-- Render custom profile images consistently in the top bar and other avatar slots,
-  and make administrator-managed uploaded images clearly deletable with profile
-  fallback to initials when an image is removed.
-### Storage routing clarity
+## v1.5.0 – 2026-10-01
 
-- Rename the legacy movie/series paths to **Standard-Zielordner** and explain that
-  they are safe starting/fallback destinations rather than a limit on Storage
-  Autopilot placement.
+### Household profiles and account identity
+
+- Separate profile display names from login names and allow authenticated users
+  to change their own login name with password confirmation.
+- Authenticate the first protected household profile switch with the target
+  profile's password, then remember that confirmation for the current browser
+  session so later profile switches are password-free.
+- Keep administrator profile-management unlock separate from household switching
+  and clear privileged management state when identity changes.
+- Handle first-time household profiles directly in **Wer schaut gerade?** with
+  password setup instead of a misleading wrong-password failure.
+- Render custom profile images consistently in the top bar and make uploaded
+  avatars clearly deletable with safe initials fallback.
+
+### Storage routing and Storage Autopilot clarity
+
+- Rename the legacy movie and series paths to **Standard-Zielordner** and show
+  those active fallback/start destinations directly in the Storage manager.
 - Let every additional media location explicitly allow movies, series and/or
-  anime. These simple per-folder choices are authoritative for automatic
-  download placement, preventing two folders on the same disk from competing for
-  the wrong media type.
-- Simplify Storage Autopilot wording for new users and keep advanced roles,
-  thresholds and reserves behind progressive disclosure.
-- Preserve existing installations: previously registered media locations default
-  to all media types until an administrator narrows them in the Storage UI.
+  anime, and enforce those choices during automatic placement.
+- Keep standard targets separate from additional storage locations so users do
+  not need to register the same destination twice.
+- Simplify the Storage Autopilot interface while preserving advanced volume
+  roles, thresholds, reserves, placement safety and existing installations.
+
+### Series catalog and Jellyfin synchronization
+
+- Propagate a deduplicated Jellyfin series result to every visible card instance
+  so series no longer remain stuck on **Jellyfin wird geprüft**.
+- Align series paging with the movie catalog: seed one normal page, avoid
+  duplicate automatic loads and check Jellyfin only for the newly loaded batch.
+- Recover infinite scrolling automatically from transient cold-start catalog
+  responses instead of storing them as permanent load failures.
+- Keep movie and series browsing state independent during tab changes.
+
+### Home discovery and current cinema content
+
+- Refresh home discovery from a deeper rotating candidate reservoir and use
+  taste plus exposure history to reduce repeatedly shown recommendations.
+- Prioritize eligible current cinema releases in the hero while preserving the
+  existing Top 10 and page design.
+- Refresh personalized scores when metadata or exposure changes so fresh,
+  relevant titles can replace stale favorites.
+- Keep **Heute mal etwas anderes** strictly on ready 16:9 backdrops: no portrait
+  poster fallback and no initials placeholders while artwork is still loading.
+
+### Settings, quality and release engineering
+
+- Redesign the Settings overview, navigation, forms and responsive layout while
+  retaining the existing handlers and configuration contracts.
+- Add the Modules entry to the Settings overview.
+- Streamline duplicate post-merge checks on Overnight while preserving the full
+  pull-request gate and complete verification before Stable promotion.
+- Retain the full Stable quality gate: browser interaction, Chromium/WebKit
+  mobile checks, performance budgets, Python/frontend regression tests,
+  dependency audit, container build and vulnerability scan, E2E flows, upgrade
+  and rollback verification.
+
+See [v1.5.0 release notes](docs/releases/v1.5.0.md). The release remains
+compatible with existing accounts, profiles, queues, subscriptions, provider
+settings, media paths and Storage Autopilot state. Back up at least `.env`,
+`data/` and `runtime/` before upgrading.
 
 ## v1.4.0 – 2026-09-30
 
