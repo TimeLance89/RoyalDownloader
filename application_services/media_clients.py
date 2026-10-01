@@ -53,7 +53,10 @@ def get_aniworld_scraper() -> AniWorldScraper:
 def get_jellyfin_client() -> JellyfinClient:
     with state.jellyfin_cache_lock:
         cfg = dict(state.jellyfin_cfg)
-    return JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""))
+    # Full ownership scans span multiple pages on established libraries. The
+    # former five-second per-page timeout made the queue safety gate report
+    # Jellyfin as stale while the server was still returning valid data.
+    return JellyfinClient(cfg.get("url", ""), cfg.get("api_key", ""), timeout=20.0)
 
 
 def _build_recommender_config() -> JellyfinRecommenderConfig:
