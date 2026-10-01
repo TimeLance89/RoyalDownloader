@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeriesBrowse } from '../../web/js/features/discovery/series-browse.js';
+import { createCatalogSeed } from '../../web/js/features/discovery/catalog-seed.js';
+import { readFileSync } from 'node:fs';
 
 function fixture(responses, waitForRetry = async () => {}) {
   const nodes = new Map();
@@ -49,4 +51,53 @@ for (const failure of [Object.assign(new Error('Offline'), {code:'network_error'
 test('permanent request errors are not retried',async()=>{
   const h=fixture([Object.assign(new Error('Invalid request'),{status:400})]);
   try { await h.browse.next(); assert.equal(h.calls.length,1); assert.equal(h.state.page,1); assert.equal(h.state.results.length,32); assert.ok(h.state.loadError); } finally {h.browse.unmount();}
+});
+
+
+test('series catalog seeds only one 32-card page from the warmed Home reservoir', () => {
+  const reservoir = Array.from({ length: 220 }, (_, index) => ({
+    base_slug: `series-${index}`,
+    title: `Series ${index}`,
+  }));
+  const seriesState = {
+    results: [], sources: [], browseMode: null, page: 1, lastPageFull: false,
+    loadingBrowse: false, loadError: '', previewFromHome: false, lastCatalogRefreshAt: 0,
+  };
+  let rendered = 0;
+  const seed = createCatalogSeed({
+    movieState: { results: [], metadataCache: {} },
+    seriesState,
+    getActiveTab: () => 'serien',
+    getHomeData: () => ({ newMovies: [], discoverySeries: reservoir }),
+    mergeFpMetadata: (_old, value) => value,
+    fpMetadataPreloadItems: () => [],
+    preloadTmdbMetadata() {},
+    renderFpResults() {},
+    refreshMovieFeatureCandidates() {},
+    updateFpInfiniteState() {},
+    recheckFpInfinite() {},
+    renderSeriesResults() { rendered += 1; },
+    renderSeriesCatalogHero() {},
+    updateSeriesInfiniteState() {},
+    recheckSeriesInfinite() {},
+  });
+
+  assert.equal(seed.series(), true);
+  assert.equal(seriesState.results.length, 32);
+  assert.equal(seriesState.results[0].base_slug, 'series-0');
+  assert.equal(seriesState.results.at(-1).base_slug, 'series-31');
+  assert.equal(reservoir.length, 220);
+  assert.equal(rendered, 1);
+});
+
+test('series presentation checks Jellyfin only for the newly applied page', () => {
+  const source = readFileSync(
+    new URL('../../web/js/features/discovery/series-presentation.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /refreshCatalogJellyfinStatus\(incoming\.map\(homeSeriesEntry\)/);
+  assert.doesNotMatch(source, /refreshCatalogJellyfinStatus\(seriesState\.results\.map\(homeSeriesEntry\)/);
+  const applyBody = source.split('function applySeriesResults', 2)[1]
+    .split('function seriesStructureFingerprint', 1)[0];
+  assert.doesNotMatch(applyBody, /recheckSeriesInfinite\(\)/);
 });
