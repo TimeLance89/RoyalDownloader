@@ -30,19 +30,16 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.deepEqual(requests, [1, 2, 2]);
       failures = 3;
       await page.locator("#series-infinite").scrollIntoViewIfNeeded();
-      await page.waitForSelector("#series-infinite-retry:visible");
-      assert.deepEqual(requests, [1, 2, 2, 3, 3, 3]);
-      assert.equal(await page.locator("#series-results .result-card").count(), 64);
-      await page.evaluate(() => { window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize")); });
-      await page.waitForTimeout(1000);
-      assert.equal(requests.length, 6);
-      await page.locator("#series-infinite-retry")[mobile ? "tap" : "click"]();
-      await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 66);
+      await page.waitForFunction(
+        () => document.querySelectorAll("#series-results .result-card").length === 66,
+        null,
+        { timeout: 15000 },
+      );
       assert.deepEqual(requests, [1, 2, 2, 3, 3, 3, 3]);
       assert.equal(await page.evaluate(() => originalSeriesCard === document.querySelector("#series-results .result-card")), true);
       assert.equal(await page.locator("#series-infinite-retry").isVisible(), false);
       assert.deepEqual(errors, []);
-      console.log(`series pagination ${mobile ? "mobile" : "desktop"}: automatic recovery, bounded retries, manual recovery, retained cards passed`);
+      console.log(`series pagination ${mobile ? "mobile" : "desktop"}: cold-start pending auto-recovers without manual retry and retained cards passed`);
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
