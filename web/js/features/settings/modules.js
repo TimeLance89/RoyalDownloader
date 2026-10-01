@@ -91,6 +91,10 @@ export function createModuleSettings(root) {
       "beforebegin",
       '<a href="#settings-modules" data-settings-target="settings-modules"><span>◈</span><strong>Module</strong><small>Optionale Funktionen</small></a>',
     );
+    root.querySelector('[data-settings-open="settings-system"]')?.insertAdjacentHTML(
+      "beforebegin",
+      '<button class="settings-launch-card is-modules" type="button" data-settings-open="settings-modules"><span class="settings-launch-symbol" aria-hidden="true">◈</span><span class="settings-launch-copy"><small>ERWEITERUNGEN</small><strong>Module</strong><em>Optionale Funktionen und Dienste verwalten</em></span><i aria-hidden="true">→</i></button>',
+    );
     find("settings-system")?.insertAdjacentHTML(
       "beforebegin",
       '<section id="settings-modules" class="settings-section" data-settings-section aria-hidden="true" hidden><header class="settings-section-heading"><span class="settings-section-mark">◈</span><div><span>MODULE</span><h2>Module verwalten</h2><p>Module werden sofort gespeichert. Integrationsdaten und Verhalten bleiben in ihren jeweiligen Einstellungen.</p></div></header><div id="module-manager-list" class="settings-card-grid"></div></section>',

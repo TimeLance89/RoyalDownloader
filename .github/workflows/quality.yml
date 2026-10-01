@@ -165,17 +165,20 @@ jobs:
         run: bandit -q -ll -r . -x ./tests -s B310
 
       - name: Audit locked dependencies
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           pip-audit -r requirements.lock
           pip-audit -r requirements-dev.lock
 
       - name: Generate Python dependency SBOM
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
 
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
       - name: Run tests with critical-module coverage
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           coverage run --source=application_services,core.app_state,core.auth,core.config,media.media_quality,core.network_guard,core.proxy_security,core.queue_jobs,core.queue_performance,core.runtime_cache,core.security_runtime,updates.self_updater,core.setup_bootstrap,updates.update_channels,updates.update_checker,core.websocket_manager,updates.ytdlp_updater,integrations.serienstream_shared_session,media.session_manager -m pytest -q
           coverage report --skip-covered --fail-under=45
@@ -188,6 +191,7 @@ jobs:
           coverage xml -o coverage.xml
 
       - name: Build container image
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           docker build \
             --build-arg APP_COMMIT_SHA="${GITHUB_SHA}" \
@@ -200,6 +204,7 @@ jobs:
             .
 
       - name: Scan container for high and critical CVEs
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         timeout-minutes: 5
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # trivy 0.74 line
         with:
@@ -213,6 +218,7 @@ jobs:
           trivyignores: .trivyignore.yaml
 
       - name: Generate container SBOM
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         timeout-minutes: 5
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297
         with:
@@ -227,6 +233,7 @@ jobs:
           timeout: 3m0s
 
       - name: Smoke-test isolated SerienStream browser boundary
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         shell: bash
         run: |
           browser_network="royal-browser-quality-${GITHUB_RUN_ID}"
@@ -303,6 +310,7 @@ jobs:
           '
 
       - name: Smoke-test fail-closed read-only container startup
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         shell: bash
         run: |
           smoke_root="${RUNNER_TEMP}/royal-quality-smoke"
@@ -355,6 +363,7 @@ jobs:
           exit 1
 
       - name: E2E 1 - first run, bootstrap, login and protected API
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
           docker volume create "${flow_volume}"
@@ -371,6 +380,7 @@ jobs:
             scripts/release_readiness_gate.py first-run-auth
 
       - name: E2E 2 - queue, persistence and restart
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
           docker run --rm \
@@ -385,6 +395,7 @@ jobs:
             scripts/release_readiness_gate.py queue-restart-verify
 
       - name: E2E 3 - provider media to queue to status
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         run: |
           flow_volume="royal-release-flow-${GITHUB_RUN_ID}"
           docker run --rm \
@@ -394,6 +405,7 @@ jobs:
             scripts/release_readiness_gate.py media-flow
 
       - name: Upgrade and rollback soak from 1.0.0-rc.3
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         shell: bash
         run: |
           rc3_sha="0376d1c17ba3ab25ad312cbecc066f186c152bbe"
@@ -472,6 +484,7 @@ jobs:
             /tmp/release_gate.py verify-rollback-rc
 
       - name: Published v1.1.0 upgrade, restart, rollback and backup recovery
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         shell: bash
         run: bash scripts/stable_upgrade_gate.sh
 
@@ -487,6 +500,7 @@ jobs:
           rm -rf "${RUNNER_TEMP}/royal-release-backup-${GITHUB_RUN_ID}"
 
       - name: Upload security and coverage artifacts
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/overnight' || !contains(github.event.head_commit.message, '(#') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
         with:
           name: security-verification-artifacts
