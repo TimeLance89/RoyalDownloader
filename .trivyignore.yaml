@@ -1,0 +1,25 @@
+# Temporary Debian Bookworm mirror-lag exception.
+#
+# Trivy's vulnerability DB already marks 2.5.0-1+deb12u4 as fixed, while the
+# public bookworm-security mirrors available to CI still publish deb12u3.
+# This exception is deliberately short-lived: after 2026-10-03 the scan fails
+# again unless Debian's fixed package has reached the mirrors.
+vulnerabilities:
+  - id: CVE-2024-28757
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
+  - id: CVE-2025-59375
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
+  - id: CVE-2026-25210
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
+  - id: CVE-2026-45186
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
+  - id: CVE-2026-66046
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
+  - id: CVE-2026-93990
+    expired_at: 2026-10-03
+    statement: "Debian bookworm-security mirror still serves libexpat1 2.5.0-1+deb12u3; Trivy expects deb12u4."
