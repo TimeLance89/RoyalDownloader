@@ -14,7 +14,7 @@ def test_home_experience_loads_after_taste_profile_v2():
 
 def test_hero_prioritizes_cinema_then_personal_and_adjacent_discovery():
     assert "const HERO_STRONG_TARGET = 5" in EXPERIENCE
-    assert "addBalanced(selected, selectedKeys, cinema, 2)" in EXPERIENCE
+    assert "addBalanced(selected, selectedKeys, cinema, 4)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, trend" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, discovery" in EXPERIENCE
@@ -33,7 +33,7 @@ def test_hero_requires_quality_and_reuses_exposure_history():
     assert "const HERO_MIN_RATING = 5.5" in EXPERIENCE
     assert "media.backdrop_url" in EXPERIENCE
     assert 'discoveryV2ExposurePenalty(entry, "hero")' in EXPERIENCE
-    assert "HERO_MAX_SAME_KIND = 4" in EXPERIENCE
+    assert "HERO_MAX_SAME_KIND = 5" in EXPERIENCE
     assert "HERO_MAX_OWNED = 4" in EXPERIENCE
     assert 'const artwork = media.backdrop_url || media.cover_url || ""' in EXPERIENCE
 

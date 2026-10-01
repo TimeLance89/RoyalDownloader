@@ -7,7 +7,7 @@ export function createHeroSelection({
   const HERO_LIMIT = 7;
   const HERO_STRONG_TARGET = 5;
   const HERO_MIN_RATING = 5.5;
-  const HERO_MAX_SAME_KIND = 4;
+  const HERO_MAX_SAME_KIND = 5;
   const HERO_MAX_OWNED = 4;
   const MATCH_FACTORS = {
     genres: 1.00,
@@ -266,13 +266,14 @@ export function createHeroSelection({
     const hash = typeof stableDiscoveryHash === "function"
       ? stableDiscoveryHash(`${day}|hero|${logicalKey(entry)}`)
       : 0;
-    const dailyVariation = (hash % 1000) / 1000 * 2.5;
+    const dailyVariation = (hash % 1000) / 1000 * 6;
     return {
       entry,
       ...taste,
       trend,
       cinema,
-      rankingScore: taste.score
+      rankingScore: 12 * Math.tanh((taste.score + taste.exposure * 0.72) / 12)
+        - taste.exposure
         + trendBonus
         + cinemaMomentum
         + rating * 0.18
@@ -332,7 +333,7 @@ export function createHeroSelection({
     if (!trained) {
       const selected = [];
       const selectedKeys = new Set();
-      addBalanced(selected, selectedKeys, byTaste.filter((record) => record.cinema), 2);
+      addBalanced(selected, selectedKeys, byTaste.filter((record) => record.cinema), 4);
       addBalanced(selected, selectedKeys, byTaste, HERO_LIMIT);
       addBalanced(selected, selectedKeys, byTaste, HERO_LIMIT, { relax: true });
       return selected;
@@ -363,7 +364,7 @@ export function createHeroSelection({
 
     // Put current cinema hits first when they fit the profile, then fill the
     // remaining slots with strong matches and adjacent discoveries.
-    addBalanced(selected, selectedKeys, cinema, 2);
+    addBalanced(selected, selectedKeys, cinema, 4);
     addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET);
     addBalanced(selected, selectedKeys, trend, Math.min(HERO_LIMIT, selected.length + 1));
     addBalanced(selected, selectedKeys, discovery, Math.min(HERO_LIMIT, selected.length + 1));

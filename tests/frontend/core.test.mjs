@@ -58,6 +58,7 @@ import { createLiveUpdates } from "../../web/js/features/downloads/index.js";
 import { createDownloadEvents } from "../../web/js/features/downloads/events.js";
 import { createServerBuildMonitor } from "../../web/js/features/system/server-build.js";
 import { createHeroSelection } from "../../web/js/features/home/hero-selection.js";
+import { createTasteRanking } from "../../web/js/features/home/taste-ranking.js";
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
 
@@ -338,6 +339,54 @@ test("native hero selection keeps provider identity, artwork and blocked-title p
 });
 
 
+test("trained hero reserves four slots for current cinema hits ahead of older favorites", () => {
+  const items = Array.from({ length: 18 }, (_, id) => ({ kind: id < 12 ? "movie" : "series", item: {
+    slug: String(id), title: `Title ${id}`, genres: [id < 4 ? "Thriller" : "Action"],
+    backdrop_url: `art-${id}`, rating: 8, vote_count: 500, in_cinema: id < 4,
+  } }));
+  const key = entry => `${entry.kind}:${entry.item.slug}`;
+  const hero = createHeroSelection({ homeAllEntries: () => items,
+    homeEntryMedia: entry => entry.item, homeEntryKey: key, discoveryV2LogicalKey: key,
+    tasteMetadata: (_kind, media) => media, discoveryV2ExposurePenalty: () => 0,
+    getHomeData: () => ({ topMovies: [], trendingSeries: [] }),
+    homeMovieEntry: item => ({ kind: "movie", item }), homeSeriesEntry: item => ({ kind: "series", item }),
+    loadDiscoveryProfile: () => ({ interactions: 1752, confidence: 0.95,
+      dimensions: { genres: { Action: 500, Thriller: 50 } }, genres: { Action: 500, Thriller: 50 } }),
+  });
+  const result = hero.candidates();
+  assert.equal(result.length, 7);
+  assert.ok(result.slice(0, 4).every(entry => entry.item.in_cinema));
+});
+
+test("personal discovery rotates cold and trained profiles and updates hydrated metadata", () => {
+  const items = Array.from({ length: 40 }, (_, id) => ({ kind: "movie", item: {
+    slug: String(id), title: `Fresh ${id}`, rating: 8, genres: ["Action"],
+  } }));
+  let day = 0;
+  let previous = new Set();
+  const profile = { interactions: 0, confidence: 0, dimensions: {} };
+  const ranking = createTasteRanking(null, null, {
+    homeEntryMedia: entry => entry.item, homeEntryKey: entry => entry.item.slug,
+    tasteMetadata: (_kind, media) => media, loadDiscoveryProfile: () => profile,
+    homeAllEntries: () => items, getShuffle: () => 0,
+    discoveryV2ExposurePenalty: entry => previous.has(entry.item.slug) ? 16 : 0,
+    discoveryV2Noise: entry => ((Number(entry.item.slug) * 17 + day * 23) % 41) / 41 * 6,
+  });
+  const selection = () => ranking.entries().slice(0, 7).map(entry => entry.item.slug);
+  const cold = selection();
+  assert.deepEqual(selection(), cold, "stable during the same visit");
+  day++;
+  assert.notDeepEqual(selection(), cold, "neutral accounts receive daily discoveries");
+  Object.assign(profile, { interactions: 1752, confidence: 0.95, dimensions: { genres: { Action: 500 } } });
+  const trained = selection();
+  previous = new Set(trained);
+  day++;
+  assert.ok(selection().every(key => !previous.has(key)), "old affinity must not defeat exposure rotation");
+  const hydrated = items.find(entry => entry.item.slug === selection()[0]);
+  hydrated.item.genres = ["Horror"];
+  assert.ok(!selection().includes(hydrated.item.slug), "hydrated metadata invalidates the old taste score");
+});
+
 function subscriptionSocket() {
   const topics = new Map();
   return {
@@ -590,9 +639,9 @@ test("home data deduplicates loading and preserves every primary and reservoir s
     assert.equal(new Set(urls).size, 18);
     assert.ok(urls.includes("/api/tmdb/now-playing"));
     for (const url of ["/api/movies?mode=new&page=1", "/api/series?mode=trending&page=1",
-      "/api/movies?mode=top&page=4", "/api/series?mode=discover&page=3",
+      `/api/movies?mode=top&page=${4 + Math.floor(Date.now() / 86400000) % 5}`,
       "/api/series?mode=new&page=3"]) assert.ok(urls.includes(url));
-    assert.equal(calls.filter(value => value === "render").length, 2);
+    assert.equal(calls.filter(value => value === "render").length, 3, "hydrated discoveries appear in the current visit");
     assert.equal(model.get().discoveryMovies.length, 6);
     assert.equal(model.get().discoverySeries.length, 7);
     assert.ok(writes.length >= 2);
@@ -612,6 +661,27 @@ test("home adds current cinema discoveries after the first catalog render", asyn
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(model.get().cinemaMovies[0].slug, "tmdb:42");
     assert.ok(calls.filter((call) => call === "render").length >= 2);
+  } finally { model.unmount(); }
+});
+
+test("cinema feed enriches a known provider title instead of silently discarding the hit", async () => {
+  const metadata = {};
+  const { model } = homeDataFixture({ getMovieMetadata: () => metadata, client: { get: async url => {
+    if (url === "/api/tmdb/now-playing") return { available: true, ids: [42], movies: [
+      { slug: "tmdb:42", tmdb_id: 42, title: "Cinema hit", year: "2026", release_date: "2026-09-25",
+        backdrop_url: "cinema.jpg", rating: 8, vote_count: 500, popularity: 350 },
+    ] };
+    return { results: url.startsWith("/api/movies")
+      ? [{ slug: "provider-hit", title: "Cinema hit", year: "2026" }] : [] };
+  } } });
+  try {
+    await model.load();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(model.get().newMovies[0].slug, "provider-hit");
+    assert.equal(model.get().cinemaMovies.length, 0, "no duplicate TMDB-only card");
+    assert.equal(metadata["provider-hit"].in_cinema, true);
+    assert.equal(metadata["provider-hit"].backdrop_url, "cinema.jpg");
+    assert.equal(metadata["provider-hit"].popularity, 350);
   } finally { model.unmount(); }
 });
 

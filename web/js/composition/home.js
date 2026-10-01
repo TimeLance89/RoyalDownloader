@@ -70,6 +70,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry),
         discoveryV2ExposurePenalty: (...args) => discoveryPolicy.discoveryV2ExposurePenalty(...args),
         discoveryV2SelectDiverse: (...args) => discoveryPolicy.discoveryV2SelectDiverse(...args),
+        discoveryV2Noise: (...args) => discoveryPolicy.discoveryV2Noise(...args),
         getShuffle: () => services.homePresenter.get().discoveryShuffle,
         applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile), renderHome: () => services.actions.renderHome(),
       }),
