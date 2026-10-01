@@ -3,7 +3,7 @@ export const HOME_RAIL_CATALOG = [
   { id: "top", trackId: "home-top-track", title: "Top 10", eyebrow: "Tageschart", description: "Was heute über alle Quellen hinweg gefragt ist.", ranked: true },
   { id: "series", trackId: "home-series-track", title: "Serien, die gerade alle sehen", eyebrow: "Serien", description: "Aktuell beliebte Serien aus deinen Quellen." },
   { id: "genre", trackId: "home-genre-track", title: "Ein Genre für dich", eyebrow: "Geschmack", description: "Eine wechselnde Reihe aus deinen Lieblingsgenres." },
-  { id: "explore", trackId: "home-explore-track", title: "Heute mal etwas anderes", eyebrow: "Entdecken", description: "Bewusst außerhalb deiner üblichen Auswahl." },
+  { id: "explore", trackId: "home-explore-track", title: "Heute mal etwas anderes", eyebrow: "Entdecken", description: "Bewusst außerhalb deiner üblichen Auswahl.", wallpaperOnly: true },
   { id: "gems", trackId: "home-gems-track", title: "Verborgene Schätze", eyebrow: "Geheimtipps", description: "Gut bewertete Titel abseits der Tagescharts." },
   { id: "fresh", trackId: "home-new-track", title: "Neu hinzugefügt", eyebrow: "Gemischt", description: "Neue Filme und Serien in einer Reihe." },
   { id: "new_movies", trackId: "home-new-movies-track", title: "Neue Filme", eyebrow: "Filme", description: "Die neuesten Filme aus allen aktiven Quellen." },

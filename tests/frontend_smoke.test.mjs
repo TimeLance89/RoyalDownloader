@@ -587,6 +587,13 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
+test("explore rail renders wallpaper-only cards without portrait-poster fallback", () => {
+  assert.match(homeLayoutEditor, /id: "explore"[\s\S]*wallpaperOnly: true/);
+  assert.match(app, /wallpaperOnly: Boolean\(definition\.wallpaperOnly\)/);
+  assert.match(app, /createHomeCard\(entry, rank, cycle === 1 && index < eagerCount, variant, \{ wallpaperOnly \}\)/);
+  assert.match(app, /if \(wallpaperOnly\) media\.cover_url = ""/);
+});
+
 test("series wallpaper hydration updates every duplicate catalog object", async () => {
   const trending = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
   const discovery = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };

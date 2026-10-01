@@ -47,6 +47,7 @@ export function createHomePresenter(root, {
       if (!definition) return;
       renderHomeRail(definition.trackId, lanes[railId] || [], {
         ranked: Boolean(definition.ranked), layout: definition.layout || "rail",
+        wallpaperOnly: Boolean(definition.wallpaperOnly),
       });
     });
     if (currentHomeLayout().hero_visible) scheduleHomeHeroRotation();
