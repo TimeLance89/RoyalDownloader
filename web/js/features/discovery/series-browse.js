@@ -6,12 +6,28 @@ export function createSeriesBrowse(root, {
   renderSeriesTiles, updateSeriesInfiniteState, showSeriesDetail, firstEpisodeSlug,
   updateSeriesStatus, refreshSeriesJellyfinStatus, recheckSeriesInfinite, preloadSeriesPosterImages,
   syncSeriesCatalogFromHome, renderSeriesResults, refreshSeriesCatalogInBackground, client = api,
-  waitForRetry = delay,
+  waitForRetry = delay, scheduleRecheck = null,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null, request = null, cancelRequest = null;
   const current = id => scope?.active && request?.scope.active
     && request.id === id && seriesState.browseRequestSeq === id;
+  const transientCatalogError = error => error?.code === "series_catalog_pending"
+    || [409, 429, 502, 503, 504, 520, 521, 522, 524].includes(Number(error?.status))
+    || ["network_error", "request_timeout"].includes(error?.code);
+  function scheduleTransientRecheck() {
+    const owner = scope;
+    const callback = () => {
+      if (!owner?.active || getActiveTab() !== "serien"
+          || seriesState.loadingBrowse || seriesState.loadError) return;
+      recheckSeriesInfinite();
+    };
+    if (typeof scheduleRecheck === "function") {
+      scheduleRecheck(callback);
+      return;
+    }
+    owner?.timeout(callback, 1500);
+  }
   async function load(params, id, retryTransient = false) {
     cancelRequest?.();
     const job = createScope();
@@ -23,9 +39,7 @@ export function createSeriesBrowse(root, {
       try {
         return await client.get(url, { signal: job.signal, timeoutMs: Math.max(1, deadline - Date.now()) });
       } catch (error) {
-        const transient = error.code === "series_catalog_pending"
-          || [409, 429, 502, 503, 504, 520, 521, 522, 524].includes(error.status)
-          || ["network_error", "request_timeout"].includes(error.code);
+        const transient = transientCatalogError(error);
         const backoff = 700 * (attempt + 1);
         if (!retryTransient || !transient || attempt >= 2 || !current(id)
             || Date.now() + backoff >= deadline) throw error;
@@ -158,6 +172,7 @@ export function createSeriesBrowse(root, {
     if (!append) {
       byId("series-status").textContent = `Lade ${modeLabels[mode] || "Serien"} …`;
     }
+    let recheckAfterSettle = false;
     try {
       const data = await load(seriesParams(mode, page), requestId, append);
       if (!current(requestId)) return false;
@@ -173,7 +188,15 @@ export function createSeriesBrowse(root, {
       byId("series-status").textContent = append
         ? `Nachladen fehlgeschlagen: ${error.message}`
         : `Fehler: ${error.message}`;
-      if (append) {
+      if (append && transientCatalogError(error)) {
+        // A cold provider page is not a permanent pagination failure. Keep the
+        // sentinel armed and try again once the in-flight provider futures had
+        // time to populate the cache. A persistent loadError would otherwise
+        // disable infinite scrolling until some unrelated refresh clears it.
+        seriesState.loadError = "";
+        byId("series-status").textContent = "Weitere Serien werden vorbereitet …";
+        recheckAfterSettle = true;
+      } else if (append) {
         seriesState.loadError = error.message;
       } else {
         seriesState.loadError = "";
@@ -185,6 +208,7 @@ export function createSeriesBrowse(root, {
       if (current(requestId)) {
         seriesState.loadingBrowse = false;
         updateSeriesInfiniteState();
+        if (recheckAfterSettle) scheduleTransientRecheck();
       }
     }
   }

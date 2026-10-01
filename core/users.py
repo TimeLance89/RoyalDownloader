@@ -122,6 +122,22 @@ class UserStore:
             user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "jellyfin_user_id": "", "jellyfin_user_name": "", "avatar_id": "", "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
             self._users[user_id] = user; self._save(); return self.public(user)
 
+    def set_username(self, user_id: str, username: str) -> dict:
+        """Change the login name without changing the household-facing profile name."""
+        login = validate_username(username)
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            for other_id, other in self._users.items():
+                if other_id == str(user_id):
+                    continue
+                if str(other.get("username", "")).casefold() == login.casefold():
+                    raise ValueError("Benutzername ist bereits vergeben.")
+            user.update(username=login, updated_at=time.time())
+            self._save()
+            return self.public(user)
+
     def set_profile_identity(self, user_id: str, display_name: str, avatar_id: str = "") -> dict:
         """Update the household-facing profile name and one bundled avatar."""
         name = str(display_name or "").strip()

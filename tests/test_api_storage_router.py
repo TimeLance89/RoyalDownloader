@@ -49,17 +49,20 @@ def test_storage_location_save_uses_safe_registry(monkeypatch):
             "label": kwargs["label"],
             "path": kwargs["path"],
             "mode": kwargs["mode"],
+            "media_types": kwargs["media_types"],
         },
     )
     body = storage_api.StorageLocationBody(
         label="Externe Festplatte",
         path="/external-media",
         mode="monitor",
+        media_types=[],
     )
     payload = asyncio.run(storage_api.api_storage_location_save(body))
     assert payload["saved"] is True
     assert payload["location"]["path"] == "/external-media"
     assert calls[0]["mode"] == "monitor"
+    assert calls[0]["media_types"] == []
 
 
 def test_cleanup_route_requires_explicit_confirmation(monkeypatch, tmp_path):

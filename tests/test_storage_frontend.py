@@ -14,8 +14,11 @@ def test_storage_runtime_exposes_multi_volume_management_cleanup_and_move_ui():
     source = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "web/js/features/storage").glob("*.js"))
     for marker in (
         'id="settings-storage"',
+        'id="storage-standard-target-list"',
         'id="storage-location-form"',
         'id="storage-location-mode"',
+        'id="storage-location-media-types"',
+        'name="storage-location-media"',
         'value="monitor"',
         'value="media"',
         'id="storage-move-modal"',
@@ -48,7 +51,9 @@ def test_storage_runtime_starts_hidden_and_uses_settings_navigation_visibility_r
 def test_storage_runtime_explains_true_move_semantics_and_mount_requirements():
     source = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "web/js/features/storage").glob("*.js"))
     assert "Bind-Mount" in source
-    assert "Royal mountet keine Host-Laufwerke selbst" in source
+    assert "Royal bindet Laufwerke nicht selbst ein" in source
+    assert "Was darf hier gespeichert werden?" in source
+    assert "Automatisch verteilen" in source
     assert "Quelle bleibt bis zum erfolgreichen Transfer geschützt" in source
     assert "Vorhandene Zieldaten werden niemals überschrieben" in source
     assert "Nur Live-Monitoring · keine Medienaktionen" in source
@@ -57,8 +62,12 @@ def test_storage_runtime_explains_true_move_semantics_and_mount_requirements():
 def test_storage_styles_cover_volume_registry_desktop_and_mobile_layouts():
     css = (ROOT / "web" / "styles" / "storage-manager.css").read_text(encoding="utf-8")
     assert ".storage-summary-ring" in css
+    assert ".storage-standard-targets-card" in css
+    assert ".storage-standard-target" in css
     assert ".storage-locations-card" in css
     assert ".storage-location-form" in css
+    assert ".storage-location-media-types" in css
+    assert ".storage-policy-media-readonly" in css
     assert ".storage-volume-members" in css
     assert ".storage-content-candidate" in css
     assert "@media(max-width:620px)" in css

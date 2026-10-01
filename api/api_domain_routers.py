@@ -55,6 +55,7 @@ _PREFIXES = {
         "/api/releases", "/api/v1/releases",
         "/api/tmdb/movie", "/api/v1/tmdb/movie", "/api/tmdb/movies",
         "/api/v1/tmdb/movies", "/api/tmdb/series", "/api/v1/tmdb/series",
+        "/api/tmdb/now-playing",
         "/api/jellyfin/matches", "/api/v1/jellyfin/matches",
     ),
 }

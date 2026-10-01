@@ -94,6 +94,7 @@ class TMDBClient:
         self._season_cache: dict = {}
         self._genre_cache: dict = {}
         self._now_playing_cache: tuple[float, set[int]] = (0.0, set())
+        self._now_playing_movies_cache: tuple[float, list[dict]] = (0.0, [])
         self._lock = threading.Lock()
 
     @property
@@ -534,15 +535,50 @@ class TMDBClient:
                     ),
                     range(2, page_count + 1),
                 )))
+        today = time.strftime("%Y-%m-%d")
         ids = {
             int(item["id"])
             for page in pages
             for item in page.get("results", [])
             if str(item.get("id") or "").isdigit()
+            and (not item.get("release_date") or str(item["release_date"]) <= today)
         }
+        movies = []
+        for page in pages:
+            for item in page.get("results", []):
+                movie_id = item.get("id")
+                release = str(item.get("release_date") or "")
+                title = str(item.get("title") or item.get("original_title") or "").strip()
+                backdrop = self._backdrop_url(item.get("backdrop_path") or "")
+                if (not str(movie_id or "").isdigit() or not title or not backdrop
+                        or item.get("adult") or (release and release > today)):
+                    continue
+                movies.append({
+                    "slug": f"tmdb:{movie_id}",
+                    "tmdb_id": int(movie_id),
+                    "title": title,
+                    "genres": self._genre_names("movie", item.get("genre_ids") or []),
+                    "year": _year_from_date(release),
+                    "release_date": release,
+                    "rating": round(float(item.get("vote_average") or 0), 1),
+                    "vote_count": int(item.get("vote_count") or 0),
+                    "backdrop_url": backdrop,
+                    "cover_url": self._poster_url(item.get("poster_path") or ""),
+                    "description": str(item.get("overview") or "").strip(),
+                    "popularity": float(item.get("popularity") or 0),
+                    "in_cinema": True,
+                })
+        movies.sort(key=lambda movie: (movie["popularity"], movie["vote_count"]), reverse=True)
         with self._lock:
             self._now_playing_cache = (now, ids)
+            self._now_playing_movies_cache = (now, movies[:60])
         return set(ids)
+
+    def cached_now_playing_movies(self) -> list[dict]:
+        now = time.time()
+        with self._lock:
+            cached_at, movies = self._now_playing_movies_cache
+            return [dict(movie) for movie in movies] if now - cached_at < NOW_PLAYING_CACHE_TTL else []
 
     def cached_now_playing_ids(self) -> set[int]:
         """Liefert Kinostatus nur aus dem Cache und blockiert keine Poster."""

@@ -55,6 +55,11 @@ class PasswordChangeBody(BaseModel):
     password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
+class UsernameChangeBody(BaseModel):
+    current_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+    username: str = Field(min_length=1, max_length=MAX_USERNAME_LENGTH)
+
+
 class HouseholdSwitchBody(BaseModel):
     user_id: str = Field(min_length=1, max_length=120)
     password: str = Field(default="", max_length=MAX_PASSWORD_LENGTH)
@@ -344,8 +349,17 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             "unlocked": dependencies.session_store().household_unlocked(
                 token, kind=appauth.SESSION_KIND_WEB,
             ),
+            "switching_unlocked": dependencies.session_store().profile_switch_unlocked(
+                token, kind=appauth.SESSION_KIND_WEB,
+            ),
             "users": [
-                {key: item.get(key) for key in ("id", "display_name", "avatar_id", "role", "enabled")}
+                {
+                    key: item.get(key)
+                    for key in (
+                        "id", "username", "display_name", "avatar_id", "role",
+                        "enabled", "setup_required",
+                    )
+                }
                 for item in users if item.get("enabled")
             ],
         }
@@ -358,6 +372,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         if not target or not target.get("enabled"):
             raise HTTPException(404, "Profil nicht gefunden.")
         if str(target.get("id")) != str(current.get("id")):
+            if current.get("role") != "admin":
+                raise HTTPException(403, "Nur Administratoren dürfen andere Profile verwalten.")
             token = dependencies.session_token(request.cookies)
             if not dependencies.session_store().household_unlocked(
                 token, kind=appauth.SESSION_KIND_WEB,
@@ -370,6 +386,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         current = dependencies.current_user(request.headers, request.cookies)
         if not current:
             raise HTTPException(401, "Anmeldung erforderlich.")
+        if current.get("role") != "admin":
+            raise HTTPException(403, "Administratorrechte erforderlich.")
         token = dependencies.session_token(request.cookies)
         session_store = dependencies.session_store()
         if session_store.household_unlocked(token, kind=appauth.SESSION_KIND_WEB):
@@ -380,7 +398,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             body.password,
         )
         if not confirmed:
-            raise HTTPException(403, "Das Passwort ist falsch.")
+            raise HTTPException(
+                403,
+                f"Das Administrator-Passwort für „{current.get('display_name') or current.get('username')}“ ist falsch.",
+            )
         if not session_store.unlock_household(token, kind=appauth.SESSION_KIND_WEB):
             raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
         return {"unlocked": True}
@@ -437,37 +458,76 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
 
     @router.post("/api/me/household/switch")
     async def api_me_household_switch(body: HouseholdSwitchBody, request: Request):
-        user = dependencies.current_user(request.headers, request.cookies)
-        if not user:
+        current = dependencies.current_user(request.headers, request.cookies)
+        if not current:
             raise HTTPException(401, "Anmeldung erforderlich.")
         target = dependencies.user_store().get(body.user_id)
         if not target or not target.get("enabled"):
             raise HTTPException(404, "Profil nicht gefunden.")
         token = dependencies.session_token(request.cookies)
         session_store = dependencies.session_store()
-        unlocked = session_store.household_unlocked(
+        switching_unlocked = session_store.profile_switch_unlocked(
             token, kind=appauth.SESSION_KIND_WEB,
         )
-        if not unlocked:
+        if str(target.get("id")) == str(current.get("id")):
+            return {
+                "user": dependencies.user_store().public(target),
+                "household_unlocked": session_store.household_unlocked(
+                    token, kind=appauth.SESSION_KIND_WEB,
+                ),
+                "switching_unlocked": switching_unlocked,
+            }
+        if target.get("setup_required"):
+            raise HTTPException(
+                409,
+                f"„{target.get('display_name') or target.get('username')}“ muss zuerst ein eigenes Passwort einrichten.",
+            )
+        if not switching_unlocked:
             confirmed = await run_in_threadpool(
                 dependencies.verify_credentials,
-                str(user.get("username") or ""),
+                str(target.get("username") or ""),
                 body.password,
             )
             if not confirmed:
-                raise HTTPException(403, "Das Passwort ist falsch.")
-            if not session_store.unlock_household(
+                raise HTTPException(
+                    403,
+                    f"Das Passwort für „{target.get('display_name') or target.get('username')}“ ist falsch.",
+                )
+            if not session_store.unlock_profile_switching(
                 token, kind=appauth.SESSION_KIND_WEB,
             ):
                 raise HTTPException(401, "Die Sitzung ist nicht mehr gültig.")
+            switching_unlocked = True
         if not session_store.switch_user(
             token, str(target["id"]), kind=appauth.SESSION_KIND_WEB,
         ):
             raise HTTPException(409, "Das Profil konnte nicht gewechselt werden.")
         return {
             "user": dependencies.user_store().public(target),
-            "household_unlocked": True,
+            "household_unlocked": False,
+            "switching_unlocked": switching_unlocked,
         }
+
+    @router.post("/api/me/username")
+    async def api_me_username(body: UsernameChangeBody, request: Request):
+        user = dependencies.current_user(request.headers, request.cookies)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich.")
+        if not await run_in_threadpool(
+            dependencies.verify_credentials, user["username"], body.current_password,
+        ):
+            raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
+        try:
+            username = appauth.validate_username(body.username)
+            updated = dependencies.user_store().set_username(str(user["id"]), username)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {
+            "user": updated,
+            "configured": True,
+            "active_sessions": dependencies.session_store().count(appauth.SESSION_KIND_WEB),
+        }
+
 
     @router.post("/api/me/password")
     async def api_me_password(body: PasswordChangeBody, request: Request):
@@ -536,6 +596,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
         dependencies.user_store().set_password(user["id"], await run_in_threadpool(appauth.hash_password, password))
         token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"])
+        if not dependencies.session_store().unlock_profile_switching(
+            token, kind=appauth.SESSION_KIND_WEB,
+        ):
+            raise HTTPException(500, "Die Profilumschaltung konnte nicht freigegeben werden.")
         response = JSONResponse({"ok": True, "authenticated": True, "user": dependencies.user_store().public(dependencies.user_store().get(user["id"]))})
         set_session_cookie(response, request, token)
         return response

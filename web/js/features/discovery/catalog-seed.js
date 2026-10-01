@@ -1,4 +1,5 @@
 /** Home seeds are previews; provider refresh keeps catalog pagination authoritative. */
+const CATALOG_SEED_PAGE_SIZE = 32;
 export function createCatalogSeed({
   movieState, seriesState, getActiveTab, getHomeData, mergeFpMetadata, fpMetadataPreloadItems, preloadTmdbMetadata,
   renderFpResults, refreshMovieFeatureCandidates, updateFpInfiniteState, recheckFpInfinite,
@@ -41,7 +42,11 @@ export function createCatalogSeed({
 
   function syncSeriesCatalogFromHome({ fresh = false } = {}) {
     if (seriesState.browseMode && seriesState.browseMode !== "discover") return false;
-    const incoming = Array.isArray(getHomeData().discoverySeries) ? getHomeData().discoverySeries : [];
+    const reservoir = Array.isArray(getHomeData().discoverySeries) ? getHomeData().discoverySeries : [];
+    // The Home discovery reservoir may contain up to 220 warmed titles. The
+    // series catalog must start with exactly one normal page, just like movies;
+    // further pages are appended only by the catalog infinite-scroll path.
+    const incoming = reservoir.slice(0, CATALOG_SEED_PAGE_SIZE);
     if (
       !incoming.length || (!fresh && seriesState.results.length)
       || (fresh && seriesState.results.length && !seriesState.previewFromHome)

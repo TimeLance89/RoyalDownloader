@@ -32,10 +32,12 @@ def test_home_reservoir_warms_deeper_catalog_pages_in_background():
     assert "async function performWarm" in data
     for fragment in (
         'catalog("movie", { mode: "new", page: 3 }, scope.signal)',
-        'catalog("movie", { mode: "top", page: 4 }, scope.signal)',
         'catalog("series", { mode: "discover", page: 2 }, scope.signal)',
         'catalog("series", { mode: "trending", page: 3 }, scope.signal)',
         'catalog("series", { mode: "new", page: 3 }, scope.signal)',
+        "const dailyPageOffset = Math.floor(Date.now() / 86400000) % 5",
+        'catalog("movie", { mode: "top", page: 4 + dailyPageOffset }, scope.signal)',
+        'catalog("series", { mode: "discover", page: 3 + dailyPageOffset }, scope.signal)',
     ):
         assert fragment in data
     assert "Promise.allSettled" in data

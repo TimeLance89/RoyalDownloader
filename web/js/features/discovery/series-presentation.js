@@ -2,7 +2,7 @@ import { createScope } from "../../core/lifecycle.js";
 
 export function createSeriesPresentation(catalogRoot, detailRoot, {
   watchModeLabel, seriesState, getHomeData, coverUrl,
-  activateResultCard, configureSeriesTrailer, createResultCardVisual, dedupeCatalogMedia, discardObservedResultPosters, homeSeriesEntry, hydrateHomeSeriesArtwork, isEpisodeEligible, loadSeries, mediaJellyfinStatus, mergeCatalogItems, mergeCatalogSources, openMediaModal, recheckSeriesInfinite, refreshCatalogJellyfinStatus, renderSeriesDetailDiscovery, renderSeriesTiles, setFpJellyfinBadge, setFpPosterJellyfinBadge, syncResultCardPoster, syncSeriesQueueFlags, updateSeriesJellyfinBadge, updateSeriesStatus, updateTasteFeedbackButtons, verifyHuhuEpisodeLanguages,
+  activateResultCard, configureSeriesTrailer, createResultCardVisual, dedupeCatalogMedia, discardObservedResultPosters, homeSeriesEntry, hydrateHomeSeriesArtwork, isEpisodeEligible, loadSeries, mediaJellyfinStatus, mergeCatalogItems, mergeCatalogSources, openMediaModal, refreshCatalogJellyfinStatus, renderSeriesDetailDiscovery, renderSeriesTiles, setFpJellyfinBadge, setFpPosterJellyfinBadge, syncResultCardPoster, syncSeriesQueueFlags, updateSeriesJellyfinBadge, updateSeriesStatus, updateTasteFeedbackButtons, verifyHuhuEpisodeLanguages,
 }) {
   const document = catalogRoot.ownerDocument;
   const byId = id => catalogRoot.querySelector(`#${id}`) || detailRoot.querySelector(`#${id}`);
@@ -305,7 +305,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     // Jellyfin ist ein eigener Live-Status und darf nie auf Poster/TMDB warten.
     // Das betrifft insbesondere die komplette erste 32er-Katalogseite.
     const owner = scope;
-    if (owner?.active) void refreshCatalogJellyfinStatus(seriesState.results.map(homeSeriesEntry), null, { signal: owner.signal })
+    if (owner?.active) void refreshCatalogJellyfinStatus(incoming.map(homeSeriesEntry), null, { signal: owner.signal })
       .then(() => {
         if (!owner.active || browseGeneration !== seriesState.browseRequestSeq) return;
         for (const result of seriesState.results) updateSeriesResultCard(result.base_slug);
@@ -319,7 +319,6 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
       });
     }
     updateSeriesInfiniteState();
-    recheckSeriesInfinite();
     const sourceCount = seriesState.sources.length;
     byId("series-status").textContent =
       seriesState.results.length

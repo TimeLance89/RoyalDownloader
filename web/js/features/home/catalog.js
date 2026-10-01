@@ -7,6 +7,7 @@ export function createHomeCatalog({
     return [
       ...getData().newMovies,
       ...getData().topMovies,
+      ...(getData().cinemaMovies || []),
       ...getData().discoveryMovies,
       ...getHomeSearchResults().filter((entry) => entry.kind === "movie").map((entry) => entry.item),
       ...getSearchResults().filter((entry) => entry.kind === "movie").map((entry) => entry.item),

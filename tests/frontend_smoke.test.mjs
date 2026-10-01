@@ -206,7 +206,7 @@ test("series calendar always leaves loading and restores a validated snapshot", 
   assert.doesNotMatch(html, /screens\/series-calendar\.js/);
   assert.doesNotMatch(seriesCalendar, /setInterval|window\.__royalCalendarSafetyTimer/);
   assert.match(stylesheet, /series-calendar\.css\?v=royal-20260912-1/);
-  assert.match(html, /style\.css\?v=royal-20260921-3/);
+  assert.match(html, /style\.css\?v=royal-20261001-1/);
   const calendarStyles = readFileSync(
     new URL("../web/styles/series-calendar.css", import.meta.url),
     "utf8",
@@ -587,6 +587,13 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
+test("explore rail renders wallpaper-only cards without portrait-poster fallback", () => {
+  assert.match(homeLayoutEditor, /id: "explore"[\s\S]*wallpaperOnly: true/);
+  assert.match(app, /wallpaperOnly: Boolean\(definition\.wallpaperOnly\)/);
+  assert.match(app, /createHomeCard\(entry, rank, cycle === 1 && index < eagerCount, variant, \{ wallpaperOnly \}\)/);
+  assert.match(app, /if \(wallpaperOnly\) media\.cover_url = ""/);
+});
+
 test("series wallpaper hydration updates every duplicate catalog object", async () => {
   const trending = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
   const discovery = { base_slug: "same-series", title: "Same Series", cover_url: "/poster.jpg", genres: [] };
@@ -671,6 +678,7 @@ test("home load waits for movie Jellyfin truth but never blocks on series Jellyf
     syncSeriesCatalogFromHome: () => {},
     hydrateHomeMovieArtwork: async () => {},
     hydrateHomeSeriesArtwork: async () => { calls.push("series-artwork"); },
+    discoveryV2MergeItems: (current, incoming) => [...current, ...incoming],
     refreshCatalogJellyfinStatus: (entries, render) => {
       const kind = entries[0]?.kind;
       calls.push(`jellyfin-${kind}`);
@@ -1043,7 +1051,7 @@ test("Royal archive behaves like a searchable media center", () => {
   assert.match(app, /entry\.backdrop_url/);
   assert.match(app, /library-card-progress/);
   assert.match(stylesheet, /library\.css\?v=royal-20260825-1/);
-  assert.match(html, /style\.css\?v=royal-20260921-3/);
+  assert.match(html, /style\.css\?v=royal-20261001-1/);
 });
 
 test("scheduled episodes stay disabled and hero trailers return to artwork", () => {

@@ -123,12 +123,17 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.evaluate(() => fixtureApp.core.actions.switchTab("einstellungen"));
       await monitor.waitFor({ state: "visible" });
       await page.evaluate(() => {
-        // Capture the real scoped poll without waiting 15 seconds or replacing
-        // its callback. Lifecycle remount also verifies listener ownership.
+        // Capture the real scoped poll and drive it explicitly below. Do not
+        // also leave the 15s timer running: slower WebKit jobs can otherwise
+        // refresh/re-render the disclosure exactly while its click is being
+        // asserted, turning this deterministic interaction test into a race.
         fixtureApp.settings.providers.settings.unmount();
         const original = window.setInterval;
         window.setInterval = (callback, delay, ...args) => {
-          if (delay === 15000) window.sentinelPoll = callback;
+          if (delay === 15000) {
+            window.sentinelPoll = callback;
+            return 0;
+          }
           return original(callback, delay, ...args);
         };
         try { fixtureApp.settings.providers.settings.mount(); }

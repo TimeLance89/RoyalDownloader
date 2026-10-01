@@ -5,7 +5,7 @@ import { escapeHtml as html } from "../../shared/utils/escape-html.js";
 import { formatBytes } from "../../shared/formatters/bytes.js";
 import { isAbortError } from "../../core/errors.js";
 
-const roles = { primary: "Primär", overflow: "Overflow", archive: "Archiv", monitor: "Nur überwachen" };
+const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archive: "Archiv", monitor: "Nur überwachen" };
 const media = { movies: "Filme", series: "Serien", anime: "Anime" };
 const fields = ["window_start", "window_end", "window_enabled", "interval_hours", "cooldown_hours", "max_moves", "max_move_gib", "unknown_download_gib", "archive_age_days", "allow_series_split"];
 const flags = new Set(["window_enabled", "allow_series_split"]);
@@ -56,12 +56,16 @@ export function createStorageAutopilot(root) {
   }
   function volumeForm(volume) {
     const policy = volume.policy;
+    const customLocation = Boolean(volume.location_id);
+    const mediaControl = customLocation
+      ? `<div class="storage-policy-media-readonly"><span>Erlaubte Inhalte</span><strong>${policy.media_types.map((kind) => media[kind]).filter(Boolean).join(" · ")}</strong><small>Änderbar oben bei „Zusätzliche Speicherorte“.</small></div>${policy.media_types.map((kind) => `<input type="hidden" name="media_types" value="${html(kind)}">`).join("")}`
+      : `<fieldset><legend>Medienarten</legend>${Object.entries(media).map(([key, label]) => `<label><input type="checkbox" name="media_types" value="${key}" ${policy.media_types.includes(key) ? "checked" : ""}>${label}</label>`).join("")}</fieldset>`;
     return `<form class="storage-volume-policy" data-volume-root="${html(volume.key)}"><h4>${html(volume.label)}</h4><p>${volume.available ? "Volume verfügbar" : "Offline – Royal führt keine Aktionen aus"}${volume.last_seen_at ? ` · Letzter Kontakt: ${html(new Date(volume.last_seen_at * 1000).toLocaleString("de-DE"))}` : ""}</p><div class="storage-policy-grid">
       <label><span>Rolle</span><select name="role">${Object.entries(roles).map(([key, label]) => `<option value="${key}" ${policy.role === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-      <fieldset><legend>Medienarten</legend>${Object.entries(media).map(([key, label]) => `<label><input type="checkbox" name="media_types" value="${key}" ${policy.media_types.includes(key) ? "checked" : ""}>${label}</label>`).join("")}</fieldset>
+      ${mediaControl}
       ${["target_percent", "warning_percent", "critical_percent", "reserve_gib"].map((key, index) => `<label><span>${["Zielauslastung (%)", "Warnschwelle (%)", "Kritische Schwelle (%)", "Mindestreserve (GiB)"][index]}</span><input type="number" name="${key}" min="1" max="${key === "reserve_gib" ? 4096 : 99}" value="${policy[key]}" required></label>`).join("")}
-      <label><input type="checkbox" name="allow_moves_in" ${policy.allow_moves_in ? "checked" : ""}>Automatische Moves hinein erlauben</label><label><input type="checkbox" name="allow_moves_out" ${policy.allow_moves_out ? "checked" : ""}>Automatische Moves hinaus erlauben</label></div>
-      <button class="btn btn-ghost btn-sm" type="submit">Volume-Regeln speichern</button>${!volume.available ? `<button class="btn btn-ghost btn-sm" type="button" data-autopilot-action="mount" data-root="${html(volume.key)}">Mount erneut prüfen und bestätigen</button>` : ""}</form>`;
+      <label><input type="checkbox" name="allow_moves_in" ${policy.allow_moves_in ? "checked" : ""}>Automatisch hierhin verschieben</label><label><input type="checkbox" name="allow_moves_out" ${policy.allow_moves_out ? "checked" : ""}>Automatisch von hier weg verschieben</label></div>
+      <button class="btn btn-ghost btn-sm" type="submit">Erweiterte Regeln speichern</button>${!volume.available ? `<button class="btn btn-ghost btn-sm" type="button" data-autopilot-action="mount" data-root="${html(volume.key)}">Mount erneut prüfen und bestätigen</button>` : ""}</form>`;
   }
   async function refresh(force = false, afterMutation = false) {
     if (!scope?.active) return;

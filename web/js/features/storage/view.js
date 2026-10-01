@@ -13,6 +13,36 @@ export function createStorageView(root) {
     return roots.find((root) => root.location_id === location.id) || null;
   }
 
+  function renderStandardTargets(roots) {
+    const list = find("storage-standard-target-list");
+    if (!list) return;
+    const standard = (Array.isArray(roots) ? roots : []).filter((root) => root.source === "media" && (root.key === "movies" || root.key === "series"));
+    if (!standard.length) {
+      list.innerHTML = '<div class="storage-empty-state"><strong>Keine Standard-Zielordner gefunden</strong><span>Prüfe die Film- und Serienpfade unter „Betrieb und Speicher“.</span></div>';
+      return;
+    }
+    const ordered = ["movies", "series"].map((key) => standard.find((item) => item.key === key)).filter(Boolean);
+    list.innerHTML = ordered.map((target) => {
+      const kind = target.key === "movies" ? "Filme" : "Serien";
+      const extra = target.key === "series" ? " · Anime nutzt diesen Serienpfad als Standard" : "";
+      const available = Boolean(target.available);
+      const state = available
+        ? `${formatPercent(target.used_percent)} belegt · ${formatBytes(target.free_bytes)} frei`
+        : "nicht erreichbar";
+      return `
+        <article class="storage-standard-target${available ? "" : " is-offline"}">
+          <div class="storage-location-icon" aria-hidden="true">▰</div>
+          <div class="storage-location-copy">
+            <span>STANDARD FÜR ${html(kind.toUpperCase())}</span>
+            <strong>${html(kind)}</strong>
+            <code title="${html(target.resolved_path || target.path || "")}">${html(target.resolved_path || target.path || "Nicht konfiguriert")}</code>
+            <small>${html(state + extra)}</small>
+          </div>
+          <div class="storage-standard-target-note"><strong>Immer verfügbar</strong><span>Fallback &amp; Ausgangspunkt</span></div>
+        </article>`;
+    }).join("");
+  }
+
   function renderLocations(locations, roots) {
     const currentLocations = Array.isArray(locations) ? locations : [];
     const list = find("storage-location-list");
@@ -27,10 +57,17 @@ export function createStorageView(root) {
       const status = locationStatus(location, roots);
       const available = Boolean(status?.available);
       const state = available ? `${formatPercent(status.used_percent)} belegt · ${formatBytes(status.free_bytes)} frei` : "nicht erreichbar";
+      const mediaLabels = { movies: "Filme", series: "Serien", anime: "Anime" };
+      const allowed = (location.media_types || []).map((kind) => mediaLabels[kind]).filter(Boolean);
+      const routing = location.mode === "media"
+        ? location.media_types_explicit === false
+          ? "Zielarten noch nicht festgelegt – bitte einmal bearbeiten"
+          : `Ziel für: ${allowed.join(" · ") || "keine Medienart"}`
+        : "Keine Downloads auf diesen Pfad";
       return `
         <article class="storage-location-row${available ? "" : " is-offline"}" data-location-id="${html(location.id)}">
           <div class="storage-location-icon" aria-hidden="true">▰</div>
-          <div class="storage-location-copy"><span>${location.mode === "media" ? "MEDIEN" : "NUR ÜBERWACHEN"}</span><strong>${html(location.label)}</strong><code title="${html(location.path)}">${html(location.path)}</code><small>${html(state)}</small></div>
+          <div class="storage-location-copy"><span>${location.mode === "media" ? "DOWNLOAD-ZIEL" : "NUR ANZEIGE"}</span><strong>${html(location.label)}</strong><code title="${html(location.path)}">${html(location.path)}</code><small>${html(routing)} · ${html(state)}</small></div>
           <div class="storage-location-actions"><button type="button" class="btn btn-ghost btn-sm" data-location-edit="${html(location.id)}">Bearbeiten</button><button type="button" class="storage-location-remove" data-location-remove="${html(location.id)}">Entfernen</button></div>
         </article>`;
     }).join("");
@@ -42,7 +79,7 @@ export function createStorageView(root) {
     const paths = (volume.paths || []).map((path) => html(path)).join(" · ");
     const modeText = volume.mode === "media" ? "Smart Scan und Medienaktionen aktiv" : "Nur Live-Monitoring · keine Medienaktionen";
     const policies = autopilotRoots.filter(root => root.volume_id === volume.id);
-    const roles = { primary: "Primär", overflow: "Overflow", archive: "Archiv", monitor: "Nur überwachen" };
+    const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archive: "Archiv", monitor: "Nur überwachen" };
     const storagePolicy = policies.length ? `<p class="storage-volume-policy-summary">${[...new Set(policies.map(root => roles[root.policy.role]))].join(" · ")}<br>Ziel: unter ${Math.min(...policies.map(root => root.policy.target_percent))} % · Reserve: ${Math.max(...policies.map(root => root.policy.reserve_gib))} GiB<br>${[...new Set(policies.flatMap(root => root.policy.media_types))].map(kind => ({ movies: "Filme", series: "Serien", anime: "Anime" })[kind]).join(" · ")}</p>` : "";
     return `
       <article class="storage-volume-card">
@@ -71,6 +108,7 @@ export function createStorageView(root) {
       const managed = autopilotRoots.find(item => item.key === root.key);
       return managed && !managed.available ? { ...root, available: false, error: managed.error || root.error } : root;
     });
+    renderStandardTargets(roots);
     renderLocations(payload.locations || [], roots);
     const total = payload.autopilot?.summary || payload.summary || {};
     const volumes = (payload.volumes || []).filter(volume => !autopilotRoots.length || autopilotRoots.some(root => root.available && root.volume_id === volume.id));

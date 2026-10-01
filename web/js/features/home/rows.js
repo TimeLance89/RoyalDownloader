@@ -1,5 +1,5 @@
 export function createHomeRows(root, { isLoading, onRendered = () => {}, reconcileHomeRail, homeRailCardSignature, createHomeCard, syncHomeCardContent }) {
-  return function renderHomeRail(trackId, entries, { ranked = false, layout = "rail" } = {}) {
+  return function renderHomeRail(trackId, entries, { ranked = false, layout = "rail", wallpaperOnly = false } = {}) {
   const track = root.querySelector(`#${CSS.escape(trackId)}`);
   if (!track) return;
   track.classList.toggle("is-spotlight-track", layout === "spotlight");
@@ -31,10 +31,10 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
       const rank = ranked ? index + 1 : 0;
       return {
         signature: homeRailCardSignature(entry, rank, variant),
-        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant),
+        create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant, { wallpaperOnly }),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };
   }), { loop: layout !== "spotlight" && !ranked });
-  onRendered(trackId, entries, { ranked, layout });
+  onRendered(trackId, entries, { ranked, layout, wallpaperOnly });
 }
 }

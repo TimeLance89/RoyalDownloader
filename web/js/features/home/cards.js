@@ -24,11 +24,12 @@ export function createHomeCards({
       if (series) loadSeries(series);
     }
 
-  function createHomeCard(entry, rank = 0, eager = false, variant = "") {
+  function createHomeCard(entry, rank = 0, eager = false, variant = "", { wallpaperOnly = false } = {}) {
     if (entry?.kind === "collection") return createCollectionCard(entry.item, eager);
     const { kind, item } = entry;
     const metadata = kind === "movie" ? (getMovieMetadata()[item.slug] || {}) : {};
     const media = { ...item, ...metadata };
+    if (wallpaperOnly) media.cover_url = "";
     const cachedJellyfinStatus = getJellyfinStatus(homeEntryKey(entry));
     if (cachedJellyfinStatus) {
       media.jellyfin_status = cachedJellyfinStatus;
