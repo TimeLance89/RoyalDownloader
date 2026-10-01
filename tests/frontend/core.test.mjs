@@ -41,6 +41,7 @@ import { createUpdater } from "../../web/js/features/settings/updater.js";
 import { createSearch } from "../../web/js/features/search/index.js";
 import { createRecommendations } from "../../web/js/features/home/recommendations.js";
 import { createHomeData } from "../../web/js/features/home/data.js";
+import { createHomeLanes } from "../../web/js/features/home/lanes.js";
 import { createSubscriptions } from "../../web/js/features/subscriptions/state.js";
 import { libraryVisibleItems } from "../../web/js/features/subscriptions/model.js";
 import { movieSubscriptionFor } from "../../web/js/features/subscriptions/movie-model.js";
@@ -96,6 +97,59 @@ for (const kind of ["movie", "series"]) test(`${kind} result cards call injected
   assert.equal(image.loading, "lazy");
   assert.equal(image.decoding, "async");
   assert.equal(visual.children.at(-1).textContent, "In Jellyfin");
+});
+
+test("explore publishes only ready backdrops but keeps unresolved candidates hydratable", () => {
+  const data = {
+    topMovies: [], newMovies: [], cinemaMovies: [], discoveryMovies: [],
+    trendingSeries: [], newSeries: [],
+    discoverySeries: [
+      { base_slug: "ready", title: "Ready", backdrop_url: "/ready.jpg", genres: [] },
+      { base_slug: "pending-a", title: "Pending A", cover_url: "/poster-a.jpg", genres: [] },
+      { base_slug: "pending-b", title: "Pending B", cover_url: "/poster-b.jpg", genres: [] },
+    ],
+  };
+  const entryKey = entry => `${entry.kind}:${entry.item.slug || entry.item.base_slug}`;
+  const unique = entries => {
+    const seen = new Set();
+    return entries.filter(entry => {
+      const key = entryKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const lanes = createHomeLanes({ querySelector: () => null }, {
+    allowedHomeEntries: entries => entries,
+    uniqueHomeEntries: unique,
+    homeMovieEntry: item => ({ kind: "movie", item }),
+    homeSeriesEntry: item => ({ kind: "series", item }),
+    interleaveHomeEntries: (a, b) => unique([...a, ...b]),
+    loadDiscoveryProfile: () => ({ genres: {}, recent: [] }),
+    stableDailyOrder: entries => entries.slice(),
+    homeEntryMedia: entry => entry.item,
+    homeEntryKey: entryKey,
+    homeTopEntries: () => [],
+    stableDiscoveryHash: () => 1,
+    localDateKey: () => "2026-10-01",
+    homeHeroCandidates: () => [],
+    homePersonalizedEntries: () => [],
+    currentHomeLayout: () => ({ rail_order: ["explore"], hidden_rails: [] }),
+    mediaJellyfinStatus: () => "missing",
+    getJellyfinStatus: () => "",
+    getData: () => data,
+    discoveryV2ExposurePenalty: () => 0,
+  });
+
+  assert.deepEqual(lanes.homeExploreEntries().map(entryKey), ["series:ready"]);
+  assert.deepEqual(
+    lanes.homeExploreArtworkCandidates().map(entryKey),
+    ["series:ready", "series:pending-a", "series:pending-b"],
+  );
+  assert.deepEqual(
+    lanes.homeArtworkEntriesInLayout().map(entryKey),
+    ["series:ready", "series:pending-a", "series:pending-b"],
+  );
 });
 
 test("HTTP sends JSON, cookies and all supported verbs", async () => {
