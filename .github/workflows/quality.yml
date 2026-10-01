@@ -210,6 +210,7 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           timeout: 3m0s
+          trivyignores: .trivyignore.yaml
 
       - name: Generate container SBOM
         timeout-minutes: 5

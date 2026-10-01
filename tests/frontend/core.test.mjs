@@ -10,6 +10,7 @@ test("provider capabilities intersect selection without duplicating legacy prima
   assert.deepEqual(supportedProviderLanguages({ content_language: "de" }), ["de"]);
 });
 import { createHomeActions } from "../../web/js/features/home/actions.js";
+import { createTabScrollMemory } from "../../web/js/shell/actions.js";
 
 test("home action instances keep injected catalogs isolated and resolve late peers", () => {
   let currentCatalog;
@@ -886,6 +887,30 @@ test("settings abort a save sequence on navigation and keep newer edits", async 
   settings.dispose(); complete({});
 });
 
+
+test("tab scroll memory keeps movie and series positions independent", () => {
+  const scroller = { scrollTop: 0 };
+  let scrollY = 1700;
+  const windowRef = {
+    get scrollY() { return scrollY; },
+    scrollTo(value, top) {
+      scrollY = typeof value === "object" ? Number(value.top || 0) : Number(top || 0);
+      scroller.scrollTop = scrollY;
+    },
+  };
+  const documentRef = { scrollingElement: scroller };
+  const memory = createTabScrollMemory(windowRef, documentRef);
+
+  memory.save("serien");
+  scrollY = 0;
+  scroller.scrollTop = 0;
+  memory.save("filme");
+
+  assert.equal(memory.restore("serien"), 1700);
+  assert.equal(scrollY, 1700);
+  assert.equal(memory.restore("filme"), 0);
+  assert.equal(scrollY, 0);
+});
 
 test("infinite scrolling cancels scheduled work and remounts without duplicate listeners", t => {
   const frames = new Map(); let nextFrame = 0, loads = 0;

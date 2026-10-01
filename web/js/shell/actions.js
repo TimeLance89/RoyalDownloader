@@ -4,6 +4,43 @@ import { WATCH_MODE_EXPLANATIONS } from "../shared/constants/watch-policy.js";
 import { WATCH_CLEANUP_DEFAULT } from "../shared/constants/watch-policy.js";
 import { WATCH_CLEANUP_LABELS } from "../shared/constants/watch-policy.js";
 
+export function createTabScrollMemory(windowRef, documentRef) {
+  const positions = new Map();
+  const scroller = () => documentRef?.scrollingElement || documentRef?.documentElement || documentRef?.body || null;
+
+  function current() {
+    const windowY = Number(windowRef?.scrollY);
+    if (Number.isFinite(windowY)) return Math.max(0, windowY);
+    return Math.max(0, Number(scroller()?.scrollTop) || 0);
+  }
+
+  function save(name) {
+    if (!name) return;
+    positions.set(name, current());
+  }
+
+  function restore(name) {
+    const top = Math.max(0, Number(positions.get(name)) || 0);
+    if (typeof windowRef?.scrollTo === "function") {
+      try {
+        windowRef.scrollTo({ left: 0, top, behavior: "auto" });
+      } catch {
+        windowRef.scrollTo(0, top);
+      }
+    } else {
+      const root = scroller();
+      if (root) root.scrollTop = top;
+    }
+    return top;
+  }
+
+  return {
+    save,
+    restore,
+    get(name) { return Math.max(0, Number(positions.get(name)) || 0); },
+  };
+}
+
 export function createShellActions({
   providerLanguage,
   closeGlobalSearch,
@@ -35,6 +72,7 @@ export function createShellActions({
   state,
 }) {
   // Shell navigation and cross-domain UI coordination use injected services only.
+  const tabScroll = createTabScrollMemory(window, document);
 
   function recheckFpInfinite() { getInfinite().movies.refresh(); }
   function recheckSeriesInfinite() { getInfinite().series.refresh(); }
@@ -88,6 +126,9 @@ export function createShellActions({
   function switchTab(name, { autoLoad = true } = {}) {
     if (name === "anime" && !animeNavigationAvailable()) name = "filme";
     if (name === "aniworld" && !aniworldNavigationAvailable()) name = "filme";
+    const previousTab = state.tab;
+    const tabChanged = Boolean(previousTab && previousTab !== name);
+    if (tabChanged) tabScroll.save(previousTab);
     if (getSearch().get().active) closeGlobalSearch();
     closeAllMediaModals(false);
     document.querySelectorAll(".tabs [data-tab], .mobile-tabs [data-tab]").forEach((b) => {
@@ -102,6 +143,10 @@ export function createShellActions({
     closeMobileQueue();
     if (name === "einstellungen") setQueueDockExpanded(false);
     state.tab = name;
+    // Every main section owns its own document scroll position. Restore it
+    // before mounting/loading the target catalog so its infinite-scroll check
+    // cannot inherit the previous tab's viewport depth and eagerly load pages.
+    if (tabChanged) tabScroll.restore(name);
     document.dispatchEvent(new CustomEvent("royal:navigate", { detail: { name, autoLoad } }));
     if (name === "home") renderHome();
     if (name === "filme" && autoLoad) ensureFpResults();
