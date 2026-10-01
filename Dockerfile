@@ -20,10 +20,6 @@ ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
 # the same fixed security baseline.
 RUN set -eux; \
     apt-get update; \
-    # Pull the current Debian security revision already published for Expat. \
-    # The pinned Python slim base can otherwise retain an older vulnerable \
-    # libexpat1 even though bookworm-security has a fixed package available. \
-    apt-get install -y --no-install-recommends --only-upgrade libexpat1; \
     apt-get install -y --no-install-recommends \
         xvfb \
         ffmpeg \
