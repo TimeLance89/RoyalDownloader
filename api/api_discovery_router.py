@@ -668,6 +668,21 @@ async def api_tmdb_movies(body: MovieMetadataBody):
     return {"movies": await run_in_threadpool(_work)}
 
 
+@router.get("/api/tmdb/now-playing")
+async def api_tmdb_now_playing():
+    """Lädt Kinostatus getrennt von den zeitkritischen Poster-Anfragen."""
+    client = get_tmdb_client()
+    if not client.configured:
+        return {"ids": [], "movies": [], "available": False}
+    try:
+        ids = await run_in_threadpool(client.now_playing_ids)
+    except Exception as exc:
+        log(f"TMDB-Kinostatus konnte nicht geladen werden: {exc}", "warn")
+        return {"ids": [], "movies": [], "available": False}
+    movies = client.cached_now_playing_movies()
+    return {"ids": sorted(ids), "movies": movies, "available": True}
+
+
 @router.post("/api/v1/tmdb/series")
 @router.post("/api/tmdb/series")
 async def api_tmdb_series(body: SeriesMetadataBody):

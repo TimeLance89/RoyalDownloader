@@ -24,6 +24,10 @@ export function createHomeCache(data, getMovieMetadata, storage) {
       keys.forEach((key) => {
         data[key] = Array.isArray(cached.home[key]) ? cached.home[key] : [];
       });
+      const cinemaAge = Date.now() - Number(cached.home.cinemaUpdatedAt || 0);
+      data.cinemaMovies = cinemaAge >= 0 && cinemaAge < 24 * 60 * 60 * 1000
+        && Array.isArray(cached.home.cinemaMovies) ? cached.home.cinemaMovies : [];
+      data.cinemaUpdatedAt = data.cinemaMovies.length ? Number(cached.home.cinemaUpdatedAt) : 0;
       Object.assign(getMovieMetadata(), cached.movieMetadata || {});
       data.loading = false;
 
@@ -50,6 +54,8 @@ export function createHomeCache(data, getMovieMetadata, storage) {
         home: {
           newMovies: data.newMovies,
           topMovies: data.topMovies,
+          cinemaMovies: data.cinemaMovies,
+          cinemaUpdatedAt: data.cinemaUpdatedAt,
           trendingSeries: data.trendingSeries,
           newSeries: data.newSeries,
           discoveryMovies: data.discoveryMovies,

@@ -12,10 +12,9 @@ def test_home_experience_loads_after_taste_profile_v2():
     assert "window.homeHeroCandidates =" not in EXPERIENCE
 
 
-def test_hero_uses_five_personal_plus_trend_plus_adjacent_discovery():
+def test_hero_prioritizes_cinema_then_personal_and_adjacent_discovery():
     assert "const HERO_STRONG_TARGET = 5" in EXPERIENCE
-    assert "five strongest personal matches" in EXPERIENCE
-    assert "one taste-compatible current" in EXPERIENCE
+    assert "addBalanced(selected, selectedKeys, cinema, 2)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, trend" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, discovery" in EXPERIENCE

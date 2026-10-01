@@ -2,6 +2,7 @@
 export function createHeroSelection({
   discoveryV2LogicalKey, homeEntryKey, homeEntryMedia, tasteMetadata, discoveryV2ExposurePenalty,
   getHomeData, homeMovieEntry, homeSeriesEntry, mediaJellyfinStatus, loadDiscoveryProfile, homeAllEntries,
+  localDateKey, stableDiscoveryHash,
 }) {
   const HERO_LIMIT = 7;
   const HERO_STRONG_TARGET = 5;
@@ -248,14 +249,35 @@ export function createHeroSelection({
     const rating = Number(media.rating || 0);
     const votes = Number(media.vote_count || 0);
     const trendBonus = trend ? Math.max(0, 5.5 - trend.index * 0.38) : 0;
+    const release = /^\d{4}-\d{2}-\d{2}$/.test(String(media.release_date || ""))
+      ? new Date(`${media.release_date}T12:00:00`)
+      : null;
+    const ageDays = release && !Number.isNaN(release.getTime())
+      ? (Date.now() - release.getTime()) / 86400000
+      : Infinity;
+    const cinema = entry.kind === "movie" && rating >= 6
+      && ((media.in_cinema === true && votes >= 50)
+        || (ageDays >= 0 && ageDays <= 90 && rating >= 6.5 && votes >= 150));
+    const cinemaMomentum = cinema
+      ? 14 + Math.max(0, 6 - ageDays / 15)
+        + Math.min(7, Math.log10(Number(media.popularity || 0) + 1) * 2.5)
+      : 0;
+    const day = typeof localDateKey === "function" ? localDateKey() : new Date().toISOString().slice(0, 10);
+    const hash = typeof stableDiscoveryHash === "function"
+      ? stableDiscoveryHash(`${day}|hero|${logicalKey(entry)}`)
+      : 0;
+    const dailyVariation = (hash % 1000) / 1000 * 2.5;
     return {
       entry,
       ...taste,
       trend,
+      cinema,
       rankingScore: taste.score
         + trendBonus
+        + cinemaMomentum
         + rating * 0.18
-        + Math.min(2.2, Math.log10(votes + 1) * 0.42),
+        + Math.min(2.2, Math.log10(votes + 1) * 0.42)
+        + dailyVariation,
     };
   }
 
@@ -308,17 +330,11 @@ export function createHeroSelection({
       || Number(entryMedia(right.entry).rating || 0) - Number(entryMedia(left.entry).rating || 0));
 
     if (!trained) {
-      const cold = byTaste.slice().sort((left, right) => {
-        const leftTrend = left.trend ? Math.max(0, 40 - left.trend.index) : 0;
-        const rightTrend = right.trend ? Math.max(0, 40 - right.trend.index) : 0;
-        return rightTrend - leftTrend
-          || Number(entryMedia(right.entry).rating || 0) - Number(entryMedia(left.entry).rating || 0)
-          || right.rankingScore - left.rankingScore;
-      });
       const selected = [];
       const selectedKeys = new Set();
-      addBalanced(selected, selectedKeys, cold, HERO_LIMIT);
-      addBalanced(selected, selectedKeys, cold, HERO_LIMIT, { relax: true });
+      addBalanced(selected, selectedKeys, byTaste.filter((record) => record.cinema), 2);
+      addBalanced(selected, selectedKeys, byTaste, HERO_LIMIT);
+      addBalanced(selected, selectedKeys, byTaste, HERO_LIMIT, { relax: true });
       return selected;
     }
 
@@ -326,6 +342,9 @@ export function createHeroSelection({
       record.score >= minAffinity
       && record.coverage >= minCoverage
       && record.positive > Math.abs(record.negative));
+    const cinema = byTaste.filter((record) => record.cinema
+      && (record.positive > 0 || record.negative >= 0)
+      && record.negative > -Math.max(2.5, record.positive));
     const trend = byTaste.filter((record) =>
       record.trend
       && record.score >= Math.max(adjacentFloor, 0.35)
@@ -342,8 +361,9 @@ export function createHeroSelection({
     const selected = [];
     const selectedKeys = new Set();
 
-    // Hero v2: five strongest personal matches, one taste-compatible current
-    // trend, and one adjacent discovery. No daily hash or shuffle seed is used.
+    // Put current cinema hits first when they fit the profile, then fill the
+    // remaining slots with strong matches and adjacent discoveries.
+    addBalanced(selected, selectedKeys, cinema, 2);
     addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET);
     addBalanced(selected, selectedKeys, trend, Math.min(HERO_LIMIT, selected.length + 1));
     addBalanced(selected, selectedKeys, discovery, Math.min(HERO_LIMIT, selected.length + 1));
@@ -365,9 +385,11 @@ export function createHeroSelection({
       // landscape-only and therefore never falls back to a portrait poster.
       const profile = loadDiscoveryProfile();
       const trendRanks = heroTrendRanks();
+      const blocked = new Set(profile.blocked_items || []);
       const selectedKeys = new Set(entries.map(logicalKey));
       const fallback = homeAllEntries()
-        .filter((entry) => !selectedKeys.has(logicalKey(entry)))
+        .filter((entry) => !selectedKeys.has(logicalKey(entry))
+          && !blocked.has(logicalKey(entry)) && !blocked.has(homeEntryKey(entry)))
         .map((entry) => heroRecord(entry, profile, trendRanks))
         .filter(({ entry }) => Boolean(entryMedia(entry).backdrop_url || entryMedia(entry).cover_url))
         .sort((left, right) => right.rankingScore - left.rankingScore);

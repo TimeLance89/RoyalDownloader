@@ -671,6 +671,7 @@ test("home load waits for movie Jellyfin truth but never blocks on series Jellyf
     syncSeriesCatalogFromHome: () => {},
     hydrateHomeMovieArtwork: async () => {},
     hydrateHomeSeriesArtwork: async () => { calls.push("series-artwork"); },
+    discoveryV2MergeItems: (current, incoming) => [...current, ...incoming],
     refreshCatalogJellyfinStatus: (entries, render) => {
       const kind = entries[0]?.kind;
       calls.push(`jellyfin-${kind}`);

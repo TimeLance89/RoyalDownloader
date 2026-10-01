@@ -320,6 +320,8 @@ test("native hero selection keeps provider identity, artwork and blocked-title p
   const items = Array.from({ length: 12 }, (_, id) => ({ kind: id % 2 ? "movie" : "series", item: {
     slug: String(id), title: `Title ${id}`, backdrop_url: `backdrop-${id}`, rating: 8, genres: ["Drama"],
   } }));
+  items[1].item.in_cinema = true;
+  items[1].item.vote_count = 500;
   const key = entry => `${entry.kind}:${entry.item.slug}`;
   const hero = createHeroSelection({
     homeAllEntries: () => items, homeEntryMedia: entry => entry.item, homeEntryKey: key, discoveryV2LogicalKey: key,
@@ -329,6 +331,7 @@ test("native hero selection keeps provider identity, artwork and blocked-title p
     loadDiscoveryProfile: () => ({ blocked_items: ["series:0"], interactions: 0 }),
   });
   const result = hero.candidates();
+  assert.equal(key(result[0]), "movie:1");
   assert.equal(result.length, 7); assert.equal(new Set(result.map(key)).size, 7);
   assert.ok(result.every(entry => key(entry) !== "series:0" && entry.artwork === entry.item.backdrop_url));
   assert.deepEqual(hero.candidates(), result);
@@ -583,8 +586,9 @@ test("home data deduplicates loading and preserves every primary and reservoir s
     assert.equal(model.get().loading, false);
     await warm;
     const urls = calls.filter(value => value.startsWith("/api/"));
-    assert.equal(urls.length, 17);
-    assert.equal(new Set(urls).size, 17);
+    assert.equal(urls.length, 18);
+    assert.equal(new Set(urls).size, 18);
+    assert.ok(urls.includes("/api/tmdb/now-playing"));
     for (const url of ["/api/movies?mode=new&page=1", "/api/series?mode=trending&page=1",
       "/api/movies?mode=top&page=4", "/api/series?mode=discover&page=3",
       "/api/series?mode=new&page=3"]) assert.ok(urls.includes(url));
@@ -592,6 +596,22 @@ test("home data deduplicates loading and preserves every primary and reservoir s
     assert.equal(model.get().discoveryMovies.length, 6);
     assert.equal(model.get().discoverySeries.length, 7);
     assert.ok(writes.length >= 2);
+  } finally { model.unmount(); }
+});
+
+test("home adds current cinema discoveries after the first catalog render", async () => {
+  const { model, calls } = homeDataFixture({ client: { get: async (url) => {
+    if (url === "/api/tmdb/now-playing") return { available: true, ids: [42], movies: [
+      { slug: "tmdb:42", tmdb_id: 42, title: "Cinema hit", backdrop_url: "cinema.jpg", rating: 8, vote_count: 500 },
+    ] };
+    return { results: url.startsWith("/api/movies")
+      ? [{ slug: url, title: "Catalog movie" }] : [{ base_slug: url, title: "Catalog series" }] };
+  } } });
+  try {
+    await model.load();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(model.get().cinemaMovies[0].slug, "tmdb:42");
+    assert.ok(calls.filter((call) => call === "render").length >= 2);
   } finally { model.unmount(); }
 });
 

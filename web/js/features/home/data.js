@@ -11,7 +11,8 @@ export function createHomeData({
   refreshCatalogJellyfinStatus, discoveryV2MergeItems, homeMovieEntry, homeSeriesEntry,
   onLoaded = () => {},
 }) {
-  const data = { newMovies: [], topMovies: [], trendingSeries: [], newSeries: [],
+  const data = { newMovies: [], topMovies: [], cinemaMovies: [], cinemaUpdatedAt: 0,
+    trendingSeries: [], newSeries: [],
     discoveryMovies: [], discoverySeries: [], loading: true, refreshing: false };
   const cache = createHomeCache(data, getMovieMetadata, storage);
   let owner = createScope();
@@ -27,6 +28,47 @@ export function createHomeData({
       signal, ...(kind === "movie" ? { timeoutMs: 15_000,
         timeoutMessage: "Der Filmkatalog antwortet zu langsam. Die Anbieter laden im Hintergrund weiter." } : {}),
     });
+  }
+  async function refreshCinemaStatus(scope) {
+    try {
+      const response = await client.get("/api/tmdb/now-playing", { signal: scope.signal });
+      if (!scope.active || response?.available !== true || !Array.isArray(response.ids)) return;
+      const ids = new Set(response.ids.map(String));
+      const metadata = getMovieMetadata();
+      let changed = false;
+      for (const item of [...data.newMovies, ...data.topMovies, ...data.discoveryMovies]) {
+        const details = metadata[item.slug];
+        if (!details?.tmdb_id) continue;
+        const inCinema = ids.has(String(details.tmdb_id));
+        if (details.in_cinema === inCinema) continue;
+        details.in_cinema = inCinema;
+        changed = true;
+      }
+      const knownIds = new Set([...data.newMovies, ...data.topMovies, ...data.discoveryMovies]
+        .map((item) => metadata[item.slug]?.tmdb_id || item.tmdb_id)
+        .filter(Boolean).map(String));
+      const titleIdentity = (movie) => {
+        const title = String(movie.title || "").replace(/\s*\[[^\]]{1,40}\]\s*$/, "")
+          .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+        const year = String(movie.year || movie.release_date || "").slice(0, 4);
+        return title && /^\d{4}$/.test(year) ? `${title}:${year}` : "";
+      };
+      const knownTitles = new Set([...data.newMovies, ...data.topMovies, ...data.discoveryMovies]
+        .map((item) => titleIdentity({ ...item, ...metadata[item.slug] })).filter(Boolean));
+      const cinemaMovies = (Array.isArray(response.movies) ? response.movies : [])
+        .filter((movie) => movie?.slug && movie.backdrop_url
+          && !knownIds.has(String(movie.tmdb_id))
+          && !knownTitles.has(titleIdentity(movie)))
+        .slice(0, 30);
+      if (JSON.stringify(cinemaMovies) !== JSON.stringify(data.cinemaMovies)) changed = true;
+      data.cinemaMovies = cinemaMovies;
+      data.cinemaUpdatedAt = Date.now();
+      saveHomeCache();
+      if (changed) renderHome({ force: true });
+    } catch {
+      // The current catalog and release dates still provide a usable selection.
+    }
   }
   function scheduleWarm(delay) {
     cancelWarm();
@@ -55,6 +97,7 @@ export function createHomeData({
   }
   async function performLoad(scope) {
     const hadCachedPresentation = isRendered() && homeAllEntries().length > 0;
+    let catalogUpdated = false;
     data.refreshing = true;
     data.loading = !hadCachedPresentation;
     if (!hadCachedPresentation) renderHome({ force: true });
@@ -67,8 +110,14 @@ export function createHomeData({
         catalog("series", { mode: "trending", page: 1 }, scope.signal),
       ]);
       if (!scope.active) return;
-      if (primary[0].status === "fulfilled") data.newMovies = primary[0].value.results || [];
-      if (primary[1].status === "fulfilled") data.trendingSeries = primary[1].value.results || [];
+      if (primary[0].status === "fulfilled" && primary[0].value.results?.length) {
+        data.newMovies = primary[0].value.results;
+        catalogUpdated = true;
+      }
+      if (primary[1].status === "fulfilled" && primary[1].value.results?.length) {
+        data.trendingSeries = primary[1].value.results;
+        catalogUpdated = true;
+      }
       if (!data.topMovies.length) data.topMovies = data.newMovies.slice();
       if (!data.newSeries.length) data.newSeries = data.trendingSeries.slice();
       syncFpCatalogFromHome({ fresh: true });
@@ -82,13 +131,29 @@ export function createHomeData({
         catalog("movie", { mode: "top", page: 2 }, scope.signal),
       ]);
       if (!scope.active) return;
-      if (secondary[0].status === "fulfilled") data.topMovies = secondary[0].value.results || [];
-      if (secondary[1].status === "fulfilled") data.newSeries = secondary[1].value.results || [];
-      if (secondary[2].status === "fulfilled") data.discoverySeries = secondary[2].value.results || [];
+      if (secondary[0].status === "fulfilled" && secondary[0].value.results?.length) {
+        data.topMovies = secondary[0].value.results;
+        catalogUpdated = true;
+      }
+      if (secondary[1].status === "fulfilled" && secondary[1].value.results?.length) {
+        data.newSeries = secondary[1].value.results;
+        catalogUpdated = true;
+      }
+      if (secondary[2].status === "fulfilled" && secondary[2].value.results?.length) {
+        data.discoverySeries = discoveryV2MergeItems(
+          secondary[2].value.results, data.discoverySeries, "series",
+        ).slice(0, 220);
+        catalogUpdated = true;
+      }
       const discoveredMovies = secondary.slice(3)
         .filter((result) => result.status === "fulfilled")
         .flatMap((result) => result.value.results || []);
-      if (discoveredMovies.length) data.discoveryMovies = discoveredMovies;
+      if (discoveredMovies.length) {
+        data.discoveryMovies = discoveryV2MergeItems(
+          discoveredMovies, data.discoveryMovies, "movie",
+        ).slice(0, 220);
+        catalogUpdated = true;
+      }
       if (!data.topMovies.length) data.topMovies = data.newMovies.slice();
       if (!data.newSeries.length) data.newSeries = data.trendingSeries.slice();
 
@@ -116,7 +181,7 @@ export function createHomeData({
       if (scope.active) {
         data.loading = false;
         data.refreshing = false;
-        if (!hadCachedPresentation) renderHome({ force: true });
+        if (!hadCachedPresentation || catalogUpdated) renderHome({ force: true });
       }
     }
     if (scope.active && seriesEntries.length) {
@@ -124,7 +189,11 @@ export function createHomeData({
         .then(() => { if (scope.active) saveHomeCache(); })
         .catch((error) => { if (scope.active) console.warn("Serien-Jellyfin-Status konnte nicht aktualisiert werden:", error); });
     }
-    if (scope.active) { scheduleWarm(120); onLoaded(); }
+    if (scope.active) {
+      scheduleWarm(120);
+      void refreshCinemaStatus(scope);
+      onLoaded();
+    }
   }
 
   async function hydrateInBatches(items, kind, scope) {
@@ -173,8 +242,8 @@ export function createHomeData({
 
     const previousMovieKeys = new Set(data.discoveryMovies.map((item) => item.slug));
     const previousSeriesKeys = new Set(data.discoverySeries.map((item) => item.base_slug));
-    data.discoveryMovies = discoveryV2MergeItems(data.discoveryMovies, movies, "movie").slice(0, 220);
-    data.discoverySeries = discoveryV2MergeItems(data.discoverySeries, series, "series").slice(0, 220);
+    data.discoveryMovies = discoveryV2MergeItems(movies, data.discoveryMovies, "movie").slice(0, 220);
+    data.discoverySeries = discoveryV2MergeItems(series, data.discoverySeries, "series").slice(0, 220);
     const newMovies = data.discoveryMovies.filter((item) => !previousMovieKeys.has(item.slug));
     const newSeries = data.discoverySeries.filter((item) => !previousSeriesKeys.has(item.base_slug));
 

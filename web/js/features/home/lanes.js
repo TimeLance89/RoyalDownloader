@@ -2,12 +2,21 @@ export function createHomeLanes(root, {
   allowedHomeEntries, uniqueHomeEntries, homeMovieEntry, homeSeriesEntry, interleaveHomeEntries,
   loadDiscoveryProfile, stableDailyOrder, homeEntryMedia, homeEntryKey, homeTopEntries,
   stableDiscoveryHash, localDateKey, homeHeroCandidates, homePersonalizedEntries, currentHomeLayout,
-  mediaJellyfinStatus, getJellyfinStatus, getData
+  mediaJellyfinStatus, getJellyfinStatus, getData, discoveryV2ExposurePenalty,
 }) {
+  function rotatingOrder(entries, lane) {
+    return stableDailyOrder(entries, lane)
+      .map((entry, index) => ({
+        entry, index, penalty: Number(discoveryV2ExposurePenalty?.(entry, lane) || 0),
+      }))
+      .sort((left, right) => left.penalty - right.penalty || left.index - right.index)
+      .map(({ entry }) => entry);
+  }
   function homeAllEntries() {
     return allowedHomeEntries(uniqueHomeEntries([
       ...getData().topMovies.map(homeMovieEntry),
       ...getData().newMovies.map(homeMovieEntry),
+      ...(getData().cinemaMovies || []).map(homeMovieEntry),
       ...getData().discoveryMovies.map(homeMovieEntry),
       ...getData().trendingSeries.map(homeSeriesEntry),
       ...getData().newSeries.map(homeSeriesEntry),
@@ -49,21 +58,27 @@ export function createHomeLanes(root, {
     const profile = loadDiscoveryProfile();
     const favorite = favoriteDiscoveryGenre(profile);
     const pool = homeAllEntries();
-    if (!favorite) return stableDailyOrder(pool, "genre-starter").slice(0, 24);
+    if (!favorite) return rotatingOrder(pool, "genre").slice(0, 24);
     const matching = pool.filter((entry) =>
       (homeEntryMedia(entry).genres || []).some((genre) =>
         String(genre).localeCompare(favorite, "de", { sensitivity: "base" }) === 0));
     const matchingKeys = new Set(matching.map(homeEntryKey));
     const adjacent = pool.filter((entry) => !matchingKeys.has(homeEntryKey(entry)));
-    return [
-      ...stableDailyOrder(matching, `genre-${favorite}`),
-      ...stableDailyOrder(adjacent, `genre-${favorite}-adjacent`),
-    ].slice(0, 24);
+    const preferred = rotatingOrder(matching, "genre");
+    const alternatives = rotatingOrder(adjacent, "genre");
+    const result = [];
+    while (result.length < 24 && (preferred.length || alternatives.length)) {
+      if (preferred.length) result.push(preferred.shift());
+      if (preferred.length && result.length < 24) result.push(preferred.shift());
+      if (alternatives.length && result.length < 24) result.push(alternatives.shift());
+    }
+    return result;
   }
 
   function homeExploreEntries() {
     const profile = loadDiscoveryProfile();
     const avoidedGenres = new Set(Object.entries(profile.genres)
+      .filter(([, score]) => Number(score) > 0)
       .sort((a, b) => Number(b[1]) - Number(a[1]))
       .slice(0, 2)
       .map(([genre]) => genre.toLocaleLowerCase()));
@@ -73,18 +88,22 @@ export function createHomeLanes(root, {
       const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
       return !genres.some((genre) => avoidedGenres.has(genre));
     });
-    return stableDailyOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore").slice(0, 24);
+    return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore").slice(0, 24);
   }
 
   function homeGemEntries() {
     const topKeys = new Set(homeTopEntries().map(homeEntryKey));
     const candidates = homeAllEntries()
       .filter((entry) => !topKeys.has(homeEntryKey(entry)))
-      .map((entry) => ({ entry, rating: Number(homeEntryMedia(entry).rating || 0) }))
+      .map((entry) => ({
+        entry,
+        rating: Number(homeEntryMedia(entry).rating || 0),
+        penalty: Number(discoveryV2ExposurePenalty?.(entry, "gems") || 0),
+        daily: stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(entry)}`) / 4294967295 * 2,
+      }))
       .filter(({ rating }) => !rating || rating >= 6.4)
-      .sort((a, b) => b.rating - a.rating
-        || stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(a.entry)}`)
-        - stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(b.entry)}`))
+      .sort((a, b) => (b.rating - b.penalty * 0.35 + b.daily)
+        - (a.rating - a.penalty * 0.35 + a.daily))
       .map(({ entry }) => entry);
     return candidates.slice(0, 24);
   }
@@ -109,10 +128,10 @@ export function createHomeLanes(root, {
     return {
       personal: takeDistinctHomeLane(homePersonalizedEntries(), seen, 7, 7),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
-      series: takeDistinctHomeLane(stableDailyOrder(homePopularSeriesEntries(), "series-lane"), seen, 16),
+      series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,
       genre: takeDistinctHomeLane(homeGenreEntries(), seen, 16, 16),
-      gems: takeDistinctHomeLane(stableDailyOrder(homeGemEntries(), "gems-lane"), seen, 16),
+      gems: takeDistinctHomeLane(homeGemEntries(), seen, 16),
       // "Neu hinzugefügt" ist eine chronologische Katalogreihe, keine Discovery-Reihe.
       // Titel dürfen hier auch vorkommen, wenn sie bereits weiter oben empfohlen wurden.
       fresh: homeNewEntries(),
