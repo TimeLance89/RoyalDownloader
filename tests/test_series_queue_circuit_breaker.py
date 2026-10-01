@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.queue_jobs import new_job
 import server
 from media.hoster_intel import HosterIntel
 from media.provider_health import ProviderHealth
@@ -118,6 +119,28 @@ def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
     assert response["added"] == 20
     assert calls == []
     assert all(not server.state.fp_movies[slug].hosters for slug in slugs)
+
+
+def test_queue_add_after_550_pending_jobs_preserves_new_entry(monkeypatch):
+    for episode in range(1, 551):
+        slug = f"serienstream:existing-show-s01e{episode:03d}"
+        job = new_job(slug)
+        server.state.picked.add(slug)
+        server.state.counted_queue_slugs.add(slug)
+        server.state.queue_jobs[job["job_id"]] = job
+        server.state.queue_job_by_slug[slug] = job["job_id"]
+
+    new_slug = "serienstream:new-show-s01e001"
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_require_persistent_snapshot", lambda *_args: None)
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", lambda values, **_kwargs: set(values))
+
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=[new_slug])))
+
+    assert response["added"] == 1
+    assert response["queue"]["count"] == 551
+    assert new_slug in server.state.picked
+    assert server.state.queue_job_by_slug[new_slug] in server.state.queue_jobs
 
 
 def test_queue_add_rejects_known_scheduled_episode(monkeypatch):
