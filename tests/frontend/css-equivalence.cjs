@@ -62,10 +62,12 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // The frozen baseline protects elements that already existed at 7d93908.
       // The household profile editor and administrator avatar library are new
       // post-baseline components with dedicated browser/API regressions, so
-      // neither subtree has a legacy visual state to compare against.
+      // neither subtree has a legacy visual state to compare against. Settings
+      // are an intentional redesign and likewise must not match frozen styles.
       .filter(element =>
         !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
+        && !element.closest("#tab-einstellungen")
       )
       .map(element => {
         const style = getComputedStyle(element);

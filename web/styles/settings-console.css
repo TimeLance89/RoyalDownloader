@@ -1,306 +1,255 @@
-/* Royal Systemregie — settings-specific visual language. */
+/* Settings: quiet surfaces, clear hierarchy, and room for dense controls. */
 body.settings-active {
-  --settings-black: #090b0c;
-  --settings-panel: #101314;
-  --settings-panel-raised: #15191a;
-  --settings-line: rgba(236, 230, 216, 0.12);
-  --settings-line-strong: rgba(216, 183, 102, 0.42);
-  --settings-red: #f03845;
-  --settings-gold: #dbb85d;
-  --settings-green: #83d49a;
-  --settings-ink: #f4f0e8;
-  --settings-muted: #8f9693;
+  --settings-bg: #0b0e11;
+  --settings-panel: #12171b;
+  --settings-raised: #181e23;
+  --settings-field: #0d1114;
+  --settings-line: rgba(232, 237, 235, .11);
+  --settings-line-strong: rgba(232, 237, 235, .2);
+  --settings-gold: #e0bb70;
+  --settings-red: #f04454;
+  --settings-green: #79caa0;
+  --settings-ink: #f5f3ee;
+  --settings-muted: #a3abae;
 }
 
-body.settings-active .bg-decor {
-  opacity: 0.32;
-  filter: saturate(0.55);
-}
+body.settings-active .bg-decor { opacity: .12; }
 
 #tab-einstellungen {
-  gap: 20px;
-  padding: 12px clamp(14px, 2.4vw, 34px) 38px;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
-  background-size: 48px 48px;
+  gap: 0;
+  overflow-y: auto;
+  padding: clamp(96px, 7vw, 124px) clamp(18px, 3vw, 64px) 72px;
+  background: var(--settings-bg);
+  color: var(--settings-ink);
+  scrollbar-color: #4c5152 transparent;
+}
+
+#tab-einstellungen .settings-hero,
+#tab-einstellungen .settings-workbench {
+  width: min(1840px, 100%);
+  margin-inline: auto;
 }
 
 #tab-einstellungen .settings-hero {
-  display: grid;
-  grid-template-columns: minmax(270px, 0.78fr) minmax(460px, 1.22fr);
-  align-items: stretch;
-  gap: clamp(24px, 4vw, 70px);
-  width: min(1540px, 100%);
-  min-height: 184px;
-  padding: clamp(28px, 3vw, 46px);
-  border: 1px solid var(--settings-line);
-  border-radius: 3px 30px 3px 3px;
-  background:
-    linear-gradient(110deg, rgba(240, 56, 69, 0.095), transparent 35%),
-    linear-gradient(160deg, #121516, #090b0c 72%);
-  box-shadow: 0 24px 70px -48px var(--color-black), inset 0 1px rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 0;
+  padding: 0 0 30px;
+  border: 0;
+  border-bottom: 1px solid var(--settings-line-strong);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 
-#tab-einstellungen .settings-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(var(--settings-red) 0 31%, transparent 31% 38%, var(--settings-gold) 38% 100%);
-}
-
-#tab-einstellungen .settings-hero::after {
-  right: 0;
-  bottom: 0;
-  width: 42%;
-  background: linear-gradient(90deg, transparent, rgba(240, 56, 69, 0.78));
-}
-
-#tab-einstellungen .settings-hero-copy {
-  align-self: center;
-}
+#tab-einstellungen .settings-hero::before,
+#tab-einstellungen .settings-hero::after { display: none; }
 
 #tab-einstellungen .settings-eyebrow {
-  color: var(--settings-red);
-  font: 700 9px/1 "JetBrains Mono", Consolas, monospace;
-  letter-spacing: 0.22em;
+  display: block;
+  color: var(--settings-gold);
+  font: 700 11px/1.2 "DM Sans", sans-serif;
+  letter-spacing: .16em;
 }
 
 #tab-einstellungen .settings-hero h1 {
   margin: 12px 0 10px;
   color: var(--settings-ink);
-  font: 800 clamp(38px, 4vw, 62px)/0.92 "Archivo", sans-serif;
-  letter-spacing: -0.055em;
+  font: 700 clamp(42px, 4.2vw, 66px)/1 "Archivo", sans-serif;
+  letter-spacing: -.055em;
 }
 
 #tab-einstellungen .settings-hero-copy > p {
-  max-width: 520px;
+  max-width: 680px;
   margin: 0;
-  color: #aeb3b0;
-  font: 450 clamp(12px, 1.05vw, 15px)/1.55 "DM Sans", sans-serif;
-}
-
-.settings-hero-console {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 17px 18px 16px;
-  border: 1px solid var(--settings-line);
-  background: rgba(4, 6, 7, 0.58);
-}
-
-.settings-console-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--settings-line);
-  font-family: "JetBrains Mono", Consolas, monospace;
-}
-
-.settings-console-status > span {
   color: var(--settings-muted);
-  font-size: 8px;
-  letter-spacing: 0.18em;
+  font: 400 clamp(14px, 1.1vw, 17px)/1.5 "DM Sans", sans-serif;
 }
 
-.settings-console-status strong {
+#tab-einstellungen .settings-hero-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--settings-green);
-  font-size: 9px;
-  font-weight: 600;
-}
-
-.settings-console-status i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 13px currentColor;
-}
-
-.settings-signal-route {
-  display: grid;
-  grid-template-columns: auto minmax(28px, 1fr) auto minmax(28px, 1fr) auto;
-  align-items: center;
   gap: 10px;
-  margin-top: 23px;
+  flex: none;
+  margin-bottom: 5px;
+  padding: 10px 14px;
+  border: 1px solid rgba(121, 202, 160, .24);
+  border-radius: 999px;
+  background: rgba(121, 202, 160, .07);
+  color: #a9dfbd;
+  font: 650 12px/1 "DM Sans", sans-serif;
 }
 
-.settings-signal-route span {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  color: var(--settings-ink);
-  font: 600 11px/1 "Archivo", sans-serif;
-}
-
-.settings-signal-route b {
-  color: var(--settings-gold);
-  font: 500 8px/1 "JetBrains Mono", Consolas, monospace;
-  letter-spacing: 0.12em;
-}
-
-.settings-signal-route > i {
-  position: relative;
-  height: 1px;
-  overflow: visible;
-  background: linear-gradient(90deg, var(--settings-red), var(--settings-gold));
-}
-
-.settings-signal-route > i::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: -3px;
+#tab-einstellungen .settings-hero-badge i,
+#tab-einstellungen .settings-overview-footer i {
   width: 7px;
   height: 7px;
-  border-top: 1px solid var(--settings-gold);
-  border-right: 1px solid var(--settings-gold);
-  transform: rotate(45deg);
+  flex: none;
+  border-radius: 50%;
+  background: var(--settings-green);
 }
 
 #tab-einstellungen .settings-workbench {
   display: grid;
-  grid-template-columns: 246px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   align-items: start;
-  gap: clamp(18px, 2vw, 30px);
-  width: min(1540px, 100%);
+  gap: clamp(24px, 3vw, 48px);
+  padding-top: 30px;
 }
 
 #tab-einstellungen .settings-directory {
   position: sticky;
-  top: 12px;
+  top: 18px;
   display: flex;
-  min-height: 620px;
+  min-height: 0;
   flex-direction: column;
-  padding: 0;
   overflow: hidden;
+  padding: 0;
   border: 1px solid var(--settings-line);
-  border-radius: 3px;
-  background: rgba(9, 11, 12, 0.94);
-  box-shadow: 0 22px 55px -42px var(--color-black);
+  border-radius: 18px;
+  background: var(--settings-panel);
+  box-shadow: none;
 }
 
 #tab-einstellungen .settings-directory::before { display: none; }
 
 #tab-einstellungen .settings-directory-head {
-  gap: 8px;
-  padding: 22px 20px 18px;
+  gap: 7px;
+  padding: 24px 22px 18px;
   border-bottom: 1px solid var(--settings-line);
 }
 
 #tab-einstellungen .settings-directory-head > span {
-  color: var(--settings-red);
-  font-size: 8px;
-  letter-spacing: 0.2em;
+  color: var(--settings-gold);
+  font: 700 10px/1 "DM Sans", sans-serif;
+  letter-spacing: .15em;
 }
 
 #tab-einstellungen .settings-directory-head strong {
   color: var(--settings-ink);
-  font: 700 20px/1 "Archivo", sans-serif;
-  letter-spacing: -0.03em;
+  font: 700 20px/1.2 "Archivo", sans-serif;
+  letter-spacing: -.03em;
 }
 
 #tab-einstellungen .settings-directory-nav {
-  gap: 0;
-  padding: 8px 0;
+  gap: 2px;
+  padding: 12px;
 }
 
 #tab-einstellungen .settings-directory-nav a {
-  grid-template-columns: 35px minmax(0, 1fr);
-  min-height: 64px;
-  gap: 3px 11px;
-  padding: 11px 17px;
-  border: 0;
-  border-left: 3px solid transparent;
-  border-radius: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 11px;
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
+  color: var(--settings-muted);
   text-decoration: none;
-  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
 }
 
 #tab-einstellungen .settings-directory-nav a > span {
-  width: 31px;
-  height: 31px;
-  color: var(--settings-muted);
-  border: 1px solid var(--settings-line);
-  border-radius: 50%;
-  background: transparent;
+  grid-row: 1 / 3;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: #22282b;
+  color: #c4cbca;
+  font: 600 15px/1 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-directory-nav a strong {
-  color: #d8dad7;
-  font: 650 11px/1.1 "Archivo", sans-serif;
+  align-self: end;
+  color: inherit;
+  font: 650 14px/1.2 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-directory-nav a small {
-  color: #747b78;
-  font: 8px/1.2 "JetBrains Mono", Consolas, monospace;
+  align-self: start;
+  overflow: hidden;
+  color: #879195;
+  font: 400 11px/1.25 "DM Sans", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-#tab-einstellungen .settings-directory-nav a:hover,
-#tab-einstellungen .settings-directory-nav a:focus-visible {
+#tab-einstellungen .settings-directory-nav a:hover {
+  background: #20272b;
   color: var(--settings-ink);
-  border-color: rgba(219, 184, 93, 0.55);
-  background: rgba(219, 184, 93, 0.045);
   transform: none;
 }
 
-#tab-einstellungen .settings-directory-nav a:focus-visible {
-  outline: 1px solid var(--settings-gold);
-  outline-offset: -2px;
-}
-
 #tab-einstellungen .settings-directory-nav a.is-active {
+  border-color: rgba(224, 187, 112, .25);
+  background: rgba(224, 187, 112, .1);
   color: var(--settings-ink);
-  border-color: var(--settings-red);
-  background: linear-gradient(90deg, rgba(240, 56, 69, 0.12), transparent 84%);
 }
 
 #tab-einstellungen .settings-directory-nav a.is-active > span {
+  border: 0;
+  background: rgba(224, 187, 112, .17);
   color: var(--settings-gold);
-  border-color: rgba(219, 184, 93, 0.48);
-  background: rgba(219, 184, 93, 0.08);
   box-shadow: none;
 }
 
+#tab-einstellungen .settings-directory-nav a:focus-visible,
+#tab-einstellungen .settings-launch-card:focus-visible,
+#tab-einstellungen button:focus-visible,
+#tab-einstellungen input:focus-visible,
+#tab-einstellungen select:focus-visible,
+#tab-einstellungen summary:focus-visible {
+  outline: 2px solid var(--settings-gold);
+  outline-offset: 2px;
+}
+
 #tab-einstellungen .settings-directory-foot {
-  grid-template-columns: 30px minmax(0, 1fr);
-  margin-top: auto;
-  padding: 17px 18px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 0;
+  padding: 16px 19px;
   border-top: 1px solid var(--settings-line);
-  background: #0d1011;
+  background: transparent;
+}
+
+#tab-einstellungen .settings-live-mark {
+  width: 25px;
+  height: 25px;
+  border-color: rgba(121, 202, 160, .25);
 }
 
 #tab-einstellungen .settings-directory-foot strong {
-  color: var(--settings-green);
-  font: 600 9px/1 "JetBrains Mono", Consolas, monospace;
+  color: #a9dfbd;
+  font: 650 12px/1.2 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-directory-foot small {
   color: var(--settings-muted);
-  font-size: 8px;
+  font: 400 11px/1.35 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-panel {
-  gap: 48px;
-  min-height: 620px;
-  padding: 30px clamp(18px, 2.4vw, 38px) 22px;
-  border: 1px solid var(--settings-line);
-  border-radius: 3px 24px 3px 3px;
-  background: rgba(9, 11, 12, 0.9);
-  box-shadow: 0 25px 65px -50px var(--color-black);
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 #tab-einstellungen .settings-section {
-  gap: 20px;
-  scroll-margin-top: 18px;
+  gap: 24px;
+  scroll-margin-top: 28px;
 }
 
 #tab-einstellungen .settings-section + .settings-section {
@@ -309,57 +258,74 @@ body.settings-active .bg-decor {
 }
 
 #tab-einstellungen .settings-section[hidden] { display: none !important; }
+#tab-einstellungen .settings-section.is-active { animation: settings-enter .2s ease-out both; }
 
-#tab-einstellungen .settings-section.is-active {
-  animation: settings-view-enter 240ms ease-out both;
-}
-
-@keyframes settings-view-enter {
-  from { opacity: 0; transform: translateY(8px); }
+@keyframes settings-enter {
+  from { opacity: .65; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-#tab-einstellungen .settings-overview {
-  gap: 24px;
+#tab-einstellungen .settings-section-heading {
+  align-items: flex-start;
+  gap: 16px;
+  padding: 5px 0 4px;
+}
+
+#tab-einstellungen .settings-section-mark {
+  width: 45px;
+  height: 45px;
+  border: 1px solid rgba(224, 187, 112, .23);
+  border-radius: 13px;
+  background: rgba(224, 187, 112, .1);
+  color: var(--settings-gold);
+  font-size: 18px;
+}
+
+#tab-einstellungen .settings-section-heading > div > span {
+  color: var(--settings-gold);
+  font: 700 10px/1.2 "DM Sans", sans-serif;
+  letter-spacing: .14em;
+}
+
+#tab-einstellungen .settings-section-heading h2 {
+  margin: 5px 0 7px;
+  color: var(--settings-ink);
+  font: 700 clamp(26px, 2.5vw, 38px)/1.12 "Archivo", sans-serif;
+  letter-spacing: -.04em;
+}
+
+#tab-einstellungen .settings-section-heading p {
+  max-width: 75ch;
+  color: var(--settings-muted);
+  font: 400 14px/1.5 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-launch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 
 #tab-einstellungen .settings-launch-card {
-  --launch-accent: var(--settings-gold);
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 22px;
+  grid-template-columns: 48px minmax(0, 1fr) 20px;
   align-items: center;
-  gap: 15px;
-  min-height: 118px;
-  padding: 18px;
+  gap: 18px;
+  min-height: 136px;
+  padding: 22px;
+  border: 1px solid var(--settings-line);
+  border-radius: 16px;
+  background: var(--settings-panel);
   color: var(--settings-ink);
   text-align: left;
-  border: 1px solid var(--settings-line);
-  border-radius: 2px 16px 2px 2px;
-  background:
-    linear-gradient(115deg, color-mix(in srgb, var(--launch-accent) 8%, transparent), transparent 48%),
-    var(--settings-panel);
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
 }
 
-#tab-einstellungen .settings-launch-card:hover,
-#tab-einstellungen .settings-launch-card:focus-visible {
-  border-color: color-mix(in srgb, var(--launch-accent) 58%, transparent);
-  background:
-    linear-gradient(115deg, color-mix(in srgb, var(--launch-accent) 13%, transparent), transparent 55%),
-    var(--settings-panel-raised);
-  transform: none;
-}
-
-#tab-einstellungen .settings-launch-card:focus-visible {
-  outline: 1px solid var(--launch-accent);
-  outline-offset: 2px;
+#tab-einstellungen .settings-launch-card:hover {
+  border-color: rgba(224, 187, 112, .4);
+  background: var(--settings-raised);
+  transform: translateY(-2px);
 }
 
 #tab-einstellungen .settings-launch-symbol {
@@ -367,215 +333,149 @@ body.settings-active .bg-decor {
   width: 48px;
   height: 48px;
   place-items: center;
-  color: var(--launch-accent);
-  border: 1px solid color-mix(in srgb, var(--launch-accent) 46%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--launch-accent) 7%, transparent);
-  font: 700 15px/1 "JetBrains Mono", Consolas, monospace;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(224, 187, 112, .12);
+  color: var(--settings-gold);
+  font: 650 21px/1 "DM Sans", sans-serif;
 }
 
 #tab-einstellungen .settings-launch-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
-
 #tab-einstellungen .settings-launch-copy small {
-  color: var(--launch-accent);
-  font: 600 8px/1 "JetBrains Mono", Consolas, monospace;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  color: var(--settings-gold);
+  font: 700 10px/1 "DM Sans", sans-serif;
+  letter-spacing: .12em;
 }
-
 #tab-einstellungen .settings-launch-copy strong {
-  font: 700 17px/1.1 "Archivo", sans-serif;
-  letter-spacing: -0.02em;
+  color: var(--settings-ink);
+  font: 700 18px/1.25 "Archivo", sans-serif;
+  letter-spacing: -.02em;
 }
-
 #tab-einstellungen .settings-launch-copy em {
   color: var(--settings-muted);
-  font: normal 11px/1.45 "DM Sans", sans-serif;
+  font: 400 13px/1.4 "DM Sans", sans-serif;
 }
-
-#tab-einstellungen .settings-launch-arrow {
-  color: var(--launch-accent);
-  font: 500 18px/1 "JetBrains Mono", Consolas, monospace;
-  transition: transform 160ms ease;
+#tab-einstellungen .settings-launch-card > i {
+  color: var(--settings-gold);
+  font: 400 21px/1 "DM Sans", sans-serif;
 }
-
-#tab-einstellungen .settings-launch-card:hover .settings-launch-arrow { transform: translateX(3px); }
-#tab-einstellungen .settings-launch-card.is-core { --launch-accent: var(--settings-gold); }
-#tab-einstellungen .settings-launch-card.is-route { --launch-accent: var(--settings-red); }
-#tab-einstellungen .settings-launch-card.is-service { --launch-accent: #d582b0; }
-#tab-einstellungen .settings-launch-card.is-auto { --launch-accent: var(--settings-green); }
-#tab-einstellungen .settings-launch-card.is-access { --launch-accent: #e4c76d; }
-#tab-einstellungen .settings-launch-card.is-maintenance { --launch-accent: #79a9c7; }
 
 #tab-einstellungen .settings-overview-footer {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 15px;
+  padding: 18px 20px;
+  border: 1px solid var(--settings-line);
+  border-radius: 14px;
+  background: rgba(121, 202, 160, .045);
   color: var(--settings-muted);
-  border: 1px dashed var(--settings-line-strong);
-  background: rgba(131, 212, 154, 0.025);
-  font: 9px/1.4 "JetBrains Mono", Consolas, monospace;
+  font: 400 13px/1.4 "DM Sans", sans-serif;
 }
-
 #tab-einstellungen .settings-overview-footer > span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: auto;
-  height: auto;
-  color: var(--settings-green);
-  white-space: nowrap;
-  border-radius: 0;
-  background: transparent;
+  flex: none;
+  color: #a9dfbd;
+  font-weight: 650;
+}
+#tab-einstellungen .settings-overview-footer p { margin: 0; }
+#tab-einstellungen .settings-panel.is-overview .settings-actions { display: none; }
+
+#tab-einstellungen .settings-card-grid {
+  gap: 16px;
+  align-items: start;
+}
+
+#tab-einstellungen .settings-card {
+  min-width: 0;
+  padding: clamp(20px, 2vw, 28px);
+  border: 1px solid var(--settings-line);
+  border-radius: 16px;
+  background: var(--settings-panel);
   box-shadow: none;
 }
 
-#tab-einstellungen .settings-overview-footer > span > i {
-  display: block;
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--settings-green);
-  box-shadow: 0 0 10px rgba(131, 212, 154, 0.55);
-}
-
-#tab-einstellungen .settings-overview-footer > p {
-  margin: 0;
-  color: var(--settings-muted);
-  font: inherit;
-}
-
-#tab-einstellungen .settings-panel.is-overview .settings-actions { display: none; }
-#tab-einstellungen .settings-automation-grid .settings-card { grid-column: 1 / -1; }
-
-#tab-einstellungen .settings-section-heading {
-  align-items: center;
-  gap: 15px;
-}
-
-#tab-einstellungen .settings-section-mark {
-  width: 43px;
-  height: 43px;
-  color: var(--settings-gold);
-  border: 1px solid var(--settings-line-strong);
-  border-radius: 50%;
-  background: transparent;
-  font-size: 14px;
-}
-
-#tab-einstellungen .settings-section-mark.is-source,
-#tab-einstellungen .settings-section-mark.is-media,
-#tab-einstellungen .settings-section-mark.is-automation,
-#tab-einstellungen .settings-section-mark.is-system,
-#tab-einstellungen .settings-section-mark.is-account {
-  color: var(--settings-gold);
-  border-color: var(--settings-line-strong);
-  background: transparent;
-}
-
-#tab-einstellungen .settings-section-heading > div > span {
-  color: var(--settings-red);
-  font: 650 8px/1 "JetBrains Mono", Consolas, monospace;
-  letter-spacing: 0.18em;
-}
-
-#tab-einstellungen .settings-section-heading h2 {
-  margin: 5px 0 4px;
-  color: var(--settings-ink);
-  font: 720 clamp(20px, 2vw, 28px)/1 "Archivo", sans-serif;
-  letter-spacing: -0.035em;
-}
-
-#tab-einstellungen .settings-section-heading p {
-  color: var(--settings-muted);
-  font: 400 11px/1.45 "DM Sans", sans-serif;
-}
-
-#tab-einstellungen .settings-card-grid { gap: 14px; }
-
-#tab-einstellungen .settings-card {
-  --settings-card-accent: var(--settings-gold);
-  position: relative;
-  padding: 20px;
-  overflow: hidden;
-  border: 1px solid var(--settings-line);
-  border-radius: 7px;
-  background: var(--settings-panel);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.018);
-  transition: border-color 160ms ease, background 160ms ease;
-}
-
-#tab-einstellungen .settings-card::before {
-  content: "";
-  position: absolute;
-  left: 20px;
-  top: 0;
-  width: 44px;
-  height: 2px;
-  background: var(--settings-card-accent);
-}
-
+#tab-einstellungen .settings-card::before { display: none; }
 #tab-einstellungen .settings-card:hover {
-  border-color: rgba(219, 184, 93, 0.25);
-  background: var(--settings-panel-raised);
+  border-color: var(--settings-line-strong);
+  background: var(--settings-panel);
   transform: none;
 }
 
-#tab-einstellungen .provider-settings,
-#tab-einstellungen .deployment-settings,
-#tab-einstellungen .language-settings,
-#tab-einstellungen .seerr-settings,
-#tab-einstellungen .tmdb-settings,
-#tab-einstellungen .telegram-settings,
-#tab-einstellungen .updater-settings {
-  background: var(--settings-panel);
+#tab-einstellungen #module-manager-list .settings-card {
+  display: grid;
+  gap: 9px;
 }
-
-#tab-einstellungen .seerr-settings { --settings-card-accent: #b58ad8; }
-#tab-einstellungen .updater-settings { --settings-card-accent: var(--settings-green); }
-#tab-einstellungen .account-settings,
-#tab-einstellungen .account-sessions { --settings-card-accent: var(--settings-red); }
-
-#tab-einstellungen .settings-group h3 {
+#tab-einstellungen #module-manager-list .settings-section-heading {
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 0 8px;
+}
+#tab-einstellungen #module-manager-list h3 {
+  margin: 5px 0;
   color: var(--settings-ink);
-  font: 680 14px/1.2 "Archivo", sans-serif;
-  letter-spacing: -0.015em;
+  font: 700 18px/1.25 "Archivo", sans-serif;
+}
+#tab-einstellungen #module-manager-list .settings-section-heading label {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  color: var(--settings-ink);
+  font-size: 13px;
+}
+#tab-einstellungen #module-manager-list .settings-card > p {
+  margin: 0;
+  font-size: 13px;
 }
 
-#tab-einstellungen .settings-group .settings-hint {
-  margin: -1px 0 6px;
+#tab-einstellungen .settings-group { gap: 12px; }
+#tab-einstellungen .settings-group h3 {
+  margin: 0;
+  color: var(--settings-ink);
+  font: 700 18px/1.25 "Archivo", sans-serif;
+  letter-spacing: -.02em;
+}
+#tab-einstellungen .settings-group .settings-hint,
+#tab-einstellungen .settings-group .dim,
+#tab-einstellungen .settings-card p {
   color: var(--settings-muted);
-  font: 400 11px/1.5 "DM Sans", sans-serif;
+  line-height: 1.5;
 }
-
+#tab-einstellungen .settings-group .settings-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+#tab-einstellungen .settings-group label:not(.runtime-mode-card) {
+  font-size: 13px;
+  line-height: 1.35;
+}
 #tab-einstellungen .settings-group input[type="text"],
 #tab-einstellungen .settings-group input[type="url"],
 #tab-einstellungen .settings-group input[type="password"],
+#tab-einstellungen .settings-group input[type="number"],
 #tab-einstellungen .settings-group select,
 #tab-einstellungen .updater-mode-grid select,
 #tab-einstellungen .updater-interval-input {
-  min-height: 43px;
+  min-height: 46px;
+  border: 1px solid var(--settings-line-strong);
+  border-radius: 9px;
+  background: var(--settings-field);
   color: var(--settings-ink);
-  border: 1px solid var(--settings-line);
-  border-radius: 4px;
-  background: #080a0b;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  font-size: 14px;
 }
-
 #tab-einstellungen .settings-group input:focus,
 #tab-einstellungen .settings-group select:focus,
-#tab-einstellungen .updater-mode-grid select:focus,
-#tab-einstellungen .updater-interval-input:focus-within {
+#tab-einstellungen .updater-mode-grid select:focus {
   border-color: var(--settings-gold);
-  box-shadow: 0 0 0 3px rgba(219, 184, 93, 0.09);
+  box-shadow: 0 0 0 3px rgba(224, 187, 112, .1);
 }
 
 #tab-einstellungen .runtime-mode-card,
@@ -585,48 +485,44 @@ body.settings-active .bg-decor {
 #tab-einstellungen .seerr-flow,
 #tab-einstellungen .tmdb-credit,
 #tab-einstellungen .updater-track {
-  border-radius: 5px;
-  background-color: #0a0d0e;
+  border-color: var(--settings-line);
+  border-radius: 11px;
+  background-color: var(--settings-field);
 }
 
 #tab-einstellungen .settings-actions {
-  position: sticky;
-  z-index: 20;
-  bottom: 0;
-  margin: 0 -10px -10px;
-  padding: 14px 15px;
-  border: 1px solid rgba(219, 184, 93, 0.22);
-  border-radius: 4px;
-  background: rgba(9, 11, 12, 0.95);
-  box-shadow: 0 -24px 50px -38px var(--color-black);
-  backdrop-filter: blur(18px);
+  position: relative;
+  z-index: 1;
+  bottom: auto;
+  margin: 28px 0 0;
+  padding: 20px 24px;
+  border: 1px solid var(--settings-line);
+  border-radius: 15px;
+  background: var(--settings-panel);
+  box-shadow: none;
+  backdrop-filter: none;
 }
-
 #tab-einstellungen .settings-actions-copy strong {
   color: var(--settings-ink);
-  font-family: "Archivo", sans-serif;
+  font: 700 15px/1.2 "Archivo", sans-serif;
 }
-
+#tab-einstellungen .settings-actions-copy .dim { font-size: 12px; }
 #tab-einstellungen #settings-save {
-  min-height: 44px;
-  padding-inline: 25px;
-  border-color: var(--settings-red);
-  border-radius: 4px;
+  min-height: 45px;
+  padding-inline: 22px;
+  border: 1px solid #ed5360;
+  border-radius: 9px;
   background: var(--settings-red);
-  color: var(--color-white);
-  box-shadow: 0 9px 26px -17px rgba(240, 56, 69, 0.85);
+  color: #fff;
+  font: 700 13px/1.2 "DM Sans", sans-serif;
+  box-shadow: none;
 }
+#tab-einstellungen #settings-save:hover:not(:disabled) { background: #fa5261; }
 
-#tab-einstellungen #settings-save:hover:not(:disabled) {
-  border-color: #ff5360;
-  background: #ff4653;
-}
-
-@media (min-width: 821px) {
+@media (min-width: 1200px) {
   #tab-einstellungen .settings-general-grid {
-    grid-template-columns: minmax(310px, 0.9fr) minmax(370px, 1.1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
   #tab-einstellungen .settings-service-grid,
   #tab-einstellungen .settings-automation-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -634,142 +530,79 @@ body.settings-active .bg-decor {
 }
 
 @media (max-width: 1100px) {
-  #tab-einstellungen .settings-hero {
-    grid-template-columns: 1fr;
-  }
-
   #tab-einstellungen .settings-workbench {
-    grid-template-columns: 205px minmax(0, 1fr);
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 22px;
   }
-
-  #tab-einstellungen .settings-general-grid,
-  #tab-einstellungen .settings-service-grid,
-  #tab-einstellungen .settings-automation-grid,
-  #tab-einstellungen .settings-launch-grid {
-    grid-template-columns: 1fr;
-  }
+  #tab-einstellungen .settings-launch-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 820px) {
   #tab-einstellungen {
-    gap: 12px;
-    padding: 8px 10px calc(90px + env(safe-area-inset-bottom));
+    padding: 82px 14px calc(90px + env(safe-area-inset-bottom));
   }
-
-  #tab-einstellungen .settings-hero {
-    grid-template-columns: 1fr;
-    gap: 20px;
-    min-height: 0;
-    padding: 24px 19px 20px;
-    border-radius: 3px 20px 3px 3px;
+  #tab-einstellungen .settings-hero { padding-bottom: 20px; }
+  #tab-einstellungen .settings-hero-badge { display: none; }
+  #tab-einstellungen .settings-hero h1 { font-size: 42px; }
+  #tab-einstellungen .settings-workbench {
+    display: block;
+    padding-top: 16px;
   }
-
-  #tab-einstellungen .settings-hero h1 { font-size: 38px; }
-  #tab-einstellungen .settings-hero-console { padding: 13px; }
-  #tab-einstellungen .settings-signal-route { gap: 7px; margin-top: 17px; }
-  #tab-einstellungen .settings-signal-route span { font-size: 9px; }
-
-  #tab-einstellungen .settings-workbench { display: block; }
-
   #tab-einstellungen .settings-directory {
     top: 0;
     z-index: 24;
     display: block;
-    min-height: 0;
-    margin-bottom: 12px;
+    width: 100%;
+    margin-bottom: 22px;
     overflow-x: auto;
-    border-radius: 3px;
+    border-radius: 12px;
     scrollbar-width: none;
   }
-
   #tab-einstellungen .settings-directory::-webkit-scrollbar { display: none; }
   #tab-einstellungen .settings-directory-head,
   #tab-einstellungen .settings-directory-foot { display: none; }
-
   #tab-einstellungen .settings-directory-nav {
     display: flex;
     width: max-content;
     min-width: 100%;
     flex-direction: row;
-    padding: 0;
+    gap: 3px;
+    padding: 6px;
   }
-
   #tab-einstellungen .settings-directory-nav a {
     display: flex;
-    min-width: 104px;
-    min-height: 49px;
+    min-width: 93px;
+    min-height: 42px;
     justify-content: center;
-    gap: 7px;
+    gap: 0;
     padding: 9px 12px;
-    border-left: 0;
-    border-bottom: 2px solid transparent;
+    white-space: nowrap;
   }
-
-  #tab-einstellungen .settings-directory-nav a > span {
-    width: 25px;
-    height: 25px;
-    flex: 0 0 auto;
-  }
-
+  #tab-einstellungen .settings-directory-nav a > span,
   #tab-einstellungen .settings-directory-nav a small { display: none; }
-  #tab-einstellungen .settings-directory-nav a.is-active { border-color: var(--settings-red); }
-
-  #tab-einstellungen .settings-panel {
-    gap: 36px;
-    min-height: 0;
-    padding: 22px 13px 13px;
-    border-radius: 3px 18px 3px 3px;
-  }
-
-  #tab-einstellungen .settings-card { padding: 17px 14px; }
-  #tab-einstellungen .settings-section-heading { align-items: flex-start; }
-
-  #tab-einstellungen .settings-launch-card {
-    min-height: 104px;
-    padding: 15px;
-  }
-
-  #tab-einstellungen .settings-actions {
-    bottom: calc(67px + env(safe-area-inset-bottom));
-    margin-inline: -4px;
-    padding: 11px;
-  }
+  #tab-einstellungen .settings-panel { min-height: 0; }
+  #tab-einstellungen .settings-card { padding: 19px; }
+  #tab-einstellungen .settings-section-heading h2 { font-size: 28px; }
+  #tab-einstellungen .settings-section-heading p { font-size: 13px; }
 }
 
-@media (max-width: 480px) {
-  #tab-einstellungen .settings-overview-footer {
-    grid-template-columns: 1fr;
-    gap: 7px;
+@media (max-width: 560px) {
+  #tab-einstellungen .settings-section-heading { gap: 11px; }
+  #tab-einstellungen .settings-section-mark { width: 38px; height: 38px; }
+  #tab-einstellungen .settings-launch-card {
+    grid-template-columns: 40px minmax(0, 1fr) 16px;
+    min-height: 112px;
+    gap: 12px;
+    padding: 16px;
   }
-
-  #tab-einstellungen .settings-console-status {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  #tab-einstellungen .settings-signal-route {
-    grid-template-columns: 1fr;
-  }
-
-  #tab-einstellungen .settings-signal-route > i {
-    width: 1px;
-    height: 13px;
-    margin-left: 7px;
-    background: linear-gradient(var(--settings-red), var(--settings-gold));
-  }
-
-  #tab-einstellungen .settings-signal-route > i::after {
-    right: -3px;
-    top: auto;
-    bottom: 0;
-    transform: rotate(135deg);
-  }
+  #tab-einstellungen .settings-launch-symbol { width: 40px; height: 40px; }
+  #tab-einstellungen .settings-launch-copy strong { font-size: 16px; }
+  #tab-einstellungen .settings-overview-footer { align-items: flex-start; flex-direction: column; }
+  #tab-einstellungen .settings-actions { align-items: stretch; flex-direction: column; gap: 13px; padding: 16px; }
+  #tab-einstellungen .settings-actions .btn { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   #tab-einstellungen,
-  #tab-einstellungen * { scroll-behavior: auto !important; }
-
-  #tab-einstellungen .settings-section.is-active { animation: none; }
+  #tab-einstellungen * { scroll-behavior: auto !important; animation: none !important; }
 }
