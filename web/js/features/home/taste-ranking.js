@@ -5,6 +5,7 @@ export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
   discoveryV2LogicalKey, discoveryV2ExposurePenalty, discoveryV2SelectDiverse,
   getShuffle, applyServerTasteProfile, renderHome, client = api,
+  discoveryV2Noise = () => 0,
 }) {
   let scope, pendingFeedback = 0, needsSync = false;
   const feedbackEntries = new WeakMap();
@@ -146,9 +147,13 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function tasteV2ScoreEntry(entry, profile = loadDiscoveryProfile()) {
-    const cacheKey = `${tasteV2LogicalKey(entry)}|${Number(profile.updatedAt || profile.updated_at || 0)}|${Number(getShuffle() || 0)}`;
-    if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
     const metadata = tasteV2Metadata(entry);
+    const exposurePenalty = Number(discoveryV2ExposurePenalty?.(entry, "personal") || 0);
+    const dailyVariation = discoveryV2Noise(entry, "personal", 6);
+    const cacheKey = JSON.stringify([tasteV2LogicalKey(entry), profile.updatedAt || profile.updated_at,
+      profile.ranking, profile.confidence, getShuffle(), metadata,
+      homeEntryMedia(entry).rating, exposurePenalty, dailyVariation]);
+    if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
     const policy = profile.ranking || {};
     const negativeMultiplier = Number(policy.negative_multiplier ?? 1.55);
     const confidence = Math.max(0, Math.min(1, Number(profile.confidence || 0)));
@@ -186,22 +191,24 @@ export function createTasteRanking(root, summaryRoot, {
       : 0;
     const key = tasteV2LogicalKey(entry);
     const sessionPenalty = sessionExposure.has(key) ? 18 : 0;
-    const exposurePenalty = typeof discoveryV2ExposurePenalty === "function"
-      ? discoveryV2ExposurePenalty(entry, "personal")
-      : 0;
     const media = homeEntryMedia(entry);
     const ratingBonus = Number(media.rating || 0) * 0.10;
-    const score = positive + negative - unknownPenalty - sessionPenalty - exposurePenalty + ratingBonus;
+    const affinity = positive + negative - unknownPenalty + ratingBonus;
+    // Keep eligibility based on taste; accumulated learning must not outweigh
+    // every freshness signal and pin the same seven titles indefinitely.
+    const score = 12 * Math.tanh(affinity / 12) - sessionPenalty - exposurePenalty + dailyVariation;
     const coverage = total ? known / total : 0;
     reasons.sort((left, right) => Math.abs(right.contribution) - Math.abs(left.contribution));
     const result = {
       score,
+      affinity,
       positive,
       negative,
       coverage,
       unknownPenalty,
       reasons: reasons.slice(0, 8),
     };
+    if (scoreCache.size >= 1500) scoreCache.clear();
     scoreCache.set(cacheKey, result);
     return result;
   }
@@ -227,12 +234,12 @@ export function createTasteRanking(root, summaryRoot, {
     const minCoverage = Number(profile.ranking?.personal_min_coverage ?? 0.18);
     const adjacentFloor = Number(profile.ranking?.adjacent_min_affinity ?? 0.10);
     const strong = scored.filter((candidate) =>
-      candidate.score >= minAffinity
+      candidate.affinity >= minAffinity
       && candidate.coverage >= minCoverage
       && candidate.positive > Math.abs(candidate.negative));
     const adjacent = scored.filter((candidate) =>
       !strong.includes(candidate)
-      && candidate.score >= adjacentFloor
+      && candidate.affinity >= adjacentFloor
       && candidate.positive > 0
       && candidate.negative > -Math.max(2.5, candidate.positive));
 

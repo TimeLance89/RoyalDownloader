@@ -146,9 +146,8 @@ export function createHomeLanes(root, {
   }
 
   function homeRatedEntries() {
-    return uniqueHomeEntries(homeAllEntries())
-      .filter((entry) => Number(homeEntryMedia(entry).rating || 0) >= 7)
-      .sort((left, right) => Number(homeEntryMedia(right).rating || 0) - Number(homeEntryMedia(left).rating || 0))
+    return rotatingOrder(uniqueHomeEntries(homeAllEntries())
+      .filter((entry) => Number(homeEntryMedia(entry).rating || 0) >= 7), "high-rated")
       .slice(0, 24);
   }
 

@@ -1,9 +1,26 @@
 from pathlib import Path
 
+from integrations.tmdb_client import TMDBClient
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIENCE = (ROOT / "web/js/features/home/hero-selection.js").read_text(encoding="utf-8")
 API = ((ROOT / "web" / "js/core/api.js").read_text(encoding="utf-8") + "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js")))
+
+
+def test_current_cinema_movies_include_genres_for_personalized_ranking():
+    client = TMDBClient()
+    responses = {
+        "/movie/now_playing": {"results": [{
+            "id": 42, "title": "Cinema hit", "release_date": "2026-01-01",
+            "backdrop_path": "/hero.jpg", "genre_ids": [53],
+            "vote_average": 8, "vote_count": 500,
+        }]},
+        "/genre/movie/list": {"genres": [{"id": 53, "name": "Thriller"}]},
+    }
+    client._request = lambda path, params: responses[path]
+    assert client.now_playing_ids() == {42}
+    assert client.cached_now_playing_movies()[0]["genres"] == ["Thriller"]
 
 
 def test_home_experience_loads_after_taste_profile_v2():
@@ -14,7 +31,7 @@ def test_home_experience_loads_after_taste_profile_v2():
 
 def test_hero_prioritizes_cinema_then_personal_and_adjacent_discovery():
     assert "const HERO_STRONG_TARGET = 5" in EXPERIENCE
-    assert "addBalanced(selected, selectedKeys, cinema, 2)" in EXPERIENCE
+    assert "addBalanced(selected, selectedKeys, cinema, 4)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET)" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, trend" in EXPERIENCE
     assert "addBalanced(selected, selectedKeys, discovery" in EXPERIENCE
@@ -33,7 +50,7 @@ def test_hero_requires_quality_and_reuses_exposure_history():
     assert "const HERO_MIN_RATING = 5.5" in EXPERIENCE
     assert "media.backdrop_url" in EXPERIENCE
     assert 'discoveryV2ExposurePenalty(entry, "hero")' in EXPERIENCE
-    assert "HERO_MAX_SAME_KIND = 4" in EXPERIENCE
+    assert "HERO_MAX_SAME_KIND = 5" in EXPERIENCE
     assert "HERO_MAX_OWNED = 4" in EXPERIENCE
     assert 'const artwork = media.backdrop_url || media.cover_url || ""' in EXPERIENCE
 
