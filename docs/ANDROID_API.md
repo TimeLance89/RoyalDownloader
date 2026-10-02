@@ -436,7 +436,7 @@ v1 ersetzt keine Legacy-Route. Kernrouten sind zusätzliche Dekoratoren auf dens
 ```json
 {
   "name": "Royal Downloader",
-  "application_version": "1.4.0",
+  "application_version": "1.5.1",
   "update_channels": {"stable": "main", "overnight": "overnight"},
   "api_version": 1,
   "supported_api_versions": [1],
