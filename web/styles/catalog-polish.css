@@ -884,6 +884,12 @@
   white-space: nowrap;
 }
 
+#queue-dock .queue-item-metrics {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 #queue-dock .queue-item-metrics:empty {
   display: none;
 }
