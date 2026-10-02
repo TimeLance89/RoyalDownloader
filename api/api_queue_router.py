@@ -450,34 +450,49 @@ def _recover_retryable_source_history() -> int:
             if _retryable_legacy_source_failure(job)
             and str(job.get("slug") or "") not in state.queue_job_by_slug
         ]
+        history_before = [dict(job) for job in state.queue_history]
 
-    recovered = 0
+    recovered_jobs: list[dict] = []
     for job_id in candidates:
         if not job_id:
             continue
-        retried = _retry_queue_job(job_id)
-        if retried is None:
-            continue
-        slug = str(retried.get("slug") or "")
-        _update_queue_job(
-            slug,
-            persist=False,
-            expected_job_id=job_id,
-            status="queued",
-            source_retry_count=0,
-            next_retry_at=0.0,
-            wait_reason="",
-            error="",
-        )
-        recovered += 1
+        retried = _retry_queue_job(job_id, sync_personal=False)
+        if retried is not None:
+            recovered_jobs.append(retried)
 
-    if recovered:
-        _persist_queue_state()
+    if not recovered_jobs:
+        return 0
+
+    try:
+        _require_persistent_snapshot("queue", _queue_state_snapshot())
+    except HTTPException:
+        recovered_ids = {str(job.get("job_id") or "") for job in recovered_jobs}
+        recovered_slugs = {str(job.get("slug") or "") for job in recovered_jobs}
+        with state.queue_claim_lock:
+            for job_id in recovered_ids:
+                state.queue_jobs.pop(job_id, None)
+            for slug in recovered_slugs:
+                if state.queue_job_by_slug.get(slug) in recovered_ids:
+                    state.queue_job_by_slug.pop(slug, None)
+                state.picked.discard(slug)
+            state.queue_history = history_before
         log(
-            f"Stelle {recovered} frühere Episoden mit temporärem Quellenfehler "
-            "für automatische Wiederholung wieder her."
+            "Frühere Quellenfehler konnten noch nicht sicher reaktiviert werden; "
+            "nächster Start versucht es erneut.",
+            "warn",
         )
-    return recovered
+        return 0
+
+    store = getattr(state, "personal_requests", None)
+    if store is not None:
+        for job in recovered_jobs:
+            store.update_from_job(job)
+
+    log(
+        f"Stelle {len(recovered_jobs)} frühere Episoden mit temporärem Quellenfehler "
+        "für automatische Wiederholung wieder her."
+    )
+    return len(recovered_jobs)
 
 
 def _recover_evicted_personal_episode_failures() -> int:
@@ -539,7 +554,9 @@ def _recover_evicted_personal_episode_failures() -> int:
     if not recovered:
         return 0
 
-    if not _persist_queue_state():
+    try:
+        _require_persistent_snapshot("queue", _queue_state_snapshot())
+    except HTTPException:
         # Do not mark the durable user intent as migrated unless the recreated
         # queue claims themselves have been durably accepted.
         recovered_ids = {str(job.get("job_id") or "") for job in recovered}
@@ -550,7 +567,8 @@ def _recover_evicted_personal_episode_failures() -> int:
                 if job and str(job.get("slug") or "") in recovered_slugs:
                     state.queue_jobs.pop(job_id, None)
             for slug in recovered_slugs:
-                state.queue_job_by_slug.pop(slug, None)
+                if state.queue_job_by_slug.get(slug) in recovered_ids:
+                    state.queue_job_by_slug.pop(slug, None)
                 state.picked.discard(slug)
         log(
             "Alte fehlgeschlagene Episoden konnten noch nicht sicher "
@@ -1298,7 +1316,7 @@ async def api_queue_job_retry(job_id: str):
             raise HTTPException(409, detail={"code": "queue_job_cancelling"})
         if previous.get("status") not in {"failed", "cancelled"}:
             raise HTTPException(409, detail={"code": "queue_job_not_retryable"})
-        retried = _retry_queue_job(job_id)
+        retried = _retry_queue_job(job_id, sync_personal=False)
         if retried is None:
             raise HTTPException(409, detail={"code": "queue_job_duplicate"})
         try:
@@ -1310,6 +1328,9 @@ async def api_queue_job_retry(job_id: str):
                 state.picked.discard(str(previous["slug"]))
                 state.queue_history.insert(0, previous)
             raise
+        store = getattr(state, "personal_requests", None)
+        if store is not None:
+            store.update_from_job(retried)
         slug = str(retried["slug"])
         movie = state.fp_movies.get(slug)
         if movie is None:
