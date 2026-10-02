@@ -432,6 +432,11 @@ def _retryable_legacy_source_failure(job: dict) -> bool:
     slug = str(job.get("slug") or "")
     if parse_episode_slug(slug) is None:
         return False
+    # Only pre-feature terminal failures are migrated. A new job that already
+    # exhausted the bounded automatic source retry budget must remain terminal
+    # across restarts instead of silently receiving a fresh budget forever.
+    if int(job.get("source_retry_count") or 0) > 0 or str(job.get("wait_reason") or ""):
+        return False
     error = str(job.get("error") or "").casefold()
     return any(marker in error for marker in _LEGACY_RETRYABLE_SOURCE_ERRORS)
 
