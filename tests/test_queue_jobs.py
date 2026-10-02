@@ -154,6 +154,24 @@ def test_existing_retryable_episode_failures_are_recovered_after_update(monkeypa
     }
 
 
+def test_exhausted_new_source_retry_is_not_revived_on_restart(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e21"
+    exhausted = queue_jobs.new_job(slug, job_id="exhausted-source")
+    exhausted.update({
+        "status": "failed",
+        "completed_at": 30,
+        "error": "kein Hoster extrahierbar – automatisches Retry-Budget ausgeschöpft",
+        "source_retry_count": 10,
+        "wait_reason": "source_unavailable",
+    })
+    server.state.queue_history.append(exhausted)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_retryable_source_history() == 0
+    assert "exhausted-source" not in server.state.queue_jobs
+    assert server.state.queue_history[0]["job_id"] == "exhausted-source"
+
+
 def test_existing_retryable_failure_is_not_duplicated_when_slug_is_active(monkeypatch):
     slug = "serienstream:sailor-moon-s04e19"
     active = queue_jobs.new_job(slug, job_id="active-job")
