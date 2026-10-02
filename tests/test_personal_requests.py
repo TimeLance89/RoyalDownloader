@@ -61,3 +61,55 @@ def test_backfill_only_imports_historical_requests_with_a_manual_source(tmp_path
     store.backfill([manual, subscription])
 
     assert [item["media_key"] for item in store.recent_for_user("user-a")] == ["dune"]
+
+
+def test_legacy_failed_episode_request_is_available_for_one_time_recovery(tmp_path):
+    path = tmp_path / "personal_requests.json"
+    path.write_text(
+        """{
+  "schema_version": 1,
+  "requests": [{
+    "id": "legacy-request",
+    "user_id": "user-a",
+    "job_id": "legacy-job",
+    "media_key": "serienstream:sailor-moon-s04e19",
+    "media_type": "series",
+    "title": "Sailor Moon S04E19",
+    "request_source": "web",
+    "status": "failed",
+    "requested_at": 10,
+    "failed_at": 20,
+    "updated_at": 20
+  }]
+}""",
+        encoding="utf-8",
+    )
+
+    store = PersonalRequestStore(path, clock=lambda: 100.0)
+
+    candidates = store.legacy_failed_episode_requests()
+    assert [item["job_id"] for item in candidates] == ["legacy-job"]
+    assert candidates[0]["source_retry_generation"] == 0
+
+    modern_job = _job(
+        "legacy-job", "serienstream:sailor-moon-s04e19", status="queued",
+    )
+    modern_job["source_retry_count"] = 0
+    modern_job["wait_reason"] = ""
+    assert store.update_from_job(modern_job)
+
+    assert store.legacy_failed_episode_requests() == []
+    assert store.recent_for_user("user-a")[0]["source_retry_generation"] == 1
+
+
+def test_new_failed_episode_request_is_not_treated_as_legacy(tmp_path):
+    store = PersonalRequestStore(tmp_path / "personal_requests.json", clock=lambda: 100.0)
+    job = _job(
+        "modern-job", "serienstream:sailor-moon-s04e20", status="failed",
+    )
+    job["completed_at"] = 50.0
+
+    created = store.record("user-a", job, source="web")
+
+    assert created["source_retry_generation"] == 1
+    assert store.legacy_failed_episode_requests() == []
