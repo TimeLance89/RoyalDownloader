@@ -574,6 +574,14 @@ def serienstream_provider_status() -> dict:
     return status
 
 
+def _provider_statuses(serienstream_status=None) -> dict:
+    return {
+        "serienstream": serienstream_status or serienstream_provider_status(),
+        "flixitv": state.provider_health.status("flixitv"),
+        "kinoking": state.provider_health.status("kinoking"),
+    }
+
+
 def build_queue_payload() -> dict:
     with state.queue_claim_lock:
         slugs = [
@@ -590,7 +598,7 @@ def build_queue_payload() -> dict:
             "count": 0,
             "jobs": [],
             "groups": [],
-            "providers": {"serienstream": serienstream_provider_status()},
+            "providers": _provider_statuses(),
             "persistence": _persistence_status("queue"),
             "activity": {
                 "active_preparations": 0,
@@ -687,7 +695,7 @@ def build_queue_payload() -> dict:
         "count": len(slugs),
         "jobs": jobs_snapshot,
         "groups": result_groups,
-        "providers": {"serienstream": provider_status},
+        "providers": _provider_statuses(provider_status),
         "persistence": _persistence_status("queue"),
         "activity": {
             # Auch der separate kontrollierte Fallback-Retry ist eine aktive

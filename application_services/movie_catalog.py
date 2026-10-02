@@ -324,6 +324,10 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         movie = KinogerScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(MEGAKINO_PREFIX):
         movie = MegaKinoScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith(FLIXITV_PREFIX):
+        movie = FlixiTVScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
+    elif slug.startswith(KINOKING_PREFIX):
+        movie = KinoKingScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
     elif slug.startswith(XCINE_PREFIX):
         movie = XcineScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SFLIX_PREFIX):
@@ -393,6 +397,8 @@ def search_movie_candidates(query: str, *, interactive: bool = False) -> List[Fi
         "kinoger": lambda: KinogerScraper(progress_cb=log).search(q),
         "megakino": lambda: MegaKinoScraper(progress_cb=log).search(q),
         "xcine": lambda: XcineScraper(progress_cb=log).search(q),
+        "flixitv": lambda: FlixiTVScraper(progress_cb=log, health=state.provider_health).search(q),
+        "kinoking": lambda: KinoKingScraper(progress_cb=log, health=state.provider_health).search(q),
         "sflix": lambda: SflixScraper(progress_cb=log).search(q),
         "ridomovies": lambda: RidomoviesScraper(progress_cb=log).search(q),
     }
@@ -693,6 +699,8 @@ def _fetch_movie_provider_page(
         "kinoger": KinogerScraper,
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
+        "flixitv": lambda progress_cb: FlixiTVScraper(progress_cb=progress_cb, health=state.provider_health),
+        "kinoking": lambda progress_cb: KinoKingScraper(progress_cb=progress_cb, health=state.provider_health),
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }

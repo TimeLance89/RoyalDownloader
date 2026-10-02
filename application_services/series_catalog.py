@@ -54,6 +54,10 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return KinogerScraper(progress_cb=log).search_series(query)
     if provider == "megakino":
         return MegaKinoScraper(progress_cb=log).search_series(query)
+    if provider == "flixitv":
+        return FlixiTVScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "kinoking":
+        return KinoKingScraper(progress_cb=log, health=state.provider_health).search_series(query)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).search_series(query)
     if provider == "sflix":
@@ -79,6 +83,10 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return KinogerScraper(progress_cb=log).get_series(value)
     if provider == "megakino":
         return MegaKinoScraper(progress_cb=log).get_series(value)
+    if provider == "flixitv":
+        return FlixiTVScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "kinoking":
+        return KinoKingScraper(progress_cb=log, health=state.provider_health).get_series(value)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).get_series(value)
     if provider == "sflix":
@@ -322,6 +330,8 @@ def _fetch_series_provider_page(
         "kinoger": KinogerScraper,
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
+        "flixitv": lambda progress_cb: FlixiTVScraper(progress_cb=progress_cb, health=state.provider_health),
+        "kinoking": lambda progress_cb: KinoKingScraper(progress_cb=progress_cb, health=state.provider_health),
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }
@@ -636,7 +646,7 @@ def _series_search_title(value: str) -> str:
     is_xcine = v.startswith(XCINE_PREFIX) or "xcine.ru" in v.casefold()
     for pfx in (
         SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
-        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
+        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX, FLIXITV_PREFIX, KINOKING_PREFIX,
         SFLIX_PREFIX, RIDOMOVIES_PREFIX, ANIWORLD_PREFIX,
     ):
         if v.startswith(pfx):

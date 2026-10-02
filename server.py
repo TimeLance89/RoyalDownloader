@@ -273,6 +273,8 @@ from providers.aniworld import (
     AniWorldScraper,
     SOURCE_PREFIX as ANIWORLD_PREFIX,
 )
+from providers.flixitv import FlixiTVScraper, SOURCE_PREFIX as FLIXITV_PREFIX
+from providers.kinoking import KinoKingScraper, SOURCE_PREFIX as KINOKING_PREFIX
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from integrations.jellyfin_client import JellyfinClient
 from integrations.jellyfin_recommender import (
@@ -368,7 +370,7 @@ PROVIDER_LABELS = {
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
 MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
+    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv",
 })
 MOVIE_LIST_CACHE_TTL = 300
 # Abgelaufene Providerlisten bleiben als sofortige Anzeige nutzbar, waehrend
@@ -403,7 +405,7 @@ MOVIE_GENRE_CANONICAL_BY_KEY = {
 }
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
+    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv",
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
@@ -415,7 +417,6 @@ SERIES_MAX_SOURCE_PAGE = 50
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 SERIES_CATALOG_PAGE_BUDGET_SECONDS = 12.0
 
-
 from application_services.runtime import register_backend, refresh_services
 register_backend(sys.modules[__name__])
 from application_services import auth as _auth_service
@@ -425,7 +426,6 @@ from application_services import auth as _auth_service
 # früheren tkinter-App-Klasse)
 # ---------------------------------------------------------------------------
 state = AppState()
-
 
 from application_services import updater as _updater_service
 

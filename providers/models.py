@@ -42,6 +42,7 @@ class FilmpalastSearchResult:
     provider: str = ""
     content_language: str = ""
     cover_url: str = ""
+    tmdb_id: str = ""
 
 
 @dataclass
@@ -168,3 +169,4 @@ class FilmpalastSeriesResult:
     sample_url: str
     year: str = ""
     cover_url: str = ""
+    tmdb_id: str = ""

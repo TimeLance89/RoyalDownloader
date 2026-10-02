@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from importlib import import_module
 
 from providers.catalog import PROVIDER_CATALOG
+from providers.sentinel_runtime import wrap_session
 
 
 ADAPTER_CLASSES = {
@@ -11,6 +12,7 @@ ADAPTER_CLASSES = {
     "kinox": "KinoxScraper", "kinoger": "KinogerScraper", "huhu": "HuhuScraper",
     "megakino": "MegaKinoScraper", "moflix": "MoflixScraper", "xcine": "XcineScraper",
     "sflix": "SflixScraper", "ridomovies": "RidomoviesScraper",
+    "flixitv": "FlixiTVScraper", "kinoking": "KinoKingScraper",
     "serienstream": "SerienstreamScraper", "aniworld": "AniWorldScraper", "mkissa": "MkissaScraper",
 }
 
@@ -41,4 +43,7 @@ def contract(provider):
 
 def create_adapter(provider):
     adapter = getattr(import_module(f"providers.{provider}"), ADAPTER_CLASSES[provider])
-    return adapter(progress_cb=lambda _message: None)
+    instance = adapter(progress_cb=lambda _message: None)
+    if hasattr(instance, "probe_session"):
+        instance.session = wrap_session(provider, instance.probe_session())
+    return instance

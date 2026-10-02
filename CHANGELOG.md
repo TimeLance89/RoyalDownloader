@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-_No unreleased changes._
+- Add FlixiTV and KinoKing as film and series providers with exact episode fallback, request pacing, provider cooldown, and Hubu MP4 resolution.
+- Document why HDFilme.to remains unavailable behind its stream gate.
 
 ## v1.5.1 – 2026-10-02
 

@@ -7,7 +7,9 @@ from providers import (
     filmfrei24,
     filmpalast,
     filmo,
+    flixitv,
     huhu,
+    kinoking,
     kinoger,
     kinox,
     megakino,
@@ -75,6 +77,16 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
             "Testfilm", "testfilm", "https://sflix.test/testfilm", "2026",
             "https://image.test/sflix.jpg", True,
         )).cover_url,
+        "flixitv": flixitv.FlixiTVScraper._cards(BeautifulSoup(
+            '<a class="card-link" href="/serie?v=ABCDEFGHIJK"><img src="/poster.jpg">'
+            '<div class="card-info"><h5>Testfilm (2026)</h5><p>Film</p></div></a>',
+            "html.parser",
+        ))[0].cover_url,
+        "kinoking": kinoking.KinoKingScraper._cards(BeautifulSoup(
+            '<div class="fav-data-source" data-id="1" data-type="movie" '
+            'data-title="Testfilm" data-img="https://image.test/kinoking.jpg"></div>',
+            "html.parser",
+        ))[0].cover_url,
         "ridomovies": _without_init(ridomovies.RidomoviesScraper)._movie_result(
             ridomovies._Card(
                 "Testfilm", "testfilm", "https://rido.test/testfilm", "2026",
