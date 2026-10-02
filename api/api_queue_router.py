@@ -42,6 +42,7 @@ _terminal_queue_job = _unbound_dependency
 _queue_terminal_snapshot = _unbound_dependency
 _apply_terminal_queue_job = _unbound_dependency
 _update_queue_job = _unbound_dependency
+_ensure_provider_retry_worker = _unbound_dependency
 _queue_slug_claimed = _unbound_dependency
 _require_persistent_snapshot = _unbound_dependency
 _seerr_terminal_without_job = _unbound_dependency
@@ -79,6 +80,7 @@ _DYNAMIC_CALLS = (
     "_queue_terminal_snapshot",
     "_apply_terminal_queue_job",
     "_update_queue_job",
+    "_ensure_provider_retry_worker",
     "_preferred_movie_sources",
     "_queue_slug_claimed",
     "_record_download_taste",
@@ -416,20 +418,214 @@ def _enqueue_automatic_downloads(
     return {slug for _movie, slug in jobs}
 
 
+_LEGACY_RETRYABLE_SOURCE_ERRORS = (
+    "kein hoster extrahierbar",
+    "alle anbieter und filmquellen ausgeschöpft",
+    "letzte langsame reserve",
+    "serienstream-captcha aktiv",
+)
+
+
+def _retryable_legacy_source_failure(job: dict) -> bool:
+    if str(job.get("status") or "") != "failed":
+        return False
+    slug = str(job.get("slug") or "")
+    if parse_episode_slug(slug) is None:
+        return False
+    # Only pre-feature terminal failures are migrated. A new job that already
+    # exhausted the bounded automatic source retry budget must remain terminal
+    # across restarts instead of silently receiving a fresh budget forever.
+    if int(job.get("source_retry_count") or 0) > 0 or str(job.get("wait_reason") or ""):
+        return False
+    error = str(job.get("error") or "").casefold()
+    return any(marker in error for marker in _LEGACY_RETRYABLE_SOURCE_ERRORS)
+
+
+def _recover_retryable_source_history() -> int:
+    """Reactivates source failures created before automatic source retries existed."""
+    with state.queue_claim_lock:
+        failed_episode_history = [
+            dict(job) for job in state.queue_history
+            if str(job.get("status") or "") == "failed"
+            and parse_episode_slug(str(job.get("slug") or "")) is not None
+        ]
+        candidates = [
+            str(job.get("job_id") or "")
+            for job in failed_episode_history
+            if _retryable_legacy_source_failure(job)
+            and str(job.get("slug") or "") not in state.queue_job_by_slug
+        ]
+        candidate_ids = {job_id for job_id in candidates if job_id}
+        history_before = [dict(job) for job in state.queue_history]
+
+    # Rows still retained in queue history have an exact failure reason. Mark
+    # non-candidates as classified now so PersonalRequestStore cannot later
+    # resurrect a storage/permanent failure merely because HISTORY_LIMIT evicts
+    # the detailed row.
+    store = getattr(state, "personal_requests", None)
+    if store is not None and hasattr(store, "mark_source_retry_classified"):
+        store.mark_source_retry_classified(
+            str(job.get("job_id") or "")
+            for job in failed_episode_history
+            if str(job.get("job_id") or "") not in candidate_ids
+        )
+
+    recovered_jobs: list[dict] = []
+    for job_id in candidates:
+        if not job_id:
+            continue
+        retried = _retry_queue_job(job_id, sync_personal=False)
+        if retried is not None:
+            recovered_jobs.append(retried)
+
+    if not recovered_jobs:
+        return 0
+
+    try:
+        _require_persistent_snapshot("queue", _queue_state_snapshot())
+    except HTTPException:
+        recovered_ids = {str(job.get("job_id") or "") for job in recovered_jobs}
+        recovered_slugs = {str(job.get("slug") or "") for job in recovered_jobs}
+        with state.queue_claim_lock:
+            for job_id in recovered_ids:
+                state.queue_jobs.pop(job_id, None)
+            for slug in recovered_slugs:
+                if state.queue_job_by_slug.get(slug) in recovered_ids:
+                    state.queue_job_by_slug.pop(slug, None)
+                state.picked.discard(slug)
+            state.queue_history = history_before
+        log(
+            "Frühere Quellenfehler konnten noch nicht sicher reaktiviert werden; "
+            "nächster Start versucht es erneut.",
+            "warn",
+        )
+        return 0
+
+    store = getattr(state, "personal_requests", None)
+    if store is not None:
+        for job in recovered_jobs:
+            store.update_from_job(job)
+
+    log(
+        f"Stelle {len(recovered_jobs)} frühere Episoden mit temporärem Quellenfehler "
+        "für automatische Wiederholung wieder her."
+    )
+    return len(recovered_jobs)
+
+
+def _recover_evicted_personal_episode_failures() -> int:
+    """Recover legacy failed episode intents whose bounded queue history was evicted.
+
+    The queue keeps only the latest terminal rows, while PersonalRequestStore is
+    the durable record of conscious manual requests. We only use generation-0
+    failures that are no longer represented by active queue state or terminal
+    history. That makes this a one-time migration safety net, not an unbounded
+    retry loop for modern jobs.
+    """
+    store = getattr(state, "personal_requests", None)
+    if store is None or not hasattr(store, "legacy_failed_episode_requests"):
+        return 0
+
+    requests = store.legacy_failed_episode_requests()
+    if not requests:
+        return 0
+
+    recovered: list[dict] = []
+    with state.queue_claim_lock:
+        history_ids = {
+            str(job.get("job_id") or "") for job in state.queue_history
+            if str(job.get("job_id") or "")
+        }
+        active_ids = set(state.queue_jobs)
+        active_slugs = set(state.queue_job_by_slug)
+
+        for request in requests:
+            slug = str(request.get("media_key") or "")
+            if not slug or parse_episode_slug(slug) is None or slug in active_slugs:
+                continue
+            historical_job_id = str(request.get("job_id") or "")
+            # If the full queue history row still exists, its exact error decides
+            # whether it is retryable. The personal-request fallback is only for
+            # rows already evicted by HISTORY_LIMIT.
+            if historical_job_id and historical_job_id in history_ids:
+                continue
+            requested_job_id = (
+                historical_job_id
+                if historical_job_id and historical_job_id not in active_ids
+                else ""
+            )
+            job = _ensure_queue_job(slug, job_id=requested_job_id)
+            job.update({
+                "requested_by_user_id": str(request.get("user_id") or ""),
+                "request_source": str(request.get("request_source") or "manual")[:32],
+                "status": "queued",
+                "source_retry_count": 0,
+                "next_retry_at": 0.0,
+                "wait_reason": "",
+                "error": "",
+            })
+            state.picked.add(slug)
+            active_ids.add(str(job.get("job_id") or ""))
+            active_slugs.add(slug)
+            recovered.append(dict(job))
+
+    if not recovered:
+        return 0
+
+    try:
+        _require_persistent_snapshot("queue", _queue_state_snapshot())
+    except HTTPException:
+        # Do not mark the durable user intent as migrated unless the recreated
+        # queue claims themselves have been durably accepted.
+        recovered_ids = {str(job.get("job_id") or "") for job in recovered}
+        recovered_slugs = {str(job.get("slug") or "") for job in recovered}
+        with state.queue_claim_lock:
+            for job_id in recovered_ids:
+                job = state.queue_jobs.get(job_id)
+                if job and str(job.get("slug") or "") in recovered_slugs:
+                    state.queue_jobs.pop(job_id, None)
+            for slug in recovered_slugs:
+                if state.queue_job_by_slug.get(slug) in recovered_ids:
+                    state.queue_job_by_slug.pop(slug, None)
+                state.picked.discard(slug)
+        log(
+            "Alte fehlgeschlagene Episoden konnten noch nicht sicher "
+            "wiederhergestellt werden; nächster Start versucht es erneut.",
+            "warn",
+        )
+        return 0
+
+    for job in recovered:
+        store.update_from_job(job)
+
+    log(
+        f"Stelle {len(recovered)} ältere manuelle Episodenwünsche wieder her, "
+        "deren Queue-Historie bereits aus dem 500er-Fenster gefallen war."
+    )
+    return len(recovered)
+
+
 def restore_persisted_queue():
-    """Stellt nach einem Neustart noch offene Queue-Einträge sicher wieder her."""
+    """Stellt nach einem Neustart offene und frühere retrybare Queue-Einträge wieder her."""
+    _recover_retryable_source_history()
+    _recover_evicted_personal_episode_failures()
     with state.queue_claim_lock:
         unresolved = set(state.picked)
     if not unresolved:
         return
     log(f"Stelle {len(unresolved)} gespeicherte Queue-Einträge wieder her …")
+    restored_waiting = 0
     while unresolved:
         prepared: list[str] = []
+        progressed = False
         for slug in list(unresolved):
             with state.queue_claim_lock:
                 if slug not in state.picked:
                     unresolved.discard(slug)
+                    progressed = True
                     continue
+                logical = _queue_job_for_slug(slug) or {}
+                persisted_waiting = logical.get("status") == "waiting_provider"
             try:
                 movie = (
                     _episode_placeholder(slug)
@@ -450,17 +646,53 @@ def restore_persisted_queue():
                     )
                     _release_removed_queue_slugs({slug})
                     unresolved.discard(slug)
+                    progressed = True
                     continue
                 state.fp_movies[slug] = movie
-                _ensure_queue_job(slug, movie)
+                logical = _ensure_queue_job(slug, movie)
+
+                if persisted_waiting and parse_episode_slug(slug):
+                    next_retry_at = float(logical.get("next_retry_at", 0) or 0)
+                    wait_reason = str(logical.get("wait_reason") or "source_unavailable")
+                    with state.queue_claim_lock:
+                        state.provider_waiting_jobs[slug] = {
+                            "movie": movie,
+                            "slug": slug,
+                            "out_root": Path(state.save_path),
+                            "movie_fallbacks": None,
+                            "wait_reason": wait_reason,
+                            "next_retry_at": next_retry_at,
+                        }
+                        with state.download_state_lock:
+                            if slug not in state.counted_queue_slugs:
+                                state.counted_queue_slugs.add(slug)
+                                state.total_jobs += 1
+                    restored_waiting += 1
+                    unresolved.discard(slug)
+                    progressed = True
+                    continue
+
                 prepared.append(slug)
                 unresolved.discard(slug)
+                progressed = True
             except Exception as exc:
                 log(f"Queue-Wiederherstellung für «{slug}» wartet: {exc}", "warn")
         if prepared:
             _enqueue_automatic_downloads(prepared)
         if unresolved:
+            # A temporary Jellyfin/provider outage may legitimately leave work
+            # unresolved. Avoid spinning, but do not forget any job.
             time.sleep(60)
+        elif not progressed:
+            break
+
+    if restored_waiting:
+        _persist_queue_state()
+        _ensure_provider_retry_worker()
+        log(
+            f"{restored_waiting} gespeicherte Episode(n) warten weiterhin "
+            "auf ihre nächste automatische Quellenprüfung."
+        )
 
 
 class MovieDownloadPreference(BaseModel):
@@ -1102,7 +1334,7 @@ async def api_queue_job_retry(job_id: str):
             raise HTTPException(409, detail={"code": "queue_job_cancelling"})
         if previous.get("status") not in {"failed", "cancelled"}:
             raise HTTPException(409, detail={"code": "queue_job_not_retryable"})
-        retried = _retry_queue_job(job_id)
+        retried = _retry_queue_job(job_id, sync_personal=False)
         if retried is None:
             raise HTTPException(409, detail={"code": "queue_job_duplicate"})
         try:
@@ -1114,6 +1346,9 @@ async def api_queue_job_retry(job_id: str):
                 state.picked.discard(str(previous["slug"]))
                 state.queue_history.insert(0, previous)
             raise
+        store = getattr(state, "personal_requests", None)
+        if store is not None:
+            store.update_from_job(retried)
         slug = str(retried["slug"])
         movie = state.fp_movies.get(slug)
         if movie is None:
@@ -1202,8 +1437,24 @@ async def api_queue_job_move(job_id: str, body: QueueMoveBody):
 async def api_queue_job_resume(job_id: str):
     job = _job_or_404(job_id)
     if job.get("status") == "waiting_provider":
+        slug = str(job.get("slug") or "")
+        with state.queue_claim_lock:
+            waiting = state.provider_waiting_jobs.get(slug)
+            if waiting is not None:
+                waiting["next_retry_at"] = 0.0
+            refreshed = _update_queue_job(
+                slug,
+                persist=False,
+                expected_job_id=job_id,
+                next_retry_at=0.0,
+            )
+        _persist_queue_state()
         state.provider_retry_wake_event.set()
-        return {"accepted": True, "job": job, "message": "Provider-Prüfung angestoßen"}
+        return {
+            "accepted": True,
+            "job": refreshed or job,
+            "message": "Quellenprüfung sofort angestoßen",
+        }
     if job.get("status") == "paused":
         raise HTTPException(409, detail={
             "code": "running_pause_not_supported",

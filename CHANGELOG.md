@@ -2,7 +2,45 @@
 
 ## Unreleased
 
-_No unreleased changes._
+### Large-library queue reliability
+
+- Allow Jellyfin ownership scans enough time to traverse established multi-page
+  libraries so valid responses no longer falsely block movie or episode queue
+  additions under large workloads.
+- Cover queue growth beyond 550 pending jobs to protect the high-volume path.
+
+### Storage Autopilot under large queues
+
+- Replace the old pessimistic per-job reservation explosion with bounded pending
+  forecasting while keeping atomic reservations and live free-space checks for
+  started downloads.
+- Remove the former 512-reservation ceiling while retaining the persistent state
+  size budget.
+- Separate physical usage from projected queue usage, calculate global placement
+  health from actually eligible media targets, and rank relief recommendations by
+  bytes relieved.
+- Disable manual storage moves while download work is active and cover a
+  three-volume, ~18 TiB / ~12.7 TiB free, 650-job stress scenario.
+
+### Queue source recovery and completeness
+
+- Keep series/anime episodes with temporarily unavailable or non-extractable
+  sources in the active download plan instead of immediately marking them
+  permanently failed.
+- Retry with exponential backoff and then a low-frequency 24-hour long-term
+  source check so temporary source gaps are not silently forgotten.
+- Recover retained pre-fix source failures on upgrade and reconstruct older
+  manual episode requests that already fell out of the 500-row terminal history,
+  without reviving storage errors or deliberate cancellations.
+- Preserve retry state across restarts, deduplicate active work and keep
+  source-waiting episodes behind actionable downloads.
+
+### Download-plan clarity
+
+- Explain whether a waiting item is blocked by source availability or provider
+  cooldown and show the next automatic retry, provider test or long-term check.
+- Keep the compact mobile status pill while allowing the explanatory line to wrap
+  on narrow phones.
 
 ## v1.5.0 – 2026-10-01
 

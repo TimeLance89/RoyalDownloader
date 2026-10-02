@@ -19,6 +19,14 @@ def _sync_personal_request(job: dict | None) -> None:
         store.update_from_job(job)
 
 
+def _release_storage_reservation(job_id: str) -> None:
+    try:
+        from application_services.storage_autopilot_runtime import release_reservation
+        release_reservation(job_id)
+    except (OSError, ValueError):
+        log(f"Storage-Reservierung für {job_id} wird später abgeglichen.", "warn")
+
+
 def queue_group_name(slug: str) -> str:
     parsed = parse_episode_slug(slug)
     if not parsed:
@@ -371,6 +379,7 @@ def _terminal_queue_job(
         snapshot = deepcopy(job)
     if persist and not _persist_queue_state():
         log(f"Terminaler Queue-Job {job_id} konnte nicht gespeichert werden.", "warn")
+    _release_storage_reservation(job_id)
     _sync_personal_request(snapshot)
     return snapshot
 
@@ -422,11 +431,18 @@ def _apply_terminal_queue_job(terminal: dict) -> None:
                 if item.get("job_id") != job_id
             ),
         ][:HISTORY_LIMIT]
+    _release_storage_reservation(job_id)
     _sync_personal_request(terminal)
 
 
-def _retry_queue_job(job_id: str) -> Optional[dict]:
-    """Move one failed/cancelled history record back to the active queue."""
+def _retry_queue_job(
+    job_id: str, *, sync_personal: bool = True,
+) -> Optional[dict]:
+    """Move one failed/cancelled history record back to the active queue.
+
+    Recovery callers can defer PersonalRequestStore synchronization until the
+    recreated queue claim has been durably committed.
+    """
     with state.queue_claim_lock:
         index = next(
             (i for i, item in enumerate(state.queue_history) if item.get("job_id") == job_id),
@@ -453,14 +469,17 @@ def _retry_queue_job(job_id: str) -> Optional[dict]:
             "speed_bps": 0.0,
             "eta_seconds": None,
             "error": "",
+            "source_retry_count": 0,
             "next_retry_at": 0.0,
+            "wait_reason": "",
             "final_path": "",
         })
         state.queue_jobs[job_id] = job
         state.queue_job_by_slug[slug] = job_id
         state.picked.add(slug)
         snapshot = deepcopy(job)
-    _sync_personal_request(snapshot)
+    if sync_personal:
+        _sync_personal_request(snapshot)
     return snapshot
 
 

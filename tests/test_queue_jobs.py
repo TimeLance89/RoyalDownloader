@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 import api.api_queue_router as api_queue_router
 import core.queue_jobs as queue_jobs
+from core.personal_requests import PersonalRequestStore
 import server
 from application_services import download_lifecycle
 from media.downloader import DownloadQueue
@@ -89,7 +90,14 @@ def test_restart_requeues_active_states_without_changing_identity():
 
 def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     failed = queue_jobs.new_job("provider:movie", job_id="stable-job")
-    failed.update({"status": "failed", "completed_at": 10, "error": "provider down"})
+    failed.update({
+        "status": "failed",
+        "completed_at": 10,
+        "error": "provider down",
+        "source_retry_count": 10,
+        "wait_reason": "source_unavailable",
+        "next_retry_at": 999,
+    })
     failed_attempt_id = failed["attempt_id"]
     server.state.queue_history.append(failed)
 
@@ -99,8 +107,219 @@ def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     assert retried["slug"] == "provider:movie"
     assert retried["status"] == "queued"
     assert retried["attempt_id"] != failed_attempt_id
+    assert retried["source_retry_count"] == 0
+    assert retried["wait_reason"] == ""
+    assert retried["next_retry_at"] == 0
     assert server.state.queue_job_by_slug["provider:movie"] == "stable-job"
     assert "provider:movie" in server.state.picked
+
+
+def test_existing_retryable_episode_failures_are_recovered_after_update(monkeypatch):
+    retryable = queue_jobs.new_job(
+        "serienstream:sailor-moon-s04e19", job_id="old-source-failure",
+    )
+    retryable.update({
+        "status": "failed",
+        "completed_at": 20,
+        "error": "kein Hoster extrahierbar",
+    })
+    permanent = queue_jobs.new_job(
+        "serienstream:sailor-moon-s04e20", job_id="permanent-failure",
+    )
+    permanent.update({
+        "status": "failed",
+        "completed_at": 19,
+        "error": "Speicherziel nicht verfügbar: volume offline",
+    })
+    movie = queue_jobs.new_job("filmpalast:movie", job_id="movie-source-failure")
+    movie.update({
+        "status": "failed",
+        "completed_at": 18,
+        "error": "kein Hoster extrahierbar",
+    })
+    server.state.queue_history.extend([retryable, permanent, movie])
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    recovered = server._recover_retryable_source_history()
+
+    assert recovered == 1
+    active = server.state.queue_jobs["old-source-failure"]
+    assert active["slug"] == "serienstream:sailor-moon-s04e19"
+    assert active["status"] == "queued"
+    assert active["source_retry_count"] == 0
+    assert active["wait_reason"] == ""
+    assert active["next_retry_at"] == 0
+    assert active["slug"] in server.state.picked
+    assert {job["job_id"] for job in server.state.queue_history} == {
+        "permanent-failure", "movie-source-failure",
+    }
+
+
+def test_exhausted_new_source_retry_is_not_revived_on_restart(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e21"
+    exhausted = queue_jobs.new_job(slug, job_id="exhausted-source")
+    exhausted.update({
+        "status": "failed",
+        "completed_at": 30,
+        "error": "kein Hoster extrahierbar – automatisches Retry-Budget ausgeschöpft",
+        "source_retry_count": 10,
+        "wait_reason": "source_unavailable",
+    })
+    server.state.queue_history.append(exhausted)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_retryable_source_history() == 0
+    assert "exhausted-source" not in server.state.queue_jobs
+    assert server.state.queue_history[0]["job_id"] == "exhausted-source"
+
+
+def test_existing_retryable_failure_is_not_duplicated_when_slug_is_active(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e19"
+    active = queue_jobs.new_job(slug, job_id="active-job")
+    server.state.queue_jobs[active["job_id"]] = active
+    server.state.queue_job_by_slug[slug] = active["job_id"]
+    server.state.picked.add(slug)
+
+    old = queue_jobs.new_job(slug, job_id="old-failure")
+    old.update({
+        "status": "failed",
+        "completed_at": 10,
+        "error": "alle Anbieter und Filmquellen ausgeschöpft",
+    })
+    server.state.queue_history.append(old)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_retryable_source_history() == 0
+    assert list(server.state.queue_jobs) == ["active-job"]
+    assert server.state.queue_history[0]["job_id"] == "old-failure"
+
+
+def test_restart_reconstructs_waiting_source_job_and_retry_worker(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e19"
+    waiting = queue_jobs.new_job(slug, job_id="waiting-source")
+    waiting.update({
+        "status": "waiting_provider",
+        "source_retry_count": 2,
+        "wait_reason": "source_unavailable",
+        "next_retry_at": 2_000.0,
+    })
+    server.state.queue_jobs[waiting["job_id"]] = waiting
+    server.state.queue_job_by_slug[slug] = waiting["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.clear()
+    monkeypatch.setattr(server.state, "total_jobs", 0)
+
+    class Placeholder:
+        title = "Sailor Moon S04E19"
+        hosters = []
+
+    placeholder = Placeholder()
+    monkeypatch.setitem(server.state.fp_movies, slug, placeholder)
+    monkeypatch.setattr(server, "_episode_placeholder", lambda _slug: placeholder)
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+    worker_starts = []
+    monkeypatch.setattr(
+        server,
+        "_ensure_provider_retry_worker",
+        lambda: worker_starts.append(True),
+    )
+
+    server.restore_persisted_queue()
+
+    restored = server.state.provider_waiting_jobs[slug]
+    assert restored["wait_reason"] == "source_unavailable"
+    assert restored["next_retry_at"] == 2_000.0
+    assert slug in server.state.counted_queue_slugs
+    assert server.state.total_jobs == 1
+    assert worker_starts == [True]
+
+
+def test_evicted_legacy_personal_episode_failure_is_recovered_once(monkeypatch, tmp_path):
+    request_file = tmp_path / "personal_requests.json"
+    request_file.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "requests": [{
+                "id": "legacy-request",
+                "user_id": "user-a",
+                "job_id": "evicted-source-failure",
+                "media_key": "serienstream:sailor-moon-s04e19",
+                "media_type": "series",
+                "title": "Sailor Moon S04E19",
+                "request_source": "web",
+                "status": "failed",
+                "requested_at": 10,
+                "failed_at": 20,
+                "updated_at": 20,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    store = PersonalRequestStore(request_file, clock=lambda: 100.0)
+    monkeypatch.setattr(server.state, "personal_requests", store)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_evicted_personal_episode_failures() == 1
+
+    job = server.state.queue_jobs["evicted-source-failure"]
+    assert job["slug"] == "serienstream:sailor-moon-s04e19"
+    assert job["status"] == "queued"
+    assert job["requested_by_user_id"] == "user-a"
+    assert job["request_source"] == "web"
+    assert job["slug"] in server.state.picked
+    request = store.recent_for_user("user-a")[0]
+    assert request["status"] == "queued"
+    assert "source_retry_generation" not in request
+    persisted_request = json.loads(request_file.read_text(encoding="utf-8"))["requests"][0]
+    assert persisted_request["source_retry_generation"] == 1
+
+    assert server._recover_evicted_personal_episode_failures() == 0
+
+
+def test_personal_recovery_does_not_override_exact_history_classification(monkeypatch, tmp_path):
+    slug = "serienstream:sailor-moon-s04e20"
+    request_file = tmp_path / "personal_requests.json"
+    request_file.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "requests": [{
+                "id": "legacy-request",
+                "user_id": "user-a",
+                "job_id": "still-in-history",
+                "media_key": slug,
+                "media_type": "series",
+                "title": "Sailor Moon S04E20",
+                "request_source": "web",
+                "status": "failed",
+                "requested_at": 10,
+                "failed_at": 20,
+                "updated_at": 20,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    store = PersonalRequestStore(request_file, clock=lambda: 100.0)
+    monkeypatch.setattr(server.state, "personal_requests", store)
+    terminal = queue_jobs.new_job(slug, job_id="still-in-history")
+    terminal.update({
+        "status": "failed",
+        "completed_at": 20,
+        "error": "Speicherziel nicht verfügbar: volume offline",
+    })
+    server.state.queue_history.append(terminal)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_retryable_source_history() == 0
+    assert server._recover_evicted_personal_episode_failures() == 0
+    assert "still-in-history" not in server.state.queue_jobs
+    assert server.state.queue_history[0]["error"].startswith("Speicherziel")
+
+    # Once the exact terminal row is later evicted by HISTORY_LIMIT, the durable
+    # request must stay classified and must not be revived as an unknown legacy
+    # source failure.
+    server.state.queue_history.clear()
+    assert server._recover_evicted_personal_episode_failures() == 0
 
 
 def test_history_is_bounded_to_latest_500_jobs():

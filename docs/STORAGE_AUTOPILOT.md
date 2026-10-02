@@ -60,10 +60,18 @@ preferable when Primary reaches its target. The original media-relative path is
 preserved, including series/season directories. Series stay on their known root
 unless it is unsafe/unavailable or distribution is explicitly permitted.
 
-Unknown downloads reserve **8 GiB** by default. Persistent reservations use the
-logical job ID, survive retries and are reconciled with live/pending queue work.
-Pending jobs with known final paths are charged to that root; unplaced jobs use
-the existing movie/series destination. Active moves reserve their target space.
+Unknown **active** downloads reserve **8 GiB** by default until a real size is
+known. Waiting work is demand rather than committed disk space: at most the next
+32 pending queue jobs contribute to the near-term capacity forecast. Unknown
+pending sizes use 1.5 times the median known size for their media type, with a
+0.5 GiB series or 2 GiB movie floor; without samples the estimate is 2 GiB for
+series and 8 GiB for movies. All active downloads and moves count in full.
+Every new download acquires an atomic per-job reservation before starting and
+the live budget guard rechecks real free capacity during transfer and publication.
+Persistent reservations use the logical job ID, survive retries and are released
+on terminal queue transitions or reconciled against the live queue. Pending jobs
+with known final paths are forecast on that root; unplaced jobs use the existing
+movie/series destination. Active moves reserve their target space.
 Actual download guards recheck destination/staging reserves and remaining known
 bytes, at most every five seconds, and stop safely if the budget is lost. Fallback
 staging on another filesystem retains the full destination reservation until
@@ -125,9 +133,10 @@ the way to discover existing libraries; the planner never automatically crawls
 the entire NAS. Inventory failures cannot invalidate an already verified download
 or safe move; unreadable state disables autonomous planning and policy writes.
 
-Limits: 10,000 inventory/protection records, 2,000 owned files per content, 512
-reservations, 80 proposals, 300 history entries, 24 volume observations/policies,
-and 8 MiB persisted state. Ownership verification exceeding its budget is refused.
+Limits: 10,000 inventory/protection records, 2,000 owned files per content, 80
+proposals, 300 history entries, 24 volume observations/policies, and 8 MiB
+persisted state. In-flight reservations are bounded by this byte budget rather
+than a 512-job count. Ownership verification exceeding its budget is refused.
 Cleanup examines bounded direct staging directories, not recursive media roots.
 
 ## API and UI
