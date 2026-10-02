@@ -627,6 +627,10 @@ def restore_persisted_queue():
                             "wait_reason": wait_reason,
                             "next_retry_at": next_retry_at,
                         }
+                        with state.download_state_lock:
+                            if slug not in state.counted_queue_slugs:
+                                state.counted_queue_slugs.add(slug)
+                                state.total_jobs += 1
                     restored_waiting += 1
                     unresolved.discard(slug)
                     progressed = True
