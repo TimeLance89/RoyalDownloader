@@ -435,8 +435,14 @@ def _apply_terminal_queue_job(terminal: dict) -> None:
     _sync_personal_request(terminal)
 
 
-def _retry_queue_job(job_id: str) -> Optional[dict]:
-    """Move one failed/cancelled history record back to the active queue."""
+def _retry_queue_job(
+    job_id: str, *, sync_personal: bool = True,
+) -> Optional[dict]:
+    """Move one failed/cancelled history record back to the active queue.
+
+    Recovery callers can defer PersonalRequestStore synchronization until the
+    recreated queue claim has been durably committed.
+    """
     with state.queue_claim_lock:
         index = next(
             (i for i, item in enumerate(state.queue_history) if item.get("job_id") == job_id),
@@ -472,7 +478,8 @@ def _retry_queue_job(job_id: str) -> Optional[dict]:
         state.queue_job_by_slug[slug] = job_id
         state.picked.add(slug)
         snapshot = deepcopy(job)
-    _sync_personal_request(snapshot)
+    if sync_personal:
+        _sync_personal_request(snapshot)
     return snapshot
 
 
