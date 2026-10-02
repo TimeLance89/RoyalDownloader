@@ -877,6 +877,11 @@ def _defer_provider_episode(
                 float(state.provider_health.next_probe_at("serienstream") or 0),
             )
             error = "Provider vorübergehend pausiert"
+        # A source-less episode is intentionally moved behind currently
+        # actionable work. Repeated failures therefore rotate fairly instead
+        # of pinning the front of a very large logical queue.
+        if reason == "source_unavailable":
+            state.provider_waiting_jobs.pop(slug, None)
         state.provider_waiting_jobs[slug] = {
             "movie": movie,
             "slug": slug,
@@ -894,6 +899,10 @@ def _defer_provider_episode(
             wait_reason=reason,
             error=error,
         )
+        if reason == "source_unavailable":
+            job_id = state.queue_job_by_slug.get(slug)
+            if job_id and hasattr(state.queue_jobs, "move_to_end"):
+                state.queue_jobs.move_to_end(job_id)
     _persist_queue_state()
     broadcast({"type": "queue_update", "queue": build_queue_payload()})
     _ensure_provider_retry_worker()
