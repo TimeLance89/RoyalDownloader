@@ -308,9 +308,16 @@ def test_personal_recovery_does_not_override_exact_history_classification(monkey
     server.state.queue_history.append(terminal)
     monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
 
+    assert server._recover_retryable_source_history() == 0
     assert server._recover_evicted_personal_episode_failures() == 0
     assert "still-in-history" not in server.state.queue_jobs
     assert server.state.queue_history[0]["error"].startswith("Speicherziel")
+
+    # Once the exact terminal row is later evicted by HISTORY_LIMIT, the durable
+    # request must stay classified and must not be revived as an unknown legacy
+    # source failure.
+    server.state.queue_history.clear()
+    assert server._recover_evicted_personal_episode_failures() == 0
 
 
 def test_history_is_bounded_to_latest_500_jobs():
