@@ -751,6 +751,7 @@ def _retry_one_waiting_fallback() -> bool:
         if item is not None and slug:
             _defer_provider_episode(
                 item["movie"], slug, item["out_root"], item["movie_fallbacks"],
+                reason=item.get("wait_reason") or "provider_gate",
             )
         return True
     finally:
