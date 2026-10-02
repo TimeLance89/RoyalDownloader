@@ -119,6 +119,112 @@ def test_queue_and_move_reservations_cannot_overcommit(disks):
     assert reserved_by_volume(document, disks, queue, moves) == {"main": 200 * GIB}
 
 
+def test_unknown_pending_estimate_is_adaptive_and_lookahead_bounded(disks):
+    document = inventory.read_state()
+    disks.append({**disks[0], "key": "series"})
+    jobs = [{"job_id": "known", "status": "queued", "media_type": "series", "total_bytes": GIB}]
+    jobs.extend({"job_id": f"unknown-{number}", "status": "queued", "media_type": "series"}
+                for number in range(100))
+    # One known GiB plus 31 unknown jobs at 1.5 GiB each. The rest are
+    # checked afresh when they reach the scheduler rather than pre-committed.
+    assert reserved_by_volume(document, disks, jobs, [])["main"] == GIB + 31 * (3 * GIB // 2)
+    active = {"job_id": "active", "status": "downloading", "media_type": "series"}
+    assert reserved_by_volume(document, disks, [*jobs, active], [])["main"] == GIB + 31 * (3 * GIB // 2) + 8 * GIB
+
+
+def test_650_mixed_queue_jobs_keep_three_volumes_usable(disks, tmp_path):
+    from pathlib import Path
+
+    # 18 TiB physical capacity, roughly 12.7 TiB free. Movies and series
+    # share the busy primary disk; the other two are separate physical disks.
+    for root, free in zip(disks, (2700, 5200, 5100)):
+        root.update(total_bytes=6144 * GIB, free_bytes=free * GIB,
+                    used_percent=round(100 * (6144 - free) / 6144, 2))
+    series_path = tmp_path / "series"
+    series_path.mkdir()
+    disks.append({**disks[0], "key": "series", "path": str(series_path),
+                  "resolved_path": str(series_path), "label": "Series"})
+    autopilot.save_volume("location:overflow", {"role": "overflow", "media_types": ["series", "anime"]})
+    autopilot.save_volume("movies", {"target_percent": 55, "warning_percent": 85, "critical_percent": 92})
+    autopilot.save_policy({"mode": "full"})
+    jobs = []
+    for number in range(650):
+        series = number < 620
+        active = number < 190
+        jobs.append({"job_id": f"large-{number}", "status": "downloading" if active else "queued",
+                     "media_type": "series" if series else "movie",
+                     "final_path": str((series_path if series else Path(disks[0]["path"])) / f"item-{number}.mp4"),
+                     "total_bytes": (2 * GIB if active else 5 * GIB if number % 3 == 0 else 0),
+                     "downloaded_bytes": GIB if active else 0})
+    current = autopilot.get_autopilot(queue_jobs=jobs)
+    assert current["summary"]["volume_count"] == 3
+    assert current["summary"]["free_bytes"] == 13000 * GIB
+    assert current["pressure"] != "emergency"
+    assert set(current["eligible_media_types"]) == {"movies", "series", "anime"}
+    assert current["queue_busy"] and current["queue_job_count"] == 650
+    assert current["roots"][0]["reserved_bytes"] < 500 * GIB
+    assert current["roots"][0]["projected_used_percent"] > current["roots"][0]["used_percent"]
+
+    result = reserve_download("new-series", series_path / "New" / "S01E01.mp4", "series",
+                              current["roots"], jobs, [], size=0)
+    assert result["root"] == "location:overflow"
+    assert Path(result["path"]).relative_to(disks[1]["path"]) == Path("New/S01E01.mp4")
+    assert len(inventory.read_state()["reservations"]) == 1
+    assert inventory.read_state()["reservations"]["new-series"]["root"] == "location:overflow"
+
+
+def test_active_reservations_above_512_fit_state_and_reconcile(disks):
+    from application_services.storage_autopilot_runtime import (
+        reconcile_reservations,
+        release_reservation,
+    )
+
+    def seed(document):
+        document["reservations"].update({f"active-{index}": {"root": "movies", "size_bytes": GIB}
+                                         for index in range(650)})
+    inventory.transact(seed)
+    assert len(inventory.read_state()["reservations"]) == 650
+    live = [{"job_id": f"active-{index}", "status": "downloading"} for index in range(650)]
+    reconcile_reservations(live)
+    assert len(inventory.read_state()["reservations"]) == 650
+    release_reservation("active-649")
+    assert "active-649" not in inventory.read_state()["reservations"]
+    reconcile_reservations(live[:-2])
+    assert "active-648" not in inventory.read_state()["reservations"]
+    reconcile_reservations([])
+    assert inventory.read_state()["reservations"] == {}
+
+
+def test_global_emergency_requires_all_media_targets_to_be_unsafe(disks):
+    autopilot.save_policy({"mode": "automatic"})
+    autopilot.save_volume("location:overflow", {"role": "overflow"})
+    disks[0].update(free_bytes=8 * GIB, used_percent=99)
+    current = autopilot.get_autopilot()
+    assert current["roots"][0]["pressure"] == "critical"
+    assert current["pressure"] == "diverted"
+    assert set(current["eligible_media_types"]) == {"movies", "series", "anime"}
+
+    disks[1].update(free_bytes=8 * GIB, used_percent=99)
+    disks[2].update(free_bytes=8 * GIB, used_percent=99)
+    assert autopilot.get_autopilot()["pressure"] == "emergency"
+
+
+def test_recommendations_rank_real_relief_before_inventory_order(disks):
+    document = inventory.read_state()
+    document["policy"]["mode"] = "advisor"
+    disks[0].update(free_bytes=100 * GIB, used_percent=90)
+    for size in range(1, 91):
+        key = inventory.identity("movies", f"Movie-{size}.mp4")
+        document["inventory"][key] = {"id": key, "root": "movies", "name": f"Movie-{size}",
+                                      "relative_path": f"Movie-{size}.mp4", "size_bytes": size * GIB,
+                                      "media_type": "movies", "modified_at": 100}
+    proposals = plan_recommendations(disks, document, now=1_000_000)
+    assert len(proposals) == 80
+    assert proposals[0]["size_bytes"] == 90 * GIB
+    assert proposals[-1]["size_bytes"] == 11 * GIB
+    assert proposals[0]["projected_percent"] >= proposals[0]["before_percent"]
+
+
 def test_offline_mount_identity_is_retained_and_requires_confirmation(disks):
     autopilot.observe_volumes()
     old = inventory.read_state()["observations"]["location:archive"]

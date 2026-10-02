@@ -19,7 +19,7 @@ from storage.storage_policy import DEFAULT_POLICY, validate_policy, validate_vol
 
 _LOCK = threading.RLock()
 LIMITS = {"inventory": 10000, "activity": 300, "recommendations": 80,
-          "reservations": 512, "protections": 10000, "volumes": 24, "observations": 24}
+          "protections": 10000, "volumes": 24, "observations": 24}
 MAX_STATE_BYTES = 8 * 1024 * 1024
 
 
@@ -32,7 +32,7 @@ def state_path() -> Path:
 
 
 def _empty() -> dict:
-    return {"schema_version": 1, "policy": deepcopy(DEFAULT_POLICY),
+    return {"schema_version": 1, "policy": deepcopy(DEFAULT_POLICY), "reservations": {},
             **{key: ([] if key == "activity" else {}) for key in LIMITS},
             "last_optimization_at": 0, "last_scan_at": 0}
 
@@ -51,6 +51,10 @@ def read_state() -> dict:
             for key, limit in LIMITS.items():
                 if not isinstance(result[key], list if key == "activity" else dict) or len(result[key]) > limit:
                     raise ValueError("Invalid storage state")
+            # Reservations exist only for in-flight jobs and are bounded by the
+            # serialized state budget, not by the length of the waiting queue.
+            if not isinstance(result["reservations"], dict):
+                raise TypeError("Invalid storage state")
             result["volumes"] = {key: validate_volume(value) for key, value in result["volumes"].items()}
             for key in ("inventory", "reservations", "recommendations", "observations", "protections"):
                 if any(not isinstance(value, dict) for value in result[key].values()):

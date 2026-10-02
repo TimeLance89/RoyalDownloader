@@ -4,7 +4,8 @@ export function installAutopilotUi(root) {
     <section id="storage-autopilot" class="storage-autopilot" aria-labelledby="storage-autopilot-title">
       <header><h3 id="storage-autopilot-title">Royal Storage Autopilot</h3>
         <p id="storage-autopilot-health" role="status">Speicher wird geprüft …</p>
-        <p id="storage-autopilot-impact">Royal behält deine Speicherorte im Blick.</p><p id="storage-autopilot-capacity" class="dim"></p></header>
+        <p id="storage-autopilot-impact">Royal behält deine Speicherorte im Blick.</p><p id="storage-autopilot-capacity" class="dim"></p>
+        <div id="storage-autopilot-volumes" aria-label="Physische und geplante Speicherauslastung"></div></header>
       <form id="storage-autopilot-form">
         <fieldset class="storage-autonomy"><legend>Wie selbstständig darf Royal handeln?</legend>
           <label><input type="radio" name="storage-autonomy" value="monitor" checked><span><strong>Nur überwachen</strong><small>Royal zeigt den Speicher an. Neue Downloads bleiben in den Standard-Zielordnern.</small></span></label>
@@ -22,7 +23,7 @@ export function installAutopilotUi(root) {
             <label><span>Ruhezeit je Inhalt (Std.)</span><input name="cooldown_hours" type="number" min="24" max="8760" value="168" required></label>
             <label><span>Max. Verschiebungen pro Runde</span><input name="max_moves" type="number" min="1" max="5" value="1" required></label>
             <label><span>Datenbudget pro Runde (GiB)</span><input name="max_move_gib" type="number" min="1" max="4096" value="200" required></label>
-            <label><span>Reserve für unbekannte Downloads (GiB)</span><input name="unknown_download_gib" type="number" min="1" max="1024" value="8" required></label>
+            <label><span>Reserve für unbekannte aktive Downloads (GiB)</span><input name="unknown_download_gib" type="number" min="1" max="1024" value="8" required></label>
             <label><span>Archivieren frühestens nach (Tagen)</span><input name="archive_age_days" type="number" min="30" max="3650" value="180" required></label>
             <label><span>Serien-Verteilung erlauben</span><input name="allow_series_split" type="checkbox"></label>
           </div>

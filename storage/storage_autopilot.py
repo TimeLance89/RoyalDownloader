@@ -12,8 +12,8 @@ from storage.storage_locations import combined_storage_status, load_storage_loca
 from storage.storage_move_runtime import list_move_jobs
 from storage.storage_placement import advise_queued_downloads, reserved_by_volume
 from storage.storage_planner import plan_recommendations
-from storage.storage_policy import validate_policy, validate_volume, volume_policy
-from storage.storage_score import storage_pressure
+from storage.storage_policy import GIB, validate_policy, validate_volume, volume_policy
+from storage.storage_score import score_target, storage_pressure
 
 
 def media_paths() -> dict:
@@ -64,20 +64,47 @@ def get_autopilot(*, queue_jobs: list[dict] | None = None) -> dict:
         active_jobs = sum(1 for job in queue_jobs or [] if job.get("status") not in ("completed", "failed", "cancelled")
                           and job.get("final_path") and Path(root["path"]) in Path(job["final_path"]).parents)
         active_jobs += sum(1 for job in jobs["jobs"] if root["key"] in (job.get("source_root"), job.get("destination_root")))
+        total_bytes = int(root.get("total_bytes") or 0)
+        free_bytes = int(root.get("free_bytes") or 0)
+        projected_free = free_bytes - reserved
         statuses.append({**root, "policy": policy, "reserved_bytes": reserved,
+                         "projected_used_percent": round(100 * (total_bytes - projected_free) / total_bytes, 2) if total_bytes else 0,
+                         "safe_remaining_bytes": max(0, projected_free - int(policy["reserve_gib"] * GIB)),
                          "active_jobs": active_jobs,
                          "pressure": storage_pressure(root, policy, reserved),
                          "last_seen_at": observation.get("last_seen_at", 0)})
     pressure_order = {"normal": 0, "offline": 1, "warning": 2, "critical": 3, "emergency": 4}
-    pressure = max((root["pressure"] for root in statuses if root["policy"]["role"] != "monitor"),
-                   key=lambda state: pressure_order[state], default="normal")
+    worst = max((root["pressure"] for root in statuses if root["policy"]["role"] != "monitor"),
+                key=lambda state: pressure_order[state], default="normal")
+    automatic = document["policy"]["mode"] in ("automatic", "full")
+    eligible_media = []
+    for media in ("movies", "series", "anime"):
+        candidates = (root for root in statuses if automatic or root["key"] == ("movies" if media == "movies" else "series"))
+        if any(root["policy"]["role"] != "archive" and score_target(
+            root, root["policy"], media_type=media,
+            size=int(document["policy"]["unknown_download_gib"] * GIB),
+            reserved=budgets.get(root.get("volume_id"), 0),
+        )["eligible"] for root in candidates):
+            eligible_media.append(media)
+    if not eligible_media:
+        pressure = "emergency"
+    elif len(eligible_media) < 3:
+        pressure = "limited"
+    elif worst in ("emergency", "critical"):
+        pressure = "diverted" if automatic else "warning"
+    else:
+        pressure = worst
     volumes = {root["volume_id"]: root for root in statuses if root.get("available") and root.get("volume_id")}
     total = sum(root.get("total_bytes", 0) for root in volumes.values())
     free = sum(root.get("free_bytes", 0) for root in volumes.values())
     summary = {"volume_count": len(volumes), "total_bytes": total, "free_bytes": free,
-               "used_bytes": total - free, "used_percent": round(100 * (total - free) / total, 2) if total else 0}
+               "used_bytes": total - free, "used_percent": round(100 * (total - free) / total, 2) if total else 0,
+               "reserved_bytes": sum(budgets.get(volume, 0) for volume in volumes),
+               "projected_used_percent": round(100 * (total - free + sum(budgets.get(volume, 0) for volume in volumes)) / total, 2) if total else 0}
     return {"policy": document["policy"], "roots": statuses, "summary": summary,
-            "pressure": pressure, "storage_error": bool(document.get("storage_error")),
+            "pressure": pressure, "eligible_media_types": eligible_media,
+            "queue_busy": bool(queue_jobs), "queue_job_count": len(queue_jobs or []),
+            "storage_error": bool(document.get("storage_error")),
             "recommendations": list(document["recommendations"].values()),
             "placement_advice": advise_queued_downloads(document, statuses, queue_jobs or [], jobs["jobs"]),
             "activity": document["activity"][:100], "last_optimization_at": document["last_optimization_at"],

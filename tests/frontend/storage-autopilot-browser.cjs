@@ -13,12 +13,17 @@ const { fixture } = require("./performance-fixture.cjs");
     const volumePolicy = { role: "primary", media_types: ["movies", "series", "anime"], target_percent: 75,
       warning_percent: 85, critical_percent: 92, reserve_gib: 5, allow_moves_in: true, allow_moves_out: true };
     const roots = [{ key: "movies", label: "NAS Hauptspeicher", path: "/media", available: true,
-      location_mode: "media", used_percent: 91, volume_id: "main", policy: { ...volumePolicy }, pressure: "warning" },
+      location_mode: "media", used_percent: 56.4, projected_used_percent: 63.8,
+      reserved_bytes: 820 * 1024 ** 3, safe_remaining_bytes: 400 * 1024 ** 3,
+      volume_id: "main", policy: { ...volumePolicy }, pressure: "warning" },
     { key: "location:archive", label: "Archiv HDD", path: "/archive", available: false,
       location_mode: "media", used_percent: 40, volume_id: "archive", policy: { ...volumePolicy, role: "archive" }, pressure: "offline", last_seen_at: 1_800_000_000 }];
     let recommendations = [{ id: "fixture-rec", name: "Storage Fixture", state: "available", item_id: "owned-item",
-      destination_root: "location:archive", size_bytes: 100 * 1024 ** 3, before_percent: 91, after_percent: 81,
-      expected_target_percent: 51, reasons: ["Genügend freie Sicherheitsreserve"], reason: "Speicher oberhalb der Warnschwelle" }];
+      source_root: "movies", destination_root: "location:archive", size_bytes: 100 * 1024 ** 3,
+      before_percent: 56.4, after_percent: 55.4, projected_percent: 63.8, projected_after_percent: 62.8,
+      reserved_bytes: 820 * 1024 ** 3, safe_remaining_bytes: 400 * 1024 ** 3,
+      expected_target_percent: 51, reasons: ["Genügend freie Sicherheitsreserve"], reason: "Geplante Speicherlast oberhalb der Warnschwelle" }];
+    let queueBusy = false, globalPressure = "warning";
     const calls = [];
     page.on("dialog", dialog => dialog.accept());
     try {
@@ -28,8 +33,8 @@ const { fixture } = require("./performance-fixture.cjs");
         calls.push({ path, method: request.method(), body });
         if (path === "/api/storage/autopilot") {
           if (body) policy = { ...policy, ...body.policy };
-          return route.fulfill({ json: body ? { saved: true, policy } : { policy, roots, pressure: "warning", summary: {},
-            active_moves: 0, recommendations, activity: [] } });
+          return route.fulfill({ json: body ? { saved: true, policy } : { policy, roots, pressure: globalPressure, summary: {},
+            active_moves: 0, recommendations, activity: [], queue_busy: queueBusy, queue_job_count: queueBusy ? 650 : 0 } });
         }
         if (path === "/api/storage/autopilot/volume") {
           roots.find(root => root.key === body.root).policy = body.policy;
@@ -50,6 +55,8 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.locator('[data-settings-open="settings-storage"]').click();
       const panel = page.locator("#storage-autopilot");
       await panel.getByText("Speicher wird knapp", { exact: true }).waitFor();
+      assert.match(await panel.locator("#storage-autopilot-volumes").innerText(), /Physisch belegt 56.4 %.*Queue\/Jobs reserviert.*Prognose 63.8 %.*Sichere Restreserve/s);
+      assert.match(await panel.locator("#storage-recommendations").innerText(), /Quelle: Physisch 56.4 %.*Prognose 63.8 %/s);
       const interact = async locator => {
         await locator.evaluate(node => node.scrollIntoView({ block: "center", behavior: "instant" }));
         await locator[mobile ? "tap" : "click"]();
@@ -94,6 +101,17 @@ const { fixture } = require("./performance-fixture.cjs");
       await command(panel.locator('[data-autopilot-action="recommend"]'), "/api/storage/recommendations");
       await command(panel.locator('[data-autopilot-action="dismiss"]'), "/api/storage/recommendations/ignored-rec/dismiss");
       assert.equal(recommendations.length, 0);
+      queueBusy = true;
+      globalPressure = "diverted";
+      recommendations = [{ id: "queued-rec", name: "Queued Fixture", state: "available", source_root: "movies",
+        destination_root: "location:archive", size_bytes: 1024, before_percent: 56.4, after_percent: 56.4,
+        projected_percent: 63.8, expected_target_percent: 51, reasons: [], reason: "Geplante Speicherlast" }];
+      await command(panel.locator('[data-autopilot-action="recommend"]'), "/api/storage/recommendations");
+      const blockedMove = panel.locator('[data-autopilot-action="apply"]');
+      assert.equal(await blockedMove.isDisabled(), true);
+      assert.match(await blockedMove.innerText(), /Verschieben nach Abschluss der Download-Queue/);
+      assert.match(await panel.locator("#storage-autopilot-health").innerText(), /Hohe geplante Speicherlast.*andere Volumes verteilt/);
+      assert.doesNotMatch(await panel.locator("#storage-autopilot-health").innerText(), /Kein sicherer Speicher verfügbar/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
       assert.deepEqual(errors, []);
       await panel.evaluate(node => node.scrollIntoView({ block: "start", behavior: "instant" }));

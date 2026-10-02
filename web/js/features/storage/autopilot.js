@@ -9,7 +9,7 @@ const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archiv
 const media = { movies: "Filme", series: "Serien", anime: "Anime" };
 const fields = ["window_start", "window_end", "window_enabled", "interval_hours", "cooldown_hours", "max_moves", "max_move_gib", "unknown_download_gib", "archive_age_days", "allow_series_split"];
 const flags = new Set(["window_enabled", "allow_series_split"]);
-const pressureLabels = { normal: "Alles in Ordnung", warning: "Speicher wird knapp", critical: "Speicherreserve gefährdet", emergency: "Kein sicherer Speicher verfügbar", offline: "Ein Speicherort ist offline" };
+const pressureLabels = { normal: "Alles in Ordnung", warning: "Speicher wird knapp", critical: "Speicherreserve gefährdet", emergency: "Kein sicherer Speicher verfügbar", diverted: "Hohe geplante Speicherlast – neue Downloads werden auf andere Volumes verteilt", limited: "Nicht alle Medienarten haben sicheren Speicher", offline: "Ein Speicherort ist offline" };
 
 export function createStorageAutopilot(root) {
   installAutopilotUi(root);
@@ -23,11 +23,14 @@ export function createStorageAutopilot(root) {
     find("storage-autopilot-health").textContent = value.storage_error ? "Autopilot-Daten prüfen" : pressureLabels[value.pressure] || "Verfügbarkeit wird geprüft";
     const recommendations = (value.recommendations || []).filter(item => item.state === "available");
     find("storage-autopilot-capacity").textContent = `${value.summary?.volume_count || 0} erreichbare Volumes · ${formatBytes(value.summary?.free_bytes || 0)} frei · ${formatBytes(value.summary?.total_bytes || 0)} gesamt`;
+    const physicalVolumes = [...new Map(value.roots.filter(item => item.available && item.volume_id).map(item => [item.volume_id, item])).values()];
+    find("storage-autopilot-volumes").innerHTML = physicalVolumes.map(item => `<p class="storage-volume-forecast"><strong>${html(item.label)}</strong>: Physisch belegt ${html(item.used_percent ?? 0)} % · Queue/Jobs reserviert ${formatBytes(item.reserved_bytes || 0)} · Prognose ${html(item.projected_used_percent ?? item.used_percent ?? 0)} % · Sichere Restreserve ${formatBytes(item.safe_remaining_bytes || 0)}</p>`).join("");
+    if (value.queue_job_count > 32) find("storage-autopilot-volumes").insertAdjacentHTML("beforeend", `<p class="dim">${html(value.queue_job_count)} Jobs in der Queue. Die Vorschau reserviert aktive und die nächsten 32 Jobs; weitere werden beim Start erneut geprüft.</p>`);
     find("storage-placement-advice").innerHTML = (value.placement_advice || []).map(item => {
       const target = value.roots.find(root => root.key === item.destination_root);
       return `<article class="storage-recommendation"><strong>${html(item.name)}</strong><p>Für diesen geplanten Download eignet sich ${html(target?.label || item.destination_root)} besser (${formatBytes(item.size_bytes)} eingeplant).</p><ul>${item.reasons.map(reason => `<li>${html(reason)}</li>`).join("")}</ul><small>Beraten verändert das Downloadziel nicht. Für automatische Platzierung wähle Automatisch.</small></article>`;
     }).join("");
-    find("storage-autopilot-impact").textContent = value.storage_error ? "Automatische Aktionen sind gesperrt. Deine vorhandenen Dateien bleiben erhalten." : value.pressure === "normal" ? "Keine Einschränkungen erkannt. Royal hält die Sicherheitsreserve im Blick." : recommendations.length ? `Royal hat ${recommendations.length} sichere Vorschläge zur Entlastung. Dateien werden vor jeder Aktion erneut geprüft.` : "Prüfe freie Kapazität und erreichbare Medien-Volumes. Royal mountet keine Laufwerke selbst.";
+    find("storage-autopilot-impact").textContent = value.storage_error ? "Automatische Aktionen sind gesperrt. Deine vorhandenen Dateien bleiben erhalten." : value.pressure === "normal" ? "Keine Einschränkungen erkannt. Royal hält die Sicherheitsreserve im Blick." : value.pressure === "diverted" ? "Andere freigegebene Medien-Volumes können neue Downloads sicher aufnehmen." : value.pressure === "limited" ? "Prüfe die freigegebenen Medienarten und Speicherreserven je Volume." : recommendations.length ? `Royal hat ${recommendations.length} sichere Vorschläge zur Entlastung. Dateien werden vor jeder Aktion erneut geprüft.` : "Prüfe freie Kapazität und erreichbare Medien-Volumes. Royal mountet keine Laufwerke selbst.";
     if (!dirty) {
       for (const radio of root.querySelectorAll('[name="storage-autonomy"]')) radio.checked = radio.value === value.policy.mode;
       for (const field of fields) {
@@ -42,11 +45,15 @@ export function createStorageAutopilot(root) {
       find("storage-volume-policy-list").innerHTML = value.roots.map(volumeForm).join("");
       renderedVolumes = volumes;
     }
-    const proposalSnapshot = JSON.stringify(recommendations);
+    const proposalSnapshot = JSON.stringify([recommendations, Boolean(value.queue_busy)]);
     if (proposalSnapshot !== renderedRecommendations) {
       find("storage-recommendations").innerHTML = recommendations.length ? recommendations.map(item => {
         const target = value.roots.find(root => root.key === item.destination_root);
-        return `<article class="storage-recommendation"><strong>${html(item.name)}</strong><p>${html(item.reason)}. ${formatBytes(item.size_bytes)} nach ${html(target?.label || item.destination_root)}.</p><p>Quelle: ${item.before_percent} % → ${item.after_percent} % · Ziel danach: ${item.expected_target_percent} %</p><ul>${item.reasons.map(reason => `<li>${html(reason)}</li>`).join("")}</ul><button class="btn btn-primary btn-sm" type="button" data-autopilot-action="apply" data-id="${html(item.id)}">Jetzt verschieben</button><button class="btn btn-ghost btn-sm" type="button" data-autopilot-action="dismiss" data-id="${html(item.id)}">Ignorieren</button></article>`;
+        const source = value.roots.find(root => root.key === item.source_root);
+        const reserved = item.reserved_bytes ?? source?.reserved_bytes ?? 0;
+        const projected = item.projected_percent ?? source?.projected_used_percent ?? item.before_percent;
+        const remaining = item.safe_remaining_bytes ?? source?.safe_remaining_bytes ?? 0;
+        return `<article class="storage-recommendation"><strong>${html(item.name)}</strong><p>${html(item.reason)}. ${formatBytes(item.size_bytes)} nach ${html(target?.label || item.destination_root)}.</p><p>Quelle: Physisch ${html(item.before_percent)} % · Queue/Jobs reserviert ${formatBytes(reserved)} · Prognose ${html(projected)} % · Sichere Restreserve ${formatBytes(remaining)}</p><p>Nach Verschiebung: Quelle physisch ${html(item.after_percent)} % · Prognose ${html(item.projected_after_percent ?? item.after_percent)} % · Ziel ${html(item.expected_target_percent)} %</p><ul>${item.reasons.map(reason => `<li>${html(reason)}</li>`).join("")}</ul><button class="btn btn-primary btn-sm" type="button" data-autopilot-action="apply" data-id="${html(item.id)}" ${value.queue_busy ? 'disabled title="Verschieben nach Abschluss der Download-Queue"' : ""}>${value.queue_busy ? "Verschieben nach Abschluss der Download-Queue" : "Jetzt verschieben"}</button><button class="btn btn-ghost btn-sm" type="button" data-autopilot-action="dismiss" data-id="${html(item.id)}">Ignorieren</button></article>`;
       }).join("") : "Keine sichere Verschiebung empfohlen. Eine bewusste Speicheranalyse aktualisiert das Inventar.";
       renderedRecommendations = proposalSnapshot;
     }
@@ -107,6 +114,7 @@ export function createStorageAutopilot(root) {
   function action(event) {
     const button = event.target.closest("[data-autopilot-action]");
     if (!button) return;
+    if (button.disabled) return;
     const name = button.dataset.autopilotAction;
     if (name === "cancel-delete") { find("storage-cleanup-preview").hidden = true; return; }
     if (name === "apply" && !window.confirm("Diesen Inhalt sicher auf das vorgeschlagene Volume verschieben? Die Quelle wird erst nach vollständiger Zielprüfung entfernt.")) return;

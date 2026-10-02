@@ -12,7 +12,11 @@ import core.config as appconfig
 from application_services.runtime import backend_value
 from core.queue_jobs import media_type_for_slug
 from integrations.jellyfin_client import JellyfinClient
-from storage.storage_autopilot import get_autopilot, observe_volumes, refresh_recommendations
+from storage.storage_autopilot import (
+    get_autopilot,
+    observe_volumes,
+    refresh_recommendations,
+)
 from storage.storage_inventory import identity, read_state, record_activity, transact
 from storage.storage_move_runtime import list_move_jobs
 from storage.storage_placement import reserve_download
@@ -140,6 +144,16 @@ def reconcile_reservations(jobs: list[dict]) -> None:
     ids = {job["job_id"] for job in jobs if job.get("status") not in ("completed", "failed", "cancelled")}
     def update(document):
         document["reservations"] = {key: value for key, value in document["reservations"].items() if key in ids}
+    transact(update)
+
+
+def release_reservation(job_id: str) -> None:
+    """Release capacity as soon as a logical queue job becomes terminal."""
+    if not job_id or job_id not in read_state()["reservations"]:
+        return
+
+    def update(document):
+        document["reservations"].pop(job_id, None)
     transact(update)
 
 
