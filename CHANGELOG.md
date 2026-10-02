@@ -2,58 +2,118 @@
 
 ## Unreleased
 
-- Make waiting download-plan entries self-explanatory: source waits now show the
-  reason plus the next automatic retry or long-term check, provider pauses show
-  the next provider test, and the explanatory line may wrap on narrow phones
-  instead of being truncated.
+_No unreleased changes._
 
-### Queue source recovery
+## v1.5.1 – 2026-10-02
+
+### Large-library queue reliability
+
+- Allow Jellyfin ownership scans enough time to traverse established multi-page
+  libraries so valid responses no longer falsely block movie or episode queue
+  additions under large workloads.
+- Cover queue growth beyond 550 pending jobs to protect the high-volume path.
+
+### Storage Autopilot under large queues
+
+- Replace the old pessimistic per-job reservation explosion with bounded pending
+  forecasting while keeping atomic reservations and live free-space checks for
+  started downloads.
+- Remove the former 512-reservation ceiling while retaining the persistent state
+  size budget.
+- Separate physical usage from projected queue usage, calculate global placement
+  health from actually eligible media targets, and rank relief recommendations by
+  bytes relieved.
+- Disable manual storage moves while download work is active and cover a
+  three-volume, ~18 TiB / ~12.7 TiB free, 650-job stress scenario.
+
+### Queue source recovery and completeness
 
 - Keep series/anime episodes with temporarily unavailable or non-extractable
   sources in the active download plan instead of immediately marking them
   permanently failed.
-- Retry those episodes automatically with exponential backoff, then keep them
-  in a low-frequency 24-hour long-term source check instead of forgetting them
-  after a fixed retry budget, while preserving logical queue identity across
-  provider failures and restarts.
-- Recover retained pre-fix history entries such as **kein Hoster extrahierbar**
-  back into the active queue on the first restart after updating, without
-  duplicating episodes that are already active or present locally/Jellyfin.
-- Recover older manual episode requests that have already fallen out of the
-  500-row terminal queue history from the durable personal request store exactly
-  once; retained history keeps authoritative error classification so storage or
-  other permanent failures are not mislabelled as source gaps.
-- Move source-waiting episodes behind actionable queue work and show **Wartet auf
-  Quelle** plus the next retry/long-term check; manual resume triggers an
-  immediate source recheck.
+- Retry with exponential backoff and then a low-frequency 24-hour long-term
+  source check so temporary source gaps are not silently forgotten.
+- Recover retained pre-fix source failures on upgrade and reconstruct older
+  manual episode requests that already fell out of the 500-row terminal history,
+  without reviving storage errors or deliberate cancellations.
+- Preserve retry state across restarts, deduplicate active work and keep
+  source-waiting episodes behind actionable downloads.
 
-### Account and household profile logic
+### Download-plan clarity
 
-- Separate the visible **Profilname** from the **Loginname** in the UI and allow
-  authenticated users to change their own login name with password confirmation.
-- Authenticate the first protected profile switch with the **target profile's password** instead of
-  the currently active account, then remember that confirmation for the current browser session so
-  later profile switches are password-free. Administrator unlock remains separate and never carries
-  across a profile switch.
-- Handle first-time household profiles directly from **Wer schaut gerade?** by
-  guiding them through their own password setup instead of returning a misleading
-  wrong-password error.
-- Render custom profile images consistently in the top bar and other avatar slots,
-  and make administrator-managed uploaded images clearly deletable with profile
-  fallback to initials when an image is removed.
-### Storage routing clarity
+- Explain whether a waiting item is blocked by source availability or provider
+  cooldown and show the next automatic retry, provider test or long-term check.
+- Keep the compact mobile status pill while allowing the explanatory line to wrap
+  on narrow phones.
 
-- Rename the legacy movie/series paths to **Standard-Zielordner** and explain that
-  they are safe starting/fallback destinations rather than a limit on Storage
-  Autopilot placement.
+See [v1.5.1 release notes](docs/releases/v1.5.1.md). Existing accounts,
+profiles, queues, subscriptions, storage policy and media paths remain
+compatible. Back up at least `.env`, `data/` and `runtime/` before upgrading.
+
+## v1.5.0 – 2026-10-01
+
+### Household profiles and account identity
+
+- Separate profile display names from login names and allow authenticated users
+  to change their own login name with password confirmation.
+- Authenticate the first protected household profile switch with the target
+  profile's password, then remember that confirmation for the current browser
+  session so later profile switches are password-free.
+- Keep administrator profile-management unlock separate from household switching
+  and clear privileged management state when identity changes.
+- Handle first-time household profiles directly in **Wer schaut gerade?** with
+  password setup instead of a misleading wrong-password failure.
+- Render custom profile images consistently in the top bar and make uploaded
+  avatars clearly deletable with safe initials fallback.
+
+### Storage routing and Storage Autopilot clarity
+
+- Rename the legacy movie and series paths to **Standard-Zielordner** and show
+  those active fallback/start destinations directly in the Storage manager.
 - Let every additional media location explicitly allow movies, series and/or
-  anime. These simple per-folder choices are authoritative for automatic
-  download placement, preventing two folders on the same disk from competing for
-  the wrong media type.
-- Simplify Storage Autopilot wording for new users and keep advanced roles,
-  thresholds and reserves behind progressive disclosure.
-- Preserve existing installations: previously registered media locations default
-  to all media types until an administrator narrows them in the Storage UI.
+  anime, and enforce those choices during automatic placement.
+- Keep standard targets separate from additional storage locations so users do
+  not need to register the same destination twice.
+- Simplify the Storage Autopilot interface while preserving advanced volume
+  roles, thresholds, reserves, placement safety and existing installations.
+
+### Series catalog and Jellyfin synchronization
+
+- Propagate a deduplicated Jellyfin series result to every visible card instance
+  so series no longer remain stuck on **Jellyfin wird geprüft**.
+- Align series paging with the movie catalog: seed one normal page, avoid
+  duplicate automatic loads and check Jellyfin only for the newly loaded batch.
+- Recover infinite scrolling automatically from transient cold-start catalog
+  responses instead of storing them as permanent load failures.
+- Keep movie and series browsing state independent during tab changes.
+
+### Home discovery and current cinema content
+
+- Refresh home discovery from a deeper rotating candidate reservoir and use
+  taste plus exposure history to reduce repeatedly shown recommendations.
+- Prioritize eligible current cinema releases in the hero while preserving the
+  existing Top 10 and page design.
+- Refresh personalized scores when metadata or exposure changes so fresh,
+  relevant titles can replace stale favorites.
+- Keep **Heute mal etwas anderes** strictly on ready 16:9 backdrops: no portrait
+  poster fallback and no initials placeholders while artwork is still loading.
+
+### Settings, quality and release engineering
+
+- Redesign the Settings overview, navigation, forms and responsive layout while
+  retaining the existing handlers and configuration contracts.
+- Add the Modules entry to the Settings overview.
+- Streamline duplicate post-merge checks on Overnight while preserving the full
+  pull-request gate and complete verification before Stable promotion.
+- Retain the full Stable quality gate: browser interaction, Chromium/WebKit
+  mobile checks, performance budgets, Python/frontend regression tests,
+  dependency audit, container build and vulnerability scan, E2E flows, upgrade
+  and rollback verification.
+
+See [v1.5.0 release notes](docs/releases/v1.5.0.md). The release remains
+compatible with existing accounts, profiles, queues, subscriptions, provider
+settings, media paths and Storage Autopilot state. Back up at least `.env`,
+`data/` and `runtime/` before upgrading.
 
 ## v1.4.0 – 2026-09-30
 
