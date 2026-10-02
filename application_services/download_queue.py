@@ -488,10 +488,10 @@ def run_download_queue(
                 ):
                     queued_slugs.add(movie_slug)
                     log("  Keine nutzbare Quelle – automatische Wiederholung vorgemerkt", "warn")
-                else:
+                elif _queue_slug_claimed(movie_slug):
                     on_job_done(
                         False,
-                        "kein Hoster extrahierbar – automatisches Retry-Budget ausgeschöpft",
+                        "Quellen-Wiederholung konnte nicht vorgemerkt werden",
                         movie.title,
                         Path(""),
                         slug=movie_slug,
