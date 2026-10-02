@@ -475,6 +475,27 @@ def run_download_queue(
                 # Provider-Probe zurückstellen (NICHT als erledigt zählen).
                 gated_jobs.append((source_movies[0], movie_slug))
                 log("  Zurückgestellt – serienstream Captcha-Gate aktiv (Fallback erfolglos)", "warn")
+            elif ep_info and not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
+                # Eine heute nicht extrahierbare Episode ist nicht automatisch
+                # dauerhaft verloren. Der logische Job bleibt offen und wird mit
+                # begrenztem Backoff erneut über alle Quellen geprüft.
+                if _defer_provider_episode(
+                    source_movies[0],
+                    movie_slug,
+                    out_root,
+                    movie_fallbacks,
+                    reason="source_unavailable",
+                ):
+                    queued_slugs.add(movie_slug)
+                    log("  Keine nutzbare Quelle – automatische Wiederholung vorgemerkt", "warn")
+                else:
+                    on_job_done(
+                        False,
+                        "kein Hoster extrahierbar – automatisches Retry-Budget ausgeschöpft",
+                        movie.title,
+                        Path(""),
+                        slug=movie_slug,
+                    )
             else:
                 if not (cancelled and cancelled()) and _queue_slug_claimed(movie_slug):
                     on_job_done(False, "kein Hoster extrahierbar", movie.title, Path(""), slug=movie_slug)
@@ -507,8 +528,8 @@ def run_download_queue(
             barren_hoster_urls=barren_hoster_urls,
             cancelled=cancelled,
             gate_seen=gate_seen,
-            gate_retry=lambda primary=source_movies[0], slug=movie_slug: _defer_provider_episode(
-                primary, slug, out_root, movie_fallbacks,
+            gate_retry=lambda reason="provider_gate", primary=source_movies[0], slug=movie_slug: _defer_provider_episode(
+                primary, slug, out_root, movie_fallbacks, reason=reason,
             ),
         )
         if enqueued:
