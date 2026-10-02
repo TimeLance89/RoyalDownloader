@@ -27,6 +27,13 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 class PersonalRequestStore:
     """Atomic JSON store for intentional user requests, never queue snapshots."""
 
@@ -74,8 +81,8 @@ class PersonalRequestStore:
             "updated_at": _number(raw.get("updated_at")),
             # 0 = request predates persistent automatic source retry semantics.
             # 1 = request has been seen by the new retry lifecycle.
-            "source_retry_generation": max(
-                0, int(raw.get("source_retry_generation") or 0)
+            "source_retry_generation": _nonnegative_int(
+                raw.get("source_retry_generation")
             ),
         }
 
