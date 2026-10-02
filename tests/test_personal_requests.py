@@ -102,6 +102,55 @@ def test_legacy_failed_episode_request_is_available_for_one_time_recovery(tmp_pa
     assert store.recent_for_user("user-a")[0]["source_retry_generation"] == 1
 
 
+def test_retained_history_classification_removes_only_matching_legacy_candidate(tmp_path):
+    path = tmp_path / "personal_requests.json"
+    path.write_text(
+        """{
+  "schema_version": 1,
+  "requests": [
+    {
+      "id": "one",
+      "user_id": "user-a",
+      "job_id": "classified-job",
+      "media_key": "serienstream:show-s01e01",
+      "media_type": "series",
+      "title": "Show S01E01",
+      "request_source": "web",
+      "status": "failed",
+      "requested_at": 10,
+      "failed_at": 20,
+      "updated_at": 20
+    },
+    {
+      "id": "two",
+      "user_id": "user-a",
+      "job_id": "still-legacy",
+      "media_key": "serienstream:show-s01e02",
+      "media_type": "series",
+      "title": "Show S01E02",
+      "request_source": "web",
+      "status": "failed",
+      "requested_at": 11,
+      "failed_at": 21,
+      "updated_at": 21
+    }
+  ]
+}""",
+        encoding="utf-8",
+    )
+    store = PersonalRequestStore(path, clock=lambda: 100.0)
+
+    assert store.mark_source_retry_classified(["classified-job"])
+
+    candidates = store.legacy_failed_episode_requests()
+    assert [item["job_id"] for item in candidates] == ["still-legacy"]
+    classified = next(
+        item for item in store.recent_for_user("user-a", limit=10)
+        if item["job_id"] == "classified-job"
+    )
+    assert classified["source_retry_generation"] == 1
+
+
 def test_new_failed_episode_request_is_not_treated_as_legacy(tmp_path):
     store = PersonalRequestStore(tmp_path / "personal_requests.json", clock=lambda: 100.0)
     job = _job(
