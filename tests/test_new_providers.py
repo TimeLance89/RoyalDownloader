@@ -94,7 +94,7 @@ def test_provider_cooldown_stops_repeat_request(monkeypatch, tmp_path):
         calls.append(1)
         raise TimeoutError("provider timed out")
 
-    monkeypatch.setattr(module._SESSION, "get", fail)
+    monkeypatch.setattr(provider.session.session, "get", fail)
     with pytest.raises(TimeoutError):
         provider.search("Exact")
     with pytest.raises(RuntimeError, match="Cooldown"):

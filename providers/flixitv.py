@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests
+from providers.sentinel_runtime import monitor_adapter
 
 from providers.models import (
     FilmpalastMovie,
@@ -25,7 +26,6 @@ BASE_URL = "https://flixitv-stream.eu"
 SOURCE_PREFIX = "flixitv:"
 _YEAR = re.compile(r"\s*\((\d{4})(?:\s*[-–]\s*\d{4})?\)\s*$")
 _ID = re.compile(r"^[A-Za-z0-9]{11}$")
-_SESSION = requests.Session()
 _lock = threading.RLock()
 _last_request = 0.0
 _blocked_until = 0.0
@@ -50,10 +50,12 @@ def _identity(value: str) -> str:
     return value if _ID.fullmatch(value) else ""
 
 
+@monitor_adapter("flixitv")
 class FlixiTVScraper:
     def __init__(self, progress_cb=None, health=None):
         self._log = progress_cb or logger.info
         self._health = health
+        self.session = requests.Session()
 
     def _request(self, path: str, *, query: str = "") -> BeautifulSoup:
         global _last_request, _blocked_until
@@ -77,7 +79,7 @@ class FlixiTVScraper:
                 time.sleep(delay)
             failure_reason = "transient_failure"
             try:
-                response = (_SESSION.post if query else _SESSION.get)(
+                response = (self.session.post if query else self.session.get)(
                     urljoin(BASE_URL, path),
                     **({"data": {"srh": query}} if query else {}),
                     timeout=15,

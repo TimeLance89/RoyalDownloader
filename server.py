@@ -417,7 +417,6 @@ SERIES_MAX_SOURCE_PAGE = 50
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 SERIES_CATALOG_PAGE_BUDGET_SECONDS = 12.0
 
-
 from application_services.runtime import register_backend, refresh_services
 register_backend(sys.modules[__name__])
 from application_services import auth as _auth_service
@@ -427,7 +426,6 @@ from application_services import auth as _auth_service
 # früheren tkinter-App-Klasse)
 # ---------------------------------------------------------------------------
 state = AppState()
-
 
 from application_services import updater as _updater_service
 

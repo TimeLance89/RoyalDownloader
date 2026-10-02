@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests
+from providers.sentinel_runtime import monitor_adapter
 
 from providers.models import (
     FilmpalastMovie,
@@ -25,7 +26,6 @@ from providers.models import (
 BASE_URL = "https://kinoking.cc"
 SOURCE_PREFIX = "kinoking:"
 _CACHE: dict[str, tuple[float, BeautifulSoup]] = {}
-_SESSION = requests.Session()
 _LOCK = threading.RLock()
 _LAST_REQUEST = 0.0
 _BLOCKED_UNTIL = 0.0
@@ -59,10 +59,12 @@ def _json_after(text: str, marker: str):
         return None
 
 
+@monitor_adapter("kinoking")
 class KinoKingScraper:
     def __init__(self, progress_cb=None, health=None):
         self._log = progress_cb or logger.info
         self._health = health
+        self.session = requests.Session()
 
     def _request(self, path: str) -> BeautifulSoup:
         global _LAST_REQUEST, _BLOCKED_UNTIL
@@ -85,7 +87,7 @@ class KinoKingScraper:
                 time.sleep(delay)
             failure_reason = "transient_failure"
             try:
-                response = _SESSION.get(urljoin(BASE_URL, path), timeout=8)
+                response = self.session.get(urljoin(BASE_URL, path), timeout=8)
                 _LAST_REQUEST = time.monotonic()
                 if response.status_code in (403, 429, 503) or any(
                     marker in response.text.casefold()

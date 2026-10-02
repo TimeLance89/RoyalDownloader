@@ -11,6 +11,7 @@ ADAPTER_CLASSES = {
     "kinox": "KinoxScraper", "kinoger": "KinogerScraper", "huhu": "HuhuScraper",
     "megakino": "MegaKinoScraper", "moflix": "MoflixScraper", "xcine": "XcineScraper",
     "sflix": "SflixScraper", "ridomovies": "RidomoviesScraper",
+    "flixitv": "FlixiTVScraper", "kinoking": "KinoKingScraper",
     "serienstream": "SerienstreamScraper", "aniworld": "AniWorldScraper", "mkissa": "MkissaScraper",
 }
 

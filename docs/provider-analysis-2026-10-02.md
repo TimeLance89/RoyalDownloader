@@ -1,6 +1,6 @@
 # Provideranalyse (02.10.2026)
 
-Basis: `overnight` (`ba9bbd6`). Wenige einzelne HTTP-Anfragen je Anbieter; keine Lasttests, CAPTCHA- oder Sperrumgehung. Status und Seitenstruktur sind Momentaufnahmen.
+Analyse begann auf lokalem `overnight` (`ba9bbd6`); Implementierung basiert auf aktuellem `origin/overnight` (`f90af5d`). Wenige einzelne HTTP-Anfragen je Anbieter; keine Lasttests, CAPTCHA- oder Sperrumgehung. Status und Seitenstruktur sind Momentaufnahmen.
 
 | Provider | Sprache | Filme | Serien | Staffeln/Episoden | Suche | Hoster | Rate-Limit/Sperre | RD-Eignung |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
