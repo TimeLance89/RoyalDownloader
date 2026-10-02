@@ -430,6 +430,13 @@ def restore_persisted_queue():
                 if slug not in state.picked:
                     unresolved.discard(slug)
                     continue
+                logical = _queue_job_for_slug(slug)
+                if (
+                    logical
+                    and logical.get("status") == "waiting_provider"
+                    and float(logical.get("next_retry_at", 0) or 0) > time.time()
+                ):
+                    continue
             try:
                 movie = (
                     _episode_placeholder(slug)
@@ -1202,8 +1209,24 @@ async def api_queue_job_move(job_id: str, body: QueueMoveBody):
 async def api_queue_job_resume(job_id: str):
     job = _job_or_404(job_id)
     if job.get("status") == "waiting_provider":
+        slug = str(job.get("slug") or "")
+        with state.queue_claim_lock:
+            waiting = state.provider_waiting_jobs.get(slug)
+            if waiting is not None:
+                waiting["next_retry_at"] = 0.0
+            refreshed = _update_queue_job(
+                slug,
+                persist=False,
+                expected_job_id=job_id,
+                next_retry_at=0.0,
+            )
+        _persist_queue_state()
         state.provider_retry_wake_event.set()
-        return {"accepted": True, "job": job, "message": "Provider-Prüfung angestoßen"}
+        return {
+            "accepted": True,
+            "job": refreshed or job,
+            "message": "Quellenprüfung sofort angestoßen",
+        }
     if job.get("status") == "paused":
         raise HTTPException(409, detail={
             "code": "running_pause_not_supported",
