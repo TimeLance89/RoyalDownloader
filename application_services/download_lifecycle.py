@@ -835,13 +835,16 @@ def _ensure_provider_retry_worker() -> None:
 
 SOURCE_RETRY_BASE_SECONDS = 5 * 60
 SOURCE_RETRY_MAX_SECONDS = 6 * 60 * 60
-SOURCE_RETRY_MAX_ATTEMPTS = 10
+SOURCE_RETRY_FAST_ATTEMPTS = 10
+SOURCE_RETRY_LONG_SECONDS = 24 * 60 * 60
 
 
 def _source_retry_delay(attempt: int) -> int:
+    if attempt > SOURCE_RETRY_FAST_ATTEMPTS:
+        return SOURCE_RETRY_LONG_SECONDS
     return min(
         SOURCE_RETRY_MAX_SECONDS,
-        SOURCE_RETRY_BASE_SECONDS * (2 ** min(max(0, attempt - 1), 6)),
+        SOURCE_RETRY_BASE_SECONDS * (2 ** min(max(0, attempt - 1), 7)),
     )
 
 
@@ -861,10 +864,13 @@ def _defer_provider_episode(
         source_retry_count = int(logical.get("source_retry_count") or 0)
         if reason == "source_unavailable":
             source_retry_count += 1
-            if source_retry_count > SOURCE_RETRY_MAX_ATTEMPTS:
-                return False
-            next_retry_at = time.time() + _source_retry_delay(source_retry_count)
-            error = "Noch keine nutzbare Quelle verfügbar"
+            retry_delay = _source_retry_delay(source_retry_count)
+            next_retry_at = time.time() + retry_delay
+            error = (
+                "Noch keine nutzbare Quelle verfügbar · Langzeitprüfung aktiv"
+                if source_retry_count > SOURCE_RETRY_FAST_ATTEMPTS
+                else "Noch keine nutzbare Quelle verfügbar"
+            )
         else:
             next_retry_at = max(
                 time.time(),
