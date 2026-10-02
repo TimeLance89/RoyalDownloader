@@ -444,13 +444,31 @@ def _retryable_legacy_source_failure(job: dict) -> bool:
 def _recover_retryable_source_history() -> int:
     """Reactivates source failures created before automatic source retries existed."""
     with state.queue_claim_lock:
+        failed_episode_history = [
+            dict(job) for job in state.queue_history
+            if str(job.get("status") or "") == "failed"
+            and parse_episode_slug(str(job.get("slug") or "")) is not None
+        ]
         candidates = [
             str(job.get("job_id") or "")
-            for job in state.queue_history
+            for job in failed_episode_history
             if _retryable_legacy_source_failure(job)
             and str(job.get("slug") or "") not in state.queue_job_by_slug
         ]
+        candidate_ids = {job_id for job_id in candidates if job_id}
         history_before = [dict(job) for job in state.queue_history]
+
+    # Rows still retained in queue history have an exact failure reason. Mark
+    # non-candidates as classified now so PersonalRequestStore cannot later
+    # resurrect a storage/permanent failure merely because HISTORY_LIMIT evicts
+    # the detailed row.
+    store = getattr(state, "personal_requests", None)
+    if store is not None and hasattr(store, "mark_source_retry_classified"):
+        store.mark_source_retry_classified(
+            str(job.get("job_id") or "")
+            for job in failed_episode_history
+            if str(job.get("job_id") or "") not in candidate_ids
+        )
 
     recovered_jobs: list[dict] = []
     for job_id in candidates:
