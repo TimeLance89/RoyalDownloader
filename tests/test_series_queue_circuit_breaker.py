@@ -385,21 +385,28 @@ def test_source_unavailable_episode_stays_pending_with_backoff(monkeypatch):
     assert server.state.done_jobs == 0
 
 
-def test_source_unavailable_retry_budget_eventually_becomes_terminal_candidate():
+def test_source_unavailable_enters_long_term_retry_after_fast_window(monkeypatch):
     slug = "serienstream:exact-show-s02e04"
     movie = episode_movie("serienstream", slug, hosters=False)
-    job = new_job(slug, job_id="source-budget")
-    job["source_retry_count"] = server.SOURCE_RETRY_MAX_ATTEMPTS
+    job = new_job(slug, job_id="source-long-term")
+    job["source_retry_count"] = server.SOURCE_RETRY_FAST_ATTEMPTS
     server.state.queue_jobs[job["job_id"]] = job
     server.state.queue_job_by_slug[slug] = job["job_id"]
     server.state.picked.add(slug)
     server.state.counted_queue_slugs.add(slug)
+    monkeypatch.setattr(server.time, "time", lambda: 1_000.0)
 
-    assert not server._defer_provider_episode(
+    assert server._defer_provider_episode(
         movie, slug, Path("/tmp"), reason="source_unavailable",
     )
-    assert slug not in server.state.provider_waiting_jobs
-    assert server.state.queue_jobs["source-budget"]["status"] == "queued"
+
+    logical = server.state.queue_jobs["source-long-term"]
+    assert logical["status"] == "waiting_provider"
+    assert logical["source_retry_count"] == server.SOURCE_RETRY_FAST_ATTEMPTS + 1
+    assert logical["next_retry_at"] == 1_000.0 + server.SOURCE_RETRY_LONG_SECONDS
+    assert logical["wait_reason"] == "source_unavailable"
+    assert "Langzeitprüfung" in logical["error"]
+    assert slug in server.state.provider_waiting_jobs
 
 
 def test_source_retry_worker_does_not_ignore_future_deadline(monkeypatch, tmp_path):
