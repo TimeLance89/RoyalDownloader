@@ -1,3 +1,5 @@
+import json
+
 from core.personal_requests import PersonalRequestStore
 from core.queue_jobs import new_job, normalize_document
 
@@ -99,7 +101,9 @@ def test_legacy_failed_episode_request_is_available_for_one_time_recovery(tmp_pa
     assert store.update_from_job(modern_job)
 
     assert store.legacy_failed_episode_requests() == []
-    assert store.recent_for_user("user-a")[0]["source_retry_generation"] == 1
+    persisted = json.loads(path.read_text(encoding="utf-8"))["requests"][0]
+    assert persisted["source_retry_generation"] == 1
+    assert "source_retry_generation" not in store.recent_for_user("user-a")[0]
 
 
 def test_retained_history_classification_removes_only_matching_legacy_candidate(tmp_path):
@@ -144,11 +148,14 @@ def test_retained_history_classification_removes_only_matching_legacy_candidate(
 
     candidates = store.legacy_failed_episode_requests()
     assert [item["job_id"] for item in candidates] == ["still-legacy"]
-    classified = next(
+    persisted = json.loads(path.read_text(encoding="utf-8"))["requests"]
+    classified = next(item for item in persisted if item["job_id"] == "classified-job")
+    assert classified["source_retry_generation"] == 1
+    public = next(
         item for item in store.recent_for_user("user-a", limit=10)
         if item["job_id"] == "classified-job"
     )
-    assert classified["source_retry_generation"] == 1
+    assert "source_retry_generation" not in public
 
 
 def test_new_failed_episode_request_is_not_treated_as_legacy(tmp_path):
