@@ -669,7 +669,7 @@ def _enqueue_hoster_attempt(
     barren_hoster_urls: Optional[set] = None,
     cancelled: Optional[Callable[[], bool]] = None,
     gate_seen: Optional[List[bool]] = None,
-    gate_retry: Optional[Callable[[], bool]] = None,
+    gate_retry: Optional[Callable[..., bool]] = None,
     slow_candidates: Optional[List[tuple]] = None,
     last_resort: bool = False,
     attempt_id: str = "",
@@ -705,6 +705,9 @@ def _enqueue_hoster_attempt(
         expected_attempt_id=logical_attempt_id,
         status="queued",
         title=movie.title,
+        error="",
+        wait_reason="",
+        next_retry_at=0.0,
         provider=result.provider or _movie_provider(movie, movie_slug),
         hoster=hoster_used,
         quality=result.quality,
@@ -760,6 +763,13 @@ def _enqueue_hoster_attempt(
         is_slow = getattr(job, "failure_kind", "") == "slow"
         if last_resort:
             final_msg = "; ".join(attempt_errors + [f"Letzte langsame Reserve: {msg}"])
+            if parse_episode_slug(movie_slug) and gate_retry and gate_retry("source_unavailable"):
+                log("  Letzte Quelle ausgefallen – Episode bleibt für automatischen Retry offen.", "warn")
+                on_job_progress(
+                    -1, "Keine nutzbare Quelle · Wiederholung vorgemerkt …", label,
+                    slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
+                )
+                return
             on_job_done(False, final_msg, label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
             return
         if is_slow:
@@ -948,6 +958,14 @@ def _enqueue_hoster_attempt(
             ):
                 return
             on_job_done(False, "Abgebrochen", label, out_path, slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id)
+            return
+
+        if ep_info and not gate_seen[0] and gate_retry and gate_retry("source_unavailable"):
+            log("  Alle aktuellen Quellen erschöpft – Episode wird später erneut geprüft.", "warn")
+            on_job_progress(
+                -1, "Wartet auf Quelle · automatische Wiederholung vorgemerkt …", label,
+                slug=movie_slug, job_id=logical_job["job_id"], attempt_id=logical_attempt_id,
+            )
             return
 
         reason = "serienstream-Captcha aktiv" if gate_seen[0] else "alle Anbieter und Filmquellen ausgeschöpft"

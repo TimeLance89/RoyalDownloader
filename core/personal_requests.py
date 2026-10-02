@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _TERMINAL = {"completed", "failed", "cancelled"}
 
 
@@ -25,6 +25,13 @@ def _number(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 class PersonalRequestStore:
@@ -72,6 +79,11 @@ class PersonalRequestStore:
             "completed_at": _number(raw.get("completed_at")),
             "failed_at": _number(raw.get("failed_at")),
             "updated_at": _number(raw.get("updated_at")),
+            # 0 = request predates persistent automatic source retry semantics.
+            # 1 = request has been seen by the new retry lifecycle.
+            "source_retry_generation": _nonnegative_int(
+                raw.get("source_retry_generation")
+            ),
         }
 
     def _save_locked(self) -> bool:
@@ -122,6 +134,9 @@ class PersonalRequestStore:
                 "completed_at": _number(job.get("completed_at")),
                 "failed_at": now if status in {"failed", "cancelled"} else 0.0,
                 "updated_at": now,
+                # New requests are born under the automatic-source-retry model.
+                # Existing on-disk requests have no field and normalize to 0.
+                "source_retry_generation": 1,
             }
             self._requests.insert(0, request)
             if not self._save_locked():
@@ -147,6 +162,10 @@ class PersonalRequestStore:
             if status in {"failed", "cancelled"} and completed_at:
                 changed = changed or request["failed_at"] != completed_at
                 request["failed_at"] = completed_at
+            if "source_retry_count" in job or "wait_reason" in job:
+                if int(request.get("source_retry_generation") or 0) != 1:
+                    request["source_retry_generation"] = 1
+                    changed = True
             if not changed:
                 return True
             request["updated_at"] = float(self._clock())
@@ -159,7 +178,56 @@ class PersonalRequestStore:
         with self._lock:
             entries = [item for item in self._requests if item["user_id"] == _text(user_id)]
             entries.sort(key=lambda item: item["requested_at"], reverse=True)
-            return deepcopy(entries[:max(0, limit)])
+            public = deepcopy(entries[:max(0, limit)])
+        # Recovery metadata is an internal persistence concern. Keep the public
+        # request contract byte-for-byte compatible with older installations.
+        for item in public:
+            item.pop("source_retry_generation", None)
+        return public
+
+    def legacy_failed_episode_requests(self) -> list[dict]:
+        """Return pre-retry failed episode intents for one-time completeness recovery.
+
+        Queue history is intentionally bounded. A very large batch can therefore
+        evict an older terminal row even though the user's durable request intent
+        still exists here. Only requests created before the source-retry
+        lifecycle (generation 0) are eligible, so a modern job that later
+        exhausts its bounded retry budget is never resurrected forever.
+        """
+        with self._lock:
+            return deepcopy([
+                item for item in self._requests
+                if item.get("status") == "failed"
+                and item.get("media_type") in {"series", "anime"}
+                and int(item.get("source_retry_generation") or 0) == 0
+                and _text(item.get("media_key"))
+            ])
+
+    def mark_source_retry_classified(self, job_ids) -> bool:
+        """Mark retained legacy failures as classified by exact queue history.
+
+        This prevents a non-source failure that is still present in the bounded
+        queue history from being resurrected later if that history row is
+        eventually evicted.
+        """
+        wanted = {
+            _text(job_id) for job_id in job_ids if _text(job_id)
+        }
+        if not wanted:
+            return True
+        with self._lock:
+            changed = False
+            now = float(self._clock())
+            for request in self._requests:
+                if (
+                    request.get("job_id") in wanted
+                    and request.get("status") == "failed"
+                    and int(request.get("source_retry_generation") or 0) == 0
+                ):
+                    request["source_retry_generation"] = 1
+                    request["updated_at"] = now
+                    changed = True
+            return self._save_locked() if changed else True
 
     def count_for_user(self, user_id: str) -> int:
         with self._lock:

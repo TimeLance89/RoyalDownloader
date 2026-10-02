@@ -2,6 +2,7 @@ import { api as http } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { isAbortError } from "../../core/errors.js";
 import { createViewState } from "../../shared/components/view-state.js";
+import { queueWaitCopy } from "./wait-state.js";
 
 export function createQueueView(root, {
   state, invalidate, showPersistenceWarning, renderSerienstreamHealth,
@@ -92,7 +93,7 @@ function renderQueue(payload) {
       const status = document.createElement("span");
       status.className = "queue-item-status";
       const statusLabels = {
-        queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Provider-Pause",
+        queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Wartet",
         downloading: "Lädt", paused: "Pausiert", cancelling: "Wird abgebrochen",
       };
       status.textContent = statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
@@ -170,6 +171,8 @@ function formatQueueBytes(value) {
 
 function queueJobMetrics(job) {
   const parts = [];
+  const waitCopy = queueWaitCopy(job);
+  if (waitCopy) parts.push(waitCopy);
   const downloaded = formatQueueBytes(job.downloaded_bytes);
   const total = formatQueueBytes(job.total_bytes);
   if (downloaded) parts.push(total ? `${downloaded} / ${total}` : downloaded);
