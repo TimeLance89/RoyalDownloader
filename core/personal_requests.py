@@ -198,6 +198,32 @@ class PersonalRequestStore:
                 and _text(item.get("media_key"))
             ])
 
+    def mark_source_retry_classified(self, job_ids) -> bool:
+        """Mark retained legacy failures as classified by exact queue history.
+
+        This prevents a non-source failure that is still present in the bounded
+        queue history from being resurrected later if that history row is
+        eventually evicted.
+        """
+        wanted = {
+            _text(job_id) for job_id in job_ids if _text(job_id)
+        }
+        if not wanted:
+            return True
+        with self._lock:
+            changed = False
+            now = float(self._clock())
+            for request in self._requests:
+                if (
+                    request.get("job_id") in wanted
+                    and request.get("status") == "failed"
+                    and int(request.get("source_retry_generation") or 0) == 0
+                ):
+                    request["source_retry_generation"] = 1
+                    request["updated_at"] = now
+                    changed = True
+            return self._save_locked() if changed else True
+
     def count_for_user(self, user_id: str) -> int:
         with self._lock:
             return sum(item["user_id"] == _text(user_id) for item in self._requests)
