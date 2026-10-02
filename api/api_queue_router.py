@@ -42,6 +42,7 @@ _terminal_queue_job = _unbound_dependency
 _queue_terminal_snapshot = _unbound_dependency
 _apply_terminal_queue_job = _unbound_dependency
 _update_queue_job = _unbound_dependency
+_ensure_provider_retry_worker = _unbound_dependency
 _queue_slug_claimed = _unbound_dependency
 _require_persistent_snapshot = _unbound_dependency
 _seerr_terminal_without_job = _unbound_dependency
@@ -79,6 +80,7 @@ _DYNAMIC_CALLS = (
     "_queue_terminal_snapshot",
     "_apply_terminal_queue_job",
     "_update_queue_job",
+    "_ensure_provider_retry_worker",
     "_preferred_movie_sources",
     "_queue_slug_claimed",
     "_record_download_taste",
@@ -416,27 +418,83 @@ def _enqueue_automatic_downloads(
     return {slug for _movie, slug in jobs}
 
 
+_LEGACY_RETRYABLE_SOURCE_ERRORS = (
+    "kein hoster extrahierbar",
+    "alle anbieter und filmquellen ausgeschöpft",
+    "letzte langsame reserve",
+    "serienstream-captcha aktiv",
+)
+
+
+def _retryable_legacy_source_failure(job: dict) -> bool:
+    if str(job.get("status") or "") != "failed":
+        return False
+    slug = str(job.get("slug") or "")
+    if parse_episode_slug(slug) is None:
+        return False
+    error = str(job.get("error") or "").casefold()
+    return any(marker in error for marker in _LEGACY_RETRYABLE_SOURCE_ERRORS)
+
+
+def _recover_retryable_source_history() -> int:
+    """Reactivates source failures created before automatic source retries existed."""
+    with state.queue_claim_lock:
+        candidates = [
+            str(job.get("job_id") or "")
+            for job in state.queue_history
+            if _retryable_legacy_source_failure(job)
+            and str(job.get("slug") or "") not in state.queue_job_by_slug
+        ]
+
+    recovered = 0
+    for job_id in candidates:
+        if not job_id:
+            continue
+        retried = _retry_queue_job(job_id)
+        if retried is None:
+            continue
+        slug = str(retried.get("slug") or "")
+        _update_queue_job(
+            slug,
+            persist=False,
+            expected_job_id=job_id,
+            status="queued",
+            source_retry_count=0,
+            next_retry_at=0.0,
+            wait_reason="",
+            error="",
+        )
+        recovered += 1
+
+    if recovered:
+        _persist_queue_state()
+        log(
+            f"Stelle {recovered} frühere Episoden mit temporärem Quellenfehler "
+            "für automatische Wiederholung wieder her."
+        )
+    return recovered
+
+
 def restore_persisted_queue():
-    """Stellt nach einem Neustart noch offene Queue-Einträge sicher wieder her."""
+    """Stellt nach einem Neustart offene und frühere retrybare Queue-Einträge wieder her."""
+    _recover_retryable_source_history()
     with state.queue_claim_lock:
         unresolved = set(state.picked)
     if not unresolved:
         return
     log(f"Stelle {len(unresolved)} gespeicherte Queue-Einträge wieder her …")
+    restored_waiting = 0
     while unresolved:
         prepared: list[str] = []
+        progressed = False
         for slug in list(unresolved):
             with state.queue_claim_lock:
                 if slug not in state.picked:
                     unresolved.discard(slug)
+                    progressed = True
                     continue
-                logical = _queue_job_for_slug(slug)
-                if (
-                    logical
-                    and logical.get("status") == "waiting_provider"
-                    and float(logical.get("next_retry_at", 0) or 0) > time.time()
-                ):
-                    continue
+                logical = _queue_job_for_slug(slug) or {}
+                persisted_waiting = logical.get("status") == "waiting_provider"
             try:
                 movie = (
                     _episode_placeholder(slug)
@@ -457,17 +515,49 @@ def restore_persisted_queue():
                     )
                     _release_removed_queue_slugs({slug})
                     unresolved.discard(slug)
+                    progressed = True
                     continue
                 state.fp_movies[slug] = movie
-                _ensure_queue_job(slug, movie)
+                logical = _ensure_queue_job(slug, movie)
+
+                if persisted_waiting and parse_episode_slug(slug):
+                    next_retry_at = float(logical.get("next_retry_at", 0) or 0)
+                    wait_reason = str(logical.get("wait_reason") or "source_unavailable")
+                    with state.queue_claim_lock:
+                        state.provider_waiting_jobs[slug] = {
+                            "movie": movie,
+                            "slug": slug,
+                            "out_root": Path(state.save_path),
+                            "movie_fallbacks": None,
+                            "wait_reason": wait_reason,
+                            "next_retry_at": next_retry_at,
+                        }
+                    restored_waiting += 1
+                    unresolved.discard(slug)
+                    progressed = True
+                    continue
+
                 prepared.append(slug)
                 unresolved.discard(slug)
+                progressed = True
             except Exception as exc:
                 log(f"Queue-Wiederherstellung für «{slug}» wartet: {exc}", "warn")
         if prepared:
             _enqueue_automatic_downloads(prepared)
         if unresolved:
+            # A temporary Jellyfin/provider outage may legitimately leave work
+            # unresolved. Avoid spinning, but do not forget any job.
             time.sleep(60)
+        elif not progressed:
+            break
+
+    if restored_waiting:
+        _persist_queue_state()
+        _ensure_provider_retry_worker()
+        log(
+            f"{restored_waiting} gespeicherte Episode(n) warten weiterhin "
+            "auf ihre nächste automatische Quellenprüfung."
+        )
 
 
 class MovieDownloadPreference(BaseModel):
