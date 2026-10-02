@@ -178,7 +178,12 @@ class PersonalRequestStore:
         with self._lock:
             entries = [item for item in self._requests if item["user_id"] == _text(user_id)]
             entries.sort(key=lambda item: item["requested_at"], reverse=True)
-            return deepcopy(entries[:max(0, limit)])
+            public = deepcopy(entries[:max(0, limit)])
+        # Recovery metadata is an internal persistence concern. Keep the public
+        # request contract byte-for-byte compatible with older installations.
+        for item in public:
+            item.pop("source_retry_generation", None)
+        return public
 
     def legacy_failed_episode_requests(self) -> list[dict]:
         """Return pre-retry failed episode intents for one-time completeness recovery.
