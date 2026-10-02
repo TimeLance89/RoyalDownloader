@@ -71,16 +71,19 @@ export function createRailRenderer(root, {
     const oldStride = Number(track.dataset?.homeLoopStride || 0);
     const oldLeading = Number(track.dataset?.homeLoopLeading || 0);
     const oldCount = Number(track.dataset?.homeLoopCount || 0);
-    const trackLeft = track.getBoundingClientRect().left;
-    const oldCards = [...track.children];
-    const visibleIndex = oldCards.findIndex(card => card.getBoundingClientRect().right > trackLeft + 2);
-    const visibleCard = oldCards[visibleIndex];
-    const followingCard = oldCards[visibleIndex + 1];
-    const visibleRect = visibleCard?.getBoundingClientRect();
-    const actualStride = followingCard && visibleRect
-      ? followingCard.getBoundingClientRect().left - visibleRect.left : 0;
-    const visibleFraction = actualStride > 0 ? (trackLeft - visibleRect.left) / actualStride : 0;
-    const visibleKey = visibleCard?.dataset.key;
+    let actualStride = 0, visibleFraction = 0, visibleKey = "";
+    if (previous?.width === 0 && track.getBoundingClientRect) {
+      const trackLeft = track.getBoundingClientRect().left;
+      const oldCards = [...track.children];
+      const visibleIndex = oldCards.findIndex(card => card.getBoundingClientRect().right > trackLeft + 2);
+      const visibleCard = oldCards[visibleIndex];
+      const followingCard = oldCards[visibleIndex + 1];
+      const visibleRect = visibleCard?.getBoundingClientRect();
+      actualStride = followingCard && visibleRect
+        ? followingCard.getBoundingClientRect().left - visibleRect.left : 0;
+      visibleFraction = actualStride > 0 ? (trackLeft - visibleRect.left) / actualStride : 0;
+      visibleKey = visibleCard?.dataset.key || "";
+    }
     const existing = new Map([...track.children].map(card => [card.dataset.renderSignature, card]));
     const nodes = [];
     const node = (spec, cycle, slot = "") => {
