@@ -95,7 +95,9 @@ function renderQueue(payload) {
         queued: "Wartet", preparing: "Prüft Quelle", waiting_provider: "Provider-Pause",
         downloading: "Lädt", paused: "Pausiert", cancelling: "Wird abgebrochen",
       };
-      status.textContent = statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
+      status.textContent = item.job_status === "waiting_provider" && item.wait_reason === "source_unavailable"
+        ? "Wartet auf Quelle"
+        : statusLabels[item.job_status] || statusLabels[item.status] || "Wartet";
       const actions = document.createElement("span");
       actions.className = "queue-item-actions";
       const addAction = (text, label, handler) => {
@@ -177,6 +179,16 @@ function queueJobMetrics(job) {
   if (speed) parts.push(`${speed}/s`);
   const eta = Number(job.eta_seconds);
   if (Number.isFinite(eta) && eta > 0) parts.push(`ETA ${Math.ceil(eta / 60)} Min.`);
+  const retryAt = Number(job.next_retry_at);
+  if (job.status === "waiting_provider" && Number.isFinite(retryAt) && retryAt > Date.now() / 1000) {
+    const minutes = Math.max(1, Math.ceil((retryAt - Date.now() / 1000) / 60));
+    const retryLabel = minutes >= 24 * 60
+      ? `nächste Langzeitprüfung in ~${Math.ceil(minutes / (24 * 60))} Tag(en)`
+      : minutes >= 60
+        ? `Retry in ~${Math.ceil(minutes / 60)} Std.`
+        : `Retry in ~${minutes} Min.`;
+    parts.push(retryLabel);
+  }
   return parts.join(" · ");
 }
 

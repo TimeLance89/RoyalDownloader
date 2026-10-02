@@ -634,14 +634,29 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
     return False
 
 
+def _waiting_retry_due(item: dict, now: float | None = None) -> bool:
+    now = time.time() if now is None else now
+    return now >= float(item.get("next_retry_at", 0) or 0)
+
+
 def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
     preferred = first_item
     while state.provider_health.request_allowed("serienstream"):
         with state.queue_claim_lock:
+            now = time.time()
             item = preferred
             preferred = None
+            if item is not None and not _waiting_retry_due(item, now):
+                item = None
             if item is None:
-                item = next(iter(state.provider_waiting_jobs.values()), None)
+                item = next(
+                    (
+                        candidate
+                        for candidate in state.provider_waiting_jobs.values()
+                        if _waiting_retry_due(candidate, now)
+                    ),
+                    None,
+                )
             if item is None:
                 return
             slug = item["slug"]
@@ -661,6 +676,7 @@ def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
             _mark_serienstream_blocked("probe_failed", str(exc))
             _defer_provider_episode(
                 item["movie"], slug, item["out_root"], item["movie_fallbacks"],
+                reason=item.get("wait_reason") or "provider_gate",
             )
             return
 
@@ -701,7 +717,15 @@ def _retry_one_waiting_fallback() -> bool:
         if state.provider_health.status("serienstream")["state"] != COOLDOWN:
             return False
         with state.queue_claim_lock:
-            item = next(iter(state.provider_waiting_jobs.values()), None)
+            now = time.time()
+            item = next(
+                (
+                    candidate
+                    for candidate in state.provider_waiting_jobs.values()
+                    if _waiting_retry_due(candidate, now)
+                ),
+                None,
+            )
             if item is None:
                 return False
             slug = item["slug"]
@@ -727,6 +751,7 @@ def _retry_one_waiting_fallback() -> bool:
         if item is not None and slug:
             _defer_provider_episode(
                 item["movie"], slug, item["out_root"], item["movie_fallbacks"],
+                reason=item.get("wait_reason") or "provider_gate",
             )
         return True
     finally:
@@ -742,36 +767,53 @@ def _provider_retry_worker() -> None:
     try:
         while True:
             with state.queue_claim_lock:
-                item = next(iter(state.provider_waiting_jobs.values()), None)
-            if item is None:
+                waiting = list(state.provider_waiting_jobs.values())
+            if not waiting:
                 return
+
+            now = time.time()
+            due = [item for item in waiting if _waiting_retry_due(item, now)]
+            next_due = min(
+                (float(item.get("next_retry_at", 0) or 0) for item in waiting),
+                default=now,
+            )
+            due_delay = max(0.0, next_due - now)
             status = state.provider_health.status("serienstream")
+
             if status["state"] == HEALTHY:
-                _resume_waiting_provider_jobs()
+                if due:
+                    _resume_waiting_provider_jobs()
+                    continue
+                state.provider_retry_wake_event.wait(min(30, max(1.0, due_delay)))
+                state.provider_retry_wake_event.clear()
                 continue
+
             if status["state"] == PROBING:
                 state.provider_retry_wake_event.wait(1)
                 state.provider_retry_wake_event.clear()
                 continue
+
             if status["remaining_seconds"] > 0:
-                delay = max(0.0, next_fallback_retry - time.monotonic())
-                if delay <= 0:
+                fallback_delay = max(0.0, next_fallback_retry - time.monotonic())
+                if due and fallback_delay <= 0:
                     if _retry_one_waiting_fallback():
                         next_fallback_retry = (
                             time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
                         )
                     else:
-                        # Eine normale Episodenvorbereitung hat Vorrang. Kurz
-                        # danach erneut versuchen, ohne im Sekundentakt zu loggen.
                         next_fallback_retry = time.monotonic() + 5
                     continue
-                state.provider_retry_wake_event.wait(min(
-                    30, status["remaining_seconds"], delay,
-                ))
+                waits = [30.0, float(status["remaining_seconds"])]
+                if fallback_delay > 0:
+                    waits.append(fallback_delay)
+                if due_delay > 0:
+                    waits.append(due_delay)
+                state.provider_retry_wake_event.wait(max(0.1, min(waits)))
                 state.provider_retry_wake_event.clear()
                 continue
+
             if state.provider_health.begin_probe("serienstream"):
-                _execute_provider_probe(item)
+                _execute_provider_probe(due[0] if due else None)
             else:
                 state.provider_retry_wake_event.wait(1)
                 state.provider_retry_wake_event.clear()
@@ -791,28 +833,76 @@ def _ensure_provider_retry_worker() -> None:
     threading.Thread(target=_provider_retry_worker, daemon=True).start()
 
 
+SOURCE_RETRY_BASE_SECONDS = 5 * 60
+SOURCE_RETRY_MAX_SECONDS = 6 * 60 * 60
+SOURCE_RETRY_FAST_ATTEMPTS = 10
+SOURCE_RETRY_LONG_SECONDS = 24 * 60 * 60
+
+
+def _source_retry_delay(attempt: int) -> int:
+    if attempt > SOURCE_RETRY_FAST_ATTEMPTS:
+        return SOURCE_RETRY_LONG_SECONDS
+    return min(
+        SOURCE_RETRY_MAX_SECONDS,
+        SOURCE_RETRY_BASE_SECONDS * (2 ** min(max(0, attempt - 1), 7)),
+    )
+
+
 def _defer_provider_episode(
     movie: FilmpalastMovie,
     slug: str,
     out_root: Path,
     movie_fallbacks: Optional[Dict[str, List[FilmpalastMovie]]] = None,
+    *,
+    reason: str = "provider_gate",
 ) -> bool:
-    """Behält eine Episode bis zur nächsten einzelnen Provider-Probe offen."""
+    """Behält eine Episode bei temporären Provider-/Quellenproblemen offen."""
     with state.queue_claim_lock:
         if slug not in state.picked or slug not in state.counted_queue_slugs:
             return False
+        logical = _queue_job_for_slug(slug) or {}
+        source_retry_count = int(logical.get("source_retry_count") or 0)
+        if reason == "source_unavailable":
+            source_retry_count += 1
+            retry_delay = _source_retry_delay(source_retry_count)
+            next_retry_at = time.time() + retry_delay
+            error = (
+                "Noch keine nutzbare Quelle verfügbar · Langzeitprüfung aktiv"
+                if source_retry_count > SOURCE_RETRY_FAST_ATTEMPTS
+                else "Noch keine nutzbare Quelle verfügbar"
+            )
+        else:
+            next_retry_at = max(
+                time.time(),
+                float(state.provider_health.next_probe_at("serienstream") or 0),
+            )
+            error = "Provider vorübergehend pausiert"
+        # A source-less episode is intentionally moved behind currently
+        # actionable work. Repeated failures therefore rotate fairly instead
+        # of pinning the front of a very large logical queue.
+        if reason == "source_unavailable":
+            state.provider_waiting_jobs.pop(slug, None)
         state.provider_waiting_jobs[slug] = {
             "movie": movie,
             "slug": slug,
             "out_root": Path(out_root),
             "movie_fallbacks": movie_fallbacks,
+            "wait_reason": reason,
+            "next_retry_at": next_retry_at,
         }
         _update_queue_job(
             slug,
             persist=False,
             status="waiting_provider",
-            next_retry_at=state.provider_health.next_probe_at("serienstream"),
+            source_retry_count=source_retry_count,
+            next_retry_at=next_retry_at,
+            wait_reason=reason,
+            error=error,
         )
+        if reason == "source_unavailable":
+            job_id = state.queue_job_by_slug.get(slug)
+            if job_id and hasattr(state.queue_jobs, "move_to_end"):
+                state.queue_jobs.move_to_end(job_id)
     _persist_queue_state()
     broadcast({"type": "queue_update", "queue": build_queue_payload()})
     _ensure_provider_retry_worker()
@@ -1039,6 +1129,11 @@ _SERVICE_EXPORTS = (
     "_retry_one_waiting_fallback",
     "_provider_retry_worker",
     "_ensure_provider_retry_worker",
+    "SOURCE_RETRY_BASE_SECONDS",
+    "SOURCE_RETRY_MAX_SECONDS",
+    "SOURCE_RETRY_FAST_ATTEMPTS",
+    "SOURCE_RETRY_LONG_SECONDS",
+    "_source_retry_delay",
     "_defer_provider_episode",
     "_episode_fallback_aliases",
     "_fallback_get_series",

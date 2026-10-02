@@ -77,7 +77,9 @@ def new_job(
         "eta_seconds": None,
         "error": "",
         "attempts": 0,
+        "source_retry_count": 0,
         "next_retry_at": 0.0,
+        "wait_reason": "",
         "final_path": "",
         "requested_by_user_id": "",
         "request_source": "",
@@ -123,7 +125,7 @@ def normalize_job(
             job[key] = float(job.get(key) or 0)
         except (TypeError, ValueError):
             job[key] = 0.0
-    for key in ("downloaded_bytes", "attempts"):
+    for key in ("downloaded_bytes", "attempts", "source_retry_count"):
         try:
             job[key] = max(0, int(job.get(key) or 0))
         except (TypeError, ValueError):

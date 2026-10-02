@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Queue source recovery
+
+- Keep series/anime episodes with temporarily unavailable or non-extractable
+  sources in the active download plan instead of immediately marking them
+  permanently failed.
+- Retry those episodes automatically with exponential backoff, then keep them
+  in a low-frequency 24-hour long-term source check instead of forgetting them
+  after a fixed retry budget, while preserving logical queue identity across
+  provider failures and restarts.
+- Recover retained pre-fix history entries such as **kein Hoster extrahierbar**
+  back into the active queue on the first restart after updating, without
+  duplicating episodes that are already active or present locally/Jellyfin.
+- Recover older manual episode requests that have already fallen out of the
+  500-row terminal queue history from the durable personal request store exactly
+  once; retained history keeps authoritative error classification so storage or
+  other permanent failures are not mislabelled as source gaps.
+- Move source-waiting episodes behind actionable queue work and show **Wartet auf
+  Quelle** plus the next retry/long-term check; manual resume triggers an
+  immediate source recheck.
+
 ### Account and household profile logic
 
 - Separate the visible **Profilname** from the **Loginname** in the UI and allow

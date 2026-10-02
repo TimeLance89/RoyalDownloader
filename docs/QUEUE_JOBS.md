@@ -30,6 +30,27 @@ Hoster hinweg zuverlässig pausieren und fortsetzen. Die API lehnt eine solche
 Pause deshalb ausdrücklich ab. Wartende Provider-Jobs können dagegen erneut
 angestoßen werden.
 
+Serienepisoden werden bei temporär nicht extrahierbaren Quellen nicht sofort
+terminal als fehlgeschlagen abgelegt. Der logische Job bleibt im aktiven Zustand
+`waiting_provider` / „Wartet auf Quelle“, speichert `next_retry_at` und einen
+separaten Quellen-Retryzähler und wird erneut über alle konfigurierten Quellen
+geprüft. Die erste Phase nutzt einen exponentiellen Backoff ab fünf Minuten bis
+maximal sechs Stunden. Nach zehn engmaschigeren Quellenprüfungen wechselt Royal
+in eine persistente Langzeitprüfung einmal pro 24 Stunden. Ein reines
+Quellen-/Hoster-Verfügbarkeitsproblem wird dadurch nicht mehr automatisch
+terminal verworfen; der Job bleibt erhalten, bis eine Quelle funktioniert, der
+Inhalt inzwischen lokal/Jellyfin-seitig gefunden wird oder der Benutzer ihn
+bewusst abbricht. Ein manueller „Fortsetzen“-Impuls darf die nächste
+Quellenprüfung sofort anstoßen.
+
+Beim Upgrade werden zusätzlich alte Episodenfehler aus der begrenzten
+Queue-Historie einmalig reaktiviert. Da die sichtbare/operative Historie nur die
+letzten 500 Terminal-Jobs hält, dient die separate persönliche Request-Historie
+als zweite Recovery-Quelle für ältere manuelle Episodenwünsche, deren Queue-Zeile
+bereits verdrängt wurde. Moderne Jobs tragen eine Recovery-Generation und
+werden dadurch nach einer bewussten/anderen Terminalisierung nicht bei jedem
+Neustart erneut künstlich erzeugt.
+
 ## Migration und Schreibsicherheit
 
 Die frühere JSON-Liste aus Slugs wird beim ersten Laden verlustfrei in das neue
