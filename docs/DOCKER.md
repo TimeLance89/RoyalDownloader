@@ -129,7 +129,7 @@ Docker Compose creates a self-contained image with dependencies installed during
 the image build:
 
 ```bash
-git clone --branch v1.5.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.5.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 docker compose up -d --build
