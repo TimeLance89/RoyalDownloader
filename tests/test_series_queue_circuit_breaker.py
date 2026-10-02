@@ -409,6 +409,30 @@ def test_source_unavailable_enters_long_term_retry_after_fast_window(monkeypatch
     assert slug in server.state.provider_waiting_jobs
 
 
+def test_source_waiting_episode_rotates_behind_actionable_queue_work(monkeypatch):
+    waiting_slug = "serienstream:exact-show-s02e04"
+    ready_slug = "serienstream:exact-show-s02e05"
+    waiting_job = new_job(waiting_slug, job_id="waiting-job")
+    ready_job = new_job(ready_slug, job_id="ready-job")
+    server.state.queue_jobs[waiting_job["job_id"]] = waiting_job
+    server.state.queue_jobs[ready_job["job_id"]] = ready_job
+    server.state.queue_job_by_slug[waiting_slug] = waiting_job["job_id"]
+    server.state.queue_job_by_slug[ready_slug] = ready_job["job_id"]
+    server.state.picked.update({waiting_slug, ready_slug})
+    server.state.counted_queue_slugs.update({waiting_slug, ready_slug})
+    monkeypatch.setattr(server.time, "time", lambda: 1_000.0)
+
+    assert list(server.state.queue_jobs) == ["waiting-job", "ready-job"]
+    assert server._defer_provider_episode(
+        episode_movie("serienstream", waiting_slug, hosters=False),
+        waiting_slug,
+        Path("/tmp"),
+        reason="source_unavailable",
+    )
+
+    assert list(server.state.queue_jobs) == ["ready-job", "waiting-job"]
+
+
 def test_source_retry_worker_does_not_ignore_future_deadline(monkeypatch, tmp_path):
     slug = "serienstream:exact-show-s02e04"
     movie = episode_movie("serienstream", slug, hosters=False)
