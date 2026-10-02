@@ -463,7 +463,9 @@ def _retry_queue_job(job_id: str) -> Optional[dict]:
             "speed_bps": 0.0,
             "eta_seconds": None,
             "error": "",
+            "source_retry_count": 0,
             "next_retry_at": 0.0,
+            "wait_reason": "",
             "final_path": "",
         })
         state.queue_jobs[job_id] = job
