@@ -65,7 +65,7 @@ from providers.catalog import (
 )
 from media.extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
-    extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
+    extract_firestream_url, extract_vidara_url, extract_vidsonic_url, extract_vinovo_url,
 )
 from media.downloader import (
     DownloadJob, DownloadQueue, build_filename, build_movie_filename,
@@ -275,6 +275,9 @@ from providers.aniworld import (
 )
 from providers.flixitv import FlixiTVScraper, SOURCE_PREFIX as FLIXITV_PREFIX
 from providers.kinoking import KinoKingScraper, SOURCE_PREFIX as KINOKING_PREFIX
+from providers.movie2k import Movie2kScraper, SOURCE_PREFIX as MOVIE2K_PREFIX
+from providers.hdfilme_family import HDFilmeFamilyScraper, SOURCE_PREFIX as HDFILME_FAMILY_PREFIX
+from providers.kellerkino import KellerKinoScraper, SOURCE_PREFIX as KELLERKINO_PREFIX
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from integrations.jellyfin_client import JellyfinClient
 from integrations.jellyfin_recommender import (
@@ -370,7 +373,7 @@ PROVIDER_LABELS = {
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
 MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv",
+    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family", "kellerkino",
 })
 MOVIE_LIST_CACHE_TTL = 300
 # Abgelaufene Providerlisten bleiben als sofortige Anzeige nutzbar, waehrend
@@ -405,7 +408,7 @@ MOVIE_GENRE_CANONICAL_BY_KEY = {
 }
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv",
+    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family",
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
@@ -654,7 +657,6 @@ install_authentication_middleware(
         public_translate_limiter=PUBLIC_TRANSLATE_LIMITER,
     ),
 )
-
 
 @app.exception_handler(Exception)
 async def handle_exc(request, exc):
@@ -955,7 +957,6 @@ app.router.routes.extend(library_router.routes)
 register_domain_router("live_updates", websocket_router)
 app.router.routes.extend(websocket_router.routes)
 
-
 # Statische Web-Oberfläche (muss NACH allen /api- und /ws-Routen gemountet
 # werden, sonst würde der Catch-all-Mount sie verdecken).
 install_domain_routers(app)
@@ -978,7 +979,6 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 app.mount("/", NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
-
 
 def _open_browser(port: int):
     time.sleep(1.0)

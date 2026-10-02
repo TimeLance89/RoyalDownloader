@@ -32,6 +32,11 @@ BASE_SCORE = {
     "doodstream": 70,
     "vidmoly": 65,
     "filemoon": 60,
+    "vinovo": 55,
+    "mixdrop": 55,
+    "dropload": 50,
+    "supervideo": 45,
+    "luluvid": 40,
     "vidsonic": 25,
     "flyfile": 20,
 }

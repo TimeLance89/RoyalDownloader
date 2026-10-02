@@ -12,13 +12,13 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from providers.sentinel_runtime import monitor_adapter
+from providers.source_utils import hoster as identify_hoster
 
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,
     FilmpalastSeries,
     FilmpalastSeriesResult,
-    HosterInfo,
     SeriesEpisode,
     parse_episode_slug,
 )
@@ -26,17 +26,12 @@ from providers.models import (
 BASE_URL = "https://kinoking.cc"
 SOURCE_PREFIX = "kinoking:"
 _CACHE: dict[str, tuple[float, BeautifulSoup]] = {}
-_SESSION = requests.Session()
+_SESSION = requests.Session(impersonate="chrome136")
 _LOCK = threading.RLock()
 _LAST_REQUEST = 0.0
 _BLOCKED_UNTIL = 0.0
 _JSON = json.JSONDecoder()
 logger = logging.getLogger(__name__)
-_HOSTERS = {
-    "voe": "VOE", "dood": "Doodstream", "streamtape": "Streamtape",
-    "vidoza": "Vidoza", "filemoon": "Filemoon", "vidmoly": "Vidmoly",
-    "mixdrop": "Mixdrop", "veev": "Veev",
-}
 
 
 def _identity(value: str) -> str:
@@ -69,7 +64,7 @@ class KinoKingScraper:
 
     @staticmethod
     def probe_session():
-        return requests.Session()
+        return requests.Session(impersonate="chrome136")
 
     def _request(self, path: str) -> BeautifulSoup:
         global _LAST_REQUEST, _BLOCKED_UNTIL
@@ -92,7 +87,7 @@ class KinoKingScraper:
                 time.sleep(delay)
             failure_reason = "transient_failure"
             try:
-                response = self.session.get(urljoin(BASE_URL, path), timeout=8)
+                response = self.session.get(urljoin(BASE_URL, path), timeout=20)
                 _LAST_REQUEST = time.monotonic()
                 if response.status_code in (403, 429, 503) or any(
                     marker in response.text.casefold()
@@ -220,17 +215,18 @@ class KinoKingScraper:
         ) if seasons else None
 
     @staticmethod
-    def _hosters(urls, language="Deutsch"):
+    def _hosters(urls, language=""):
         hosters = []
         seen = set()
         for raw in urls:
             url = str(raw or "").strip()
-            hostname = urlparse(url).hostname or ""
-            name = next((label for token, label in _HOSTERS.items() if token in hostname), "")
-            if not name or url in seen:
+            if url in seen:
+                continue
+            candidate = identify_hoster(url, language)
+            if not candidate:
                 continue
             seen.add(url)
-            hosters.append(HosterInfo(name=name, url=url, language=language, quality="HD"))
+            hosters.append(candidate)
         return hosters
 
     def get_movie(self, value: str):
@@ -261,13 +257,16 @@ class KinoKingScraper:
         if not isinstance(servers, list):
             return None
         hosters = []
+        seen = set()
         for server in servers:
             if not isinstance(server, dict):
                 continue
             language_match = re.search(r"\((DE|EN|ES|FR)\)", server.get("name", ""), re.IGNORECASE)
             language = {"DE": "Deutsch", "EN": "English", "ES": "Español", "FR": "Français"}.get(language_match.group(1).upper(), "") if language_match else ""
-            if language:
-                hosters.extend(self._hosters(server.get("mirrors") or [], language))
+            for candidate in self._hosters(server.get("mirrors") or [], language):
+                if candidate.url not in seen:
+                    seen.add(candidate.url)
+                    hosters.append(candidate)
         return FilmpalastMovie(
             title=title, url=f"{BASE_URL}/movie.php?id={identity}", year=year,
             hosters=hosters, provider="kinoking", content_language="de",

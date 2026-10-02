@@ -579,6 +579,9 @@ def _provider_statuses(serienstream_status=None) -> dict:
         "serienstream": serienstream_status or serienstream_provider_status(),
         "flixitv": state.provider_health.status("flixitv"),
         "kinoking": state.provider_health.status("kinoking"),
+        "movie2k": state.provider_health.status("movie2k"),
+        "hdfilme_family": state.provider_health.status("hdfilme_family"),
+        "kellerkino": state.provider_health.status("kellerkino"),
     }
 
 

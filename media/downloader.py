@@ -390,6 +390,24 @@ def probe_stream_url(
         return False, "Probe-Timeout"
     out = (proc.stdout or "").strip().splitlines()
     msg = out[-1][:160] if out else ""
+    if proc.returncode != 0 and urlparse(stream_url).hostname and urlparse(stream_url).hostname.endswith(".vincdn.net"):
+        # Vinovo's signed MP4 is served to the Chrome-shaped direct downloader
+        # even when yt-dlp's initial metadata request receives HTTP 403.
+        from curl_cffi import requests as cr
+        headers = {"Range": "bytes=0-0"}
+        if referer:
+            headers["Referer"] = referer
+        if origin:
+            headers["Origin"] = origin
+        try:
+            response = cr.get(stream_url, headers=headers, stream=True,
+                timeout=10, impersonate="chrome136", **request_proxy_kwargs(stream_url))
+            ok = response.status_code == 206 and response.headers.get("Content-Type", "").lower().startswith("video/")
+            response.close()
+            if ok:
+                return True, "MP4-Range-Probe OK"
+        except Exception:
+            pass
     return proc.returncode == 0, msg or f"Code {proc.returncode}"
 
 
@@ -1076,6 +1094,10 @@ class DownloadJob:
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Site": "cross-site",
             }
+            if urlparse(self.stream_url).hostname and urlparse(self.stream_url).hostname.endswith(".vincdn.net"):
+                # The CDN checks the User-Agent against the TLS fingerprint.
+                # Let curl_cffi send its matching Chrome user agent.
+                headers.pop("User-Agent")
             if self.referer:
                 headers["Referer"] = self.referer
             if self.origin:

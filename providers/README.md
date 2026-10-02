@@ -19,6 +19,9 @@ movie, series, episode, and hoster models live in `models.py`.
 | `xcine.py` | XCine | German | Movies, series |
 | `flixitv.py` | FlixiTV | German (site default) | Movies, series |
 | `kinoking.py` | KinoKing | German and source-specific | Movies, series |
+| `movie2k.py` | Movie2k | German and source-specific | Movies, series |
+| `hdfilme_family.py` | HDFilme / StreamCloud / StreamKiste | German (site default) | Movies, series |
+| `kellerkino.py` | KellerKino | German (site default) | Movies |
 | `serienstream.py` | SerienStream | German | Series |
 | `sflix.py` | SFlix | English | Movies, series |
 | `ridomovies.py` | Ridomovies | English | Movies, series |
