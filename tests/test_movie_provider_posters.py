@@ -10,6 +10,9 @@ from providers import (
     flixitv,
     huhu,
     kinoking,
+    movie2k,
+    hdfilme_family,
+    kellerkino,
     kinoger,
     kinox,
     megakino,
@@ -85,6 +88,21 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
         "kinoking": kinoking.KinoKingScraper._cards(BeautifulSoup(
             '<div class="fav-data-source" data-id="1" data-type="movie" '
             'data-title="Testfilm" data-img="https://image.test/kinoking.jpg"></div>',
+            "html.parser",
+        ))[0].cover_url,
+        "movie2k": movie2k.Movie2kScraper._cards(BeautifulSoup(
+            '<table><tr><td><img src="/poster.jpg"></td><td>'
+            '<h2><a href="/stream/testfilm">Testfilm</a></h2></td></tr></table>',
+            "html.parser",
+        ))[0].cover_url,
+        "hdfilme_family": hdfilme_family.HDFilmeFamilyScraper._cards(BeautifulSoup(
+            '<div class="item"><img src="/poster.jpg">'
+            '<a class="movie-title" href="https://hdfilme.ceo/filme1/1-testfilm-stream.html">Testfilm</a></div>',
+            "html.parser",
+        ))[0].cover_url,
+        "kellerkino": kellerkino.KellerKinoScraper._cards(BeautifulSoup(
+            '<article class="movie-card"><a class="movie-thumb" href="https://www.kellerkino.com/action/testfilm/">'
+            '<img src="/poster.jpg"></a><h2><a href="https://www.kellerkino.com/action/testfilm/">Testfilm</a></h2></article>',
             "html.parser",
         ))[0].cover_url,
         "ridomovies": _without_init(ridomovies.RidomoviesScraper)._movie_result(

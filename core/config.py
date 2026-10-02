@@ -142,7 +142,7 @@ CONTENT_LANGUAGE_DEFAULTS = provider_language_keys()
 UPDATE_MODE_MANUAL = "manual"
 UPDATE_MODE_AUTOMATIC = "automatic"
 UPDATE_MODES = {UPDATE_MODE_MANUAL, UPDATE_MODE_AUTOMATIC}
-PROVIDER_CATALOG_REVISION = 6
+PROVIDER_CATALOG_REVISION = 7
 
 
 _PROJECT_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -589,6 +589,25 @@ def _migrate_provider_catalog(values: dict) -> dict:
                     if provider not in normalized:
                         position = min(defaults.index(provider), len(normalized))
                         normalized.insert(position, provider)
+                updates[key] = ",".join(normalized)
+
+    # Revision 7: these three sources are added once to existing selections.
+    if revision < 7:
+        for media, defaults in (("movie", MOVIE_PROVIDER_DEFAULTS),
+                                ("series", SERIES_PROVIDER_DEFAULTS)):
+            for setting in ("priority", "enabled"):
+                key = f"{media}_provider_{setting}"
+                raw = values.get(key)
+                if raw is None:
+                    continue
+                normalized = (
+                    normalize_provider_order(updates.get(key, raw), defaults)
+                    if setting == "priority" else
+                    normalize_provider_selection(updates.get(key, raw), defaults)
+                )
+                for provider in ("movie2k", "hdfilme_family", "kellerkino"):
+                    if provider in defaults and provider not in normalized:
+                        normalized.insert(min(defaults.index(provider), len(normalized)), provider)
                 updates[key] = ",".join(normalized)
 
     # Revision 5: AniWorld ist die erste deutsche Anime-Quelle. Bestehende

@@ -298,6 +298,24 @@ PROVIDER_CATALOG = {
         series_priority=100, source_prefixes=("kinoking:",),
         domains=("kinoking.cc",),
     ),
+    "movie2k": ProviderDefinition(
+        key="movie2k", label="Movie2k", content_language="de",
+        media_types=("movies", "series"), movie_priority=107,
+        series_priority=105, source_prefixes=("movie2k:",),
+        domains=("movie2k.cx",),
+    ),
+    "hdfilme_family": ProviderDefinition(
+        key="hdfilme_family", label="HDFilme Family", content_language="de",
+        media_types=("movies", "series"), movie_priority=108,
+        series_priority=110, source_prefixes=("hdfilme_family:",),
+        domains=("hdfilme.ceo", "hdfilme.win", "streamcloud.download", "streamkiste.bid"),
+    ),
+    "kellerkino": ProviderDefinition(
+        key="kellerkino", label="KellerKino", content_language="de",
+        media_types=("movies",), movie_priority=109,
+        source_prefixes=("kellerkino:",),
+        domains=("www.kellerkino.com", "kellerkino.com"),
+    ),
     "serienstream": ProviderDefinition(
         key="serienstream",
         label="Serienstream",

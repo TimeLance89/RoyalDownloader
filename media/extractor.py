@@ -915,6 +915,52 @@ def extract_vidsonic_url(
     return None
 
 
+def extract_vinovo_url(
+    embed_url: str,
+    session=None,
+    log_cb: Optional[Callable[[str], None]] = None,
+) -> Optional[Tuple[str, str]]:
+    """Resolve Vinovo's short-lived signed MP4 through its player API."""
+    _log = log_cb or logger.info
+    session = session or _make_session()
+    parsed = urlparse(embed_url)
+    if not parsed.hostname or not parsed.hostname.startswith("vinovo."):
+        return None
+    try:
+        response = session.get(embed_url, timeout=12)
+        response.raise_for_status()
+        final_url = str(response.url or embed_url)
+        final = urlparse(final_url)
+        if not final.hostname or not final.hostname.startswith("vinovo."):
+            return None
+        base = f"{final.scheme}://{final.netloc}"
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(response.content, "lxml")
+        token_node = soup.select_one('meta[name="token"][content]')
+        code_node = soup.select_one('meta[name="file_code"][content]')
+        video = soup.select_one("video[data-base]")
+        if not token_node or not code_node or not video:
+            return None
+        code = code_node["content"]
+        cdn = video["data-base"].rstrip("/")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", code) or not urlparse(cdn).hostname.endswith(".vincdn.net"):
+            return None
+        api = session.post(f"{base}/api/file/url/{code}",
+            data={"token": token_node["content"]},
+            headers={"Referer": final_url, "Origin": base}, timeout=12)
+        api.raise_for_status()
+        payload = api.json()
+        signed = str(payload.get("token") or "")
+        if payload.get("status") != "ok" or not signed.startswith(code + "/") or not re.fullmatch(r"[A-Za-z0-9_/-]+", signed):
+            return None
+        direct = f"{cdn}/stream/{signed}"
+        ensure_public_http_url(direct)
+        return direct, "mp4"
+    except Exception as exc:
+        _log(f"Vinovo-Auflösung fehlgeschlagen: {exc}")
+        return None
+
+
 def extract_firestream_url(
     embed_url: str,
     session=None,

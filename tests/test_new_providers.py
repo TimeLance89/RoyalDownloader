@@ -81,6 +81,25 @@ def test_kinoking_typed_search_episode_and_languages(monkeypatch):
     ]
 
 
+def test_kinoking_retains_unknown_hoster_without_inventing_language_or_quality():
+    hosters = KinoKingScraper._hosters(["https://newhost.example/e/abc"])
+    assert [(item.name, item.language, item.quality) for item in hosters] == [
+        ("Newhost", "", ""),
+    ]
+
+
+def test_kinoking_keeps_unknown_language_and_deduplicates_servers(monkeypatch):
+    provider = KinoKingScraper()
+    page = soup('''<title>Film (2024)</title><script>const SERVERS = [
+        {"name":"Server", "mirrors":["https://vidsonic.net/e/abc"]},
+        {"name":"Server (DE)", "mirrors":["https://vidsonic.net/e/abc", "https://voe.sx/e/def"]}
+    ];</script>''')
+    monkeypatch.setattr(provider, "_request", lambda _path: page)
+    movie = provider.get_movie("kinoking:125")
+    assert [(item.name, item.language) for item in movie.hosters] == [
+        ("Vidsonic", ""), ("VOE", "Deutsch")]
+
+
 def test_provider_cooldown_stops_repeat_request(monkeypatch, tmp_path):
     import providers.kinoking as module
     health = ProviderHealth(Path(tmp_path) / "health.json", initial_cooldown=60)

@@ -416,6 +416,15 @@ def _extract_from_movie(
             parsed = urlparse(play_url)
             res.referer = f"{parsed.scheme}://{parsed.netloc}/"
             res.origin = f"{parsed.scheme}://{parsed.netloc}"
+        elif name == "vinovo":
+            try:
+                res.stream_info = extract_vinovo_url(play_url, session=session, log_cb=resolve_log)
+            except Exception as exc:
+                resolve_error = str(exc)
+                res.stream_info = None
+            parsed = urlparse(play_url)
+            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
+            res.origin = f"{parsed.scheme}://{parsed.netloc}"
         elif provider_for_value(movie.url) == "megakino":
             # MegaKino nimmt regelmaessig neue Player-Domains auf. Erst wird
             # ohne Browser nach direkten HLS-/MP4-Quellen gesucht, danach faengt
@@ -548,6 +557,34 @@ def _extract_from_movie(
                     res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = "https://mkissa.to"
+        elif res.provider in {"kinoking", "movie2k", "hdfilme_family", "kellerkino"}:
+            # New sites expose a changing mix of embed hosts. Try cheap HTML
+            # parsing, then yt-dlp's read-only probe, then the shared browser.
+            parsed = urlparse(play_url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            res.referer = play_url
+            res.origin = origin
+            if parsed.path.casefold().endswith((".m3u8", ".mp4")):
+                res.stream_info = (play_url, "hls" if parsed.path.casefold().endswith(".m3u8") else "mp4")
+            else:
+                try:
+                    res.stream_info = extract_stream_url(play_url, session=session,
+                        log_cb=resolve_log, pool=None, referer=movie.url or play_url)
+                    if res.stream_info is None:
+                        supported, _message = probe_stream_url(play_url, referer=play_url,
+                            origin=origin, timeout=12)
+                        if supported:
+                            res.stream_info = (play_url, "web")
+                    if res.stream_info is None and name not in browser_fallbacks_started:
+                        browser_fallbacks_started.add(name)
+                        pool = _shared_browser_pool("Provider-Hoster")
+                        if pool is not None:
+                            res.stream_info = extract_stream_url(play_url, session=session,
+                                log_cb=resolve_log, pool=pool, referer=movie.url or play_url,
+                                browser_wait_seconds=8)
+                except Exception as exc:
+                    resolve_error = str(exc)
+                    res.stream_info = None
         else:
             # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/…):
             # yt-dlp probieren lassen. Referer = eigene Hoster-Domain

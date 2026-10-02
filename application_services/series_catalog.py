@@ -58,6 +58,8 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return FlixiTVScraper(progress_cb=log, health=state.provider_health).search_series(query)
     if provider == "kinoking":
         return KinoKingScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "movie2k": return Movie2kScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "hdfilme_family": return HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).search_series(query)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).search_series(query)
     if provider == "sflix":
@@ -87,6 +89,9 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return FlixiTVScraper(progress_cb=log, health=state.provider_health).get_series(value)
     if provider == "kinoking":
         return KinoKingScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "movie2k": return Movie2kScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "hdfilme_family":
+        return HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).get_series(value)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).get_series(value)
     if provider == "sflix":
@@ -332,6 +337,8 @@ def _fetch_series_provider_page(
         "xcine": XcineScraper,
         "flixitv": lambda progress_cb: FlixiTVScraper(progress_cb=progress_cb, health=state.provider_health),
         "kinoking": lambda progress_cb: KinoKingScraper(progress_cb=progress_cb, health=state.provider_health),
+        "movie2k": lambda progress_cb: Movie2kScraper(progress_cb=progress_cb, health=state.provider_health),
+        "hdfilme_family": lambda progress_cb: HDFilmeFamilyScraper(progress_cb=progress_cb, health=state.provider_health),
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }

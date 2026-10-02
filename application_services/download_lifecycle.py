@@ -1011,7 +1011,7 @@ def _fallback_get_series(
         return None
     with state.fallback_series_cache_lock:
         state.fallback_provider_errors.pop(provider, None)
-    if provider in {"flixitv", "kinoking"} and series and _norm_title(series.title) != _norm_title(title):
+    if provider in {"flixitv", "kinoking", "movie2k", "hdfilme_family"} and series and _norm_title(series.title) != _norm_title(title):
         return None
     if series and not series.seasons:
         return None
