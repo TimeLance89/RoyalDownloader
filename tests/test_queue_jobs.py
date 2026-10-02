@@ -89,7 +89,14 @@ def test_restart_requeues_active_states_without_changing_identity():
 
 def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     failed = queue_jobs.new_job("provider:movie", job_id="stable-job")
-    failed.update({"status": "failed", "completed_at": 10, "error": "provider down"})
+    failed.update({
+        "status": "failed",
+        "completed_at": 10,
+        "error": "provider down",
+        "source_retry_count": 10,
+        "wait_reason": "source_unavailable",
+        "next_retry_at": 999,
+    })
     failed_attempt_id = failed["attempt_id"]
     server.state.queue_history.append(failed)
 
@@ -99,6 +106,9 @@ def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     assert retried["slug"] == "provider:movie"
     assert retried["status"] == "queued"
     assert retried["attempt_id"] != failed_attempt_id
+    assert retried["source_retry_count"] == 0
+    assert retried["wait_reason"] == ""
+    assert retried["next_retry_at"] == 0
     assert server.state.queue_job_by_slug["provider:movie"] == "stable-job"
     assert "provider:movie" in server.state.picked
 
