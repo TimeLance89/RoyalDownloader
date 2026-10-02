@@ -101,3 +101,14 @@ def test_provider_cooldown_stops_repeat_request(monkeypatch, tmp_path):
         provider.search("Exact")
     assert len(calls) == 1
     assert health.status("kinoking")["state"] == "cooldown"
+
+@pytest.mark.parametrize("name, provider_cls", [("flixitv", FlixiTVScraper), ("kinoking", KinoKingScraper)])
+def test_runtime_session_shared_but_sentinel_probe_isolated(name, provider_cls):
+    from providers.probe_contracts import create_adapter
+
+    first = provider_cls()
+    second = provider_cls()
+    probe = create_adapter(name)
+    assert first.session.session is second.session.session
+    assert probe.session.session is not first.session.session
+    probe.session.close()

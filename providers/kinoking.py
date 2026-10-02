@@ -26,6 +26,7 @@ from providers.models import (
 BASE_URL = "https://kinoking.cc"
 SOURCE_PREFIX = "kinoking:"
 _CACHE: dict[str, tuple[float, BeautifulSoup]] = {}
+_SESSION = requests.Session()
 _LOCK = threading.RLock()
 _LAST_REQUEST = 0.0
 _BLOCKED_UNTIL = 0.0
@@ -64,7 +65,11 @@ class KinoKingScraper:
     def __init__(self, progress_cb=None, health=None):
         self._log = progress_cb or logger.info
         self._health = health
-        self.session = requests.Session()
+        self.session = _SESSION
+
+    @staticmethod
+    def probe_session():
+        return requests.Session()
 
     def _request(self, path: str) -> BeautifulSoup:
         global _LAST_REQUEST, _BLOCKED_UNTIL
