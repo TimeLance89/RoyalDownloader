@@ -59,7 +59,7 @@ monitoring reuses existing adapters/resolvers and never downloads media.
 </p>
 
 > [!NOTE]
-> **`v1.5.0` is the current Stable release.** Back up at least `.env`, `data/`,
+> **`v1.5.1` is the current Stable release.** Back up at least `.env`, `data/`,
 > and `runtime/` before upgrading. See the [release guide](docs/RELEASE.md) for
 > installation, verification, backup, and rollback instructions.
 

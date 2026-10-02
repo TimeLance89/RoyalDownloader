@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_No unreleased changes._
+
+## v1.5.1 – 2026-10-02
+
 ### Large-library queue reliability
 
 - Allow Jellyfin ownership scans enough time to traverse established multi-page
@@ -41,6 +45,10 @@
   cooldown and show the next automatic retry, provider test or long-term check.
 - Keep the compact mobile status pill while allowing the explanatory line to wrap
   on narrow phones.
+
+See [v1.5.1 release notes](docs/releases/v1.5.1.md). Existing accounts,
+profiles, queues, subscriptions, storage policy and media paths remain
+compatible. Back up at least `.env`, `data/` and `runtime/` before upgrading.
 
 ## v1.5.0 – 2026-10-01
 

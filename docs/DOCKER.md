@@ -6,7 +6,7 @@
 [Repository migration](REPOSITORY_RENAME.md)
 
 > [!NOTE]
-> The current official Stable build is **`v1.5.0`**. Pin fresh installations to
+> The current official Stable build is **`v1.5.1`**. Pin fresh installations to
 > that tag and back up persistent state before upgrading.
 
 ## Contents
