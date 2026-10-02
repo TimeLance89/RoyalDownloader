@@ -361,6 +361,73 @@ def test_without_fallback_episode_stays_waiting_not_failed():
     assert server.state.done_jobs == 0
 
 
+def test_source_unavailable_episode_stays_pending_with_backoff(monkeypatch):
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    job = new_job(slug, job_id="source-wait")
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    monkeypatch.setattr(server.time, "time", lambda: 1_000.0)
+
+    assert server._defer_provider_episode(
+        movie, slug, Path("/tmp"), reason="source_unavailable",
+    )
+
+    logical = server.state.queue_jobs["source-wait"]
+    assert logical["status"] == "waiting_provider"
+    assert logical["wait_reason"] == "source_unavailable"
+    assert logical["source_retry_count"] == 1
+    assert logical["next_retry_at"] == 1_300.0
+    assert slug in server.state.provider_waiting_jobs
+    assert server.state.queue_history == []
+    assert server.state.done_jobs == 0
+
+
+def test_source_unavailable_retry_budget_eventually_becomes_terminal_candidate():
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    job = new_job(slug, job_id="source-budget")
+    job["source_retry_count"] = server.SOURCE_RETRY_MAX_ATTEMPTS
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+
+    assert not server._defer_provider_episode(
+        movie, slug, Path("/tmp"), reason="source_unavailable",
+    )
+    assert slug not in server.state.provider_waiting_jobs
+    assert server.state.queue_jobs["source-budget"]["status"] == "queued"
+
+
+def test_source_retry_worker_does_not_ignore_future_deadline(monkeypatch, tmp_path):
+    slug = "serienstream:exact-show-s02e04"
+    movie = episode_movie("serienstream", slug, hosters=False)
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_waiting_jobs[slug] = {
+        "slug": slug,
+        "movie": movie,
+        "out_root": tmp_path,
+        "movie_fallbacks": None,
+        "wait_reason": "source_unavailable",
+        "next_retry_at": 2_000.0,
+    }
+    monkeypatch.setattr(server.time, "time", lambda: 1_000.0)
+    monkeypatch.setattr(
+        server,
+        "run_download_queue",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("future source retry must not run early")
+        ),
+    )
+
+    assert server._retry_one_waiting_fallback() is False
+    assert slug in server.state.provider_waiting_jobs
+
+
 def test_cooldown_queue_distinguishes_fallback_checks_from_provider_waits():
     checking_slug = "serienstream:exact-show-s02e04"
     waiting_slug = "serienstream:exact-show-s02e05"
