@@ -71,6 +71,16 @@ export function createRailRenderer(root, {
     const oldStride = Number(track.dataset?.homeLoopStride || 0);
     const oldLeading = Number(track.dataset?.homeLoopLeading || 0);
     const oldCount = Number(track.dataset?.homeLoopCount || 0);
+    const trackLeft = track.getBoundingClientRect().left;
+    const oldCards = [...track.children];
+    const visibleIndex = oldCards.findIndex(card => card.getBoundingClientRect().right > trackLeft + 2);
+    const visibleCard = oldCards[visibleIndex];
+    const followingCard = oldCards[visibleIndex + 1];
+    const visibleRect = visibleCard?.getBoundingClientRect();
+    const actualStride = followingCard && visibleRect
+      ? followingCard.getBoundingClientRect().left - visibleRect.left : 0;
+    const visibleFraction = actualStride > 0 ? (trackLeft - visibleRect.left) / actualStride : 0;
+    const visibleKey = visibleCard?.dataset.key;
     const existing = new Map([...track.children].map(card => [card.dataset.renderSignature, card]));
     const nodes = [];
     const node = (spec, cycle, slot = "") => {
@@ -107,9 +117,18 @@ export function createRailRenderer(root, {
     nodes.forEach((card, index) => { if (track.children[index] !== card) track.insertBefore(card, track.children[index] || null); });
     const geometryChanged = oldStride !== stride || oldLeading !== buffer;
     const previousPosition = previous?.width === 0 ? carousel.homeRailStoredScroll(track, oldPosition) : oldPosition;
-    const position = width > 0 && (geometryChanged || previous?.width === 0) && oldStride > 0 && oldCount === logicalCount
+    let position = width > 0 && (geometryChanged || previous?.width === 0) && oldStride > 0 && oldCount === logicalCount
       ? (buffer + carouselPhase(previousPosition, oldLeading, oldStride, oldCount)) * stride
       : undefined;
+    // An orientation or hidden-tab transition can resize cards before the
+    // stored stride is refreshed. In that case map the visible card itself,
+    // rather than treating stale pixel geometry as a logical catalog index.
+    if (position !== undefined && previous?.width === 0 && actualStride > 0 && Math.abs(actualStride - oldStride) > 1 && visibleKey) {
+      const index = originals.findIndex(card => card.dataset.key === visibleKey);
+      if (index >= 0 && visibleFraction >= -0.1 && visibleFraction <= 1.1) {
+        position = (buffer + index + visibleFraction) * stride;
+      }
+    }
     if (width > 0) {
       prepareHomeRailLoop(track, buffer ? logicalCount : 0, { stride, leading: buffer, position });
       carousel.rememberHomeRailScroll(track, { force: geometryChanged });

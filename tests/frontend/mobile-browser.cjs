@@ -135,6 +135,15 @@ const results = [];
       });
       await page.waitForTimeout(350);
       const beforeTab = await page.locator(tabTrack).evaluate(e => e.scrollLeft);
+      const tabAnchor = () => page.locator(tabTrack).evaluate(e => {
+        const left = e.getBoundingClientRect().left;
+        const cards = [...e.children];
+        const index = cards.findIndex(card => card.getBoundingClientRect().right > left + 2);
+        const card = cards[index], rect = card.getBoundingClientRect();
+        const stride = cards[index + 1].getBoundingClientRect().left - rect.left;
+        return { key: card.dataset.key, fraction: (rect.left - left) / stride };
+      });
+      const beforeTabAnchor = await tabAnchor();
       const tabGeometry = await page.locator(tabTrack).evaluate(e => ({ id: e.id, width: e.clientWidth, stride: e.dataset.homeLoopStride, count: e.dataset.homeLoopCount, leading: e.dataset.homeLoopLeading }));
       await page.evaluate(() => fixtureApp.core.actions.switchTab('releases'));
       await page.waitForTimeout(200);
@@ -142,9 +151,11 @@ const results = [];
       await page.evaluate(() => fixtureApp.core.actions.switchTab('home'));
       await page.waitForTimeout(350);
       const afterTab = await page.locator(tabTrack).evaluate(e => e.scrollLeft);
+      const afterTabAnchor = await tabAnchor();
       if (process.env.ROYAL_TOUCH_DEBUG) console.log({ beforeTab, afterTab, tabGeometry, after: await page.locator(tabTrack).evaluate(e => ({ width: e.clientWidth, stride: e.dataset.homeLoopStride, count: e.dataset.homeLoopCount, leading: e.dataset.homeLoopLeading })) });
       const result = { viewport, start, left, right, stable, swipeClicks, gestureWrites, tapOpened,
         verticalDelta: pageAfter - pageBefore, tabDelta: Math.abs(afterTab - beforeTab),
+        tabAnchorBefore: beforeTabAnchor, tabAnchorAfter: afterTabAnchor,
         orientationMoved, seams, errors: f.errors };
       results.push(result); console.log(JSON.stringify(result));
       if (!diagnostic) {
@@ -155,7 +166,9 @@ const results = [];
         assert.deepEqual(gestureWrites, [], "no scrollLeft rewrites during native gesture");
         assert.ok(result.verticalDelta > 30, "vertical page scroll over cards");
         assert.ok(result.orientationMoved, "carousel survives orientation changes");
-        assert.ok(result.tabDelta < 2, 'same catalog tab transition preserves position');
+        assert.equal(afterTabAnchor.key, beforeTabAnchor.key, 'same catalog tab transition preserves visible card');
+        assert.ok(Math.abs(afterTabAnchor.fraction - beforeTabAnchor.fraction) < 0.02,
+          'same catalog tab transition preserves position within card');
         assert.deepEqual(f.errors, []);
       }
     } finally { await f.close(); }
