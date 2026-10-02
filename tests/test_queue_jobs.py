@@ -113,6 +113,68 @@ def test_failed_job_retry_reuses_job_id_and_slug(monkeypatch):
     assert "provider:movie" in server.state.picked
 
 
+def test_existing_retryable_episode_failures_are_recovered_after_update(monkeypatch):
+    retryable = queue_jobs.new_job(
+        "serienstream:sailor-moon-s04e19", job_id="old-source-failure",
+    )
+    retryable.update({
+        "status": "failed",
+        "completed_at": 20,
+        "error": "kein Hoster extrahierbar",
+    })
+    permanent = queue_jobs.new_job(
+        "serienstream:sailor-moon-s04e20", job_id="permanent-failure",
+    )
+    permanent.update({
+        "status": "failed",
+        "completed_at": 19,
+        "error": "Speicherziel nicht verfügbar: volume offline",
+    })
+    movie = queue_jobs.new_job("filmpalast:movie", job_id="movie-source-failure")
+    movie.update({
+        "status": "failed",
+        "completed_at": 18,
+        "error": "kein Hoster extrahierbar",
+    })
+    server.state.queue_history.extend([retryable, permanent, movie])
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    recovered = server._recover_retryable_source_history()
+
+    assert recovered == 1
+    active = server.state.queue_jobs["old-source-failure"]
+    assert active["slug"] == "serienstream:sailor-moon-s04e19"
+    assert active["status"] == "queued"
+    assert active["source_retry_count"] == 0
+    assert active["wait_reason"] == ""
+    assert active["next_retry_at"] == 0
+    assert active["slug"] in server.state.picked
+    assert {job["job_id"] for job in server.state.queue_history} == {
+        "permanent-failure", "movie-source-failure",
+    }
+
+
+def test_existing_retryable_failure_is_not_duplicated_when_slug_is_active(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e19"
+    active = queue_jobs.new_job(slug, job_id="active-job")
+    server.state.queue_jobs[active["job_id"]] = active
+    server.state.queue_job_by_slug[slug] = active["job_id"]
+    server.state.picked.add(slug)
+
+    old = queue_jobs.new_job(slug, job_id="old-failure")
+    old.update({
+        "status": "failed",
+        "completed_at": 10,
+        "error": "alle Anbieter und Filmquellen ausgeschöpft",
+    })
+    server.state.queue_history.append(old)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+
+    assert server._recover_retryable_source_history() == 0
+    assert list(server.state.queue_jobs) == ["active-job"]
+    assert server.state.queue_history[0]["job_id"] == "old-failure"
+
+
 def test_history_is_bounded_to_latest_500_jobs():
     history = []
     for index in range(520):
