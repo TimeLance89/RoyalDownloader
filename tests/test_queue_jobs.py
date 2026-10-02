@@ -193,6 +193,47 @@ def test_existing_retryable_failure_is_not_duplicated_when_slug_is_active(monkey
     assert server.state.queue_history[0]["job_id"] == "old-failure"
 
 
+def test_restart_reconstructs_waiting_source_job_and_retry_worker(monkeypatch):
+    slug = "serienstream:sailor-moon-s04e19"
+    waiting = queue_jobs.new_job(slug, job_id="waiting-source")
+    waiting.update({
+        "status": "waiting_provider",
+        "source_retry_count": 2,
+        "wait_reason": "source_unavailable",
+        "next_retry_at": 2_000.0,
+    })
+    server.state.queue_jobs[waiting["job_id"]] = waiting
+    server.state.queue_job_by_slug[slug] = waiting["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.clear()
+    monkeypatch.setattr(server.state, "total_jobs", 0)
+
+    class Placeholder:
+        title = "Sailor Moon S04E19"
+        hosters = []
+
+    placeholder = Placeholder()
+    monkeypatch.setitem(server.state.fp_movies, slug, placeholder)
+    monkeypatch.setattr(server, "_episode_placeholder", lambda _slug: placeholder)
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+    worker_starts = []
+    monkeypatch.setattr(
+        server,
+        "_ensure_provider_retry_worker",
+        lambda: worker_starts.append(True),
+    )
+
+    server.restore_persisted_queue()
+
+    restored = server.state.provider_waiting_jobs[slug]
+    assert restored["wait_reason"] == "source_unavailable"
+    assert restored["next_retry_at"] == 2_000.0
+    assert slug in server.state.counted_queue_slugs
+    assert server.state.total_jobs == 1
+    assert worker_starts == [True]
+
+
 def test_history_is_bounded_to_latest_500_jobs():
     history = []
     for index in range(520):
