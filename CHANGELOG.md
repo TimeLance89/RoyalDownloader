@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Make waiting download-plan entries self-explanatory: source waits now show the
+  reason plus the next automatic retry or long-term check, provider pauses show
+  the next provider test, and the explanatory line may wrap on narrow phones
+  instead of being truncated.
+
 ### Queue source recovery
 
 - Keep series/anime episodes with temporarily unavailable or non-extractable
