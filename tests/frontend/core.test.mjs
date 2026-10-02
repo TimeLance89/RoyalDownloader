@@ -28,6 +28,7 @@ test("home action instances keep injected catalogs isolated and resolve late pee
 });
 import { createStartupCurtain } from "../../web/js/shared/components/startup-curtain.js";
 import { createQueueSync } from "../../web/js/features/downloads/sync.js";
+import { queueWaitCopy } from "../../web/js/features/downloads/wait-state.js";
 import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
 import { createDailyTop } from "../../web/js/features/home/daily-top.js";
 import { createCardArtwork } from "../../web/js/shared/components/card-artwork.js";
@@ -62,6 +63,35 @@ import { createHeroSelection } from "../../web/js/features/home/hero-selection.j
 import { createTasteRanking } from "../../web/js/features/home/taste-ranking.js";
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
+
+test("queue wait copy explains source retries and long-term checks", () => {
+  const now = 1_000;
+  assert.equal(
+    queueWaitCopy({
+      job_status: "waiting_provider",
+      wait_reason: "source_unavailable",
+      next_retry_at: now + 27 * 60,
+    }, now),
+    "Wartet auf Quelle · Nächster Versuch in ~27 Min.",
+  );
+  assert.equal(
+    queueWaitCopy({
+      job_status: "waiting_provider",
+      wait_reason: "source_unavailable",
+      next_retry_at: now + 24 * 60 * 60,
+      error: "Noch keine nutzbare Quelle verfügbar · Langzeitprüfung aktiv",
+    }, now),
+    "Wartet auf Quelle · Langzeitprüfung in ~1 Tag",
+  );
+  assert.equal(
+    queueWaitCopy({
+      job_status: "waiting_provider",
+      next_probe_at: now + 60,
+    }, now),
+    "Provider vorübergehend pausiert · Nächster Test in ~1 Min.",
+  );
+  assert.equal(queueWaitCopy({ job_status: "queued" }, now), "");
+});
 
 for (const kind of ["movie", "series"]) test(`${kind} result cards call injected artwork candidates and create lazy posters`, t => {
   class Element extends EventTarget {
