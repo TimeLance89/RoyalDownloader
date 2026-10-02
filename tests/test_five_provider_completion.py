@@ -101,6 +101,12 @@ def test_hdf_family_parses_each_mirror_layout():
         assert [(item.title, item.slug) for item in items] == [("Matrix", "hdfilme_family:4852-Matrix")]
 
 
+def test_hdf_mirror_uses_content_title_instead_of_brand_heading():
+    detail = soup('''<meta property="og:title" content="Matrix (1999) - Stream HD Filme">
+        <h1>StreamCloud</h1>''')
+    assert HDFilmeFamilyScraper._title_year(detail) == ("Matrix", "1999")
+
+
 def test_kellerkino_movie_metadata_and_hoster_dedupe(monkeypatch):
     provider = KellerKinoScraper()
     page = soup('''<article class="movie-detail"><h1>Matrix</h1></article>

@@ -193,6 +193,17 @@ class HDFilmeFamilyScraper:
                 seen.add(item.url)
         return result
 
+    @staticmethod
+    def _title_year(soup):
+        metadata = soup.find("meta", attrs={"property": "og:title"})
+        raw = metadata.get("content", "") if metadata else ""
+        if not raw and soup.title:
+            raw = soup.title.get_text(" ", strip=True)
+        match = re.match(r"(.+?)\s*\(((?:19|20)\d{2})\)", raw)
+        if match:
+            return match.group(1).strip(), match.group(2)
+        return (soup.h1.get_text(" ", strip=True), "") if soup.h1 else ("", "")
+
     def get_series(self, value):
         detail = self._detail(value)
         if not detail:
@@ -201,7 +212,7 @@ class HDFilmeFamilyScraper:
         payload = self._player(soup, "tv")
         if not payload:
             return None
-        title = soup.h1.get_text(" ", strip=True).removesuffix(" hdfilme") if soup.h1 else ""
+        title, _year = self._title_year(soup)
         seasons = {}
         for row in payload.get("tv", {}).get("seasons", []):
             try:
@@ -244,10 +255,8 @@ class HDFilmeFamilyScraper:
         else:
             sources = payload.get("sources", [])
         links = self._hosters(sources)
-        title = soup.h1.get_text(" ", strip=True).removesuffix(" hdfilme") if soup.h1 else ""
-        detail_text = soup.h1.parent.parent.get_text(" ", strip=True) if soup.h1 else ""
-        year_match = re.search(r"\b(?:19|20)\d{2}\b", detail_text)
+        title, year = self._title_year(soup)
         if parsed:
             title += f" S{parsed[1]:02d}E{parsed[2]:02d}"
-        return FilmpalastMovie(title, url, year=year_match.group() if year_match else "", hosters=links,
+        return FilmpalastMovie(title, url, year=year, hosters=links,
             provider="hdfilme_family", content_language="de") if title and links else None

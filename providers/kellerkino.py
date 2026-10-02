@@ -79,7 +79,8 @@ class KellerKinoScraper:
         links, seen = [], set()
         for iframe in soup.select("iframe[src]"):
             url = urljoin(BASE_URL, iframe["src"])
-            if url in seen or "youtube.com" in urlparse(url).netloc:
+            hostname = (urlparse(url).hostname or "").lower()
+            if url in seen or hostname in {"youtube.com", "youtu.be"} or hostname.endswith(".youtube.com"):
                 continue
             candidate = hoster(url)
             if candidate:
