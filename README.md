@@ -164,7 +164,7 @@ Discover → Match metadata → Check Jellyfin → Select provider → Queue
 and series directories.
 
 ```bash
-git clone --branch v1.5.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.5.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 ```
@@ -216,7 +216,7 @@ Select **Regular computer** and choose separate movie and series directories.
 <summary><strong>macOS or Linux</strong></summary>
 
 ```bash
-git clone --branch v1.5.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.5.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 python3 -m pip install -r requirements.lock
 python3 server.py
@@ -234,7 +234,7 @@ This mode is intended for NAS systems that mount the project directory into a
 Python container.
 
 ```bash
-git clone --branch v1.5.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.5.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 bash start.sh
 ```
