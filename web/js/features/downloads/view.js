@@ -181,7 +181,13 @@ function queueJobMetrics(job) {
   if (Number.isFinite(eta) && eta > 0) parts.push(`ETA ${Math.ceil(eta / 60)} Min.`);
   const retryAt = Number(job.next_retry_at);
   if (job.status === "waiting_provider" && Number.isFinite(retryAt) && retryAt > Date.now() / 1000) {
-    parts.push(`Retry in ~${Math.max(1, Math.ceil((retryAt - Date.now() / 1000) / 60))} Min.`);
+    const minutes = Math.max(1, Math.ceil((retryAt - Date.now() / 1000) / 60));
+    const retryLabel = minutes >= 24 * 60
+      ? `nächste Langzeitprüfung in ~${Math.ceil(minutes / (24 * 60))} Tag(en)`
+      : minutes >= 60
+        ? `Retry in ~${Math.ceil(minutes / 60)} Std.`
+        : `Retry in ~${minutes} Min.`;
+    parts.push(retryLabel);
   }
   return parts.join(" · ");
 }
