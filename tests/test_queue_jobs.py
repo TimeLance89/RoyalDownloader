@@ -270,7 +270,9 @@ def test_evicted_legacy_personal_episode_failure_is_recovered_once(monkeypatch, 
     assert job["slug"] in server.state.picked
     request = store.recent_for_user("user-a")[0]
     assert request["status"] == "queued"
-    assert request["source_retry_generation"] == 1
+    assert "source_retry_generation" not in request
+    persisted_request = json.loads(request_file.read_text(encoding="utf-8"))["requests"][0]
+    assert persisted_request["source_retry_generation"] == 1
 
     assert server._recover_evicted_personal_episode_failures() == 0
 
