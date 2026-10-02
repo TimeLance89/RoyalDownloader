@@ -480,9 +480,99 @@ def _recover_retryable_source_history() -> int:
     return recovered
 
 
+def _recover_evicted_personal_episode_failures() -> int:
+    """Recover legacy failed episode intents whose bounded queue history was evicted.
+
+    The queue keeps only the latest terminal rows, while PersonalRequestStore is
+    the durable record of conscious manual requests. We only use generation-0
+    failures that are no longer represented by active queue state or terminal
+    history. That makes this a one-time migration safety net, not an unbounded
+    retry loop for modern jobs.
+    """
+    store = getattr(state, "personal_requests", None)
+    if store is None or not hasattr(store, "legacy_failed_episode_requests"):
+        return 0
+
+    requests = store.legacy_failed_episode_requests()
+    if not requests:
+        return 0
+
+    recovered: list[dict] = []
+    with state.queue_claim_lock:
+        history_ids = {
+            str(job.get("job_id") or "") for job in state.queue_history
+            if str(job.get("job_id") or "")
+        }
+        active_ids = set(state.queue_jobs)
+        active_slugs = set(state.queue_job_by_slug)
+
+        for request in requests:
+            slug = str(request.get("media_key") or "")
+            if not slug or parse_episode_slug(slug) is None or slug in active_slugs:
+                continue
+            historical_job_id = str(request.get("job_id") or "")
+            # If the full queue history row still exists, its exact error decides
+            # whether it is retryable. The personal-request fallback is only for
+            # rows already evicted by HISTORY_LIMIT.
+            if historical_job_id and historical_job_id in history_ids:
+                continue
+            requested_job_id = (
+                historical_job_id
+                if historical_job_id and historical_job_id not in active_ids
+                else ""
+            )
+            job = _ensure_queue_job(slug, job_id=requested_job_id)
+            job.update({
+                "requested_by_user_id": str(request.get("user_id") or ""),
+                "request_source": str(request.get("request_source") or "manual")[:32],
+                "status": "queued",
+                "source_retry_count": 0,
+                "next_retry_at": 0.0,
+                "wait_reason": "",
+                "error": "",
+            })
+            state.picked.add(slug)
+            active_ids.add(str(job.get("job_id") or ""))
+            active_slugs.add(slug)
+            recovered.append(dict(job))
+
+    if not recovered:
+        return 0
+
+    if not _persist_queue_state():
+        # Do not mark the durable user intent as migrated unless the recreated
+        # queue claims themselves have been durably accepted.
+        recovered_ids = {str(job.get("job_id") or "") for job in recovered}
+        recovered_slugs = {str(job.get("slug") or "") for job in recovered}
+        with state.queue_claim_lock:
+            for job_id in recovered_ids:
+                job = state.queue_jobs.get(job_id)
+                if job and str(job.get("slug") or "") in recovered_slugs:
+                    state.queue_jobs.pop(job_id, None)
+            for slug in recovered_slugs:
+                state.queue_job_by_slug.pop(slug, None)
+                state.picked.discard(slug)
+        log(
+            "Alte fehlgeschlagene Episoden konnten noch nicht sicher "
+            "wiederhergestellt werden; nächster Start versucht es erneut.",
+            "warn",
+        )
+        return 0
+
+    for job in recovered:
+        store.update_from_job(job)
+
+    log(
+        f"Stelle {len(recovered)} ältere manuelle Episodenwünsche wieder her, "
+        "deren Queue-Historie bereits aus dem 500er-Fenster gefallen war."
+    )
+    return len(recovered)
+
+
 def restore_persisted_queue():
     """Stellt nach einem Neustart offene und frühere retrybare Queue-Einträge wieder her."""
     _recover_retryable_source_history()
+    _recover_evicted_personal_episode_failures()
     with state.queue_claim_lock:
         unresolved = set(state.picked)
     if not unresolved:
