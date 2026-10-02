@@ -56,17 +56,25 @@ def plan_recommendations(roots: list[dict], document: dict, *, now: float,
         old = document["recommendations"].get(proposal_id, {})
         if old.get("dismissed_until", 0) > now or old.get("job_id"):
             continue
+        reserved_bytes = reserved.get(source.get("volume_id"), 0)
+        total_bytes = max(1, int(source.get("total_bytes", 0)))
+        physical_percent = float(source.get("used_percent", 0))
+        projected_percent = round(100 * (total_bytes - int(source.get("free_bytes", 0)) + reserved_bytes) / total_bytes, 2)
         proposals.append({
             "id": proposal_id, "item_id": item["id"], "name": item["name"],
             "source_root": item["root"], "destination_root": best["root"],
             "size_bytes": size, "score": best["score"], "reasons": best["reasons"],
-            "reason": "Bibliotheksalter: Archiv geeignet" if archive and pressure == "normal" else "Speicher oberhalb der Warnschwelle",
-            "before_percent": source.get("used_percent", 0),
-            "after_percent": round(max(0, float(source.get("used_percent", 0)) - 100 * size / max(1, source.get("total_bytes", 1))), 2),
+            "reason": "Bibliotheksalter: Archiv geeignet" if archive and pressure == "normal" else "Geplante Speicherlast oberhalb der Warnschwelle",
+            "before_percent": physical_percent,
+            "after_percent": round(max(0, physical_percent - 100 * size / total_bytes), 2),
+            "reserved_bytes": reserved_bytes,
+            "projected_percent": projected_percent,
+            "projected_after_percent": round(projected_percent - 100 * size / total_bytes, 2),
+            "safe_remaining_bytes": max(0, int(source.get("free_bytes", 0)) - reserved_bytes - int(source_policy["reserve_gib"] * GIB)),
             "expected_target_percent": best["expected_percent"],
             "automatic_eligible": bool(item.get("owned") or item.get("owned_files")),
             "created_at": now, "state": "available", "archive": archive,
         })
-        if len(proposals) >= 80:
-            break
-    return sorted(proposals, key=lambda proposal: (-proposal["before_percent"], -proposal["size_bytes"], proposal["id"]))
+    # Rank all bounded inventory candidates before truncation. A scan-order
+    # cutoff could otherwise hide the moves that actually relieve the most GB.
+    return sorted(proposals, key=lambda proposal: (-proposal["size_bytes"], -proposal["projected_percent"], proposal["id"]))[:80]

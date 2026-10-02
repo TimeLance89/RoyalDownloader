@@ -5,10 +5,38 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from statistics import median
 
 from storage.storage_inventory import record_activity, transact
 from storage.storage_policy import GIB, volume_policy
 from storage.storage_score import score_target
+
+# Pending work is demand, not space already committed on its original volume.
+# Reserve only the next scheduling window; each job gets a fresh, atomic
+# reservation when it actually starts. Active work is always counted in full.
+QUEUE_LOOKAHEAD = 32
+ACTIVE_STATUSES = frozenset(("preparing", "downloading"))
+FINISHED_STATUSES = frozenset(("completed", "failed", "cancelled"))
+
+
+def _media_key(job: dict) -> str:
+    return "movie" if job.get("media_type") in ("movie", "movies") else "series"
+
+
+def _pending_estimates(policy: dict, jobs: list[dict]) -> dict[str, int]:
+    """Use a cautious per-type median when providers supplied known sizes."""
+    fallback = int(policy["unknown_download_gib"] * GIB)
+    known = {"movie": [], "series": []}
+    for job in jobs:
+        size = int(job.get("total_bytes") or 0)
+        if size > 0:
+            known[_media_key(job)].append(size)
+    estimates = {}
+    for media, sizes in known.items():
+        baseline = fallback if media == "movie" else min(fallback, 2 * GIB)
+        minimum = 2 * GIB if media == "movie" else GIB // 2
+        estimates[media] = max(minimum, int(median(sizes) * 1.5) if sizes else baseline)
+    return estimates
 
 
 def advise_queued_downloads(document: dict, roots: list[dict], queue_jobs: list[dict], move_jobs: list[dict]) -> list[dict]:
@@ -48,11 +76,17 @@ def reserved_by_volume(document: dict, roots: list[dict], queue_jobs: list[dict]
             add(reservation["root"], reservation["size_bytes"])
         accounted.add(job_id)
     fallback = int(document["policy"]["unknown_download_gib"] * GIB)
+    estimates = _pending_estimates(document["policy"], queue_jobs)
+    pending_count = 0
     for job in queue_jobs:
-        if job.get("job_id") in accounted or job.get("job_id") == exclude or job.get("status") in ("completed", "failed", "cancelled"):
+        status = job.get("status")
+        if job.get("job_id") in accounted or job.get("job_id") == exclude or status in FINISHED_STATUSES:
             continue
-        media = job.get("media_type", "movie")
-        root_key = "movies" if media == "movie" else "series"
+        if status not in ACTIVE_STATUSES:
+            if pending_count >= QUEUE_LOOKAHEAD:
+                continue
+            pending_count += 1
+        root_key = "movies" if _media_key(job) == "movie" else "series"
         if job.get("final_path"):
             matches = []
             for root in roots:
@@ -63,7 +97,8 @@ def reserved_by_volume(document: dict, roots: list[dict], queue_jobs: list[dict]
                     continue
             if matches:
                 root_key = max(matches, key=lambda root: (len(Path(root["path"]).parts), root["key"] == root_key))["key"]
-        add(root_key, max(0, int(job.get("total_bytes") or fallback) - int(job.get("downloaded_bytes") or 0)))
+        unknown = fallback if status in ACTIVE_STATUSES else estimates[_media_key(job)]
+        add(root_key, max(0, int(job.get("total_bytes") or unknown) - int(job.get("downloaded_bytes") or 0)))
         accounted.add(job.get("job_id"))
     for move in move_jobs:
         add(move.get("destination_root"), int(move.get("size_bytes") or 0))

@@ -19,6 +19,14 @@ def _sync_personal_request(job: dict | None) -> None:
         store.update_from_job(job)
 
 
+def _release_storage_reservation(job_id: str) -> None:
+    try:
+        from application_services.storage_autopilot_runtime import release_reservation
+        release_reservation(job_id)
+    except (OSError, ValueError):
+        log(f"Storage-Reservierung für {job_id} wird später abgeglichen.", "warn")
+
+
 def queue_group_name(slug: str) -> str:
     parsed = parse_episode_slug(slug)
     if not parsed:
@@ -371,6 +379,7 @@ def _terminal_queue_job(
         snapshot = deepcopy(job)
     if persist and not _persist_queue_state():
         log(f"Terminaler Queue-Job {job_id} konnte nicht gespeichert werden.", "warn")
+    _release_storage_reservation(job_id)
     _sync_personal_request(snapshot)
     return snapshot
 
@@ -422,6 +431,7 @@ def _apply_terminal_queue_job(terminal: dict) -> None:
                 if item.get("job_id") != job_id
             ),
         ][:HISTORY_LIMIT]
+    _release_storage_reservation(job_id)
     _sync_personal_request(terminal)
 
 
