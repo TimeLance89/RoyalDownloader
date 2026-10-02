@@ -286,6 +286,18 @@ PROVIDER_CATALOG = {
         content_languages=("de", "en"),
         track_languages=(("dub", "de"), ("sub", "de"), ("eng", "en")),
     ),
+    "flixitv": ProviderDefinition(
+        key="flixitv", label="FlixiTV", content_language="de",
+        media_types=("movies", "series"), movie_priority=105,
+        series_priority=90, source_prefixes=("flixitv:",),
+        domains=("flixitv-stream.eu",),
+    ),
+    "kinoking": ProviderDefinition(
+        key="kinoking", label="KinoKing", content_language="de",
+        media_types=("movies", "series"), movie_priority=106,
+        series_priority=100, source_prefixes=("kinoking:",),
+        domains=("kinoking.cc",),
+    ),
     "serienstream": ProviderDefinition(
         key="serienstream",
         label="Serienstream",

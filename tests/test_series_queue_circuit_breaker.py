@@ -860,3 +860,77 @@ def test_empty_prepared_episode_fallbacks_do_not_suppress_live_moflix_search(
     assert queued == {slug}
     assert len(searches) == 1
     assert enqueued[0].provider == "moflix"
+
+def test_blocked_serienstream_uses_exact_kinoking_episode(monkeypatch, tmp_path):
+    slug = "serienstream:exact-show-s02e04"
+    primary = episode_movie("serienstream", slug, hosters=False)
+    fallback = episode_movie("kinoking", "kinoking:123-s02e04")
+    result = FilmpalastSeriesResult(
+        "Exact Show", "kinoking:123", "kinoking:123",
+        "https://kinoking.cc/series.php?id=123", tmdb_id="777",
+    )
+    series = FilmpalastSeries(
+        "Exact Show", "kinoking:123", result.sample_url,
+        seasons={2: [SeriesEpisode(2, 4, "kinoking:123-s02e04", result.sample_url)]},
+    )
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "flixitv", "kinoking"])
+    monkeypatch.setattr(server, "_episode_fallback_aliases", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda provider, _title: [result] if provider == "kinoking" else [])
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda provider, _value: series if provider == "kinoking" else None)
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda value: fallback if value == "kinoking:123-s02e04" else None)
+    monkeypatch.setattr(server, "_extract_from_movie", lambda movie, *_args, **_kwargs: SimpleNamespace(
+        stream_info=("https://cdn.invalid/video.m3u8", "hls") if movie.provider == "kinoking" else None,
+        gated=movie.provider == "serienstream", provider=movie.provider,
+        content_language="de", hoster_used="VOE", hoster_url_used="https://cdn.invalid/video.m3u8",
+        source_hoster_url="https://cdn.invalid/video.m3u8", referer=movie.url,
+        origin="https://cdn.invalid", quality="HD",
+    ))
+    enqueued = []
+    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: enqueued.append(kwargs["movie"]) or True)
+    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
+    assert [movie.provider for movie in enqueued] == ["kinoking"]
+    assert slug not in server.state.provider_waiting_jobs
+
+
+def test_kinoking_tmdb_mismatch_is_not_used(monkeypatch):
+    with server.state.watchlist_lock:
+        server.state.watchlist = [{"base_slug": "x", "tmdb_id": "777", "title": "Exact Show"}]
+    result = FilmpalastSeriesResult(
+        "Exact Show", "kinoking:123", "kinoking:123",
+        "https://kinoking.cc/series.php?id=123", tmdb_id="778",
+    )
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_args: [result])
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *_args: (_ for _ in ()).throw(AssertionError("wrong TMDB loaded")))
+    assert server._fallback_get_series("kinoking", "Exact Show", tmdb_id="777") is None
+
+def test_blocked_serienstream_new_providers_without_match_keeps_job_waiting(monkeypatch, tmp_path):
+    slug = "serienstream:exact-show-s02e04"
+    primary = episode_movie("serienstream", slug, hosters=False)
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    server.state.provider_health.mark_blocked("serienstream", "captcha_gate")
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "flixitv", "kinoking"])
+    monkeypatch.setattr(server, "_episode_fallback_aliases", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_search_series_for_provider", lambda *_args: [])
+    monkeypatch.setattr(server, "_extract_from_movie", lambda movie, *_args, **_kwargs: SimpleNamespace(
+        stream_info=None, gated=True, provider=movie.provider, content_language="de",
+    ))
+    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
+    assert slug in server.state.provider_waiting_jobs
+    assert slug in server.state.picked
+
+def test_flixitv_hubu_direct_source_uses_hubu_referer(monkeypatch):
+    movie = FilmpalastMovie(
+        title="Exact Show S01E03", url="https://flixitv-stream.eu/watch/?v=abc",
+        provider="flixitv", content_language="de",
+        hosters=[HosterInfo("Hubu", "https://ww3.hubu.cloud/abc/episode.mp4?download_token=x", "Deutsch")],
+    )
+    monkeypatch.setattr(server, "probe_stream_url", lambda *_args, **_kwargs: (True, "ok"))
+    result = server._extract_from_movie(movie, set())
+    assert result.stream_info == (movie.hosters[0].url, "web")
+    assert result.referer == "https://hubu.cloud/"

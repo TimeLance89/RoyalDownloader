@@ -508,6 +508,10 @@ def _extract_from_movie(
                 res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = RIDOMOVIES_BASE_URL
+        elif name == "hubu" and urlparse(play_url).path.casefold().endswith(".mp4"):
+            res.stream_info = (play_url, "web")
+            res.referer = "https://hubu.cloud/"
+            res.origin = "https://hubu.cloud"
         elif provider_for_value(movie.url) == "mkissa":
             # MKissa liefert direkte Streams und generische Anime-Embeds.
             # Direkte Medien bleiben unangetastet; Embed-Player durchlaufen
