@@ -93,7 +93,7 @@ class FlixiTVScraper:
                 if response.status_code == 404:
                     failure_reason = "unavailable"
                 response.raise_for_status()
-                soup = BeautifulSoup(response.content.decode("cp1252"), "lxml")
+                soup = BeautifulSoup(response.content.decode("cp1252", errors="replace"), "lxml")
                 ttl = 60 if urlparse(path).hostname == "hubu.cloud" else (900 if query else 1200)
                 _cache[key] = (time.monotonic() + ttl, soup)
                 if probe:
