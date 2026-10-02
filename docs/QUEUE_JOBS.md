@@ -30,6 +30,17 @@ Hoster hinweg zuverlässig pausieren und fortsetzen. Die API lehnt eine solche
 Pause deshalb ausdrücklich ab. Wartende Provider-Jobs können dagegen erneut
 angestoßen werden.
 
+Serienepisoden werden bei temporär nicht extrahierbaren Quellen nicht sofort
+terminal als fehlgeschlagen abgelegt. Der logische Job bleibt im aktiven Zustand
+`waiting_provider` / „Wartet auf Quelle“, speichert `next_retry_at` und einen
+separaten Quellen-Retryzähler und wird mit exponentiellem Backoff erneut über
+alle konfigurierten Quellen geprüft. Der Backoff startet bei fünf Minuten,
+ist auf sechs Stunden pro Versuch begrenzt und endet nach zehn automatischen
+Quellen-Retries. Erst dann wird der Job als `failed` historisiert. Ein
+Benutzer-Retry startet anschließend mit derselben `job_id`, einer neuen
+`attempt_id` und einem frischen Quellen-Retrybudget. Ein manueller
+„Fortsetzen“-Impuls darf die nächste Quellenprüfung sofort anstoßen.
+
 ## Migration und Schreibsicherheit
 
 Die frühere JSON-Liste aus Slugs wird beim ersten Laden verlustfrei in das neue
