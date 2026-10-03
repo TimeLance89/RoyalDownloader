@@ -263,6 +263,9 @@ from providers.ridomovies import (
     RidomoviesScraper,
     SOURCE_PREFIX as RIDOMOVIES_PREFIX,
 )
+from providers.tmdb_embeds import VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper
+from providers.moviebox import MovieBoxScraper
+from providers.vidlink import VidLinkScraper
 from providers.mkissa import (
     BASE_URL as MKISSA_BASE_URL,
     MkissaScraper,
@@ -328,6 +331,7 @@ import core.config as appconfig
 import core.auth as appauth
 from core.app_version import APP_VERSION
 from updates.update_channels import UPDATE_CHANNEL_BRANCHES
+_ENGLISH_ADAPTERS = dict(vidsrc=VidSrcScraper, vidrift=VidRiftScraper, vixsrc=VixSrcScraper, vidrock=VidRockScraper, vidlink=VidLinkScraper, moviebox=MovieBoxScraper)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -460,7 +464,6 @@ from application_services.provider_monitor import ProviderMonitor
 from providers.sentinel_runtime import install_runtime
 from api.api_provider_monitor_router import create_provider_monitor_router
 
-
 def _sentinel_enabled_providers():
     with state.provider_priority_lock:
         return list(dict.fromkeys(
@@ -468,7 +471,6 @@ def _sentinel_enabled_providers():
             for provider in state.provider_enabled.get(media_type, ())
             if provider_supports_languages(provider, state.content_languages)
         ))
-
 
 provider_monitor = ProviderMonitor(
     appconfig.data_dir() / "provider_monitor.json", state.provider_health,
@@ -501,13 +503,11 @@ def start_background_services():
 
 register_builtin_worker_controllers(state.module_manager)
 
-
 async def _runtime_cache_maintenance_loop() -> None:
     while True:
         await asyncio.sleep(60)
         await asyncio.to_thread(state.maintain_runtime_caches)
         await asyncio.to_thread(state.module_manager.reconcile_all)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

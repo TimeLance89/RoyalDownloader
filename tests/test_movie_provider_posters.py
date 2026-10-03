@@ -22,6 +22,9 @@ from providers import (
     xcine,
 )
 from providers.catalog import provider_keys
+from providers.tmdb_embeds import VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper
+from providers.moviebox import MovieBoxScraper
+from providers.vidlink import VidLinkScraper
 
 
 def _without_init(scraper_class):
@@ -118,6 +121,15 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
         "<item><description><![CDATA[<img src='/poster.jpg'>]]></description></item>"
     )
     posters["kinox"] = kinox_scraper._rss_cover_url(rss_item)
+
+    class TMDB:
+        def search_movies(self, _query, max_results=12):
+            return [{"tmdb_id": 1, "title": "Testfilm", "cover_url": "https://image.test/tmdb.jpg"}]
+
+    for scraper in (VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper, MovieBoxScraper, VidLinkScraper):
+        adapter = scraper(tmdb=TMDB())
+        posters[adapter.provider] = adapter.search("Testfilm")[0].cover_url
+        adapter.session.close()
 
     assert set(posters) == set(provider_keys("movies"))
     assert all(posters.values()), posters
