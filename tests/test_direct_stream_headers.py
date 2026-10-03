@@ -53,6 +53,6 @@ def test_dash_probe_passes_signed_headers_to_downloader(monkeypatch):
         origin="https://moviebox.ph", headers={"Cookie": "CloudFront-Policy=signed"},
     )
     assert ok
-    assert "https://moviebox.ph/" in commands[0]
+    assert commands[0][commands[0].index("--referer") + 1] == "https://moviebox.ph/"
     assert "Origin:https://moviebox.ph" in commands[0]
     assert "Cookie:CloudFront-Policy=signed" in commands[0]

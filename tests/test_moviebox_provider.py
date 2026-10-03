@@ -1,5 +1,6 @@
 import base64
 import json
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -88,13 +89,13 @@ def test_moviebox_api_host_failover_on_rate_limit():
 
         def request(self, method, url, **kwargs):
             self.calls.append((url, kwargs["headers"]))
-            return Response(429 if "api6.aoneroom.com" in url else 200)
+            return Response(429 if urlsplit(url).hostname == "api6.aoneroom.com" else 200)
 
     session = Session()
     scraper = MovieBoxScraper(tmdb=TMDB(), session=session)
     scraper._anonymous_token = lambda: "temporary"
     result = scraper._call("GET", "/example")
     assert result == {"found": True}
-    assert "api6.aoneroom.com" in session.calls[0][0]
-    assert "api5.aoneroom.com" in session.calls[1][0]
+    assert urlsplit(session.calls[0][0]).hostname == "api6.aoneroom.com"
+    assert urlsplit(session.calls[1][0]).hostname == "api5.aoneroom.com"
     assert session.calls[1][1]["Authorization"] == "Bearer temporary"
