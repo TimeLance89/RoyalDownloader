@@ -991,6 +991,10 @@ def _fallback_get_series(
                 (result for result in results if _norm_title(result.title) == wanted),
                 None,
             )
+            if best and provider == "kinoking" and tmdb_id:
+                result_tmdb = str(getattr(best, "tmdb_id", "") or "")
+                if result_tmdb != tmdb_id:
+                    best = None
             matched = best is not None
             series = _load_series_for_provider(provider, best.sample_slug) if best else None
     except Exception as exc:
@@ -1007,6 +1011,8 @@ def _fallback_get_series(
         return None
     with state.fallback_series_cache_lock:
         state.fallback_provider_errors.pop(provider, None)
+    if provider in {"flixitv", "kinoking", "movie2k", "hdfilme_family"} and series and _norm_title(series.title) != _norm_title(title):
+        return None
     if series and not series.seasons:
         return None
     if matched and series is None:

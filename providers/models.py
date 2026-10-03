@@ -42,6 +42,7 @@ class FilmpalastSearchResult:
     provider: str = ""
     content_language: str = ""
     cover_url: str = ""
+    tmdb_id: str = ""
 
 
 @dataclass
@@ -52,6 +53,11 @@ class HosterInfo:
     url: str
     language: str = ""
     quality: str = ""
+    referer: str = ""
+    origin: str = ""
+    stream_type: str = ""
+    audio_language: str = ""
+    headers: Dict[str, str] = field(default_factory=dict)
 
     @property
     def is_de(self) -> bool:
@@ -168,3 +174,4 @@ class FilmpalastSeriesResult:
     sample_url: str
     year: str = ""
     cover_url: str = ""
+    tmdb_id: str = ""

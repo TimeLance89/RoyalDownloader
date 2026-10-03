@@ -65,7 +65,7 @@ from providers.catalog import (
 )
 from media.extractor import (
     VOEBrowserPool, extract_stream_url, pre_check_voe, VOE_NOT_FOUND, extract_doodstream_url,
-    extract_firestream_url, extract_vidara_url, extract_vidsonic_url,
+    extract_firestream_url, extract_vidara_url, extract_vidsonic_url, extract_vinovo_url,
 )
 from media.downloader import (
     DownloadJob, DownloadQueue, build_filename, build_movie_filename,
@@ -263,6 +263,9 @@ from providers.ridomovies import (
     RidomoviesScraper,
     SOURCE_PREFIX as RIDOMOVIES_PREFIX,
 )
+from providers.tmdb_embeds import VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper
+from providers.moviebox import MovieBoxScraper
+from providers.vidlink import VidLinkScraper
 from providers.mkissa import (
     BASE_URL as MKISSA_BASE_URL,
     MkissaScraper,
@@ -273,6 +276,11 @@ from providers.aniworld import (
     AniWorldScraper,
     SOURCE_PREFIX as ANIWORLD_PREFIX,
 )
+from providers.flixitv import FlixiTVScraper, SOURCE_PREFIX as FLIXITV_PREFIX
+from providers.kinoking import KinoKingScraper, SOURCE_PREFIX as KINOKING_PREFIX
+from providers.movie2k import Movie2kScraper, SOURCE_PREFIX as MOVIE2K_PREFIX
+from providers.hdfilme_family import HDFilmeFamilyScraper, SOURCE_PREFIX as HDFILME_FAMILY_PREFIX
+from providers.kellerkino import KellerKinoScraper, SOURCE_PREFIX as KELLERKINO_PREFIX
 from providers.serienstream import SerienstreamScraper, SOURCE_PREFIX as SERIENSTREAM_PREFIX
 from integrations.jellyfin_client import JellyfinClient
 from integrations.jellyfin_recommender import (
@@ -323,6 +331,7 @@ import core.config as appconfig
 import core.auth as appauth
 from core.app_version import APP_VERSION
 from updates.update_channels import UPDATE_CHANNEL_BRANCHES
+_ENGLISH_ADAPTERS = dict(vidsrc=VidSrcScraper, vidrift=VidRiftScraper, vixsrc=VixSrcScraper, vidrock=VidRockScraper, vidlink=VidLinkScraper, moviebox=MovieBoxScraper)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy_logger in ("websockets", "nodriver", "urllib3"):
@@ -368,7 +377,7 @@ PROVIDER_LABELS = {
 }
 MOVIE_BROWSE_PAGE_SIZE = 32
 MOVIE_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
+    "filmpalast", "filmo", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family", "kellerkino",
 })
 MOVIE_LIST_CACHE_TTL = 300
 # Abgelaufene Providerlisten bleiben als sofortige Anzeige nutzbar, waehrend
@@ -403,7 +412,7 @@ MOVIE_GENRE_CANONICAL_BY_KEY = {
 }
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies",
+    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family",
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
@@ -415,7 +424,6 @@ SERIES_MAX_SOURCE_PAGE = 50
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 SERIES_CATALOG_PAGE_BUDGET_SECONDS = 12.0
 
-
 from application_services.runtime import register_backend, refresh_services
 register_backend(sys.modules[__name__])
 from application_services import auth as _auth_service
@@ -425,7 +433,6 @@ from application_services import auth as _auth_service
 # früheren tkinter-App-Klasse)
 # ---------------------------------------------------------------------------
 state = AppState()
-
 
 from application_services import updater as _updater_service
 
@@ -457,7 +464,6 @@ from application_services.provider_monitor import ProviderMonitor
 from providers.sentinel_runtime import install_runtime
 from api.api_provider_monitor_router import create_provider_monitor_router
 
-
 def _sentinel_enabled_providers():
     with state.provider_priority_lock:
         return list(dict.fromkeys(
@@ -465,7 +471,6 @@ def _sentinel_enabled_providers():
             for provider in state.provider_enabled.get(media_type, ())
             if provider_supports_languages(provider, state.content_languages)
         ))
-
 
 provider_monitor = ProviderMonitor(
     appconfig.data_dir() / "provider_monitor.json", state.provider_health,
@@ -498,13 +503,11 @@ def start_background_services():
 
 register_builtin_worker_controllers(state.module_manager)
 
-
 async def _runtime_cache_maintenance_loop() -> None:
     while True:
         await asyncio.sleep(60)
         await asyncio.to_thread(state.maintain_runtime_caches)
         await asyncio.to_thread(state.module_manager.reconcile_all)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -654,7 +657,6 @@ install_authentication_middleware(
         public_translate_limiter=PUBLIC_TRANSLATE_LIMITER,
     ),
 )
-
 
 @app.exception_handler(Exception)
 async def handle_exc(request, exc):
@@ -955,7 +957,6 @@ app.router.routes.extend(library_router.routes)
 register_domain_router("live_updates", websocket_router)
 app.router.routes.extend(websocket_router.routes)
 
-
 # Statische Web-Oberfläche (muss NACH allen /api- und /ws-Routen gemountet
 # werden, sonst würde der Catch-all-Mount sie verdecken).
 install_domain_routers(app)
@@ -978,7 +979,6 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 app.mount("/", NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
-
 
 def _open_browser(port: int):
     time.sleep(1.0)

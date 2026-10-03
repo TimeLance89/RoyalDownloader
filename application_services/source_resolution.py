@@ -19,6 +19,8 @@ class _HosterResult:
         "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
         "referer", "origin", "gated", "provider", "content_language", "quality",
         "resolved_from_cache",
+        "audio_language",
+        "headers",
     )
 
     def __init__(self):
@@ -33,6 +35,8 @@ class _HosterResult:
         self.content_language = ""
         self.quality = ""
         self.resolved_from_cache = False
+        self.audio_language = ""
+        self.headers = {}
 
 
 def _shared_browser_pool(reason: str):
@@ -107,6 +111,8 @@ def _extract_from_movie(
     }
 
     ranked_hosters = state.hoster_intel.rank(movie.hosters)
+    if res.provider in {"vidsrc", "vidrift", "vixsrc", "vidrock", "moviebox"}:
+        ranked_hosters.sort(key=lambda hoster: str(hoster.language).casefold() != "en")
     preferred_quality_value = getattr(movie, "_preferred_quality", None)
     if preferred_quality_value is not None:
         preferred_quality = str(preferred_quality_value or "").strip().casefold()
@@ -151,6 +157,8 @@ def _extract_from_movie(
         res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
         res.content_language = hoster_language
+        res.audio_language = str(getattr(hoster, "audio_language", "") or "")
+        res.headers = dict(getattr(hoster, "headers", {}) or {})
         log(f"  Versuche Hoster: {hoster.name}")
 
         # serienstream.to liefert Hoster als lazy /r?t=-Redirect. Erst JETZT,
@@ -285,6 +293,12 @@ def _extract_from_movie(
                 res.stream_info = None
         if res.stream_info:
             pass
+        elif getattr(hoster, "stream_type", "") in {"hls", "mp4", "dash", "mkv"} or (res.provider in {"vidsrc", "vixsrc", "vidrift", "vidrock", "vidlink", "moviebox"} and urlparse(play_url).path.casefold().endswith((".m3u8", ".mp4", ".mkv", ".mpd"))):
+            path = urlparse(play_url).path.casefold()
+            kind = hoster.stream_type or ("hls" if path.endswith(".m3u8") else "dash" if path.endswith(".mpd") else "mkv" if path.endswith(".mkv") else "mp4")
+            res.stream_info = (play_url, kind)
+            res.referer = hoster.referer or movie.url or play_url
+            res.origin = hoster.origin or ""
         elif name == "voe":
             pool = _shared_browser_pool("VOE-Fallback")
             if pool is None:
@@ -416,6 +430,15 @@ def _extract_from_movie(
             parsed = urlparse(play_url)
             res.referer = f"{parsed.scheme}://{parsed.netloc}/"
             res.origin = f"{parsed.scheme}://{parsed.netloc}"
+        elif name == "vinovo":
+            try:
+                res.stream_info = extract_vinovo_url(play_url, session=session, log_cb=resolve_log)
+            except Exception as exc:
+                resolve_error = str(exc)
+                res.stream_info = None
+            parsed = urlparse(play_url)
+            res.referer = f"{parsed.scheme}://{parsed.netloc}/"
+            res.origin = f"{parsed.scheme}://{parsed.netloc}"
         elif provider_for_value(movie.url) == "megakino":
             # MegaKino nimmt regelmaessig neue Player-Domains auf. Erst wird
             # ohne Browser nach direkten HLS-/MP4-Quellen gesucht, danach faengt
@@ -508,6 +531,10 @@ def _extract_from_movie(
                 res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = RIDOMOVIES_BASE_URL
+        elif name == "hubu" and urlparse(play_url).path.casefold().endswith(".mp4"):
+            res.stream_info = (play_url, "web")
+            res.referer = "https://hubu.cloud/"
+            res.origin = "https://hubu.cloud"
         elif provider_for_value(movie.url) == "mkissa":
             # MKissa liefert direkte Streams und generische Anime-Embeds.
             # Direkte Medien bleiben unangetastet; Embed-Player durchlaufen
@@ -544,6 +571,34 @@ def _extract_from_movie(
                     res.stream_info = (play_url, "web")
             res.referer = referer
             res.origin = "https://mkissa.to"
+        elif res.provider in {"kinoking", "movie2k", "hdfilme_family", "kellerkino"}:
+            # New sites expose a changing mix of embed hosts. Try cheap HTML
+            # parsing, then yt-dlp's read-only probe, then the shared browser.
+            parsed = urlparse(play_url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            res.referer = play_url
+            res.origin = origin
+            if parsed.path.casefold().endswith((".m3u8", ".mp4")):
+                res.stream_info = (play_url, "hls" if parsed.path.casefold().endswith(".m3u8") else "mp4")
+            else:
+                try:
+                    res.stream_info = extract_stream_url(play_url, session=session,
+                        log_cb=resolve_log, pool=None, referer=movie.url or play_url)
+                    if res.stream_info is None:
+                        supported, _message = probe_stream_url(play_url, referer=play_url,
+                            origin=origin, timeout=12)
+                        if supported:
+                            res.stream_info = (play_url, "web")
+                    if res.stream_info is None and name not in browser_fallbacks_started:
+                        browser_fallbacks_started.add(name)
+                        pool = _shared_browser_pool("Provider-Hoster")
+                        if pool is not None:
+                            res.stream_info = extract_stream_url(play_url, session=session,
+                                log_cb=resolve_log, pool=pool, referer=movie.url or play_url,
+                                browser_wait_seconds=8)
+                except Exception as exc:
+                    resolve_error = str(exc)
+                    res.stream_info = None
         else:
             # Generischer Hoster (Streamtape/Vidoza/Vidmoly/Filemoon/…):
             # yt-dlp probieren lassen. Referer = eigene Hoster-Domain
@@ -559,7 +614,7 @@ def _extract_from_movie(
         if res.stream_info:
             stream_url, _stream_type = res.stream_info
             log(f"  Prüfe Hoster: {hoster.name}")
-            ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin)
+            ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin, headers=res.headers)
             observe_hoster_safely(name, play_url, ok, (time.monotonic() - resolve_started) * 1000, res.provider, probe_msg, stream_url if _stream_type != "web" else "")
             if ok and stream_url and _stream_type != "web" and res.provider in PROVIDER_CATALOG and PROVIDER_CATALOG[res.provider].media_types == ("anime",):
                 observe_language_safely(res.provider, "anime", res.content_language)
@@ -998,6 +1053,8 @@ def _enqueue_hoster_attempt(
         ),
         referer=result.referer,
         origin=result.origin,
+        audio_language=getattr(result, "audio_language", ""),
+        headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,
             msg,

@@ -7,7 +7,12 @@ from providers import (
     filmfrei24,
     filmpalast,
     filmo,
+    flixitv,
     huhu,
+    kinoking,
+    movie2k,
+    hdfilme_family,
+    kellerkino,
     kinoger,
     kinox,
     megakino,
@@ -17,6 +22,9 @@ from providers import (
     xcine,
 )
 from providers.catalog import provider_keys
+from providers.tmdb_embeds import VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper
+from providers.moviebox import MovieBoxScraper
+from providers.vidlink import VidLinkScraper
 
 
 def _without_init(scraper_class):
@@ -75,6 +83,31 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
             "Testfilm", "testfilm", "https://sflix.test/testfilm", "2026",
             "https://image.test/sflix.jpg", True,
         )).cover_url,
+        "flixitv": flixitv.FlixiTVScraper._cards(BeautifulSoup(
+            '<a class="card-link" href="/serie?v=ABCDEFGHIJK"><img src="/poster.jpg">'
+            '<div class="card-info"><h5>Testfilm (2026)</h5><p>Film</p></div></a>',
+            "html.parser",
+        ))[0].cover_url,
+        "kinoking": kinoking.KinoKingScraper._cards(BeautifulSoup(
+            '<div class="fav-data-source" data-id="1" data-type="movie" '
+            'data-title="Testfilm" data-img="https://image.test/kinoking.jpg"></div>',
+            "html.parser",
+        ))[0].cover_url,
+        "movie2k": movie2k.Movie2kScraper._cards(BeautifulSoup(
+            '<table><tr><td><img src="/poster.jpg"></td><td>'
+            '<h2><a href="/stream/testfilm">Testfilm</a></h2></td></tr></table>',
+            "html.parser",
+        ))[0].cover_url,
+        "hdfilme_family": hdfilme_family.HDFilmeFamilyScraper._cards(BeautifulSoup(
+            '<div class="item"><img src="/poster.jpg">'
+            '<a class="movie-title" href="https://hdfilme.ceo/filme1/1-testfilm-stream.html">Testfilm</a></div>',
+            "html.parser",
+        ), "https://hdfilme.ceo/")[0].cover_url,
+        "kellerkino": kellerkino.KellerKinoScraper._cards(BeautifulSoup(
+            '<article class="movie-card"><a class="movie-thumb" href="https://www.kellerkino.com/action/testfilm/">'
+            '<img src="/poster.jpg"></a><h2><a href="https://www.kellerkino.com/action/testfilm/">Testfilm</a></h2></article>',
+            "html.parser",
+        ))[0].cover_url,
         "ridomovies": _without_init(ridomovies.RidomoviesScraper)._movie_result(
             ridomovies._Card(
                 "Testfilm", "testfilm", "https://rido.test/testfilm", "2026",
@@ -88,6 +121,15 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
         "<item><description><![CDATA[<img src='/poster.jpg'>]]></description></item>"
     )
     posters["kinox"] = kinox_scraper._rss_cover_url(rss_item)
+
+    class TMDB:
+        def search_movies(self, _query, max_results=12):
+            return [{"tmdb_id": 1, "title": "Testfilm", "cover_url": "https://image.test/tmdb.jpg"}]
+
+    for scraper in (VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper, MovieBoxScraper, VidLinkScraper):
+        adapter = scraper(tmdb=TMDB())
+        posters[adapter.provider] = adapter.search("Testfilm")[0].cover_url
+        adapter.session.close()
 
     assert set(posters) == set(provider_keys("movies"))
     assert all(posters.values()), posters

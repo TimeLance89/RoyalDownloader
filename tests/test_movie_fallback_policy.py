@@ -122,6 +122,11 @@ def test_live_fallback_returns_every_remaining_provider_without_six_source_cap(m
         "xcine",
         "sflix",
         "ridomovies",
+        "kinoking",
+        "flixitv",
+        "movie2k",
+        "hdfilme_family",
+        "kellerkino",
     ]
     primary = _movie("Batch Movie", "https://filmfrei24.test/batch", "filmfrei24")
     results = [
@@ -162,7 +167,7 @@ def test_live_fallback_returns_every_remaining_provider_without_six_source_cap(m
         {primary.url},
     )
 
-    assert len(alternatives) == 11
+    assert len(alternatives) == len(providers) - 1
     assert [item.provider for item in alternatives] == providers[1:]
 
 

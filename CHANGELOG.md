@@ -2,7 +2,41 @@
 
 ## Unreleased
 
-_No unreleased changes._
+### Provider coverage expansion
+
+- Add FlixiTV and KinoKing as film and series providers with exact episode fallback,
+  request pacing, provider cooldown and Hubu MP4 resolution.
+- Add Movie2k, the HDFilme mirror family and KellerKino with mirror-aware lookup,
+  stable episode resolution and broader hoster handling including Vinovo.
+- Harden HDFilme Family episode fallback so exact SxxExx resolution survives a
+  failed first mirror, stale cached paths and relative detail URLs.
+- Add six English movie and TV provider families: VidSrc, VidRift, VixSrc,
+  VidRock, VidLink and MovieBox/AoneRoom.
+- Expand the direct-stream pipeline so provider results can carry stream type,
+  language, Referer, Origin and custom headers through probing and download.
+- Support direct HLS, MP4 and DASH/MPD sources where the provider exposes them,
+  including MovieBox signed-cookie delivery and VidLink browser-captured streams.
+
+### VidSrc stability and hardening
+
+- Bound provider-supplied VidSrc WASM decryptors with a domain allowlist, module
+  and payload size caps, no imports, Wasmtime fuel and linear-memory limits.
+- Treat WASM traps and malformed output as a clean provider miss instead of
+  allowing a worker to hang or crash.
+- Retry VidSrc TV lookups once with a short bounded backoff before mirror
+  failover to recover transient empty/error responses without request storms.
+- Keep wasmtime locked in runtime and development dependencies and cover the
+  infinite-loop, memory-limit and transient-TV cases with regression tests.
+
+### Catalog and reliability
+
+- Stabilize the mobile catalog browser regression after genre changes by waiting
+  for the rerendered catalog and retrying only the known detached-DOM scroll race.
+- Preserve existing provider and download behavior while extending Source
+  Sentinel contracts and migrations for the newly added provider families.
+- Document the English-provider live-smoke matrix and the remaining title/API
+  limitations instead of presenting unverified providers as fully healthy.
+- Document why HDFilme.to remains unavailable behind its stream gate.
 
 ## v1.5.1 – 2026-10-02
 

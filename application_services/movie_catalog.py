@@ -324,12 +324,34 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         movie = KinogerScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(MEGAKINO_PREFIX):
         movie = MegaKinoScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith(FLIXITV_PREFIX):
+        movie = FlixiTVScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
+    elif slug.startswith(KINOKING_PREFIX):
+        movie = KinoKingScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
+    elif slug.startswith(MOVIE2K_PREFIX):
+        movie = Movie2kScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
+    elif slug.startswith(HDFILME_FAMILY_PREFIX):
+        movie = HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
+    elif slug.startswith(KELLERKINO_PREFIX):
+        movie = KellerKinoScraper(progress_cb=log, health=state.provider_health).get_movie(slug)
     elif slug.startswith(XCINE_PREFIX):
         movie = XcineScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(SFLIX_PREFIX):
         movie = SflixScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(RIDOMOVIES_PREFIX):
         movie = RidomoviesScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith("vidsrc:"):
+        movie = VidSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidrift:"):
+        movie = VidRiftScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vixsrc:"):
+        movie = VixSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidrock:"):
+        movie = VidRockScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("moviebox:"):
+        movie = MovieBoxScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidlink:"):
+        movie = VidLinkScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
     elif slug.startswith(MKISSA_PREFIX):
         with state.mkissa_lock:
             movie = get_mkissa_scraper().get_episode(slug)
@@ -393,8 +415,19 @@ def search_movie_candidates(query: str, *, interactive: bool = False) -> List[Fi
         "kinoger": lambda: KinogerScraper(progress_cb=log).search(q),
         "megakino": lambda: MegaKinoScraper(progress_cb=log).search(q),
         "xcine": lambda: XcineScraper(progress_cb=log).search(q),
+        "flixitv": lambda: FlixiTVScraper(progress_cb=log, health=state.provider_health).search(q),
+        "kinoking": lambda: KinoKingScraper(progress_cb=log, health=state.provider_health).search(q),
+        "movie2k": lambda: Movie2kScraper(progress_cb=log, health=state.provider_health).search(q),
+        "hdfilme_family": lambda: HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).search(q),
+        "kellerkino": lambda: KellerKinoScraper(progress_cb=log, health=state.provider_health).search(q),
         "sflix": lambda: SflixScraper(progress_cb=log).search(q),
         "ridomovies": lambda: RidomoviesScraper(progress_cb=log).search(q),
+        "vidsrc": lambda: VidSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidrift": lambda: VidRiftScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vixsrc": lambda: VixSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidrock": lambda: VidRockScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "moviebox": lambda: MovieBoxScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidlink": lambda: VidLinkScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
     }
     tasks = [
         (key, PROVIDER_LABELS[key], searches[key])
@@ -693,6 +726,11 @@ def _fetch_movie_provider_page(
         "kinoger": KinogerScraper,
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
+        "flixitv": lambda progress_cb: FlixiTVScraper(progress_cb=progress_cb, health=state.provider_health),
+        "kinoking": lambda progress_cb: KinoKingScraper(progress_cb=progress_cb, health=state.provider_health),
+        "movie2k": lambda progress_cb: Movie2kScraper(progress_cb=progress_cb, health=state.provider_health),
+        "hdfilme_family": lambda progress_cb: HDFilmeFamilyScraper(progress_cb=progress_cb, health=state.provider_health),
+        "kellerkino": lambda progress_cb: KellerKinoScraper(progress_cb=progress_cb, health=state.provider_health),
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }

@@ -812,7 +812,11 @@ def _provider_priority_payload(saved: bool = False) -> dict:
 @router.get("/api/v1/providers/status")
 @router.get("/api/providers/status")
 async def api_provider_status_get():
-    return {"providers": {"serienstream": serienstream_provider_status()}}
+    return {"providers": {
+        "serienstream": serienstream_provider_status(),
+        "flixitv": state.provider_health.status("flixitv"),
+        "kinoking": state.provider_health.status("kinoking"),
+    }}
 
 
 @router.post("/api/v1/providers/serienstream/retry")
