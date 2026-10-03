@@ -130,10 +130,23 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
           await page.waitForFunction(() => document.querySelector("#fp-status").textContent.includes("Drama") && document.querySelectorAll("#fp-results .result-card").length >= 32);
           assert.ok(requests.some(path => /mode=genre/.test(path) && /genre=Drama/.test(path)));
           await page.locator("#movie-filter-genre").selectOption("Alle Genres");
-          await page.waitForFunction(() => document.querySelectorAll("#fp-results .result-card").length >= 32);
+          await page.waitForFunction(() => {
+            const status = document.querySelector("#fp-status")?.textContent || "";
+            return !/Lade|Drama|Fehler/.test(status)
+              && document.querySelectorAll("#fp-results .result-card").length >= 32;
+          });
         }
         if (mobile) {
-          await card.scrollIntoViewIfNeeded();
+          // Metadata and Jellyfin updates can replace a card while Playwright
+          // waits for it to settle. Resolve the locator again after detachment.
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await card.scrollIntoViewIfNeeded();
+              break;
+            } catch (error) {
+              if (!String(error).includes("Element is not attached to the DOM") || attempt === 2) throw error;
+            }
+          }
           const before = await page.evaluate(() => scrollY);
           await swipe(page, run.cdp, `${selector}:first-child`, 0, -160);
           await page.waitForFunction(before => scrollY > before + 20, before);

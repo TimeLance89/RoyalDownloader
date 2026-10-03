@@ -3,8 +3,10 @@ nodriver==0.50.3
 beautifulsoup4==4.15.0
 lxml==6.1.1
 yt-dlp==2026.7.4
+wasmtime==49.0.0
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 requests==2.34.2
 cryptography==50.0.0
 defusedxml==0.7.1
+urllib3==2.8.0

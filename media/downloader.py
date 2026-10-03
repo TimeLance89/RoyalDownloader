@@ -345,6 +345,7 @@ def probe_stream_url(
     referer: str = "",
     origin: str = "",
     timeout: int = 25,
+    headers: Optional[dict[str, str]] = None,
 ) -> tuple:
     """
     Prüft per yt-dlp-Simulation, ob eine URL grundsätzlich ladbar ist.
@@ -375,6 +376,9 @@ def probe_stream_url(
         cmd += ["--referer", referer]
     if origin:
         cmd += ["--add-header", f"Origin:{origin}"]
+    for key, value in (headers or {}).items():
+        if re.fullmatch(r"[A-Za-z0-9-]{1,40}", key) and "\r" not in value and "\n" not in value:
+            cmd += ["--add-header", f"{key}:{value}"]
     cmd.append(stream_url)
     try:
         proc = subprocess.run(
@@ -390,6 +394,24 @@ def probe_stream_url(
         return False, "Probe-Timeout"
     out = (proc.stdout or "").strip().splitlines()
     msg = out[-1][:160] if out else ""
+    if proc.returncode != 0 and urlparse(stream_url).hostname and urlparse(stream_url).hostname.endswith(".vincdn.net"):
+        # Vinovo's signed MP4 is served to the Chrome-shaped direct downloader
+        # even when yt-dlp's initial metadata request receives HTTP 403.
+        from curl_cffi import requests as cr
+        request_headers = {"Range": "bytes=0-0", **(headers or {})}
+        if referer:
+            request_headers["Referer"] = referer
+        if origin:
+            request_headers["Origin"] = origin
+        try:
+            response = cr.get(stream_url, headers=request_headers, stream=True,
+                timeout=10, impersonate="chrome136", **request_proxy_kwargs(stream_url))
+            ok = response.status_code == 206 and response.headers.get("Content-Type", "").lower().startswith("video/")
+            response.close()
+            if ok:
+                return True, "MP4-Range-Probe OK"
+        except Exception:
+            pass
     return proc.returncode == 0, msg or f"Code {proc.returncode}"
 
 
@@ -493,6 +515,8 @@ class DownloadJob:
         out_path: Path,
         referer: str = "",
         origin: str = "",
+        audio_language: str = "",
+        headers: Optional[dict[str, str]] = None,
         on_progress: Optional[Callable[[float, str], None]] = None,
         on_done: Optional[Callable[[bool, str], None]] = None,
         queue_slug: Optional[str] = None,
@@ -509,6 +533,8 @@ class DownloadJob:
         self.out_path = out_path
         self.referer = referer
         self.origin = origin
+        self.audio_language = audio_language
+        self.headers = dict(headers or {})
         # Stabiler fachlicher Schluessel fuer Queue-Aktionen. Der Downloader
         # selbst wertet ihn nicht aus, damit bestehende Aufrufer kompatibel
         # bleiben.
@@ -866,6 +892,12 @@ class DownloadJob:
             "--user-agent", BROWSER_USER_AGENT,
             "--proxy", safe_proxy_url(),
         ]
+        if self.stream_type in {"hls", "dash"} and self.audio_language:
+            language = re.sub(r"[^a-z]", "", self.audio_language.casefold())[:3]
+            if language:
+                cmd += ["-f", f"bestvideo+bestaudio[language^={language}]/best"]
+        if self.stream_type == "mkv":
+            cmd += ["--remux-video", "mp4"]
         if (
             MP4_HTTP_CHUNK_SIZE
             and self.stream_type == "mp4"
@@ -878,8 +910,11 @@ class DownloadJob:
             cmd += ["--referer", self.referer]
         if self.origin:
             cmd += ["--add-header", f"Origin:{self.origin}"]
+        for key, value in self.headers.items():
+            if re.fullmatch(r"[A-Za-z0-9-]{1,40}", key) and "\r" not in value and "\n" not in value:
+                cmd += ["--add-header", f"{key}:{value}"]
         cmd.append(self.stream_url)
-        logger.debug("yt-dlp cmd: %s", " ".join(cmd))
+        logger.debug("yt-dlp media request: %s", urlparse(self.stream_url).hostname)
         popen_kwargs = {}
         if os.name == "nt":
             popen_kwargs["creationflags"] = (
@@ -1076,6 +1111,10 @@ class DownloadJob:
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Site": "cross-site",
             }
+            if urlparse(self.stream_url).hostname and urlparse(self.stream_url).hostname.endswith(".vincdn.net"):
+                # The CDN checks the User-Agent against the TLS fingerprint.
+                # Let curl_cffi send its matching Chrome user agent.
+                headers.pop("User-Agent")
             if self.referer:
                 headers["Referer"] = self.referer
             if self.origin:

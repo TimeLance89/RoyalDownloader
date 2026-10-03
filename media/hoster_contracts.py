@@ -21,7 +21,7 @@ class HosterContract:
 
 
 SPECIAL = {
-    "voe": ("extract_stream_url", ("voe",)),
+    "voe": ("extract_stream_url", ("voe", "goofy-banana")),
     "moflix": ("extract_stream_url", ("moflix",)),
     "veev": ("extract_stream_url", ("veev",)),
     "kinoger": ("extract_stream_url", ("fsst", "incvideo", "kinoger.be", "vidhide", "embed4me", "seekplays")),
@@ -29,9 +29,13 @@ SPECIAL = {
     "vidara": ("extract_vidara_url", ("vidara", "vidmatrix", "vidchamp", "vidachamp", "vidavaca", "viewdara", "thebesthost", "kinoger.pw")),
     "vidsonic": ("extract_vidsonic_url", ("vidsonic",)),
     "firestream": ("extract_firestream_url", ("firestream",)),
+    "vinovo": ("extract_vinovo_url", ("vinovo",)),
 }
-GENERIC = {"streamruby", "upcloud", "vidsrc", "closeload", "rapidrame", "upstream", "vinovo", "luluvid", "netu"}
-BROWSER_EMBED_PROVIDERS = frozenset({"megakino", "sflix", "ridomovies", "mkissa"})
+GENERIC = {"streamruby", "upcloud", "vidsrc", "closeload", "rapidrame", "upstream", "vinovo", "luluvid", "netu", "mixdrop", "dropload", "supervideo", "playmogo", "ano", "jeremyparticipantanything"}
+BROWSER_EMBED_PROVIDERS = frozenset({
+    "megakino", "sflix", "ridomovies", "mkissa",
+    "kinoking", "movie2k", "hdfilme_family", "kellerkino",
+})
 CONTRACTS = {}
 for name in set(BASE_SCORE) | set(SPECIAL) | GENERIC:
     key = re.sub(r"[^a-z0-9]", "", name)
@@ -45,9 +49,13 @@ for name in set(BASE_SCORE) | set(SPECIAL) | GENERIC:
 
 def hoster_key(name, url=""):
     label = re.sub(r"[^a-z0-9]", "", str(name).lower())[:50]
+    aliases = {"mxdrop": "mixdrop", "dr0pstream": "dropload", "lulust": "luluvid"}
+    label = aliases.get(label, label)
     if label in CONTRACTS:
         return label
     domain = (urlsplit(url).hostname or "").lower()
+    if any(alias in domain for alias in ("mxdrop", "dr0pstream", "lulust")):
+        return next(canonical for alias, canonical in aliases.items() if alias in domain)
     # Label aliases are used for attribution, never as trust for domain repair.
     for key, contract in CONTRACTS.items():
         if any(marker in label or marker in domain for marker in contract.markers):

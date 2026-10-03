@@ -14,7 +14,6 @@ from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
 
-
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
     if not state.provider_health.request_allowed("serienstream"):
@@ -26,7 +25,6 @@ def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
             _mark_serienstream_blocked(exc.reason, str(exc))
             raise
 
-
 def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
     if not state.provider_health.request_allowed("serienstream"):
         raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
@@ -36,7 +34,6 @@ def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
         except ProviderBlockedError as exc:
             _mark_serienstream_blocked(exc.reason, str(exc))
             raise
-
 
 def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
     if provider == "serienstream":
@@ -54,14 +51,21 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return KinogerScraper(progress_cb=log).search_series(query)
     if provider == "megakino":
         return MegaKinoScraper(progress_cb=log).search_series(query)
+    if provider == "flixitv":
+        return FlixiTVScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "kinoking":
+        return KinoKingScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "movie2k": return Movie2kScraper(progress_cb=log, health=state.provider_health).search_series(query)
+    if provider == "hdfilme_family": return HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).search_series(query)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).search_series(query)
     if provider == "sflix":
         return SflixScraper(progress_cb=log).search_series(query)
     if provider == "ridomovies":
         return RidomoviesScraper(progress_cb=log).search_series(query)
+    if provider in _ENGLISH_ADAPTERS:
+        return _ENGLISH_ADAPTERS[provider](progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search_series(query)
     return []
-
 
 def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastSeries]:
     if provider == "serienstream":
@@ -79,14 +83,22 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return KinogerScraper(progress_cb=log).get_series(value)
     if provider == "megakino":
         return MegaKinoScraper(progress_cb=log).get_series(value)
+    if provider == "flixitv":
+        return FlixiTVScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "kinoking":
+        return KinoKingScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "movie2k": return Movie2kScraper(progress_cb=log, health=state.provider_health).get_series(value)
+    if provider == "hdfilme_family":
+        return HDFilmeFamilyScraper(progress_cb=log, health=state.provider_health).get_series(value)
     if provider == "xcine":
         return XcineScraper(progress_cb=log).get_series(value)
     if provider == "sflix":
         return SflixScraper(progress_cb=log).get_series(value)
     if provider == "ridomovies":
         return RidomoviesScraper(progress_cb=log).get_series(value)
+    if provider in _ENGLISH_ADAPTERS:
+        return _ENGLISH_ADAPTERS[provider](progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_series(value)
     return None
-
 
 def _search_series_provider_results(
     query: str,
@@ -322,6 +334,10 @@ def _fetch_series_provider_page(
         "kinoger": KinogerScraper,
         "megakino": MegaKinoScraper,
         "xcine": XcineScraper,
+        "flixitv": lambda progress_cb: FlixiTVScraper(progress_cb=progress_cb, health=state.provider_health),
+        "kinoking": lambda progress_cb: KinoKingScraper(progress_cb=progress_cb, health=state.provider_health),
+        "movie2k": lambda progress_cb: Movie2kScraper(progress_cb=progress_cb, health=state.provider_health),
+        "hdfilme_family": lambda progress_cb: HDFilmeFamilyScraper(progress_cb=progress_cb, health=state.provider_health),
         "sflix": SflixScraper,
         "ridomovies": RidomoviesScraper,
     }
@@ -636,7 +652,7 @@ def _series_search_title(value: str) -> str:
     is_xcine = v.startswith(XCINE_PREFIX) or "xcine.ru" in v.casefold()
     for pfx in (
         SERIENSTREAM_PREFIX, HUHU_PREFIX, MOFLIX_PREFIX, EINSCHALTEN_PREFIX, KINOX_PREFIX,
-        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX,
+        KINOGER_PREFIX, MEGAKINO_PREFIX, XCINE_PREFIX, FLIXITV_PREFIX, KINOKING_PREFIX,
         SFLIX_PREFIX, RIDOMOVIES_PREFIX, ANIWORLD_PREFIX,
     ):
         if v.startswith(pfx):

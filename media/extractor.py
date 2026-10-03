@@ -711,6 +711,7 @@ class VOEBrowserPool:
         import nodriver.cdp.page as cdp_page
 
         m3u8_urls: List[str] = []
+        mpd_urls: List[str] = []
         mp4_urls: List[str] = []
 
         def _remember_stream(url: str, source: str):
@@ -720,6 +721,10 @@ class VOEBrowserPool:
                 if not m3u8_urls:
                     self._log(f"M3U8 abgefangen ({source}): {url[:80]}")
                 m3u8_urls.append(url)
+            elif re.search(r"\.mpd(\?|$)", url, re.I):
+                if not mpd_urls:
+                    self._log(f"MPD abgefangen ({source}): {url[:80]}")
+                mpd_urls.append(url)
             elif re.search(r"\.mp4(\?|$)", url, re.I):
                 if not mp4_urls:
                     self._log(f"MP4 abgefangen ({source}): {url[:80]}")
@@ -743,7 +748,7 @@ class VOEBrowserPool:
 
             for tick in range(wait_seconds):
                 await asyncio.sleep(1)
-                if m3u8_urls or mp4_urls:
+                if m3u8_urls or mpd_urls or mp4_urls:
                     break
                 if tick == 5:
                     try:
@@ -764,6 +769,8 @@ class VOEBrowserPool:
 
         if m3u8_urls:
             return m3u8_urls[0], "hls"
+        if mpd_urls:
+            return mpd_urls[0], "dash"
         if mp4_urls:
             return mp4_urls[0], "mp4"
         self._log("Keine Stream-URL gefunden.")
@@ -915,6 +922,52 @@ def extract_vidsonic_url(
     return None
 
 
+def extract_vinovo_url(
+    embed_url: str,
+    session=None,
+    log_cb: Optional[Callable[[str], None]] = None,
+) -> Optional[Tuple[str, str]]:
+    """Resolve Vinovo's short-lived signed MP4 through its player API."""
+    _log = log_cb or logger.info
+    session = session or _make_session()
+    parsed = urlparse(embed_url)
+    if not parsed.hostname or not parsed.hostname.startswith("vinovo."):
+        return None
+    try:
+        response = session.get(embed_url, timeout=12)
+        response.raise_for_status()
+        final_url = str(response.url or embed_url)
+        final = urlparse(final_url)
+        if not final.hostname or not final.hostname.startswith("vinovo."):
+            return None
+        base = f"{final.scheme}://{final.netloc}"
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(response.content, "lxml")
+        token_node = soup.select_one('meta[name="token"][content]')
+        code_node = soup.select_one('meta[name="file_code"][content]')
+        video = soup.select_one("video[data-base]")
+        if not token_node or not code_node or not video:
+            return None
+        code = code_node["content"]
+        cdn = video["data-base"].rstrip("/")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", code) or not urlparse(cdn).hostname.endswith(".vincdn.net"):
+            return None
+        api = session.post(f"{base}/api/file/url/{code}",
+            data={"token": token_node["content"]},
+            headers={"Referer": final_url, "Origin": base}, timeout=12)
+        api.raise_for_status()
+        payload = api.json()
+        signed = str(payload.get("token") or "")
+        if payload.get("status") != "ok" or not signed.startswith(code + "/") or not re.fullmatch(r"[A-Za-z0-9_/-]+", signed):
+            return None
+        direct = f"{cdn}/stream/{signed}"
+        ensure_public_http_url(direct)
+        return direct, "mp4"
+    except Exception as exc:
+        _log(f"Vinovo-Auflösung fehlgeschlagen: {exc}")
+        return None
+
+
 def extract_firestream_url(
     embed_url: str,
     session=None,
@@ -1018,7 +1071,7 @@ def extract_stream_url(
         pool: optionaler VOEBrowserPool (schneller für mehrere Extraktionen).
               Wenn None, wird kein Browser benutzt (nur Regex-Pfad).
 
-    Returns: (stream_url, "hls" | "mp4") oder None.
+    Returns: (stream_url, "hls" | "dash" | "mp4") oder None.
     """
     _log = log_cb or logger.info
 
