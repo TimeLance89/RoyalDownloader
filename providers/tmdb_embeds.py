@@ -10,6 +10,7 @@ import json
 import base64
 import os
 import re
+import time
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from curl_cffi import requests
@@ -23,6 +24,64 @@ from providers.models import (
 
 _SOURCE = re.compile(r"^(vidsrc|vidrift|vixsrc|vidrock|vidlink|moviebox):(?P<id>\d+)(?:-s(?P<s>\d+)e(?P<e>\d+))?$", re.I)
 _LANGUAGES = {"eng": "en", "en": "en", "ita": "it", "it": "it", "deu": "de", "ger": "de", "de": "de"}
+
+_VIDSRC_WASM_MAX_BYTES = 128_000
+_VIDSRC_WASM_MEMORY_LIMIT = 16 * 1024 * 1024
+_VIDSRC_WASM_FUEL = 5_000_000
+_VIDSRC_TV_RETRY_DELAY = 0.5
+
+
+
+def _decode_vidsrc_wasm(wasm_bytes: bytes, encoded_sources: str) -> list[str]:
+    """Run VidSrc's tiny decryptor with strict CPU and memory budgets."""
+    if len(wasm_bytes) > _VIDSRC_WASM_MAX_BYTES:
+        return []
+    try:
+        encrypted = base64.b64decode(encoded_sources, validate=True)
+    except (ValueError, TypeError):
+        return []
+    if len(encrypted) > _VIDSRC_WASM_MAX_BYTES:
+        return []
+
+    import wasmtime
+
+    try:
+        config = wasmtime.Config()
+        config.consume_fuel = True
+        engine = wasmtime.Engine(config)
+        module = wasmtime.Module(engine, wasm_bytes)
+        if module.imports:
+            return []
+
+        store = wasmtime.Store(engine)
+        store.set_limits(
+            memory_size=_VIDSRC_WASM_MEMORY_LIMIT,
+            table_elements=256,
+            instances=1,
+            tables=2,
+            memories=1,
+        )
+        store.set_fuel(_VIDSRC_WASM_FUEL)
+        exports = wasmtime.Instance(store, module, []).exports(store)
+        alloc = exports["alloc"]
+        decrypt = exports["decrypt"]
+        memory = exports["memory"]
+
+        ptr = alloc(store, len(encrypted))
+        if not isinstance(ptr, int) or ptr < 0:
+            return []
+        memory.write(store, encrypted, ptr)
+        length = decrypt(store, ptr, len(encrypted))
+        if not isinstance(length, int) or length < 0 or length > _VIDSRC_WASM_MAX_BYTES:
+            return []
+
+        start = ptr + 12
+        end = start + length
+        if end > memory.data_len(store):
+            return []
+        return bytes(memory.read(store, start, end)).decode().splitlines()
+    except (wasmtime.Trap, wasmtime.WasmtimeError, UnicodeDecodeError, KeyError, TypeError, ValueError):
+        return []
 
 
 def _json_assignment(html: str, name: str):
@@ -206,7 +265,22 @@ class TMDBEmbedScraper:
         return None
 
     def _vidsrc(self, api_url):
-        payload = self._get(api_url, referer="https://vidsrc.sh/").json()
+        attempts = 2 if "type=tv" in api_url else 1
+        payload = {}
+        for attempt in range(attempts):
+            try:
+                payload = self._get(api_url, referer="https://vidsrc.sh/").json()
+            except (requests.RequestsError, ValueError):
+                if attempt + 1 >= attempts:
+                    raise
+                time.sleep(_VIDSRC_TV_RETRY_DELAY)
+                continue
+            sources = (payload.get("data") or {}).get("stream_urls") or []
+            if str(payload.get("status_code")) == "200" and sources:
+                break
+            if attempt + 1 < attempts:
+                time.sleep(_VIDSRC_TV_RETRY_DELAY)
+
         if str(payload.get("status_code")) != "200":
             return []
         sources = (payload.get("data") or {}).get("stream_urls") or []
@@ -215,26 +289,10 @@ class TMDBEmbedScraper:
             wasm_url = str(vs.get("wasm_url") or "")
             if urlsplit(wasm_url).hostname not in {"data.vidsrc.sh", "data.vidsrcme.ru"}:
                 return []
-            import wasmtime
-
             wasm = self._get(wasm_url).content
-            if len(wasm) > 128_000:
+            sources = _decode_vidsrc_wasm(wasm, sources)
+            if not sources:
                 return []
-            engine = wasmtime.Engine()
-            module = wasmtime.Module(engine, wasm)
-            if module.imports:
-                return []
-            store = wasmtime.Store(engine)
-            exports = wasmtime.Instance(store, module, []).exports(store)
-            encrypted = base64.b64decode(sources, validate=True)
-            if len(encrypted) > 128_000:
-                return []
-            ptr = exports["alloc"](store, len(encrypted))
-            exports["memory"].write(store, encrypted, ptr)
-            length = exports["decrypt"](store, ptr, len(encrypted))
-            if length < 0 or length > 128_000:
-                return []
-            sources = bytes(exports["memory"].read(store, ptr + 12, ptr + 12 + length)).decode().splitlines()
         tokens = {}
         verified_hosts = set()
         hosters = []
