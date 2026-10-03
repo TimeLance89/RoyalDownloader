@@ -711,6 +711,7 @@ class VOEBrowserPool:
         import nodriver.cdp.page as cdp_page
 
         m3u8_urls: List[str] = []
+        mpd_urls: List[str] = []
         mp4_urls: List[str] = []
 
         def _remember_stream(url: str, source: str):
@@ -720,6 +721,10 @@ class VOEBrowserPool:
                 if not m3u8_urls:
                     self._log(f"M3U8 abgefangen ({source}): {url[:80]}")
                 m3u8_urls.append(url)
+            elif re.search(r"\.mpd(\?|$)", url, re.I):
+                if not mpd_urls:
+                    self._log(f"MPD abgefangen ({source}): {url[:80]}")
+                mpd_urls.append(url)
             elif re.search(r"\.mp4(\?|$)", url, re.I):
                 if not mp4_urls:
                     self._log(f"MP4 abgefangen ({source}): {url[:80]}")
@@ -743,7 +748,7 @@ class VOEBrowserPool:
 
             for tick in range(wait_seconds):
                 await asyncio.sleep(1)
-                if m3u8_urls or mp4_urls:
+                if m3u8_urls or mpd_urls or mp4_urls:
                     break
                 if tick == 5:
                     try:
@@ -764,6 +769,8 @@ class VOEBrowserPool:
 
         if m3u8_urls:
             return m3u8_urls[0], "hls"
+        if mpd_urls:
+            return mpd_urls[0], "dash"
         if mp4_urls:
             return mp4_urls[0], "mp4"
         self._log("Keine Stream-URL gefunden.")
@@ -1064,7 +1071,7 @@ def extract_stream_url(
         pool: optionaler VOEBrowserPool (schneller für mehrere Extraktionen).
               Wenn None, wird kein Browser benutzt (nur Regex-Pfad).
 
-    Returns: (stream_url, "hls" | "mp4") oder None.
+    Returns: (stream_url, "hls" | "dash" | "mp4") oder None.
     """
     _log = log_cb or logger.info
 

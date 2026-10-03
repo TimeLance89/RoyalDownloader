@@ -14,7 +14,6 @@ from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
 
-
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
     if not state.provider_health.request_allowed("serienstream"):
@@ -26,7 +25,6 @@ def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
             _mark_serienstream_blocked(exc.reason, str(exc))
             raise
 
-
 def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
     if not state.provider_health.request_allowed("serienstream"):
         raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
@@ -36,7 +34,6 @@ def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
         except ProviderBlockedError as exc:
             _mark_serienstream_blocked(exc.reason, str(exc))
             raise
-
 
 def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
     if provider == "serienstream":
@@ -66,8 +63,9 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
         return SflixScraper(progress_cb=log).search_series(query)
     if provider == "ridomovies":
         return RidomoviesScraper(progress_cb=log).search_series(query)
+    if provider in _ENGLISH_ADAPTERS:
+        return _ENGLISH_ADAPTERS[provider](progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search_series(query)
     return []
-
 
 def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastSeries]:
     if provider == "serienstream":
@@ -98,8 +96,9 @@ def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastS
         return SflixScraper(progress_cb=log).get_series(value)
     if provider == "ridomovies":
         return RidomoviesScraper(progress_cb=log).get_series(value)
+    if provider in _ENGLISH_ADAPTERS:
+        return _ENGLISH_ADAPTERS[provider](progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_series(value)
     return None
-
 
 def _search_series_provider_results(
     query: str,

@@ -19,6 +19,8 @@ class _HosterResult:
         "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
         "referer", "origin", "gated", "provider", "content_language", "quality",
         "resolved_from_cache",
+        "audio_language",
+        "headers",
     )
 
     def __init__(self):
@@ -33,6 +35,8 @@ class _HosterResult:
         self.content_language = ""
         self.quality = ""
         self.resolved_from_cache = False
+        self.audio_language = ""
+        self.headers = {}
 
 
 def _shared_browser_pool(reason: str):
@@ -107,6 +111,8 @@ def _extract_from_movie(
     }
 
     ranked_hosters = state.hoster_intel.rank(movie.hosters)
+    if res.provider in {"vidsrc", "vidrift", "vixsrc", "vidrock", "moviebox"}:
+        ranked_hosters.sort(key=lambda hoster: str(hoster.language).casefold() != "en")
     preferred_quality_value = getattr(movie, "_preferred_quality", None)
     if preferred_quality_value is not None:
         preferred_quality = str(preferred_quality_value or "").strip().casefold()
@@ -151,6 +157,8 @@ def _extract_from_movie(
         res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
         res.content_language = hoster_language
+        res.audio_language = str(getattr(hoster, "audio_language", "") or "")
+        res.headers = dict(getattr(hoster, "headers", {}) or {})
         log(f"  Versuche Hoster: {hoster.name}")
 
         # serienstream.to liefert Hoster als lazy /r?t=-Redirect. Erst JETZT,
@@ -285,6 +293,12 @@ def _extract_from_movie(
                 res.stream_info = None
         if res.stream_info:
             pass
+        elif getattr(hoster, "stream_type", "") in {"hls", "mp4", "dash", "mkv"} or (res.provider in {"vidsrc", "vixsrc", "vidrift", "vidrock", "vidlink", "moviebox"} and urlparse(play_url).path.casefold().endswith((".m3u8", ".mp4", ".mkv", ".mpd"))):
+            path = urlparse(play_url).path.casefold()
+            kind = hoster.stream_type or ("hls" if path.endswith(".m3u8") else "dash" if path.endswith(".mpd") else "mkv" if path.endswith(".mkv") else "mp4")
+            res.stream_info = (play_url, kind)
+            res.referer = hoster.referer or movie.url or play_url
+            res.origin = hoster.origin or ""
         elif name == "voe":
             pool = _shared_browser_pool("VOE-Fallback")
             if pool is None:
@@ -600,7 +614,7 @@ def _extract_from_movie(
         if res.stream_info:
             stream_url, _stream_type = res.stream_info
             log(f"  Prüfe Hoster: {hoster.name}")
-            ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin)
+            ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin, headers=res.headers)
             observe_hoster_safely(name, play_url, ok, (time.monotonic() - resolve_started) * 1000, res.provider, probe_msg, stream_url if _stream_type != "web" else "")
             if ok and stream_url and _stream_type != "web" and res.provider in PROVIDER_CATALOG and PROVIDER_CATALOG[res.provider].media_types == ("anime",):
                 observe_language_safely(res.provider, "anime", res.content_language)
@@ -1039,6 +1053,8 @@ def _enqueue_hoster_attempt(
         ),
         referer=result.referer,
         origin=result.origin,
+        audio_language=getattr(result, "audio_language", ""),
+        headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,
             msg,

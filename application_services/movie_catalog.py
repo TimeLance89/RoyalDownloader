@@ -340,6 +340,18 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
         movie = SflixScraper(progress_cb=log).get_movie(slug)
     elif slug.startswith(RIDOMOVIES_PREFIX):
         movie = RidomoviesScraper(progress_cb=log).get_movie(slug)
+    elif slug.startswith("vidsrc:"):
+        movie = VidSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidrift:"):
+        movie = VidRiftScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vixsrc:"):
+        movie = VixSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidrock:"):
+        movie = VidRockScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("moviebox:"):
+        movie = MovieBoxScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
+    elif slug.startswith("vidlink:"):
+        movie = VidLinkScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).get_movie(slug)
     elif slug.startswith(MKISSA_PREFIX):
         with state.mkissa_lock:
             movie = get_mkissa_scraper().get_episode(slug)
@@ -410,6 +422,12 @@ def search_movie_candidates(query: str, *, interactive: bool = False) -> List[Fi
         "kellerkino": lambda: KellerKinoScraper(progress_cb=log, health=state.provider_health).search(q),
         "sflix": lambda: SflixScraper(progress_cb=log).search(q),
         "ridomovies": lambda: RidomoviesScraper(progress_cb=log).search(q),
+        "vidsrc": lambda: VidSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidrift": lambda: VidRiftScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vixsrc": lambda: VixSrcScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidrock": lambda: VidRockScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "moviebox": lambda: MovieBoxScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
+        "vidlink": lambda: VidLinkScraper(progress_cb=log, health=state.provider_health, tmdb=get_tmdb_client()).search(q),
     }
     tasks = [
         (key, PROVIDER_LABELS[key], searches[key])

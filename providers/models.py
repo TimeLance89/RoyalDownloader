@@ -53,6 +53,11 @@ class HosterInfo:
     url: str
     language: str = ""
     quality: str = ""
+    referer: str = ""
+    origin: str = ""
+    stream_type: str = ""
+    audio_language: str = ""
+    headers: Dict[str, str] = field(default_factory=dict)
 
     @property
     def is_de(self) -> bool:

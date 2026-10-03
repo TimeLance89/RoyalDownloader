@@ -87,7 +87,7 @@ def test_existing_installation_enables_aniworld_once(monkeypatch):
     assert migrated["anime_provider_enabled"] == "mkissa,aniworld"
     assert writes == [
         {
-            "provider_catalog_revision": "7",
+            "provider_catalog_revision": "8",
             "anime_provider_priority": "aniworld,mkissa",
             "anime_provider_enabled": "mkissa,aniworld",
         }
