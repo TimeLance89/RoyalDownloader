@@ -109,17 +109,20 @@ def verify(mode):
     assert marker["source_sha"] == STABLE_SHA
     current_settings = settings()
     if mode != "rollback":
-        # Only the five new providers may be added by catalog migrations.
+        # Catalog migrations may only add these providers to saved selections.
+        additions = {
+            "flixitv", "kinoking", "movie2k", "hdfilme_family", "kellerkino",
+            "vidsrc", "vixsrc", "vidrift", "vidlink", "vidrock", "moviebox",
+        }
         for name in ("load_provider_priorities", "load_provider_enabled"):
             for media in ("movies", "series"):
                 migrated = current_settings[name][media]
-                for provider in ("flixitv", "kinoking", "movie2k", "hdfilme_family", "kellerkino"):
+                for provider in additions:
                     if provider == "kellerkino" and media == "series":
                         continue
                     assert migrated.count(provider) == 1, "Provider migration missing or duplicated"
                 current_settings[name][media] = [
-                    provider for provider in migrated
-                    if provider not in {"flixitv", "kinoking", "movie2k", "hdfilme_family", "kellerkino"}
+                    provider for provider in migrated if provider not in additions
                 ]
     assert current_settings == marker["settings"], "Settings/subscriptions changed"
     assert config.is_initialized()

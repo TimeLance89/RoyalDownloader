@@ -222,7 +222,7 @@ def test_movie_provider_migration_puts_filmpalast_then_huhu_and_filmfrei_last(
     assert "huhu" in migrated["movie_provider_enabled"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert writes == [{
-        "provider_catalog_revision": "7",
+        "provider_catalog_revision": "8",
         "movie_provider_priority": migrated["movie_provider_priority"],
         "movie_provider_enabled": migrated["movie_provider_enabled"],
     }]
@@ -243,7 +243,31 @@ def test_filmo_migration_preserves_revision_three_user_choices(monkeypatch):
     assert "filmo" in migrated["movie_provider_priority"].split(",")
     assert "filmo" in migrated["movie_provider_enabled"].split(",")
     assert "huhu" not in migrated["movie_provider_enabled"].split(",")
-    assert writes[0]["provider_catalog_revision"] == "7"
+    assert writes[0]["provider_catalog_revision"] == "8"
+
+
+def test_english_provider_migration_enables_both_media_once(monkeypatch):
+    writes = []
+    monkeypatch.setattr(config, "_update_all", lambda values: writes.append(values) or True)
+    old = {
+        "provider_catalog_revision": "7",
+        "movie_provider_priority": "filmpalast",
+        "movie_provider_enabled": "filmpalast",
+        "series_provider_priority": "serienstream",
+        "series_provider_enabled": "serienstream",
+    }
+    migrated = config._migrate_provider_catalog(old)
+    additions = {"vidsrc", "vixsrc", "vidrift", "vidlink", "vidrock", "moviebox"}
+    for media in ("movie", "series"):
+        for setting in ("priority", "enabled"):
+            providers = migrated[f"{media}_provider_{setting}"].split(",")
+            assert all(providers.count(provider) == 1 for provider in additions)
+    assert len(writes) == 1
+    assert migrated["provider_catalog_revision"] == "8"
+
+    migrated["series_provider_enabled"] = "serienstream"
+    assert config._migrate_provider_catalog(migrated)["series_provider_enabled"] == "serienstream"
+    assert len(writes) == 1
 
 
 def test_new_install_movie_defaults_start_with_filmpalast_then_huhu():
