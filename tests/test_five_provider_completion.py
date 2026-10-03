@@ -97,7 +97,7 @@ def test_hdf_family_parses_each_mirror_layout():
         '<div class="movie-preview"><span class="movie-title"><a href="/movie/4852-matrix.html">Matrix</a></span></div>',
     )
     for html in layouts:
-        items = HDFilmeFamilyScraper._cards(soup(html))
+        items = HDFilmeFamilyScraper._cards(soup(html), "https://hdfilme.ceo/?story=Matrix")
         assert [(item.title, item.slug) for item in items] == [("Matrix", "hdfilme_family:4852-Matrix")]
 
 
