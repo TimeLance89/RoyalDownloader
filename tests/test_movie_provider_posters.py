@@ -99,7 +99,7 @@ def test_every_movie_provider_forwards_listing_poster_to_catalog_card():
             '<div class="item"><img src="/poster.jpg">'
             '<a class="movie-title" href="https://hdfilme.ceo/filme1/1-testfilm-stream.html">Testfilm</a></div>',
             "html.parser",
-        ))[0].cover_url,
+        ), "https://hdfilme.ceo/")[0].cover_url,
         "kellerkino": kellerkino.KellerKinoScraper._cards(BeautifulSoup(
             '<article class="movie-card"><a class="movie-thumb" href="https://www.kellerkino.com/action/testfilm/">'
             '<img src="/poster.jpg"></a><h2><a href="https://www.kellerkino.com/action/testfilm/">Testfilm</a></h2></article>',

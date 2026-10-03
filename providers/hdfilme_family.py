@@ -50,10 +50,10 @@ class HDFilmeFamilyScraper:
         return self.http.soup(url)
 
     @staticmethod
-    def _cards(soup):
+    def _cards(soup, page_url):
         results, seen = [], set()
         for anchor in soup.select("a.movie-title, .item-video .f_title a, .movie-preview .movie-title a, .movie-preview h2 a, .movie-preview h3 a"):
-            url = anchor.get("href", "")
+            url = urljoin(page_url, anchor.get("href", ""))
             match = _ID.search(url)
             if not match or match.group(1) in seen:
                 continue
@@ -87,8 +87,9 @@ class HDFilmeFamilyScraper:
             base = MIRRORS[index]
             path = "/?story=" + quote(query) + "&do=search&subaction=search"
             try:
-                soup = self._soup(base + path)
-                results = self._cards(soup)
+                page_url = base + path
+                soup = self._soup(page_url)
+                results = self._cards(soup, page_url)
                 if results:
                     self._preferred = index
                     return results
@@ -125,10 +126,12 @@ class HDFilmeFamilyScraper:
         return FilmpalastSeriesResult(item.title, item.slug, item.slug, item.url, year=item.year)
 
     def list_movies(self, category="new", page=1):
-        return [x for x in self._cards(self._soup(MIRRORS[self._preferred] + f"/filme1/page/{page}/")) if x.is_movie]
+        url = MIRRORS[self._preferred] + f"/filme1/page/{page}/"
+        return [x for x in self._cards(self._soup(url), url) if x.is_movie]
 
     def list_series(self, page=1):
-        return [self._series_result(x) for x in self._cards(self._soup(MIRRORS[self._preferred] + f"/serien/page/{page}/")) if not x.is_movie]
+        url = MIRRORS[self._preferred] + f"/serien/page/{page}/"
+        return [self._series_result(x) for x in self._cards(self._soup(url), url) if not x.is_movie]
 
     def list_genres(self):
         return []
@@ -150,7 +153,11 @@ class HDFilmeFamilyScraper:
                 pass
         # A mirrored detail may use a different path template. Search once
         # on the currently healthy mirror and match the stable numeric ID.
-        title = unquote(str(value).removeprefix(SOURCE_PREFIX).split("-", 1)[-1])
+        base_slug = str(value).removeprefix(SOURCE_PREFIX)
+        parsed = parse_episode_slug(base_slug)
+        if parsed:
+            base_slug = parsed[0]
+        title = unquote(base_slug.split("-", 1)[-1])
         skip = tuple(i for i, base in enumerate(MIRRORS) if url and url.startswith(base))
         for result in self._search(title, skip=skip):
             if _identity(result.slug) == identity:
