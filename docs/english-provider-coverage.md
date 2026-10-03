@@ -7,7 +7,7 @@ four episodes with bounded manifest/range reads; it downloads no media files.
 
 | Family | Active | Domains / failover | Film / TV | Streams and audio | Live smoke |
 | --- | --- | --- | --- | --- | --- |
-| VidSrc | Yes | `data.vidsrc.sh`, `data.vidsrcme.ru`; public embeds `vidsrc.sh` | TMDB, exact S/E | Signed HLS, audio from playlist when declared; CDN token | 3/3 films; 0/4 TV in batch, 1/1 S01E01 when retried separately |
+| VidSrc | Yes | `data.vidsrc.sh`, `data.vidsrcme.ru`; public embeds `vidsrc.sh` | TMDB, exact S/E | Signed HLS, audio from playlist when declared; CDN token; bounded WASM decryptor | 3/3 films; TV uses one bounded retry/backoff for transient empty/error responses |
 | VixSrc | Yes | `vixsrc.to` | TMDB, exact S/E | HLS, FHD flag, English/Italian audio tracks | 7/7 |
 | VidRift | Yes | `embed.vidrift.net`, `embed.vidrift.in` | TMDB, exact S/E | Selfhost/Evion/Orion/Warm HLS or MP4; language when declared or present in playlist | 4/7; remaining titles had no source |
 | VidRock | Yes | `vidrock.net`; optional `VIDROCK_MIRRORS` | TMDB, exact S/E | Dynamic server list, HLS/MP4, language and quality when declared | 7/7 |
@@ -31,5 +31,8 @@ The active adapters keep `Referer`, `Origin`, stream type, language and optional
 Cookie in `HosterInfo`; the existing source resolver and yt-dlp download pipeline
 receive these fields. MovieBox DASH was additionally accepted by RD's actual
 `probe_stream_url` simulation (`index.mpd`, 2026-10-03). This is a manifest
-probe, not a complete download test. VidSrc's TV API is intermittently unavailable
-under a rapid series of requests, and VidRift has title gaps.
+probe, not a complete download test. VidSrc's TV API can be intermittently unavailable
+under a rapid series of requests, so TV lookups receive one bounded retry with a short
+backoff before mirror failover. Provider-supplied VidSrc WASM decryptors are restricted
+to the known API domains, capped in size, run without imports, and now execute with
+Wasmtime fuel and linear-memory limits. VidRift still has title gaps.
