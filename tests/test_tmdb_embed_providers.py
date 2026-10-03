@@ -3,8 +3,10 @@ import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import pytest
+import wasmtime
 from curl_cffi import requests
 
+from providers import tmdb_embeds
 from providers.tmdb_embeds import VidSrcScraper, VidRiftScraper, VixSrcScraper, VidRockScraper, _hls_tracks
 
 
@@ -142,6 +144,69 @@ def test_vidsrc_api_mirror_after_timeout():
     movie = VidSrcScraper(tmdb=TMDB(), session=session).get_movie("vidsrc:27205")
     assert movie and movie.hosters
     assert movie.url.startswith("https://data.vidsrcme.ru/")
+
+
+def test_vidsrc_tv_retries_transient_empty_response(monkeypatch):
+    api = "https://data.vidsrc.sh/api.php?type=tv&tmdb=1399&season=2&episode=3&stream_urls"
+    raw = "https://example.com/master.m3u8"
+    media = raw + "?token=signed"
+
+    class SequenceSession:
+        def __init__(self):
+            self.calls = []
+            self.api_calls = 0
+
+        def get(self, url, headers=None, timeout=None):
+            self.calls.append((url, headers, timeout))
+            if url == api:
+                self.api_calls += 1
+                if self.api_calls == 1:
+                    return Response(json.dumps({"status_code": "200", "data": {"stream_urls": []}}))
+                return Response(json.dumps({"status_code": "200", "data": {"stream_urls": [raw]}}))
+            if url == "https://example.com/generate.php":
+                return Response("signed")
+            if url == media:
+                return Response("#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,LANGUAGE=\"eng\"\n")
+            return Response("", 404)
+
+    sleeps = []
+    monkeypatch.setattr(tmdb_embeds.time, "sleep", lambda seconds: sleeps.append(seconds))
+    session = SequenceSession()
+    movie = VidSrcScraper(tmdb=TMDB(), session=session).get_movie("vidsrc:1399-s2e3")
+
+    assert movie and movie.hosters
+    assert session.api_calls == 2
+    assert sleeps == [tmdb_embeds._VIDSRC_TV_RETRY_DELAY]
+    assert movie.hosters[0].url == media
+
+
+def test_vidsrc_wasm_fuel_stops_infinite_decrypt(monkeypatch):
+    monkeypatch.setattr(tmdb_embeds, "_VIDSRC_WASM_FUEL", 10_000)
+    wasm = wasmtime.wat2wasm("""
+        (module
+          (memory (export "memory") 1)
+          (func (export "alloc") (param i32) (result i32)
+            i32.const 0)
+          (func (export "decrypt") (param i32 i32) (result i32)
+            (loop $spin
+              br $spin)
+            i32.const 0))
+    """)
+    encoded = base64.b64encode(b"payload").decode()
+    assert tmdb_embeds._decode_vidsrc_wasm(bytes(wasm), encoded) == []
+
+
+def test_vidsrc_wasm_memory_limit_rejects_large_linear_memory():
+    wasm = wasmtime.wat2wasm("""
+        (module
+          (memory (export "memory") 300)
+          (func (export "alloc") (param i32) (result i32)
+            i32.const 0)
+          (func (export "decrypt") (param i32 i32) (result i32)
+            i32.const 0))
+    """)
+    encoded = base64.b64encode(b"payload").decode()
+    assert tmdb_embeds._decode_vidsrc_wasm(bytes(wasm), encoded) == []
 
 
 @pytest.mark.parametrize("slug,path", [
