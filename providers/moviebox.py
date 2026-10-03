@@ -82,7 +82,7 @@ class MovieBoxScraper(TMDBEmbedScraper):
         plain = "\n".join((
             method.upper(), "application/json", content_type,
             str(len(body.encode())) if body else "", stamp,
-            hashlib.md5(body.encode()).hexdigest() if body else "", canonical_url,
+            hashlib.md5(body.encode(), usedforsecurity=False).hexdigest() if body else "", canonical_url,
         ))
         signature = base64.b64encode(hmac.new(CLIENT_KEY, plain.encode(), hashlib.md5).digest()).decode()
         info = {
@@ -94,7 +94,7 @@ class MovieBoxScraper(TMDBEmbedScraper):
         }
         headers = {
             "Accept": "application/json", "Content-Type": content_type,
-            "x-client-token": stamp + "," + hashlib.md5(stamp[::-1].encode()).hexdigest(),
+            "x-client-token": stamp + "," + hashlib.md5(stamp[::-1].encode(), usedforsecurity=False).hexdigest(),
             "x-tr-signature": stamp + "|2|" + signature,
             "x-client-info": json.dumps(info, separators=(",", ":")),
             "x-client-status": "0",
