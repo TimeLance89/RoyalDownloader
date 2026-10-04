@@ -21,7 +21,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from providers.aniworld import aniworld_episode_page
-from providers.catalog import provider_content_language, provider_content_languages, provider_track_language, provider_supports_languages
+from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, provider_track_language, provider_supports_languages
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
 from providers.filmo import FilmoScraper
@@ -839,6 +839,11 @@ class HuhuEpisodeLanguagesBody(BaseModel):
     slugs: list[str] = Field(min_length=1, max_length=30)
 
 
+class SeriesEpisodeLanguagesBody(BaseModel):
+    provider: str = Field(pattern=r"^(huhu|serienstream)$")
+    slugs: list[str] = Field(min_length=1, max_length=30)
+
+
 class SeriesJellyfinEpisodeBody(BaseModel):
     slug: str = Field(min_length=1, max_length=240)
     season: int = Field(ge=0, le=100)
@@ -1189,6 +1194,50 @@ async def api_series_load(body: SeriesLoadBody):
         raise HTTPException(404, "Serie nicht gefunden.")
     return payload
 
+
+@router.post("/api/v1/series/episode-languages")
+@router.post("/api/series/episode-languages")
+async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
+    provider = body.provider.strip().casefold()
+    if provider not in provider_priority("series"):
+        raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
+    slugs = list(dict.fromkeys(body.slugs))
+    prefix = f"{provider}:"
+    if any(not slug.startswith(prefix) or parse_episode_slug(slug) is None for slug in slugs):
+        raise HTTPException(400, "Episoden passen nicht zur gewählten Quelle.")
+
+    def _work():
+        languages = {}
+        available = {}
+        enabled = {normalize_content_language(value) for value in state.content_languages}
+        if provider == "huhu":
+            scraper = get_huhu_scraper()
+            for slug in slugs:
+                with state.huhu_lock:
+                    source_languages = tuple(scraper.get_episode_languages(slug))
+                normalized = sorted({normalize_content_language(value) for value in source_languages if normalize_content_language(value)})
+                languages[slug] = normalized
+                available[slug] = bool(set(normalized) & enabled)
+            return {"available": available, "languages": languages}
+
+        scraper = get_sto_scraper()
+        for slug in slugs:
+            with state.sto_lock:
+                movie = scraper.get_movie(slug)
+            normalized = sorted({
+                normalize_content_language(getattr(hoster, "language", ""))
+                for hoster in (getattr(movie, "hosters", None) or [])
+                if normalize_content_language(getattr(hoster, "language", ""))
+            })
+            languages[slug] = normalized
+            available[slug] = bool(set(normalized) & enabled)
+        return {"available": available, "languages": languages}
+
+    try:
+        return await run_in_threadpool(_work)
+    except Exception as exc:
+        log(f"Episodensprachen für {provider} konnten nicht geprüft werden: {exc}", "warn")
+        raise HTTPException(502, "Sprachprüfung ist gerade nicht verfügbar.") from exc
 
 @router.post("/api/v1/series/huhu-episode-languages")
 @router.post("/api/series/huhu-episode-languages")
