@@ -46,10 +46,11 @@ def _watchlist_entry_for_episode(slug: str) -> dict | None:
 def _watchlist_episode_is_actionable(entry: dict, slug: str) -> bool:
     """Reject stale pending slugs that are known language/release wait states."""
     episode_state = (entry.get("episode_states") or {}).get(slug)
-    if episode_state in {"waiting_for_language", "upcoming"}:
+    if episode_state in {"waiting_for_language", "language_pending", "upcoming"}:
         return False
     return slug not in {
         *(entry.get("waiting_language_slugs") or []),
+        *(entry.get("language_pending_slugs") or []),
         *(entry.get("waiting_release_slugs") or []),
         *(entry.get("upcoming_slugs") or []),
     }

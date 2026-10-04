@@ -815,7 +815,9 @@ def watchlist_payload() -> dict:
             # still being finalized.  Keep the freshly classified language and
             # release states authoritative even if that old slug is briefly
             # still present in the in-memory pending/failure maps.
-            non_actionable = waiting_release | waiting_language | upcoming
+            language_pending = (set(w.get("language_pending_slugs") or [])
+                                | {slug for slug, status in episode_states.items() if status == "language_pending"}) - queued
+            non_actionable = waiting_release | waiting_language | upcoming | language_pending
             actionable_pending = pending - non_actionable
             open_pending = actionable_pending - queued
             queued_count = len(queued)
@@ -847,6 +849,8 @@ def watchlist_payload() -> dict:
                 status = "waiting_window"
             elif actionable_pending:
                 status = "missing"
+            elif language_pending:
+                status = "language_pending"
             elif waiting_language:
                 status = "waiting_for_language"
             elif upcoming:
@@ -888,6 +892,7 @@ def watchlist_payload() -> dict:
                 "open_count": len(open_pending),
                 "waiting_release_count": len(waiting_release),
                 "waiting_language_count": len(waiting_language),
+                "language_pending_count": len(language_pending),
                 "upcoming_count": len(upcoming),
                 "episode_states": deepcopy(w.get("episode_states") or {}),
                 "queued_count": queued_count,

@@ -444,3 +444,14 @@ test("a newer live snapshot wins over a pending acknowledgement refresh", async 
   assert.equal(calls.refreshed, 1);
   assert.equal(calls.applied.length, 0);
 });
+
+test('unchecked episode languages remain in the inbox without becoming available or an error', () => {
+  const fixture = renderFixture([subscription('pending', { status: 'language_pending', language_pending_count: 2, open_count: 0 })]);
+  fixture.inbox.renderNotifBell();
+  const model = fixture.inbox.buildSubscriptionInbox(fixture.state.wl.items);
+  assert.equal(model.entries.length, 1);
+  assert.equal(model.entries[0].languagePendingCount, 2);
+  assert.equal(model.counts.new, 0);
+  assert.equal(model.counts.issue, 0);
+  assert.match(fixture.document.getElementById('notif-list').textContent, /Sprachprüfung ausstehend/);
+});

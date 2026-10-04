@@ -46,7 +46,7 @@ export function createSeriesEpisodes(root, {
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
     if (episode?.downloaded || episode?.in_jellyfin) return true;
     if (providerNeedsExactEpisodeLanguage(series)) {
-      if (!episodeLanguageChecked(episode)) return true;
+      if (!episodeLanguageChecked(episode)) return false;
       return episodeLanguageAvailable(episode);
     }
     const offered = episode?.content_languages || [];
@@ -58,6 +58,7 @@ export function createSeriesEpisodes(root, {
   }
 
   function episodeLanguageLockLabel(episode, series = seriesState.current) {
+    if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)) return "";
     // Remote source language must never relabel media that is already local.
     if (episode?.downloaded || episode?.in_jellyfin) return "";
     if (episodeHasEnabledStreamLanguage(episode, series)) return "";

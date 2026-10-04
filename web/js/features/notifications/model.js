@@ -19,12 +19,13 @@ export function buildSubscriptionInbox(items, health = {}) {
     openCount: notificationCount(entry.open_count ?? entry.new_count),
     queuedCount: notificationCount(entry.queued_count),
     waitingLanguageCount: notificationCount(entry.waiting_language_count),
+    languagePendingCount: notificationCount(entry.language_pending_count),
     upcomingCount: notificationCount(entry.upcoming_count),
     waitingSourceCount: notificationCount(entry.waiting_release_count),
     downloadedCount: notificationCount(entry.downloaded_count),
     hasIssue: notificationHasIssue(entry),
   })).filter((item) => (
-    item.openCount || item.queuedCount || item.waitingLanguageCount || item.upcomingCount
+    item.openCount || item.queuedCount || item.waitingLanguageCount || item.languagePendingCount || item.upcomingCount
       || item.waitingSourceCount || item.downloadedCount || item.hasIssue
   ));
   const globalError = String(health?.error || "").trim();

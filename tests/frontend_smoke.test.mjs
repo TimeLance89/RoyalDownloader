@@ -164,7 +164,7 @@ test("episode selection requires exact language evidence for multilingual provid
 
   // Staffel-list flags are only hints. An unchecked multilingual episode must
   // remain actionable so the exact episode endpoint can verify its hosters.
-  assert.equal(selectable({ slug: "s13e03", content_languages: ["en"] }), true);
+  assert.equal(selectable({ slug: "s13e03", content_languages: ["en"] }), false);
   assert.equal(actionable({ slug: "s13e03", content_languages: ["en"] }), true);
   assert.equal(lock({ slug: "s13e03", content_languages: ["en"] }), "");
 
@@ -202,7 +202,7 @@ test("episode selection requires exact language evidence for multilingual provid
     enabled_content_languages: ["de"],
     provider_content_languages: ["de"],
   };
-  assert.equal(selectable({ slug: "huhu17" }), true);
+  assert.equal(selectable({ slug: "huhu17" }), false);
   assert.equal(actionable({ slug: "huhu17" }), true);
   assert.equal(selectable({
     slug: "huhu15", huhu_language_checked: true, huhu_language_available: true,
