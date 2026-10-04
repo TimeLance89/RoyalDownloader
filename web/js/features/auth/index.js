@@ -79,7 +79,7 @@ export function createAuthentication(root, {
     scope.timeout(() => (byId("login-username").value.trim() ? byId("login-password") : byId("login-username")).focus(), 60);
   }
   function unauthorized() {
-    if (visible || isSetupRequired()) return;
+    if (visible || isSetupRequired() || !snapshot.configured) return;
     accept({ ...snapshot, authenticated: false, user: null });
     onExpired(); show({ expired: true });
   }
