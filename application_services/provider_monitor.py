@@ -81,8 +81,21 @@ class ProviderMonitor:
             self.stopped = False
             self.stop_event.clear()
             for provider in self.enabled():
-                if not self.store.entry(provider).get("last_check_at"):
-                    self._schedule(provider)
+                entry = self.store.entry(provider)
+                definition = PROVIDER_CATALOG[provider]
+                languages = set(provider_content_languages(provider))
+                if self.languages:
+                    languages &= set(self.languages())
+                evidence = entry.get("language_evidence", {}).get("anime", {})
+                missing_anime_evidence = "anime" in definition.media_types and any(
+                    not evidence.get(language) or not 0 <= self.clock() - evidence[language] < 86400
+                    for language in languages
+                )
+                if not entry.get("last_check_at") or missing_anime_evidence:
+                    # Older standard checks never inspected anime episodes.
+                    # Do not wait another full interval after this upgrade.
+                    jitter = int(hashlib.sha256(provider.encode()).hexdigest()[:6], 16) % 30
+                    self.store.update(provider, next_check_at=self.clock() + 30 + jitter)
             self.thread = threading.Thread(target=self._loop, name="provider-sentinel-scheduler", daemon=True)
             self.thread.start()
 

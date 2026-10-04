@@ -54,3 +54,13 @@ def test_standard_anime_evidence_confirms_the_german_availability_path(tmp_path,
     monitor.check('aniworld', 'standard')
     assert monitor.diagnostics()['service']['coverage']['anime'] == 'healthy'
     monitor.stop()
+
+def test_start_rechecks_anime_when_old_standard_checks_have_no_track_evidence(tmp_path, monkeypatch):
+    now = 2_000_000
+    monitor = ProviderMonitor(tmp_path / 'monitor.json', ProviderHealth(tmp_path / 'health.json'),
+                              lambda: ['aniworld'], clock=lambda: now, languages=lambda: {'de'})
+    monitor.store.update('aniworld', last_check_at=now - 10, next_check_at=now + 12 * 3600)
+    monkeypatch.setattr(monitor, '_loop', lambda: None)
+    monitor.start()
+    assert now + 30 <= monitor.store.entry('aniworld')['next_check_at'] < now + 60
+    monitor.stop()
