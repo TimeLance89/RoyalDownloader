@@ -968,6 +968,39 @@ function updaterFixture(client, reload = () => {}) {
   return { view: createUpdater(root, { client, socket, reload }), root, socket, nodes };
 }
 
+test("updater presents temporary failures as retryable and recovers on the next check", async () => {
+  let fail = true;
+  const { view, root, nodes } = updaterFixture({ get: async () => {
+    if (fail) throw Object.assign(new Error("raw network error"), { code: "request_timeout" });
+    return { comparison: "identical", current_sha: "a", latest_sha: "a" };
+  } });
+  try {
+    view.mount();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(root.dataset.state, "unknown");
+    assert.equal(nodes.get("#updater-check").disabled, false);
+    assert.equal(nodes.get("#updater-status").textContent, "Bitte erneut prüfen");
+    assert.ok(!nodes.get("#updater-detail").textContent.includes("raw"));
+    fail = false;
+    await view.refresh(true);
+    assert.equal(root.dataset.state, "current");
+    assert.equal(nodes.get("#updater-check").disabled, false);
+  } finally { view.unmount(); }
+});
+
+test("updater server busy and deadline statuses leave the retry button available", async () => {
+  for (const error_code of ["check_busy", "check_timeout", "github_unavailable"]) {
+    const { view, root, nodes } = updaterFixture({ get: async () => ({ error_code, error: "Bitte erneut prüfen." }) });
+    try {
+      view.mount();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(root.dataset.state, "unknown");
+      assert.equal(nodes.get("#updater-check").disabled, false);
+      assert.equal(nodes.get("#updater-install").dataset.sha, "");
+    } finally { view.unmount(); }
+  }
+});
+
 test("updater reloads only for the exact target and removes restart timers on leave", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let installed = "old", checks = 0, reloads = 0;

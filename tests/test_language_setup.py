@@ -170,7 +170,8 @@ def test_onboarding_subscription_choice_is_in_same_atomic_config_write(monkeypat
 
 
 @pytest.mark.parametrize("switch,fail", [(False, False), (True, False), (True, True)])
-def test_initial_setup_applies_subscription_policy_only_after_durable_save(studio, monkeypatch, tmp_path, switch, fail):
+@pytest.mark.parametrize("jellyfin_url", ["", "http://optional-jellyfin:8096"])
+def test_initial_setup_applies_subscription_policy_only_after_durable_save(studio, monkeypatch, tmp_path, switch, fail, jellyfin_url):
     from unittest.mock import AsyncMock
     from api.api_setup_router import SetupCompleteBody
     state, _, _, _ = studio
@@ -186,6 +187,7 @@ def test_initial_setup_applies_subscription_policy_only_after_durable_save(studi
     monkeypatch.setattr(administration, "_set_runtime_jellyfin_config", lambda *_: None)
     monkeypatch.setattr(administration, "start_background_services", lambda: None)
     body = SetupCompleteBody(save_path="/movies", series_path="/series", tmdb_api_key="fixture",
+        jellyfin_url=jellyfin_url, jellyfin_api_key="",
         ui_language="en", content_languages=["en"], movie_providers=["moviebox"],
         series_providers=["vidrift"], anime_providers=[], update_existing_subscriptions=switch)
     if fail:
@@ -197,6 +199,8 @@ def test_initial_setup_applies_subscription_policy_only_after_durable_save(studi
         return
     result = asyncio.run(administration._api_setup_complete_locked(body, SimpleNamespace()))
     assert result["saved"] is True
+    assert config.load_jellyfin()["url"] == jellyfin_url
+    assert config.load_jellyfin()["api_key"] == ""
     assert state.subscription_content_languages == config.load_subscription_languages() == {
         "show-a": ["en"] if switch else ["de"], "show-b": ["en"] if switch else ["de"]}
     assert state.watchlist_new_slugs == {}

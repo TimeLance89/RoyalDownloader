@@ -99,9 +99,10 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     installButton.classList.add("hidden");
 
     if (data.error) {
-      card.dataset.state = "error";
-      badge.textContent = "!";
-      status.textContent = "GitHub-Prüfung fehlgeschlagen";
+      const temporary = ["check_timeout", "github_unavailable", "check_busy"].includes(data.error_code);
+      card.dataset.state = temporary ? "unknown" : "error";
+      badge.textContent = temporary ? "↻" : "!";
+      status.textContent = temporary ? "Bitte erneut prüfen" : "GitHub-Prüfung fehlgeschlagen";
       detail.textContent = data.error;
       return;
     }
@@ -154,9 +155,9 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     card.dataset.state = "unknown";
     badge.textContent = "?";
     status.textContent = "Repository erreichbar";
-    detail.textContent = data.current_sha
-      ? "Der lokale Stand konnte nicht eindeutig mit main verglichen werden."
-      : "Der lokale Quellstand konnte weder Git-Metadaten noch einem GitHub-Dateibaum zugeordnet werden.";
+    detail.textContent = data.detail || (data.current_sha
+      ? `Der lokale Stand konnte nicht eindeutig mit ${branch} verglichen werden.`
+      : "Die installierte Version ist noch unbekannt. Bitte erneut prüfen.");
   }
 
   let cancelPoll = () => {};
@@ -316,7 +317,11 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       applyUpdaterStatus(result);
     } catch (error) {
       if (!current.active) return;
-      applyUpdaterStatus({ error: error.message });
+      const temporary = ["request_timeout", "network_error"].includes(error.code);
+      applyUpdaterStatus({
+        error_code: temporary ? "github_unavailable" : "",
+        error: temporary ? "Die Update-Prüfung ist momentan nicht erreichbar. Bitte erneut prüfen." : error.message,
+      });
     } finally {
       if (current.active) button.disabled = card.dataset.installing === "true";
     }

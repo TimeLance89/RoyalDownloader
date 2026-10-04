@@ -25,7 +25,13 @@ DEFAULT_REPOSITORY = "TimeLance89/RoyalDownloader"
 DEFAULT_BRANCH = DEFAULT_UPDATE_BRANCH
 RECENT_COMMIT_SCAN_LIMIT = 5
 COMPARE_FALLBACK_MAX_COMMITS = 64
+CHECK_BUDGET_SECONDS = 18
+ERROR_CACHE_SECONDS = 15
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+
+
+class UpdateRateLimitError(RuntimeError):
+    """GitHub temporarily refuses further update checks."""
 
 
 def _valid_commit(value: str) -> str:
@@ -141,6 +147,7 @@ class UpdateChecker:
         self._cache: Optional[dict] = None
         self._cache_time = 0.0
         self._lock = threading.Lock()
+        self._deadline = None
         self._inferred_commit = self._read_inferred_commit()
         self._inferred_verified = False
 
@@ -205,6 +212,7 @@ class UpdateChecker:
             return False
         root = self.app_dir.resolve()
         for item in entries:
+            self._remaining_budget()
             relative = str(item.get("path") or "").replace("\\", "/")
             expected = _valid_commit(item.get("sha", ""))
             parts = tuple(part for part in relative.split("/") if part)
@@ -289,6 +297,7 @@ class UpdateChecker:
         ).strip()
 
     def _request_json(self, path: str):
+        remaining = self._remaining_budget()
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "Royal-Downloader-Updater",
@@ -300,7 +309,7 @@ class UpdateChecker:
         response = requests.get(
             f"https://api.github.com/repos/{self.repository}/{path}",
             headers=headers,
-            timeout=10,
+            timeout=(min(4, remaining / 2), min(6, remaining / 2)),
         )
         try:
             response.raise_for_status()
@@ -309,12 +318,21 @@ class UpdateChecker:
                 response.status_code == 403
                 and response.headers.get("X-RateLimit-Remaining") == "0"
             ):
-                raise RuntimeError(
+                raise UpdateRateLimitError(
                     "GitHub-API-Limit erreicht. UPDATE_GITHUB_TOKEN hinterlegen "
                     "oder bis zum Zurücksetzen des Limits warten."
                 ) from exc
             raise
         return response.json()
+
+    def _remaining_budget(self) -> float:
+        remaining = (
+            self._deadline - time.monotonic()
+            if self._deadline is not None else CHECK_BUDGET_SECONDS
+        )
+        if remaining <= 0:
+            raise requests.Timeout("Die Update-Prüfung braucht länger. Bitte erneut prüfen.")
+        return remaining
 
     def _get_json(self, path: str) -> dict:
         payload = self._request_json(path)
@@ -454,6 +472,7 @@ class UpdateChecker:
             "behind_by": 0,
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "error": "",
+            "error_code": "",
         }
         try:
             latest = self._get_json(f"commits/{quote(self.branch, safe='')}")
@@ -479,6 +498,10 @@ class UpdateChecker:
                     current = ""
                 base["current_sha"] = current
             if not current:
+                base["detail"] = (
+                    "Die installierte Version konnte noch nicht zugeordnet werden. "
+                    "Bitte erneut prüfen. Es wird kein ungeprüftes Update angeboten."
+                )
                 return base
             if current == latest_sha:
                 base.update({"comparison": "identical", "update_available": False})
@@ -499,33 +522,71 @@ class UpdateChecker:
                 "behind_by": behind_by,
             })
             return base
+        except UpdateRateLimitError as exc:
+            base["error_code"] = "github_unavailable"
+            base["error"] = str(exc)
+            return base
+        except requests.Timeout:
+            base["error_code"] = "check_timeout"
+            base["error"] = "Die Update-Prüfung braucht länger. Bitte erneut prüfen."
+            return base
+        except requests.ConnectionError:
+            base["error_code"] = "github_unavailable"
+            base["error"] = "GitHub ist momentan nicht erreichbar. Bitte später erneut prüfen."
+            return base
+        except requests.HTTPError as exc:
+            status = self._http_status(exc)
+            if status == 429 or (status is not None and status >= 500):
+                base["error_code"] = "github_unavailable"
+                base["error"] = "GitHub ist momentan ausgelastet. Bitte später erneut prüfen."
+            else:
+                base["error"] = str(exc)[:240]
+            return base
         except (requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
             base["error"] = str(exc)[:240]
             return base
 
     def check(self, force: bool = False) -> dict:
-        with self._lock:
-            return self._check_locked(force)
+        return self._check_with_lock(None, force)
 
     def check_branch(self, branch: str, force: bool = False) -> dict:
         """Atomically select and check one branch for a consistent response."""
         normalized = str(branch or "").strip() or DEFAULT_BRANCH
-        with self._lock:
-            if normalized != self.branch:
-                self.branch = normalized
+        return self._check_with_lock(normalized, force)
+
+    def _check_with_lock(self, branch: Optional[str], force: bool) -> dict:
+        if not self._lock.acquire(timeout=1):
+            return {
+                "branch": branch or self.branch, "update_available": None,
+                "error_code": "check_busy",
+                "error": "Eine Update-Prüfung läuft bereits. Bitte gleich erneut prüfen.",
+            }
+        try:
+            if branch is not None and branch != self.branch:
+                self.branch = branch
                 self._cache = None
                 self._cache_time = 0.0
             return self._check_locked(force)
+        finally:
+            self._lock.release()
 
     def _check_locked(self, force: bool) -> dict:
         now = time.monotonic()
         if (
             not force
             and self._cache is not None
-            and (now - self._cache_time) < self.cache_seconds
+            and (now - self._cache_time) < min(
+                self.cache_seconds,
+                ERROR_CACHE_SECONDS if self._cache.get("error") or not self._cache.get("current_sha")
+                else self.cache_seconds,
+            )
         ):
             return dict(self._cache)
-        result = self._check_uncached()
+        self._deadline = now + CHECK_BUDGET_SECONDS
+        try:
+            result = self._check_uncached()
+        finally:
+            self._deadline = None
         self._cache = dict(result)
-        self._cache_time = now
+        self._cache_time = time.monotonic()
         return result

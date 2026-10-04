@@ -136,6 +136,29 @@ const server = createServer(async (req, res) => {
     assert.equal(submissions[0].body.jellyfin_user_id, "other");
     assert.equal(submissions[0].body.bootstrap_token, "fixture-bootstrap");
     assert.equal(await page.locator("#setup-auth-password").inputValue(), "");
+    // General settings saves must not contact an untouched optional Jellyfin server.
+    await page.evaluate(async () => {
+      const { createJellyfinSettings } = await import("/js/features/integrations/jellyfin.js");
+      const root = document.querySelector("#jellyfin-url").closest(".settings-group").cloneNode(true);
+      const writes = [];
+      const view = createJellyfinSettings(root, { client: {
+        get: async () => ({ url: "http://optional:8096", has_api_key: false }),
+        post: async (_url, body) => {
+          writes.push(body);
+          return { ...body, has_api_key: false, saved: true };
+        },
+      } });
+      try {
+        view.mount(); await view.initialize();
+        await view.save();
+        if (writes.length) throw new Error("Untouched Jellyfin must not block other settings");
+        root.querySelector("#jellyfin-url").value = "";
+        root.dispatchEvent(new Event("input"));
+        await view.save();
+        if (writes.length !== 1 || writes[0].url || writes[0].api_key) throw new Error("Empty optional Jellyfin must be savable");
+        if (view.get().userConfigured) throw new Error("Empty Jellyfin must remain inactive");
+      } finally { view.dispose(); }
+    });
     await page.evaluate(async () => { const { switchTab } = (await import(document.querySelector('script[type="module"]').src)).application.core.actions; switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");
