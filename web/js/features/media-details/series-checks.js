@@ -8,7 +8,7 @@ export function createSeriesChecks(status, {
   updateSeriesOverview, updateWatchBtn, renderSeriesTiles, client = api,
 }) {
   let refreshScope = null, refreshSequence = 0;
-  const refreshByBase = new Map(), languageJobs = new Set();
+  const refreshByBase = new Map(), languageJobs = new Set(), languagePendingSlugs = new Set();
 
   function providerNeedsExactEpisodeLanguage(series) {
     if (!series) return false;
@@ -26,7 +26,9 @@ export function createSeriesChecks(status, {
         !episode.unreleased
         && !episode.downloaded
         && !episode.in_jellyfin
+        && !episode.queued
         && episode.language_checked !== true
+        && episode.huhu_language_checked !== true
       )),
     );
     if (!season) return [];
@@ -34,7 +36,9 @@ export function createSeriesChecks(status, {
       !episode.unreleased
       && !episode.downloaded
       && !episode.in_jellyfin
+      && !episode.queued
       && episode.language_checked !== true
+      && episode.huhu_language_checked !== true
     ));
   }
   async function refreshSeriesJellyfinStatus(force = false) {
@@ -144,8 +148,13 @@ export function createSeriesChecks(status, {
     if (!series) return;
     if (!providerNeedsExactEpisodeLanguage(series)) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
-    const pending = episodes.filter((episode) => !episode.language_checked);
+    const pending = episodes.filter((episode) => (
+      episode.language_checked !== true
+      && episode.huhu_language_checked !== true
+      && !languagePendingSlugs.has(episode.slug)
+    ));
     if (!pending.length) return;
+    for (const episode of pending) languagePendingSlugs.add(episode.slug);
     const owner = createScope();
     languageJobs.add(owner);
     try {
@@ -171,7 +180,11 @@ export function createSeriesChecks(status, {
         ? "Folgen ohne passende Stream-Sprache bleiben gesperrt."
         : "Stream-Sprache bestätigt.";
       renderSeriesTiles();
-    } finally { owner.dispose(); languageJobs.delete(owner); }
+    } finally {
+      for (const episode of pending) languagePendingSlugs.delete(episode.slug);
+      owner.dispose();
+      languageJobs.delete(owner);
+    }
   }
 
   return {
@@ -180,6 +193,7 @@ export function createSeriesChecks(status, {
       refreshScope?.dispose(); refreshScope = null; refreshByBase.clear();
       for (const job of languageJobs) job.dispose();
       languageJobs.clear();
+      languagePendingSlugs.clear();
     },
   };
 }
