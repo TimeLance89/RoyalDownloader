@@ -165,10 +165,14 @@ def _extract_from_movie(
     for hoster in ranked_hosters:
         if not hoster.url:
             continue
+        hoster_audio_language = str(
+            getattr(hoster, "audio_language", "") or ""
+        )
         hoster_language = _concrete_stream_language(
             movie,
             res.provider,
-            str(getattr(hoster, "language", "") or ""),
+            hoster_audio_language
+            or str(getattr(hoster, "language", "") or ""),
         )
         if not selected_source_language_allowed(res.provider, hoster_language, enabled_languages, getattr(movie, "url", "")):
             log(
@@ -202,10 +206,10 @@ def _extract_from_movie(
         res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
         res.content_language = hoster_language
-        res.audio_language = (
-            str(getattr(hoster, "audio_language", "") or "")
-            or (required_language if hoster_language == required_language else "")
-        )
+        # audio_language is reserved for language metadata proven by the
+        # actual manifest/stream. The provider button language is already used
+        # above for routing but must not be fabricated as a yt-dlp track tag.
+        res.audio_language = hoster_audio_language
         res.headers = dict(getattr(hoster, "headers", {}) or {})
         log(f"  Versuche Hoster: {hoster.name}")
 
@@ -1126,11 +1130,10 @@ def _enqueue_hoster_attempt(
         ),
         referer=result.referer,
         origin=result.origin,
-        audio_language=(
-            required_language
-            or getattr(result, "audio_language", "")
+        audio_language=getattr(result, "audio_language", ""),
+        strict_audio_language=bool(
+            required_language and getattr(result, "audio_language", "")
         ),
-        strict_audio_language=bool(required_language and parse_episode_slug(movie_slug)),
         headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,
