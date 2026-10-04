@@ -135,7 +135,8 @@ test("episode selection requires exact language evidence for multilingual provid
       current: {
         provider: "serienstream",
         enabled_content_languages: ["de"],
-        provider_content_languages: ["de", "en"],
+        // The first detail payload may not have capability metadata yet.
+        // SerienStream must still require exact episode-language evidence.
       },
     },
     queuedSlugs: new Set(),
