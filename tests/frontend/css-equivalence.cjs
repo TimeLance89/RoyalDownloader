@@ -64,10 +64,13 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // post-baseline components with dedicated browser/API regressions, so
       // neither subtree has a legacy visual state to compare against. Settings
       // are an intentional redesign and likewise must not match frozen styles.
+      // Their new top-layer language dialog lives outside the settings tab;
+      // language-studio-browser.cjs covers its desktop/mobile layout and flow.
       .filter(element =>
         !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")
+        && !element.closest("#language-setup-dialog")
       )
       .map(element => {
         const style = getComputedStyle(element);

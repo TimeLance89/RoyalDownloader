@@ -529,6 +529,7 @@ export function createLocalization(document, { client = api } = {}) {
     persist = false,
     userInitiated = false,
     priorityRoot = null,
+    requireReady = false,
   } = {}) {
     if (!session.active) return language;
     translationOwner.dispose(); translationOwner = createScope();
@@ -568,6 +569,7 @@ export function createLocalization(document, { client = api } = {}) {
         ? "lokal im Browser"
         : lastEngine === "fallback" ? "deutscher Fallback" : "serverseitig";
       setStatus(`${languages[target]} · automatisch ${engineLabel}`);
+      if (requireReady && lastEngine === "fallback") throw new Error("Die Übersetzung ist noch nicht verfügbar. Bitte erneut versuchen.");
       if (priorityElements.length) {
         const remaining = new Set([...entries].filter((entry) => !priorityEntries.has(entry)));
         translateEntries(remaining, { userInitiated }).catch((error) => {

@@ -1,16 +1,24 @@
+import { createLanguageSetup } from "./language-setup.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { updateDeploymentModeHints, selectedDeploymentMode } from "./deployment.js";
 
 export function createSettings(root, {
-  getFeatures, language, locale, changeLanguage, onSaved = async () => {}, client = api,
+  getFeatures, language, locale, changeLanguage, onSaved = async () => {}, onLanguageReady = onSaved, languageWizard, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let owner = createScope(), scope, pending;
   let config, dirty = false, revision = 0, saving = false;
+  const languageSetup = languageWizard || createLanguageSetup(root.ownerDocument.getElementById("language-setup-dialog"), {
+    client, language, changeLanguage,
+    providers: { apply: value => getFeatures().providers.apply(value) },
+    onReady: onLanguageReady,
+    onComplete() { render(); byId("language-profile-label").textContent = byId("ui-language").selectedOptions?.[0]?.textContent || language(); },
+  });
   function render() {
     if (!config || dirty) return;
     byId("ui-language").value = language();
+    byId("language-profile-label").textContent = byId("ui-language").selectedOptions?.[0]?.textContent || language();
     const mode = ["desktop", "nas"].includes(config.deployment_mode) ? config.deployment_mode : "desktop";
     const radio = root.querySelector(`input[name="deployment-mode"][value="${mode}"]`);
     if (radio) radio.checked = true;
@@ -39,8 +47,6 @@ export function createSettings(root, {
     const button = byId("settings-save"), status = byId("settings-saved-status");
     saving = true; button.disabled = true; status.textContent = "Speichere …";
     try {
-      await client.post("/api/ui/config", { language: byId("ui-language").value }, { signal: current.signal });
-      if (!current.active) return;
       const value = await client.post("/api/config", {
         save_path: byId("save-path").value.trim(), series_path: byId("series-path").value.trim(),
         deployment_mode: selectedDeploymentMode(root),
@@ -69,7 +75,7 @@ export function createSettings(root, {
     } finally { if (current.active) { saving = false; button.disabled = false; } }
   }
   return {
-    initialize, save,
+    initialize, save, openLanguageSetup: options => languageSetup.open(options),
     mount() {
       if (scope) return;
       if (!owner.active) owner = createScope();
@@ -77,20 +83,20 @@ export function createSettings(root, {
       saving = false; byId("settings-save").disabled = false; render();
       current.listen(byId("settings-save"), "click", save);
       const changed = () => { dirty = true; revision++; };
-      for (const id of ["save-path", "series-path", "ui-language"]) current.listen(byId(id), "input", changed);
+      for (const id of ["save-path", "series-path"]) current.listen(byId(id), "input", changed);
       for (const radio of root.querySelectorAll('input[name="deployment-mode"]')) current.listen(radio, "change", () => {
         changed(); updateDeploymentModeHints(root, "settings", selectedDeploymentMode(root));
       });
+      for (const button of root.querySelectorAll("[data-language-setup-open]")) current.listen(button, "click", () => { void languageSetup.open(); });
       current.listen(byId("ui-language"), "change", event => {
-        changed();
-        void changeLanguage(event.target.value).catch(error => {
-          if (current.active) byId("settings-saved-status").textContent = error.message;
-        });
+        const target = event.target.value;
+        event.target.value = language();
+        void languageSetup.open({ uiLanguage: target });
       });
     },
     refresh() { render(); },
-    unmount() { scope?.dispose(); scope = null; saving = false; },
-    dispose() { owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
+    unmount() { languageSetup.dispose(); scope?.dispose(); scope = null; saving = false; },
+    dispose() { languageSetup.dispose(); owner.dispose(); scope?.dispose(); scope = null; saving = false; pending = null; },
     resume() { if (!owner.active) owner = createScope(); },
   };
 }

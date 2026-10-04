@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from features.subscription_languages import subscription_content_languages
+
 import asyncio
 import ipaddress
 import threading
@@ -1068,7 +1070,10 @@ class WatchlistCheckBody(BaseModel):
 def _watchlist_episode_language_evidence(entry, series, episode_states):
     from application_services.movie_catalog import provider_for_value
     provider = provider_for_value(series.base_slug) if ":" in series.base_slug else ""
-    if not needs_exact_episode_language(provider):
+    desired = subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {}))
+    from providers.catalog import provider_supports_languages
+    needs_alternate = bool(provider and not provider_supports_languages(provider, desired))
+    if not needs_exact_episode_language(provider) and not needs_alternate:
         return None, {}
     now = time.time()
     checks = dict(entry.get("episode_language_checks") or {})
@@ -1085,11 +1090,21 @@ def _watchlist_episode_language_evidence(entry, series, episode_states):
             probes += 1
             try:
                 values = episode_languages_for_slug(provider, episode.slug)
+                if needs_alternate and not set(values) & set(desired):
+                    from application_services.download_lifecycle import find_episode_fallbacks
+                    from application_services.content_language_policy import _source_languages
+                    from providers.catalog import PROVIDER_CATALOG
+                    excluded = {key for key in PROVIDER_CATALOG if not provider_supports_languages(key, desired)}
+                    alternatives = find_episode_fallbacks(series.title, episode.season, episode.episode,
+                        aliases=tuple(entry.get("aliases") or ()), source_slug=episode.slug,
+                        excluded_providers=excluded, limit=2)
+                    values = sorted(set(values) | {language for candidate in alternatives
+                        if candidate.hosters for language in _source_languages(candidate)})
                 checks[episode.slug] = {"languages": values, "checked_at": time.time()}
             except Exception:
                 # A failed language request is neither language absence nor a
                 # failed download. A subsequent subscription check retries it.
-                pass
+                values = None
         languages[episode.slug] = values
     known = {episode.slug for episode in series.all_episodes}
     return languages, {slug: record for slug, record in checks.items() if slug in known}
@@ -1101,7 +1116,7 @@ def _update_watchlist_language_states(entry, languages):
     for slug, values in languages.items():
         if states.get(slug) not in {"available", "waiting_for_language", "language_pending"}:
             continue
-        status = episode_language_state(values, state.content_languages)
+        status = episode_language_state(values, subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})))
         states[slug] = status
         if status == "available":
             pending.add(slug)
@@ -1233,12 +1248,12 @@ def _calculate_watchlist_entry_state(
         jellyfin_watched=jf_watched,
         season_episode_counts=entry.get("season_episode_counts") or {},
         unreleased_slugs=unreleased_slugs,
-        enabled_content_languages=state.content_languages,
+        enabled_content_languages=subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})),
     )
     exact_languages, language_checks = _watchlist_episode_language_evidence(entry, series, episode_states)
     if exact_languages is not None:
         episode_states = {
-            slug: status if status == "upcoming" else episode_language_state(exact_languages.get(slug), state.content_languages)
+            slug: status if status == "upcoming" else episode_language_state(exact_languages.get(slug), subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})))
             for slug, status in episode_states.items()
         }
     missing_slugs = {slug for slug, status in episode_states.items() if status == "available"}

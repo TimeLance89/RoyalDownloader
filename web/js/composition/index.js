@@ -99,6 +99,7 @@ export function preparePresentation() {
     getIntegrations: () => integrationsDomain,
     getSubscriptions: () => subscriptionsDomain,
     getProfile: () => profileDomain,
+    getHome: () => homeDomain,
   });
   subscriptionsDomain = composeSubscriptions({
     movieSubscriptions,

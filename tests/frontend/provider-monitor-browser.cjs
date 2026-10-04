@@ -71,13 +71,22 @@ const { fixture } = require("./performance-fixture.cjs");
         catalog: { filmpalast: { content_language: "de" }, serienstream: { content_language: "de" }, sflix: { content_language: "en" },
           aniworld: { content_language: "de", content_languages: ["de", "en"], language_labels: ["Deutsch", "English"] }, mkissa: { content_language: "en" } },
       }); });
-      await page.locator('#content-language-options [data-language="de"]')[interact]();
+      // Language changes now use the guided setup; monitor routing follows its acknowledgement.
+      async function acceptContentLanguages(languages) {
+        await page.evaluate(languages => {
+          const providers = fixtureApp.settings.providers;
+          const current = providers.get();
+          providers.apply({ ...current, content_languages: languages,
+            enabled_movies: ["filmpalast", "sflix"], enabled_series: ["serienstream", "sflix"],
+            enabled_anime: ["aniworld", "mkissa"] });
+        }, languages);
+      }
+      await acceptContentLanguages(["en"]);
       const animeRow = page.locator('#anime-provider-priority [data-provider="aniworld"] input');
       assert.equal(await animeRow.isChecked(), true, "Removing German preserves bilingual AniWorld");
       assert.equal(await animeRow.isEnabled(), true);
       assert.equal(await page.evaluate(() => fixtureApp.core.actions.aniworldNavigationAvailable()), true);
-      await page.locator('#content-language-options [data-language="de"]')[interact]();
-      await page.locator('#content-language-options [data-language="en"]')[interact]();
+      await acceptContentLanguages(["de"]);
       assert.equal(await animeRow.isChecked(), true, "German-only AniWorld remains selectable");
       assert.equal(await page.locator('#anime-provider-priority [data-provider="mkissa"] input').isEnabled(), false);
       await monitor.locator('[data-monitor="health-title"]').getByText("Alles funktioniert").waitFor();

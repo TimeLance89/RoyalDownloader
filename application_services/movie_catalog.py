@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+from features.subscription_languages import subscription_content_languages
+
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -153,6 +155,12 @@ def provider_priority(media_type: str) -> List[str]:
         if provider_supports_languages(provider, languages)
     ]
     active = [provider for provider in matching if provider in enabled]
+    if media_type == "series":
+        retained = {language for entry in list(getattr(state, "watchlist", []))
+                    for language in subscription_content_languages(entry, languages, getattr(state, "subscription_content_languages", {}))
+                    if language not in languages}
+        active.extend(provider for provider in ordered if provider not in active
+                      and provider_supports_languages(provider, retained))
     from providers.sentinel_runtime import provider_routing_penalty
     candidates = active
     usable = [provider for provider in candidates if state.provider_health.routing_allowed(provider)]

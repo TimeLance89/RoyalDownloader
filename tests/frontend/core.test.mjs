@@ -1039,6 +1039,7 @@ test("settings abort a save sequence on navigation and keep newer edits", async 
   const settings = createSettings(root, {
     getFeatures: () => Object.fromEntries(["jellyfin", "intelligence", "automation", "providers", "updater", "integrations"].map(key => [key, feature])),
     language: () => "de", locale: () => "de-DE", changeLanguage: async () => {},
+    languageWizard: { open() {}, dispose() {} },
     client: { get: async () => ({ save_path: "/server" }), post: (url, body, { signal }) => {
       calls.push({ url, body, signal });
       return new Promise(resolve => { complete = resolve; });
