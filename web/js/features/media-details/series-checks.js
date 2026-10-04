@@ -99,28 +99,34 @@ export function createSeriesChecks(status, {
   }
 
   async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current) {
-    if (series?.provider !== "huhu") return;
+    if (!["huhu", "serienstream"].includes(series?.provider)) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
-    const pending = episodes.filter((episode) => !episode.huhu_language_checked);
+    const pending = episodes.filter((episode) => !episode.language_checked);
     if (!pending.length) return;
     const owner = createScope();
     languageJobs.add(owner);
     try {
       const generation = seriesState.viewGeneration;
-      status.textContent = `Prüfe deutsche Quellen für ${pending.length} Folge(n) …`;
+      status.textContent = `Prüfe Stream-Sprache für ${pending.length} Folge(n) …`;
       for (let index = 0; index < pending.length; index += 30) {
         const chunk = pending.slice(index, index + 30);
-        const result = await client.post("/api/series/huhu-episode-languages", { slugs: chunk.map(episode => episode.slug) }, { signal: owner.signal });
+        const result = await client.post("/api/series/episode-languages", {
+          provider: series.provider,
+          slugs: chunk.map(episode => episode.slug),
+        }, { signal: owner.signal });
         if (!owner.active || generation !== seriesState.viewGeneration || seriesState.current !== series) throw new DOMException("Abgebrochen", "AbortError");
         for (const episode of chunk) {
+          episode.language_checked = true;
+          episode.language_available = result.available?.[episode.slug] === true;
+          // Backward-compatible flags for the existing HUHU UI/tests.
           episode.huhu_language_checked = true;
-          episode.huhu_language_available = result.available?.[episode.slug] === true;
+          episode.huhu_language_available = episode.language_available;
           episode.content_languages = result.languages?.[episode.slug] || [];
         }
       }
-      status.textContent = pending.some((episode) => !episode.huhu_language_available)
-        ? "Folgen ohne deutsche Quelle bleiben gesperrt."
-        : "Deutsche Quellen bestätigt.";
+      status.textContent = pending.some((episode) => !episode.language_available)
+        ? "Folgen ohne passende Stream-Sprache bleiben gesperrt."
+        : "Stream-Sprache bestätigt.";
       renderSeriesTiles();
     } finally { owner.dispose(); languageJobs.delete(owner); }
   }
