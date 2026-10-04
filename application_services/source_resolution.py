@@ -782,6 +782,19 @@ def _enqueue_hoster_attempt(
     letzten Anbieter als abgeschlossen gemeldet."""
     if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
         return False
+    required_language = _queue_requested_language(movie_slug)
+    if required_language:
+        movie._required_content_language = required_language
+        for candidate in source_movies:
+            candidate._required_content_language = required_language
+        if result.content_language and normalize_content_language(result.content_language) != required_language:
+            log(
+                f"  Verwerfe {result.hoster_used or 'Quelle'}: "
+                f"{str(result.content_language).upper()} verletzt die "
+                f"Queue-Sprache {required_language.upper()}.",
+                "warn",
+            )
+            return False
     gate_seen = gate_seen or [bool(result.gated)]
     gate_seen[0] = gate_seen[0] or bool(result.gated)
     if barren_hoster_urls is None:
@@ -982,13 +995,25 @@ def _enqueue_hoster_attempt(
                     excluded_providers=tried_providers,
                 )
                 seen = {m.url for m in source_movies}
-                source_movies.extend(m for m in alternatives if m.url not in seen)
+                for candidate in alternatives:
+                    if candidate.url in seen:
+                        continue
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
+                    seen.add(candidate.url)
             else:
-                source_movies.extend(find_movie_source_fallbacks(
+                movie_alternatives = find_movie_source_fallbacks(
                     source_movies[0], movie_slug, {m.url for m in source_movies},
-                ))
+                )
+                for candidate in movie_alternatives:
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
         for next_index in range(source_index + 1, len(source_movies)):
             next_movie = source_movies[next_index]
+            if required_language:
+                next_movie._required_content_language = required_language
             log(f"  Wechsle Filmquelle: {clean_movie_title(next_movie.title)}", "warn")
             with state.hoster_extract_lock:
                 source_result = _extract_from_movie(
@@ -1101,7 +1126,11 @@ def _enqueue_hoster_attempt(
         ),
         referer=result.referer,
         origin=result.origin,
-        audio_language=getattr(result, "audio_language", ""),
+        audio_language=(
+            required_language
+            or getattr(result, "audio_language", "")
+        ),
+        strict_audio_language=bool(required_language and parse_episode_slug(movie_slug)),
         headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,
