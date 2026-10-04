@@ -68,7 +68,10 @@ class ProviderMonitor:
     def _schedule(self, provider, delay=None):
         config = self.store.config()
         jitter = int(hashlib.sha256(provider.encode()).hexdigest()[:6], 16) % 900
-        seconds = config["interval_hours"] * 3600 + jitter if delay is None else delay + jitter
+        if delay is None and not self.store.entry(provider).get("last_check_at"):
+            seconds = 30 + jitter % 30
+        else:
+            seconds = config["interval_hours"] * 3600 + jitter if delay is None else delay + jitter
         self.store.update(provider, next_check_at=self.clock() + seconds)
 
     def start(self):
@@ -77,6 +80,9 @@ class ProviderMonitor:
                 return
             self.stopped = False
             self.stop_event.clear()
+            for provider in self.enabled():
+                if not self.store.entry(provider).get("last_check_at"):
+                    self._schedule(provider)
             self.thread = threading.Thread(target=self._loop, name="provider-sentinel-scheduler", daemon=True)
             self.thread.start()
 

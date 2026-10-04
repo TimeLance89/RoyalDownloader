@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Subscription language verification and source availability
+
+- Share pending episode-language checks across selection and detail hydration;
+  unchecked multilingual episodes cannot be selected or preselected from the inbox.
+- Probe concrete subscription episode languages with bounded requests and cached
+  evidence. Keep failed or deferred language checks visible as pending, and publish
+  detail-check results back to the subscription inbox without stale failure badges.
+- Use a language-neutral waiting label instead of always naming German.
+- Check anime episode tracks during standard source monitoring and schedule the
+  first check of untested sources promptly. Show source availability below the
+  source catalog in settings.
+
 ### Strict content-language routing
 
 - Make a queue item's chosen content language a hard contract across provider,

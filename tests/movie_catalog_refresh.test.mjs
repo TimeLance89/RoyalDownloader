@@ -808,3 +808,88 @@ test("shell mounts controls once and ignores command responses after unmount", a
   requests[1].resolve({ queue: {} }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(accepted.length, 1); shell.unmount();
 });
+
+async function languageRaceFixture() {
+  const { createSeriesChecks } = await import('../web/js/features/media-details/series-checks.js');
+  const episode = { slug: 'sto:race-s01e01', season: 1, episode: 1 };
+  const series = { base_slug: 'sto:race', provider: 'serienstream', seasons: [{ season: 1, episodes: [episode] }] };
+  const seriesState = { current: series, viewGeneration: 1, epPicked: new Set() };
+  const requests = [];
+  const checks = createSeriesChecks({}, { seriesState, isVisible: () => true, renderSeriesTiles: () => {},
+    client: { post: (url, body, options) => new Promise((resolve, reject) => requests.push({ url, body, options, resolve, reject })) } });
+  const respond = (request, available) => request.resolve({ available: { [episode.slug]: available }, languages: { [episode.slug]: [available ? 'de' : 'en'] } });
+  return { episode, series, seriesState, requests, checks, respond };
+}
+
+test('overlapping language selection waits for the existing probe and hydration receives its result', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series);
+  f.seriesState.current = structuredClone(f.series);
+  const hydratedEpisode = f.seriesState.current.seasons[0].episodes[0];
+  let done = false;
+  const duplicate = f.checks.verifyLanguages([hydratedEpisode], f.seriesState.current).then(() => { done = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(done, false);
+  assert.equal(f.requests.length, 1);
+  f.respond(f.requests[0], false);
+  await Promise.all([first, duplicate]);
+  assert.equal(hydratedEpisode.language_checked, true);
+  assert.equal(hydratedEpisode.language_available, false);
+});
+
+test('new view of the same episode starts its own probe and rejects old results', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series).catch(error => error.name);
+  f.seriesState.viewGeneration++;
+  f.seriesState.current = structuredClone(f.series);
+  const episode = f.seriesState.current.seasons[0].episodes[0];
+  const next = f.checks.verifyLanguages([episode], f.seriesState.current);
+  assert.equal(f.requests.length, 2);
+  f.respond(f.requests[0], true);
+  assert.equal(await first, 'AbortError');
+  assert.equal(episode.language_checked, undefined);
+  f.respond(f.requests[1], false);
+  await next;
+  assert.equal(episode.language_available, false);
+});
+
+test('failed language probes release their shared job and remain retryable', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series);
+  f.requests[0].reject(new Error('temporary failure'));
+  await assert.rejects(first, /temporary/);
+  assert.equal(f.episode.language_checked, undefined);
+  const retry = f.checks.verifyLanguages([f.episode], f.series);
+  assert.equal(f.requests.length, 2);
+  f.respond(f.requests[1], true);
+  await retry;
+  assert.equal(f.episode.language_available, true);
+});
+
+test('inbox preselection waits for language truth even when showing details advances the view', async () => {
+  const { createSeriesDetailsLoader } = await import('../web/js/features/media-details/series-loader.js');
+  const { createSeriesEpisodes } = await import('../web/js/features/media-details/series-episodes.js');
+  const f = await languageRaceFixture();
+  const model = createSeriesEpisodes({ ownerDocument: {} }, { seriesState: f.seriesState,
+    getQueuedSlugs: () => new Set(), getEnabledLanguages: () => ['de'] });
+  const loader = createSeriesDetailsLoader({ querySelector: () => ({}) }, {}, {
+    seriesState: f.seriesState, switchTab: () => {}, firstEpisodeSlug: model.firstEpisodeSlug,
+    seriesEpisodes: model.seriesEpisodes, isEpisodeSelectable: model.isEpisodeSelectable,
+    showSeriesDetail: series => { f.seriesState.current = series; f.seriesState.viewGeneration++; },
+    verifyHuhuEpisodeLanguages: f.checks.verifyLanguages, renderSeriesTiles: () => {},
+    syncWatchlistSnapshot: async () => {},
+    client: { post: async () => ({ ...f.series, preselect_slugs: [f.episode.slug] }) },
+  });
+  const open = loader.openSubscription(f.series.base_slug);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.seriesState.epPicked.size, 0);
+  f.respond(f.requests[0], false);
+  await open;
+  assert.equal(f.seriesState.epPicked.size, 0);
+  f.episode.language_checked = f.episode.huhu_language_checked = false;
+  const reopen = loader.openSubscription(f.series.base_slug);
+  await new Promise(resolve => setImmediate(resolve));
+  f.respond(f.requests[1], true);
+  await reopen;
+  assert.deepEqual([...f.seriesState.epPicked], [f.episode.slug]);
+});

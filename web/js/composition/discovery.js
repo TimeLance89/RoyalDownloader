@@ -106,6 +106,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         updateSeriesOverview: (...args) => services.seriesActions.updateSeriesOverview(...args), updateWatchBtn: (...args) => services.seriesActions.updateWatchBtn(...args), renderSeriesTiles: (...args) => services.seriesActions.renderSeriesTiles(...args),
       }),
   seriesDetailsLoader: createSeriesDetailsLoader(document.getElementById("series-detail-modal"), document.getElementById("series-status"), {
+        verifyHuhuEpisodeLanguages: (...args) => services.seriesActions.verifyHuhuEpisodeLanguages(...args),
         updateSeriesOverview: (...args) => services.seriesActions.updateSeriesOverview(...args),
         updateSeriesJellyfinBadge: (...args) => services.movieActions.updateSeriesJellyfinBadge(...args),
         seriesState, trackDiscoveryPreference: (...args) => getHome().actions.trackDiscoveryPreference(...args), updateSeriesResultSelection: (...args) => services.seriesActions.updateSeriesResultSelection(...args), showSeriesLoading: (...args) => services.seriesActions.showSeriesLoading(...args),

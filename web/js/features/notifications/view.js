@@ -6,8 +6,8 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
   const find = id => root.querySelector(`#${id}`);
   let rows;
   function buildNotificationItem(item) {
-    const { entry, openCount, queuedCount, waitingLanguageCount, upcomingCount, waitingSourceCount, downloadedCount, hasIssue } = item;
-    const stateName = hasIssue ? "issue" : waitingLanguageCount ? "waiting-language" : upcomingCount ? "upcoming" : openCount ? "new" : queuedCount ? "queued" : "downloaded";
+    const { entry, openCount, queuedCount, waitingLanguageCount, languagePendingCount, upcomingCount, waitingSourceCount, downloadedCount, hasIssue } = item;
+    const stateName = hasIssue ? "issue" : languagePendingCount ? "waiting-language" : waitingLanguageCount ? "waiting-language" : upcomingCount ? "upcoming" : openCount ? "new" : queuedCount ? "queued" : "downloaded";
     const row = document.createElement("article");
     row.className = `notif-item is-${stateName}`;
     row.dataset.baseSlug = entry.base_slug;
@@ -51,7 +51,8 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     };
     if (openCount) signal("new", `${openCount} ${openCount === 1 ? "Folge offen" : "Folgen offen"}`);
     if (queuedCount) signal("queued", `${queuedCount} im Downloadplan`);
-    if (waitingLanguageCount) signal("waiting-language", `${waitingLanguageCount} ${waitingLanguageCount === 1 ? "wartet auf Deutsch" : "warten auf Deutsch"}`);
+    if (languagePendingCount) signal("waiting-language", `${languagePendingCount} Sprachprüfung ausstehend`);
+    if (waitingLanguageCount) signal("waiting-language", `${waitingLanguageCount} ${waitingLanguageCount === 1 ? "wartet auf passende Sprache" : "warten auf passende Sprache"}`);
     if (waitingSourceCount) signal("waiting-source", `${waitingSourceCount} ${waitingSourceCount === 1 ? "wartet auf Quelle" : "warten auf Quelle"}`);
     if (upcomingCount) signal("upcoming", `${upcomingCount} ${upcomingCount === 1 ? "demnächst" : "demnächst"}`);
     if (downloadedCount) signal("downloaded", `${downloadedCount} ${downloadedCount === 1 ? "Folge geladen" : "Folgen geladen"}`);
@@ -68,6 +69,7 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     row.appendChild(open);
 
     const detailText = hasIssue ? inboxIssueDetail(entry)
+      : languagePendingCount ? "Die konkrete Episodensprache wird noch geprüft. Ungeprüfte Folgen werden nicht eingeplant."
       : waitingLanguageCount ? "Die Episode ist verfügbar, aber noch nicht in deiner gewünschten Sprache."
       : waitingSourceCount ? "Die Episode ist bekannt, aber noch ohne geeignete Quelle."
       : upcomingCount ? "Angekündigte Folgen werden erst nach Veröffentlichung geprüft."
@@ -89,7 +91,7 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     }
     const actions = document.createElement("div");
     actions.className = "notif-item-actions";
-    if (openCount || hasIssue) {
+    if (openCount || hasIssue || languagePendingCount || waitingLanguageCount) {
       const check = document.createElement("button");
       check.type = "button";
       check.className = "notif-item-check";

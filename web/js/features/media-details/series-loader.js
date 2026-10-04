@@ -7,7 +7,8 @@ export function createSeriesDetailsLoader(root, status, {
   seriesState, trackDiscoveryPreference, updateSeriesResultSelection, showSeriesLoading,
   openMediaModal, findSeriesResultCard, showSeriesDetail, updateSeriesStatus,
   refreshSeriesJellyfinStatus, switchTab, firstEpisodeSlug, seriesEpisodes, isEpisodeSelectable,
-  renderSeriesTiles, syncWatchlistSnapshot, updateSeriesOverview, updateSeriesJellyfinBadge, client = api,
+  renderSeriesTiles, syncWatchlistSnapshot, updateSeriesOverview, updateSeriesJellyfinBadge,
+  verifyHuhuEpisodeLanguages, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null;
@@ -127,6 +128,7 @@ export function createSeriesDetailsLoader(root, status, {
     seriesState.loadingBrowse = false;
     const owner = begin();
     const openGeneration = ++seriesState.viewGeneration;
+    let detailGeneration = openGeneration;
     status.textContent = "Lade abonnierte Serie …";
     try {
       const series = await client.post("/api/watchlist/open", { base_slug: baseSlug }, { signal: owner.signal });
@@ -134,14 +136,21 @@ export function createSeriesDetailsLoader(root, status, {
       const preselect = series.preselect_slugs || [];
       delete series.preselect_slugs;
       showSeriesDetail(series, firstEpisodeSlug(series));
+      detailGeneration = seriesState.viewGeneration;
+      await verifyHuhuEpisodeLanguages(
+        seriesEpisodes(series).filter(episode => preselect.includes(episode.slug)), series,
+      );
+      if (!owner.active || seriesState.viewGeneration !== detailGeneration) return;
+      const liveSeries = seriesState.current;
+      if (liveSeries?.base_slug !== baseSlug) return;
       const selectable = new Set(
-        seriesEpisodes(series).filter(isEpisodeSelectable).map((episode) => episode.slug),
+        seriesEpisodes(liveSeries).filter(isEpisodeSelectable).map((episode) => episode.slug),
       );
       seriesState.epPicked = new Set(preselect.filter((slug) => selectable.has(slug)));
       renderSeriesTiles();
       await syncWatchlistSnapshot("Abo-Aktualisierung nach Öffnen");
     } catch (error) {
-      if (!owner.active || seriesState.viewGeneration !== openGeneration) return;
+      if (!owner.active || seriesState.viewGeneration !== detailGeneration) return;
       status.textContent =
         `Serie konnte nicht geöffnet werden: ${error.message}`;
     }

@@ -61,7 +61,8 @@ const { fixture } = require("./performance-fixture.cjs");
         await (await response).finished();
         await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
       };
-      assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-monitor", "Availability comes before source configuration");
+      assert.equal(await page.locator("#settings-sources > .settings-card").first().getAttribute("id"), "provider-catalog", "Source catalog comes before availability");
+      assert.equal(await page.locator("#settings-sources > .settings-card").nth(1).getAttribute("id"), "provider-monitor");
       const interact = mobile ? "tap" : "click";
       await page.evaluate(async () => { await fixtureApp.settings.providers.initialize(); fixtureApp.settings.providers.apply({
         movies: ["filmpalast", "sflix"], series: ["serienstream", "sflix"], anime: ["aniworld", "mkissa"],
