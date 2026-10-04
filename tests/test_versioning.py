@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_application_version_has_expected_stable_value():
-    assert APP_VERSION == "1.5.1"
+    assert APP_VERSION == "1.6.0"
 
 
 def test_capabilities_add_version_without_changing_health_contracts():
