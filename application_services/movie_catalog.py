@@ -177,6 +177,7 @@ def _apply_provider_metadata(item, provider: str):
         explicit = _title_release_language(getattr(item, "title", "")) or normalize_content_language(
             str(getattr(item, "content_language", "") or "")
         )
+        item._content_language_explicit = bool(explicit)
         item.content_language = explicit or provider_content_language(key)
     return item
 
