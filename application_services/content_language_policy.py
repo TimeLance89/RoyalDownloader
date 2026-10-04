@@ -388,7 +388,7 @@ def load_movie_for_slug(slug: str):
     desired = _queue_requested_language(slug)
     if desired:
         selected = next(
-            (source for source in sources if _source_language(source) == desired),
+            (source for source in sources if desired in _source_languages(source)),
             None,
         )
         if selected is not None:
