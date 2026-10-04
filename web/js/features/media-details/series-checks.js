@@ -9,6 +9,34 @@ export function createSeriesChecks(status, {
 }) {
   let refreshScope = null, refreshSequence = 0;
   const refreshByBase = new Map(), languageJobs = new Set();
+
+  function providerNeedsExactEpisodeLanguage(series) {
+    if (!series) return false;
+    if (["huhu", "serienstream"].includes(series.provider)) return true;
+    const capabilities = Array.isArray(series.provider_content_languages)
+      ? series.provider_content_languages.filter(Boolean)
+      : [];
+    return capabilities.length > 1;
+  }
+
+  function latestPublishedLanguageEpisodes(series) {
+    if (!providerNeedsExactEpisodeLanguage(series)) return [];
+    const season = [...(series.seasons || [])].reverse().find((candidate) =>
+      (candidate.episodes || []).some((episode) => (
+        !episode.unreleased
+        && !episode.downloaded
+        && !episode.in_jellyfin
+        && episode.language_checked !== true
+      )),
+    );
+    if (!season) return [];
+    return (season.episodes || []).filter((episode) => (
+      !episode.unreleased
+      && !episode.downloaded
+      && !episode.in_jellyfin
+      && episode.language_checked !== true
+    ));
+  }
   async function refreshSeriesJellyfinStatus(force = false) {
     if (!isVisible()) return false;
     const current = seriesState.current;
@@ -70,6 +98,20 @@ export function createSeriesChecks(status, {
       if (seriesStructureFingerprint(enriched) !== previousStructure) renderSeriesTiles();
       else refreshSeriesTileStates();
       updateSeriesStatus(enriched);
+
+      // The first detail payload can be a lightweight/cache snapshot without
+      // provider capability metadata. Re-run the latest published season after
+      // hydration so exact language truth never depends on a user click.
+      const languageEpisodes = latestPublishedLanguageEpisodes(enriched);
+      if (languageEpisodes.length) {
+        try {
+          await verifyHuhuEpisodeLanguages(languageEpisodes, enriched);
+        } catch (error) {
+          if (error.name !== "AbortError") {
+            console.warn("Automatische Episoden-Sprachprüfung fehlgeschlagen:", error);
+          }
+        }
+      }
       return true;
     } catch (error) {
       if (!owner.active) return false;
@@ -100,10 +142,7 @@ export function createSeriesChecks(status, {
 
   async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current) {
     if (!series) return;
-    const capabilities = Array.isArray(series.provider_content_languages)
-      ? series.provider_content_languages.filter(Boolean)
-      : [];
-    if (series.provider !== "huhu" && capabilities.length <= 1) return;
+    if (!providerNeedsExactEpisodeLanguage(series)) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
     const pending = episodes.filter((episode) => !episode.language_checked);
     if (!pending.length) return;
