@@ -444,6 +444,7 @@ _SERVICE_EXPORTS = (
     "load_movie_for_slug",
     "_preferred_movie_sources",
     "_ensure_queue_job",
+    "_queue_requested_language",
     "cached_movie_source_fallbacks",
 )
 publish_service(globals(), _SERVICE_EXPORTS)
