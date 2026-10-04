@@ -1,3 +1,4 @@
+import { api } from "../core/api.js";
 import { createSetup } from "../features/setup/index.js";
 import { createIntelligenceSettings } from "../features/settings/intelligence.js";
 import { createSettingsActions } from "../features/settings/actions.js";
@@ -94,12 +95,20 @@ export function prepareSettings({ getRecommendations }) {
   return { intelligence };
 }
 
-export function initializeSettings({ getSettings, getIntegrations, i18n, getCore }) {
+export function initializeSettings({ getSettings, getIntegrations, i18n, getCore, getHome, getProfile }) {
   getSettings().setup = createSetup(document.getElementById("setup-wizard"), {
       providers: getSettings().providers, jellyfin: getIntegrations().setupJellyfin,
       directory: getSettings().directory, i18n,
       onVisibility: visible => document.body.classList.toggle("setup-open", visible),
-      async onComplete() { await getSettings().settings.initialize(); getCore().startup.start(); },
+      async onComplete() {
+        const session = await api.get("/api/auth/status");
+        if (session.configured && !session.authenticated) throw new Error("Die neue Sitzung ist noch nicht bereit. Bitte erneut versuchen.");
+        getProfile().auth.accept(session);
+        await getSettings().settings.initialize();
+        await getHome().homeData.reloadForLanguage();
+        await i18n.changeLanguage(i18n.language, { requireReady: true, userInitiated: true });
+        getCore().startup.start();
+      },
       onError: error => console.error("Ersteinrichtung konnte nicht geprüft werden:", error),
     });
 }

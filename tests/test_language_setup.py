@@ -153,3 +153,51 @@ def test_busy_profile_times_out_without_blocking_event_loop_or_mutating(studio, 
         assert writes == [] and state.ui_language == "de"
     finally:
         state.provider_priority_lock.release()
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_onboarding_subscription_choice_is_in_same_atomic_config_write(monkeypatch, tmp_path, switch):
+    monkeypatch.setattr(config, "_config_dir", lambda: tmp_path)
+    entries = [{"base_slug": "restored"}]
+    prefs = language_setup_subscriptions(entries, {}, ["de"], ["en"], ["restored"] if switch else [])
+    assert config.save_initial_setup("/movies", "/series", ui_language="en", content_languages=["en"], subscription_languages=prefs)
+    assert config.load_content_languages() == ["en"]
+    assert config.load_subscription_languages() == {"restored": ["en"] if switch else ["de"]}
+    before = (tmp_path / "settings.ini").read_bytes()
+    monkeypatch.setattr(config.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("disk")))
+    assert not config.save_initial_setup("/new", "/new", ui_language="de", content_languages=["de"], subscription_languages={})
+    assert (tmp_path / "settings.ini").read_bytes() == before
+
+
+@pytest.mark.parametrize("switch,fail", [(False, False), (True, False), (True, True)])
+def test_initial_setup_applies_subscription_policy_only_after_durable_save(studio, monkeypatch, tmp_path, switch, fail):
+    from unittest.mock import AsyncMock
+    from api.api_setup_router import SetupCompleteBody
+    state, _, _, _ = studio
+    state.jellyfin_cache_lock = threading.RLock()
+    state.jellyfin_cfg = {}
+    state.telegram_cfg = {}
+    monkeypatch.setattr(config, "_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "is_initialized", lambda: False)
+    monkeypatch.setattr(administration, "auth_configured", lambda: True)
+    monkeypatch.setattr(administration, "_validate_setup_tmdb_key", AsyncMock())
+    monkeypatch.setattr(administration, "_prepare_media_directory", lambda *_: None)
+    monkeypatch.setattr(administration, "_write_deployment_environment", lambda *_: {"path": "fixture", "created": False})
+    monkeypatch.setattr(administration, "_set_runtime_jellyfin_config", lambda *_: None)
+    monkeypatch.setattr(administration, "start_background_services", lambda: None)
+    body = SetupCompleteBody(save_path="/movies", series_path="/series", tmdb_api_key="fixture",
+        ui_language="en", content_languages=["en"], movie_providers=["moviebox"],
+        series_providers=["vidrift"], anime_providers=[], update_existing_subscriptions=switch)
+    if fail:
+        monkeypatch.setattr(config, "_update_all", lambda *args, **kwargs: False)
+        with pytest.raises(HTTPException):
+            asyncio.run(administration._api_setup_complete_locked(body, SimpleNamespace()))
+        assert state.subscription_content_languages == {}
+        assert state.watchlist[0]["episode_states"]["a"] == "available"
+        return
+    result = asyncio.run(administration._api_setup_complete_locked(body, SimpleNamespace()))
+    assert result["saved"] is True
+    assert state.subscription_content_languages == config.load_subscription_languages() == {
+        "show-a": ["en"] if switch else ["de"], "show-b": ["en"] if switch else ["de"]}
+    assert state.watchlist_new_slugs == {}
+    assert state.watchlist[0]["episode_states"]["a"] == "language_pending"

@@ -6,7 +6,7 @@ import { setupStepCopy, setupEnglishStepCopy } from "./copy.js";
 export function createSetup(root, { providers, jellyfin, directory, i18n, onComplete,
   onVisibility = () => {}, onError = console.error, client = api }) {
   const byId = id => root.querySelector(`#${id}`);
-  let scope, saving = false;
+  let scope, saving = false, committed = false, loadFailed = false, existingSeriesCount = 0;
 // ── Ersteinrichtung ─────────────────────────────────────────────────────────
 let setupStep = 1;
 let setupRequired = false;
@@ -16,12 +16,12 @@ let setupBootstrapHint = "";
 
 let localizedSetupStepCopy = setupEnglishStepCopy;
 let localizedSetupStepLabels = Array.from(
-  { length: 6 },
-  (_, index) => `STEP ${index + 1} OF 6`,
+  { length: 7 },
+  (_, index) => `STEP ${index + 1} OF 7`,
 );
 let setupLanguageGeneration = 0;
 
-const SETUP_STEP_COUNT = 6;
+const SETUP_STEP_COUNT = 7;
 
 function setSetupStatus(message = "", error = false) {
   const el = byId("setup-status");
@@ -31,6 +31,7 @@ function setSetupStatus(message = "", error = false) {
 
 function showSetupStep(nextStep) {
   setupStep = Math.max(1, Math.min(SETUP_STEP_COUNT, nextStep));
+  root.querySelector(".setup-panels").scrollTop = 0;
   root.querySelectorAll("[data-setup-step]").forEach((panel) => {
     panel.classList.toggle("hidden", Number(panel.dataset.setupStep) !== setupStep);
   });
@@ -47,11 +48,14 @@ function showSetupStep(nextStep) {
   byId("setup-back").classList.toggle("hidden", setupStep === 1);
   byId("setup-next").classList.toggle("hidden", setupStep === SETUP_STEP_COUNT);
   byId("setup-finish").classList.toggle("hidden", setupStep !== SETUP_STEP_COUNT);
+  if (setupStep === 7) renderReview();
+  byId("setup-next").textContent = text("Weiter", "Continue");
+  byId("setup-finish").textContent = text("Royal vorbereiten", "Prepare Royal");
   setSetupStatus();
   const focusTarget = root.querySelector(
     `[data-setup-step="${setupStep}"] select, `
     + `[data-setup-step="${setupStep}"] input:not([type="checkbox"])`,
-  );
+  ) || root.querySelector(`[data-setup-step="${setupStep}"] button`);
   if (focusTarget) scope.timeout(() => {
     const panel = focusTarget.closest("[data-setup-step]");
     if (Number(panel.dataset.setupStep) === setupStep && !panel.contains(root.ownerDocument.activeElement)) focusTarget.focus();
@@ -198,33 +202,70 @@ function parseSetupHour(id) {
   return Math.max(0, Math.min(23, parseInt(value, 10) || 0));
 }
 
+const text = (de, en) => i18n.language === "en" ? en : de;
+function renderReview() {
+  const config = providers.get();
+  const selected = [...config.contentLanguages].map(code => config.languages[code] || code).join(" + ");
+  const values = [
+    [1, text("Betriebsart", "Operating mode"), selectedDeploymentMode(root, "setup-deployment-mode") === "nas" ? "NAS / Docker" : text("Computer", "Computer")],
+    [2, text("Sprachprofil", "Language profile"), `${byId("setup-ui-language").selectedOptions[0]?.textContent} / ${selected}`],
+    [3, text("Speicher", "Storage"), `${byId("setup-save-path").value} / ${byId("setup-series-path").value}`],
+    [4, text("Bibliothek", "Library"), byId("setup-jellyfin-url").value.trim() ? "TMDB + Jellyfin" : "TMDB"],
+    [5, text("Automatik", "Automation"), byId("setup-auto-download").checked ? text("Automatische Downloads", "Automatic downloads") : text("Downloads manuell starten", "Start downloads manually")],
+    [6, text("Zugang", "Access"), byId("setup-auth-username").value],
+  ];
+  if (existingSeriesCount) values.push([2, text("Bestehende Abos", "Existing subscriptions"), byId("setup-update-subscriptions").checked ? selected : text("Bisherige Sprachen behalten", "Keep current languages")]);
+  const list = byId("setup-review"); list.replaceChildren();
+  for (const [step, label, value] of values) {
+    const row = root.ownerDocument.createElement("div");
+    const title = root.ownerDocument.createElement("strong"); title.textContent = label;
+    const content = root.ownerDocument.createElement("span"); content.textContent = value; content.setAttribute("translate", "no");
+    const edit = root.ownerDocument.createElement("button"); edit.type = "button"; edit.dataset.setupEdit = step;
+    edit.textContent = text("Ändern", "Edit"); edit.setAttribute("aria-label", `${label}: ${edit.textContent}`);
+    row.append(title, content, edit); list.append(row);
+  }
+}
 function requestSetupBootstrapToken() {
   if (!setupBootstrapRequired) return true;
-  if (setupBootstrapToken) return true;
-  const hint = setupBootstrapHint
-    || "Den einmaligen Sicherheitscode aus dem Royal-Server-/Container-Log eingeben.";
-  const candidate = window.prompt(`${hint}\n\nSetup-Sicherheitscode:`);
-  setupBootstrapToken = String(candidate || "").trim();
+  byId("setup-bootstrap-token").removeAttribute("aria-invalid");
+  setupBootstrapToken = byId("setup-bootstrap-token").value.trim();
   if (!setupBootstrapToken) {
-    setSetupStatus("Für die erste Einrichtung wird der Sicherheitscode aus dem Royal-Log benötigt.", true);
-    return false;
+    showSetupStep(6);
+    setSetupStatus(text("Gib den einmaligen Sicherheitscode aus dem Royal-Log ein.", "Enter the one-time security code from the Royal log."), true);
+    byId("setup-bootstrap-token").setAttribute("aria-invalid", "true");
+    byId("setup-bootstrap-token").focus(); return false;
   }
   return true;
+}
+function prepare(stage) {
+  root.dataset.state = "preparing";
+  root.setAttribute("aria-busy", "true");
+  byId("setup-preparing").hidden = false;
+  byId("setup-preparing-title").textContent = text("Royal macht alles bereit.", "Royal is getting everything ready.");
+  byId("setup-preparing-copy").textContent = [text("Dein Profil wird gespeichert …", "Saving your profile …"), text("Quellen, Katalog und Oberfläche werden vorbereitet …", "Preparing sources, catalog and interface …")][stage];
+  byId("setup-preparing").querySelectorAll("li").forEach((node, i) => {
+    node.textContent = [text("Profil speichern", "Save profile"), text("Quellen und Katalog vorbereiten", "Prepare sources and catalog"), text("Oberfläche bereitstellen", "Prepare interface")][i];
+    node.classList.toggle("is-done", i < stage); node.classList.toggle("is-current", i === stage);
+  });
 }
 
 async function finishSetup() {
   if (!scope?.active || saving) return;
   const current = scope;
-  if (!validateSetupStep(4) || !validateSetupStep(5) || !validateSetupStep(6)) return;
-  if (!requestSetupBootstrapToken()) return;
+  if (!committed) {
+    for (const step of [2, 3, 4, 5, 6]) {
+      if (!validateSetupStep(step)) { const message = byId("setup-status").textContent; showSetupStep(step); setSetupStatus(message, true); return; }
+    }
+    if (!requestSetupBootstrapToken()) return;
+  }
   const finish = byId("setup-finish");
   const back = byId("setup-back");
   saving = true;
   finish.disabled = true;
   back.disabled = true;
-  setSetupStatus("Ordner und Einstellungen werden angelegt …");
+  setSetupStatus(); prepare(committed ? 1 : 0);
   try {
-    await client.post("/api/setup/complete", {
+    if (!committed) await client.post("/api/setup/complete", {
       deployment_mode: selectedDeploymentMode(root, "setup-deployment-mode"),
       save_path: byId("setup-save-path").value.trim(),
       series_path: byId("setup-series-path").value.trim(),
@@ -254,26 +295,40 @@ async function finishSetup() {
       auth_username: byId("setup-auth-username").value.trim(),
       auth_password: byId("setup-auth-password").value,
       bootstrap_token: setupBootstrapToken,
+      update_existing_subscriptions: byId("setup-update-subscriptions").checked,
     }, { signal: current.signal });
     if (!current.active) return;
     byId("setup-auth-password").value = "";
     byId("setup-auth-password-repeat").value = "";
+    committed = true;
     setupBootstrapToken = "";
+    byId("setup-bootstrap-token").value = "";
     setupBootstrapRequired = false;
+    prepare(1);
+    await onComplete();
+    if (!current.active) return;
     setupRequired = false;
     onVisibility(false);
     providers.setup.unmount();
     jellyfin.unmount();
     root.classList.add("hidden");
     unmount();
-    await onComplete().catch(onError);
+
   } catch (e) {
     if (!current.active) return;
     // A failed bootstrap attempt is never retained in browser storage or reused.
     if (setupBootstrapRequired) setupBootstrapToken = "";
-    setSetupStatus(`Einrichtung fehlgeschlagen: ${e.message}`, true);
+    root.dataset.state = committed ? "prepare-error" : "editing";
+    if (!committed) byId("setup-preparing").hidden = true;
+    if (!committed && [403, 429].includes(e.status)) {
+      byId("setup-bootstrap-token").value = "";
+      showSetupStep(6); byId("setup-bootstrap-token").focus();
+    }
+    const detail = /cloudflare|origin web|HTTP 5\d\d/i.test(e.message) ? text("Royal ist gerade nicht erreichbar. Bitte erneut versuchen.", "Royal is currently unavailable. Please try again.") : e.message;
+    setSetupStatus(`${committed ? text("Profil gespeichert. Vorbereitung noch nicht abgeschlossen: ", "Profile saved. Preparation is not finished: ") : text("Einrichtung fehlgeschlagen: ", "Setup failed: ")}${detail}`, true);
+    finish.textContent = text("Erneut versuchen", "Try again");
   } finally {
-    if (current.active) { saving = false; finish.disabled = false; back.disabled = false; }
+    if (current.active) { saving = false; finish.disabled = false; back.disabled = committed; root.removeAttribute("aria-busy"); }
   }
 }
 
@@ -283,14 +338,20 @@ async function initSetupWizard() {
   try {
     const data = await client.get("/api/setup/status", { signal: current.signal });
     if (!current.active) return false;
-    if (!data.required) { unmount(); return false; }
+    if (!data.required) { root.classList.add("hidden"); onVisibility(false); unmount(); return false; }
+    committed = false; loadFailed = false; root.dataset.state = "editing"; byId("setup-preparing").hidden = true;
     providers.setup.mount();
     jellyfin.mount();
     setupRequired = true;
     setupBootstrapRequired = Boolean(data.bootstrap_required);
     setupBootstrapHint = String(data.bootstrap_hint || "");
+    byId("setup-bootstrap-field").hidden = !setupBootstrapRequired;
+    byId("setup-bootstrap-hint").textContent = setupBootstrapHint || text("Du findest den Code im Royal-Server- oder Container-Log.", "Find the code in the Royal server or container log.");
     setupBootstrapToken = "";
     const defaults = data.defaults || {};
+    existingSeriesCount = Number(defaults.existing_series_count) || 0;
+    byId("setup-subscription-choice").hidden = !existingSeriesCount;
+    byId("setup-update-subscriptions").checked = false;
     const deploymentMode = ["desktop", "nas"].includes(defaults.deployment_mode)
       ? defaults.deployment_mode
       : "desktop";
@@ -345,8 +406,15 @@ async function initSetupWizard() {
     showSetupStep(1);
     return true;
   } catch (e) {
-    if (current.active) onError(e);
-    return false;
+    if (current.active) {
+      loadFailed = true; root.dataset.state = "load-error"; root.classList.remove("hidden"); onVisibility(true);
+      byId("setup-title").textContent = text("Einrichtung gerade nicht erreichbar", "Setup is currently unavailable");
+      byId("setup-intro").textContent = text("Deine Einstellungen bleiben unverändert. Lade die Einrichtung erneut.", "Your settings are unchanged. Try loading setup again.");
+      byId("setup-next").classList.remove("hidden"); byId("setup-next").textContent = text("Erneut versuchen", "Try again");
+      byId("setup-back").classList.add("hidden"); byId("setup-finish").classList.add("hidden");
+      onError(e);
+    }
+    return true;
   }
 }
 
@@ -362,12 +430,21 @@ async function initSetupWizard() {
     });
     for (const radio of root.querySelectorAll('input[name="setup-deployment-mode"]')) current.listen(radio, "change", () =>
       updateDeploymentModeHints(root, "setup", selectedDeploymentMode(root, "setup-deployment-mode")));
-    current.listen(byId("setup-next"), "click", () => { if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1); });
-    current.listen(byId("setup-back"), "click", () => showSetupStep(setupStep - 1));
+    current.listen(byId("setup-next"), "click", () => { if (loadFailed) { void initSetupWizard(); return; } if (!saving && validateSetupStep(setupStep)) showSetupStep(setupStep + 1); });
+    current.listen(byId("setup-back"), "click", () => { if (!saving && !committed) showSetupStep(setupStep - 1); });
+    current.listen(byId("setup-review"), "click", event => { const edit = event.target.closest("[data-setup-edit]"); if (edit && !saving) showSetupStep(Number(edit.dataset.setupEdit)); });
     current.listen(byId("setup-finish"), "click", finishSetup);
     current.listen(root, "keydown", event => {
-      if (!setupRequired || event.key !== "Enter" || event.target.closest("button") || event.target.type === "checkbox") return;
+      if (event.key === "Tab") {
+        const controls = [...root.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), summary')].filter(node => node.getClientRects().length);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && event.target === first) { event.preventDefault(); last?.focus(); }
+        if (!event.shiftKey && event.target === last) { event.preventDefault(); first?.focus(); }
+        return;
+      }
+      if (saving || !setupRequired || event.key !== "Enter" || event.target.closest("button") || event.target.type === "checkbox") return;
       event.preventDefault();
+      if (committed) { void finishSetup(); return; }
       if (setupStep < SETUP_STEP_COUNT) { if (validateSetupStep(setupStep)) showSetupStep(setupStep + 1); }
       else void finishSetup();
     });
@@ -380,7 +457,7 @@ async function initSetupWizard() {
     scope?.dispose(); scope = null; saving = false; setupLanguageGeneration++;
     providers.setup.unmount(); jellyfin.unmount(); directory.unmount();
     setupBootstrapToken = "";
-    for (const id of ["setup-auth-password", "setup-auth-password-repeat", "setup-jellyfin-key", "setup-tmdb-key", "setup-telegram-token"]) byId(id).value = "";
+    for (const id of ["setup-auth-password", "setup-auth-password-repeat", "setup-jellyfin-key", "setup-tmdb-key", "setup-telegram-token", "setup-bootstrap-token"]) byId(id).value = "";
   }
   return { initialize: initSetupWizard, refresh: initSetupWizard, mount, unmount, status: setSetupStatus,
     get required() { return setupRequired; } };

@@ -2271,7 +2271,7 @@
     <aside class="setup-rail" aria-label="Einrichtungsfortschritt">
       <div class="setup-brand">
         <span class="setup-brand-kicker">ROYAL DOWNLOAD</span>
-        <strong>ERSTEINRICHTUNG</strong>
+        <strong>Dein Royal.</strong>
       </div>
       <ol class="setup-progress">
         <li class="active" data-setup-marker="1" aria-current="step">
@@ -2280,7 +2280,7 @@
         </li>
         <li data-setup-marker="2">
           <span class="setup-marker-number">02</span>
-          <span><strong>Quellen</strong><small>Filme &amp; Serien</small></span>
+          <span><strong>Sprachprofil</strong><small>Oberfläche &amp; Inhalte</small></span>
         </li>
         <li data-setup-marker="3">
           <span class="setup-marker-number">03</span>
@@ -2298,6 +2298,7 @@
           <span class="setup-marker-number">06</span>
           <span><strong>Zugang</strong><small>Konto anlegen</small></span>
         </li>
+        <li data-setup-marker="7"><span class="setup-marker-number">07</span><span><strong>Bereit?</strong><small>Profil prüfen</small></span></li>
       </ol>
       <div class="setup-data-note">
         <span>Konfiguration</span>
@@ -2307,15 +2308,15 @@
 
     <section class="setup-stage">
       <header class="setup-stage-head">
-        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 6</span>
-        <h1 id="setup-title">Welche Sprache passt zu dir?</h1>
+        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 7</span>
+        <h1 id="setup-title">Willkommen bei Royal.</h1>
         <p id="setup-intro">Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.</p>
       </header>
 
       <div class="setup-panels">
         <div class="setup-panel" data-setup-step="1">
           <div class="setup-section-title"><strong>Wo läuft Royal?</strong><span>entscheidet den Startweg</span></div>
-          <p class="setup-copy">Die Auswahl richtet Netzwerkzugriff, Browserstart und die neue .env passend ein.</p>
+          <p class="setup-copy">Royal richtet den passenden Betriebsmodus für dein Gerät ein.</p>
           <div class="runtime-mode-selector is-setup" role="radiogroup" aria-label="Betriebsmodus wählen">
             <label class="runtime-mode-card">
               <input id="setup-mode-desktop" type="radio" name="setup-deployment-mode" value="desktop" checked>
@@ -2330,9 +2331,13 @@
               <em>24 / 7</em>
             </label>
           </div>
+
+        </div>
+
+        <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
           <div class="setup-divider"></div>
           <label class="setup-field setup-language-field" for="setup-ui-language">
-            <span>Sprache</span>
+            <span>Oberflächensprache</span>
             <select id="setup-ui-language" aria-label="Sprache für die Oberfläche">
               <option value="de" translate="no">Deutsch</option>
               <option value="en" translate="no" selected>English</option>
@@ -2351,12 +2356,9 @@
             <span aria-hidden="true">文</span>
             <div>
               <strong>Die Steuerung spricht deine Sprache</strong>
-              <p>Im nächsten Schritt bestimmst du Inhaltssprachen und passende Kataloge für Filme und Serien.</p>
+              <p>Die Oberfläche und die Sprache deiner Filme und Serien sind unabhängig voneinander.</p>
             </div>
           </div>
-        </div>
-
-        <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
           <div class="setup-provider-note">
             <span class="setup-provider-signal" aria-hidden="true"><i></i><i></i><i></i></span>
             <p>Wähle zuerst Deutsch, Englisch oder beides. Danach kannst du die passenden Anbieter verfeinern.</p>
@@ -2372,7 +2374,7 @@
               <strong id="setup-content-language-summary" class="content-language-summary" role="status"></strong>
             </div>
           </section>
-          <div class="setup-provider-board provider-source-board">
+          <details class="setup-source-details"><summary>Quellen anpassen</summary><div class="setup-provider-board provider-source-board">
             <section class="provider-priority-card provider-source-lane" aria-labelledby="setup-movie-provider-title">
               <div class="provider-card-heading">
                 <span class="provider-media-mark" aria-hidden="true">F</span>
@@ -2407,6 +2409,8 @@
               <ol id="setup-anime-provider-priority" class="provider-priority-list" aria-label="Animequellen auswählen und sortieren"></ol>
             </section>
           </div>
+          </details>
+          <label id="setup-subscription-choice" class="setup-subscription-choice" hidden><input id="setup-update-subscriptions" type="checkbox"><span><strong>Bestehende Serien künftig in den gewählten Inhaltssprachen laden</strong><small>Ohne Auswahl behalten vorhandene Abos ihre Sprache. Dateien und geplante Downloads bleiben erhalten.</small></span></label>
         </div>
 
         <div class="setup-panel hidden" data-setup-step="3">
@@ -2512,7 +2516,7 @@
           <div class="setup-field-grid">
             <label class="setup-field" for="setup-auth-password">
               <span>Passwort</span>
-              <input id="setup-auth-password" type="password" autocomplete="new-password" placeholder="mindestens 8 Zeichen">
+              <input id="setup-auth-password" type="password" autocomplete="new-password" placeholder="mindestens 12 Zeichen">
             </label>
             <label class="setup-field" for="setup-auth-password-repeat">
               <span>Passwort wiederholen</span>
@@ -2520,9 +2524,12 @@
             </label>
           </div>
           <p class="setup-copy">Das Passwort wird nur als Hashwert gespeichert und lässt sich später in den Einstellungen unter „Zugang“ ändern.</p>
+          <label id="setup-bootstrap-field" class="setup-field" hidden for="setup-bootstrap-token"><span>Einmaliger Sicherheitscode</span><input id="setup-bootstrap-token" type="password" autocomplete="one-time-code" maxlength="256"><small id="setup-bootstrap-hint">Du findest den Code im Royal-Server- oder Container-Log.</small></label>
         </div>
+        <div class="setup-panel hidden" data-setup-step="7"><div id="setup-review" class="setup-review"></div><p class="setup-copy">Royal speichert dein Profil und bereitet die Oberfläche vor. Vorhandene Dateien bleiben erhalten.</p></div>
       </div>
 
+      <div id="setup-preparing" class="setup-preparing" hidden role="status"><div class="language-studio-orbit" aria-hidden="true"><span>RD</span></div><h2 id="setup-preparing-title">Royal macht alles bereit.</h2><p id="setup-preparing-copy">Dein Profil wird gespeichert …</p><ol><li>Profil speichern</li><li>Quellen und Katalog vorbereiten</li><li>Oberfläche bereitstellen</li></ol></div>
       <div id="setup-status" class="setup-status" role="status" aria-live="polite"></div>
       <footer class="setup-actions">
         <button id="setup-back" class="btn btn-ghost hidden" type="button">Zurück</button>

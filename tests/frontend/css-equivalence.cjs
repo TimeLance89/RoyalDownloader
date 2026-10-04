@@ -66,11 +66,14 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // are an intentional redesign and likewise must not match frozen styles.
       // Their new top-layer language dialog lives outside the settings tab;
       // language-studio-browser.cjs covers its desktop/mobile layout and flow.
+      // First-run onboarding now shares that design; setup-browser.cjs and
+      // onboarding-studio-browser.cjs protect its own layout and readiness.
       .filter(element =>
         !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")
         && !element.closest("#language-setup-dialog")
+        && !element.closest("#setup-wizard")
       )
       .map(element => {
         const style = getComputedStyle(element);
