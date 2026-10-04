@@ -33,11 +33,21 @@ export function createSeriesEpisodes(root, {
     return capabilities.length > 1;
   }
 
+  function episodeLanguageChecked(episode) {
+    return episode?.language_checked === true
+      || episode?.huhu_language_checked === true;
+  }
+
+  function episodeLanguageAvailable(episode) {
+    return episode?.language_available === true
+      || episode?.huhu_language_available === true;
+  }
+
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
     if (episode?.downloaded || episode?.in_jellyfin) return true;
     if (providerNeedsExactEpisodeLanguage(series)) {
-      if (episode?.language_checked !== true) return true;
-      return episode?.language_available === true;
+      if (!episodeLanguageChecked(episode)) return true;
+      return episodeLanguageAvailable(episode);
     }
     const offered = episode?.content_languages || [];
     if (!offered.length) return true;
@@ -53,7 +63,7 @@ export function createSeriesEpisodes(root, {
     if (episodeHasEnabledStreamLanguage(episode, series)) return "";
     const offered = episode?.content_languages || [];
     if (offered.length === 1) return `NUR ${String(offered[0]).toUpperCase()}`;
-    if (providerNeedsExactEpisodeLanguage(series) && episode?.language_checked) {
+    if (providerNeedsExactEpisodeLanguage(series) && episodeLanguageChecked(episode)) {
       return "KEINE PASSENDE SPRACHE";
     }
     return offered.length ? "SPRACHE GESPERRT" : "";
@@ -83,7 +93,7 @@ export function createSeriesEpisodes(root, {
   function isEpisodeActionable(episode, series = seriesState.current) {
     return isEpisodeEligible(episode) && (
       isEpisodeSelectable(episode)
-      || (providerNeedsExactEpisodeLanguage(series) && !episode.language_checked)
+      || (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode))
     );
   }
 
@@ -125,7 +135,7 @@ export function createSeriesEpisodes(root, {
     if (ep.downloaded) return "downloaded";
     if (ep.unreleased) return "scheduled";
     if (providerNeedsExactEpisodeLanguage(seriesState.current)
-        && !ep.language_checked
+        && !episodeLanguageChecked(ep)
         && !ep.downloaded
         && !ep.in_jellyfin) {
       return "language-pending";
@@ -177,7 +187,7 @@ export function createSeriesEpisodes(root, {
     tile.disabled = !isEpisodeActionable(episode, series);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languageLock = episodeLanguageLockLabel(episode, series);
-    if (providerNeedsExactEpisodeLanguage(series) && !episode.language_checked
+    if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && isEpisodeEligible(episode)) {
       tile.title = "Stream-Sprache wird vor der Auswahl geprüft";
     }
