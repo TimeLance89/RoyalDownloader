@@ -27,16 +27,96 @@ def _release_storage_reservation(job_id: str) -> None:
         log(f"Storage-Reservierung für {job_id} wird später abgeglichen.", "warn")
 
 
+def _queue_job_snapshot_for_slug(slug: str) -> dict:
+    with state.queue_claim_lock:
+        job_id = state.queue_job_by_slug.get(str(slug), "")
+        return dict(state.queue_jobs.get(job_id) or {}) if job_id else {}
+
+
+def _queue_subscription_title(slug: str) -> str:
+    raw = str(slug or "").strip()
+    tmdb_id = raw.removeprefix("tmdb:") if raw.startswith("tmdb:") else ""
+    with state.movie_subscriptions_lock:
+        for entry in state.movie_subscriptions:
+            if (
+                raw in {
+                    str(entry.get("key") or ""),
+                    str(entry.get("source_slug") or ""),
+                    str(entry.get("pending_slug") or ""),
+                }
+                or (tmdb_id and str(entry.get("tmdb_id") or "") == tmdb_id)
+            ):
+                title = str(entry.get("title") or "").strip()
+                if title:
+                    return title
+    return ""
+
+
+def _queue_series_title(slug: str) -> str:
+    parsed = parse_episode_slug(slug)
+    if not parsed:
+        return ""
+    base_slug = parsed[0]
+    with state.watchlist_lock:
+        entry = watchlist_lookup(base_slug)
+        if entry:
+            title = str(entry.get("title") or "").strip()
+            if title:
+                return title
+    tail = str(base_slug or "").rsplit(":", 1)[-1].strip()
+    if tail:
+        return " ".join(
+            word[:1].upper() + word[1:]
+            for word in tail.replace("_", "-").split("-")
+            if word
+        )
+    return ""
+
+
+def queue_display_title(
+    slug: str,
+    movie: Optional[FilmpalastMovie] = None,
+    logical_job: Optional[dict] = None,
+) -> str:
+    """Return a stable human title without requiring provider/network hydration."""
+    raw = str(slug or "").strip()
+    movie = movie or state.fp_movies.get(raw)
+    if movie is not None:
+        title = str(getattr(movie, "title", "") or "").strip()
+        if title and title != raw:
+            return title
+
+    job = logical_job if logical_job is not None else _queue_job_snapshot_for_slug(raw)
+    title = str((job or {}).get("title") or "").strip()
+    if title and title != raw:
+        return title
+
+    parsed = parse_episode_slug(raw)
+    if parsed:
+        series_title = _queue_series_title(raw)
+        if series_title:
+            return f"{series_title} S{parsed[1]:02d}E{parsed[2]:02d}"
+
+    subscription_title = _queue_subscription_title(raw)
+    if subscription_title:
+        return subscription_title
+
+    if raw.startswith("tmdb:") and raw.removeprefix("tmdb:").isdigit():
+        return f"Film (TMDB {raw.removeprefix('tmdb:')})"
+    return raw
+
+
 def queue_group_name(slug: str) -> str:
     parsed = parse_episode_slug(slug)
     if not parsed:
         return "Filme"
     movie = state.fp_movies.get(slug)
-    if movie and movie.title:
-        stripped = strip_episode_suffix(movie.title)
-        if stripped:
-            return stripped
-    return parsed[0]
+    title = queue_display_title(slug, movie)
+    stripped = strip_episode_suffix(title)
+    if stripped and stripped != slug:
+        return stripped
+    series_title = _queue_series_title(slug)
+    return series_title or parsed[0]
 
 
 def queue_content_key(slug: str, movie: Optional[FilmpalastMovie] = None) -> str:
@@ -639,7 +719,8 @@ def build_queue_payload() -> dict:
         items = []
         for slug in gslugs:
             movie = state.fp_movies.get(slug)
-            title = movie.title if movie else slug
+            logical_job = _queue_job_for_slug(slug) or {}
+            title = queue_display_title(slug, movie, logical_job)
             label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
             provider = _movie_provider(movie, slug)
             waiting_provider = slug in state.provider_waiting_jobs
@@ -664,7 +745,6 @@ def build_queue_payload() -> dict:
                 and provider_for_value(slug) == "serienstream"
                 and slug in state.counted_queue_slugs
             )
-            logical_job = _queue_job_for_slug(slug) or {}
             derived_status = (
                 "downloading" if slug in active_download_slugs
                 else "queued" if slug in pending_download_slugs
@@ -931,6 +1011,7 @@ _SERVICE_EXPORTS = (
     "_persist_new_queue_claims",
     "_queue_slug_claimed",
     "serienstream_provider_status",
+    "queue_display_title",
     "build_queue_payload",
     "watchlist_payload",
     "hydrate_watchlist_artwork",
