@@ -60,6 +60,65 @@ def _assert_persistence_error(exc: HTTPException, resource: str):
     assert exc.detail["resource"] == resource
 
 
+def _activate_queue_job(slug: str, title: str):
+    job = server.new_job(slug, title=title)
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    return job
+
+
+def test_queue_payload_uses_persisted_title_when_runtime_movie_cache_is_empty():
+    server.state.fp_movies.clear()
+    server.state.movie_subscriptions = []
+    _activate_queue_job("provider:movie", "Persistierter Filmtitel")
+
+    payload = server.build_queue_payload()
+
+    assert payload["groups"][0]["name"] == "Filme"
+    assert payload["groups"][0]["items"][0]["title"] == "Persistierter Filmtitel"
+
+
+def test_queue_payload_recovers_tmdb_movie_title_from_subscription_after_restart():
+    slug = "tmdb:346672"
+    server.state.fp_movies.clear()
+    server.state.movie_subscriptions = [{
+        "key": slug,
+        "tmdb_id": 346672,
+        "source_slug": "filmpalast:underworld-blood-wars",
+        "pending_slug": slug,
+        "title": "Underworld: Blood Wars",
+    }]
+    _activate_queue_job(slug, slug)
+
+    payload = server.build_queue_payload()
+
+    item = payload["groups"][0]["items"][0]
+    assert item["title"] == "Underworld: Blood Wars"
+    assert item["slug"] == slug
+
+
+def test_queue_payload_recovers_series_group_and_episode_title_after_restart():
+    slug = "huhu:1413:american-horror-story-s13e03"
+    parsed = server.parse_episode_slug(slug)
+    assert parsed == ("huhu:1413:american-horror-story", 13, 3)
+    server.state.fp_movies.clear()
+    server.state.movie_subscriptions = []
+    server.state.watchlist = [{
+        "base_slug": parsed[0],
+        "title": "American Horror Story",
+        "known_slugs": [slug],
+    }]
+    _activate_queue_job(slug, slug)
+
+    payload = server.build_queue_payload()
+
+    group = payload["groups"][0]
+    assert group["name"] == "American Horror Story"
+    assert group["items"][0]["title"] == "American Horror Story S13E03"
+    assert group["items"][0]["slug"] == slug
+
+
 def test_movie_subscription_remove_rolls_back_on_save_failure(monkeypatch):
     original = {"key": "tmdb:1", "title": "Film", "pending_slug": ""}
     server.state.movie_subscriptions = [original]
