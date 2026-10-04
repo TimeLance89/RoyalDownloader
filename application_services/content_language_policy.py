@@ -458,7 +458,7 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         else:
             selected = {
                 normalize_content_language(value)
-                for value in state.content_languages
+                for value in (getattr(movie, "_subscription_content_languages", None) or state.content_languages)
                 if normalize_content_language(value)
             }
             offered = _source_languages(movie) & selected

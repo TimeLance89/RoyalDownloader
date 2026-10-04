@@ -276,8 +276,40 @@ export function createHomeData({
     return { movies: data.discoveryMovies.length, series: data.discoverySeries.length };
   }
 
+  async function reloadForLanguage({ signal } = {}) {
+    owner.dispose(); owner = createScope();
+    pendingLoad = null; pendingWarm = null; cancelWarm(); warmFinished = false;
+    const current = owner;
+    const abort = () => current.dispose();
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal?.aborted) throw new DOMException("Abgebrochen", "AbortError");
+      for (const key of ["newMovies", "topMovies", "cinemaMovies", "trendingSeries", "newSeries", "discoveryMovies", "discoverySeries"]) data[key] = [];
+      data.cinemaUpdatedAt = 0;
+      const [movies, series, top, newSeries] = await Promise.all([
+        catalog("movie", { mode: "new", page: 1 }, current.signal),
+        catalog("series", { mode: "trending", page: 1 }, current.signal),
+        catalog("movie", { mode: "top", page: 1 }, current.signal),
+        catalog("series", { mode: "new", page: 1 }, current.signal),
+      ]);
+      if (!current.active) throw new DOMException("Abgebrochen", "AbortError");
+      data.newMovies = movies.results || []; data.topMovies = top.results || [];
+      data.trendingSeries = series.results || []; data.newSeries = newSeries.results || [];
+      data.discoveryMovies = [...data.newMovies]; data.discoverySeries = [...data.newSeries];
+      syncFpCatalogFromHome({ fresh: true }); syncSeriesCatalogFromHome({ fresh: true });
+      const entries = homeArtworkEntriesInLayout();
+      await Promise.allSettled([
+        hydrateHomeMovieArtwork(entries.filter(entry => entry.kind === "movie").map(entry => entry.item), { render: false, signal: current.signal }),
+        hydrateHomeSeriesArtwork(entries.filter(entry => entry.kind === "series").map(entry => entry.item), { render: false, signal: current.signal }),
+      ]);
+      if (!current.active) throw new DOMException("Abgebrochen", "AbortError");
+      data.loading = false; data.refreshing = false;
+      renderHome({ force: true }); saveHomeCache(); onLoaded();
+    } finally { signal?.removeEventListener("abort", abort); }
+  }
+
   return {
-    get: () => Object.freeze({ ...data }), load, warm, save: saveHomeCache,
+    get: () => Object.freeze({ ...data }), load, warm, reloadForLanguage, save: saveHomeCache,
     restore() {
       if (!owner.active) return false;
       const restored = cache.restore();

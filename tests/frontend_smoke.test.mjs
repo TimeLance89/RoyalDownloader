@@ -386,7 +386,7 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   }
   assert.doesNotMatch(localization, /await changeLanguage\(language\)/);
   assert.match(localization, /changeLanguage\(language\)\.catch/);
-  assert.match(app, /userInitiated: true, persist: true/);
+  assert.match(app, /userInitiated: true/);
   assert.doesNotMatch(html, /src="\/i18n\.js/);
   assert.match(app, /createLocalization\(document\)/);
   assert.match(app, /createSetup\(document.getElementById\("setup-wizard"\)/);
@@ -997,6 +997,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/movie-language.css",
     "styles/taste-feedback.css",
     "styles/daily-top.css",
+    "styles/language-studio.css",
   ]);
   for (const path of imports) {
     assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);

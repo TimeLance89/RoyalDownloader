@@ -1607,9 +1607,10 @@
         </div>
         <div class="settings-group settings-card language-settings">
           <h3>Sprache &amp; Oberfläche</h3>
-          <p class="dim settings-hint">Die Oberfläche wird automatisch übersetzt. Deutsch bleibt bei Verbindungsproblemen als sicherer Fallback erhalten.</p>
+          <p class="dim settings-hint">Oberfläche, Inhaltswahl und künftige Serien-Downloads gemeinsam anpassen.</p>
+          <div class="language-profile-summary"><span class="language-profile-glyph" aria-hidden="true">Aa</span><div><strong id="language-profile-label">Deutsch</strong><span>Dein persönliches Sprachprofil</span></div><button type="button" class="btn btn-ghost" data-language-setup-open>Profil anpassen</button></div>
           <label class="dim auto-lbl" for="ui-language">Oberflächensprache</label>
-          <select id="ui-language" aria-label="Oberflächensprache">
+          <select id="ui-language" aria-label="Oberflächensprache" class="language-profile-select">
             <option value="de" translate="no">Deutsch</option>
             <option value="en" translate="no">English</option>
             <option value="es" translate="no">Español</option>
@@ -1660,17 +1661,17 @@
         <div id="provider-catalog" class="settings-group settings-card provider-settings">
           <div class="provider-heading">
             <div>
-              <span class="provider-kicker">DOWNLOAD · ROUTING</span>
               <h3>Quellen-Katalog</h3>
-              <p class="dim settings-hint">Lege zuerst die Inhaltssprachen fest und verfeinere danach Anbieter und Fallback-Reihenfolge.</p>
+              <p class="dim settings-hint">Deine erste Wahl und die Quellen, die übernehmen, wenn sie nicht liefern kann.</p>
             </div>
-            <span class="provider-route-mark" aria-hidden="true">1→N</span>
+            <span class="catalog-route-key"><i aria-hidden="true"></i>Erste Wahl<span aria-hidden="true">›</span>Ausweichquellen</span>
           </div>
           <section class="content-language-control" aria-labelledby="content-language-title">
             <div class="content-language-heading">
               <span class="provider-kicker">INHALTSPROFIL</span>
-              <h4 id="content-language-title">In welchen Sprachen soll Royal suchen?</h4>
-              <p>Mehrfachauswahl möglich. Quellen anderer Sprachen werden automatisch pausiert.</p>
+              <h4 id="content-language-title">Dein Inhaltsprofil</h4>
+              <p>Quellen folgen deiner Inhaltswahl. Oberflächensprache und Serien-Abos passt du im Sprach-Setup an.</p>
+              <button type="button" class="catalog-profile-edit" data-language-setup-open>Sprachprofil anpassen</button>
             </div>
             <div>
               <div id="content-language-options" class="content-language-options" role="group" aria-label="Sprachen der heruntergeladenen Inhalte"></div>
@@ -2711,5 +2712,17 @@
 </div>
 
 <script type="module" src="/app.js?v=royal-20260921-1"></script>
+
+  <dialog id="language-setup-dialog" class="language-studio" aria-labelledby="language-studio-title" aria-describedby="language-studio-intro" translate="no">
+    <div class="language-studio-shell">
+      <header class="language-studio-header"><div class="language-studio-emblem" aria-hidden="true"><i></i><i></i><span>RD</span></div><div><h2 id="language-studio-title" data-language-setup="title">Dein Royal. Deine Sprache.</h2><p id="language-studio-intro" data-language-setup="intro">Eine Oberfläche, passende Inhalte und Abos, die mitdenken.</p></div></header>
+      <ol class="language-studio-steps" data-language-setup="steps" aria-label="Setup-Schritte"></ol>
+      <div class="language-studio-content" data-language-setup="content" tabindex="-1"></div>
+      <section class="language-studio-busy" data-language-setup="busy" hidden role="status" aria-live="polite"><div class="language-studio-orbit" aria-hidden="true"><i></i><i></i><span>RD</span></div><h3 data-language-setup="busy-copy">Dein Sprachprofil wird vorbereitet …</h3><p>Royal macht alles bereit.</p><ol><li>Sprachprofil speichern</li><li>Quellen &amp; Serien vorbereiten</li><li>Oberfläche umstellen</li></ol></section>
+      <p class="language-studio-error" data-language-setup="error" role="alert"></p>
+      <footer class="language-studio-footer" data-language-setup="footer"><button type="button" class="btn btn-ghost" data-language-setup="cancel">Abbrechen</button><div class="language-studio-current"><strong data-language-setup="selection"></strong><small data-language-setup="subscription-summary"></small></div><div class="language-studio-navigation"><button type="button" class="btn btn-ghost" data-language-setup="back">Zurück</button><button type="button" class="btn btn-primary" data-language-setup="next">Weiter</button></div></footer>
+    </div>
+  </dialog>
+
 </body>
 </html>

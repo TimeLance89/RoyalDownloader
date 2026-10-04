@@ -131,3 +131,28 @@ def test_queued_language_wait_is_shown_in_inbox(monkeypatch, subscription):
     assert item["queued_count"] == 0
     assert item["failed_count"] == 0
     assert item["status"] == "waiting_for_language"
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_switched_subscription_on_monolingual_source_checks_alternatives(monkeypatch, subscription, available):
+    from application_services import download_lifecycle
+    from providers.models import FilmpalastMovie, HosterInfo
+    entry, series, state = subscription
+    state.content_languages = {"en"}
+    monkeypatch.setattr(library, "provider_supports_languages", lambda *_: False, raising=False)
+    # A DE-only source may remain the identity of a subscription after switching.
+    from providers import catalog
+    monkeypatch.setattr(catalog, "provider_supports_languages", lambda key, langs: key != "serienstream")
+    monkeypatch.setattr(library, "episode_languages_for_slug", lambda *_: ["de"])
+    alternative = FilmpalastMovie("Fixture", "https://vidrift.test/episode", provider="vidrift",
+                                 hosters=[HosterInfo("VOE", "https://voe.test/episode", "en")])
+    def fallback(*args, **kwargs):
+        assert "serienstream" in kwargs["excluded_providers"]
+        if not available:
+            raise RuntimeError("Temporary alternate-source failure")
+        return [alternative]
+    monkeypatch.setattr(download_lifecycle, "find_episode_fallbacks", fallback)
+    languages, checks = library._watchlist_episode_language_evidence(entry, series, entry["episode_states"])
+    slug = series.all_episodes[0].slug
+    assert languages[slug] == (["de", "en"] if available else None)
+    assert bool(checks) is available

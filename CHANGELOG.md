@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Guided language profiles and source catalog
+
+- Redesign the source catalog with clear first-choice and fallback roles,
+  language badges and expandable inactive sources.
+- Guide interface and content language changes through an animated three-step
+  setup, including selective future-language changes for subscribed series.
+- Save the profile atomically, retain unselected subscription languages across
+  restarts and select matching providers automatically.
+- Keep the setup open while catalogs and translations refresh; preparation can
+  be retried without saving twice. Existing files and queued language contracts
+  are preserved.
+
 ### Subscription language verification and source availability
 
 - Share pending episode-language checks across selection and detail hydration;

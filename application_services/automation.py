@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+from features.subscription_languages import subscription_content_languages
+
 import threading
 
 from application_services.runtime import (
@@ -206,6 +208,12 @@ def _auto_download_new_episodes():
                             state.watchlist_new_slugs.pop(base_slug, None)
                 log(f"Auto-Download übersprungen: «{slug}» ist {reason}.")
                 continue
+            with state.watchlist_lock:
+                entry = _watchlist_entry_for_episode(slug)
+                if entry is not None:
+                    movie._subscription_content_languages = subscription_content_languages(
+                        entry, state.content_languages, getattr(state, "subscription_content_languages", {}),
+                    )
             state.fp_movies[slug] = movie
             prepared_slugs.append(slug)
             with state.watchlist_lock:
