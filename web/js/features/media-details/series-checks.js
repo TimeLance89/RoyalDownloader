@@ -99,7 +99,11 @@ export function createSeriesChecks(status, {
   }
 
   async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current) {
-    if (!["huhu", "serienstream"].includes(series?.provider)) return;
+    if (!series) return;
+    const capabilities = Array.isArray(series.provider_content_languages)
+      ? series.provider_content_languages.filter(Boolean)
+      : [];
+    if (series.provider !== "huhu" && capabilities.length <= 1) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
     const pending = episodes.filter((episode) => !episode.language_checked);
     if (!pending.length) return;
