@@ -195,7 +195,7 @@ def test_selected_language_is_persisted_and_filters_restored_fallbacks(monkeypat
 
 def test_episode_queue_uses_only_concrete_enabled_hoster_language(monkeypatch):
     monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
-    slug = f"moviebox:test-s01e01-{uuid.uuid4().hex[:8]}"
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e01"
     movie = FilmpalastMovie(
         title="Fixture S01E01",
         url="moviebox:123-s1e1",
@@ -217,7 +217,7 @@ def test_episode_queue_uses_only_concrete_enabled_hoster_language(monkeypatch):
 
 def test_single_language_installation_pins_episode_even_when_provider_track_is_unknown(monkeypatch):
     monkeypatch.setattr(server.state, "content_languages", {"de"})
-    slug = f"moviebox:test-s01e02-{uuid.uuid4().hex[:8]}"
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e02"
     movie = FilmpalastMovie(
         title="Fixture S01E02",
         url="moviebox:123-s1e2",
@@ -239,7 +239,7 @@ def test_single_language_installation_pins_episode_even_when_provider_track_is_u
 
 def test_existing_queue_language_is_never_overwritten_by_later_provider(monkeypatch):
     monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
-    slug = f"moviebox:test-s01e03-{uuid.uuid4().hex[:8]}"
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e03"
     german = FilmpalastMovie(
         title="Fixture S01E03",
         url="moviebox:123-s1e3",
