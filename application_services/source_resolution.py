@@ -174,10 +174,24 @@ def _extract_from_movie(
             hoster_audio_language
             or str(getattr(hoster, "language", "") or ""),
         )
-        if not selected_source_language_allowed(res.provider, hoster_language, enabled_languages, getattr(movie, "url", "")):
+        language_allowed = selected_source_language_allowed(
+            res.provider,
+            hoster_language,
+            enabled_languages,
+            getattr(movie, "url", ""),
+        )
+        # Strict jobs are fail-closed: an unlabeled stream from a multilingual
+        # provider is not proof of the requested audio language. Legacy/direct
+        # probes without a pinned queue language keep their historical behavior.
+        if required_language:
+            language_allowed = bool(hoster_language) and language_allowed
+        elif not hoster_language:
+            language_allowed = True
+        if not language_allowed:
             log(
                 f"  Überspringe {hoster.name}: Stream-Sprache "
-                f"{hoster_language.upper() or 'unbekannt'} ist nicht aktiviert.",
+                f"{hoster_language.upper() or 'unbekannt'} passt nicht zur "
+                f"{'Queue-Sprache ' + required_language.upper() if required_language else 'Sprachauswahl'}.",
                 "info",
             )
             continue
