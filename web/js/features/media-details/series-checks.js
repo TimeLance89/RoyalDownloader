@@ -153,8 +153,9 @@ export function createSeriesChecks(status, {
     try {
       const generation = seriesState.viewGeneration;
       status.textContent = `Prüfe Stream-Sprache für ${pending.length} Folge(n) …`;
-      for (let index = 0; index < pending.length; index += 30) {
-        const chunk = pending.slice(index, index + 30);
+      const batchSize = 20;
+      for (let index = 0; index < pending.length; index += batchSize) {
+        const chunk = pending.slice(index, index + batchSize);
         const result = await client.post("/api/series/episode-languages", {
           provider: series.provider,
           slugs: chunk.map(episode => episode.slug),
