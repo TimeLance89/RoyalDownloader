@@ -322,11 +322,16 @@ def run_download_queue(
                 continue
 
         source_movies = [movie]
+        required_language = _queue_requested_language(movie_slug)
+        if required_language:
+            movie._required_content_language = required_language
         seen_source_urls = {movie.url}
         known_fallbacks = (movie_fallbacks or {}).get(movie_slug, [])
         for fallback_movie in known_fallbacks:
             if fallback_movie.url in seen_source_urls:
                 continue
+            if required_language:
+                fallback_movie._required_content_language = required_language
             source_movies.append(fallback_movie)
             seen_source_urls.add(fallback_movie.url)
         # Ein leerer, früher aufgebauter Episoden-Fallback-Eintrag beweist
@@ -359,6 +364,8 @@ def run_download_queue(
             )
             for candidate in alternatives:
                 if candidate.url not in seen_source_urls:
+                    if required_language:
+                        candidate._required_content_language = required_language
                     source_movies.append(candidate)
                     seen_source_urls.add(candidate.url)
         if ep_info:
@@ -393,10 +400,12 @@ def run_download_queue(
                         source_slug=movie_slug,
                         limit=1,
                     )
-                    source_movies.extend(
-                        candidate for candidate in alternatives
-                        if candidate.url not in {m.url for m in source_movies}
-                    )
+                    for candidate in alternatives:
+                        if candidate.url in {m.url for m in source_movies}:
+                            continue
+                        if required_language:
+                            candidate._required_content_language = required_language
+                        source_movies.append(candidate)
                     # Ein erster exakter Treffer wird sofort versucht. Erst
                     # wenn dessen Extraktion oder Download scheitert, werden
                     # die übrigen Kataloge geladen.
@@ -444,10 +453,13 @@ def run_download_queue(
                     excluded_providers=tried_providers,
                 )
                 known_urls = {candidate.url for candidate in source_movies}
-                source_movies.extend(
-                    candidate for candidate in alternatives
-                    if candidate.url not in known_urls
-                )
+                for candidate in alternatives:
+                    if candidate.url in known_urls:
+                        continue
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
+                    known_urls.add(candidate.url)
                 while next_index < len(source_movies):
                     next_movie = source_movies[next_index]
                     log(
