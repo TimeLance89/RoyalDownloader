@@ -130,3 +130,26 @@ def test_retained_subscription_can_still_reach_its_old_language_provider(monkeyp
     assert movie_catalog.provider_priority.__wrapped__("series") == ["sflix", "serienstream"]
     fake.watchlist = []
     assert movie_catalog.provider_priority.__wrapped__("series") == ["sflix"]
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_busy_profile_times_out_without_blocking_event_loop_or_mutating(studio, method):
+    state, writes, body, _ = studio
+    # Hold a later lock to exercise cleanup of the already acquired watchlist lock.
+    state.provider_priority_lock = threading.Lock()
+    state.provider_priority_lock.acquire()
+    async def exercise():
+        request = asyncio.create_task(administration.api_language_setup_get() if method == "get"
+                                      else administration.api_language_setup_set(body))
+        await asyncio.sleep(0.05)
+        assert not request.done(), "Profile locking must run outside the event loop"
+        with pytest.raises(HTTPException) as error:
+            await request
+        assert error.value.status_code == 503
+    try:
+        asyncio.run(exercise())
+        assert state.watchlist_lock.acquire(timeout=0.05)
+        state.watchlist_lock.release()
+        assert writes == [] and state.ui_language == "de"
+    finally:
+        state.provider_priority_lock.release()
