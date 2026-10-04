@@ -301,15 +301,24 @@ test("SerienStream language truth auto-checks after hydration without an episode
     base_slug: "serienstream:american-horror-story",
     provider: "serienstream",
     title: "American Horror Story",
-    seasons: [{
-      season: 13,
-      episodes: [
-        { slug: "serienstream:american-horror-story-s13e01", season: 13, episode: 1, in_jellyfin: true },
-        { slug: "serienstream:american-horror-story-s13e03", season: 13, episode: 3 },
-        { slug: "serienstream:american-horror-story-s13e04", season: 13, episode: 4 },
-        { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true },
-      ],
-    }],
+    seasons: [
+      {
+        season: 12,
+        episodes: [
+          { slug: "serienstream:american-horror-story-s12e08", season: 12, episode: 8, in_jellyfin: true },
+          { slug: "serienstream:american-horror-story-s12e09", season: 12, episode: 9 },
+        ],
+      },
+      {
+        season: 13,
+        episodes: [
+          { slug: "serienstream:american-horror-story-s13e01", season: 13, episode: 1, in_jellyfin: true },
+          { slug: "serienstream:american-horror-story-s13e03", season: 13, episode: 3 },
+          { slug: "serienstream:american-horror-story-s13e04", season: 13, episode: 4 },
+          { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true },
+        ],
+      },
+    ],
   };
   const state = {
     series: {
@@ -359,10 +368,10 @@ test("SerienStream language truth auto-checks after hydration without an episode
   detail.resolve({
     ...initial,
     provider_content_languages: ["de", "en"],
-    seasons: [{
-      season: 13,
-      episodes: initial.seasons[0].episodes.map(episode => ({ ...episode })),
-    }],
+    seasons: initial.seasons.map((season) => ({
+      ...season,
+      episodes: season.episodes.map((episode) => ({ ...episode })),
+    })),
   });
 
   await new Promise(resolve => setImmediate(resolve));
@@ -371,21 +380,29 @@ test("SerienStream language truth auto-checks after hydration without an episode
   assert.deepEqual(language.body.slugs, [
     "serienstream:american-horror-story-s13e03",
     "serienstream:american-horror-story-s13e04",
+    "serienstream:american-horror-story-s12e09",
   ]);
 
   language.resolve({
     available: {
       "serienstream:american-horror-story-s13e03": false,
       "serienstream:american-horror-story-s13e04": true,
+      "serienstream:american-horror-story-s12e09": true,
     },
     languages: {
       "serienstream:american-horror-story-s13e03": ["en"],
       "serienstream:american-horror-story-s13e04": ["de", "en"],
+      "serienstream:american-horror-story-s12e09": ["de"],
     },
   });
   assert.equal(await refresh, true);
 
-  const [e01, e03, e04, e07] = state.series.current.seasons[0].episodes;
+  const [s12e08, s12e09] = state.series.current.seasons[0].episodes;
+  const [e01, e03, e04, e07] = state.series.current.seasons[1].episodes;
+  assert.equal(s12e08.language_checked, undefined, "local/Jellyfin episodes need no remote language probe");
+  assert.equal(s12e09.language_checked, true, "older published missing episodes are checked too");
+  assert.equal(s12e09.language_available, true);
+  assert.deepEqual(s12e09.content_languages, ["de"]);
   assert.equal(e01.language_checked, undefined, "local/Jellyfin episodes need no remote language probe");
   assert.equal(e03.language_checked, true);
   assert.equal(e03.language_available, false);
@@ -394,6 +411,70 @@ test("SerienStream language truth auto-checks after hydration without an episode
   assert.equal(e04.language_available, true);
   assert.deepEqual(e04.content_languages, ["de", "en"]);
   assert.equal(e07.language_checked, undefined, "unreleased episodes must not be probed");
+  checks.unmount();
+});
+
+
+test("episode language verification runs in bounded sequential batches", async () => {
+  const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
+  const episodes = Array.from({ length: 45 }, (_, index) => ({
+    slug: `serienstream:fixture-s01e${String(index + 1).padStart(2, "0")}`,
+    season: 1,
+    episode: index + 1,
+  }));
+  const series = {
+    base_slug: "serienstream:fixture",
+    provider: "serienstream",
+    seasons: [{ season: 1, episodes }],
+  };
+  const state = { series: { current: series, cache: {}, viewGeneration: 1 } };
+  const status = { textContent: "" };
+  const requests = [];
+  const noop = () => {};
+  const checks = createSeriesChecks(status, {
+    seriesState: state.series,
+    isVisible: () => true,
+    firstEpisodeSlug: () => episodes[0].slug,
+    pruneSeriesEpisodeSelection: noop,
+    refreshSeriesTileStates: noop,
+    updateSeriesStatus: noop,
+    syncSeriesQueueFlags: noop,
+    seriesStructureFingerprint: noop,
+    mergeSeriesDetailPayload: noop,
+    updateSeriesOverview: noop,
+    updateWatchBtn: noop,
+    renderSeriesTiles: noop,
+    client: {
+      post(url, body, options) {
+        return new Promise(resolve => requests.push({ url, body, options, resolve }));
+      },
+    },
+  });
+
+  const verification = checks.verifyLanguages(episodes, series);
+  assert.equal(requests.length, 1, "only the first batch may be in flight");
+  assert.equal(requests[0].url, "/api/series/episode-languages");
+  assert.equal(requests[0].body.slugs.length, 20);
+
+  const resolveBatch = (request) => request.resolve({
+    available: Object.fromEntries(request.body.slugs.map(slug => [slug, true])),
+    languages: Object.fromEntries(request.body.slugs.map(slug => [slug, ["de"]])),
+  });
+
+  resolveBatch(requests[0]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 2, "second batch starts only after the first completed");
+  assert.equal(requests[1].body.slugs.length, 20);
+
+  resolveBatch(requests[1]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].body.slugs.length, 5);
+
+  resolveBatch(requests[2]);
+  await verification;
+  assert.ok(episodes.every(episode => episode.language_checked === true));
+  assert.ok(episodes.every(episode => episode.language_available === true));
   checks.unmount();
 });
 
