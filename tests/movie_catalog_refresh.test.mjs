@@ -295,6 +295,109 @@ test("closing series details discards late provider and subscription responses",
   }
 });
 
+test("SerienStream language truth auto-checks after hydration without an episode click", async () => {
+  const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
+  const initial = {
+    base_slug: "serienstream:american-horror-story",
+    provider: "serienstream",
+    title: "American Horror Story",
+    seasons: [{
+      season: 13,
+      episodes: [
+        { slug: "serienstream:american-horror-story-s13e01", season: 13, episode: 1, in_jellyfin: true },
+        { slug: "serienstream:american-horror-story-s13e03", season: 13, episode: 3 },
+        { slug: "serienstream:american-horror-story-s13e04", season: 13, episode: 4 },
+        { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true },
+      ],
+    }],
+  };
+  const state = {
+    series: {
+      current: initial,
+      currentSampleSlug: initial.seasons[0].episodes[1].slug,
+      cache: {},
+      viewGeneration: 1,
+    },
+  };
+  const status = { textContent: "" };
+  const requests = [];
+  const noop = () => {};
+  const checks = createSeriesChecks(status, {
+    seriesState: state.series,
+    isVisible: () => true,
+    firstEpisodeSlug: () => initial.seasons[0].episodes[0].slug,
+    pruneSeriesEpisodeSelection: noop,
+    refreshSeriesTileStates: noop,
+    updateSeriesStatus: noop,
+    syncSeriesQueueFlags: noop,
+    seriesStructureFingerprint: series => JSON.stringify(series?.seasons || []),
+    mergeSeriesDetailPayload: (_current, refreshed) => refreshed,
+    updateSeriesOverview: noop,
+    updateWatchBtn: noop,
+    renderSeriesTiles: noop,
+    client: {
+      post(url, body, options) {
+        return new Promise(resolve => requests.push({ url, body, options, resolve }));
+      },
+    },
+  });
+
+  const refresh = checks.refresh(false);
+  assert.equal(requests.length, 2);
+  const jellyfin = requests.find(request => request.url === "/api/series/jellyfin-status");
+  const detail = requests.find(request => request.url === "/api/series/load");
+  assert.ok(jellyfin);
+  assert.ok(detail);
+
+  jellyfin.resolve({
+    episodes: {},
+    configured: true,
+    available: true,
+    stale: false,
+    checked_at: 1,
+  });
+  detail.resolve({
+    ...initial,
+    provider_content_languages: ["de", "en"],
+    seasons: [{
+      season: 13,
+      episodes: initial.seasons[0].episodes.map(episode => ({ ...episode })),
+    }],
+  });
+
+  await new Promise(resolve => setImmediate(resolve));
+  const language = requests.find(request => request.url === "/api/series/episode-languages");
+  assert.ok(language, "detail hydration must trigger language verification automatically");
+  assert.deepEqual(language.body.slugs, [
+    "serienstream:american-horror-story-s13e03",
+    "serienstream:american-horror-story-s13e04",
+  ]);
+
+  language.resolve({
+    available: {
+      "serienstream:american-horror-story-s13e03": false,
+      "serienstream:american-horror-story-s13e04": true,
+    },
+    languages: {
+      "serienstream:american-horror-story-s13e03": ["en"],
+      "serienstream:american-horror-story-s13e04": ["de", "en"],
+    },
+  });
+  assert.equal(await refresh, true);
+
+  const [e01, e03, e04, e07] = state.series.current.seasons[0].episodes;
+  assert.equal(e01.language_checked, undefined, "local/Jellyfin episodes need no remote language probe");
+  assert.equal(e03.language_checked, true);
+  assert.equal(e03.language_available, false);
+  assert.deepEqual(e03.content_languages, ["en"]);
+  assert.equal(e04.language_checked, true);
+  assert.equal(e04.language_available, true);
+  assert.deepEqual(e04.content_languages, ["de", "en"]);
+  assert.equal(e07.language_checked, undefined, "unreleased episodes must not be probed");
+  checks.unmount();
+});
+
+
 test("series detail checks abort both status requests and language batches on close", async () => {
   const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
   const series = { base_slug: "series", provider: "huhu", seasons: [] };
