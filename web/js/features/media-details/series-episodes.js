@@ -26,7 +26,7 @@ export function createSeriesEpisodes(root, {
 
   function providerNeedsExactEpisodeLanguage(series = seriesState.current) {
     if (!series) return false;
-    if (series.provider === "huhu") return true;
+    if (["huhu", "serienstream"].includes(series.provider)) return true;
     const capabilities = Array.isArray(series.provider_content_languages)
       ? series.provider_content_languages.filter(Boolean)
       : [];
