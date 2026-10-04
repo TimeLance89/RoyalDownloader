@@ -1,8 +1,10 @@
 """Signed direct manifests retain their request context through resolution."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import server  # noqa: F401 - installs the application runtime
+from application_services import movie_subscription_probe_optimizer as optimizer
 from application_services import source_resolution
 from media import downloader
 from providers.models import FilmpalastMovie, HosterInfo
@@ -56,3 +58,82 @@ def test_dash_probe_passes_signed_headers_to_downloader(monkeypatch):
     assert commands[0][commands[0].index("--referer") + 1] == "https://moviebox.ph/"
     assert "Origin:https://moviebox.ph" in commands[0]
     assert "Cookie:CloudFront-Policy=signed" in commands[0]
+
+
+def test_strict_audio_selector_has_no_foreign_fallback(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeProcess:
+        def __init__(self, cmd, **_kwargs):
+            captured["cmd"] = list(cmd)
+            self.stdout = []
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            del timeout
+            return 0
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(downloader, "ensure_public_http_url", lambda _url: None)
+    monkeypatch.setattr(downloader, "safe_proxy_url", lambda: "http://127.0.0.1:9999")
+    monkeypatch.setattr(downloader.subprocess, "Popen", FakeProcess)
+
+    job = downloader.DownloadJob(
+        "https://cdn.example.com/master.m3u8",
+        "hls",
+        Path(tmp_path) / "Episode.mp4",
+        audio_language="de",
+        strict_audio_language=True,
+        queue_slug="serienstream:fixture-s01e01",
+    )
+    monkeypatch.setattr(job, "_prepare_staging", lambda: (True, ""))
+
+    ok, _message = optimizer._ORIGINAL_DOWNLOAD_YTDLP(job)
+
+    assert ok is True
+    selector_index = captured["cmd"].index("-f")
+    assert captured["cmd"][selector_index + 1] == (
+        "bestvideo+bestaudio[language^=de]/best[language^=de]"
+    )
+    assert "bestvideo+bestaudio[language^=de]/best" not in captured["cmd"]
+
+
+def test_quality_aware_download_keeps_strict_audio_selector(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeProcess:
+        def __init__(self, cmd, **_kwargs):
+            captured["cmd"] = list(cmd)
+            self.stdout = []
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            del timeout
+            return 0
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(downloader, "ensure_public_http_url", lambda _url: None)
+    monkeypatch.setattr(downloader, "safe_proxy_url", lambda: "http://127.0.0.1:9999")
+    monkeypatch.setattr(optimizer.subprocess, "Popen", FakeProcess)
+
+    job = downloader.DownloadJob(
+        "https://cdn.example.com/master.m3u8",
+        "hls",
+        Path(tmp_path) / "Movie.mp4",
+        audio_language="de",
+        strict_audio_language=True,
+        queue_slug="movie:fixture",
+    )
+    monkeypatch.setattr(job, "_prepare_staging", lambda: (True, ""))
+
+    ok, _message = optimizer._download_ytdlp_for_height(job, 2160)
+
+    assert ok is True
+    selector_index = captured["cmd"].index("-f")
+    assert captured["cmd"][selector_index + 1] == (
+        "bestvideo+bestaudio[language^=de]/best[language^=de]"
+    )

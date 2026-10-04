@@ -516,6 +516,19 @@ def _download_ytdlp_for_height(self, height: int, concurrent_fragments=None):
         "--proxy",
         downloader.safe_proxy_url(),
     ]
+    if self.stream_type in {"hls", "dash"} and self.audio_language:
+        language = re.sub(r"[^a-z]", "", self.audio_language.casefold())[:3]
+        if language:
+            if self.strict_audio_language:
+                cmd += [
+                    "-f",
+                    f"bestvideo+bestaudio[language^={language}]/best[language^={language}]",
+                ]
+            else:
+                cmd += [
+                    "-f",
+                    f"bestvideo+bestaudio[language^={language}]/best",
+                ]
     if (
         downloader.MP4_HTTP_CHUNK_SIZE
         and self.stream_type == "mp4"

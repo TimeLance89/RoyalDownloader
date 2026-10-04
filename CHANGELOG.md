@@ -2,7 +2,26 @@
 
 ## Unreleased
 
-_No unreleased changes._
+### Strict content-language routing
+
+- Make a queue item's chosen content language a hard contract across provider,
+  hoster, cached-source and cross-provider fallback resolution; a DE job can no
+  longer silently continue through an EN source merely because EN is enabled
+  globally.
+- Separate provider language capabilities from concrete title/episode/hoster
+  evidence and fail closed when a multilingual provider cannot prove the
+  requested episode language.
+- Verify exact episode hoster languages on selection for multilingual series
+  providers; SerienStream/Huhu keep the bounded latest-season precheck.
+- Stop stale remote source labels from showing "NUR EN" on episodes already
+  downloaded or present in Jellyfin.
+- Keep HLS/DASH audio selection language-strict when the manifest exposes a
+  concrete audio language, while retaining provider-label routing for muxed
+  streams without fabricated manifest tags.
+- Declare the known multilingual capabilities of FilmPalast, Huhu, KinoGer,
+  KinoKing and SerienStream so their default DE label is no longer mistaken for
+  proof about every stream.
+
 
 ## v1.6.0 – 2026-10-04
 

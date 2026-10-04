@@ -466,7 +466,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     updateSeriesStatus(series);
     updateTasteFeedbackButtons();
     openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
-    if (series.provider === "huhu") {
+    if (["huhu", "serienstream"].includes(series.provider)) {
       const latestSelectableSeason = [...series.seasons].reverse()
         .find((season) => season.episodes.some(isEpisodeEligible));
       if (latestSelectableSeason) {

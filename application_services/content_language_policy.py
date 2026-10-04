@@ -23,7 +23,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages
+from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, selected_episode_language
 from providers.models import FilmpalastSearchResult, parse_episode_slug
 
 
@@ -277,8 +277,46 @@ def _queue_requested_language(slug: str) -> str:
     return normalize_content_language(job.get("content_language"))
 
 
+def _source_languages(source) -> set[str]:
+    provider = _movie_provider(source)
+    languages = {
+        normalize_content_language(
+            getattr(hoster, "audio_language", "")
+            or getattr(hoster, "language", "")
+        )
+        for hoster in (getattr(source, "hosters", None) or [])
+    }
+    languages.discard("")
+
+    explicit = normalize_content_language(
+        _title_release_language(getattr(source, "title", ""))
+        or str(getattr(source, "content_language", "") or "")
+    )
+    capabilities = {
+        normalize_content_language(value)
+        for value in provider_content_languages(provider)
+        if normalize_content_language(value)
+    }
+    if explicit and (
+        bool(getattr(source, "_content_language_explicit", False))
+        or len(capabilities) <= 1
+        or explicit in languages
+    ):
+        languages.add(explicit)
+    if not languages and len(capabilities) == 1:
+        languages.update(capabilities)
+    return languages
+
+
 def _source_language(source) -> str:
-    return normalize_content_language(_movie_content_language(source))
+    languages = _source_languages(source)
+    if len(languages) == 1:
+        return next(iter(languages))
+    explicit = normalize_content_language(
+        _title_release_language(getattr(source, "title", ""))
+        or str(getattr(source, "content_language", "") or "")
+    )
+    return explicit if explicit in languages else ""
 
 
 def _cached_sources(slug: str, movie=None) -> list:
@@ -295,7 +333,11 @@ def _expand_catalog_movie_sources(slug: str, movie):
     if movie is None or parse_episode_slug(slug):
         return [movie] if movie is not None else []
     sources = _cached_sources(slug, movie)
-    languages = {_source_language(source) for source in sources if _source_language(source)}
+    languages = {
+        language
+        for source in sources
+        for language in _source_languages(source)
+    }
     desired = _queue_requested_language(slug)
     needs_mixed_resolution = _mixed_german_english_enabled() and not {"de", "en"}.issubset(languages)
     needs_selected_resolution = bool(desired and desired not in languages)
@@ -346,7 +388,7 @@ def load_movie_for_slug(slug: str):
     desired = _queue_requested_language(slug)
     if desired:
         selected = next(
-            (source for source in sources if _source_language(source) == desired),
+            (source for source in sources if desired in _source_languages(source)),
             None,
         )
         if selected is not None:
@@ -371,11 +413,11 @@ def _preferred_movie_sources(slug: str, movie, preference):
         raise ValueError("Unbekannte Downloadsprache.")
 
     sources = _cached_sources(slug, movie)
-    matching = [source for source in sources if _source_language(source) == language]
+    matching = [source for source in sources if language in _source_languages(source)]
     if not matching:
         matching = [
             source for source in _expand_catalog_movie_sources(slug, movie)
-            if _source_language(source) == language
+            if language in _source_languages(source)
         ]
     if not matching:
         label = "Deutsch" if language == "de" else "Englisch"
@@ -404,6 +446,34 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         return job
     provider = _movie_provider(movie)
     language = _source_language(movie)
+    episode = parse_episode_slug(slug)
+    if episode:
+        explicit_track = normalize_content_language(
+            selected_episode_language(provider, slug)
+        )
+        if explicit_track:
+            # Explicit provider track selectors (for example MKissa RAW=JA)
+            # are stronger evidence than the global DE/EN installation lanes.
+            language = explicit_track
+        else:
+            selected = {
+                normalize_content_language(value)
+                for value in state.content_languages
+                if normalize_content_language(value)
+            }
+            offered = _source_languages(movie) & selected
+            if len(offered) == 1:
+                # A concrete episode with one enabled advertised track wins over
+                # the provider's primary/default catalog language.
+                language = next(iter(offered))
+            elif len(selected) == 1:
+                # Single-language installations are fail-closed end to end. Even
+                # if the provider cannot label the stream yet, the queue contract
+                # stays pinned and the resolver must later prove the same language.
+                language = next(iter(selected))
+            elif language not in offered:
+                # Mixed-language mode without a concrete track must not guess.
+                language = ""
     with state.queue_claim_lock:
         if provider and not job.get("provider"):
             job["provider"] = provider
@@ -425,7 +495,7 @@ def cached_movie_source_fallbacks(slug: str):
     return [
         source
         for source in fallbacks
-        if _source_language(source) == desired
+        if desired in _source_languages(source)
         and str(getattr(source, "url", "") or "") != current_url
     ]
 
@@ -436,6 +506,8 @@ _SERVICE_EXPORTS = (
     "load_movie_for_slug",
     "_preferred_movie_sources",
     "_ensure_queue_job",
+    "_queue_requested_language",
+    "_source_languages",
     "cached_movie_source_fallbacks",
 )
 publish_service(globals(), _SERVICE_EXPORTS)

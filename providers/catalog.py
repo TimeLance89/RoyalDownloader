@@ -358,6 +358,7 @@ PROVIDER_CATALOG = {
         key="serienstream",
         label="Serienstream",
         content_language="de",
+        content_languages=("de", "en"),
         media_types=("series",),
         series_priority=10,
         source_prefixes=("serienstream:",),

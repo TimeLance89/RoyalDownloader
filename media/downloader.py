@@ -516,6 +516,7 @@ class DownloadJob:
         referer: str = "",
         origin: str = "",
         audio_language: str = "",
+        strict_audio_language: bool = False,
         headers: Optional[dict[str, str]] = None,
         on_progress: Optional[Callable[[float, str], None]] = None,
         on_done: Optional[Callable[[bool, str], None]] = None,
@@ -534,6 +535,7 @@ class DownloadJob:
         self.referer = referer
         self.origin = origin
         self.audio_language = audio_language
+        self.strict_audio_language = bool(strict_audio_language)
         self.headers = dict(headers or {})
         # Stabiler fachlicher Schluessel fuer Queue-Aktionen. Der Downloader
         # selbst wertet ihn nicht aus, damit bestehende Aufrufer kompatibel
@@ -895,7 +897,15 @@ class DownloadJob:
         if self.stream_type in {"hls", "dash"} and self.audio_language:
             language = re.sub(r"[^a-z]", "", self.audio_language.casefold())[:3]
             if language:
-                cmd += ["-f", f"bestvideo+bestaudio[language^={language}]/best"]
+                if self.strict_audio_language:
+                    # A pinned queue language must never silently fall back to
+                    # an unlabeled/foreign audio rendition.
+                    cmd += [
+                        "-f",
+                        f"bestvideo+bestaudio[language^={language}]/best[language^={language}]",
+                    ]
+                else:
+                    cmd += ["-f", f"bestvideo+bestaudio[language^={language}]/best"]
         if self.stream_type == "mkv":
             cmd += ["--remux-video", "mp4"]
         if (

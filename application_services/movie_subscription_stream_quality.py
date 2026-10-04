@@ -254,6 +254,8 @@ def _pre_resolved_payload(result, profile: dict) -> dict:
         "provider": result.provider,
         "content_language": result.content_language,
         "quality": result.quality,
+        "audio_language": getattr(result, "audio_language", ""),
+        "headers": dict(getattr(result, "headers", {}) or {}),
         "profile": normalize_media_profile(profile),
     }
 
@@ -392,11 +394,18 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
     """Reuse the just-probed stream for a few minutes instead of extracting twice."""
     cached = getattr(movie, "_quality_pre_resolved", None)
     source_url = str((cached or {}).get("source_hoster_url") or "")
-    enabled_languages = {
-        normalize_content_language(language)
-        for language in state.content_languages
-        if normalize_content_language(language)
-    }
+    required_language = normalize_content_language(
+        str(getattr(movie, "_required_content_language", "") or "")
+    )
+    enabled_languages = (
+        {required_language}
+        if required_language
+        else {
+            normalize_content_language(language)
+            for language in state.content_languages
+            if normalize_content_language(language)
+        }
+    )
     cached_language = normalize_content_language(
         (cached or {}).get("content_language")
     )
@@ -414,6 +423,7 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
         for field in (
             "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
             "referer", "origin", "gated", "provider", "content_language", "quality",
+            "audio_language", "headers",
         ):
             setattr(result, field, cached.get(field))
         result.resolved_from_cache = True

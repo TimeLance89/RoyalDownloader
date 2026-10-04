@@ -93,6 +93,32 @@ raw jobs store JA. These optional diagnostic timestamps do not alter queue,
 session/account or repair formats. Provider/hoster classification, repair
 confidence, shadow validation, penalties and rollback rules remain unchanged.
 
+## Strict queue-language contract
+
+A queue job's stored `content_language` is authoritative for the lifetime of
+that logical job, including retries and provider/hoster fallbacks. Global
+installation languages only define which lanes may be chosen when the job is
+created; they do not widen an existing job later.
+
+For multilingual providers, `content_language` is only the provider's primary
+catalog language. Concrete hoster `language` / `audio_language` metadata is
+required to satisfy a pinned queue lane. Unknown concrete language fails closed
+instead of falling back to the provider default.
+
+Series detail uses exact episode checks for multilingual providers before an
+episode is committed to the queue. Coarse season-list flags are presentation
+hints only. Episodes already local or present in Jellyfin are never relabelled
+from remote provider flags.
+
+If HLS/DASH exposes a concrete audio-language tag, yt-dlp is constrained to that
+language without a generic foreign-language fallback. A provider/hoster language
+label is not fabricated into a manifest language tag, so muxed streams that are
+explicitly labelled by the provider remain usable.
+
+Known adapters that can expose more than one language must declare that
+capability. This currently includes FilmPalast, Huhu, KinoGer, KinoKing,
+SerienStream, AniWorld and the relevant English-provider families.
+
 ## Adding a multi-language provider
 
 Declare supported `content_languages`, a primary `content_language` and concrete
