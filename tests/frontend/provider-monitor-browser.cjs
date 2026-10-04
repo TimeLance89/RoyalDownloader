@@ -9,6 +9,7 @@ const { fixture } = require("./performance-fixture.cjs");
     const calls = [];
     let config = { enabled: true, auto_repair: true, notify_changes: false, interval_hours: 12, intensity: "standard" };
     let unavailable = false, failSave = false, languageProblem = false, diagnosticOnly = false, diagnosticsUnavailable = false;
+    let saveGate = null;
     const service = { service_health: "healthy", user_impact: "none", action_required: false,
       coverage: { movies: "healthy", series: "healthy", anime: "healthy" }, active_sources: 1, available_video_services: 1, last_check_at: Date.now() / 1000 - 18 * 60,
       paths: ["de", "en"].map(language => ({ media_type: "anime", language, state: "healthy" })),
@@ -43,7 +44,7 @@ const { fixture } = require("./performance-fixture.cjs");
         calls.push({ path, method: request.method(), body });
         if (path.endsWith("/diagnostics") && diagnosticsUnavailable) return route.fulfill({ status: 502, json: { detail: "Cloudflare token=secret" } });
         if (path.endsWith("/diagnostics")) return route.fulfill({ json: { config, service: diagnosticOnly ? { ...service, service_health: "degraded", user_impact: "unconfirmed", coverage: { ...service.coverage, anime: "unconfirmed" }, paths: [{ media_type: "anime", language: "de", state: "unconfirmed" }] } : languageProblem ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, anime: "action_required" }, paths: service.paths.map(p => ({ ...p, state: p.language === "de" ? "action_required" : "healthy" })) } : unavailable ? { ...service, service_health: "action_required", user_impact: "blocking", action_required: true, coverage: { ...service.coverage, series: "action_required" } } : service, providers: [provider], hosters: [hoster], summary: { healthy: 1 } } });
-        if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; return route.fulfill({ json: config }); }
+        if (path.endsWith("/monitor/config")) { if (failSave) return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); config = body; if (saveGate) await saveGate; return route.fulfill({ json: config }); }
         if (path.endsWith("/rollback")) { assert.equal(body.confirmed, true); provider.active_repair = null; provider.repairs[0].state = "rolled_back"; }
         if (path.endsWith("/config")) return route.fallback();
         return route.fulfill({ json: { started: true } });
@@ -294,6 +295,24 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.evaluate(() => sentinelPoll());
       await page.waitForFunction(() => document.querySelector('#provider-monitor [data-monitor="status"]').textContent === "");
       assert.equal(await monitor.locator('[data-monitor="status"]').textContent(), "", "Recovered polling clears its own error");
+      let releaseSave;
+      saveGate = new Promise(resolve => { releaseSave = resolve; });
+      await monitor.locator('[name="monitor-interval"]').evaluate(input => {
+        input.value = "18"; input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const saving = page.waitForRequest(request => request.url().endsWith("/api/providers/monitor/config"));
+      await monitor.locator('[data-action="save"]').evaluate(button => button.click());
+      await saving;
+      await monitor.locator('[name="monitor-interval"]').evaluate(input => {
+        input.value = "36"; input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      releaseSave(); saveGate = null;
+      await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
+      assert.equal(await monitor.locator('[name="monitor-interval"]').inputValue(), "36", "Save acknowledgement must preserve newer edits");
+      const retry = page.waitForRequest(request => request.url().endsWith("/api/providers/monitor/config"));
+      await monitor.locator('[data-action="save"]').evaluate(button => button.click());
+      assert.equal((await retry).postDataJSON().interval_hours, 36);
+      await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
     } finally { await run.close(); }

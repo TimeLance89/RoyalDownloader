@@ -159,6 +159,24 @@ const server = createServer(async (req, res) => {
         if (view.get().userConfigured) throw new Error("Empty Jellyfin must remain inactive");
       } finally { view.dispose(); }
     });
+    await page.evaluate(async () => {
+      const { createDirectoryPicker } = await import("/js/features/settings/directory.js");
+      const root = document.querySelector("#dir-modal").cloneNode(true);
+      root.id = "fixture-directory";
+      document.body.appendChild(root);
+      const target = document.createElement("input"); target.value = "/original";
+      const picker = createDirectoryPicker(root, { client: {
+        get: async () => ({ path: "/denied", parent: "/", dirs: [], error: "Permission denied" }),
+      } });
+      try {
+        picker.open(target);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!root.querySelector("#dir-modal-select").disabled) throw new Error("Unreadable folder cannot be selected");
+        if (!root.querySelector("#dir-modal-list").textContent.includes("Permission denied")) throw new Error("Folder errors must be visible");
+        root.querySelector("#dir-modal-select").dispatchEvent(new Event("click"));
+        if (target.value !== "/original") throw new Error("Failed browse must preserve the original path");
+      } finally { picker.unmount(); root.remove(); }
+    });
     await page.evaluate(async () => { const { switchTab } = (await import(document.querySelector('script[type="module"]').src)).application.core.actions; switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");

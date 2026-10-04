@@ -6,6 +6,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   const byId = id => id === "updater-card" ? root : root.querySelector(`#${id}`);
   let scope;
   let dirty = false;
+  let revision = 0;
   let savedConfig = null;
   function shortRevision(value) {
     const revision = String(value || "").trim();
@@ -331,13 +332,15 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   async function save() {
     if (!scope?.active) return;
     const current = scope;
+    const atRevision = revision;
     const result = await client.post("/api/updater/config", {
       update_mode: byId("updater-mode").value,
       update_channel: byId("updater-channel").value,
       auto_update_interval_hours: Math.max(1, Math.min(168, parseInt(byId("updater-interval").value, 10) || 6)),
     }, { signal: current.signal });
     if (!current.active) return;
-    dirty = false; applyUpdaterConfig(result);
+    if (revision === atRevision) dirty = false;
+    applyUpdaterConfig(result);
     await checkForUpdates(true);
     return result;
   }
@@ -348,7 +351,12 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       scope = createScope();
       byId("updater-channel").disabled = false;
       if (savedConfig) applyUpdaterConfig(savedConfig);
-      scope.listen(root, "input", () => { dirty = true; });
+      const changed = event => {
+        if (event.target === byId("updater-channel")) return;
+        dirty = true; revision++;
+      };
+      scope.listen(root, "input", changed);
+      scope.listen(root, "change", changed);
       scope.add(socket.subscribe("updater_install", data => applyUpdaterInstallStatus(data.installer || {})));
       scope.add(socket.subscribe("updater_config", data => applyUpdaterConfig(data.config || {})));
       scope.add(socket.subscribe("connection.open", () => void checkForUpdates(false)));
@@ -373,6 +381,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
           : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
         const status = byId("updater-mode-status");
         const selected = select.value;
+        const atRevision = revision;
         select.disabled = true;
         status.textContent = `${selected === "overnight" ? "Overnight" : "Stable"} wird gespeichert …`;
         try {
@@ -385,7 +394,8 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
             ),
           }, { signal: current.signal });
           if (!current.active) return;
-          dirty = false;
+          if (revision === atRevision) dirty = false;
+          select.dataset.savedChannel = saved.update_channel || selected;
           applyUpdaterConfig(saved);
           await checkForUpdates(true);
         } catch (error) {
