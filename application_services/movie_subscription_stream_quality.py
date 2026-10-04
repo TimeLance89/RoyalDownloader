@@ -254,6 +254,8 @@ def _pre_resolved_payload(result, profile: dict) -> dict:
         "provider": result.provider,
         "content_language": result.content_language,
         "quality": result.quality,
+        "audio_language": getattr(result, "audio_language", ""),
+        "headers": dict(getattr(result, "headers", {}) or {}),
         "profile": normalize_media_profile(profile),
     }
 
@@ -421,6 +423,7 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
         for field in (
             "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
             "referer", "origin", "gated", "provider", "content_language", "quality",
+            "audio_language", "headers",
         ):
             setattr(result, field, cached.get(field))
         result.resolved_from_cache = True
