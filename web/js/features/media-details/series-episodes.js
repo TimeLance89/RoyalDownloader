@@ -25,7 +25,12 @@ export function createSeriesEpisodes(root, {
   }
 
   function providerNeedsExactEpisodeLanguage(series = seriesState.current) {
-    return ["huhu", "serienstream"].includes(series?.provider);
+    if (!series) return false;
+    if (series.provider === "huhu") return true;
+    const capabilities = Array.isArray(series.provider_content_languages)
+      ? series.provider_content_languages.filter(Boolean)
+      : [];
+    return capabilities.length > 1;
   }
 
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
@@ -304,7 +309,7 @@ export function createSeriesEpisodes(root, {
       } catch (error) {
         if (error.name === "AbortError") return;
         byId("series-status").textContent =
-          `Deutsche Quelle konnte nicht geprüft werden: ${error.message}`;
+          `Stream-Sprache konnte nicht geprüft werden: ${error.message}`;
         return;
       }
       if (seriesState.current !== series) return;
@@ -332,7 +337,7 @@ export function createSeriesEpisodes(root, {
       } catch (error) {
         if (error.name === "AbortError") return;
         byId("series-status").textContent =
-          `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+          `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
         return;
       }
       if (seriesState.current !== series || seriesState.viewGeneration !== generation) return;
@@ -356,7 +361,7 @@ export function createSeriesEpisodes(root, {
       } catch (error) {
         if (error.name === "AbortError") return;
         byId("series-status").textContent =
-          `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+          `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
         return;
       }
       if (seriesState.current !== series) return;
