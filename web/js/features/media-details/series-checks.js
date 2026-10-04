@@ -19,27 +19,20 @@ export function createSeriesChecks(status, {
     return capabilities.length > 1;
   }
 
-  function latestPublishedLanguageEpisodes(series) {
+  function publishedMissingLanguageEpisodes(series) {
     if (!providerNeedsExactEpisodeLanguage(series)) return [];
-    const season = [...(series.seasons || [])].reverse().find((candidate) =>
-      (candidate.episodes || []).some((episode) => (
+    return [...(series.seasons || [])]
+      .sort((left, right) => Number(right.season || 0) - Number(left.season || 0))
+      .flatMap((season) => [...(season.episodes || [])]
+        .sort((left, right) => Number(left.episode || 0) - Number(right.episode || 0)))
+      .filter((episode) => (
         !episode.unreleased
         && !episode.downloaded
         && !episode.in_jellyfin
         && !episode.queued
         && episode.language_checked !== true
         && episode.huhu_language_checked !== true
-      )),
-    );
-    if (!season) return [];
-    return (season.episodes || []).filter((episode) => (
-      !episode.unreleased
-      && !episode.downloaded
-      && !episode.in_jellyfin
-      && !episode.queued
-      && episode.language_checked !== true
-      && episode.huhu_language_checked !== true
-    ));
+      ));
   }
   async function refreshSeriesJellyfinStatus(force = false) {
     if (!isVisible()) return false;
@@ -106,7 +99,7 @@ export function createSeriesChecks(status, {
       // The first detail payload can be a lightweight/cache snapshot without
       // provider capability metadata. Re-run the latest published season after
       // hydration so exact language truth never depends on a user click.
-      const languageEpisodes = latestPublishedLanguageEpisodes(enriched);
+      const languageEpisodes = publishedMissingLanguageEpisodes(enriched);
       if (languageEpisodes.length) {
         try {
           await verifyHuhuEpisodeLanguages(languageEpisodes, enriched);
