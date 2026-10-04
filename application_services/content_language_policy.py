@@ -23,7 +23,7 @@ from application_services.runtime import (
     import_backend_namespace,
     publish_service,
 )
-from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages
+from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, selected_episode_language
 from providers.models import FilmpalastSearchResult, parse_episode_slug
 
 
@@ -446,25 +446,34 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         return job
     provider = _movie_provider(movie)
     language = _source_language(movie)
-    if parse_episode_slug(slug):
-        selected = {
-            normalize_content_language(value)
-            for value in state.content_languages
-            if normalize_content_language(value)
-        }
-        offered = _source_languages(movie) & selected
-        if len(offered) == 1:
-            # A concrete episode with one enabled advertised track wins over
-            # the provider's primary/default catalog language.
-            language = next(iter(offered))
-        elif len(selected) == 1:
-            # Single-language installations are fail-closed end to end. Even
-            # if the provider cannot label the stream yet, the queue contract
-            # stays pinned and the resolver must later prove the same language.
-            language = next(iter(selected))
-        elif language not in offered:
-            # Mixed-language mode without a concrete track must not guess.
-            language = ""
+    episode = parse_episode_slug(slug)
+    if episode:
+        explicit_track = normalize_content_language(
+            selected_episode_language(provider, slug)
+        )
+        if explicit_track:
+            # Explicit provider track selectors (for example MKissa RAW=JA)
+            # are stronger evidence than the global DE/EN installation lanes.
+            language = explicit_track
+        else:
+            selected = {
+                normalize_content_language(value)
+                for value in state.content_languages
+                if normalize_content_language(value)
+            }
+            offered = _source_languages(movie) & selected
+            if len(offered) == 1:
+                # A concrete episode with one enabled advertised track wins over
+                # the provider's primary/default catalog language.
+                language = next(iter(offered))
+            elif len(selected) == 1:
+                # Single-language installations are fail-closed end to end. Even
+                # if the provider cannot label the stream yet, the queue contract
+                # stays pinned and the resolver must later prove the same language.
+                language = next(iter(selected))
+            elif language not in offered:
+                # Mixed-language mode without a concrete track must not guess.
+                language = ""
     with state.queue_claim_lock:
         if provider and not job.get("provider"):
             job["provider"] = provider
