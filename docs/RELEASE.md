@@ -5,7 +5,7 @@
 
 ## Release status
 
-The current official Stable release is **`v1.5.1`**. It preserves the existing
+The current official Stable release is **`v1.6.0`**. It preserves the existing
 HTTP, `/api/v1`, WebSocket, Docker, update, and persistent-data contracts and
 should still be validated on the target NAS before unattended operation.
 
@@ -28,7 +28,7 @@ chat IDs, media paths, or unsanitized logs in GitHub issues.
 ## Fresh Docker installation
 
 ```bash
-git clone --branch v1.5.1 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
+git clone --branch v1.6.0 --depth 1 https://github.com/TimeLance89/RoyalDownloader.git
 cd RoyalDownloader
 cp .env.example .env
 mkdir -p data runtime
@@ -64,7 +64,7 @@ curl --fail http://127.0.0.1:8765/api/v1/capabilities
 ```
 
 The legacy health response remains `{"status":"ok"}`. Capabilities reports
-`application_version` as `1.5.1` and reports the source revision separately
+`application_version` as `1.6.0` and reports the source revision separately
 as `build`.
 
 ## Persistent paths
@@ -118,6 +118,10 @@ v1.5.1 promotes the tested household-profile work: per-profile Jellyfin learning
 editable profile names, bundled and administrator-uploaded avatars, and the
 action-focused Abo-Inbox badge. See [v1.5.1 notes](releases/v1.5.1.md).
 
+v1.6.0 expands Stable provider coverage with new German and English movie/TV
+sources, direct HLS/MP4/DASH handling, mirror-aware fallbacks and hardened VidSrc
+WASM/TV resolution. See [v1.6.0 notes](releases/v1.6.0.md).
+
 The release gates retain the RC3 soak and additionally test the actual v1.1.0
 commit with populated accounts, sessions, queue, subscriptions, taste profiles,
 personal requests, settings, providers, Jellyfin and media paths. Candidate
@@ -131,7 +135,7 @@ Upgrade commands:
 docker compose down
 git fetch --tags origin
 git status --short
-git switch --detach v1.5.1
+git switch --detach v1.6.0
 APP_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up -d --build
 curl --fail http://127.0.0.1:8765/api/health
 ```
@@ -198,5 +202,5 @@ The release workflow runs the complete Quality workflow before creating an
 annotated tag and its GitHub Release. Both operations are idempotent, so a safe
 rerun accepts only the same tag target and never duplicates an existing
 Release. Tags with a semantic pre-release suffix, for example `v1.0.0-rc.3`,
-are marked as pre-releases. The Stable tag `v1.5.1` is published without the
+are marked as pre-releases. The Stable tag `v1.6.0` is published without the
 pre-release flag by the same workflow.
