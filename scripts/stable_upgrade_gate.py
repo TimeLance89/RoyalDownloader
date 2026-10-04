@@ -103,7 +103,7 @@ def verify(mode):
         assert running_source_sha() == STABLE_SHA
         assert APP_VERSION == "1.0.0"
     else:
-        assert APP_VERSION == "1.5.1"
+        assert APP_VERSION == "1.6.0"
     import server
     marker = json.loads(MARKER.read_text(encoding="utf-8"))
     assert marker["source_sha"] == STABLE_SHA
