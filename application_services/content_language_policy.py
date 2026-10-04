@@ -404,6 +404,14 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
         return job
     provider = _movie_provider(movie)
     language = _source_language(movie)
+    if not language and parse_episode_slug(slug):
+        selected = [
+            normalize_content_language(value)
+            for value in state.content_languages
+            if normalize_content_language(value)
+        ]
+        if len(set(selected)) == 1:
+            language = selected[0]
     with state.queue_claim_lock:
         if provider and not job.get("provider"):
             job["provider"] = provider
