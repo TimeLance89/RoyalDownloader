@@ -78,7 +78,7 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
     summary();
   }
   function close() {
-    if (busy || (committed && !ready)) return;
+    if ((busy && snapshot) || (committed && !ready)) return;
     dialog.close(); owner?.dispose(); rows?.dispose();
     trigger?.focus();
   }
@@ -133,6 +133,7 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
     current.listen(by("cancel"), "click", close);
     current.listen(by("back"), "click", () => { step--; render(); by("content").focus(); });
     current.listen(by("next"), "click", () => {
+      if (!snapshot) { void load(); return; }
       if (committed || by("busy").hidden === false && snapshot) { void apply(); return; }
       if (step === 1) {
         const selected = [...draft.contentLanguages];
@@ -145,15 +146,30 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
       if (step === 2) void apply();
       else { step++; render(); by("content").focus(); }
     });
-    try {
-      snapshot = await client.get("/api/providers/language-setup", { signal: current.signal });
-      if (!current.active) return;
-      draft = { uiLanguage, contentLanguages: new Set(contentLanguages || snapshot.providers.content_languages), subscriptions: new Set() };
-      by("content").hidden = false; by("steps").hidden = false; by("busy").hidden = true; by("footer").hidden = false;
-      render(); by("content").focus();
-    } catch (error) {
-      if (current.active) { by("error").textContent = error.message; by("footer").hidden = false; by("next").hidden = true; by("back").hidden = true; }
+    async function load() {
+      if (busy) return;
+      busy = true;
+      by("content").hidden = true; by("busy").hidden = false; by("footer").hidden = true;
+      by("error").textContent = "";
+      try {
+        snapshot = await client.get("/api/providers/language-setup", { signal: current.signal, timeoutMs: 10000 });
+        if (!current.active) return;
+        draft = { uiLanguage, contentLanguages: new Set(contentLanguages || snapshot.providers.content_languages), subscriptions: new Set() };
+        by("content").hidden = false; by("steps").hidden = false; by("busy").hidden = true; by("footer").hidden = false;
+        render(); by("content").focus();
+      } catch (error) {
+        if (!current.active) return;
+        snapshot = null; draft = null;
+        by("busy").hidden = true;
+        by("error").textContent = uiLanguage === "en"
+          ? "Royal cannot load your language profile right now. Please try again. Nothing has changed."
+          : "Royal kann dein Sprachprofil gerade nicht laden. Bitte erneut versuchen. Es wurde nichts geändert.";
+        by("footer").hidden = false; by("next").hidden = false; by("back").hidden = true;
+        by("next").textContent = uiLanguage === "en" ? "Try again" : "Erneut versuchen";
+        by("next").focus();
+      } finally { if (current.active) busy = false; }
     }
+    await load();
   }
   return { open, dispose() { busy = false; committed = false; close(); owner?.dispose(); rows?.dispose(); } };
 }

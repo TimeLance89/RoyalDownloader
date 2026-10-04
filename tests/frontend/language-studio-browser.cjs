@@ -14,7 +14,9 @@ const { fixture } = require("./performance-fixture.cjs");
     const snapshot = { ui_language: "de", ui_languages: { de: "Deutsch", en: "English", fr: "Français" }, providers: config,
       subscriptions: [{ base_slug: "ahs", title: "American Horror Story", content_languages: ["de"] }, { base_slug: "dark", title: "Dark", content_languages: ["de"] }], revision: "fixture-review" };
     const writes = [];
-    let committed = false, releaseCatalog;
+    let committed = false, releaseCatalog, holdLoad = false, releaseProfile;
+    const profileGate = new Promise(resolve => { releaseProfile = resolve; });
+    let failLoad = true;
     let failSave = width === 1440, failCatalog = width === 1440, failTranslation = width === 1440;
     const catalogGate = new Promise(resolve => { releaseCatalog = resolve; });
     try {
@@ -28,7 +30,11 @@ const { fixture } = require("./performance-fixture.cjs");
           committed = true;
           await route.fulfill({ json: { ...snapshot, saved: true, ui_language: body.ui_language,
             providers: { ...config, content_languages: body.content_languages, enabled_movies: ["moviebox"], enabled_series: ["serienstream", "huhu", "vidrift"], enabled_anime: ["mkissa"] } } });
-        } else await route.fulfill({ json: snapshot });
+        } else {
+          if (holdLoad) await profileGate;
+          if (failLoad) { failLoad = false; return route.fulfill({ status: 502, json: { detail: "The origin web server returned an invalid or incomplete response to Cloudflare token=secret" } }); }
+          await route.fulfill({ json: snapshot });
+        }
       });
       await page.route("**/api/ui/config", route => {
         assert.equal(route.request().method(), "GET", "Wizard must use the single profile transaction");
@@ -56,6 +62,11 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.equal(await page.locator('#movie-provider-priority [data-provider="moviebox"]').isVisible(), true);
       await page.locator('[data-settings-target="settings-general"]').click();
       await page.locator("#ui-language").selectOption("en");
+      await page.locator('[data-language-setup="error"]').filter({ hasText: "Nothing has changed" }).waitFor();
+      assert.equal(writes.length, 0);
+      assert.equal(await page.locator('[data-language-setup="busy"]').isVisible(), false);
+      assert.doesNotMatch(await page.locator("#language-setup-dialog").innerText(), /Cloudflare|origin web|token=secret/);
+      await page.locator('[data-language-setup="next"]').click();
       await page.locator("#language-setup-interface").waitFor();
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(() => document.querySelector("#language-setup-dialog").contains(document.activeElement)), true);
@@ -109,8 +120,15 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.waitForFunction(() => !document.querySelector("#language-setup-dialog").open, { timeout: 20000 });
       assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
       assert.equal(writes.length, width === 1440 ? 2 : 1);
+      holdLoad = true;
+      const loading = page.waitForRequest(request => request.url().endsWith("/api/providers/language-setup") && request.method() === "GET");
+      await page.locator('[data-language-setup-open]:visible').first().click();
+      await loading;
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#language-setup-dialog").evaluate(element => element.open), false);
+      releaseProfile();
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ width, passed: true, writes: writes.length, errors }));
-    } catch (error) { console.log(JSON.stringify({ writes, errors, dialog: await page.locator("#language-setup-dialog").innerText() })); throw error; } finally { releaseCatalog(); await run.close(); }
+    } catch (error) { console.log(JSON.stringify({ writes, errors, dialog: await page.locator("#language-setup-dialog").innerText() })); throw error; } finally { releaseCatalog(); releaseProfile(); await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

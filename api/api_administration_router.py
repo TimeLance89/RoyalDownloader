@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -976,12 +978,29 @@ def _language_setup_payload():
     }
 
 
+@contextmanager
+def _language_setup_locks():
+    # Background subscription work may hold the watchlist lock. Never wait on
+    # it while holding provider configuration, or on the ASGI event loop.
+    deadline = time.monotonic() + 2
+    with ExitStack() as held:
+        for lock in (state.watchlist_lock, state.provider_priority_lock, state.ui_language_lock):
+            if not lock.acquire(timeout=max(0, deadline - time.monotonic())):
+                raise HTTPException(503, "Das Sprachprofil wird gerade aktualisiert. Bitte erneut versuchen.")
+            held.callback(lock.release)
+        yield
+
+
+@router.get("/api/v1/providers/language-setup")
 @router.get("/api/providers/language-setup")
 async def api_language_setup_get():
-    with state.provider_priority_lock, state.ui_language_lock, state.watchlist_lock:
-        return _language_setup_payload()
+    def read():
+        with _language_setup_locks():
+            return _language_setup_payload()
+    return await run_in_threadpool(read)
 
 
+@router.post("/api/v1/providers/language-setup")
 @router.post("/api/providers/language-setup")
 async def api_language_setup_set(body: LanguageSetupBody):
     from features.language_setup import language_setup_selection, language_setup_subscriptions
@@ -992,7 +1011,7 @@ async def api_language_setup_set(body: LanguageSetupBody):
         raise HTTPException(400, "Die Inhaltssprachen sind ungültig.")
 
     def apply():
-        with state.provider_priority_lock, state.ui_language_lock, state.watchlist_lock:
+        with _language_setup_locks():
             current = _language_setup_payload()
             if current["revision"] != body.revision:
                 raise HTTPException(409, "Die Einstellungen haben sich geändert. Öffne das Sprach-Setup erneut.")
