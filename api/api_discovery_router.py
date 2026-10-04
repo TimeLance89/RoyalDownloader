@@ -1246,9 +1246,10 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                 normalized = _normalize_movie_languages(movie) if movie else []
             else:
                 # Other multilingual providers expose the concrete episode's
-                # Hoster metadata through the normal adapter. This is done only
-                # on explicit selection/season actions, never as a full-season
-                # background crawl.
+                # Hoster metadata through the normal adapter. The frontend
+                # submits published/missing episodes in bounded sequential
+                # batches, so this remains controlled even for long-running
+                # series.
                 movie = load_movie_for_slug(slug)
                 normalized = _normalize_movie_languages(movie) if movie else []
             languages[slug] = normalized
