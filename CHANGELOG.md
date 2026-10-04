@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_No unreleased changes._
+
+## v1.6.0 – 2026-10-04
+
 ### Provider coverage expansion
 
 - Add FlixiTV and KinoKing as film and series providers with exact episode fallback,
@@ -37,6 +41,11 @@
 - Document the English-provider live-smoke matrix and the remaining title/API
   limitations instead of presenting unverified providers as fully healthy.
 - Document why HDFilme.to remains unavailable behind its stream gate.
+
+See [v1.6.0 release notes](docs/releases/v1.6.0.md). Existing accounts,
+profiles, queues, subscriptions, provider settings, media paths and Storage
+Autopilot state remain compatible. Back up at least `.env`, `data/` and
+`runtime/` before upgrading.
 
 ## v1.5.1 – 2026-10-02
 
