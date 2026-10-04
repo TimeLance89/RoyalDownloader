@@ -9,6 +9,9 @@
 - Probe concrete subscription episode languages with bounded requests and cached
   evidence. Keep failed or deferred language checks visible as pending, and publish
   detail-check results back to the subscription inbox without stale failure badges.
+- Verify already queued episodes too; known wrong-language sources keep the job
+  waiting for its requested language instead of escalating general source retries.
+  Revalidate legacy queued jobs promptly once after upgrading.
 - Use a language-neutral waiting label instead of always naming German.
 - Check anime episode tracks during standard source monitoring and schedule the
   first check of untested sources promptly. Show source availability below the

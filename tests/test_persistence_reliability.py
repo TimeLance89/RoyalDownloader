@@ -36,6 +36,10 @@ def isolated_persistence_state(monkeypatch):
         server.state.persistence_generations.clear()
         server.state.persistence_retrying.clear()
     monkeypatch.setattr(server, "broadcast", lambda *_args, **_kwargs: None)
+    server.state.picked.clear()
+    server.state.queue_jobs.clear()
+    server.state.queue_job_by_slug.clear()
+    server.state.queue_history.clear()
     yield
     server.state.watchlist = previous_watchlist
     server.state.movie_subscriptions = previous_movies

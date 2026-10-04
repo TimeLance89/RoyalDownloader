@@ -19,6 +19,13 @@ export function queueWaitCopy(job, nowSeconds = Date.now() / 1000) {
   const status = String(job?.job_status || job?.status || "");
   if (status !== "waiting_provider") return "";
 
+  if (job?.wait_reason === "language_unavailable") {
+    const language = String(job?.content_language || "").toUpperCase();
+    const timing = relativeRetryLabel(job?.next_retry_at, nowSeconds, { noun: "Sprachtest" });
+    return [`Wartet auf passende Sprache${language ? ` (${language})` : ""}`, timing]
+      .filter(Boolean).join(" · ");
+  }
+
   if (job?.wait_reason === "source_unavailable") {
     const longTerm = /langzeitprüfung/i.test(String(job?.error || ""));
     const timing = relativeRetryLabel(job?.next_retry_at, nowSeconds, { longTerm });

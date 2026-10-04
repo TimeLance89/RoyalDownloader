@@ -110,3 +110,24 @@ def test_pending_language_is_visible_but_never_a_download_failure(monkeypatch, s
     assert item["open_count"] == item["failed_count"] == 0
     assert item["status"] == "language_pending"
     assert not automation._watchlist_episode_is_actionable(entry, slug)
+
+
+
+def test_queued_language_wait_is_shown_in_inbox(monkeypatch, subscription):
+    entry, series, state = subscription
+    slug = series.all_episodes[0].slug
+    entry["episode_states"] = {slug: "available"}
+    state.watchlist_new_slugs = {series.base_slug: {slug}}
+    state.queue_claim_lock = threading.RLock()
+    state.picked = {slug}
+    state.automation = {"auto_download": False}
+    state.jellyfin_cfg = {}
+    state.watchlist_global_error = ""
+    monkeypatch.setattr(persistence, "state", state)
+    state.queue_jobs = {"job": {"slug": slug, "wait_reason": "language_unavailable"}}
+    monkeypatch.setattr(persistence, "_persistence_status", lambda _: {"ok": True})
+    item = persistence.watchlist_payload.__wrapped__()["watchlist"][0]
+    assert item["waiting_language_count"] == 1
+    assert item["queued_count"] == 0
+    assert item["failed_count"] == 0
+    assert item["status"] == "waiting_for_language"

@@ -654,6 +654,13 @@ def restore_persisted_queue():
                 if persisted_waiting and parse_episode_slug(slug):
                     next_retry_at = float(logical.get("next_retry_at", 0) or 0)
                     wait_reason = str(logical.get("wait_reason") or "source_unavailable")
+                    # Upgrade legacy DE/EN source retries: validate actual tracks
+                    # promptly once instead of inheriting a hours-long backoff.
+                    if (wait_reason == "source_unavailable"
+                            and logical.get("content_language")
+                            and not logical.get("language_checked_at")):
+                        next_retry_at = time.time()
+                        _update_queue_job(slug, persist=False, next_retry_at=next_retry_at)
                     with state.queue_claim_lock:
                         state.provider_waiting_jobs[slug] = {
                             "movie": movie,

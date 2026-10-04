@@ -1463,3 +1463,10 @@ test("profile actions isolate personal storage and invalidate only on identity c
   assert.equal(actions.personalStorageKey("history"), "history:second");
   assert.equal(actions.personalStorageKey("history", "admin-legacy"), "history");
 });
+
+
+test("queue wait copy distinguishes missing requested audio from provider outages", () => {
+  assert.equal(queueWaitCopy({ status: "waiting_provider", wait_reason: "language_unavailable",
+    content_language: "de", next_retry_at: 1900 }, 1000),
+    "Wartet auf passende Sprache (DE) · Nächster Sprachtest in ~15 Min.");
+});

@@ -132,7 +132,6 @@ export function createSeriesEpisodes(root, {
   }
 
   function tileClass(ep) {
-    if (isEpisodeQueued(ep)) return "queued";
     if (ep.downloaded) return "downloaded";
     if (ep.unreleased) return "scheduled";
     if (providerNeedsExactEpisodeLanguage(seriesState.current)
@@ -142,6 +141,7 @@ export function createSeriesEpisodes(root, {
       return "language-pending";
     }
     if (!episodeHasEnabledStreamLanguage(ep)) return "wrong-language";
+    if (isEpisodeQueued(ep)) return "queued";
     if (seriesState.epPicked.has(ep.slug) && isEpisodeSelectable(ep)) return "selected";
     return "available";
   }
@@ -189,11 +189,11 @@ export function createSeriesEpisodes(root, {
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languageLock = episodeLanguageLockLabel(episode, series);
     if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
-        && isEpisodeEligible(episode)) {
+        && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = "Stream-Sprache wird vor der Auswahl geprüft";
     }
     else if (!episodeHasEnabledStreamLanguage(episode, series)
-        && isEpisodeEligible(episode)) {
+        && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = languageLock === "NUR EN"
         ? "Nur auf Englisch verfügbar · Download mit deutscher Sprachwahl gesperrt"
         : "Keine Episode in den aktivierten Stream-Sprachen verfügbar";

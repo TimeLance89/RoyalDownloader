@@ -893,3 +893,24 @@ test('inbox preselection waits for language truth even when showing details adva
   await reopen;
   assert.deepEqual([...f.seriesState.epPicked], [f.episode.slug]);
 });
+
+
+test('already queued EN-only episodes still receive exact language evidence', async () => {
+  const fixture = await languageRaceFixture();
+  fixture.episode.queued = true;
+  const pending = fixture.checks.verifyLanguages([fixture.episode], fixture.series);
+  assert.equal(fixture.requests.length, 1);
+  fixture.respond(fixture.requests[0], false);
+  await pending;
+  assert.equal(fixture.episode.language_checked, true);
+  assert.deepEqual(fixture.episode.content_languages, ['en']);
+  assert.equal(fixture.episode.language_available, false);
+  assert.equal(fixture.episode.queued, true);
+  const { createSeriesEpisodes } = await import("../web/js/features/media-details/series-episodes.js");
+  const model = createSeriesEpisodes({ ownerDocument: {} }, { seriesState: fixture.seriesState,
+    getQueuedSlugs: () => new Set([fixture.episode.slug]), getEnabledLanguages: () => ["de"] });
+  assert.equal(model.tileClass(fixture.episode), "wrong-language");
+  assert.equal(model.episodeLanguageLockLabel(fixture.episode), "NUR EN");
+  assert.equal(model.isEpisodeSelectable(fixture.episode), false);
+  fixture.checks.unmount();
+});

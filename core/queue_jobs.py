@@ -80,6 +80,7 @@ def new_job(
         "source_retry_count": 0,
         "next_retry_at": 0.0,
         "wait_reason": "",
+        "language_checked_at": 0.0,
         "final_path": "",
         "requested_by_user_id": "",
         "request_source": "",
@@ -120,7 +121,7 @@ def normalize_job(
     elif active and recover_active and status == "cancelling":
         status = "cancelled"
     job["status"] = status
-    for key in ("created_at", "started_at", "completed_at", "cancel_requested_at", "progress", "speed_bps", "next_retry_at"):
+    for key in ("created_at", "started_at", "completed_at", "cancel_requested_at", "progress", "speed_bps", "next_retry_at", "language_checked_at"):
         try:
             job[key] = float(job.get(key) or 0)
         except (TypeError, ValueError):
