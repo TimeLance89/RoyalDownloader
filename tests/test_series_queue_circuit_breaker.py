@@ -934,3 +934,91 @@ def test_flixitv_hubu_direct_source_uses_hubu_referer(monkeypatch):
     result = server._extract_from_movie(movie, set())
     assert result.stream_info == (movie.hosters[0].url, "web")
     assert result.referer == "https://hubu.cloud/"
+
+
+@pytest.mark.parametrize("fallback_language,expected_reason", [("en", "language_unavailable"), ("de", "source_unavailable")])
+def test_existing_de_job_distinguishes_wrong_audio_from_broken_matching_source(monkeypatch, tmp_path, fallback_language, expected_reason):
+    slug = "serienstream:american-horror-story-s13e03"
+    primary = episode_movie("serienstream", slug)
+    primary.hosters = [HosterInfo("VOE", "https://example.test/en", "en")]
+    fallback = episode_movie("huhu", "huhu:ahs-s13e03")
+    fallback.hosters = [HosterInfo("VOE", "https://example.test/fallback", fallback_language)]
+    job = new_job(slug, job_id="legacy-de")
+    job["content_language"] = "de"
+    job["source_retry_count"] = 8
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "huhu"])
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "find_episode_fallbacks", lambda *_args, **_kwargs: [fallback])
+    monkeypatch.setattr(server, "_extract_from_movie", lambda *_args, **_kwargs: SimpleNamespace(stream_info=None, gated=False))
+    monkeypatch.setattr(server.time, "time", lambda: 1000.0)
+    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
+    logical = server.state.queue_jobs["legacy-de"]
+    assert logical["wait_reason"] == expected_reason
+    assert logical["content_language"] == "de"
+    assert logical["language_checked_at"] == 1000.0
+    assert server.state.done_jobs == 0
+    if expected_reason == "language_unavailable":
+        assert logical["next_retry_at"] == 1900.0
+        assert logical["source_retry_count"] == 8
+        assert "DE" in logical["error"]
+        primary.content_language = "en"
+        server.state.fp_movies[slug] = primary
+        item = server.build_queue_payload()["groups"][0]["items"][0]
+        assert item["content_language"] == "de"
+        assert item["hoster_label"] == "Keine passende Sprachspur"
+
+
+def test_german_fallback_remains_downloadable_for_english_only_primary(monkeypatch, tmp_path):
+    slug = "serienstream:american-horror-story-s13e06"
+    primary = episode_movie("serienstream", slug)
+    primary.hosters = [HosterInfo("VOE", "https://example.test/en", "en")]
+    fallback = episode_movie("huhu", "huhu:ahs-s13e06")
+    fallback.hosters = [HosterInfo("VOE", "https://example.test/de", "de")]
+    job = new_job(slug, job_id="fallback-de")
+    job["content_language"] = "de"
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "huhu"])
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "find_episode_fallbacks", lambda *_args, **_kwargs: [fallback])
+    monkeypatch.setattr(server, "_extract_from_movie", lambda movie, *_args, **_kwargs: SimpleNamespace(
+        stream_info=("https://example.test/de.m3u8", "hls") if movie is fallback else None, gated=False))
+    enqueued = []
+    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: enqueued.append(kwargs["movie"]) or True)
+    assert server.run_download_queue([(primary, slug)], tmp_path, start_queue=False) == {slug}
+    assert enqueued == [fallback]
+    assert fallback._required_content_language == "de"
+    assert slug not in server.state.provider_waiting_jobs
+
+
+
+def test_language_retry_reloads_tracks_and_accepts_new_german_audio(monkeypatch, tmp_path):
+    slug = "serienstream:american-horror-story-s13e03"
+    old = episode_movie("serienstream", slug)
+    old.hosters = [HosterInfo("VOE", "https://example.test/en", "en")]
+    refreshed = episode_movie("serienstream", slug)
+    refreshed.hosters = [HosterInfo("VOE", "https://example.test/de", "de")]
+    job = new_job(slug, job_id="language-retry")
+    job.update(content_language="de", wait_reason="language_unavailable", language_checked_at=1)
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.picked.add(slug)
+    server.state.counted_queue_slugs.add(slug)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    loads = []
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda value: loads.append(value) or refreshed)
+    monkeypatch.setattr(server, "_extract_from_movie", lambda movie, *_args, **_kwargs: SimpleNamespace(
+        stream_info=("https://example.test/de.m3u8", "hls") if movie is refreshed else None, gated=False))
+    enqueued = []
+    monkeypatch.setattr(server, "_enqueue_hoster_attempt", lambda **kwargs: enqueued.append(kwargs["movie"]) or True)
+    assert server.run_download_queue([(old, slug)], tmp_path, start_queue=False) == {slug}
+    assert loads == [slug]
+    assert enqueued == [refreshed]
+    assert refreshed._required_content_language == "de"

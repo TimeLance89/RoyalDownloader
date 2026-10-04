@@ -286,7 +286,14 @@ def run_download_queue(
             # jedem Versuch die gewählte Quelle erneut laden; danach folgen die
             # Katalog-Fallbacks und bei Serienstream gegebenenfalls Cooldowns.
             primary_unavailable = False
-            if not movie.hosters:
+            language_job = _queue_job_for_slug(movie_slug) or {}
+            refresh_language_tracks = (
+                language_job.get("wait_reason") == "language_unavailable"
+                or (language_job.get("wait_reason") == "source_unavailable"
+                    and language_job.get("content_language")
+                    and not language_job.get("language_checked_at"))
+            )
+            if not movie.hosters or refresh_language_tracks:
                 refreshed_movie = None
                 is_sto = provider_for_value(movie_slug) == "serienstream"
                 if is_sto and not state.provider_health.request_allowed("serienstream"):
@@ -481,6 +488,9 @@ def run_download_queue(
                     source_index = next_index - 1
                     break
 
+        if required_language:
+            _update_queue_job(movie_slug, persist=False, language_checked_at=time.time())
+
         if not result.stream_info:
             if gate_seen[0]:
                 # s.to-Gate aktiv UND kein Fallback nutzbar – bis zur nächsten
@@ -496,7 +506,14 @@ def run_download_queue(
                     movie_slug,
                     out_root,
                     movie_fallbacks,
-                    reason="source_unavailable",
+                    reason=(
+                        "language_unavailable"
+                        if required_language and all(
+                            _source_languages(source)
+                            and required_language not in _source_languages(source)
+                            for source in source_movies
+                        ) else "source_unavailable"
+                    ),
                 ):
                     queued_slugs.add(movie_slug)
                     log("  Keine nutzbare Quelle – automatische Wiederholung vorgemerkt", "warn")

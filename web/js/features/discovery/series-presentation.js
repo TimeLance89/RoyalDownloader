@@ -476,7 +476,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
         .sort((left, right) => Number(right.season || 0) - Number(left.season || 0))
         .flatMap((season) => [...(season.episodes || [])]
           .sort((left, right) => Number(left.episode || 0) - Number(right.episode || 0)))
-        .filter((episode) => isEpisodeEligible(episode) && !episode.unreleased);
+        .filter((episode) => !episode.downloaded && !episode.in_jellyfin && !episode.unreleased);
       if (publishedMissingEpisodes.length) {
         void verifyHuhuEpisodeLanguages(
           publishedMissingEpisodes, series,

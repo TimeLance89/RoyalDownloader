@@ -29,7 +29,6 @@ export function createSeriesChecks(status, {
         !episode.unreleased
         && !episode.downloaded
         && !episode.in_jellyfin
-        && !episode.queued
         && episode.language_checked !== true
         && episode.huhu_language_checked !== true
       ));
@@ -145,7 +144,7 @@ export function createSeriesChecks(status, {
     const baseSlug = series.base_slug;
     const keyFor = episode => `${generation}:${series.provider}:${episode.slug}`;
     const requested = episodes.filter(episode => (
-      !episode.downloaded && !episode.in_jellyfin && !episode.unreleased && !episode.queued
+      !episode.downloaded && !episode.in_jellyfin && !episode.unreleased
       && episode.language_checked !== true && episode.huhu_language_checked !== true
     ));
     const waiting = new Set(requested.map(episode => languagePendingSlugs.get(keyFor(episode))).filter(Boolean));

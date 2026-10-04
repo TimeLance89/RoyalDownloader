@@ -721,7 +721,11 @@ def build_queue_payload() -> dict:
             movie = state.fp_movies.get(slug)
             logical_job = _queue_job_for_slug(slug) or {}
             title = queue_display_title(slug, movie, logical_job)
-            label = state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
+            label = (
+                "Keine passende Sprachspur"
+                if logical_job.get("wait_reason") == "language_unavailable"
+                else state.hoster_intel.best_label(movie.hosters) if movie and movie.hosters else "—"
+            )
             provider = _movie_provider(movie, slug)
             waiting_provider = slug in state.provider_waiting_jobs
             preparing_source = (
@@ -756,7 +760,7 @@ def build_queue_payload() -> dict:
                 **deepcopy(logical_job),
                 "slug": slug, "title": title, "hoster_label": label,
                 "provider": provider,
-                "content_language": _movie_content_language(movie, fallback=slug),
+                "content_language": logical_job.get("content_language") or _movie_content_language(movie, fallback=slug),
                 "done": slug in state.done_slugs,
                 "job_status": derived_status,
                 "status": (
@@ -796,15 +800,22 @@ def build_queue_payload() -> dict:
 def watchlist_payload() -> dict:
     items = []
     with state.queue_claim_lock, state.watchlist_lock:
+        language_wait_jobs = {
+            job.get("slug") for job in getattr(state, "queue_jobs", {}).values()
+            if job.get("wait_reason") == "language_unavailable"
+        }
         for w in state.watchlist:
             pending = set(state.watchlist_new_slugs.get(w["base_slug"], set()))
             queued = pending & state.picked
+            queued_language_wait = queued & language_wait_jobs
+            queued -= queued_language_wait
             # A new attempt supersedes older release/failure markers, including
             # manual retries which deliberately retain their failure history.
             waiting_release = (set(w.get("waiting_release_slugs") or []) & pending) - queued
             episode_states = w.get("episode_states") if isinstance(w.get("episode_states"), dict) else {}
             waiting_language = (
                 set(w.get("waiting_language_slugs") or [])
+                | queued_language_wait
                 | {slug for slug, status in episode_states.items() if status == "waiting_for_language"}
             ) - queued
             upcoming = (
