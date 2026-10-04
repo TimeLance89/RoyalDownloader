@@ -840,7 +840,7 @@ class HuhuEpisodeLanguagesBody(BaseModel):
 
 
 class SeriesEpisodeLanguagesBody(BaseModel):
-    provider: str = Field(pattern=r"^(huhu|serienstream)$")
+    provider: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
     slugs: list[str] = Field(min_length=1, max_length=30)
 
 
@@ -1202,33 +1202,55 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     if provider not in provider_priority("series"):
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
-    prefix = f"{provider}:"
-    if any(not slug.startswith(prefix) or parse_episode_slug(slug) is None for slug in slugs):
+    if any(
+        provider_for_value(slug) != provider or parse_episode_slug(slug) is None
+        for slug in slugs
+    ):
         raise HTTPException(400, "Episoden passen nicht zur gewählten Quelle.")
+
+    def _normalize_movie_languages(movie) -> list[str]:
+        return sorted({
+            normalize_content_language(
+                getattr(hoster, "audio_language", "")
+                or getattr(hoster, "language", "")
+            )
+            for hoster in (getattr(movie, "hosters", None) or [])
+            if normalize_content_language(
+                getattr(hoster, "audio_language", "")
+                or getattr(hoster, "language", "")
+            )
+        })
 
     def _work():
         languages = {}
         available = {}
-        enabled = {normalize_content_language(value) for value in state.content_languages}
-        if provider == "huhu":
-            scraper = get_huhu_scraper()
-            for slug in slugs:
-                with state.huhu_lock:
-                    source_languages = tuple(scraper.get_episode_languages(slug))
-                normalized = sorted({normalize_content_language(value) for value in source_languages if normalize_content_language(value)})
-                languages[slug] = normalized
-                available[slug] = bool(set(normalized) & enabled)
-            return {"available": available, "languages": languages}
-
-        scraper = get_sto_scraper()
+        enabled = {
+            normalize_content_language(value)
+            for value in state.content_languages
+            if normalize_content_language(value)
+        }
         for slug in slugs:
-            with state.sto_lock:
-                movie = scraper.get_movie(slug)
-            normalized = sorted({
-                normalize_content_language(getattr(hoster, "language", ""))
-                for hoster in (getattr(movie, "hosters", None) or [])
-                if normalize_content_language(getattr(hoster, "language", ""))
-            })
+            if provider == "huhu":
+                with state.huhu_lock:
+                    source_languages = tuple(
+                        get_huhu_scraper().get_episode_languages(slug)
+                    )
+                normalized = sorted({
+                    normalize_content_language(value)
+                    for value in source_languages
+                    if normalize_content_language(value)
+                })
+            elif provider == "serienstream":
+                with state.sto_lock:
+                    movie = get_sto_scraper().get_movie(slug)
+                normalized = _normalize_movie_languages(movie) if movie else []
+            else:
+                # Other multilingual providers expose the concrete episode's
+                # Hoster metadata through the normal adapter. This is done only
+                # on explicit selection/season actions, never as a full-season
+                # background crawl.
+                movie = load_movie_for_slug(slug)
+                normalized = _normalize_movie_languages(movie) if movie else []
             languages[slug] = normalized
             available[slug] = bool(set(normalized) & enabled)
         return {"available": available, "languages": languages}
@@ -1238,6 +1260,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     except Exception as exc:
         log(f"Episodensprachen für {provider} konnten nicht geprüft werden: {exc}", "warn")
         raise HTTPException(502, "Sprachprüfung ist gerade nicht verfügbar.") from exc
+
 
 @router.post("/api/v1/series/huhu-episode-languages")
 @router.post("/api/series/huhu-episode-languages")
