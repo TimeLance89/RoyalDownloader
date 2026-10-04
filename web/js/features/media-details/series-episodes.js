@@ -24,10 +24,15 @@ export function createSeriesEpisodes(root, {
     return Boolean(episode?.queued || getQueuedSlugs().has(episode?.slug));
   }
 
+  function providerNeedsExactEpisodeLanguage(series = seriesState.current) {
+    return ["huhu", "serienstream"].includes(series?.provider);
+  }
+
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
-    if (series?.provider === "huhu") {
-      return episode?.huhu_language_checked === true
-        && episode?.huhu_language_available === true;
+    if (episode?.downloaded || episode?.in_jellyfin) return true;
+    if (providerNeedsExactEpisodeLanguage(series)) {
+      if (episode?.language_checked !== true) return true;
+      return episode?.language_available === true;
     }
     const offered = episode?.content_languages || [];
     if (!offered.length) return true;
@@ -38,11 +43,13 @@ export function createSeriesEpisodes(root, {
   }
 
   function episodeLanguageLockLabel(episode, series = seriesState.current) {
+    // Remote source language must never relabel media that is already local.
+    if (episode?.downloaded || episode?.in_jellyfin) return "";
     if (episodeHasEnabledStreamLanguage(episode, series)) return "";
     const offered = episode?.content_languages || [];
     if (offered.length === 1) return `NUR ${String(offered[0]).toUpperCase()}`;
-    if (series?.provider === "huhu" && episode?.huhu_language_checked) {
-      return "KEIN DE-STREAM";
+    if (providerNeedsExactEpisodeLanguage(series) && episode?.language_checked) {
+      return "KEINE PASSENDE SPRACHE";
     }
     return offered.length ? "SPRACHE GESPERRT" : "";
   }
@@ -64,14 +71,14 @@ export function createSeriesEpisodes(root, {
       && !episode.in_jellyfin
       && !episode.unreleased
       && !isEpisodeQueued(episode)
-      && episodeHasEnabledStreamLanguage(episode)
+      && episodeHasEnabledStreamLanguage(episode, seriesState.current)
     );
   }
 
   function isEpisodeActionable(episode, series = seriesState.current) {
     return isEpisodeEligible(episode) && (
       isEpisodeSelectable(episode)
-      || (series?.provider === "huhu" && !episode.huhu_language_checked)
+      || (providerNeedsExactEpisodeLanguage(series) && !episode.language_checked)
     );
   }
 
@@ -112,7 +119,10 @@ export function createSeriesEpisodes(root, {
     if (isEpisodeQueued(ep)) return "queued";
     if (ep.downloaded) return "downloaded";
     if (ep.unreleased) return "scheduled";
-    if (seriesState.current?.provider === "huhu" && !ep.huhu_language_checked) {
+    if (providerNeedsExactEpisodeLanguage(seriesState.current)
+        && !ep.language_checked
+        && !ep.downloaded
+        && !ep.in_jellyfin) {
       return "language-pending";
     }
     if (!episodeHasEnabledStreamLanguage(ep)) return "wrong-language";
@@ -162,9 +172,9 @@ export function createSeriesEpisodes(root, {
     tile.disabled = !isEpisodeActionable(episode, series);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languageLock = episodeLanguageLockLabel(episode, series);
-    if (series.provider === "huhu" && !episode.huhu_language_checked
+    if (providerNeedsExactEpisodeLanguage(series) && !episode.language_checked
         && isEpisodeEligible(episode)) {
-      tile.title = "Deutsche Quelle vor der Auswahl prüfen";
+      tile.title = "Stream-Sprache wird vor der Auswahl geprüft";
     }
     else if (!episodeHasEnabledStreamLanguage(episode, series)
         && isEpisodeEligible(episode)) {
@@ -288,7 +298,7 @@ export function createSeriesEpisodes(root, {
   async function toggleEpisodeTile(slug) {
     const episode = findCurrentEpisode(slug);
     const series = seriesState.current;
-    if (isEpisodeEligible(episode) && series?.provider === "huhu") {
+    if (isEpisodeEligible(episode) && providerNeedsExactEpisodeLanguage(series)) {
       try {
         await verifyHuhuEpisodeLanguages([episode], series);
       } catch (error) {
@@ -316,7 +326,7 @@ export function createSeriesEpisodes(root, {
     const eligible = seasonObj.episodes.filter(isEpisodeEligible);
     if (!eligible.length) return;
     const generation = seriesState.viewGeneration;
-    if (series.provider === "huhu") {
+    if (providerNeedsExactEpisodeLanguage(series)) {
       try {
         await verifyHuhuEpisodeLanguages(eligible, series);
       } catch (error) {
@@ -340,7 +350,7 @@ export function createSeriesEpisodes(root, {
   async function selectAllSeriesEpisodes() {
     const series = seriesState.current;
     if (!series) return;
-    if (series.provider === "huhu") {
+    if (providerNeedsExactEpisodeLanguage(series)) {
       try {
         await verifyHuhuEpisodeLanguages(seriesEpisodes(series).filter(isEpisodeEligible), series);
       } catch (error) {
