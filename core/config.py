@@ -1073,6 +1073,7 @@ def save_initial_setup(
     auth_username: str = "",
     auth_password_hash: str = "",
     deployment_mode: str = MODE_DESKTOP,
+    subscription_languages: dict | None = None,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -1108,6 +1109,7 @@ def save_initial_setup(
         }
     return _update_all({
         **account,
+        **({"subscription_content_languages": json.dumps(subscription_languages, ensure_ascii=False)} if subscription_languages is not None else {}),
         "deployment_mode": normalize_deployment_mode(deployment_mode),
         "save_path": save_path.strip(),
         "series_path": series_path.strip(),

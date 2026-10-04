@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Unified first-run onboarding
+
+- Bring first-run setup into the language studio design with seven clear steps,
+  independent interface/content choices and expandable source customization.
+- Ask about future language changes only when existing subscriptions are present;
+  persist their retained or updated preferences in the initial atomic write.
+- Replace the browser bootstrap prompt with an inline security-code field and
+  show the same 12-character password minimum used by validation.
+- Review and edit the full profile before saving. Keep preparation visible until
+  the session, settings, catalogs and interface are ready, with retries that do
+  not create the administrator account or save the profile again.
+- Make initial setup loading failures recoverable, preserve keyboard focus within
+  the wizard and respect reduced-motion preferences.
+
 ### Guided language profiles and source catalog
 
 - Redesign the source catalog with clear first-choice and fallback roles,
