@@ -9,6 +9,9 @@ export function createIntelligenceSettings(root, { client = api, onConfig = () =
   let initialization = null;
   let initializeScope;
   let initialized = false;
+  let dirty = false, revision = 0;
+  const fields = ["ai-enabled", "ai-url", "ai-model", "ai-timeout"];
+  const edits = new Map();
   function aiFormConfig() {
     return {
       enabled: Boolean(byId("ai-enabled")?.checked),
@@ -44,7 +47,7 @@ export function createIntelligenceSettings(root, { client = api, onConfig = () =
     }
   }
 
-  function applyAiConfig(value = {}) {
+  function applyAiConfig(value = {}, preserveForm = dirty) {
     initialized = true;
     config.enabled = Boolean(value.enabled);
     config.configured = Boolean(value.configured);
@@ -54,10 +57,10 @@ export function createIntelligenceSettings(root, { client = api, onConfig = () =
     const url = byId("ai-url");
     const model = byId("ai-model");
     const timeout = byId("ai-timeout");
-    if (enabled) enabled.checked = config.enabled;
-    if (url) url.value = value.url || "http://127.0.0.1:11434";
-    if (model) model.value = value.model || "llama3.2:3b";
-    if (timeout) timeout.value = String(value.timeout_seconds || 180);
+    if (enabled && (!preserveForm || !edits.has("ai-enabled"))) enabled.checked = config.enabled;
+    if (url && (!preserveForm || !edits.has("ai-url"))) url.value = value.url || "http://127.0.0.1:11434";
+    if (model && (!preserveForm || !edits.has("ai-model"))) model.value = value.model || "llama3.2:3b";
+    if (timeout && (!preserveForm || !edits.has("ai-timeout"))) timeout.value = String(value.timeout_seconds || 180);
     syncAiSettingsState();
     onConfig();
   }
@@ -100,8 +103,17 @@ export function createIntelligenceSettings(root, { client = api, onConfig = () =
   async function saveAiSettings() {
     const current = scope;
     if (!current?.active) return;
+    if (initialization) await initialization;
+    if (!current.active) return;
+    if (!dirty) return { ...config };
+    if (!initialized) throw new Error("KI-Konfiguration muss vor dem Speichern geladen werden.");
+    const atRevision = revision;
     const value = await client.post("/api/intelligence/config", aiFormConfig(), { signal: current.signal });
-    if (current.active) applyAiConfig(value);
+    if (current.active) {
+      for (const [id, version] of edits) if (version <= atRevision) edits.delete(id);
+      dirty = edits.size > 0;
+      applyAiConfig(value);
+    }
     return value;
   }
 
@@ -125,6 +137,13 @@ export function createIntelligenceSettings(root, { client = api, onConfig = () =
     mount() {
       if (scope) return;
       scope = createScope();
+      const changed = event => {
+        dirty = true; revision++;
+        const changedFields = fields.includes(event.target.id) ? [event.target.id] : fields;
+        changedFields.forEach(id => edits.set(id, revision));
+      };
+      scope.listen(root, "input", changed);
+      scope.listen(root, "change", changed);
       scope.listen(byId("ai-test"), "click", testAiConnection);
       scope.listen(byId("ai-enabled"), "change", syncAiSettingsState);
       syncAiSettingsState();

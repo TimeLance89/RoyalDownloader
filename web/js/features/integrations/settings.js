@@ -107,6 +107,7 @@ export function createIntegrationSettings(root, { client = api } = {}) {
     const current = scope;
     if (pending) await pending;
     if (!current.active) return;
+    if (!dirty.has(kind)) return server.get(kind);
     if (!server.has(kind)) throw new Error("Konfiguration muss vor dem Speichern erfolgreich geladen werden.");
     const revision = revisions.get(kind);
     const value = await client.post(`/api/${kind}/config`, payload(kind), { signal: current.signal });

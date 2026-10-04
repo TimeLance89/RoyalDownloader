@@ -37,6 +37,8 @@ import { createTrailers } from "../../web/js/features/trailers/index.js";
 import { createCatalogJellyfin } from "../../web/js/features/integrations/catalog-jellyfin.js";
 import { createInfiniteScroll } from "../../web/js/shared/components/infinite-scroll.js";
 import { createSettings } from "../../web/js/features/settings/index.js";
+import { createIntelligenceSettings } from "../../web/js/features/settings/intelligence.js";
+import { createIntegrationSettings } from "../../web/js/features/integrations/settings.js";
 import { integrationHealth } from "../../web/js/features/integrations/health.js";
 import { createUpdater } from "../../web/js/features/settings/updater.js";
 import { createSearch } from "../../web/js/features/search/index.js";
@@ -968,6 +970,39 @@ function updaterFixture(client, reload = () => {}) {
   return { view: createUpdater(root, { client, socket, reload }), root, socket, nodes };
 }
 
+test("updater presents temporary failures as retryable and recovers on the next check", async () => {
+  let fail = true;
+  const { view, root, nodes } = updaterFixture({ get: async () => {
+    if (fail) throw Object.assign(new Error("raw network error"), { code: "request_timeout" });
+    return { comparison: "identical", current_sha: "a", latest_sha: "a" };
+  } });
+  try {
+    view.mount();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(root.dataset.state, "unknown");
+    assert.equal(nodes.get("#updater-check").disabled, false);
+    assert.equal(nodes.get("#updater-status").textContent, "Bitte erneut prüfen");
+    assert.ok(!nodes.get("#updater-detail").textContent.includes("raw"));
+    fail = false;
+    await view.refresh(true);
+    assert.equal(root.dataset.state, "current");
+    assert.equal(nodes.get("#updater-check").disabled, false);
+  } finally { view.unmount(); }
+});
+
+test("updater server busy and deadline statuses leave the retry button available", async () => {
+  for (const error_code of ["check_busy", "check_timeout", "github_unavailable"]) {
+    const { view, root, nodes } = updaterFixture({ get: async () => ({ error_code, error: "Bitte erneut prüfen." }) });
+    try {
+      view.mount();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(root.dataset.state, "unknown");
+      assert.equal(nodes.get("#updater-check").disabled, false);
+      assert.equal(nodes.get("#updater-install").dataset.sha, "");
+    } finally { view.unmount(); }
+  }
+});
+
 test("updater reloads only for the exact target and removes restart timers on leave", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let installed = "old", checks = 0, reloads = 0;
@@ -1022,6 +1057,163 @@ test("integration health trusts only the server contract and never Jellyfin medi
   }
   assert.equal(integrationHealth({ jellyfin_status: "owned", health: "healthy" }).state, "unknown");
   assert.equal(integrationHealth({ integration_health: { state: "new", detail: "401 offline" } }).state, "unknown");
+});
+
+function settingsFormFixture() {
+  const nodes = new Map();
+  const root = Object.assign(new EventTarget(), {
+    ownerDocument: new EventTarget(), querySelectorAll: () => [],
+    querySelector(id) {
+      if (!nodes.has(id)) nodes.set(id, Object.assign(new EventTarget(), {
+        value: "", checked: false, disabled: false, textContent: "", dataset: {},
+      }));
+      return nodes.get(id);
+    },
+  });
+  return { root, nodes };
+}
+
+test("untouched integrations do not block saving when Seerr is offline", async () => {
+  const { root, nodes } = settingsFormFixture();
+  const posts = [];
+  const view = createIntegrationSettings(root, { client: {
+    get: async url => {
+      if (url === "/api/seerr/config") throw new Error("offline");
+      return url === "/api/modules" ? { modules: [] } : { enabled: false };
+    },
+    post: async (url, body) => { posts.push({ url, body }); return body; },
+  } });
+  try {
+    view.mount(); await view.refresh();
+    for (const kind of ["tmdb", "seerr", "telegram"]) await view.save(kind);
+    assert.equal(posts.length, 0);
+    nodes.get(".seerr-settings").dispatchEvent(new Event("change"));
+    await assert.rejects(view.save("seerr"), /erfolgreich geladen/);
+    nodes.get("#telegram-enabled").checked = true;
+    nodes.get("#telegram-token").value = "fixture";
+    nodes.get(".telegram-settings").dispatchEvent(new Event("input"));
+    await view.save("telegram");
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].body.bot_token, "fixture");
+    await view.save("telegram");
+    assert.equal(posts.length, 1);
+  } finally { view.unmount(); }
+});
+
+test("AI preserves edits during initial loading and saving and persists the next draft", async () => {
+  const { root, nodes } = settingsFormFixture();
+  let load, save;
+  const writes = [];
+  const view = createIntelligenceSettings(root, { client: {
+    get: () => new Promise(resolve => { load = resolve; }),
+    post: (_url, body) => { writes.push(body); return new Promise(resolve => { save = resolve; }); },
+  } });
+  try {
+    view.mount();
+    nodes.get("#ai-url").value = "http://draft:11434";
+    nodes.get("#ai-model").value = "draft-model";
+    root.dispatchEvent(new Event("input"));
+    const saving = view.save();
+    assert.equal(writes.length, 0);
+    load({ enabled: false, url: "http://server:11434", model: "server-model" });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes.get("#ai-model").value, "draft-model");
+    assert.equal(writes[0].url, "http://draft:11434");
+    nodes.get("#ai-model").value = "newer-model";
+    root.dispatchEvent(new Event("input"));
+    save(writes[0]); await saving;
+    assert.equal(nodes.get("#ai-model").value, "newer-model");
+    const next = view.save();
+    assert.equal(writes[1].model, "newer-model");
+    save(writes[1]); await next;
+    await view.save();
+    assert.equal(writes.length, 2);
+  } finally { view.unmount(); }
+});
+
+test("AI refuses edited settings when its initial config could not be loaded", async () => {
+  const { root } = settingsFormFixture();
+  let posts = 0;
+  const view = createIntelligenceSettings(root, { client: {
+    get: async () => { throw new Error("offline"); },
+    post: async () => { posts++; },
+  } });
+  try {
+    view.mount(); await new Promise(resolve => setImmediate(resolve));
+    await view.save();
+    root.dispatchEvent(new Event("input"));
+    await assert.rejects(view.save(), /vor dem Speichern geladen/);
+    assert.equal(posts, 0);
+  } finally { view.unmount(); }
+});
+
+test("early AI edits preserve untouched server fields rather than saving defaults", async () => {
+  const { root, nodes } = settingsFormFixture();
+  let load, body;
+  const view = createIntelligenceSettings(root, { client: {
+    get: () => new Promise(resolve => { load = resolve; }),
+    post: async (_url, value) => { body = value; return value; },
+  } });
+  try {
+    view.mount();
+    nodes.get("#ai-enabled").checked = true;
+    const change = new Event("change");
+    Object.defineProperty(change, "target", { value: { id: "ai-enabled" } });
+    root.dispatchEvent(change);
+    load({ enabled: false, url: "http://custom:11434", model: "custom-model", timeout_seconds: 90 });
+    await new Promise(resolve => setImmediate(resolve));
+    await view.save();
+    assert.equal(body.enabled, true);
+    assert.equal(body.url, "http://custom:11434");
+    assert.equal(body.model, "custom-model");
+    assert.equal(body.timeout_seconds, 90);
+  } finally { view.unmount(); }
+});
+
+test("settings wait for bootstrap and report partial saves with their failing section", async () => {
+  const { root, nodes } = settingsFormFixture();
+  let load, writes = 0, refreshes = 0;
+  const feature = { initialize: async () => {}, save: async () => {} };
+  const features = Object.fromEntries(["jellyfin", "intelligence", "automation", "providers", "updater", "integrations"].map(key => [key, feature]));
+  features.jellyfin = { ...feature, save: async () => { throw new Error("offline"); } };
+  const view = createSettings(root, {
+    getFeatures: () => features, language: () => "de", locale: () => "de-DE",
+    languageWizard: { dispose() {} }, onSaved: async () => { refreshes++; },
+    client: { get: () => new Promise(resolve => { load = resolve; }), post: async () => { writes++; return {}; } },
+  });
+  try {
+    const initializing = view.initialize(); view.mount();
+    const saving = view.save();
+    assert.equal(writes, 0);
+    load({ save_path: "/movies", series_path: "/series" });
+    await initializing; await saving;
+    assert.equal(writes, 1);
+    assert.equal(refreshes, 1);
+    assert.match(nodes.get("#settings-saved-status").textContent, /Teilweise gespeichert.*Betrieb und Speicher.*Quellen.*Fehler bei Jellyfin: offline/);
+    assert.equal(nodes.get("#settings-save").disabled, false);
+  } finally { view.dispose(); }
+});
+
+test("updater save acknowledgements preserve edits made while the request is pending", async () => {
+  let respond;
+  const writes = [];
+  const { view, root, nodes } = updaterFixture({
+    get: async () => ({ comparison: "identical", config: { update_mode: "manual", update_channel: "stable" } }),
+    post: (_url, body) => { writes.push(body); return new Promise(resolve => { respond = resolve; }); },
+  });
+  try {
+    view.mount(); await new Promise(resolve => setImmediate(resolve));
+    nodes.get("#updater-mode").value = "automatic";
+    root.dispatchEvent(new Event("input"));
+    const saving = view.save();
+    nodes.get("#updater-mode").value = "manual";
+    root.dispatchEvent(new Event("change"));
+    respond({ update_mode: "automatic", update_channel: "stable" }); await saving;
+    assert.equal(nodes.get("#updater-mode").value, "manual");
+    const next = view.save();
+    assert.equal(writes[1].update_mode, "manual");
+    respond({ update_mode: "manual", update_channel: "stable" }); await next;
+  } finally { view.unmount(); }
 });
 
 

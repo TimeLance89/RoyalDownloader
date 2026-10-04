@@ -285,7 +285,7 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     updater_cfg = await run_in_threadpool(appconfig.load_updater)
     with state.updater_config_lock:
         state.updater_cfg = updater_cfg
-    UPDATE_CHECKER.set_branch(updater_cfg["update_branch"])
+    await run_in_threadpool(UPDATE_CHECKER.set_branch, updater_cfg["update_branch"])
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
         _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
     else:
@@ -481,9 +481,11 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         for provider in movie_providers + series_providers + anime_providers
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
-    if jellyfin_url and not jellyfin_api_key:
-        raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
-    if jellyfin_url:
+    if not jellyfin_url:
+        jellyfin_api_key = ""
+    if not jellyfin_url or not jellyfin_api_key:
+        jellyfin_user_id = jellyfin_user_name = ""
+    if jellyfin_url and jellyfin_api_key:
         users = await run_in_threadpool(JellyfinClient(jellyfin_url, jellyfin_api_key).list_users)
         if users is None:
             raise HTTPException(502, "Jellyfin ist nicht erreichbar; Einstellungen wurden nicht gespeichert.")
@@ -1122,8 +1124,10 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
         if body.cleanup_default is not None
         else previous.get("cleanup_default")
     )
-    if url and not api_key:
-        raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
+    if not url:
+        api_key = ""
+    if not url or not api_key:
+        user_id = user_name = ""
     if url and api_key:
         users = await run_in_threadpool(JellyfinClient(url, api_key).list_users)
         if users is None:

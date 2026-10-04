@@ -23,6 +23,7 @@ export function createDirectoryPicker(root, { client = api } = {}) {
     try {
       const data = await client.get(`/api/browse-dir?${new URLSearchParams({ path: requestedPath || "" })}`, { signal: current.signal });
       if (!current.active) return;
+      if (data.error) throw new Error(data.error);
       path = data.path; parent = data.parent; entries = data.dirs || [];
       byId("dir-modal-path").textContent = path;
       byId("dir-modal-up").disabled = !parent;

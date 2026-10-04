@@ -19,7 +19,9 @@ export function createJellyfinSettings(root, { client = api } = {}) {
     root.querySelectorAll('input[name="jellyfin-cleanup-default"]').forEach(radio => { radio.checked = radio.value === cleanupDefault(); });
     byId("jellyfin-user-status").textContent = config.user_id
       ? `Gesehen-Status: ${config.user_name || "Benutzer gewählt"}`
-      : "Für „Nächste Staffel“ und automatische Löschregeln erforderlich.";
+      : config.url && config.has_api_key
+        ? "Für „Nächste Staffel“ und automatische Löschregeln einen Benutzer wählen."
+        : "Jellyfin ist optional. Ohne Server und API-Schlüssel bleibt die Integration inaktiv.";
   }
   function initialize() {
     if (pending) return pending;
@@ -35,6 +37,7 @@ export function createJellyfinSettings(root, { client = api } = {}) {
     if (pending) await pending;
     if (!current.active) return;
     if (!initialized) throw new Error("Jellyfin-Konfiguration konnte nicht geladen werden.");
+    if (!dirty) return config;
     const atRevision = revision;
     const select = byId("jellyfin-user-id");
     const value = await client.post("/api/jellyfin/config", {

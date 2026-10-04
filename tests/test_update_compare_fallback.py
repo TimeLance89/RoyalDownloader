@@ -124,5 +124,6 @@ def test_non_404_compare_error_is_still_reported(monkeypatch, tmp_path):
 
     assert result["comparison"] == "unknown"
     assert result["update_available"] is None
-    assert result["security_approved"] is True
-    assert "503 response" in result["error"]
+    assert result["security_approved"] is False
+    assert result["error_code"] == "github_unavailable"
+    assert "GitHub" in result["error"]

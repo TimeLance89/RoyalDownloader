@@ -136,6 +136,47 @@ const server = createServer(async (req, res) => {
     assert.equal(submissions[0].body.jellyfin_user_id, "other");
     assert.equal(submissions[0].body.bootstrap_token, "fixture-bootstrap");
     assert.equal(await page.locator("#setup-auth-password").inputValue(), "");
+    // General settings saves must not contact an untouched optional Jellyfin server.
+    await page.evaluate(async () => {
+      const { createJellyfinSettings } = await import("/js/features/integrations/jellyfin.js");
+      const root = document.querySelector("#jellyfin-url").closest(".settings-group").cloneNode(true);
+      const writes = [];
+      const view = createJellyfinSettings(root, { client: {
+        get: async () => ({ url: "http://optional:8096", has_api_key: false }),
+        post: async (_url, body) => {
+          writes.push(body);
+          return { ...body, has_api_key: false, saved: true };
+        },
+      } });
+      try {
+        view.mount(); await view.initialize();
+        await view.save();
+        if (writes.length) throw new Error("Untouched Jellyfin must not block other settings");
+        root.querySelector("#jellyfin-url").value = "";
+        root.dispatchEvent(new Event("input"));
+        await view.save();
+        if (writes.length !== 1 || writes[0].url || writes[0].api_key) throw new Error("Empty optional Jellyfin must be savable");
+        if (view.get().userConfigured) throw new Error("Empty Jellyfin must remain inactive");
+      } finally { view.dispose(); }
+    });
+    await page.evaluate(async () => {
+      const { createDirectoryPicker } = await import("/js/features/settings/directory.js");
+      const root = document.querySelector("#dir-modal").cloneNode(true);
+      root.id = "fixture-directory";
+      document.body.appendChild(root);
+      const target = document.createElement("input"); target.value = "/original";
+      const picker = createDirectoryPicker(root, { client: {
+        get: async () => ({ path: "/denied", parent: "/", dirs: [], error: "Permission denied" }),
+      } });
+      try {
+        picker.open(target);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!root.querySelector("#dir-modal-select").disabled) throw new Error("Unreadable folder cannot be selected");
+        if (!root.querySelector("#dir-modal-list").textContent.includes("Permission denied")) throw new Error("Folder errors must be visible");
+        root.querySelector("#dir-modal-select").dispatchEvent(new Event("click"));
+        if (target.value !== "/original") throw new Error("Failed browse must preserve the original path");
+      } finally { picker.unmount(); root.remove(); }
+    });
     await page.evaluate(async () => { const { switchTab } = (await import(document.querySelector('script[type="module"]').src)).application.core.actions; switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");
