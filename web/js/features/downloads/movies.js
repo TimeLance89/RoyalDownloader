@@ -1,6 +1,11 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { queueAddFailureReason } from "./outcome.js";
+import {
+  announceBrowserDownloadStart,
+  prepareBrowserDownloads,
+  triggerBrowserDownloads,
+} from "./browser.js";
 
 /** User-started mutations survive detail navigation, but never the authenticated session. */
 export function createMovieDownloads(root, {
@@ -31,7 +36,7 @@ export function createMovieDownloads(root, {
 
   function setFpJellyfinDownloadPending(slug) {
     setFpDownloadFeedback(
-      slug, "Jellyfin wird live geprüft. Der Download startet danach automatisch.", "active",
+      slug, "Browser-Download wird vorbereitet …", "active",
     );
   }
 
@@ -83,25 +88,32 @@ export function createMovieDownloads(root, {
     const owner = scope;
     pending.add(slug); refreshFpQueuePresentation();
     try {
-      if (getQueuedSlugs().has(slug)) {
-        const resp = await client.post("/api/queue/remove", { slug }, { signal: owner.signal });
-        if (!owner.active) return;
-        setFpDownloadFeedback(slug); refreshQueueUiAfterChange(resp); return;
-      }
       setFpDownloadFeedback(slug);
       const movie = provided || await prepareFpMovieDownload(slug, owner);
       if (!movie || !owner.active) return;
       setFpJellyfinDownloadPending(slug);
-      const resp = await client.post("/api/queue/add", { slugs: [slug], preferences, source: "web" }, { signal: owner.signal });
+      const resp = await prepareBrowserDownloads(
+        client,
+        [slug],
+        preferences,
+        { signal: owner.signal },
+      );
       if (!owner.active) return;
-      refreshQueueUiAfterChange(resp);
-      if (applyFpQueueAddResponse(slug, resp)) trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
+      const started = triggerBrowserDownloads(resp.downloads, root.ownerDocument);
+      if (!started) throw new Error("RDM hat keinen Browser-Download erzeugt.");
+      setFpDownloadFeedback(
+        slug,
+        "Browser-Download gestartet. Die Datei wird direkt an dieses Gerät übertragen.",
+        "success",
+      );
+      announceBrowserDownloadStart({ quota: resp.quota, slugs: [slug] });
+      trackDiscoveryPreference("movie", { ...movie, slug }, 5, "download");
     } catch (error) {
       if (!owner.active) return;
       const reason = error?.message || "Unbekannter Fehler";
       setFpDownloadFeedback(slug, `Download nicht gestartet: ${reason}`, "error");
       setDownloadState("error", "Download nicht gestartet", reason, 0);
-      console.warn("Film konnte nicht zur Queue hinzugefügt werden:", error);
+      console.warn("Browser-Download konnte nicht gestartet werden:", error);
     } finally {
       if (owner.active) {
         pending.delete(slug); refreshFpQueuePresentation();
@@ -116,31 +128,34 @@ export function createMovieDownloads(root, {
   function configureFpDetailAction(slug, movie, metadataOnly = false) {
     action = { slug, movie, metadataOnly };
     const addBtn = byId("fp-detail-add");
-    const queued = getQueuedSlugs().has(slug), owned = fpDetailJellyfinValue(slug, movie) === true;
     const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
     const mutationPending = pending.has(slug);
     renderFpDownloadFeedback(slug);
-    addBtn.hidden = owned && !queued;
-    addBtn.disabled = mutationPending || (owned && !queued) || (!queued && (metadataOnly || !hasHosters));
-    addBtn.textContent = mutationPending ? (queued ? "Entferne …" : "Füge hinzu …")
-      : queued ? "✕ Aus Queue entfernen" : metadataOnly ? "Prüfe Verfügbarkeit …"
-        : hasHosters ? "↓ Herunterladen" : "Derzeit nicht verfügbar";
+    addBtn.hidden = false;
+    addBtn.disabled = mutationPending || metadataOnly || !hasHosters;
+    addBtn.textContent = mutationPending ? "Bereite Browser-Download vor …"
+      : metadataOnly ? "Prüfe Verfügbarkeit …"
+        : hasHosters ? "↓ Im Browser herunterladen" : "Derzeit nicht verfügbar";
   }
   async function detailAction() {
     const selected = action, owner = scope;
     if (!selected || !owner.active || !visible(selected.slug)) return;
     const { slug, movie, metadataOnly } = selected;
     if (pending.has(slug)) return;
-    const shouldRemove = getQueuedSlugs().has(slug);
-    if (!shouldRemove && fpDetailJellyfinValue(slug, movie) === true) return;
-    if (!shouldRemove && !metadataOnly && needsLanguageChoice(movie)) {
+    if (!metadataOnly && needsLanguageChoice(movie)) {
       const language = await chooseLanguage(movie, byId("fp-detail-add"));
-      if (!owner.active || !language || action !== selected || !visible(slug) || getQueuedSlugs().has(slug)) return;
+      if (!owner.active || !language || action !== selected || !visible(slug)) return;
       const previous = movieState.downloadSelections.get(slug) || {};
-      movieState.downloadSelections.set(slug, { provider: `language:${language}`, quality: previous.quality || "" });
+      movieState.downloadSelections.set(slug, {
+        provider: `language:${language}`,
+        quality: previous.quality || "",
+      });
     }
     const selection = movieState.downloadSelections.get(slug);
-    const operation = toggleFpPick(slug, { movie: metadataOnly ? null : movie, preferences: selection ? { [slug]: selection } : {} });
+    const operation = toggleFpPick(slug, {
+      movie: metadataOnly ? null : movie,
+      preferences: selection ? { [slug]: selection } : {},
+    });
     configureFpDetailAction(slug, movie, metadataOnly);
     await operation;
   }
