@@ -995,7 +995,7 @@ test("persistent queue jobs expose mobile controls and separate history", () => 
   assert.match(accountStyles, /\.queue-action-btn[\s\S]*touch-action:\s*manipulation/);
 });
 
-test("movie download failures stay visible with their exact queue reason", () => {
+test("manual movie downloads use browser delivery while source failures stay visible", () => {
   requiresIds("fp-detail-add", "fp-detail-download-status");
   assert.equal(
     queueAddFailureReason(
@@ -1004,18 +1004,14 @@ test("movie download failures stay visible with their exact queue reason", () =>
     ),
     "kein Hoster verfügbar",
   );
-  assert.equal(
-    queueAddFailureReason({ added: 1, skipped: 0 }, ["movie"]),
-    "",
+  assert.match(app, /prepareBrowserDownloads/);
+  assert.match(app, /triggerBrowserDownloads/);
+  assert.match(app, /Browser-Download wird vorbereitet/);
+  assert.match(app, /Im Browser herunterladen/);
+  assert.doesNotMatch(
+    readFileSync(new URL("../web/js/features/downloads/movies.js", import.meta.url), "utf8"),
+    /client\.post\("\/api\/queue\/add"/,
   );
-  assert.match(app, /applyFpQueueAddResponse\(slug, resp\)/);
-  assert.match(app, /applyFpDownloadJobResult\(data\)/);
-  assert.match(app, /features\/downloads\/actions\.js/);
-  assert.match(
-    app,
-    /const movie = provided \|\| await prepareFpMovieDownload\(slug, owner\);[\s\S]*?if \(!movie \|\| !owner\.active\) return;[\s\S]*?await client\.post\("\/api\/queue\/add"/,
-  );
-  assert.match(app, /Jellyfin wird live geprüft\. Der Download startet danach automatisch\./);
   assert.match(app, /if \(Array\.isArray\(cached\?\.hosters\) && cached\.hosters\.length\) return cached/);
   assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
   assert.match(app, /Download nicht gestartet:/);
@@ -1025,7 +1021,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
     /client\.get\(`[\s\S]*?if \(!current\(\)\) return;/,
   );
   assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
-  assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);
+  assert.match(app, /metadataOnly \|\| !hasHosters/);
   assert.match(app, /Prüfe Verfügbarkeit …/);
   assert.match(app, /Derzeit nicht verfügbar/);
   assert.match(app, /error\.code === "movie_hoster_unavailable"/);
