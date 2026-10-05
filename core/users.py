@@ -7,11 +7,23 @@ import os
 import secrets
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.auth import normalize_username, validate_username
 
 ADMIN, MEMBER = "admin", "member"
+
+GIB = 1024 ** 3
+DOWNLOAD_PLANS = {
+    "free": {"name": "Free", "daily_limit_bytes": 10 * GIB},
+    "basic": {"name": "Basic", "daily_limit_bytes": 50 * GIB},
+    "plus": {"name": "Plus", "daily_limit_bytes": 100 * GIB},
+    "premium": {"name": "Premium", "daily_limit_bytes": 200 * GIB},
+}
+DEFAULT_DOWNLOAD_PLAN = "free"
+DOWNLOAD_USAGE_TIMEZONE = "Europe/Berlin"
 
 PROFILE_AVATARS = {
     "avatar-red",
@@ -46,11 +58,26 @@ class UserStore:
                 or "jellyfin_user_id" not in stored
                 or "jellyfin_user_name" not in stored
                 or "avatar_id" not in stored
+                or "download_plan" not in stored
+                or "download_usage_date" not in stored
+                or "download_used_bytes" not in stored
             ):
                 migrated = True
             stored.setdefault("jellyfin_user_id", "")
             stored.setdefault("jellyfin_user_name", "")
             stored.setdefault("avatar_id", "")
+            plan = str(stored.get("download_plan") or DEFAULT_DOWNLOAD_PLAN)
+            stored["download_plan"] = (
+                plan if plan in DOWNLOAD_PLANS else DEFAULT_DOWNLOAD_PLAN
+            )
+            stored.setdefault("download_usage_date", "")
+            try:
+                stored["download_used_bytes"] = max(
+                    0, int(stored.get("download_used_bytes") or 0),
+                )
+            except (TypeError, ValueError):
+                stored["download_used_bytes"] = 0
+                migrated = True
             stored.setdefault("taste_onboarding_required", not is_legacy_admin)
             stored.setdefault(
                 "taste_onboarding_completed_at",
@@ -73,7 +100,7 @@ class UserStore:
 
     def _migrate_legacy(self, account: dict) -> None:
         username = validate_username(account["username"])
-        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "jellyfin_user_id": "", "jellyfin_user_name": "", "avatar_id": "", "taste_onboarding_required": False, "taste_onboarding_completed_at": time.time(), "created_at": time.time(), "updated_at": time.time()}
+        self._users["admin-legacy"] = {"id": "admin-legacy", "username": username, "display_name": username, "password_hash": account.get("password_hash", ""), "env_password": account.get("env_password", ""), "source": account.get("source", "settings"), "role": ADMIN, "enabled": True, "setup_required": False, "jellyfin_user_id": "", "jellyfin_user_name": "", "avatar_id": "", "download_plan": DEFAULT_DOWNLOAD_PLAN, "download_usage_date": "", "download_used_bytes": 0, "taste_onboarding_required": False, "taste_onboarding_completed_at": time.time(), "created_at": time.time(), "updated_at": time.time()}
         self._save()
 
     def ensure_legacy(self, account: dict) -> None:
@@ -94,7 +121,14 @@ class UserStore:
             item = self._users.get(str(user_id)); return dict(item) if item else None
 
     def public(self, user: dict) -> dict:
-        return {key: user.get(key) for key in ("id", "username", "display_name", "avatar_id", "role", "enabled", "setup_required", "taste_onboarding_required", "taste_onboarding_completed_at", "created_at", "updated_at")}
+        return {
+            key: user.get(key)
+            for key in (
+                "id", "username", "display_name", "avatar_id", "role", "enabled",
+                "setup_required", "download_plan", "taste_onboarding_required",
+                "taste_onboarding_completed_at", "created_at", "updated_at",
+            )
+        }
 
     def list(self) -> list[dict]:
         with self._lock: return [self.public(item) for item in self._users.values()]
@@ -119,8 +153,106 @@ class UserStore:
         with self._lock:
             if self.find(username): raise ValueError("Benutzername ist bereits vergeben.")
             now, user_id = time.time(), secrets.token_urlsafe(12)
-            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "jellyfin_user_id": "", "jellyfin_user_name": "", "avatar_id": "", "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
+            user = {"id": user_id, "username": username, "display_name": str(display_name).strip()[:120], "password_hash": "", "role": role, "enabled": True, "setup_required": True, "jellyfin_user_id": "", "jellyfin_user_name": "", "avatar_id": "", "download_plan": DEFAULT_DOWNLOAD_PLAN, "download_usage_date": "", "download_used_bytes": 0, "taste_onboarding_required": True, "taste_onboarding_completed_at": 0.0, "created_at": now, "updated_at": now}
             self._users[user_id] = user; self._save(); return self.public(user)
+
+    @staticmethod
+    def download_plans() -> dict[str, dict]:
+        return {
+            key: {
+                "id": key,
+                "name": str(value["name"]),
+                "daily_limit_bytes": int(value["daily_limit_bytes"]),
+            }
+            for key, value in DOWNLOAD_PLANS.items()
+        }
+
+    @staticmethod
+    def _download_usage_day() -> str:
+        try:
+            zone = ZoneInfo(DOWNLOAD_USAGE_TIMEZONE)
+        except ZoneInfoNotFoundError:
+            zone = timezone.utc
+        return datetime.now(zone).date().isoformat()
+
+    def _reset_download_usage_locked(self, user: dict) -> bool:
+        today = self._download_usage_day()
+        if str(user.get("download_usage_date") or "") == today:
+            return False
+        user["download_usage_date"] = today
+        user["download_used_bytes"] = 0
+        user["updated_at"] = time.time()
+        return True
+
+    def download_quota(self, user_id: str) -> dict:
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            changed = self._reset_download_usage_locked(user)
+            plan_id = str(user.get("download_plan") or DEFAULT_DOWNLOAD_PLAN)
+            plan = DOWNLOAD_PLANS.get(plan_id, DOWNLOAD_PLANS[DEFAULT_DOWNLOAD_PLAN])
+            limit = int(plan["daily_limit_bytes"])
+            used = max(0, int(user.get("download_used_bytes") or 0))
+            if changed:
+                self._save()
+            return {
+                "plan": plan_id,
+                "plan_name": str(plan["name"]),
+                "daily_limit_bytes": limit,
+                "used_today_bytes": used,
+                "remaining_today_bytes": max(0, limit - used),
+                "usage_date": str(user.get("download_usage_date") or ""),
+                "resets_timezone": DOWNLOAD_USAGE_TIMEZONE,
+            }
+
+    def set_download_plan(self, user_id: str, plan_id: str) -> dict:
+        plan_id = str(plan_id or "").strip().casefold()
+        if plan_id not in DOWNLOAD_PLANS:
+            raise ValueError("Unbekannter Download-Tarif.")
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user:
+                raise ValueError("Benutzer nicht gefunden.")
+            self._reset_download_usage_locked(user)
+            user["download_plan"] = plan_id
+            user["updated_at"] = time.time()
+            self._save()
+            return self.public(user)
+
+    def consume_download_bytes(
+        self,
+        user_id: str,
+        byte_count: int,
+        *,
+        persist: bool = False,
+    ) -> bool:
+        amount = max(0, int(byte_count or 0))
+        if amount == 0:
+            return True
+        with self._lock:
+            user = self._users.get(str(user_id))
+            if not user or not user.get("enabled"):
+                return False
+            reset = self._reset_download_usage_locked(user)
+            plan_id = str(user.get("download_plan") or DEFAULT_DOWNLOAD_PLAN)
+            plan = DOWNLOAD_PLANS.get(plan_id, DOWNLOAD_PLANS[DEFAULT_DOWNLOAD_PLAN])
+            limit = int(plan["daily_limit_bytes"])
+            used = max(0, int(user.get("download_used_bytes") or 0))
+            if used + amount > limit:
+                if reset:
+                    self._save()
+                return False
+            user["download_used_bytes"] = used + amount
+            user["updated_at"] = time.time()
+            if persist or reset:
+                self._save()
+            return True
+
+    def flush_download_usage(self, user_id: str) -> None:
+        with self._lock:
+            if str(user_id) in self._users:
+                self._save()
 
     def set_username(self, user_id: str, username: str) -> dict:
         """Change the login name without changing the household-facing profile name."""
