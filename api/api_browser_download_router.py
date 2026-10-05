@@ -233,12 +233,15 @@ def _resolve_ticket(backend, ticket: _Ticket) -> dict[str, Any]:
             movie = backend.load_movie_for_slug(slug)
 
     if episode_info and (movie is None or not movie.hosters):
-        refreshed = backend.load_movie_for_slug(slug)
+        try:
+            refreshed = backend.load_movie_for_slug(slug)
+        except Exception:
+            refreshed = None
         if refreshed and refreshed.hosters:
             movie = refreshed
 
-    if movie is None or not movie.hosters:
-        raise RuntimeError("kein Hoster verfügbar")
+    if movie is None:
+        raise RuntimeError("Inhalt konnte nicht geladen werden.")
 
     source_movies = [movie]
     if not episode_info:
@@ -263,6 +266,8 @@ def _resolve_ticket(backend, ticket: _Ticket) -> dict[str, Any]:
     selected_movie = movie
 
     for candidate in source_movies:
+        if not candidate.hosters:
+            continue
         with backend.state.hoster_extract_lock:
             candidate_result = backend._extract_from_movie(
                 candidate,
@@ -293,7 +298,7 @@ def _resolve_ticket(backend, ticket: _Ticket) -> dict[str, Any]:
 
         known_urls = {item.url for item in source_movies}
         for candidate in alternatives:
-            if candidate.url in known_urls:
+            if candidate.url in known_urls or not candidate.hosters:
                 continue
             known_urls.add(candidate.url)
             with backend.state.hoster_extract_lock:
