@@ -29,6 +29,7 @@ from core.network_guard import (
     request_proxy_kwargs,
     safe_proxy_url,
 )
+from media.downloader import BROWSER_USER_AGENT
 from providers.models import parse_episode_slug, strip_episode_suffix
 
 
@@ -36,6 +37,7 @@ TICKET_TTL_SECONDS = 60 * 60
 MAX_TICKETS = 500
 MAX_PREPARE_SLUGS = 20
 QUOTA_PERSIST_BYTES = 256 * 1024 * 1024
+QUOTA_PERSIST_SECONDS = 10
 STREAM_CHUNK_BYTES = 256 * 1024
 
 
@@ -380,6 +382,7 @@ def _direct_stream(url: str, stream_type: str) -> bool:
 
 def _source_headers(resolved: dict[str, Any]) -> dict[str, str]:
     headers = {
+        "User-Agent": BROWSER_USER_AGENT,
         "Accept": "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
         "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
         "Sec-Fetch-Dest": "video",
@@ -470,6 +473,7 @@ def _direct_response(
 
 def _quota_curl_iterator(backend, user_id: str, response) -> Iterator[bytes]:
     unflushed = 0
+    last_flush = time.monotonic()
     try:
         for chunk in response.iter_content(chunk_size=STREAM_CHUNK_BYTES):
             if not chunk:
@@ -485,9 +489,14 @@ def _quota_curl_iterator(backend, user_id: str, response) -> Iterator[bytes]:
                 break
             unflushed += accepted
             yield chunk[:accepted]
-            if unflushed >= QUOTA_PERSIST_BYTES:
+            now = time.monotonic()
+            if (
+                unflushed >= QUOTA_PERSIST_BYTES
+                or now - last_flush >= QUOTA_PERSIST_SECONDS
+            ):
                 backend.USER_STORE.flush_download_usage(user_id)
                 unflushed = 0
+                last_flush = now
             if accepted < len(chunk):
                 break
     finally:
@@ -509,10 +518,24 @@ def _adaptive_response(backend, user_id: str, resolved: dict[str, Any]):
         "--fragment-retries", "2",
         "--concurrent-fragments", "8",
         "--extractor-args", "generic:impersonate",
+        "--user-agent", BROWSER_USER_AGENT,
         "--proxy", safe_proxy_url(),
-        "-f", "best[height<=1080]/best",
         "-o", "-",
     ]
+
+    audio_language = re.sub(
+        r"[^a-z]",
+        "",
+        str(resolved.get("audio_language") or "").casefold(),
+    )[:3]
+    if audio_language:
+        command += [
+            "-f",
+            f"best[height<=1080][language^={audio_language}]/"
+            f"best[language^={audio_language}]/best[height<=1080]/best",
+        ]
+    else:
+        command += ["-f", "best[height<=1080]/best"]
 
     referer = str(resolved.get("referer") or "")
     origin = str(resolved.get("origin") or "")
@@ -549,6 +572,7 @@ def _adaptive_response(backend, user_id: str, resolved: dict[str, Any]):
 
 def _quota_process_iterator(backend, user_id: str, process: subprocess.Popen) -> Iterator[bytes]:
     unflushed = 0
+    last_flush = time.monotonic()
     try:
         assert process.stdout is not None
         while True:
@@ -566,9 +590,14 @@ def _quota_process_iterator(backend, user_id: str, process: subprocess.Popen) ->
                 break
             unflushed += accepted
             yield chunk[:accepted]
-            if unflushed >= QUOTA_PERSIST_BYTES:
+            now = time.monotonic()
+            if (
+                unflushed >= QUOTA_PERSIST_BYTES
+                or now - last_flush >= QUOTA_PERSIST_SECONDS
+            ):
                 backend.USER_STORE.flush_download_usage(user_id)
                 unflushed = 0
+                last_flush = now
             if accepted < len(chunk):
                 break
     finally:
