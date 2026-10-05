@@ -1,6 +1,11 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml } from "../../shared/utils/escape-html.js";
+import {
+  announceBrowserDownloadStart,
+  prepareBrowserDownloads,
+  triggerBrowserDownloads,
+} from "../downloads/browser.js";
 
 export function createAnime(root, modal, {
   getQueuedSlugs, coverUrl, mediaCardInitials, mediaJellyfinStatus, jellyfinStatusText,
@@ -31,7 +36,7 @@ export function createAnime(root, modal, {
     detail.listen(modal, "click", dispatch);
     detail.listen(byId("anime-select-page"), "click", () => {
       for (const episode of data.current?.episodes || []) {
-        if (!episode.queued && !episode.downloaded) data.picked.add(episode.slug);
+        if (episode.slug) data.picked.add(episode.slug);
       }
       renderAnimeEpisodes();
     });
@@ -397,9 +402,11 @@ export function createAnime(root, modal, {
         + (episode.downloaded ? " is-downloaded" : "");
       button.textContent = episode.number;
       button.title = episode.downloaded
-        ? `${episode.label} · bereits geladen`
-        : queued ? `${episode.label} · in der Warteschlange` : episode.label;
-      button.disabled = queued || episode.downloaded;
+        ? `${episode.label} · auf dem Server bereits geladen · Browser-Download möglich`
+        : queued
+          ? `${episode.label} · serverseitig in der Warteschlange · Browser-Download möglich`
+          : `${episode.label} · im Browser herunterladen`;
+      button.disabled = false;
       callbacks.set(button, () => {
         if (data.picked.has(episode.slug)) data.picked.delete(episode.slug);
         else data.picked.add(episode.slug);
@@ -424,7 +431,6 @@ export function createAnime(root, modal, {
     if (!anime?.episodes) return;
     for (const episode of anime.episodes) {
       episode.queued = getQueuedSlugs().has(episode.slug);
-      if (episode.queued) data.picked.delete(episode.slug);
     }
     if (!byId("anime-detail-modal").hidden) renderAnimeEpisodes();
   }
@@ -435,7 +441,6 @@ export function createAnime(root, modal, {
     if (!episode) return;
     episode.downloaded = true;
     episode.queued = false;
-    data.picked.delete(slug);
     if (detail?.active) renderAnimeEpisodes();
   }
 
@@ -448,15 +453,31 @@ export function createAnime(root, modal, {
     queuePending = true;
     const button = byId("anime-add-btn");
     button.disabled = true;
-    byId("anime-pick-count").textContent = "wird eingeplant …";
+    byId("anime-pick-count").textContent = "Browser-Downloads werden vorbereitet …";
     try {
-      const response = await client.post("/api/queue/add", { slugs, preferences: {}, source: "anime" }, { signal: session.signal });
+      const response = await prepareBrowserDownloads(
+        client,
+        slugs,
+        {},
+        { signal: session.signal },
+      );
       if (!session.active) return;
-      refreshQueueUiAfterChange(response);
+      const started = triggerBrowserDownloads(response.downloads, root.ownerDocument);
+      if (!started) throw new Error("RDM hat keine Browser-Downloads erzeugt.");
+      if (data.current) {
+        trackDiscoveryPreference(
+          "anime",
+          { ...data.current, base_slug: data.current.id },
+          5,
+          "download",
+        );
+      }
+      announceBrowserDownloadStart({ quota: response.quota, slugs });
       if (!mounted.active || data.currentId !== selectedId) return;
       data.picked.clear();
-      byId("anime-status").textContent =
-        `${response.added}/${slugs.length} Anime-Episode(n) gestartet`;
+      byId("anime-status").textContent = started > 1
+        ? `${started} Browser-Downloads gestartet · dein Browser kann nach Erlaubnis für mehrere Dateien fragen.`
+        : "Browser-Download gestartet.";
     } catch (error) {
       if (!mounted.active || data.currentId !== selectedId) return;
       byId("anime-status").textContent = `Download fehlgeschlagen: ${error.message}`;
