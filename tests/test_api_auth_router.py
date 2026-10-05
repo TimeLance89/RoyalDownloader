@@ -87,12 +87,35 @@ def auth_client(*, valid_password="secret", second_setup_required=False, current
         target["username"] = username
         return target
 
+    def set_download_plan(user_id, plan):
+        target = user if user_id == "user-1" else second_user if user_id == "user-2" else None
+        if not target:
+            raise ValueError("Benutzer nicht gefunden.")
+        target["download_plan"] = plan
+        return target
+
+    def download_quota(user_id):
+        target = user if user_id == "user-1" else second_user if user_id == "user-2" else None
+        if not target:
+            raise ValueError("Benutzer nicht gefunden.")
+        plan = target.get("download_plan", "free")
+        limits = {"free": 10, "basic": 50, "plus": 100, "premium": 200}
+        return {
+            "plan": plan,
+            "plan_name": plan.title(),
+            "daily_limit_bytes": limits[plan] * 1024 ** 3,
+            "used_today_bytes": 0,
+            "remaining_today_bytes": limits[plan] * 1024 ** 3,
+        }
+
     users = SimpleNamespace(
         find=find_user,
         get=lambda user_id: user if user_id == "user-1" else second_user if user_id == "user-2" else None,
         public=lambda value: value,
         list=lambda: [user, second_user],
         set_username=set_username,
+        set_download_plan=set_download_plan,
+        download_quota=download_quota,
     )
     dependencies = AuthDependencies(
         api_version=1,
@@ -279,3 +302,29 @@ def test_household_profile_settings_require_one_unlock_for_other_profiles():
     assert saved.status_code == 200
     assert saved.json()["user_id"] == "jf-bob"
     assert store.jellyfin_links["user-2"] == "jf-bob"
+
+
+def test_admin_can_assign_browser_download_plan():
+    client, _store = auth_client()
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    response = client.post(
+        "/api/auth/users/user-2/download-plan",
+        json={"plan": "premium"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["download_plan"] == "premium"
+    assert response.json()["quota"]["daily_limit_bytes"] == 200 * 1024 ** 3
+
+
+def test_member_cannot_assign_browser_download_plan():
+    client, _store = auth_client(current_role="member")
+    client.cookies.set(appauth.SESSION_COOKIE_NAME, "web-token")
+
+    response = client.post(
+        "/api/auth/users/user-2/download-plan",
+        json={"plan": "premium"},
+    )
+
+    assert response.status_code == 403
