@@ -1,5 +1,10 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import {
+  announceBrowserDownloadStart,
+  prepareBrowserDownloads,
+  triggerBrowserDownloads,
+} from "../downloads/browser.js";
 
 /** Episode eligibility, selection and queue commands share the series detail lifecycle. */
 export function createSeriesEpisodes(root, {
@@ -48,22 +53,16 @@ export function createSeriesEpisodes(root, {
   }
 
   function isEpisodeEligible(episode) {
-    return Boolean(
-      episode
-      && !episode.downloaded
-      && !episode.in_jellyfin
-      && !episode.unreleased
-      && !isEpisodeQueued(episode)
-    );
+    // Browser-Downloads gehören dem angemeldeten Nutzer. Ein Inhalt darf daher
+    // auch dann geladen werden, wenn er auf dem RDM-Server bereits lokal/Jellyfin
+    // vorhanden oder parallel in der Server-Queue ist.
+    return Boolean(episode && !episode.unreleased);
   }
 
   function isEpisodeSelectable(episode) {
     return Boolean(
       episode
-      && !episode.downloaded
-      && !episode.in_jellyfin
       && !episode.unreleased
-      && !isEpisodeQueued(episode)
       && episodeHasEnabledStreamLanguage(episode)
     );
   }
@@ -109,8 +108,6 @@ export function createSeriesEpisodes(root, {
   }
 
   function tileClass(ep) {
-    if (isEpisodeQueued(ep)) return "queued";
-    if (ep.downloaded) return "downloaded";
     if (ep.unreleased) return "scheduled";
     if (seriesState.current?.provider === "huhu" && !ep.huhu_language_checked) {
       return "language-pending";
@@ -174,11 +171,11 @@ export function createSeriesEpisodes(root, {
     }
     else if (series.availability_error) tile.title = "Verfügbarkeitsprüfung fehlgeschlagen";
     else if (series.availability_pending) tile.title = "Verfügbarkeit wird geprüft";
-    else if (episode.in_jellyfin) tile.title = "Bereits in Jellyfin vorhanden";
-    else if (episode.downloaded) tile.title = "Bereits heruntergeladen";
-    else if (isEpisodeQueued(episode)) tile.title = "Bereits in der Warteschlange";
     else if (episode.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;
-    else tile.removeAttribute("title");
+    else if (episode.in_jellyfin || episode.downloaded || isEpisodeQueued(episode)) {
+      tile.title = "Auf dem RDM-Server bereits bekannt · Browser-Download ist trotzdem möglich";
+    }
+    else tile.title = "Im Browser herunterladen";
   }
 
   function refreshSeriesTileStates() {
@@ -370,7 +367,8 @@ export function createSeriesEpisodes(root, {
   async function seriesAddSelected() {
     if (!scope.active || queuePending) return;
     const owner = scope, series = seriesState.current, generation = seriesState.viewGeneration;
-    const current = () => owner.active && seriesState.current === series && seriesState.viewGeneration === generation && !root.hidden;
+    const current = () => owner.active && seriesState.current === series
+      && seriesState.viewGeneration === generation && !root.hidden;
     pruneSeriesEpisodeSelection();
     if (!seriesState.epPicked.size) {
       byId("series-status").textContent =
@@ -380,19 +378,26 @@ export function createSeriesEpisodes(root, {
     }
     queuePending = true;
     const slugs = [...seriesState.epPicked];
-    byId("series-status").textContent = `Lade ${slugs.length} Episode(n) …`;
+    byId("series-status").textContent =
+      `Bereite ${slugs.length} Browser-Download(s) vor …`;
     const addButton = byId("series-add-btn");
     addButton.disabled = true;
     try {
-      const resp = await client.post("/api/queue/add", { slugs, preferences: {}, source: "web" }, { signal: owner.signal });
+      const resp = await prepareBrowserDownloads(
+        client,
+        slugs,
+        {},
+        { signal: owner.signal },
+      );
       if (!owner.active) return;
-      if (Number(resp.added || 0) > 0 && series) {
-        trackDiscoveryPreference("series", series, 5, "download");
-      }
-      refreshQueueUiAfterChange(resp);
+      const started = triggerBrowserDownloads(resp.downloads, document);
+      if (!started) throw new Error("RDM hat keine Browser-Downloads erzeugt.");
+      if (series) trackDiscoveryPreference("series", series, 5, "download");
+      announceBrowserDownloadStart({ quota: resp.quota, slugs });
       if (!current()) return;
-      byId("series-status").textContent =
-        `${resp.added}/${slugs.length} Episode(n) automatisch gestartet`;
+      byId("series-status").textContent = started > 1
+        ? `${started} Browser-Downloads gestartet · dein Browser kann nach Erlaubnis für mehrere Dateien fragen.`
+        : "Browser-Download gestartet.";
       seriesState.epPicked.clear();
     } catch (error) {
       if (!current()) return;
