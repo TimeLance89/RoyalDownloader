@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from features.subscription_languages import subscription_content_languages
+
 import asyncio
 import ipaddress
 import threading
@@ -52,6 +54,12 @@ from features.watchlist_policy import (
     classify_subscription_episode_states,
     select_cleanup_items,
     serialize_episode_history,
+)
+
+from api.api_discovery_router import episode_languages_for_slug
+from features.episode_language_policy import (
+    LANGUAGE_PROBE_LIMIT, needs_exact_episode_language, fresh_episode_languages,
+    episode_language_state,
 )
 
 router = APIRouter(tags=["library"])
@@ -1059,6 +1067,90 @@ class WatchlistCheckBody(BaseModel):
     base_slugs: list[str] | None = None
 
 
+def _watchlist_episode_language_evidence(entry, series, episode_states):
+    from application_services.movie_catalog import provider_for_value
+    provider = provider_for_value(series.base_slug) if ":" in series.base_slug else ""
+    desired = subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {}))
+    from providers.catalog import provider_supports_languages
+    needs_alternate = bool(provider and not provider_supports_languages(provider, desired))
+    if not needs_exact_episode_language(provider) and not needs_alternate:
+        return None, {}
+    now = time.time()
+    checks = dict(entry.get("episode_language_checks") or {})
+    selected = [episode for episode in series.all_episodes
+                if episode_states.get(episode.slug) not in {None, "upcoming"}]
+    # Unchecked episodes get a turn before expired evidence is refreshed.
+    selected.sort(key=lambda episode: (episode.slug in checks, -episode.season, episode.episode))
+    languages = {}
+    probes = 0
+    started = time.monotonic()
+    for episode in selected:
+        values = fresh_episode_languages(checks.get(episode.slug), now)
+        if values is None and probes < LANGUAGE_PROBE_LIMIT and time.monotonic() - started < 5:
+            probes += 1
+            try:
+                values = episode_languages_for_slug(provider, episode.slug)
+                if needs_alternate and not set(values) & set(desired):
+                    from application_services.download_lifecycle import find_episode_fallbacks
+                    from application_services.content_language_policy import _source_languages
+                    from providers.catalog import PROVIDER_CATALOG
+                    excluded = {key for key in PROVIDER_CATALOG if not provider_supports_languages(key, desired)}
+                    alternatives = find_episode_fallbacks(series.title, episode.season, episode.episode,
+                        aliases=tuple(entry.get("aliases") or ()), source_slug=episode.slug,
+                        excluded_providers=excluded, limit=2)
+                    values = sorted(set(values) | {language for candidate in alternatives
+                        if candidate.hosters for language in _source_languages(candidate)})
+                checks[episode.slug] = {"languages": values, "checked_at": time.time()}
+            except Exception:
+                # A failed language request is neither language absence nor a
+                # failed download. A subsequent subscription check retries it.
+                values = None
+        languages[episode.slug] = values
+    known = {episode.slug for episode in series.all_episodes}
+    return languages, {slug: record for slug, record in checks.items() if slug in known}
+
+
+def _update_watchlist_language_states(entry, languages):
+    states = entry.get("episode_states") or {}
+    pending = state.watchlist_new_slugs.setdefault(entry["base_slug"], set())
+    for slug, values in languages.items():
+        if states.get(slug) not in {"available", "waiting_for_language", "language_pending"}:
+            continue
+        status = episode_language_state(values, subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})))
+        states[slug] = status
+        if status == "available":
+            pending.add(slug)
+        else:
+            pending.discard(slug)
+            (entry.get("failed_downloads") or {}).pop(slug, None)
+            entry["waiting_release_slugs"] = [value for value in entry.get("waiting_release_slugs", []) if value != slug]
+    entry["waiting_language_slugs"] = sorted(slug for slug, status in states.items() if status == "waiting_for_language")
+    entry["language_pending_slugs"] = sorted(slug for slug, status in states.items() if status == "language_pending")
+    if not pending:
+        state.watchlist_new_slugs.pop(entry["base_slug"], None)
+
+
+def record_watchlist_episode_languages(languages):
+    if state is None or not hasattr(state, "watchlist"):
+        return
+    changed = False
+    with state.watchlist_lock:
+        for entry in state.watchlist:
+            relevant = {slug: values for slug, values in languages.items()
+                        if slug in (entry.get("episode_states") or {})}
+            if not relevant:
+                continue
+            checks = entry.setdefault("episode_language_checks", {})
+            checks.update({slug: {"languages": values, "checked_at": time.time()}
+                           for slug, values in relevant.items()})
+            _update_watchlist_language_states(entry, relevant)
+            changed = True
+        if changed:
+            _persist_watchlist_background()
+    if changed:
+        broadcast({"type": "watchlist_update", **watchlist_payload()})
+
+
 def _calculate_watchlist_entry_state(
     entry: dict,
     series: FilmpalastSeries,
@@ -1156,8 +1248,14 @@ def _calculate_watchlist_entry_state(
         jellyfin_watched=jf_watched,
         season_episode_counts=entry.get("season_episode_counts") or {},
         unreleased_slugs=unreleased_slugs,
-        enabled_content_languages=state.content_languages,
+        enabled_content_languages=subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})),
     )
+    exact_languages, language_checks = _watchlist_episode_language_evidence(entry, series, episode_states)
+    if exact_languages is not None:
+        episode_states = {
+            slug: status if status == "upcoming" else episode_language_state(exact_languages.get(slug), subscription_content_languages(entry, state.content_languages, getattr(state, "subscription_content_languages", {})))
+            for slug, status in episode_states.items()
+        }
     missing_slugs = {slug for slug, status in episode_states.items() if status == "available"}
     waiting_language_slugs = {
         slug for slug, status in episode_states.items() if status == "waiting_for_language"
@@ -1171,6 +1269,7 @@ def _calculate_watchlist_entry_state(
         "waiting_language_slugs": waiting_language_slugs,
         "upcoming_slugs": upcoming_slugs,
         "episode_states": episode_states,
+        "episode_language_checks": language_checks,
         "cleanup_items": cleanup_items,
     }
 
@@ -1211,10 +1310,20 @@ def _apply_watchlist_entry_state(entry: dict, calculated: dict) -> set[str]:
             str(slug): retry for slug, retry in source_retries.items()
             if str(slug) in missing_slugs
         }
+    checks = dict(calculated.get("episode_language_checks") or {})
+    for slug, record in (entry.get("episode_language_checks") or {}).items():
+        if float(record.get("checked_at") or 0) > float((checks.get(slug) or {}).get("checked_at") or 0):
+            checks[slug] = record
+    known = set(calculated["known_slugs"])
+    entry["episode_language_checks"] = {slug: record for slug, record in checks.items() if slug in known}
+    exact_states = {slug: fresh_episode_languages(record, time.time())
+                    for slug, record in entry["episode_language_checks"].items()}
+    _update_watchlist_language_states(entry, exact_states)
+    entry["language_pending_slugs"] = sorted(slug for slug, status in entry["episode_states"].items() if status == "language_pending")
     entry["last_checked"] = time.time()
     entry["last_error"] = ""
     entry["check_in_progress"] = False
-    return previous_slugs - missing_slugs
+    return previous_slugs - set(state.watchlist_new_slugs.get(entry["base_slug"], set()))
 
 
 def _update_watchlist_entry_state(

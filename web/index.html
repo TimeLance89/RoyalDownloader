@@ -1607,9 +1607,10 @@
         </div>
         <div class="settings-group settings-card language-settings">
           <h3>Sprache &amp; Oberfläche</h3>
-          <p class="dim settings-hint">Die Oberfläche wird automatisch übersetzt. Deutsch bleibt bei Verbindungsproblemen als sicherer Fallback erhalten.</p>
+          <p class="dim settings-hint">Oberfläche, Inhaltswahl und künftige Serien-Downloads gemeinsam anpassen.</p>
+          <div class="language-profile-summary"><span class="language-profile-glyph" aria-hidden="true">Aa</span><div><strong id="language-profile-label">Deutsch</strong><span>Dein persönliches Sprachprofil</span></div><button type="button" class="btn btn-ghost" data-language-setup-open>Profil anpassen</button></div>
           <label class="dim auto-lbl" for="ui-language">Oberflächensprache</label>
-          <select id="ui-language" aria-label="Oberflächensprache">
+          <select id="ui-language" aria-label="Oberflächensprache" class="language-profile-select">
             <option value="de" translate="no">Deutsch</option>
             <option value="en" translate="no">English</option>
             <option value="es" translate="no">Español</option>
@@ -1657,57 +1658,20 @@
                 <p>Verfügbarkeit prüfen und Quellen, Sprachen und Ausweichquellen anpassen.</p>
               </div>
             </header>
-        <section id="provider-monitor" class="settings-group settings-card provider-settings" aria-labelledby="provider-monitor-title">
-          <h3 id="provider-monitor-title">Quellen &amp; Verfügbarkeit</h3>
-          <div class="source-service" data-monitor="overview">
-            <h4 data-monitor="health-title" role="status" aria-live="polite">Verfügbarkeit wird geprüft</h4>
-            <p data-monitor="health-copy">Royal ermittelt den aktuellen Zustand deiner Quellen.</p>
-            <ul class="source-coverage" data-monitor="coverage"></ul>
-            <p class="dim" data-monitor="counts"></p>
-            <p data-monitor="impact"></p>
-            <p data-monitor="required"></p>
-            <p class="dim" data-monitor="last-check"></p>
-            <button type="button" class="btn btn-ghost btn-sm" data-action="details" hidden>Problem ansehen</button>
-          </div>
-          <div class="source-controls">
-            <label><input name="monitor-enabled" type="checkbox" checked> Quellen automatisch überwachen</label>
-            <label><input name="monitor-auto-repair" type="checkbox" checked> Eindeutig validierte Reparaturen automatisch durchführen</label>
-            <label><input name="monitor-notify" type="checkbox"> Nur wichtige Probleme melden</label>
-          </div>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="save">Überwachung speichern</button>
-          <p data-monitor="status" role="status" aria-live="polite"></p>
-          <p data-monitor="notice" role="status" aria-live="polite"></p>
-          <details class="source-disclosure" data-monitor="advanced-settings">
-            <summary>Erweiterte Einstellungen</summary>
-            <label>Prüfintervall (Stunden) <input name="monitor-interval" type="number" min="1" max="168" value="12"></label>
-            <label>Prüfintensität <select name="monitor-intensity"><option value="light">Leicht</option><option value="standard" selected>Standard</option><option value="full">Vollständig</option></select></label>
-            <p class="dim">Royal prüft automatisch. Eine zusätzliche Prüfung ist normalerweise nicht notwendig.</p>
-            <button type="button" class="btn btn-ghost btn-sm" data-action="all">Alle aktiven Quellen prüfen</button>
-          </details>
-          <details class="source-disclosure" data-monitor="technical">
-            <summary>Technische Details anzeigen</summary>
-            <p data-monitor="summary"></p>
-            <nav aria-label="Quellenüberwachung"><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="providers" aria-pressed="true">Provider</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="hosters" aria-pressed="false">Hoster</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="history" aria-pressed="false">Reparaturen / Verlauf</button></nav>
-            <div data-monitor="providers"></div>
-            <div data-monitor="hosters" hidden></div>
-            <div data-monitor="history" hidden></div>
-          </details>
-          <div data-monitor="confirmation" hidden><p></p><button type="button" class="btn btn-ghost btn-sm" data-action="confirm">Bestätigen</button><button type="button" class="btn btn-ghost btn-sm" data-action="cancel">Abbrechen</button></div>
-        </section>
-        <div class="settings-group settings-card provider-settings">
+        <div id="provider-catalog" class="settings-group settings-card provider-settings">
           <div class="provider-heading">
             <div>
-              <span class="provider-kicker">DOWNLOAD · ROUTING</span>
               <h3>Quellen-Katalog</h3>
-              <p class="dim settings-hint">Lege zuerst die Inhaltssprachen fest und verfeinere danach Anbieter und Fallback-Reihenfolge.</p>
+              <p class="dim settings-hint">Deine erste Wahl und die Quellen, die übernehmen, wenn sie nicht liefern kann.</p>
             </div>
-            <span class="provider-route-mark" aria-hidden="true">1→N</span>
+            <span class="catalog-route-key"><i aria-hidden="true"></i>Erste Wahl<span aria-hidden="true">›</span>Ausweichquellen</span>
           </div>
           <section class="content-language-control" aria-labelledby="content-language-title">
             <div class="content-language-heading">
               <span class="provider-kicker">INHALTSPROFIL</span>
-              <h4 id="content-language-title">In welchen Sprachen soll Royal suchen?</h4>
-              <p>Mehrfachauswahl möglich. Quellen anderer Sprachen werden automatisch pausiert.</p>
+              <h4 id="content-language-title">Dein Inhaltsprofil</h4>
+              <p>Quellen folgen deiner Inhaltswahl. Oberflächensprache und Serien-Abos passt du im Sprach-Setup an.</p>
+              <button type="button" class="catalog-profile-edit" data-language-setup-open>Sprachprofil anpassen</button>
             </div>
             <div>
               <div id="content-language-options" class="content-language-options" role="group" aria-label="Sprachen der heruntergeladenen Inhalte"></div>
@@ -1751,6 +1715,44 @@
           </div>
           <div id="provider-selection-status" class="dim small-status provider-selection-status" role="status" aria-live="polite">Aktive Quellen werden beim Speichern übernommen.</div>
         </div>
+
+        <section id="provider-monitor" class="settings-group settings-card provider-settings" aria-labelledby="provider-monitor-title">
+          <h3 id="provider-monitor-title">Quellen &amp; Verfügbarkeit</h3>
+          <div class="source-service" data-monitor="overview">
+            <h4 data-monitor="health-title" role="status" aria-live="polite">Verfügbarkeit wird geprüft</h4>
+            <p data-monitor="health-copy">Royal ermittelt den aktuellen Zustand deiner Quellen.</p>
+            <ul class="source-coverage" data-monitor="coverage"></ul>
+            <p class="dim" data-monitor="counts"></p>
+            <p data-monitor="impact"></p>
+            <p data-monitor="required"></p>
+            <p class="dim" data-monitor="last-check"></p>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="details" hidden>Problem ansehen</button>
+          </div>
+          <div class="source-controls">
+            <label><input name="monitor-enabled" type="checkbox" checked> Quellen automatisch überwachen</label>
+            <label><input name="monitor-auto-repair" type="checkbox" checked> Eindeutig validierte Reparaturen automatisch durchführen</label>
+            <label><input name="monitor-notify" type="checkbox"> Nur wichtige Probleme melden</label>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="save">Überwachung speichern</button>
+          <p data-monitor="status" role="status" aria-live="polite"></p>
+          <p data-monitor="notice" role="status" aria-live="polite"></p>
+          <details class="source-disclosure" data-monitor="advanced-settings">
+            <summary>Erweiterte Einstellungen</summary>
+            <label>Prüfintervall (Stunden) <input name="monitor-interval" type="number" min="1" max="168" value="12"></label>
+            <label>Prüfintensität <select name="monitor-intensity"><option value="light">Leicht</option><option value="standard" selected>Standard</option><option value="full">Vollständig</option></select></label>
+            <p class="dim">Royal prüft automatisch. Eine zusätzliche Prüfung ist normalerweise nicht notwendig.</p>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="all">Alle aktiven Quellen prüfen</button>
+          </details>
+          <details class="source-disclosure" data-monitor="technical">
+            <summary>Technische Details anzeigen</summary>
+            <p data-monitor="summary"></p>
+            <nav aria-label="Quellenüberwachung"><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="providers" aria-pressed="true">Provider</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="hosters" aria-pressed="false">Hoster</button><button type="button" class="btn btn-ghost btn-sm" data-action="tab" data-tab="history" aria-pressed="false">Reparaturen / Verlauf</button></nav>
+            <div data-monitor="providers"></div>
+            <div data-monitor="hosters" hidden></div>
+            <div data-monitor="history" hidden></div>
+          </details>
+          <div data-monitor="confirmation" hidden><p></p><button type="button" class="btn btn-ghost btn-sm" data-action="confirm">Bestätigen</button><button type="button" class="btn btn-ghost btn-sm" data-action="cancel">Abbrechen</button></div>
+        </section>
 
           </section>
 
@@ -2269,7 +2271,7 @@
     <aside class="setup-rail" aria-label="Einrichtungsfortschritt">
       <div class="setup-brand">
         <span class="setup-brand-kicker">ROYAL DOWNLOAD</span>
-        <strong>ERSTEINRICHTUNG</strong>
+        <strong>Dein Royal.</strong>
       </div>
       <ol class="setup-progress">
         <li class="active" data-setup-marker="1" aria-current="step">
@@ -2278,7 +2280,7 @@
         </li>
         <li data-setup-marker="2">
           <span class="setup-marker-number">02</span>
-          <span><strong>Quellen</strong><small>Filme &amp; Serien</small></span>
+          <span><strong>Sprachprofil</strong><small>Oberfläche &amp; Inhalte</small></span>
         </li>
         <li data-setup-marker="3">
           <span class="setup-marker-number">03</span>
@@ -2296,6 +2298,7 @@
           <span class="setup-marker-number">06</span>
           <span><strong>Zugang</strong><small>Konto anlegen</small></span>
         </li>
+        <li data-setup-marker="7"><span class="setup-marker-number">07</span><span><strong>Bereit?</strong><small>Profil prüfen</small></span></li>
       </ol>
       <div class="setup-data-note">
         <span>Konfiguration</span>
@@ -2305,15 +2308,15 @@
 
     <section class="setup-stage">
       <header class="setup-stage-head">
-        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 6</span>
-        <h1 id="setup-title">Welche Sprache passt zu dir?</h1>
+        <span id="setup-step-label" class="setup-eyebrow">SCHRITT 1 VON 7</span>
+        <h1 id="setup-title">Willkommen bei Royal.</h1>
         <p id="setup-intro">Die Oberfläche wechselt sofort. Inhalte und Anbieternamen bleiben unverändert.</p>
       </header>
 
       <div class="setup-panels">
         <div class="setup-panel" data-setup-step="1">
           <div class="setup-section-title"><strong>Wo läuft Royal?</strong><span>entscheidet den Startweg</span></div>
-          <p class="setup-copy">Die Auswahl richtet Netzwerkzugriff, Browserstart und die neue .env passend ein.</p>
+          <p class="setup-copy">Royal richtet den passenden Betriebsmodus für dein Gerät ein.</p>
           <div class="runtime-mode-selector is-setup" role="radiogroup" aria-label="Betriebsmodus wählen">
             <label class="runtime-mode-card">
               <input id="setup-mode-desktop" type="radio" name="setup-deployment-mode" value="desktop" checked>
@@ -2328,9 +2331,13 @@
               <em>24 / 7</em>
             </label>
           </div>
+
+        </div>
+
+        <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
           <div class="setup-divider"></div>
           <label class="setup-field setup-language-field" for="setup-ui-language">
-            <span>Sprache</span>
+            <span>Oberflächensprache</span>
             <select id="setup-ui-language" aria-label="Sprache für die Oberfläche">
               <option value="de" translate="no">Deutsch</option>
               <option value="en" translate="no" selected>English</option>
@@ -2349,12 +2356,9 @@
             <span aria-hidden="true">文</span>
             <div>
               <strong>Die Steuerung spricht deine Sprache</strong>
-              <p>Im nächsten Schritt bestimmst du Inhaltssprachen und passende Kataloge für Filme und Serien.</p>
+              <p>Die Oberfläche und die Sprache deiner Filme und Serien sind unabhängig voneinander.</p>
             </div>
           </div>
-        </div>
-
-        <div class="setup-panel hidden setup-provider-panel" data-setup-step="2">
           <div class="setup-provider-note">
             <span class="setup-provider-signal" aria-hidden="true"><i></i><i></i><i></i></span>
             <p>Wähle zuerst Deutsch, Englisch oder beides. Danach kannst du die passenden Anbieter verfeinern.</p>
@@ -2370,7 +2374,7 @@
               <strong id="setup-content-language-summary" class="content-language-summary" role="status"></strong>
             </div>
           </section>
-          <div class="setup-provider-board provider-source-board">
+          <details class="setup-source-details"><summary>Quellen anpassen</summary><div class="setup-provider-board provider-source-board">
             <section class="provider-priority-card provider-source-lane" aria-labelledby="setup-movie-provider-title">
               <div class="provider-card-heading">
                 <span class="provider-media-mark" aria-hidden="true">F</span>
@@ -2405,6 +2409,8 @@
               <ol id="setup-anime-provider-priority" class="provider-priority-list" aria-label="Animequellen auswählen und sortieren"></ol>
             </section>
           </div>
+          </details>
+          <label id="setup-subscription-choice" class="setup-subscription-choice" hidden><input id="setup-update-subscriptions" type="checkbox"><span><strong>Bestehende Serien künftig in den gewählten Inhaltssprachen laden</strong><small>Ohne Auswahl behalten vorhandene Abos ihre Sprache. Dateien und geplante Downloads bleiben erhalten.</small></span></label>
         </div>
 
         <div class="setup-panel hidden" data-setup-step="3">
@@ -2510,7 +2516,7 @@
           <div class="setup-field-grid">
             <label class="setup-field" for="setup-auth-password">
               <span>Passwort</span>
-              <input id="setup-auth-password" type="password" autocomplete="new-password" placeholder="mindestens 8 Zeichen">
+              <input id="setup-auth-password" type="password" autocomplete="new-password" placeholder="mindestens 12 Zeichen">
             </label>
             <label class="setup-field" for="setup-auth-password-repeat">
               <span>Passwort wiederholen</span>
@@ -2518,9 +2524,12 @@
             </label>
           </div>
           <p class="setup-copy">Das Passwort wird nur als Hashwert gespeichert und lässt sich später in den Einstellungen unter „Zugang“ ändern.</p>
+          <label id="setup-bootstrap-field" class="setup-field" hidden for="setup-bootstrap-token"><span>Einmaliger Sicherheitscode</span><input id="setup-bootstrap-token" type="password" autocomplete="one-time-code" maxlength="256"><small id="setup-bootstrap-hint">Du findest den Code im Royal-Server- oder Container-Log.</small></label>
         </div>
+        <div class="setup-panel hidden" data-setup-step="7"><div id="setup-review" class="setup-review"></div><p class="setup-copy">Royal speichert dein Profil und bereitet die Oberfläche vor. Vorhandene Dateien bleiben erhalten.</p></div>
       </div>
 
+      <div id="setup-preparing" class="setup-preparing" hidden role="status"><div class="language-studio-orbit" aria-hidden="true"><span>RD</span></div><h2 id="setup-preparing-title">Royal macht alles bereit.</h2><p id="setup-preparing-copy">Dein Profil wird gespeichert …</p><ol><li>Profil speichern</li><li>Quellen und Katalog vorbereiten</li><li>Oberfläche bereitstellen</li></ol></div>
       <div id="setup-status" class="setup-status" role="status" aria-live="polite"></div>
       <footer class="setup-actions">
         <button id="setup-back" class="btn btn-ghost hidden" type="button">Zurück</button>
@@ -2710,5 +2719,17 @@
 </div>
 
 <script type="module" src="/app.js?v=royal-20260921-1"></script>
+
+  <dialog id="language-setup-dialog" class="language-studio" aria-labelledby="language-studio-title" aria-describedby="language-studio-intro" translate="no">
+    <div class="language-studio-shell">
+      <header class="language-studio-header"><div class="language-studio-emblem" aria-hidden="true"><i></i><i></i><span>RD</span></div><div><h2 id="language-studio-title" data-language-setup="title">Dein Royal. Deine Sprache.</h2><p id="language-studio-intro" data-language-setup="intro">Eine Oberfläche, passende Inhalte und Abos, die mitdenken.</p></div></header>
+      <ol class="language-studio-steps" data-language-setup="steps" aria-label="Setup-Schritte"></ol>
+      <div class="language-studio-content" data-language-setup="content" tabindex="-1"></div>
+      <section class="language-studio-busy" data-language-setup="busy" hidden role="status" aria-live="polite"><div class="language-studio-orbit" aria-hidden="true"><i></i><i></i><span>RD</span></div><h3 data-language-setup="busy-copy">Dein Sprachprofil wird vorbereitet …</h3><p>Royal macht alles bereit.</p><ol><li>Sprachprofil speichern</li><li>Quellen &amp; Serien vorbereiten</li><li>Oberfläche umstellen</li></ol></section>
+      <p class="language-studio-error" data-language-setup="error" role="alert"></p>
+      <footer class="language-studio-footer" data-language-setup="footer"><button type="button" class="btn btn-ghost" data-language-setup="cancel">Abbrechen</button><div class="language-studio-current"><strong data-language-setup="selection"></strong><small data-language-setup="subscription-summary"></small></div><div class="language-studio-navigation"><button type="button" class="btn btn-ghost" data-language-setup="back">Zurück</button><button type="button" class="btn btn-primary" data-language-setup="next">Weiter</button></div></footer>
+    </div>
+  </dialog>
+
 </body>
 </html>

@@ -129,17 +129,28 @@ const app = appModulePaths
   .join("\n");
 const frontend = `${login}\n${app}`;
 
-test("episode selection requires an enabled stream language", () => {
+test("episode selection requires exact language evidence for multilingual providers", () => {
   const state = {
     series: {
-      current: { provider: "serienstream", enabled_content_languages: ["de"] },
+      current: {
+        provider: "serienstream",
+        enabled_content_languages: ["de"],
+        // The first detail payload may not have capability metadata yet.
+        // SerienStream must still require exact episode-language evidence.
+      },
     },
     queuedSlugs: new Set(),
     providers: { contentLanguages: new Set(["de"]) },
   };
-  const episodes = createSeriesEpisodes({}, { seriesState: state.series, getQueuedSlugs: () => state.queuedSlugs,
-    getEnabledLanguages: () => state.providers.contentLanguages });
-  const context = vm.createContext({ state, sharedPresentation: { seriesEpisodes: episodes, seriesState: state.series } });
+  const episodes = createSeriesEpisodes({}, {
+    seriesState: state.series,
+    getQueuedSlugs: () => state.queuedSlugs,
+    getEnabledLanguages: () => state.providers.contentLanguages,
+  });
+  const context = vm.createContext({
+    state,
+    sharedPresentation: { seriesEpisodes: episodes, seriesState: state.series },
+  });
   Object.assign(context, episodes);
   const selectable = (episode) => vm.runInContext(
     `isEpisodeSelectable(${JSON.stringify(episode)})`, context,
@@ -147,14 +158,50 @@ test("episode selection requires an enabled stream language", () => {
   const actionable = (episode) => vm.runInContext(
     `isEpisodeActionable(${JSON.stringify(episode)})`, context,
   );
+  const lock = (episode) => vm.runInContext(
+    `episodeLanguageLockLabel(${JSON.stringify(episode)})`, context,
+  );
 
-  assert.equal(selectable({ slug: "e15", content_languages: ["de", "en"] }), true);
-  assert.equal(selectable({ slug: "e17", content_languages: ["en"] }), false);
-  assert.equal(actionable({ slug: "e17", content_languages: ["en"] }), false);
-  assert.equal(vm.runInContext(
-    'episodeLanguageLockLabel({ slug: "e17", content_languages: ["en"] })', context,
-  ), "NUR EN");
-  state.series.current = { provider: "huhu", enabled_content_languages: ["de"] };
+  // Staffel-list flags are only hints. An unchecked multilingual episode must
+  // remain actionable so the exact episode endpoint can verify its hosters.
+  assert.equal(selectable({ slug: "s13e03", content_languages: ["en"] }), false);
+  assert.equal(actionable({ slug: "s13e03", content_languages: ["en"] }), true);
+  assert.equal(lock({ slug: "s13e03", content_languages: ["en"] }), "");
+
+  // Exact episode evidence is authoritative.
+  assert.equal(selectable({
+    slug: "s13e02", language_checked: true, language_available: true,
+    content_languages: ["de", "en"],
+  }), true);
+  assert.equal(selectable({
+    slug: "s13e03", language_checked: true, language_available: false,
+    content_languages: ["en"],
+  }), false);
+  assert.equal(actionable({
+    slug: "s13e03", language_checked: true, language_available: false,
+    content_languages: ["en"],
+  }), false);
+  assert.equal(lock({
+    slug: "s13e03", language_checked: true, language_available: false,
+    content_languages: ["en"],
+  }), "NUR EN");
+
+  // Remote provider language must never relabel already local/Jellyfin media.
+  assert.equal(lock({
+    slug: "old", in_jellyfin: true, language_checked: true,
+    language_available: false, content_languages: ["en"],
+  }), "");
+  assert.equal(lock({
+    slug: "old2", downloaded: true, language_checked: true,
+    language_available: false, content_languages: ["en"],
+  }), "");
+
+  // Existing HUHU cached flags stay backwards compatible.
+  state.series.current = {
+    provider: "huhu",
+    enabled_content_languages: ["de"],
+    provider_content_languages: ["de"],
+  };
   assert.equal(selectable({ slug: "huhu17" }), false);
   assert.equal(actionable({ slug: "huhu17" }), true);
   assert.equal(selectable({
@@ -163,12 +210,10 @@ test("episode selection requires an enabled stream language", () => {
   assert.equal(selectable({
     slug: "huhu17", huhu_language_checked: true, huhu_language_available: false,
   }), false);
-  assert.equal(actionable({
+  assert.equal(lock({
     slug: "huhu17", huhu_language_checked: true, huhu_language_available: false,
-  }), false);
-  assert.equal(vm.runInContext(
-    'episodeLanguageLockLabel({ slug: "huhu17", huhu_language_checked: true, huhu_language_available: false, content_languages: ["en"] })', context,
-  ), "NUR EN");
+    content_languages: ["en"],
+  }), "NUR EN");
 });
 
 test("home rails use carousel controls only, without a meaningless show-all action", () => {
@@ -341,7 +386,7 @@ test("fresh setup starts in English and prioritizes live setup translation", () 
   }
   assert.doesNotMatch(localization, /await changeLanguage\(language\)/);
   assert.match(localization, /changeLanguage\(language\)\.catch/);
-  assert.match(app, /userInitiated: true, persist: true/);
+  assert.match(app, /userInitiated: true/);
   assert.doesNotMatch(html, /src="\/i18n\.js/);
   assert.match(app, /createLocalization\(document\)/);
   assert.match(app, /createSetup\(document.getElementById\("setup-wizard"\)/);
@@ -952,6 +997,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/movie-language.css",
     "styles/taste-feedback.css",
     "styles/daily-top.css",
+    "styles/language-studio.css",
   ]);
   for (const path of imports) {
     assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);

@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from pathlib import Path
 
 import pytest
@@ -344,6 +345,14 @@ def test_api_channel_change_is_saved_and_reconfigures_checker(
     monkeypatch, isolated_config,
 ):
     checker = _Checker()
+    event_loop_thread = threading.get_ident()
+    original_set_branch = checker.set_branch
+
+    def set_branch_in_worker(branch):
+        assert threading.get_ident() != event_loop_thread
+        original_set_branch(branch)
+
+    monkeypatch.setattr(checker, "set_branch", set_branch_in_worker)
     monkeypatch.setattr(server, "UPDATE_CHECKER", checker)
     monkeypatch.setattr(server.state, "updater_cfg", config.load_updater())
 

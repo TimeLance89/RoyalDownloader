@@ -461,6 +461,28 @@ def tmdb_language_for_ui(language: str) -> str:
     return "de-DE" if normalize_ui_language(language) == "de" else "en-US"
 
 
+def load_subscription_languages() -> dict:
+    try:
+        raw = json.loads(_read_all().get("subscription_content_languages", "{}"))
+        return {str(key): normalize_content_languages(values) for key, values in raw.items()
+                if isinstance(values, list) and normalize_content_languages(values)} if isinstance(raw, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def save_language_setup(language, content_languages, enabled, subscription_languages) -> bool:
+    """Persist the complete language transition in one atomic settings write."""
+    return _update_all({
+        "ui_language": language,
+        "tmdb_language": tmdb_language_for_ui(language),
+        "content_languages": ",".join(content_languages),
+        "movie_provider_enabled": ",".join(enabled["movies"]),
+        "series_provider_enabled": ",".join(enabled["series"]),
+        "anime_provider_enabled": ",".join(enabled["anime"]),
+        "subscription_content_languages": json.dumps(subscription_languages, ensure_ascii=False),
+    })
+
+
 def save_ui_language(language: str) -> bool:
     normalized = normalize_ui_language(language)
     return _update_all({
@@ -1051,6 +1073,7 @@ def save_initial_setup(
     auth_username: str = "",
     auth_password_hash: str = "",
     deployment_mode: str = MODE_DESKTOP,
+    subscription_languages: dict | None = None,
 ) -> bool:
     """Speichert die komplette Ersteinrichtung in einem einzigen Schreibvorgang."""
     movie_order = normalize_provider_order(
@@ -1086,6 +1109,7 @@ def save_initial_setup(
         }
     return _update_all({
         **account,
+        **({"subscription_content_languages": json.dumps(subscription_languages, ensure_ascii=False)} if subscription_languages is not None else {}),
         "deployment_mode": normalize_deployment_mode(deployment_mode),
         "save_path": save_path.strip(),
         "series_path": series_path.strip(),

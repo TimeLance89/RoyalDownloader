@@ -6,7 +6,7 @@ import { supportedProviderLanguages, providerMatchesLanguages } from "../../shar
 
 /** Shared provider draft; backend acknowledgements replace it on load/save. */
 export function createProviderSettings(settingsRoot, setupRoot, {
-  client = api, onChange = () => {}, onApply = () => {}, onSetupStatus = () => {},
+  client = api, onChange = () => {}, onApply = () => {}, onSetupStatus = () => {}, onLanguageSetup,
 } = {}) {
   const data = { movies: [], series: [], anime: [], labels: {}, catalog: {}, languages: {},
     contentLanguages: new Set(), enabledMovies: new Set(), enabledSeries: new Set(), enabledAnime: new Set() };
@@ -66,8 +66,14 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       }).join("");
       container.querySelectorAll(".content-language-card").forEach((button) => {
         rows.listen(button, "click", () => {
-          revision++;
           const language = button.dataset.language;
+          if (context === "settings" && onLanguageSetup) {
+            const proposed = new Set(selected);
+            if (proposed.has(language)) proposed.delete(language); else proposed.add(language);
+            onLanguageSetup({ contentLanguages: [...proposed] });
+            return;
+          }
+          revision++;
           if (selected.has(language) && selected.size <= 1) {
             setProviderSelectionStatus(context, "Mindestens eine Inhaltssprache muss aktiv bleiben.", true);
             return;
@@ -166,17 +172,20 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       series: "Serienquelle",
       anime: "Animequelle",
     }[mediaType];
+    const route = providers.filter(provider => matchesLanguages(provider) && enabled.has(provider));
     list.innerHTML = providers.map((provider, index) => {
       const meta = data.catalog[provider] || {};
       const label = data.labels[provider] || meta.label || provider;
       const languageActive = matchesLanguages(provider);
       const active = languageActive && enabled.has(provider);
+      const rank = route.indexOf(provider);
+      const role = !languageActive ? "Andere Inhaltssprache" : !active ? "Pausiert" : rank === 0 ? "Erste Wahl" : `Ausweichquelle ${rank}`;
       const logoUrl = providerLogoUrl(meta);
       const languageCode = providerLanguages(provider).map(language => language.toUpperCase()).join(" + ");
       const languageLabel = (meta.language_labels || [meta.language_label || languageCode]).join(" + ");
       return `
         <li class="provider-source-card ${active ? "is-enabled" : "is-disabled"} ${languageActive ? "" : "is-language-muted"} ${mediaType === "series" ? "is-series" : ""}"
-            data-provider="${escapeHtml(provider)}">
+            data-provider="${escapeHtml(provider)}" data-route-role="${rank === 0 ? "primary" : "fallback"}" ${!isSetup && !active && list.dataset.showAll !== "true" ? "hidden" : ""}>
           <label class="provider-source-toggle">
             <input type="checkbox" ${active ? "checked" : ""}
               ${languageActive ? "" : "disabled"}
@@ -187,6 +196,7 @@ export function createProviderSettings(settingsRoot, setupRoot, {
             </span>
             <span class="provider-source-copy">
               <strong class="provider-name" translate="no">${escapeHtml(label)}</strong>
+              <span class="provider-source-role">${escapeHtml(role)}</span>
               <span class="provider-source-meta" translate="no">
                 <em>${escapeHtml(languageCode)}</em>
                 <small>${escapeHtml(languageLabel)}</small>
@@ -209,6 +219,20 @@ export function createProviderSettings(settingsRoot, setupRoot, {
       `;
     }).join("");
 
+    if (!isSetup) {
+      const inactive = providers.length - route.length;
+      let more = list.parentElement.querySelector(".catalog-more-sources");
+      if (!more) {
+        more = list.ownerDocument.createElement("button");
+        more.type = "button"; more.className = "catalog-more-sources";
+        list.after(more);
+      }
+      more.hidden = !inactive;
+      more.textContent = list.dataset.showAll === "true" ? "Nur aktive Quellen zeigen" : `${inactive} weitere Quellen anzeigen`;
+      more.setAttribute("aria-expanded", String(list.dataset.showAll === "true"));
+      more.setAttribute("aria-controls", list.id);
+      rows.listen(more, "click", () => { list.dataset.showAll = String(list.dataset.showAll !== "true"); renderAllProviderBoards(); });
+    }
     list.querySelectorAll(".provider-logo-image").forEach((image) => {
       rows.listen(image, "error", () => image.remove(), { once: true });
     });

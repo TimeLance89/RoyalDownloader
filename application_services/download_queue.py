@@ -286,7 +286,14 @@ def run_download_queue(
             # jedem Versuch die gewählte Quelle erneut laden; danach folgen die
             # Katalog-Fallbacks und bei Serienstream gegebenenfalls Cooldowns.
             primary_unavailable = False
-            if not movie.hosters:
+            language_job = _queue_job_for_slug(movie_slug) or {}
+            refresh_language_tracks = (
+                language_job.get("wait_reason") == "language_unavailable"
+                or (language_job.get("wait_reason") == "source_unavailable"
+                    and language_job.get("content_language")
+                    and not language_job.get("language_checked_at"))
+            )
+            if not movie.hosters or refresh_language_tracks:
                 refreshed_movie = None
                 is_sto = provider_for_value(movie_slug) == "serienstream"
                 if is_sto and not state.provider_health.request_allowed("serienstream"):
@@ -322,11 +329,16 @@ def run_download_queue(
                 continue
 
         source_movies = [movie]
+        required_language = _queue_requested_language(movie_slug)
+        if required_language:
+            movie._required_content_language = required_language
         seen_source_urls = {movie.url}
         known_fallbacks = (movie_fallbacks or {}).get(movie_slug, [])
         for fallback_movie in known_fallbacks:
             if fallback_movie.url in seen_source_urls:
                 continue
+            if required_language:
+                fallback_movie._required_content_language = required_language
             source_movies.append(fallback_movie)
             seen_source_urls.add(fallback_movie.url)
         # Ein leerer, früher aufgebauter Episoden-Fallback-Eintrag beweist
@@ -359,6 +371,8 @@ def run_download_queue(
             )
             for candidate in alternatives:
                 if candidate.url not in seen_source_urls:
+                    if required_language:
+                        candidate._required_content_language = required_language
                     source_movies.append(candidate)
                     seen_source_urls.add(candidate.url)
         if ep_info:
@@ -393,10 +407,12 @@ def run_download_queue(
                         source_slug=movie_slug,
                         limit=1,
                     )
-                    source_movies.extend(
-                        candidate for candidate in alternatives
-                        if candidate.url not in {m.url for m in source_movies}
-                    )
+                    for candidate in alternatives:
+                        if candidate.url in {m.url for m in source_movies}:
+                            continue
+                        if required_language:
+                            candidate._required_content_language = required_language
+                        source_movies.append(candidate)
                     # Ein erster exakter Treffer wird sofort versucht. Erst
                     # wenn dessen Extraktion oder Download scheitert, werden
                     # die übrigen Kataloge geladen.
@@ -444,10 +460,13 @@ def run_download_queue(
                     excluded_providers=tried_providers,
                 )
                 known_urls = {candidate.url for candidate in source_movies}
-                source_movies.extend(
-                    candidate for candidate in alternatives
-                    if candidate.url not in known_urls
-                )
+                for candidate in alternatives:
+                    if candidate.url in known_urls:
+                        continue
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
+                    known_urls.add(candidate.url)
                 while next_index < len(source_movies):
                     next_movie = source_movies[next_index]
                     log(
@@ -469,6 +488,9 @@ def run_download_queue(
                     source_index = next_index - 1
                     break
 
+        if required_language:
+            _update_queue_job(movie_slug, persist=False, language_checked_at=time.time())
+
         if not result.stream_info:
             if gate_seen[0]:
                 # s.to-Gate aktiv UND kein Fallback nutzbar – bis zur nächsten
@@ -484,7 +506,14 @@ def run_download_queue(
                     movie_slug,
                     out_root,
                     movie_fallbacks,
-                    reason="source_unavailable",
+                    reason=(
+                        "language_unavailable"
+                        if required_language and all(
+                            _source_languages(source)
+                            and required_language not in _source_languages(source)
+                            for source in source_movies
+                        ) else "source_unavailable"
+                    ),
                 ):
                     queued_slugs.add(movie_slug)
                     log("  Keine nutzbare Quelle – automatische Wiederholung vorgemerkt", "warn")

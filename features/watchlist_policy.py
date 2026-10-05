@@ -1,5 +1,7 @@
 """Auswahlregeln fuer automatisch abonnierte Serienepisoden."""
 
+from features.episode_language_policy import episode_language_state
+
 WATCH_MODE_ALL = "all"
 WATCH_MODE_LATEST_SEASON = "latest_season"
 WATCH_MODE_NEXT_SEASON = "next_season"
@@ -228,6 +230,7 @@ def classify_subscription_episode_states(
     season_episode_counts=None,
     unreleased_slugs=None,
     enabled_content_languages=None,
+    exact_content_languages=None,
 ) -> dict[str, str]:
     """Classify selected subscription episodes without treating absence as failure.
 
@@ -265,6 +268,10 @@ def classify_subscription_episode_states(
         }
         if episode.slug in unreleased or not bool(getattr(episode, "is_released", True)):
             result[episode.slug] = "upcoming"
+        elif exact_content_languages is not None:
+            result[episode.slug] = episode_language_state(
+                exact_content_languages.get(episode.slug), desired,
+            )
         elif desired and languages and languages.isdisjoint(desired):
             result[episode.slug] = "waiting_for_language"
         else:

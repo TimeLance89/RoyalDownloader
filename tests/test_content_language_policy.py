@@ -191,3 +191,90 @@ def test_selected_language_is_persisted_and_filters_restored_fallbacks(monkeypat
         with server.state.movie_source_cache_lock:
             server.state.movie_source_cache.pop(slug, None)
         server.state.fp_movies.pop(slug, None)
+
+
+def test_episode_queue_uses_only_concrete_enabled_hoster_language(monkeypatch):
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e01"
+    movie = FilmpalastMovie(
+        title="Fixture S01E01",
+        url="moviebox:123-s1e1",
+        provider="moviebox",
+        content_language="en",
+        hosters=[
+            HosterInfo("MovieBox", "https://example.test/en.m3u8", "en"),
+        ],
+    )
+    try:
+        job = content_language_policy._ensure_queue_job(slug, movie)
+        assert job["content_language"] == "en"
+    finally:
+        with server.state.queue_claim_lock:
+            job_id = server.state.queue_job_by_slug.pop(slug, "")
+            if job_id:
+                server.state.queue_jobs.pop(job_id, None)
+
+
+def test_single_language_installation_pins_episode_even_when_provider_track_is_unknown(monkeypatch):
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e02"
+    movie = FilmpalastMovie(
+        title="Fixture S01E02",
+        url="moviebox:123-s1e2",
+        provider="moviebox",
+        content_language="en",
+        hosters=[
+            HosterInfo("MovieBox", "https://example.test/unknown.m3u8", ""),
+        ],
+    )
+    try:
+        job = content_language_policy._ensure_queue_job(slug, movie)
+        assert job["content_language"] == "de"
+    finally:
+        with server.state.queue_claim_lock:
+            job_id = server.state.queue_job_by_slug.pop(slug, "")
+            if job_id:
+                server.state.queue_jobs.pop(job_id, None)
+
+
+def test_existing_queue_language_is_never_overwritten_by_later_provider(monkeypatch):
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    slug = f"moviebox:test-{uuid.uuid4().hex[:8]}-s01e03"
+    german = FilmpalastMovie(
+        title="Fixture S01E03",
+        url="moviebox:123-s1e3",
+        provider="moviebox",
+        hosters=[HosterInfo("MovieBox", "https://example.test/de.m3u8", "de")],
+    )
+    english = FilmpalastMovie(
+        title="Fixture S01E03",
+        url="vidrift:123-s1e3",
+        provider="vidrift",
+        hosters=[HosterInfo("VidRift", "https://example.test/en.m3u8", "en")],
+    )
+    try:
+        first = content_language_policy._ensure_queue_job(slug, german)
+        second = content_language_policy._ensure_queue_job(slug, english)
+        assert first["content_language"] == "de"
+        assert second["content_language"] == "de"
+    finally:
+        with server.state.queue_claim_lock:
+            job_id = server.state.queue_job_by_slug.pop(slug, "")
+            if job_id:
+                server.state.queue_jobs.pop(job_id, None)
+
+
+def test_queue_requested_language_is_published_to_runtime(monkeypatch):
+    slug = f"runtime-language-{uuid.uuid4().hex}"
+    try:
+        job = content_language_policy._ensure_queue_job(
+            slug,
+            _movie_source("Shared Movie", "filmpalast", "de", "runtime"),
+        )
+        assert job["content_language"] == "de"
+        assert server._queue_requested_language(slug) == "de"
+    finally:
+        with server.state.queue_claim_lock:
+            job_id = server.state.queue_job_by_slug.pop(slug, "")
+            if job_id:
+                server.state.queue_jobs.pop(job_id, None)

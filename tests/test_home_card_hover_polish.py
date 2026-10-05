@@ -12,9 +12,9 @@ TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf
 
 def test_cinema_dock_and_premium_card_finish_are_loaded_last():
     imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
-    assert imports[-5] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
-    assert imports[-4] == "@import url('/styles/home-card-premium.css?v=royal-20260830-2');"
-    assert imports[-3] == "@import url('/styles/home-rails-mockup.css?v=royal-20260915-2');"
+    assert imports[-6] == "@import url('/styles/home-card-hover.css?v=royal-20260811-5');"
+    assert imports[-5] == "@import url('/styles/home-card-premium.css?v=royal-20260830-2');"
+    assert imports[-4] == "@import url('/styles/home-rails-mockup.css?v=royal-20260915-2');"
     assert '<script src="/home_card_dock.js' not in (
         ROOT / "web" / "index.html"
     ).read_text(encoding="utf-8")

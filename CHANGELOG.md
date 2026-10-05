@@ -2,7 +2,67 @@
 
 ## Unreleased
 
-_No unreleased changes._
+### Unified first-run onboarding
+
+- Bring first-run setup into the language studio design with seven clear steps,
+  independent interface/content choices and expandable source customization.
+- Ask about future language changes only when existing subscriptions are present;
+  persist their retained or updated preferences in the initial atomic write.
+- Replace the browser bootstrap prompt with an inline security-code field and
+  show the same 12-character password minimum used by validation.
+- Review and edit the full profile before saving. Keep preparation visible until
+  the session, settings, catalogs and interface are ready, with retries that do
+  not create the administrator account or save the profile again.
+- Make initial setup loading failures recoverable, preserve keyboard focus within
+  the wizard and respect reduced-motion preferences.
+
+### Guided language profiles and source catalog
+
+- Redesign the source catalog with clear first-choice and fallback roles,
+  language badges and expandable inactive sources.
+- Guide interface and content language changes through an animated three-step
+  setup, including selective future-language changes for subscribed series.
+- Save the profile atomically, retain unselected subscription languages across
+  restarts and select matching providers automatically.
+- Keep the setup open while catalogs and translations refresh; preparation can
+  be retried without saving twice. Existing files and queued language contracts
+  are preserved.
+
+### Subscription language verification and source availability
+
+- Share pending episode-language checks across selection and detail hydration;
+  unchecked multilingual episodes cannot be selected or preselected from the inbox.
+- Probe concrete subscription episode languages with bounded requests and cached
+  evidence. Keep failed or deferred language checks visible as pending, and publish
+  detail-check results back to the subscription inbox without stale failure badges.
+- Verify already queued episodes too; known wrong-language sources keep the job
+  waiting for its requested language instead of escalating general source retries.
+  Revalidate legacy queued jobs promptly once after upgrading.
+- Use a language-neutral waiting label instead of always naming German.
+- Check anime episode tracks during standard source monitoring and schedule the
+  first check of untested sources promptly. Show source availability below the
+  source catalog in settings.
+
+### Strict content-language routing
+
+- Make a queue item's chosen content language a hard contract across provider,
+  hoster, cached-source and cross-provider fallback resolution; a DE job can no
+  longer silently continue through an EN source merely because EN is enabled
+  globally.
+- Separate provider language capabilities from concrete title/episode/hoster
+  evidence and fail closed when a multilingual provider cannot prove the
+  requested episode language.
+- Verify exact episode hoster languages on selection for multilingual series
+  providers; SerienStream/Huhu keep the bounded latest-season precheck.
+- Stop stale remote source labels from showing "NUR EN" on episodes already
+  downloaded or present in Jellyfin.
+- Keep HLS/DASH audio selection language-strict when the manifest exposes a
+  concrete audio language, while retaining provider-label routing for muxed
+  streams without fabricated manifest tags.
+- Declare the known multilingual capabilities of FilmPalast, Huhu, KinoGer,
+  KinoKing and SerienStream so their default DE label is no longer mistaken for
+  proof about every stream.
+
 
 ## v1.6.0 – 2026-10-04
 

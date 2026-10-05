@@ -552,7 +552,7 @@ def _install_update_checker_hardening(update_checker_module) -> None:
     def check_uncached(self):
         payload = original_check_uncached(self)
         latest_sha = str(payload.get("latest_sha") or "")
-        if not latest_sha:
+        if not latest_sha or payload.get("error"):
             payload.setdefault("commit_signature_verified", False)
             payload.setdefault("security_approved", False)
             return payload
@@ -567,6 +567,13 @@ def _install_update_checker_hardening(update_checker_module) -> None:
             reason = str(verification.get("reason") or ("valid" if verified else "unverified"))
         except Exception as exc:  # fail closed on trust metadata errors
             reason = f"verification_error:{type(exc).__name__}"
+            if isinstance(exc, (update_checker_module.requests.RequestException,
+                                update_checker_module.UpdateRateLimitError)):
+                payload["error_code"] = "github_unavailable"
+                payload["error"] = (
+                    "Die Update-Freigabe konnte noch nicht geprüft werden. "
+                    "Bitte erneut prüfen."
+                )
         quality_passed = payload.get("quality_gate") == "passed"
         security_approved = bool(verified and quality_passed)
         payload.update({

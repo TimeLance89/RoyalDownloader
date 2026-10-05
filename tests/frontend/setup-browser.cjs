@@ -29,13 +29,28 @@ const server = createServer(async (req, res) => {
       content_languages: ["de", "en"], languages: { de: "Deutsch", en: "English" },
       catalog: Object.fromEntries(["movie-de", "movie-en", "series-de", "series-en"].map(key => [key, { label: key, content_language: key.endsWith("de") ? "de" : "en" }])) };
     let setupRequired = true, jellyfinSlow = false, loginRequired = false, tasteSlow = false;
+    let releaseAuth, releaseSetup, authRequested, setupRequested;
+    const authGate = new Promise(resolve => { releaseAuth = resolve; });
+    const setupGate = new Promise(resolve => { releaseSetup = resolve; });
+    const authStarted = new Promise(resolve => { authRequested = resolve; });
+    const setupStarted = new Promise(resolve => { setupRequested = resolve; });
+    await page.addInitScript(() => {
+      window.sessionExpirations = 0;
+      document.addEventListener("royal:session-expired", () => window.sessionExpirations++);
+    });
     const jf = { url: "http://jellyfin.fixture", has_api_key: true, user_id: "fixture-user", user_name: "Fixture", cleanup_default: "keep" };
     await page.routeWebSocket("**/ws", () => {});
     await page.route("**/api/**", async route => {
       const url = new URL(route.request().url()), method = route.request().method();
       let data = {};
       if (method !== "GET") writes.push({ path: url.pathname, body: route.request().postDataJSON() });
-      if (url.pathname === "/api/auth/status") data = { configured: loginRequired, authenticated: !loginRequired };
+      if (url.pathname === "/api/fixture-protected") {
+        await route.fulfill({ status: 401, json: { detail: "Unauthorized" } }); return;
+      }
+      if (url.pathname === "/api/auth/status") {
+        authRequested(); await authGate;
+        data = { configured: loginRequired, authenticated: !loginRequired };
+      }
       if (url.pathname === "/api/taste/onboarding") {
         if (tasteSlow) await new Promise(resolve => setTimeout(resolve, 450));
         data = { user: { id: "fixture", username: "fixture-owner", role: "admin", taste_onboarding_required: false }, profile: {} };
@@ -43,7 +58,10 @@ const server = createServer(async (req, res) => {
       if (url.pathname === "/api/auth/login") { loginRequired = false; data = { configured: true, authenticated: true, user: { id: "fixture", username: "fixture-owner", role: "admin" } }; }
       if (url.pathname === "/api/ui/config") data = { language: "en", configured: true };
       if (url.pathname === "/api/ui/translate") data = { translations: route.request().postDataJSON().texts };
-      if (url.pathname === "/api/setup/status") data = { required: setupRequired, bootstrap_required: true, bootstrap_hint: "Fixture bootstrap", defaults: { providers, save_path: "/fixture/movies", series_path: "/fixture/series", jellyfin: jf } };
+      if (url.pathname === "/api/setup/status") {
+        setupRequested(); await setupGate;
+        data = { required: setupRequired, bootstrap_required: true, bootstrap_hint: "Fixture bootstrap", defaults: { providers, save_path: "/fixture/movies", series_path: "/fixture/series", jellyfin: jf } };
+      }
       if (url.pathname === "/api/setup/complete") { setupRequired = false; data = { ok: true }; }
       if (url.pathname === "/api/config") data = { save_path: "/fixture/movies", series_path: "/fixture/series", deployment_mode: "desktop" };
       if (url.pathname === "/api/providers/config") data = providers;
@@ -61,8 +79,25 @@ const server = createServer(async (req, res) => {
       if (url.pathname === "/api/v1/capabilities") data = { build: "fixture" };
       await route.fulfill({ json: data });
     });
-    await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "networkidle" });
+    await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "domcontentloaded" });
+    const protectedRequest = () => page.evaluate(async () => {
+      const { api } = await import("/js/core/api.js");
+      try { await api.get("/api/fixture-protected"); }
+      catch (error) { return error.status; }
+    });
+    // Startup 401s must not open login before either status request has resolved.
+    await authStarted;
+    assert.equal(await protectedRequest(), 401);
+    assert.equal(await page.locator("#login-screen").isVisible(), false);
+    assert.equal(await page.evaluate(() => window.sessionExpirations), 0);
+    releaseAuth();
+    await setupStarted;
+    assert.equal(await protectedRequest(), 401);
+    assert.equal(await page.locator("#login-screen").isVisible(), false);
+    assert.equal(await page.evaluate(() => window.sessionExpirations), 0);
+    releaseSetup();
     await page.locator("#setup-wizard").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#login-screen").isVisible(), false);
     assert.equal(await page.locator("#setup-title").textContent(), "How would you like to use Royal?");
     await page.locator(".runtime-mode-card").filter({ has: page.locator("#setup-mode-nas") }).click();
     await page.locator("#setup-next").click();
@@ -88,7 +123,8 @@ const server = createServer(async (req, res) => {
     await page.locator("#setup-auth-username").fill("fixture-owner");
     await page.locator("#setup-auth-password").fill("fixture-password-only");
     await page.locator("#setup-auth-password-repeat").fill("fixture-password-only");
-    page.once("dialog", dialog => dialog.accept("fixture-bootstrap"));
+    await page.locator("#setup-bootstrap-token").fill("fixture-bootstrap");
+    await page.locator("#setup-next").click();
     await page.locator("#setup-finish").click();
     try { await page.locator("#setup-wizard").waitFor({ state: "hidden", timeout: 10000 }); }
     catch (error) { console.error({ status: await page.locator("#setup-status").textContent(), errors, writes: writes.map(item => item.path) }); throw error; }
@@ -100,6 +136,47 @@ const server = createServer(async (req, res) => {
     assert.equal(submissions[0].body.jellyfin_user_id, "other");
     assert.equal(submissions[0].body.bootstrap_token, "fixture-bootstrap");
     assert.equal(await page.locator("#setup-auth-password").inputValue(), "");
+    // General settings saves must not contact an untouched optional Jellyfin server.
+    await page.evaluate(async () => {
+      const { createJellyfinSettings } = await import("/js/features/integrations/jellyfin.js");
+      const root = document.querySelector("#jellyfin-url").closest(".settings-group").cloneNode(true);
+      const writes = [];
+      const view = createJellyfinSettings(root, { client: {
+        get: async () => ({ url: "http://optional:8096", has_api_key: false }),
+        post: async (_url, body) => {
+          writes.push(body);
+          return { ...body, has_api_key: false, saved: true };
+        },
+      } });
+      try {
+        view.mount(); await view.initialize();
+        await view.save();
+        if (writes.length) throw new Error("Untouched Jellyfin must not block other settings");
+        root.querySelector("#jellyfin-url").value = "";
+        root.dispatchEvent(new Event("input"));
+        await view.save();
+        if (writes.length !== 1 || writes[0].url || writes[0].api_key) throw new Error("Empty optional Jellyfin must be savable");
+        if (view.get().userConfigured) throw new Error("Empty Jellyfin must remain inactive");
+      } finally { view.dispose(); }
+    });
+    await page.evaluate(async () => {
+      const { createDirectoryPicker } = await import("/js/features/settings/directory.js");
+      const root = document.querySelector("#dir-modal").cloneNode(true);
+      root.id = "fixture-directory";
+      document.body.appendChild(root);
+      const target = document.createElement("input"); target.value = "/original";
+      const picker = createDirectoryPicker(root, { client: {
+        get: async () => ({ path: "/denied", parent: "/", dirs: [], error: "Permission denied" }),
+      } });
+      try {
+        picker.open(target);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!root.querySelector("#dir-modal-select").disabled) throw new Error("Unreadable folder cannot be selected");
+        if (!root.querySelector("#dir-modal-list").textContent.includes("Permission denied")) throw new Error("Folder errors must be visible");
+        root.querySelector("#dir-modal-select").dispatchEvent(new Event("click"));
+        if (target.value !== "/original") throw new Error("Failed browse must preserve the original path");
+      } finally { picker.unmount(); root.remove(); }
+    });
     await page.evaluate(async () => { const { switchTab } = (await import(document.querySelector('script[type="module"]').src)).application.core.actions; switchTab("einstellungen"); document.querySelector('[data-settings-target="settings-media"]').click(); });
     await page.waitForFunction(() => document.querySelector("#jellyfin-url").value.includes("jellyfin.fixture"));
     await page.locator("#jellyfin-url").fill("http://unsaved.fixture");
@@ -156,6 +233,14 @@ const server = createServer(async (req, res) => {
     await page.locator("#taste-onboarding").waitFor({ state: "hidden" });
     const tasteWrites = writes.filter(write => write.path === "/api/taste/onboarding");
     assert.equal(tasteWrites.length, 2); assert.equal(tasteWrites[1].body.items.length, 5);
+    // Once an account exists, a protected 401 still opens the expired-session login.
+    assert.equal(await protectedRequest(), 401);
+    await page.locator("#login-screen").waitFor({ state: "visible" });
+    assert.equal(await page.evaluate(() => window.sessionExpirations), 1);
+    assert.equal(await page.evaluate(async () => (await import(document.querySelector('script[type="module"]').src)).application.profile.auth.get().authenticated), false);
+    assert.equal(await page.locator("#login-status").evaluate(element => element.classList.contains("error")), true);
+    assert.equal(await protectedRequest(), 401);
+    assert.equal(await page.evaluate(() => window.sessionExpirations), 1);
     assert.deepEqual(errors, []); assert.deepEqual(missing, []);
     console.log(JSON.stringify({ passed: true, setupSubmissions: submissions.length, errors, missing }));
   } finally { await browser.close(); server.close(); }

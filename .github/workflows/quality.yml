@@ -51,6 +51,9 @@ jobs:
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
+      - name: Guided language setup, subscription choices and readiness transition
+        run: node tests/frontend/language-studio-browser.cjs
+
       - name: Storage Autopilot permissions, volume policy and touch layouts
         run: node tests/frontend/storage-autopilot-browser.cjs
 
@@ -59,7 +62,9 @@ jobs:
 
       - name: First-run setup and authentication browser regression
         if: ${{ !cancelled() }}
-        run: node tests/frontend/setup-browser.cjs
+        run: |
+          node tests/frontend/setup-browser.cjs
+          node tests/frontend/onboarding-studio-browser.cjs
 
       - name: Native mobile gestures, seams, orientation and navigation
         run: node tests/frontend/mobile-browser.cjs

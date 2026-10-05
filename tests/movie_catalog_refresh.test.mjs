@@ -295,6 +295,190 @@ test("closing series details discards late provider and subscription responses",
   }
 });
 
+test("SerienStream language truth auto-checks after hydration without an episode click", async () => {
+  const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
+  const initial = {
+    base_slug: "serienstream:american-horror-story",
+    provider: "serienstream",
+    title: "American Horror Story",
+    seasons: [
+      {
+        season: 12,
+        episodes: [
+          { slug: "serienstream:american-horror-story-s12e08", season: 12, episode: 8, in_jellyfin: true },
+          { slug: "serienstream:american-horror-story-s12e09", season: 12, episode: 9 },
+        ],
+      },
+      {
+        season: 13,
+        episodes: [
+          { slug: "serienstream:american-horror-story-s13e01", season: 13, episode: 1, in_jellyfin: true },
+          { slug: "serienstream:american-horror-story-s13e03", season: 13, episode: 3 },
+          { slug: "serienstream:american-horror-story-s13e04", season: 13, episode: 4 },
+          { slug: "serienstream:american-horror-story-s13e07", season: 13, episode: 7, unreleased: true },
+        ],
+      },
+    ],
+  };
+  const state = {
+    series: {
+      current: initial,
+      currentSampleSlug: initial.seasons[0].episodes[1].slug,
+      cache: {},
+      viewGeneration: 1,
+    },
+  };
+  const status = { textContent: "" };
+  const requests = [];
+  const noop = () => {};
+  const checks = createSeriesChecks(status, {
+    seriesState: state.series,
+    isVisible: () => true,
+    firstEpisodeSlug: () => initial.seasons[0].episodes[0].slug,
+    pruneSeriesEpisodeSelection: noop,
+    refreshSeriesTileStates: noop,
+    updateSeriesStatus: noop,
+    syncSeriesQueueFlags: noop,
+    seriesStructureFingerprint: series => JSON.stringify(series?.seasons || []),
+    mergeSeriesDetailPayload: (_current, refreshed) => refreshed,
+    updateSeriesOverview: noop,
+    updateWatchBtn: noop,
+    renderSeriesTiles: noop,
+    client: {
+      post(url, body, options) {
+        return new Promise(resolve => requests.push({ url, body, options, resolve }));
+      },
+    },
+  });
+
+  const refresh = checks.refresh(false);
+  assert.equal(requests.length, 2);
+  const jellyfin = requests.find(request => request.url === "/api/series/jellyfin-status");
+  const detail = requests.find(request => request.url === "/api/series/load");
+  assert.ok(jellyfin);
+  assert.ok(detail);
+
+  jellyfin.resolve({
+    episodes: {},
+    configured: true,
+    available: true,
+    stale: false,
+    checked_at: 1,
+  });
+  detail.resolve({
+    ...initial,
+    provider_content_languages: ["de", "en"],
+    seasons: initial.seasons.map((season) => ({
+      ...season,
+      episodes: season.episodes.map((episode) => ({ ...episode })),
+    })),
+  });
+
+  await new Promise(resolve => setImmediate(resolve));
+  const language = requests.find(request => request.url === "/api/series/episode-languages");
+  assert.ok(language, "detail hydration must trigger language verification automatically");
+  assert.deepEqual(language.body.slugs, [
+    "serienstream:american-horror-story-s13e03",
+    "serienstream:american-horror-story-s13e04",
+    "serienstream:american-horror-story-s12e09",
+  ]);
+
+  language.resolve({
+    available: {
+      "serienstream:american-horror-story-s13e03": false,
+      "serienstream:american-horror-story-s13e04": true,
+      "serienstream:american-horror-story-s12e09": true,
+    },
+    languages: {
+      "serienstream:american-horror-story-s13e03": ["en"],
+      "serienstream:american-horror-story-s13e04": ["de", "en"],
+      "serienstream:american-horror-story-s12e09": ["de"],
+    },
+  });
+  assert.equal(await refresh, true);
+
+  const [s12e08, s12e09] = state.series.current.seasons[0].episodes;
+  const [e01, e03, e04, e07] = state.series.current.seasons[1].episodes;
+  assert.equal(s12e08.language_checked, undefined, "local/Jellyfin episodes need no remote language probe");
+  assert.equal(s12e09.language_checked, true, "older published missing episodes are checked too");
+  assert.equal(s12e09.language_available, true);
+  assert.deepEqual(s12e09.content_languages, ["de"]);
+  assert.equal(e01.language_checked, undefined, "local/Jellyfin episodes need no remote language probe");
+  assert.equal(e03.language_checked, true);
+  assert.equal(e03.language_available, false);
+  assert.deepEqual(e03.content_languages, ["en"]);
+  assert.equal(e04.language_checked, true);
+  assert.equal(e04.language_available, true);
+  assert.deepEqual(e04.content_languages, ["de", "en"]);
+  assert.equal(e07.language_checked, undefined, "unreleased episodes must not be probed");
+  checks.unmount();
+});
+
+
+test("episode language verification runs in bounded sequential batches", async () => {
+  const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
+  const episodes = Array.from({ length: 45 }, (_, index) => ({
+    slug: `serienstream:fixture-s01e${String(index + 1).padStart(2, "0")}`,
+    season: 1,
+    episode: index + 1,
+  }));
+  const series = {
+    base_slug: "serienstream:fixture",
+    provider: "serienstream",
+    seasons: [{ season: 1, episodes }],
+  };
+  const state = { series: { current: series, cache: {}, viewGeneration: 1 } };
+  const status = { textContent: "" };
+  const requests = [];
+  const noop = () => {};
+  const checks = createSeriesChecks(status, {
+    seriesState: state.series,
+    isVisible: () => true,
+    firstEpisodeSlug: () => episodes[0].slug,
+    pruneSeriesEpisodeSelection: noop,
+    refreshSeriesTileStates: noop,
+    updateSeriesStatus: noop,
+    syncSeriesQueueFlags: noop,
+    seriesStructureFingerprint: noop,
+    mergeSeriesDetailPayload: noop,
+    updateSeriesOverview: noop,
+    updateWatchBtn: noop,
+    renderSeriesTiles: noop,
+    client: {
+      post(url, body, options) {
+        return new Promise(resolve => requests.push({ url, body, options, resolve }));
+      },
+    },
+  });
+
+  const verification = checks.verifyLanguages(episodes, series);
+  assert.equal(requests.length, 1, "only the first batch may be in flight");
+  assert.equal(requests[0].url, "/api/series/episode-languages");
+  assert.equal(requests[0].body.slugs.length, 20);
+
+  const resolveBatch = (request) => request.resolve({
+    available: Object.fromEntries(request.body.slugs.map(slug => [slug, true])),
+    languages: Object.fromEntries(request.body.slugs.map(slug => [slug, ["de"]])),
+  });
+
+  resolveBatch(requests[0]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 2, "second batch starts only after the first completed");
+  assert.equal(requests[1].body.slugs.length, 20);
+
+  resolveBatch(requests[1]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].body.slugs.length, 5);
+
+  resolveBatch(requests[2]);
+  await verification;
+  assert.ok(episodes.every(episode => episode.language_checked === true));
+  assert.ok(episodes.every(episode => episode.language_available === true));
+  checks.unmount();
+});
+
+
 test("series detail checks abort both status requests and language batches on close", async () => {
   const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
   const series = { base_slug: "series", provider: "huhu", seasons: [] };
@@ -623,4 +807,110 @@ test("shell mounts controls once and ignores command responses after unmount", a
   shell.mount(); nodes.get("queue-clear").dispatchEvent(new Event("click"));
   requests[1].resolve({ queue: {} }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(accepted.length, 1); shell.unmount();
+});
+
+async function languageRaceFixture() {
+  const { createSeriesChecks } = await import('../web/js/features/media-details/series-checks.js');
+  const episode = { slug: 'sto:race-s01e01', season: 1, episode: 1 };
+  const series = { base_slug: 'sto:race', provider: 'serienstream', seasons: [{ season: 1, episodes: [episode] }] };
+  const seriesState = { current: series, viewGeneration: 1, epPicked: new Set() };
+  const requests = [];
+  const checks = createSeriesChecks({}, { seriesState, isVisible: () => true, renderSeriesTiles: () => {},
+    client: { post: (url, body, options) => new Promise((resolve, reject) => requests.push({ url, body, options, resolve, reject })) } });
+  const respond = (request, available) => request.resolve({ available: { [episode.slug]: available }, languages: { [episode.slug]: [available ? 'de' : 'en'] } });
+  return { episode, series, seriesState, requests, checks, respond };
+}
+
+test('overlapping language selection waits for the existing probe and hydration receives its result', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series);
+  f.seriesState.current = structuredClone(f.series);
+  const hydratedEpisode = f.seriesState.current.seasons[0].episodes[0];
+  let done = false;
+  const duplicate = f.checks.verifyLanguages([hydratedEpisode], f.seriesState.current).then(() => { done = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(done, false);
+  assert.equal(f.requests.length, 1);
+  f.respond(f.requests[0], false);
+  await Promise.all([first, duplicate]);
+  assert.equal(hydratedEpisode.language_checked, true);
+  assert.equal(hydratedEpisode.language_available, false);
+});
+
+test('new view of the same episode starts its own probe and rejects old results', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series).catch(error => error.name);
+  f.seriesState.viewGeneration++;
+  f.seriesState.current = structuredClone(f.series);
+  const episode = f.seriesState.current.seasons[0].episodes[0];
+  const next = f.checks.verifyLanguages([episode], f.seriesState.current);
+  assert.equal(f.requests.length, 2);
+  f.respond(f.requests[0], true);
+  assert.equal(await first, 'AbortError');
+  assert.equal(episode.language_checked, undefined);
+  f.respond(f.requests[1], false);
+  await next;
+  assert.equal(episode.language_available, false);
+});
+
+test('failed language probes release their shared job and remain retryable', async () => {
+  const f = await languageRaceFixture();
+  const first = f.checks.verifyLanguages([f.episode], f.series);
+  f.requests[0].reject(new Error('temporary failure'));
+  await assert.rejects(first, /temporary/);
+  assert.equal(f.episode.language_checked, undefined);
+  const retry = f.checks.verifyLanguages([f.episode], f.series);
+  assert.equal(f.requests.length, 2);
+  f.respond(f.requests[1], true);
+  await retry;
+  assert.equal(f.episode.language_available, true);
+});
+
+test('inbox preselection waits for language truth even when showing details advances the view', async () => {
+  const { createSeriesDetailsLoader } = await import('../web/js/features/media-details/series-loader.js');
+  const { createSeriesEpisodes } = await import('../web/js/features/media-details/series-episodes.js');
+  const f = await languageRaceFixture();
+  const model = createSeriesEpisodes({ ownerDocument: {} }, { seriesState: f.seriesState,
+    getQueuedSlugs: () => new Set(), getEnabledLanguages: () => ['de'] });
+  const loader = createSeriesDetailsLoader({ querySelector: () => ({}) }, {}, {
+    seriesState: f.seriesState, switchTab: () => {}, firstEpisodeSlug: model.firstEpisodeSlug,
+    seriesEpisodes: model.seriesEpisodes, isEpisodeSelectable: model.isEpisodeSelectable,
+    showSeriesDetail: series => { f.seriesState.current = series; f.seriesState.viewGeneration++; },
+    verifyHuhuEpisodeLanguages: f.checks.verifyLanguages, renderSeriesTiles: () => {},
+    syncWatchlistSnapshot: async () => {},
+    client: { post: async () => ({ ...f.series, preselect_slugs: [f.episode.slug] }) },
+  });
+  const open = loader.openSubscription(f.series.base_slug);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.seriesState.epPicked.size, 0);
+  f.respond(f.requests[0], false);
+  await open;
+  assert.equal(f.seriesState.epPicked.size, 0);
+  f.episode.language_checked = f.episode.huhu_language_checked = false;
+  const reopen = loader.openSubscription(f.series.base_slug);
+  await new Promise(resolve => setImmediate(resolve));
+  f.respond(f.requests[1], true);
+  await reopen;
+  assert.deepEqual([...f.seriesState.epPicked], [f.episode.slug]);
+});
+
+
+test('already queued EN-only episodes still receive exact language evidence', async () => {
+  const fixture = await languageRaceFixture();
+  fixture.episode.queued = true;
+  const pending = fixture.checks.verifyLanguages([fixture.episode], fixture.series);
+  assert.equal(fixture.requests.length, 1);
+  fixture.respond(fixture.requests[0], false);
+  await pending;
+  assert.equal(fixture.episode.language_checked, true);
+  assert.deepEqual(fixture.episode.content_languages, ['en']);
+  assert.equal(fixture.episode.language_available, false);
+  assert.equal(fixture.episode.queued, true);
+  const { createSeriesEpisodes } = await import("../web/js/features/media-details/series-episodes.js");
+  const model = createSeriesEpisodes({ ownerDocument: {} }, { seriesState: fixture.seriesState,
+    getQueuedSlugs: () => new Set([fixture.episode.slug]), getEnabledLanguages: () => ["de"] });
+  assert.equal(model.tileClass(fixture.episode), "wrong-language");
+  assert.equal(model.episodeLanguageLockLabel(fixture.episode), "NUR EN");
+  assert.equal(model.isEpisodeSelectable(fixture.episode), false);
+  fixture.checks.unmount();
 });

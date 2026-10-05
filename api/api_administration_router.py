@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -283,7 +285,7 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     updater_cfg = await run_in_threadpool(appconfig.load_updater)
     with state.updater_config_lock:
         state.updater_cfg = updater_cfg
-    UPDATE_CHECKER.set_branch(updater_cfg["update_branch"])
+    await run_in_threadpool(UPDATE_CHECKER.set_branch, updater_cfg["update_branch"])
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
         _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
     else:
@@ -323,6 +325,7 @@ def _setup_status_payload() -> dict:
             "series_path": state.series_path,
             "ui_language": state.ui_language,
             "ui_language_configured": appconfig.ui_language_configured(),
+            "existing_series_count": len(state.watchlist),
             "providers": _provider_priority_payload(),
             "jellyfin": {
                 "url": state.jellyfin_cfg.get("url", ""),
@@ -478,9 +481,11 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         for provider in movie_providers + series_providers + anime_providers
     ):
         raise HTTPException(400, "Aktive Quellen und Inhaltssprachen passen nicht zusammen.")
-    if jellyfin_url and not jellyfin_api_key:
-        raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
-    if jellyfin_url:
+    if not jellyfin_url:
+        jellyfin_api_key = ""
+    if not jellyfin_url or not jellyfin_api_key:
+        jellyfin_user_id = jellyfin_user_name = ""
+    if jellyfin_url and jellyfin_api_key:
         users = await run_in_threadpool(JellyfinClient(jellyfin_url, jellyfin_api_key).list_users)
         if users is None:
             raise HTTPException(502, "Jellyfin ist nicht erreichbar; Einstellungen wurden nicht gespeichert.")
@@ -517,6 +522,11 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
             },
         )
 
+    from features.language_setup import language_setup_subscriptions
+    with state.watchlist_lock:
+        subscription_languages = language_setup_subscriptions(state.watchlist,
+            getattr(state, "subscription_content_languages", {}), state.content_languages,
+            content_languages, [entry["base_slug"] for entry in state.watchlist] if body.update_existing_subscriptions else [])
     ok = await run_in_threadpool(
         appconfig.save_initial_setup,
         movie_path,
@@ -544,6 +554,7 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         account_user,
         account_hash,
         deployment_mode,
+        subscription_languages=subscription_languages,
     )
     if not ok:
         raise HTTPException(500, f"Einstellungen konnten nicht unter {appconfig.config_path()} gespeichert werden.")
@@ -571,6 +582,24 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         state.provider_priorities = runtime["priorities"]
         state.provider_enabled = runtime["enabled"]
         state.content_languages = set(runtime["languages"])
+    with state.watchlist_lock:
+        state.subscription_content_languages = subscription_languages
+        for entry in state.watchlist:
+            entry["check_generation"] = int(entry.get("check_generation") or 0) + 1
+            entry["check_in_progress"] = False
+            state.watchlist_new_slugs.pop(entry["base_slug"], None)
+            for slug, status in (entry.get("episode_states") or {}).items():
+                if status in {"available", "waiting_for_language", "language_pending"}:
+                    entry["episode_states"][slug] = "language_pending"
+            entry["language_pending_slugs"] = [slug for slug, status in (entry.get("episode_states") or {}).items() if status == "language_pending"]
+            entry["waiting_language_slugs"] = []
+    with state.movie_list_cache_lock:
+        state.movie_list_cache.clear()
+    with state.series_list_cache_lock:
+        state.series_list_cache.clear()
+    with state.movie_source_cache_lock:
+        state.movie_source_cache.clear()
+    state.fallback_series_cache.clear()
     _set_runtime_jellyfin_config(runtime["jellyfin"])
     state.tmdb_cfg = runtime["tmdb"]
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
@@ -952,6 +981,109 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
     return _provider_priority_payload(saved=True)
 
 
+class LanguageSetupBody(BaseModel):
+    ui_language: str
+    content_languages: list[str] = Field(min_length=1, max_length=10)
+    update_subscriptions: list[str] = Field(default_factory=list, max_length=5000)
+    revision: str
+
+
+def _language_setup_payload():
+    from features.language_setup import language_setup_revision
+    from features.subscription_languages import subscription_content_languages
+    config = _provider_priority_payload()
+    preferences = getattr(state, "subscription_content_languages", {})
+    return {
+        "ui_language": state.ui_language,
+        "ui_languages": dict(SUPPORTED_UI_LANGUAGES),
+        "providers": config,
+        "subscriptions": [{"base_slug": entry["base_slug"], "title": entry.get("title") or entry["base_slug"],
+                           "content_languages": subscription_content_languages(entry, state.content_languages, preferences)}
+                          for entry in state.watchlist],
+        "revision": language_setup_revision(state.ui_language, state.content_languages,
+            state.provider_enabled, state.watchlist, preferences),
+    }
+
+
+@contextmanager
+def _language_setup_locks():
+    # Background subscription work may hold the watchlist lock. Never wait on
+    # it while holding provider configuration, or on the ASGI event loop.
+    deadline = time.monotonic() + 2
+    with ExitStack() as held:
+        for lock in (state.watchlist_lock, state.provider_priority_lock, state.ui_language_lock):
+            if not lock.acquire(timeout=max(0, deadline - time.monotonic())):
+                raise HTTPException(503, "Das Sprachprofil wird gerade aktualisiert. Bitte erneut versuchen.")
+            held.callback(lock.release)
+        yield
+
+
+@router.get("/api/v1/providers/language-setup")
+@router.get("/api/providers/language-setup")
+async def api_language_setup_get():
+    def read():
+        with _language_setup_locks():
+            return _language_setup_payload()
+    return await run_in_threadpool(read)
+
+
+@router.post("/api/v1/providers/language-setup")
+@router.post("/api/providers/language-setup")
+async def api_language_setup_set(body: LanguageSetupBody):
+    from features.language_setup import language_setup_selection, language_setup_subscriptions
+    if body.ui_language not in SUPPORTED_UI_LANGUAGES:
+        raise HTTPException(400, "Die Oberflächensprache ist ungültig.")
+    languages = appconfig.normalize_content_languages(body.content_languages)
+    if not languages or set(languages) != set(body.content_languages):
+        raise HTTPException(400, "Die Inhaltssprachen sind ungültig.")
+
+    def apply():
+        with _language_setup_locks():
+            current = _language_setup_payload()
+            if current["revision"] != body.revision:
+                raise HTTPException(409, "Die Einstellungen haben sich geändert. Öffne das Sprach-Setup erneut.")
+            try:
+                enabled = language_setup_selection(languages, state.content_languages,
+                    {kind: current["providers"][kind] for kind in ("movies", "series", "anime")}, state.provider_enabled)
+                preferences = language_setup_subscriptions(state.watchlist,
+                    getattr(state, "subscription_content_languages", {}), state.content_languages,
+                    languages, body.update_subscriptions)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            if not appconfig.save_language_setup(body.ui_language, languages, enabled, preferences):
+                raise HTTPException(503, "Das Sprachprofil konnte nicht gespeichert werden. Es wurde nichts umgestellt.")
+            state.ui_language = body.ui_language
+            state.content_languages = set(languages)
+            state.provider_enabled = {kind: set(values) for kind, values in enabled.items()}
+            state.subscription_content_languages = preferences
+            for entry in state.watchlist:
+                # Invalidate in-flight checks made under the previous language policy.
+                entry["check_generation"] = int(entry.get("check_generation") or 0) + 1
+                entry["check_in_progress"] = False
+                for slug, status in (entry.get("episode_states") or {}).items():
+                    if status in {"available", "waiting_for_language", "language_pending"}:
+                        entry["episode_states"][slug] = "language_pending"
+                state.watchlist_new_slugs.pop(entry["base_slug"], None)
+                entry["language_pending_slugs"] = [slug for slug, status in (entry.get("episode_states") or {}).items() if status == "language_pending"]
+                entry["waiting_language_slugs"] = []
+            state.tmdb_cfg = {**state.tmdb_cfg, "language": appconfig.tmdb_language_for_ui(body.ui_language)}
+            state.tmdb_client = TMDBClient(**state.tmdb_cfg)
+            return _language_setup_payload()
+
+    result = await run_in_threadpool(apply)
+    with state.movie_list_cache_lock:
+        state.movie_list_cache.clear()
+    with state.series_list_cache_lock:
+        state.series_list_cache.clear()
+    with state.movie_source_cache_lock:
+        state.movie_source_cache.clear()
+    state.fallback_series_cache.clear()
+    broadcast({"type": "watchlist_update", **watchlist_payload()})
+    from application_services.automation import wake_watchlist_auto_check
+    wake_watchlist_auto_check()
+    return {**result, "saved": True}
+
+
 class JellyfinConfigBody(BaseModel):
     url: str
     api_key: str
@@ -992,8 +1124,10 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
         if body.cleanup_default is not None
         else previous.get("cleanup_default")
     )
-    if url and not api_key:
-        raise HTTPException(400, "Für Jellyfin fehlt der API-Schlüssel.")
+    if not url:
+        api_key = ""
+    if not url or not api_key:
+        user_id = user_name = ""
     if url and api_key:
         users = await run_in_threadpool(JellyfinClient(url, api_key).list_users)
         if users is None:

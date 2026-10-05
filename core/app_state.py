@@ -253,6 +253,7 @@ class AppState:
             job["slug"]: job["job_id"] for job in self.queue_jobs.values()
         }
         self.queue_history: list[dict] = list(queue_document["history"])
+        self.subscription_content_languages = appconfig.load_subscription_languages()
         self.personal_requests = PersonalRequestStore(appconfig.personal_requests_file())
         self.personal_requests.backfill([*self.queue_jobs.values(), *self.queue_history])
         self.queue_persistence_revision = int(queue_document.get("revision") or 0)

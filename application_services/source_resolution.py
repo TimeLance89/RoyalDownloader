@@ -3,7 +3,7 @@
 # ruff: noqa: F821
 
 from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
-from providers.catalog import selected_source_language_allowed
+from providers.catalog import provider_content_languages, selected_source_language_allowed
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -72,6 +72,42 @@ def _shared_browser_pool(reason: str):
     return pool
 
 
+def _required_stream_language(movie: FilmpalastMovie) -> str:
+    """Language contract pinned by the logical queue job.
+
+    Provider capabilities are deliberately not evidence for a concrete stream.
+    The queue may opt into a strict lane by attaching a private required-language
+    marker to every source candidate.
+    """
+    return normalize_content_language(
+        str(getattr(movie, "_required_content_language", "") or "")
+    )
+
+
+def _concrete_stream_language(
+    movie: FilmpalastMovie,
+    provider: str,
+    hoster_language: str = "",
+) -> str:
+    explicit = normalize_content_language(hoster_language)
+    if explicit:
+        return explicit
+
+    # A multi-language provider's primary/default language is a catalog hint,
+    # not proof that this exact title/episode/hoster has that audio track.
+    capabilities = tuple(
+        language for language in provider_content_languages(provider)
+        if normalize_content_language(language)
+    )
+    stored = normalize_content_language(
+        str(getattr(movie, "content_language", "") or "")
+    )
+    if len(set(capabilities)) <= 1:
+        return stored or (normalize_content_language(capabilities[0]) if capabilities else "")
+    if bool(getattr(movie, "_content_language_explicit", False)):
+        return stored
+    return ""
+
 def _extract_from_movie(
     movie: FilmpalastMovie,
     unsupported_domains: set,
@@ -91,7 +127,10 @@ def _extract_from_movie(
         # Direkte/cached Hoster duerfen weiterlaufen. Falls sie scheitern, muss
         # der logische Job aber bis zur Provider-Probe vorgemerkt bleiben.
         res.gated = True
-    res.content_language = _movie_content_language(movie)
+    required_language = _required_stream_language(movie)
+    res.content_language = required_language or _concrete_stream_language(
+        movie, res.provider,
+    )
     session = state.fp_scraper.session._curl if state.fp_scraper else None
     excluded_hoster_urls = excluded_hoster_urls or set()
     # Ergebnislose Extraktionen dieses Laufs. Ein Embed, das schon einmal die
@@ -104,11 +143,15 @@ def _extract_from_movie(
     # sinnvoll; weitere Versuche kosten auf dem NAS nur CPU und bringen in der
     # Regel denselben leeren Player zurück.
     browser_fallbacks_started: set[str] = set()
-    enabled_languages = {
-        normalize_content_language(language)
-        for language in state.content_languages
-        if normalize_content_language(language)
-    }
+    enabled_languages = (
+        {required_language}
+        if required_language
+        else {
+            normalize_content_language(language)
+            for language in state.content_languages
+            if normalize_content_language(language)
+        }
+    )
 
     ranked_hosters = state.hoster_intel.rank(movie.hosters)
     if res.provider in {"vidsrc", "vidrift", "vixsrc", "vidrock", "moviebox"}:
@@ -122,13 +165,33 @@ def _extract_from_movie(
     for hoster in ranked_hosters:
         if not hoster.url:
             continue
-        hoster_language = _movie_content_language(
-            movie, str(getattr(hoster, "language", "") or "")
+        hoster_audio_language = str(
+            getattr(hoster, "audio_language", "") or ""
         )
-        if not selected_source_language_allowed(res.provider, hoster_language, enabled_languages, getattr(movie, "url", "")):
+        hoster_language = _concrete_stream_language(
+            movie,
+            res.provider,
+            hoster_audio_language
+            or str(getattr(hoster, "language", "") or ""),
+        )
+        language_allowed = selected_source_language_allowed(
+            res.provider,
+            hoster_language,
+            enabled_languages,
+            getattr(movie, "url", ""),
+        )
+        # Strict jobs are fail-closed: an unlabeled stream from a multilingual
+        # provider is not proof of the requested audio language. Legacy/direct
+        # probes without a pinned queue language keep their historical behavior.
+        if required_language:
+            language_allowed = bool(hoster_language) and language_allowed
+        elif not hoster_language:
+            language_allowed = True
+        if not language_allowed:
             log(
                 f"  Überspringe {hoster.name}: Stream-Sprache "
-                f"{hoster_language.upper() or 'unbekannt'} ist nicht aktiviert.",
+                f"{hoster_language.upper() or 'unbekannt'} passt nicht zur "
+                f"{'Queue-Sprache ' + required_language.upper() if required_language else 'Sprachauswahl'}.",
                 "info",
             )
             continue
@@ -157,7 +220,10 @@ def _extract_from_movie(
         res.quality = str(getattr(hoster, "quality", "") or "").strip()
         res.source_hoster_url = hoster.url
         res.content_language = hoster_language
-        res.audio_language = str(getattr(hoster, "audio_language", "") or "")
+        # audio_language is reserved for language metadata proven by the
+        # actual manifest/stream. The provider button language is already used
+        # above for routing but must not be fabricated as a yt-dlp track tag.
+        res.audio_language = hoster_audio_language
         res.headers = dict(getattr(hoster, "headers", {}) or {})
         log(f"  Versuche Hoster: {hoster.name}")
 
@@ -734,6 +800,19 @@ def _enqueue_hoster_attempt(
     letzten Anbieter als abgeschlossen gemeldet."""
     if (cancelled and cancelled()) or not _queue_slug_claimed(movie_slug):
         return False
+    required_language = _queue_requested_language(movie_slug)
+    if required_language:
+        movie._required_content_language = required_language
+        for candidate in source_movies:
+            candidate._required_content_language = required_language
+        if result.content_language and normalize_content_language(result.content_language) != required_language:
+            log(
+                f"  Verwerfe {result.hoster_used or 'Quelle'}: "
+                f"{str(result.content_language).upper()} verletzt die "
+                f"Queue-Sprache {required_language.upper()}.",
+                "warn",
+            )
+            return False
     gate_seen = gate_seen or [bool(result.gated)]
     gate_seen[0] = gate_seen[0] or bool(result.gated)
     if barren_hoster_urls is None:
@@ -934,13 +1013,25 @@ def _enqueue_hoster_attempt(
                     excluded_providers=tried_providers,
                 )
                 seen = {m.url for m in source_movies}
-                source_movies.extend(m for m in alternatives if m.url not in seen)
+                for candidate in alternatives:
+                    if candidate.url in seen:
+                        continue
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
+                    seen.add(candidate.url)
             else:
-                source_movies.extend(find_movie_source_fallbacks(
+                movie_alternatives = find_movie_source_fallbacks(
                     source_movies[0], movie_slug, {m.url for m in source_movies},
-                ))
+                )
+                for candidate in movie_alternatives:
+                    if required_language:
+                        candidate._required_content_language = required_language
+                    source_movies.append(candidate)
         for next_index in range(source_index + 1, len(source_movies)):
             next_movie = source_movies[next_index]
+            if required_language:
+                next_movie._required_content_language = required_language
             log(f"  Wechsle Filmquelle: {clean_movie_title(next_movie.title)}", "warn")
             with state.hoster_extract_lock:
                 source_result = _extract_from_movie(
@@ -1054,6 +1145,9 @@ def _enqueue_hoster_attempt(
         referer=result.referer,
         origin=result.origin,
         audio_language=getattr(result, "audio_language", ""),
+        strict_audio_language=bool(
+            required_language and getattr(result, "audio_language", "")
+        ),
         headers=getattr(result, "headers", {}),
         on_progress=lambda pct, msg: on_job_progress(
             pct,
@@ -1099,6 +1193,8 @@ def _enqueue_hoster_attempt(
 
 _SERVICE_EXPORTS = (
     "_HosterResult",
+    "_required_stream_language",
+    "_concrete_stream_language",
     "_extract_from_movie",
     "find_movie_source_fallbacks",
     "_enqueue_hoster_attempt",

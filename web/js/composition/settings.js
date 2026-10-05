@@ -1,3 +1,4 @@
+import { api } from "../core/api.js";
 import { createSetup } from "../features/setup/index.js";
 import { createIntelligenceSettings } from "../features/settings/intelligence.js";
 import { createSettingsActions } from "../features/settings/actions.js";
@@ -17,18 +18,29 @@ import { createAutomation } from "../features/automation/index.js";
 import { createStorage } from "../features/storage/index.js";
 import { createModuleSettings } from "../features/settings/modules.js";
 
-export function composeSettings({ i18n, movieState, seriesState, intelligence, subscriptions, getCore, getDiscovery, getIntegrations, getSubscriptions, getProfile }) {
+export function composeSettings({ i18n, movieState, seriesState, intelligence, subscriptions, getCore, getDiscovery, getIntegrations, getSubscriptions, getProfile, getHome }) {
   const services = {
   providers: createProviderSettings(document.getElementById("settings-sources"), document.getElementById("setup-wizard"), {
         onChange() { getCore().actions.syncAnimeNavigationVisibility(); getCore().actions.syncAniworldNavigationVisibility(); },
         onApply() { getDiscovery().anime.invalidate(); },
         onSetupStatus: (message, error) => services.setup.status(message, error),
+        onLanguageSetup: options => { void services.settings.openLanguageSetup(options); },
       }),
   deploymentHints: (context, mode) => deploymentHints(document.getElementById(context === "setup" ? "setup-wizard" : "tab-einstellungen"), context, mode),
   deploymentMode: name => deploymentMode(document.getElementById(name === "setup-deployment-mode" ? "setup-wizard" : "tab-einstellungen"), name),
   settings: createSettings(document.getElementById("tab-einstellungen"), {
         getFeatures: () => ({ jellyfin: getIntegrations().jellyfin, intelligence, automation: services.automation, providers: services.providers, updater: services.updater, integrations: getIntegrations().integrations }), language: () => i18n.language, locale: () => i18n.locale(),
-        changeLanguage: language => i18n.changeLanguage(language, { userInitiated: true, persist: true }),
+        changeLanguage: language => i18n.changeLanguage(language, { userInitiated: true, requireReady: true }),
+        async onLanguageReady({ signal }) {
+          movieState.results = []; movieState.moviesCache = {}; movieState.metadataCache = {}; movieState.sources = [];
+          seriesState.results = []; seriesState.sources = []; seriesState.cache = {}; seriesState.browseMode = null; seriesState.page = 1;
+          await getDiscovery().genres.refresh();
+          if (signal.aborted) return;
+          getHome().hero.reset();
+          await getHome().homeData.reloadForLanguage({ signal });
+          if (signal.aborted) return;
+          await getSubscriptions().actions.refreshWatchlist();
+        },
         async onSaved({ signal }) {
       movieState.results = [];
       movieState.moviesCache = {};
@@ -83,12 +95,20 @@ export function prepareSettings({ getRecommendations }) {
   return { intelligence };
 }
 
-export function initializeSettings({ getSettings, getIntegrations, i18n, getCore }) {
+export function initializeSettings({ getSettings, getIntegrations, i18n, getCore, getHome, getProfile }) {
   getSettings().setup = createSetup(document.getElementById("setup-wizard"), {
       providers: getSettings().providers, jellyfin: getIntegrations().setupJellyfin,
       directory: getSettings().directory, i18n,
       onVisibility: visible => document.body.classList.toggle("setup-open", visible),
-      async onComplete() { await getSettings().settings.initialize(); getCore().startup.start(); },
+      async onComplete() {
+        const session = await api.get("/api/auth/status");
+        if (session.configured && !session.authenticated) throw new Error("Die neue Sitzung ist noch nicht bereit. Bitte erneut versuchen.");
+        getProfile().auth.accept(session);
+        await getSettings().settings.initialize();
+        await getHome().homeData.reloadForLanguage();
+        await i18n.changeLanguage(i18n.language, { requireReady: true, userInitiated: true });
+        getCore().startup.start();
+      },
       onError: error => console.error("Ersteinrichtung konnte nicht geprüft werden:", error),
     });
 }

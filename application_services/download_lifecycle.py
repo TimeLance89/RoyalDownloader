@@ -862,7 +862,11 @@ def _defer_provider_episode(
             return False
         logical = _queue_job_for_slug(slug) or {}
         source_retry_count = int(logical.get("source_retry_count") or 0)
-        if reason == "source_unavailable":
+        if reason == "language_unavailable":
+            next_retry_at = time.time() + 15 * 60
+            language = str(logical.get("content_language") or "").upper()
+            error = f"Wartet auf passende Stream-Sprache ({language})"
+        elif reason == "source_unavailable":
             source_retry_count += 1
             retry_delay = _source_retry_delay(source_retry_count)
             next_retry_at = time.time() + retry_delay
@@ -880,7 +884,7 @@ def _defer_provider_episode(
         # A source-less episode is intentionally moved behind currently
         # actionable work. Repeated failures therefore rotate fairly instead
         # of pinning the front of a very large logical queue.
-        if reason == "source_unavailable":
+        if reason in {"source_unavailable", "language_unavailable"}:
             state.provider_waiting_jobs.pop(slug, None)
         state.provider_waiting_jobs[slug] = {
             "movie": movie,
@@ -899,7 +903,7 @@ def _defer_provider_episode(
             wait_reason=reason,
             error=error,
         )
-        if reason == "source_unavailable":
+        if reason in {"source_unavailable", "language_unavailable"}:
             job_id = state.queue_job_by_slug.get(slug)
             if job_id and hasattr(state.queue_jobs, "move_to_end"):
                 state.queue_jobs.move_to_end(job_id)

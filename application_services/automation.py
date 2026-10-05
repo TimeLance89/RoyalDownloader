@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+from features.subscription_languages import subscription_content_languages
+
 import threading
 
 from application_services.runtime import (
@@ -46,10 +48,11 @@ def _watchlist_entry_for_episode(slug: str) -> dict | None:
 def _watchlist_episode_is_actionable(entry: dict, slug: str) -> bool:
     """Reject stale pending slugs that are known language/release wait states."""
     episode_state = (entry.get("episode_states") or {}).get(slug)
-    if episode_state in {"waiting_for_language", "upcoming"}:
+    if episode_state in {"waiting_for_language", "language_pending", "upcoming"}:
         return False
     return slug not in {
         *(entry.get("waiting_language_slugs") or []),
+        *(entry.get("language_pending_slugs") or []),
         *(entry.get("waiting_release_slugs") or []),
         *(entry.get("upcoming_slugs") or []),
     }
@@ -205,6 +208,12 @@ def _auto_download_new_episodes():
                             state.watchlist_new_slugs.pop(base_slug, None)
                 log(f"Auto-Download übersprungen: «{slug}» ist {reason}.")
                 continue
+            with state.watchlist_lock:
+                entry = _watchlist_entry_for_episode(slug)
+                if entry is not None:
+                    movie._subscription_content_languages = subscription_content_languages(
+                        entry, state.content_languages, getattr(state, "subscription_content_languages", {}),
+                    )
             state.fp_movies[slug] = movie
             prepared_slugs.append(slug)
             with state.watchlist_lock:

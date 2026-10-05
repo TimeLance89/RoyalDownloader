@@ -6,6 +6,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   const byId = id => id === "updater-card" ? root : root.querySelector(`#${id}`);
   let scope;
   let dirty = false;
+  let revision = 0;
   let savedConfig = null;
   function shortRevision(value) {
     const revision = String(value || "").trim();
@@ -99,9 +100,10 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     installButton.classList.add("hidden");
 
     if (data.error) {
-      card.dataset.state = "error";
-      badge.textContent = "!";
-      status.textContent = "GitHub-Prüfung fehlgeschlagen";
+      const temporary = ["check_timeout", "github_unavailable", "check_busy"].includes(data.error_code);
+      card.dataset.state = temporary ? "unknown" : "error";
+      badge.textContent = temporary ? "↻" : "!";
+      status.textContent = temporary ? "Bitte erneut prüfen" : "GitHub-Prüfung fehlgeschlagen";
       detail.textContent = data.error;
       return;
     }
@@ -154,9 +156,9 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     card.dataset.state = "unknown";
     badge.textContent = "?";
     status.textContent = "Repository erreichbar";
-    detail.textContent = data.current_sha
-      ? "Der lokale Stand konnte nicht eindeutig mit main verglichen werden."
-      : "Der lokale Quellstand konnte weder Git-Metadaten noch einem GitHub-Dateibaum zugeordnet werden.";
+    detail.textContent = data.detail || (data.current_sha
+      ? `Der lokale Stand konnte nicht eindeutig mit ${branch} verglichen werden.`
+      : "Die installierte Version ist noch unbekannt. Bitte erneut prüfen.");
   }
 
   let cancelPoll = () => {};
@@ -316,7 +318,11 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       applyUpdaterStatus(result);
     } catch (error) {
       if (!current.active) return;
-      applyUpdaterStatus({ error: error.message });
+      const temporary = ["request_timeout", "network_error"].includes(error.code);
+      applyUpdaterStatus({
+        error_code: temporary ? "github_unavailable" : "",
+        error: temporary ? "Die Update-Prüfung ist momentan nicht erreichbar. Bitte erneut prüfen." : error.message,
+      });
     } finally {
       if (current.active) button.disabled = card.dataset.installing === "true";
     }
@@ -326,13 +332,15 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   async function save() {
     if (!scope?.active) return;
     const current = scope;
+    const atRevision = revision;
     const result = await client.post("/api/updater/config", {
       update_mode: byId("updater-mode").value,
       update_channel: byId("updater-channel").value,
       auto_update_interval_hours: Math.max(1, Math.min(168, parseInt(byId("updater-interval").value, 10) || 6)),
     }, { signal: current.signal });
     if (!current.active) return;
-    dirty = false; applyUpdaterConfig(result);
+    if (revision === atRevision) dirty = false;
+    applyUpdaterConfig(result);
     await checkForUpdates(true);
     return result;
   }
@@ -343,7 +351,12 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       scope = createScope();
       byId("updater-channel").disabled = false;
       if (savedConfig) applyUpdaterConfig(savedConfig);
-      scope.listen(root, "input", () => { dirty = true; });
+      const changed = event => {
+        if (event.target === byId("updater-channel")) return;
+        dirty = true; revision++;
+      };
+      scope.listen(root, "input", changed);
+      scope.listen(root, "change", changed);
       scope.add(socket.subscribe("updater_install", data => applyUpdaterInstallStatus(data.installer || {})));
       scope.add(socket.subscribe("updater_config", data => applyUpdaterConfig(data.config || {})));
       scope.add(socket.subscribe("connection.open", () => void checkForUpdates(false)));
@@ -368,6 +381,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
           : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
         const status = byId("updater-mode-status");
         const selected = select.value;
+        const atRevision = revision;
         select.disabled = true;
         status.textContent = `${selected === "overnight" ? "Overnight" : "Stable"} wird gespeichert …`;
         try {
@@ -380,7 +394,8 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
             ),
           }, { signal: current.signal });
           if (!current.active) return;
-          dirty = false;
+          if (revision === atRevision) dirty = false;
+          select.dataset.savedChannel = saved.update_channel || selected;
           applyUpdaterConfig(saved);
           await checkForUpdates(true);
         } catch (error) {

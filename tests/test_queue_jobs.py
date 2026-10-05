@@ -194,9 +194,12 @@ def test_existing_retryable_failure_is_not_duplicated_when_slug_is_active(monkey
     assert server.state.queue_history[0]["job_id"] == "old-failure"
 
 
-def test_restart_reconstructs_waiting_source_job_and_retry_worker(monkeypatch):
+@pytest.mark.parametrize("checked_at,expected_retry", [(0, 1000.0), (900.0, 2000.0)])
+def test_restart_reconstructs_waiting_source_job_and_retry_worker(monkeypatch, checked_at, expected_retry):
     slug = "serienstream:sailor-moon-s04e19"
+    monkeypatch.setattr(api_queue_router.time, "time", lambda: 1000.0)
     waiting = queue_jobs.new_job(slug, job_id="waiting-source")
+    waiting["language_checked_at"] = checked_at
     waiting.update({
         "status": "waiting_provider",
         "source_retry_count": 2,
@@ -229,7 +232,7 @@ def test_restart_reconstructs_waiting_source_job_and_retry_worker(monkeypatch):
 
     restored = server.state.provider_waiting_jobs[slug]
     assert restored["wait_reason"] == "source_unavailable"
-    assert restored["next_retry_at"] == 2_000.0
+    assert restored["next_retry_at"] == expected_retry
     assert slug in server.state.counted_queue_slugs
     assert server.state.total_jobs == 1
     assert worker_starts == [True]

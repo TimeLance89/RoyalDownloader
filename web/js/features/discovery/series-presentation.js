@@ -466,17 +466,25 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     updateSeriesStatus(series);
     updateTasteFeedbackButtons();
     openMediaModal("series-detail-modal", findSeriesResultCard(series.base_slug));
-    if (series.provider === "huhu") {
-      const latestSelectableSeason = [...series.seasons].reverse()
-        .find((season) => season.episodes.some(isEpisodeEligible));
-      if (latestSelectableSeason) {
+    const providerLanguages = Array.isArray(series.provider_content_languages)
+      ? series.provider_content_languages.filter(Boolean)
+      : [];
+    const needsExactEpisodeLanguage = ["huhu", "serienstream"].includes(series.provider)
+      || providerLanguages.length > 1;
+    if (needsExactEpisodeLanguage) {
+      const publishedMissingEpisodes = [...(series.seasons || [])]
+        .sort((left, right) => Number(right.season || 0) - Number(left.season || 0))
+        .flatMap((season) => [...(season.episodes || [])]
+          .sort((left, right) => Number(left.episode || 0) - Number(right.episode || 0)))
+        .filter((episode) => !episode.downloaded && !episode.in_jellyfin && !episode.unreleased);
+      if (publishedMissingEpisodes.length) {
         void verifyHuhuEpisodeLanguages(
-          latestSelectableSeason.episodes.filter(isEpisodeEligible), series,
+          publishedMissingEpisodes, series,
         ).catch((error) => {
           if (error.name === "AbortError") return;
           if (seriesState.current === series) {
             byId("series-status").textContent =
-              `Deutsche Quellen konnten nicht geprüft werden: ${error.message}`;
+              `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
           }
         });
       }

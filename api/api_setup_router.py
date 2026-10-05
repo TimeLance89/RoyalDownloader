@@ -42,6 +42,7 @@ class SetupCompleteBody(BaseModel):
     series_providers: list[str] | None = None
     anime_providers: list[str] | None = None
     content_languages: list[str] | None = None
+    update_existing_subscriptions: bool = False
     auth_username: str = ""
     auth_password: str = ""
     bootstrap_token: str = Field(default="", max_length=256)

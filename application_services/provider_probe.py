@@ -8,7 +8,7 @@ from dataclasses import asdict, is_dataclass
 from urllib.parse import urlsplit
 
 from core.source_urls import valid_source_link
-from providers.catalog import PROVIDER_CATALOG
+from providers.catalog import PROVIDER_CATALOG, provider_track_language
 from providers.probe_contracts import contract, create_adapter
 from providers.sentinel_runtime import ProbeFailure, probe_context
 
@@ -58,7 +58,7 @@ def title_key(value):
     return re.sub(r"\W+", "", re.sub(r"\s*\[[^\]]+\]\s*$", "", str(value)).casefold())
 
 
-def episode_source(provider, detail):
+def episode_source(provider, detail, language=None):
     """Use existing episode identifiers, including anime track contracts."""
     data = payload(detail)
     episodes = getattr(detail, "all_episodes", []) or data.get("episodes", [])
@@ -67,14 +67,15 @@ def episode_source(provider, detail):
         for item in episodes:
             episode = payload(item)
             tracks = episode.get("tracks", ())
-            if tracks:
-                return aniworld_episode_slug(data["id"], tracks[0], episode["season"], episode["number"])
+            for track in tracks:
+                if language is None or provider_track_language(provider, track) == language:
+                    return aniworld_episode_slug(data["id"], track, episode["season"], episode["number"])
     elif provider == "mkissa":
         from providers.mkissa import anime_episode_slug
         for track, count in data.get("translations", {}).items():
-            if count:
+            if count and (language is None or provider_track_language(provider, track) == language):
                 return anime_episode_slug(data["id"], track, 1)
-    return payload(episodes[0]).get("slug") if episodes else None
+    return payload(episodes[0]).get("slug") if episodes and language is None else None
 
 
 
@@ -144,18 +145,22 @@ class ProviderProbe:
                         steps.append({"name": "metadata", "sample": sample, "ok": None if unavailable else metadata_ok, "code": detail_code if unavailable else "ok" if metadata_ok else "metadata_changed" if match else "identity_mismatch", "duration_ms": 0, "fields": metadata, "http_status": 0})
                         hosters = data.get("hosters") or []
                         languages = []
-                        if media_type != "movies" and intensity == "full" and detail:
-                            source = episode_source(provider, detail)
-                            if source:
+                        check_episode = media_type == "anime" or intensity == "full"
+                        if media_type != "movies" and check_episode and detail:
+                            sources = [episode_source(provider, detail, language)
+                                       for language in PROVIDER_CATALOG[provider].content_languages] if media_type == "anime" else [episode_source(provider, detail)]
+                            for source in dict.fromkeys(filter(None, sources)):
                                 episode = step("episode_detail", lambda: adapter.get_episode(source) if media_type == "anime" else adapter.get_movie(source), sample=sample)
-                                hosters = payload(episode).get("hosters") or []
-                                if metadata_ok and any(valid_source_link(payload(h).get("url") or "") for h in hosters):
-                                    language = payload(episode).get("content_language")
-                                    if language in PROVIDER_CATALOG[provider].content_languages:
-                                        languages = [language]
+                                episode_data = payload(episode)
+                                episode_hosters = episode_data.get("hosters") or []
+                                hosters.extend(episode_hosters)
+                                if metadata_ok and any(valid_source_link(payload(h).get("url") or "") for h in episode_hosters):
+                                    language = episode_data.get("content_language")
+                                    if language in PROVIDER_CATALOG[provider].content_languages and language not in languages:
+                                        languages.append(language)
                         if metadata_ok:
                             hoster_candidates.extend({"name": str(payload(hoster).get("name") or ""), "url": str(payload(hoster).get("url") or "")} for hoster in hosters[:20])
-                        if (media_type == "movies" or intensity == "full") and not unavailable:
+                        if (media_type in {"movies", "anime"} or intensity == "full") and not unavailable:
                             valid = [payload(hoster) for hoster in hosters if valid_source_link(payload(hoster).get("url") or "")]
                             steps.append({"name": "hoster_structure", "sample": sample, "ok": bool(valid), "code": "ok" if valid else "missing_hosters", "count": len(valid), "duration_ms": 0, "http_status": 0})
                             steps.append({"name": "source_structure", "sample": sample, "ok": bool(valid), "code": "links_only" if valid else "missing_links", "duration_ms": 0, "http_status": 0})

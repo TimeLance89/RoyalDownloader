@@ -293,3 +293,87 @@ def test_server_routes_huhu_movie_slug_to_huhu_adapter(monkeypatch):
     assert calls == ["huhu-movie:550:fight-club"]
     assert loaded.provider == "huhu"
     assert loaded.content_language == "de"
+
+
+def test_shared_episode_language_endpoint_rejects_serienstream_english_only_for_de(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    de_slug = "serienstream:ahs-s13e02"
+    en_slug = "serienstream:ahs-s13e03"
+
+    def movie_for(slug):
+        language = "Deutsch" if slug == de_slug else "Englisch"
+        return FilmpalastMovie(
+            title="American Horror Story",
+            url=f"https://serienstream.to/{slug}",
+            provider="serienstream",
+            hosters=[HosterInfo("VOE", f"https://voe.example/{slug}", language)],
+        )
+
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(
+        content_languages={"de"}, sto_lock=threading.RLock(),
+    ))
+    monkeypatch.setattr(
+        discovery, "get_sto_scraper",
+        lambda: SimpleNamespace(get_movie=movie_for),
+    )
+
+    body = discovery.SeriesEpisodeLanguagesBody(
+        provider="serienstream", slugs=[de_slug, en_slug],
+    )
+    result = asyncio.run(discovery.api_series_episode_languages(body))
+
+    assert result["available"] == {de_slug: True, en_slug: False}
+    assert result["languages"] == {de_slug: ["de"], en_slug: ["en"]}
+
+
+def test_shared_episode_language_endpoint_uses_concrete_multilingual_provider_tracks(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    slug = "moviebox:123-s01e03"
+    movie = FilmpalastMovie(
+        title="Fixture S01E03",
+        url=slug,
+        provider="moviebox",
+        content_language="en",
+        hosters=[
+            HosterInfo("MovieBox HLS", "https://example.test/en.m3u8", "en"),
+            HosterInfo("MovieBox HLS", "https://example.test/de.m3u8", "de"),
+        ],
+    )
+
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["moviebox"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "moviebox")
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"de"}))
+    monkeypatch.setattr(discovery, "load_movie_for_slug", lambda _slug: movie)
+
+    body = discovery.SeriesEpisodeLanguagesBody(provider="moviebox", slugs=[slug])
+    result = asyncio.run(discovery.api_series_episode_languages(body))
+
+    assert result["available"] == {slug: True}
+    assert result["languages"] == {slug: ["de", "en"]}
+
+
+def test_shared_episode_language_endpoint_fails_closed_when_track_language_unknown(monkeypatch):
+    import api.api_discovery_router as discovery
+
+    slug = "moviebox:123-s01e04"
+    movie = FilmpalastMovie(
+        title="Fixture S01E04",
+        url=slug,
+        provider="moviebox",
+        hosters=[HosterInfo("MovieBox MP4", "https://example.test/file.mp4", "")],
+    )
+
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["moviebox"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "moviebox")
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"de"}))
+    monkeypatch.setattr(discovery, "load_movie_for_slug", lambda _slug: movie)
+
+    body = discovery.SeriesEpisodeLanguagesBody(provider="moviebox", slugs=[slug])
+    result = asyncio.run(discovery.api_series_episode_languages(body))
+
+    assert result["available"] == {slug: False}
+    assert result["languages"] == {slug: []}

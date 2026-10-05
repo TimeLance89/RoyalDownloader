@@ -15,6 +15,7 @@ const recentDate = value => {
 
 export function createProviderMonitor(root, { client = api, events = websocket } = {}) {
   let scope, pending, value, dirty = false, tab = "providers", actionPending = false, refreshError = false;
+  let revision = 0;
   const snapshots = new WeakMap();
   function updateList(node, data, markup) {
     const snapshot = JSON.stringify(data);
@@ -155,6 +156,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
     button.disabled = true;
     try {
       if (name === "save") {
+        const atRevision = revision;
         await client.put("/api/providers/monitor/config", {
           enabled: root.querySelector('[name="monitor-enabled"]').checked,
           auto_repair: root.querySelector('[name="monitor-auto-repair"]').checked,
@@ -162,7 +164,7 @@ export function createProviderMonitor(root, { client = api, events = websocket }
           interval_hours: Number(root.querySelector('[name="monitor-interval"]').value),
           intensity: root.querySelector('[name="monitor-intensity"]').value,
         }, { signal: current.signal });
-        dirty = false;
+        if (current.active && revision === atRevision) dirty = false;
       } else if (name === "all") {
         await client.post("/api/providers/probe-all", { intensity: root.querySelector('[name="monitor-intensity"]').value }, { signal: current.signal });
       } else if (name === "confirm") {
@@ -181,7 +183,9 @@ export function createProviderMonitor(root, { client = api, events = websocket }
       scope = createScope(); pending = null; actionPending = false; refreshError = false;
       root.setAttribute("aria-busy", "false"); status().textContent = "";
       scope.listen(root, "click", event => { void action(event); });
-      scope.listen(root, "input", () => { dirty = true; });
+      const changed = () => { dirty = true; revision++; };
+      scope.listen(root, "input", changed);
+      scope.listen(root, "change", changed);
       scope.listen(technical(), "toggle", event => {
         // Nested disclosure events must not rebuild the control being opened.
         if (event.target !== technical()) return;

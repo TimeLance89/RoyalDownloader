@@ -99,6 +99,7 @@ export function preparePresentation() {
     getIntegrations: () => integrationsDomain,
     getSubscriptions: () => subscriptionsDomain,
     getProfile: () => profileDomain,
+    getHome: () => homeDomain,
   });
   subscriptionsDomain = composeSubscriptions({
     movieSubscriptions,
@@ -117,7 +118,7 @@ export function preparePresentation() {
   initializeCore({ getCore: () => coreDomain, startupCurtain, getHome: () => homeDomain, getDiscovery: () => discoveryDomain, getSubscriptions: () => subscriptionsDomain, state });
   initializeSearch({ getSearch: () => searchDomain, getHome: () => homeDomain, getDiscovery: () => discoveryDomain });
   initializeProfile({ getProfile: () => profileDomain, getSettings: () => settingsDomain, getCore: () => coreDomain, getHome: () => homeDomain, profileActions });
-  initializeSettings({ getSettings: () => settingsDomain, getIntegrations: () => integrationsDomain, i18n, getCore: () => coreDomain });
+  initializeSettings({ getSettings: () => settingsDomain, getIntegrations: () => integrationsDomain, i18n, getCore: () => coreDomain, getHome: () => homeDomain, getProfile: () => profileDomain });
   initializeHome({ getHome: () => homeDomain, artworkUrls, discoveryPolicy, getCore: () => coreDomain, state, getDiscovery: () => discoveryDomain, movieState, getIntegrations: () => integrationsDomain });
   return {
     core: coreDomain,

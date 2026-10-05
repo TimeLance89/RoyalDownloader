@@ -4,8 +4,8 @@ export const setupStepCopy = {
     intro: "Als normale Anwendung auf diesem Computer oder als dauerhaften Dienst auf einem NAS.",
   },
   2: {
-    title: "Welche Inhalte möchtest du?",
-    intro: "Wähle Inhaltssprachen und passende Quellen. Die Reihenfolge bestimmt Suche und Fallbacks.",
+    title: "Dein Royal. Deine Sprache.",
+    intro: "Wähle deine Oberfläche und die Sprache deiner Inhalte. Royal kümmert sich um passende Quellen.",
   },
   3: {
     title: "Wohin sollen deine Medien?",
@@ -19,6 +19,7 @@ export const setupStepCopy = {
     title: "Downloads automatisieren",
     intro: "Lege fest, was selbstständig laufen darf. Alle Werte bleiben später änderbar.",
   },
+  7: { title: "Passt alles für dich?", intro: "Dein Profil auf einen Blick. Änderungen sind später jederzeit möglich." },
   6: {
     title: "Zugang sichern",
     intro: "Ein Konto schützt die Oberfläche. Der erste Besitzer bestätigt zusätzlich den einmaligen Sicherheitscode aus dem Royal-Log.",
@@ -31,8 +32,8 @@ export const setupEnglishStepCopy = {
     intro: "As a regular app on this computer or as an always-on service on a NAS.",
   },
   2: {
-    title: "What would you like to watch?",
-    intro: "Choose content languages and matching sources. Their order controls search and fallbacks.",
+    title: "Your Royal. Your language.",
+    intro: "Choose your interface and content languages. Royal takes care of matching sources.",
   },
   3: {
     title: "Where should your media be stored?",
@@ -46,6 +47,7 @@ export const setupEnglishStepCopy = {
     title: "Automate downloads",
     intro: "Choose what Royal may run automatically. Every value can be changed later.",
   },
+  7: { title: "Does everything look right?", intro: "Your profile at a glance. You can change it any time later." },
   6: {
     title: "Secure your access",
     intro: "An account protects Royal. The first owner also confirms the one-time security code shown in the Royal server log.",
