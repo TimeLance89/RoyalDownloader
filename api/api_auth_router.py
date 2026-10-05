@@ -45,6 +45,10 @@ class UserCreateBody(BaseModel):
     role: str = Field(default="member", pattern="^(admin|member)$")
 
 
+class UserDownloadPlanBody(BaseModel):
+    plan: str = Field(pattern="^(free|basic|plus|premium)$")
+
+
 class FirstLoginBody(LoginBody):
     password_repeat: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
@@ -689,6 +693,20 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         try: user = dependencies.user_store().create(body.display_name, body.username, body.role)
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
         return {"user": user}
+
+    @router.post("/api/auth/users/{user_id}/download-plan")
+    async def api_user_download_plan(
+        user_id: str,
+        body: UserDownloadPlanBody,
+        request: Request,
+    ):
+        require_admin(request)
+        try:
+            user = dependencies.user_store().set_download_plan(user_id, body.plan)
+            quota = dependencies.user_store().download_quota(user_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"user": user, "quota": quota}
 
     @router.post("/api/auth/users/{user_id}/reset-password")
     async def api_user_reset(user_id: str, request: Request):
