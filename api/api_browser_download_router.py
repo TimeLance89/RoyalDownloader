@@ -35,8 +35,9 @@ from providers.models import parse_episode_slug, strip_episode_suffix
 TICKET_TTL_SECONDS = 60 * 60
 MAX_TICKETS = 500
 MAX_PREPARE_SLUGS = 20
-QUOTA_PERSIST_BYTES = 16 * 1024 * 1024
+QUOTA_PERSIST_BYTES = 256 * 1024 * 1024
 STREAM_CHUNK_BYTES = 256 * 1024
+MAX_ACTIVE_TRANSFERS_PER_USER = 2
 
 
 class BrowserDownloadPreference(BaseModel):
@@ -58,6 +59,45 @@ class _Ticket:
     preference: BrowserDownloadPreference | None
     created_at: float = field(default_factory=time.time)
     last_used_at: float = 0.0
+
+
+class _TransferLease:
+    def __init__(self, limiter: "_TransferLimiter", user_id: str) -> None:
+        self._limiter = limiter
+        self._user_id = user_id
+        self._released = False
+        self._lock = threading.Lock()
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        self._limiter.release(self._user_id)
+
+
+class _TransferLimiter:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._active: dict[str, int] = {}
+
+    def acquire(self, user_id: str) -> _TransferLease | None:
+        key = str(user_id)
+        with self._lock:
+            active = int(self._active.get(key, 0))
+            if active >= MAX_ACTIVE_TRANSFERS_PER_USER:
+                return None
+            self._active[key] = active + 1
+        return _TransferLease(self, key)
+
+    def release(self, user_id: str) -> None:
+        key = str(user_id)
+        with self._lock:
+            active = int(self._active.get(key, 0))
+            if active <= 1:
+                self._active.pop(key, None)
+            else:
+                self._active[key] = active - 1
 
 
 class _TicketStore:
@@ -113,6 +153,7 @@ class _TicketStore:
 def create_browser_download_router(backend) -> APIRouter:
     router = APIRouter(tags=["browser-download"])
     tickets = _TicketStore()
+    transfers = _TransferLimiter()
 
     def require_user(request: Request) -> dict:
         user = backend.current_user(request.headers, request.cookies)
@@ -180,37 +221,52 @@ def create_browser_download_router(backend) -> APIRouter:
         if int(quota["remaining_today_bytes"]) <= 0:
             raise HTTPException(429, "Dein Browser-Download-Limit für heute ist aufgebraucht.")
 
+        lease = transfers.acquire(user_id)
+        if lease is None:
+            raise HTTPException(
+                429,
+                f"Maximal {MAX_ACTIVE_TRANSFERS_PER_USER} Browser-Downloads gleichzeitig.",
+            )
+
         try:
             resolved = await run_in_threadpool(_resolve_ticket, backend, ticket)
+            stream_url = str(resolved["url"])
+            stream_type = str(resolved["stream_type"] or "").casefold()
+            try:
+                ensure_public_http_url(stream_url)
+            except UnsafeNetworkTarget as exc:
+                raise HTTPException(
+                    502,
+                    f"Unsicheres Downloadziel wurde blockiert: {exc}",
+                ) from exc
+
+            incoming_range = str(request.headers.get("range") or "").strip()
+            if _direct_stream(stream_url, stream_type):
+                return await run_in_threadpool(
+                    _direct_response,
+                    backend,
+                    user_id,
+                    resolved,
+                    incoming_range,
+                    lease,
+                )
+
+            if incoming_range:
+                raise HTTPException(
+                    416,
+                    "Resume ist für diese HLS/DASH-Quelle nicht verfügbar. Bitte den Download neu starten.",
+                )
+            return _adaptive_response(backend, user_id, resolved, lease)
         except HTTPException:
+            lease.release()
             raise
         except Exception as exc:
+            lease.release()
             backend.log(f"Browser-Download konnte nicht aufgelöst werden: {exc}", "warn")
-            raise HTTPException(502, f"Downloadquelle konnte nicht vorbereitet werden: {exc}") from exc
-
-        stream_url = str(resolved["url"])
-        stream_type = str(resolved["stream_type"] or "").casefold()
-        try:
-            ensure_public_http_url(stream_url)
-        except UnsafeNetworkTarget as exc:
-            raise HTTPException(502, f"Unsicheres Downloadziel wurde blockiert: {exc}") from exc
-
-        incoming_range = str(request.headers.get("range") or "").strip()
-        if _direct_stream(stream_url, stream_type):
-            return await run_in_threadpool(
-                _direct_response,
-                backend,
-                user_id,
-                resolved,
-                incoming_range,
-            )
-
-        if incoming_range:
             raise HTTPException(
-                416,
-                "Resume ist für diese HLS/DASH-Quelle nicht verfügbar. Bitte den Download neu starten.",
-            )
-        return _adaptive_response(backend, user_id, resolved)
+                502,
+                f"Downloadquelle konnte nicht vorbereitet werden: {exc}",
+            ) from exc
 
     return router
 
@@ -398,6 +454,7 @@ def _direct_response(
     user_id: str,
     resolved: dict[str, Any],
     incoming_range: str,
+    lease: _TransferLease,
 ):
     stream_url = str(resolved["url"])
     headers = _source_headers(resolved)
@@ -456,14 +513,19 @@ def _direct_response(
 
     media_type = str(response.headers.get("Content-Type") or "application/octet-stream")
     return StreamingResponse(
-        _quota_curl_iterator(backend, user_id, response),
+        _quota_curl_iterator(backend, user_id, response, lease),
         status_code=status_code,
         media_type=media_type,
         headers=outgoing_headers,
     )
 
 
-def _quota_curl_iterator(backend, user_id: str, response) -> Iterator[bytes]:
+def _quota_curl_iterator(
+    backend,
+    user_id: str,
+    response,
+    lease: _TransferLease,
+) -> Iterator[bytes]:
     unflushed = 0
     try:
         for chunk in response.iter_content(chunk_size=STREAM_CHUNK_BYTES):
@@ -490,9 +552,15 @@ def _quota_curl_iterator(backend, user_id: str, response) -> Iterator[bytes]:
             response.close()
         finally:
             backend.USER_STORE.flush_download_usage(user_id)
+            lease.release()
 
 
-def _adaptive_response(backend, user_id: str, resolved: dict[str, Any]):
+def _adaptive_response(
+    backend,
+    user_id: str,
+    resolved: dict[str, Any],
+    lease: _TransferLease,
+):
     command = [
         sys.executable,
         "-m",
@@ -536,13 +604,18 @@ def _adaptive_response(backend, user_id: str, resolved: dict[str, Any]):
         "X-Royal-Quota-Remaining": str(quota["remaining_today_bytes"]),
     }
     return StreamingResponse(
-        _quota_process_iterator(backend, user_id, process),
+        _quota_process_iterator(backend, user_id, process, lease),
         media_type="application/octet-stream",
         headers=headers,
     )
 
 
-def _quota_process_iterator(backend, user_id: str, process: subprocess.Popen) -> Iterator[bytes]:
+def _quota_process_iterator(
+    backend,
+    user_id: str,
+    process: subprocess.Popen,
+    lease: _TransferLease,
+) -> Iterator[bytes]:
     unflushed = 0
     try:
         assert process.stdout is not None
@@ -569,6 +642,7 @@ def _quota_process_iterator(backend, user_id: str, process: subprocess.Popen) ->
     finally:
         _stop_process(process)
         backend.USER_STORE.flush_download_usage(user_id)
+        lease.release()
 
 
 def _stop_process(process: subprocess.Popen) -> None:
