@@ -628,6 +628,8 @@ def _capabilities_payload():
             "cover_proxy": True,
             "websocket": True,
             "settings": True,
+            "browser_downloads": True,
+            "daily_download_quota": True,
         },
         "websocket": {
             "path": "/api/v1/ws",
