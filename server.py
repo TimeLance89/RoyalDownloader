@@ -90,6 +90,7 @@ from api.api_auth_router import (
     create_auth_router,
 )
 from api.api_setup_router import SetupCompleteBody, SetupDependencies, create_setup_router
+from api.api_browser_download_router import create_browser_download_router
 from api.api_discovery_router import (
     MovieMetadataBody,
     MovieMetadataItem,
@@ -916,6 +917,10 @@ app.router.routes.extend(ai_router.routes)
 queue_router = create_queue_router(sys.modules[__name__])
 register_domain_router("queue", queue_router)
 app.router.routes.extend(queue_router.routes)
+
+browser_download_router = create_browser_download_router(sys.modules[__name__])
+register_domain_router("browser_download", browser_download_router)
+app.router.routes.extend(browser_download_router.routes)
 
 
 administration_router = create_administration_router(sys.modules[__name__])
