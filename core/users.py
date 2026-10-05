@@ -226,28 +226,27 @@ class UserStore:
         byte_count: int,
         *,
         persist: bool = False,
-    ) -> bool:
+    ) -> int:
+        """Atomically reserve and account as many bytes as the daily quota allows."""
         amount = max(0, int(byte_count or 0))
         if amount == 0:
-            return True
+            return 0
         with self._lock:
             user = self._users.get(str(user_id))
             if not user or not user.get("enabled"):
-                return False
+                return 0
             reset = self._reset_download_usage_locked(user)
             plan_id = str(user.get("download_plan") or DEFAULT_DOWNLOAD_PLAN)
             plan = DOWNLOAD_PLANS.get(plan_id, DOWNLOAD_PLANS[DEFAULT_DOWNLOAD_PLAN])
             limit = int(plan["daily_limit_bytes"])
             used = max(0, int(user.get("download_used_bytes") or 0))
-            if used + amount > limit:
-                if reset:
-                    self._save()
-                return False
-            user["download_used_bytes"] = used + amount
-            user["updated_at"] = time.time()
+            accepted = min(amount, max(0, limit - used))
+            if accepted:
+                user["download_used_bytes"] = used + accepted
+                user["updated_at"] = time.time()
             if persist or reset:
                 self._save()
-            return True
+            return accepted
 
     def flush_download_usage(self, user_id: str) -> None:
         with self._lock:
