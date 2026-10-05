@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { formatDownloadQuota } from "../downloads/browser.js";
 
 export function createAccountSettings(root, { client = api, getUser, onSaved, logout,
   confirm = message => window.confirm(message),
@@ -8,6 +9,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
   let scope;
   let users = [];
   let profileAvatars = [];
+  let downloadPlans = [];
   let pending = null;
   let cancelUsers = () => {};
   function setAccountStatus(message = "", error = false) {
@@ -45,12 +47,33 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
 
   function accountUserRow(user) {
     const row = root.ownerDocument.createElement("div");
-    row.className = "account-actions";
+    row.className = "account-actions account-user-row";
     const state = !user.enabled ? "Deaktiviert" : user.setup_required ? "Einrichtung ausstehend" : "Aktiv";
     const identity = root.ownerDocument.createElement("span");
     identity.className = "account-user-identity";
     identity.textContent = `${user.display_name} · Login: ${user.username} · ${user.role === "admin" ? "Administrator" : "Mitglied"} · ${state}`;
     row.appendChild(identity);
+
+    const plan = root.ownerDocument.createElement("select");
+    plan.className = "account-user-plan";
+    plan.dataset.userPlan = "1";
+    plan.dataset.userId = user.id;
+    plan.setAttribute("aria-label", `Download-Tarif für ${user.display_name || user.username}`);
+    const knownPlans = downloadPlans.length ? downloadPlans : [
+      { id: "free", name: "Free", daily_limit_bytes: 10 * 1024 ** 3 },
+      { id: "basic", name: "Basic", daily_limit_bytes: 50 * 1024 ** 3 },
+      { id: "plus", name: "Plus", daily_limit_bytes: 100 * 1024 ** 3 },
+      { id: "premium", name: "Premium", daily_limit_bytes: 200 * 1024 ** 3 },
+    ];
+    for (const item of knownPlans) {
+      const option = root.ownerDocument.createElement("option");
+      option.value = item.id;
+      option.textContent = `${item.name} · ${formatDownloadQuota(item.daily_limit_bytes)}/Tag`;
+      option.selected = String(user.download_plan || "free") === item.id;
+      plan.appendChild(option);
+    }
+    row.appendChild(plan);
+
     const action = (name, label, className = "") => {
       const button = root.ownerDocument.createElement("button");
       button.type = "button"; button.className = `btn btn-ghost btn-sm ${className}`.trim();
@@ -89,6 +112,69 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
     remove.textContent = "Profilbild löschen";
     row.append(image, copy, remove);
     return row;
+  }
+
+  async function refreshDownloadQuota() {
+    if (!scope?.active || !getUser()) return;
+    const currentScope = scope;
+    const status = byId("account-download-quota-status");
+    try {
+      const quota = await client.get(
+        "/api/browser-download/quota",
+        { signal: currentScope.signal, cache: "no-store" },
+      );
+      if (!currentScope.active) return;
+      downloadPlans = Array.isArray(quota.plans) ? quota.plans : downloadPlans;
+      const used = Number(quota.used_today_bytes || 0);
+      const limit = Number(quota.daily_limit_bytes || 0);
+      const remaining = Number(quota.remaining_today_bytes || 0);
+      byId("account-download-quota-remaining").textContent =
+        `${formatDownloadQuota(remaining)} heute verfügbar`;
+      byId("account-download-quota-plan").textContent =
+        `${quota.plan_name || quota.plan || "Free"} · ${formatDownloadQuota(limit)}/Tag`;
+      const progress = byId("account-download-quota-progress");
+      progress.value = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+      status.textContent =
+        `${formatDownloadQuota(used)} genutzt · Reset täglich nach Europe/Berlin`;
+    } catch (error) {
+      if (!currentScope.active) return;
+      status.textContent = `Download-Kontingent nicht abrufbar: ${error.message}`;
+    }
+  }
+
+  async function changeDownloadPlan(event) {
+    const select = event.target.closest("[data-user-plan]");
+    if (!scope?.active || getUser()?.role !== "admin" || !select || select.disabled) return;
+    const user = users.find(item => String(item.id) === String(select.dataset.userId || ""));
+    if (!user) return;
+    const previous = String(user.download_plan || "free");
+    const next = String(select.value || "free");
+    if (previous === next) return;
+
+    const currentScope = scope;
+    const status = byId("account-users-status");
+    select.disabled = true;
+    status.classList.remove("error");
+    status.textContent = `Tarif für „${user.display_name || user.username}“ wird geändert …`;
+    try {
+      const result = await client.post(
+        `/api/auth/users/${encodeURIComponent(user.id)}/download-plan`,
+        { plan: next },
+        { signal: currentScope.signal },
+      );
+      if (!currentScope.active) return;
+      user.download_plan = result.user?.download_plan || next;
+      status.textContent =
+        `✓ „${user.display_name || user.username}“ nutzt jetzt ${result.quota?.plan_name || next}.`;
+      if (String(user.id) === String(getUser()?.id)) await refreshDownloadQuota();
+    } catch (error) {
+      if (!currentScope.active) return;
+      select.value = previous;
+      status.textContent = error.message;
+      status.classList.add("error");
+    } finally {
+      if (currentScope.active) select.disabled = false;
+    }
   }
 
   async function refreshProfileAvatars() {
@@ -278,6 +364,7 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       const config = await client.get("/api/auth/config", { signal: currentScope.signal });
       if (!currentScope.active) return;
       applyAccountCfg(config);
+      void refreshDownloadQuota();
       void refreshAccountUsers();
       if (getUser()?.role !== "admin") byId("account-avatar-card").hidden = true;
     } catch (error) {
@@ -413,12 +500,16 @@ export function createAccountSettings(root, { client = api, getUser, onSaved, lo
       scope.listen(byId("account-revoke"), "click", revokeOtherSessions);
       scope.listen(byId("new-user-create"), "click", createAccountUser);
       scope.listen(byId("account-users-list"), "click", changeUser);
+      scope.listen(byId("account-users-list"), "change", changeDownloadPlan);
+      scope.listen(window, "royal:browser-download-started", () => {
+        window.setTimeout(() => { if (scope?.active) void refreshDownloadQuota(); }, 1200);
+      });
       scope.listen(byId("account-avatar-upload"), "click", uploadProfileAvatar);
       scope.listen(byId("account-avatar-library"), "click", deleteProfileAvatar);
       void refresh();
     },
     unmount() {
-      scope?.dispose(); scope = null; pending = null; users = []; profileAvatars = [];
+      scope?.dispose(); scope = null; pending = null; users = []; profileAvatars = []; downloadPlans = [];
       for (const id of ["account-password", "account-password-repeat", "account-current-password"]) byId(id).value = "";
     },
   };
