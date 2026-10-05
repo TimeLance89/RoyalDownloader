@@ -1,6 +1,11 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml } from "../../shared/utils/escape-html.js";
+import {
+  announceBrowserDownloadStart,
+  prepareBrowserDownloads,
+  triggerBrowserDownloads,
+} from "../downloads/browser.js";
 
 export function createAniworld(root, modal, {
   getQueuedSlugs, coverUrl, mediaCardInitials, openMediaModal, recheckAniworldInfinite,
@@ -404,7 +409,7 @@ export function createAniworld(root, modal, {
   }
 
   function aniworldSelectableEpisodes() {
-    return aniworldVisibleEpisodes().filter((episode) => !episode.downloaded && !episode.queued && !getQueuedSlugs().has(episode.slug));
+    return aniworldVisibleEpisodes().filter((episode) => Boolean(episode.slug));
   }
 
   function renderAniworldEpisodes() {
@@ -416,10 +421,15 @@ export function createAniworld(root, modal, {
       const button = root.ownerDocument.createElement("button"); button.type = "button";
       button.className = "aniworld-episode" + (selected ? " is-selected" : "") + (queued ? " is-queued" : "") + (episode.downloaded ? " is-downloaded" : "");
       const code = episode.kind === "movie" ? `FILM ${String(episode.number).padStart(2, "0")}` : `S${String(episode.season).padStart(2, "0")} · E${String(episode.number).padStart(2, "0")}`;
-      const stateLabel = episode.downloaded ? "Geladen" : (queued ? "Queue" : (selected ? "Ausgewählt" : "Verfügbar"));
+      const stateLabel = selected
+        ? "Ausgewählt"
+        : episode.downloaded
+          ? "Server: geladen"
+          : queued ? "Server: Queue" : "Browser";
       const secondary = [episode.original_title && episode.original_title !== episode.title ? episode.original_title : "", ...(episode.hosters || []).slice(0, 3)].filter(Boolean).join(" · ");
       button.innerHTML = `<span class="aniworld-episode-code">${escapeHtml(code)}</span><span class="aniworld-episode-title"><strong>${escapeHtml(episode.title || episode.label)}</strong>${secondary ? `<small>${escapeHtml(secondary)}</small>` : ""}</span><span class="aniworld-episode-state">${escapeHtml(stateLabel)}</span>`;
-      button.title = `${episode.label}${episode.title ? ` · ${episode.title}` : ""}`; button.disabled = queued || episode.downloaded;
+      button.title = `${episode.label}${episode.title ? ` · ${episode.title}` : ""} · im Browser herunterladen`;
+      button.disabled = false;
       callbacks.set(button, () => { if (selected) data.picked.delete(episode.slug); else data.picked.add(episode.slug); renderAniworldEpisodes(); });
       container.appendChild(button);
     }
@@ -436,13 +446,15 @@ export function createAniworld(root, modal, {
 
   function syncAniworldQueueFlags() {
     const anime = data.current; if (!anime?.episodes) return;
-    for (const episode of anime.episodes) { episode.queued = getQueuedSlugs().has(episode.slug); if (episode.queued) data.picked.delete(episode.slug); }
+    for (const episode of anime.episodes) {
+      episode.queued = getQueuedSlugs().has(episode.slug);
+    }
     const modal = byId("aniworld-detail-modal"); if (modal && !modal.hidden) renderAniworldEpisodes();
   }
 
   function markAniworldSlugDownloaded(slug) {
     const anime = data.current; const episode = anime?.episodes?.find((item) => item.slug === slug); if (!episode) return;
-    episode.downloaded = true; episode.queued = false; data.picked.delete(slug); if (detail?.active) renderAniworldEpisodes();
+    episode.downloaded = true; episode.queued = false; if (detail?.active) renderAniworldEpisodes();
   }
 
   async function aniworldAddSelected() {
@@ -451,16 +463,30 @@ export function createAniworld(root, modal, {
     const slugs = [...data.picked]; if (!slugs.length) return;
     queuePending = true;
     byId("aniworld-add-btn").disabled = true;
-    byId("aniworld-pick-count").textContent = "wird eingeplant …";
+    byId("aniworld-pick-count").textContent = "Browser-Downloads werden vorbereitet …";
     try {
-      const response = await client.post("/api/queue/add", { slugs, preferences: {}, source: "anime" }, { signal: session.signal });
+      const response = await prepareBrowserDownloads(
+        client,
+        slugs,
+        {},
+        { signal: session.signal },
+      );
       if (!session.active) return;
-      refreshQueueUiAfterChange(response);
+      const started = triggerBrowserDownloads(response.downloads, root.ownerDocument);
+      if (!started) throw new Error("RDM hat keine Browser-Downloads erzeugt.");
+      announceBrowserDownloadStart({ quota: response.quota, slugs });
       if (!mounted.active || data.currentId !== selectedId) return;
       data.picked.clear();
-      byId("aniworld-status").textContent = `${response.added}/${slugs.length} AniWorld-Einträge eingeplant`;
-    } catch (error) { if (!mounted.active || data.currentId !== selectedId) return; byId("aniworld-status").textContent = `Download fehlgeschlagen: ${error.message}`; }
-    finally { queuePending = false; if (mounted.active && data.currentId === selectedId) renderAniworldEpisodes(); }
+      byId("aniworld-status").textContent = started > 1
+        ? `${started} Browser-Downloads gestartet · dein Browser kann nach Erlaubnis für mehrere Dateien fragen.`
+        : "Browser-Download gestartet.";
+    } catch (error) {
+      if (!mounted.active || data.currentId !== selectedId) return;
+      byId("aniworld-status").textContent = `Download fehlgeschlagen: ${error.message}`;
+    } finally {
+      queuePending = false;
+      if (mounted.active && data.currentId === selectedId) renderAniworldEpisodes();
+    }
   }
   return {
     get: () => data, mount, unmount, closeDetail,
