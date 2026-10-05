@@ -1990,6 +1990,18 @@
           <button id="account-revoke" class="btn btn-ghost btn-sm" type="button">Andere Sitzungen beenden</button>
           <div id="account-revoke-status" class="dim small-status" role="status" aria-live="polite"></div>
         </div>
+        <div id="account-download-quota-card" class="settings-group settings-card account-sessions">
+          <h3>Browser-Downloads</h3>
+          <p class="dim settings-hint">Dein Tagesvolumen gilt nur für Dateien, die RDM direkt an deinen Browser überträgt.</p>
+          <div class="account-download-quota">
+            <div class="account-download-quota-head">
+              <strong id="account-download-quota-remaining">—</strong>
+              <span id="account-download-quota-plan" class="dim">—</span>
+            </div>
+            <progress id="account-download-quota-progress" max="100" value="0" aria-label="Verbrauchtes Browser-Download-Volumen"></progress>
+            <p id="account-download-quota-status" class="dim small-status" role="status" aria-live="polite">Wird geladen …</p>
+          </div>
+        </div>
         <div id="account-users-card" class="settings-group settings-card account-sessions" hidden>
           <h3>Benutzer</h3>
           <p class="dim settings-hint">Jedes Konto hat einen sichtbaren Profilnamen und einen separaten Loginnamen. Neue Benutzer legen ihr Passwort beim ersten Wechsel oder Login selbst fest.</p>
