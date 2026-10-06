@@ -13,7 +13,7 @@ import re
 import time
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from curl_cffi import requests
+from core import egress_curl as requests
 from core.network_guard import ensure_public_http_url
 
 from providers.models import (

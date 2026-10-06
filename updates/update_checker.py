@@ -11,8 +11,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-import requests
-
+from core import egress_requests as requests
 from core.environment_file import read_env
 from updates.update_channels import (
     DEFAULT_UPDATE_BRANCH,

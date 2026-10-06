@@ -13,12 +13,16 @@ import json
 import logging
 import re
 import unicodedata
-import urllib.request
+import urllib.error
+from types import SimpleNamespace
 from typing import List, Optional
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 
+from core import egress_urllib
 from integrations.jellyfin_auth import jellyfin_auth_headers
+
+urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 logger = logging.getLogger(__name__)
 MAX_ITEM_PAGES = 10_000

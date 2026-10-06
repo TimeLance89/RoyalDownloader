@@ -9,7 +9,7 @@ import time
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from curl_cffi import requests
+from core import egress_curl as requests
 from providers.sentinel_runtime import monitor_adapter
 
 from providers.models import (

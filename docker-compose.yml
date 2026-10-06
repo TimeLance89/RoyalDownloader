@@ -126,6 +126,11 @@ services:
       SLOW_DOWNLOAD_WINDOW_SECONDS: ${SLOW_DOWNLOAD_WINDOW_SECONDS:-90}
       DNS_PRIMARY: ${DNS_PRIMARY:-1.1.1.1}
       DNS_SECONDARY: ${DNS_SECONDARY:-9.9.9.9}
+      ROYAL_EGRESS_MODE: ${ROYAL_EGRESS_MODE:-direct}
+      ROYAL_EGRESS_PROXY: ${ROYAL_EGRESS_PROXY:-}
+      ROYAL_EGRESS_PROXY_FILE: ${ROYAL_EGRESS_PROXY_FILE:-}
+      ROYAL_EGRESS_FAIL_CLOSED: ${ROYAL_EGRESS_FAIL_CLOSED:-true}
+      ROYAL_EGRESS_LOCAL_BYPASS: ${ROYAL_EGRESS_LOCAL_BYPASS:-true}
       TZ: ${TZ:-Europe/Berlin}
     shm_size: "1gb"
     tmpfs:
@@ -153,6 +158,11 @@ services:
     container_name: royal-browser
     init: true
     restart: unless-stopped
+    environment:
+      ROYAL_EGRESS_MODE: ${ROYAL_EGRESS_MODE:-direct}
+      ROYAL_EGRESS_PROXY: ${ROYAL_EGRESS_PROXY:-}
+      ROYAL_EGRESS_PROXY_FILE: ${ROYAL_EGRESS_PROXY_FILE:-}
+      ROYAL_EGRESS_FAIL_CLOSED: ${ROYAL_EGRESS_FAIL_CLOSED:-true}
     user: "${PUID:-1000}:${PGID:-1000}"
     read_only: true
     pids_limit: 256
@@ -173,7 +183,7 @@ services:
         Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 &
         python -m integrations.browser_cdp_proxy --listen-host 0.0.0.0 &
         export DISPLAY=:99;
-        exec chromium --no-sandbox --disable-dev-shm-usage
+        exec python -m core.browser_egress chromium --no-sandbox --disable-dev-shm-usage
         --disable-background-networking --disable-client-side-phishing-detection
         --no-first-run --no-default-browser-check
         --remote-debugging-port=9223

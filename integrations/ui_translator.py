@@ -14,8 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable
 
-import requests
-
+from core import egress_requests as requests
 from core.runtime_paths import data_dir
 
 

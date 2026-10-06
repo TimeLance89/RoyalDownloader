@@ -448,3 +448,14 @@ These request all missing episodes, one missing season, or one episode.
   route tries other enabled providers.
 - Local Windows startup remains available with `python server.py`; container
   behavior is controlled entirely through environment variables.
+# Privacy Egress
+
+Default `ROYAL_EGRESS_MODE=direct` preserves existing operation. To route external
+traffic through a HTTP(S) CONNECT proxy, set `ROYAL_EGRESS_MODE=privacy`,
+`ROYAL_EGRESS_PROXY` (or `ROYAL_EGRESS_PROXY_FILE`) and keep
+`ROYAL_EGRESS_FAIL_CLOSED=true`. LAN integrations remain direct with
+`ROYAL_EGRESS_LOCAL_BYPASS=true`. Compose configures both Royal and its isolated
+browser; mount a proxy secret file into both services when using `_FILE`.
+
+DNS validation also goes through the proxy. Offline egress causes ordinary
+request failures, never a direct retry. See [routing and limitations](EGRESS.md).

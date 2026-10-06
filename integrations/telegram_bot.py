@@ -1,12 +1,16 @@
 """Kleiner Telegram-Bot-API-Client mit Long Polling, ohne Zusatzpakete."""
 
+
 import json
 import secrets
 import threading
 import urllib.error
-import urllib.request
+from types import SimpleNamespace
 from typing import Callable, Optional
 
+from core import egress_urllib
+
+urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 class TelegramBot:
     POLL_TIMEOUT_SECONDS = 5

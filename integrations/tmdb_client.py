@@ -7,11 +7,16 @@ import threading
 import time
 import unicodedata
 import urllib.error
-import urllib.request
+from types import SimpleNamespace
+
+from core import egress_urllib
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlencode
 
+
+urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 logger = logging.getLogger(__name__)
 API_BASE = "https://api.themoviedb.org/3"

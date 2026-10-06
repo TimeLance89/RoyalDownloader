@@ -26,11 +26,11 @@ import warnings
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import quote, urljoin, urlparse
 
+from core.egress import get_manager
 from core.network_guard import (
     UnsafeNetworkTarget,
     ensure_public_http_url,
     request_proxy_kwargs,
-    safe_proxy_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ def _is_test_url(url: str) -> bool:
 
 
 def _make_session():
-    from curl_cffi import requests as cr
+    from core import egress_curl as cr
     return cr.Session(impersonate="chrome136")
 
 
@@ -525,7 +525,7 @@ class VOEBrowserPool:
                 "--disable-extensions",
                 "--disable-gpu",
                 "--window-size=1280,900",
-                f"--proxy-server={safe_proxy_url()}",
+                *get_manager().browser_proxy_args(),
             ],
         }
         if executable:

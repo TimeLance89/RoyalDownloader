@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from curl_cffi import requests
+from core import egress_curl as requests
 
 from providers.tmdb_embeds import VidSrcScraper, VixSrcScraper, VidRiftScraper, VidRockScraper
 from providers.moviebox import MovieBoxScraper

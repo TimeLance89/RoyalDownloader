@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from core.egress import get_manager
 from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url
 
 PROBE_TIMEOUT_SECONDS = 25
@@ -357,6 +358,7 @@ def probe_media_profile(
     try:
         proc = subprocess.run(
             cmd,
+            env=get_manager().subprocess_environment(value, untrusted=True) if is_network else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
