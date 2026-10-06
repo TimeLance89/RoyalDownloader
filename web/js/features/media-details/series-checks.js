@@ -9,6 +9,8 @@ export function createSeriesChecks(status, {
 }) {
   let refreshScope = null, refreshSequence = 0;
   const refreshByBase = new Map(), languageJobs = new Set(), languagePendingSlugs = new Map();
+  const languageQueue = [];
+  let activeLanguageJob = null;
 
   function providerNeedsExactEpisodeLanguage(series) {
     if (!series) return false;
@@ -101,7 +103,7 @@ export function createSeriesChecks(status, {
       const languageEpisodes = publishedMissingLanguageEpisodes(enriched);
       if (languageEpisodes.length) {
         try {
-          await verifyHuhuEpisodeLanguages(languageEpisodes, enriched);
+          await verifyHuhuEpisodeLanguages(languageEpisodes, enriched, { background: true });
         } catch (error) {
           if (error.name !== "AbortError") {
             console.warn("Automatische Episoden-Sprachprüfung fehlgeschlagen:", error);
@@ -136,9 +138,23 @@ export function createSeriesChecks(status, {
     }
   }
 
-  async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current) {
-    if (!series) return;
-    if (!providerNeedsExactEpisodeLanguage(series)) return;
+  function runNextLanguageJob() {
+    if (activeLanguageJob || !languageQueue.length) return;
+    const job = languageQueue.shift();
+    activeLanguageJob = job;
+    job.run().then(job.resolve, job.reject).finally(() => {
+      for (const key of job.keys) {
+        if (languagePendingSlugs.get(key) === job) languagePendingSlugs.delete(key);
+      }
+      job.owner.dispose();
+      languageJobs.delete(job.owner);
+      if (activeLanguageJob === job) activeLanguageJob = null;
+      runNextLanguageJob();
+    });
+  }
+
+  async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current, { background = false } = {}) {
+    if (!series || !providerNeedsExactEpisodeLanguage(series)) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
     const generation = seriesState.viewGeneration;
     const baseSlug = series.base_slug;
@@ -147,54 +163,66 @@ export function createSeriesChecks(status, {
       !episode.downloaded && !episode.in_jellyfin && !episode.unreleased
       && episode.language_checked !== true && episode.huhu_language_checked !== true
     ));
+    // A new detail view must not sit behind a cancelled provider request.
+    if (activeLanguageJob && activeLanguageJob.generation !== generation) {
+      activeLanguageJob.owner.dispose();
+      activeLanguageJob = null;
+    }
+    for (let i = languageQueue.length - 1; i >= 0; i--) {
+      const job = languageQueue[i];
+      if (job.generation !== generation) {
+        languageQueue.splice(i, 1);
+        job.reject(new DOMException("Abgebrochen", "AbortError"));
+        job.owner.dispose();
+        languageJobs.delete(job.owner);
+        for (const key of job.keys) languagePendingSlugs.delete(key);
+      }
+    }
     const waiting = new Set(requested.map(episode => languagePendingSlugs.get(keyFor(episode))).filter(Boolean));
     const pending = requested.filter(episode => !languagePendingSlugs.has(keyFor(episode)));
-    if (pending.length) {
+    // Small serial probes publish results promptly without flooding the provider.
+    for (let index = 0; index < pending.length; index += 4) {
+      const chunk = pending.slice(index, index + 4);
       const owner = createScope();
       languageJobs.add(owner);
-      const task = (async () => {
-          status.textContent = `Prüfe Stream-Sprache für ${pending.length} Folge(n) …`;
-          for (let index = 0; index < pending.length; index += 20) {
-            const chunk = pending.slice(index, index + 20);
-            const result = await client.post("/api/series/episode-languages", {
-              provider: series.provider, slugs: chunk.map(episode => episode.slug),
-            }, { signal: owner.signal });
-            const live = seriesState.current;
-            if (!owner.active || generation !== seriesState.viewGeneration
-                || live?.base_slug !== baseSlug || live?.provider !== series.provider) {
-              throw new DOMException("Abgebrochen", "AbortError");
-            }
-            const liveEpisodes = new Map((live.seasons || []).flatMap(season => season.episodes || []).map(episode => [episode.slug, episode]));
-            for (const episode of chunk) {
-              // Hydration replaces objects within the same view. Publish into
-              // the live episode as well as the original request snapshot.
-              for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
-                if (!target) continue;
-                target.language_checked = true;
-                target.language_available = result.available?.[episode.slug] === true;
-                target.huhu_language_checked = true;
-                target.huhu_language_available = target.language_available;
-                target.content_languages = result.languages?.[episode.slug] || [];
-              }
-            }
-            pruneSeriesEpisodeSelection?.();
-            renderSeriesTiles();
+      const job = { owner, generation, keys: chunk.map(keyFor) };
+      job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
+      job.run = async () => {
+        if (!owner.active) throw new DOMException("Abgebrochen", "AbortError");
+        const result = await client.post("/api/series/episode-languages", {
+          provider: series.provider, slugs: chunk.map(episode => episode.slug),
+        }, { signal: owner.signal, timeoutMs: 15_000,
+          timeoutMessage: "Die Sprachprüfung antwortet nicht. Bitte erneut auswählen." });
+        const live = seriesState.current;
+        if (!owner.active || generation !== seriesState.viewGeneration
+            || live?.base_slug !== baseSlug || live?.provider !== series.provider) {
+          throw new DOMException("Abgebrochen", "AbortError");
+        }
+        const liveEpisodes = new Map((live.seasons || []).flatMap(season => season.episodes || []).map(episode => [episode.slug, episode]));
+        for (const episode of chunk) {
+          for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
+            if (!target) continue;
+            target.language_checked = true;
+            target.language_available = result.available?.[episode.slug] === true;
+            target.huhu_language_checked = true;
+            target.huhu_language_available = target.language_available;
+            target.content_languages = result.languages?.[episode.slug] || [];
           }
-          status.textContent = pending.some(episode => !episode.language_available)
-            ? "Folgen ohne passende Stream-Sprache bleiben gesperrt."
-            : "Stream-Sprache bestätigt.";
-      })().finally(() => {
-          for (const episode of pending) {
-            const key = keyFor(episode);
-            if (languagePendingSlugs.get(key) === task) languagePendingSlugs.delete(key);
-          }
-          owner.dispose();
-          languageJobs.delete(owner);
-      });
-      for (const episode of pending) languagePendingSlugs.set(keyFor(episode), task);
-      waiting.add(task);
+        }
+        pruneSeriesEpisodeSelection?.();
+        if (refreshSeriesTileStates) refreshSeriesTileStates();
+        else renderSeriesTiles();
+      };
+      for (const key of job.keys) languagePendingSlugs.set(key, job);
+      languageQueue.push(job);
+      waiting.add(job);
     }
-    await Promise.all(waiting);
+    // A click waits only for its own batches, and moves queued work ahead of
+    // unrelated automatic checks. The active request remains shared.
+    if (!background) languageQueue.sort((a, b) => Number(waiting.has(b)) - Number(waiting.has(a)));
+    if (requested.length) status.textContent = `Prüfe Stream-Sprache für ${requested.length} Folge(n) …`;
+    runNextLanguageJob();
+    await Promise.all([...waiting].map(job => job.promise));
   }
 
   return {
@@ -204,6 +232,8 @@ export function createSeriesChecks(status, {
       for (const job of languageJobs) job.dispose();
       languageJobs.clear();
       languagePendingSlugs.clear();
+      for (const job of languageQueue.splice(0)) job.reject(new DOMException("Abgebrochen", "AbortError"));
+      activeLanguageJob = null;
     },
   };
 }

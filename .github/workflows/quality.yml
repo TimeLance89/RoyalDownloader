@@ -68,6 +68,7 @@ jobs:
 
       - name: Native mobile gestures, seams, orientation and navigation
         run: |
+          node tests/frontend/series-selection-browser.cjs
           node tests/frontend/mobile-layout.cjs
           node tests/frontend/mobile-browser.cjs
 
@@ -156,7 +157,7 @@ jobs:
           backend=false
           while IFS= read -r path; do
             case "$path" in
-              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|.github/workflows/quality.yml)
+              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml)
                 ;;
               *) backend=true; break ;;
             esac
