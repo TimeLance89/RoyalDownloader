@@ -1022,3 +1022,28 @@ def test_language_retry_reloads_tracks_and_accepts_new_german_audio(monkeypatch,
     assert loads == [slug]
     assert enqueued == [refreshed]
     assert refreshed._required_content_language == "de"
+
+
+def test_overlapping_episode_probes_share_one_provider_series_catalog_lookup(monkeypatch):
+    started, release = threading.Event(), threading.Event()
+    calls = []
+    series = FilmpalastSeries(title="Exact Show", base_slug="filmpalast:exact-show", url="https://catalog.test/show",
+        seasons={1: [SeriesEpisode(1, 1, "filmpalast:exact-show-s01e01", "https://catalog.test/episode")]})
+    def search(provider, title):
+        calls.append((provider, title))
+        started.set()
+        release.wait(2)
+        return [SimpleNamespace(title="Exact Show", sample_slug="filmpalast:exact-show-s01e01")]
+    monkeypatch.setattr(server, "_search_series_for_provider", search)
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *args: series)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(server._fallback_get_series, "filmpalast", "Exact Show")
+        try:
+            assert started.wait(1)
+            second = pool.submit(server._fallback_get_series, "filmpalast", "Exact Show")
+            release.set()
+            assert first.result(timeout=2) is series
+            assert second.result(timeout=2) is series
+            assert calls == [("filmpalast", "Exact Show")]
+        finally:
+            release.set()

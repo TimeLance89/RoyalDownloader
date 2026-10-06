@@ -957,7 +957,16 @@ def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
     return tuple(aliases)
 
 
-def _fallback_get_series(
+def _fallback_get_series(provider: str, title: str, tmdb_id: str = "") -> Optional[FilmpalastSeries]:
+    from features.episode_source_probe import catalog_probe_locks
+    lock = catalog_probe_locks.get(provider)
+    if lock is None:
+        return _fallback_get_series_unlocked(provider, title, tmdb_id)
+    with lock:
+        return _fallback_get_series_unlocked(provider, title, tmdb_id)
+
+
+def _fallback_get_series_unlocked(
     provider: str, title: str, tmdb_id: str = "",
 ) -> Optional[FilmpalastSeries]:
     """Sucht die Serie «title» beim Fallback-Anbieter per Titel-Match und lädt sie.

@@ -332,6 +332,7 @@ test("SerienStream language truth auto-checks after hydration without an episode
   const requests = [];
   const noop = () => {};
   const checks = createSeriesChecks(status, {
+    retryDelays: [0, 0],
     seriesState: state.series,
     isVisible: () => true,
     firstEpisodeSlug: () => initial.seasons[0].episodes[0].slug,
@@ -395,6 +396,13 @@ test("SerienStream language truth auto-checks after hydration without an episode
       "serienstream:american-horror-story-s12e09": ["de"],
     },
   });
+  for (let n = 0; n < 100 && requests.filter(request => request.url === "/api/series/episode-languages").length < 2; n++) {
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  const confirmation = requests.filter(request => request.url === "/api/series/episode-languages")[1];
+  assert.deepEqual(confirmation.body.slugs, ["serienstream:american-horror-story-s13e03"]);
+  confirmation.resolve({available: {"serienstream:american-horror-story-s13e03": false},
+    languages: {"serienstream:american-horror-story-s13e03": ["en"]}});
   assert.equal(await refresh, true);
 
   const [s12e08, s12e09] = state.series.current.seasons[0].episodes;
@@ -415,7 +423,7 @@ test("SerienStream language truth auto-checks after hydration without an episode
 });
 
 
-test("episode language verification runs in bounded sequential batches", async () => {
+test("episode language verification runs in bounded concurrent batches", async () => {
   const { createSeriesChecks } = await import("../web/js/features/media-details/series-checks.js");
   const episodes = Array.from({ length: 45 }, (_, index) => ({
     slug: `serienstream:fixture-s01e${String(index + 1).padStart(2, "0")}`,
@@ -432,6 +440,7 @@ test("episode language verification runs in bounded sequential batches", async (
   const requests = [];
   const noop = () => {};
   const checks = createSeriesChecks(status, {
+    retryDelays: [0, 0],
     seriesState: state.series,
     isVisible: () => true,
     firstEpisodeSlug: () => episodes[0].slug,
@@ -452,7 +461,7 @@ test("episode language verification runs in bounded sequential batches", async (
   });
 
   const verification = checks.verifyLanguages(episodes, series);
-  assert.equal(requests.length, 1, "only the first batch may be in flight");
+  assert.equal(requests.length, 2, "at most two batches may be in flight");
   assert.equal(requests[0].url, "/api/series/episode-languages");
   assert.equal(requests[0].body.slugs.length, 4);
 
@@ -462,7 +471,7 @@ test("episode language verification runs in bounded sequential batches", async (
   });
 
   for (let batch = 0; batch < 12; batch++) {
-    assert.equal(requests.length, batch + 1, "only one batch may be in flight");
+    assert.equal(requests.length, Math.min(batch + 2, 12), "only two batches may be in flight");
     assert.equal(requests[batch].body.slugs.length, batch === 11 ? 1 : 4);
     resolveBatch(requests[batch]);
     await new Promise(resolve => setImmediate(resolve));
@@ -804,13 +813,19 @@ test("shell mounts controls once and ignores command responses after unmount", a
   assert.equal(accepted.length, 1); shell.unmount();
 });
 
+async function waitForLanguageRequest(f, index) {
+  for (let n = 0; n < 100 && !f.requests[index]; n++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.ok(f.requests[index]);
+  return f.requests[index];
+}
+
 async function languageRaceFixture() {
   const { createSeriesChecks } = await import('../web/js/features/media-details/series-checks.js');
   const episode = { slug: 'sto:race-s01e01', season: 1, episode: 1 };
   const series = { base_slug: 'sto:race', provider: 'serienstream', seasons: [{ season: 1, episodes: [episode] }] };
   const seriesState = { current: series, viewGeneration: 1, epPicked: new Set() };
   const requests = [];
-  const checks = createSeriesChecks({}, { seriesState, isVisible: () => true, renderSeriesTiles: () => {},
+  const checks = createSeriesChecks({}, { seriesState, isVisible: () => true, retryDelays: [0, 0], renderSeriesTiles: () => {},
     client: { post: (url, body, options) => new Promise((resolve, reject) => requests.push({ url, body, options, resolve, reject })) } });
   const respond = (request, available) => request.resolve({ available: { [episode.slug]: available }, languages: { [episode.slug]: [available ? 'de' : 'en'] } });
   return { episode, series, seriesState, requests, checks, respond };
@@ -827,6 +842,7 @@ test('overlapping language selection waits for the existing probe and hydration 
   assert.equal(done, false);
   assert.equal(f.requests.length, 1);
   f.respond(f.requests[0], false);
+  f.respond(await waitForLanguageRequest(f, 1), false);
   await Promise.all([first, duplicate]);
   assert.equal(hydratedEpisode.language_checked, true);
   assert.equal(hydratedEpisode.language_available, false);
@@ -844,6 +860,7 @@ test('new view of the same episode starts its own probe and rejects old results'
   assert.equal(await first, 'AbortError');
   assert.equal(episode.language_checked, undefined);
   f.respond(f.requests[1], false);
+  f.respond(await waitForLanguageRequest(f, 2), false);
   await next;
   assert.equal(episode.language_available, false);
 });
@@ -852,11 +869,13 @@ test('failed language probes release their shared job and remain retryable', asy
   const f = await languageRaceFixture();
   const first = f.checks.verifyLanguages([f.episode], f.series);
   f.requests[0].reject(new Error('temporary failure'));
+  (await waitForLanguageRequest(f, 1)).reject(new Error('temporary failure'));
+  (await waitForLanguageRequest(f, 2)).reject(new Error('temporary failure'));
   await assert.rejects(first, /temporary/);
   assert.equal(f.episode.language_checked, undefined);
   const retry = f.checks.verifyLanguages([f.episode], f.series);
-  assert.equal(f.requests.length, 2);
-  f.respond(f.requests[1], true);
+  assert.equal(f.requests.length, 4);
+  f.respond(f.requests[3], true);
   await retry;
   assert.equal(f.episode.language_available, true);
 });
@@ -879,12 +898,13 @@ test('inbox preselection waits for language truth even when showing details adva
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.seriesState.epPicked.size, 0);
   f.respond(f.requests[0], false);
+  f.respond(await waitForLanguageRequest(f, 1), false);
   await open;
   assert.equal(f.seriesState.epPicked.size, 0);
   f.episode.language_checked = f.episode.huhu_language_checked = false;
   const reopen = loader.openSubscription(f.series.base_slug);
   await new Promise(resolve => setImmediate(resolve));
-  f.respond(f.requests[1], true);
+  f.respond(f.requests[2], true);
   await reopen;
   assert.deepEqual([...f.seriesState.epPicked], [f.episode.slug]);
 });
@@ -896,6 +916,7 @@ test('already queued EN-only episodes still receive exact language evidence', as
   const pending = fixture.checks.verifyLanguages([fixture.episode], fixture.series);
   assert.equal(fixture.requests.length, 1);
   fixture.respond(fixture.requests[0], false);
+  fixture.respond(await waitForLanguageRequest(fixture, 1), false);
   await pending;
   assert.equal(fixture.episode.language_checked, true);
   assert.deepEqual(fixture.episode.content_languages, ['en']);

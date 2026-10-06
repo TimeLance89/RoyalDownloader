@@ -69,6 +69,7 @@ jobs:
       - name: Native mobile gestures, seams, orientation and navigation
         run: |
           node tests/frontend/series-selection-browser.cjs
+          node tests/frontend/episode-probe-browser.cjs
           node tests/frontend/mobile-app-browser.cjs
           node tests/frontend/mobile-layout.cjs
           node tests/frontend/mobile-browser.cjs

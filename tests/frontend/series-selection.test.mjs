@@ -4,7 +4,12 @@ import { createSeriesChecks } from '../../web/js/features/media-details/series-c
 import { createSeriesEpisodes } from '../../web/js/features/media-details/series-episodes.js';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture(count = 12) {
+async function requestAt(f, index) {
+  for (let n = 0; n < 100 && !f.requests[index]; n++) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.ok(f.requests[index], `request ${index} starts`);
+  return f.requests[index];
+}
+function fixture(count = 12, languageConcurrency = 1) {
   const episodes = Array.from({length: count}, (_, i) => ({slug: `sto:show-s01e${i+1}`, season: 1, episode: i+1}));
   const series = {base_slug: 'sto:show', provider: 'serienstream', seasons: [{season: 1, episodes}]};
   const state = {current: series, viewGeneration: 1, epPicked: new Set()};
@@ -17,7 +22,7 @@ function fixture(count = 12) {
   }});
   const requests = [], status = {textContent: ''};
   let model;
-  const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true,
+  const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true, retryDelays: [0, 0], languageConcurrency,
     pruneSeriesEpisodeSelection: () => model?.pruneSeriesEpisodeSelection(),
     renderSeriesTiles: () => model?.renderSeriesTiles(),
     client: {post: (url, body, options) => new Promise((resolve, reject) => requests.push({body, options, resolve, reject}))}});
@@ -61,7 +66,8 @@ test('season selection progresses per verified batch and survives same-view hydr
   f.respond(f.requests[0], [f.episodes[1].slug]); await tick();
   assert.equal(f.state.epPicked.size, 3, 'first batch is usable before later requests complete');
   assert.ok(!f.state.epPicked.has(f.episodes[1].slug), 'wrong-language episode stays blocked');
-  f.respond(f.requests[1]); await click;
+  f.respond(await requestAt(f, 1), [f.episodes[1].slug]);
+  f.respond(await requestAt(f, 2)); await click;
   assert.equal(f.state.epPicked.size, 7);
 });
 
@@ -70,11 +76,13 @@ test('known episodes select immediately and partial failure remains retryable', 
   f.episodes[0].language_checked = f.episodes[0].language_available = true;
   const click = f.model.toggleSeasonTiles(1);
   assert.ok(f.state.epPicked.has(f.episodes[0].slug));
-  f.requests[0].reject(new Error('timeout')); await click; await tick();
+  f.requests[0].reject(new Error('timeout'));
+  (await requestAt(f, 1)).reject(new Error('timeout'));
+  (await requestAt(f, 2)).reject(new Error('timeout')); await click; await tick();
   assert.equal(f.state.epPicked.size, 1);
   assert.match(f.status.textContent, /timeout/);
   const retry = f.model.toggleSeasonTiles(1);
-  assert.equal(f.requests.length, 2); f.respond(f.requests[1]); await retry;
+  assert.equal(f.requests.length, 4); f.respond(f.requests[3]); await retry;
   assert.equal(f.state.epPicked.size, 5);
 });
 
@@ -129,20 +137,66 @@ test('hydration cannot relabel confirmed English or unknown tracks as German', a
   assert.deepEqual(loader.merge(f.series, fresh).seasons[0].episodes[0].content_languages, []);
 });
 
-test('one missing episode page leaves all other German episodes selectable and is retryable', async () => {
+test('one missing episode page recovers automatically without losing the selection', async () => {
   const f = fixture(6);
   const click = f.model.toggleSeasonTiles(1);
   const first = f.requests[0], missing = f.episodes[0].slug;
   const known = first.body.slugs.filter(slug => slug !== missing);
   first.resolve({languages: Object.fromEntries(known.map(slug => [slug, ['de']])),
     available: Object.fromEntries(known.map(slug => [slug, true])), pending: [missing]});
-  await tick(); f.respond(f.requests[1]); await click; await tick();
-  assert.equal(f.state.epPicked.size, 5);
-  assert.equal(f.episodes[0].language_checked, undefined);
-  assert.equal(f.model.episodeLanguageLockLabel(f.episodes[0]), '', 'no false NUR DE warning');
-  assert.equal(f.model.isEpisodeActionable(f.episodes[0]), true);
-  const retry = f.model.toggleEpisodeTile(missing);
-  assert.deepEqual(f.requests[2].body.slugs, [missing]);
-  f.respond(f.requests[2]); await retry;
+  const retry = await requestAt(f, 1);
+  assert.equal(f.state.epPicked.size, 3);
+  assert.deepEqual(retry.body.slugs, [missing], 'only unconfirmed episodes are retried');
+  assert.equal(retry.body.attempt, 1);
+  assert.equal(f.model.episodeLanguageLockLabel(f.episodes[0]), '');
+  f.respond(retry);
+  f.respond(await requestAt(f, 2)); await click;
   assert.equal(f.state.epPicked.size, 6);
+});
+
+test('a first negative language response is verified again and can recover to German', async () => {
+  const f = fixture(1);
+  const click = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  f.respond(f.requests[0], [f.episodes[0].slug]);
+  const retry = await requestAt(f, 1);
+  assert.equal(f.episodes[0].language_checked, undefined);
+  f.respond(retry); await click;
+  assert.equal(f.state.epPicked.size, 1);
+  assert.deepEqual(f.episodes[0].content_languages, ['de']);
+});
+
+test('unknown responses remain retryable after three attempts and a new click can recover', async () => {
+  const f = fixture(1), missing = f.episodes[0].slug;
+  const click = f.model.toggleEpisodeTile(missing);
+  for (let i = 0; i < 3; i++) (await requestAt(f, i)).resolve({languages: {}, available: {}, pending: [missing]});
+  await click;
+  assert.equal(f.episodes[0].language_checked, undefined);
+  assert.equal(f.model.episodeLanguageLockLabel(f.episodes[0]), '');
+  const retry = f.model.toggleEpisodeTile(missing);
+  f.respond(await requestAt(f, 3)); await retry;
+  assert.equal(f.state.epPicked.size, 1);
+});
+
+test('closing a view during backoff cancels automatic retry', async () => {
+  const f = fixture(1);
+  const click = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  f.requests[0].reject(new Error('timeout'));
+  f.state.viewGeneration++;
+  await click; await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.requests.length, 1);
+});
+
+
+test('two independent batches run concurrently with bounded requests', async () => {
+  const f = fixture(12, 2);
+  const click = f.model.toggleSeasonTiles(1);
+  assert.equal(f.requests.length, 2);
+  f.respond(f.requests[1]);
+  await requestAt(f, 2);
+  assert.equal(f.state.epPicked.size, 4, 'fast batch is usable while the first is still pending');
+  f.respond(f.requests[2]); await tick();
+  assert.equal(f.state.epPicked.size, 8);
+  assert.equal(f.requests.length, 3);
+  f.respond(f.requests[0]); await click;
+  assert.equal(f.state.epPicked.size, 12);
 });
