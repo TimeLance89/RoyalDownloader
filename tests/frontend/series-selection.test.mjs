@@ -20,19 +20,95 @@ function fixture(count = 12, languageConcurrency = 1) {
   const root = Object.assign(node(), {hidden: false, ownerDocument: {createElement: node}, querySelector(id) {
     if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id);
   }});
-  const requests = [], status = {textContent: ''};
+  const requests = [], queueRequests = [], queued = new Set(), status = {textContent: ''};
   let model;
   const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true, retryDelays: [0, 0], languageConcurrency,
     pruneSeriesEpisodeSelection: () => model?.pruneSeriesEpisodeSelection(),
     renderSeriesTiles: () => model?.renderSeriesTiles(),
     client: {post: (url, body, options) => new Promise((resolve, reject) => requests.push({body, options, resolve, reject}))}});
-  model = createSeriesEpisodes(root, {status, seriesState: state, getQueuedSlugs: () => new Set(),
-    getEnabledLanguages: () => ['de'], verifyHuhuEpisodeLanguages: checks.verifyLanguages});
+  model = createSeriesEpisodes(root, {status, seriesState: state, getQueuedSlugs: () => queued,
+    getEnabledLanguages: () => ['de'], verifyHuhuEpisodeLanguages: checks.verifyLanguages,
+    trackDiscoveryPreference() {}, refreshQueueUiAfterChange() {},
+    client: {post: (url, body, options) => new Promise((resolve, reject) => queueRequests.push({url, body, options, resolve, reject}))}});
   const respond = (request, denied = []) => request.resolve({
     available: Object.fromEntries(request.body.slugs.map(slug => [slug, !denied.includes(slug)])),
     languages: Object.fromEntries(request.body.slugs.map(slug => [slug, [denied.includes(slug) ? 'en' : 'de']]))});
-  return {episodes, series, state, model, checks, requests, respond, status, root, nodes};
+  return {episodes, series, state, model, checks, requests, queueRequests, queued, respond, status, root, nodes};
 }
+
+test('one download click submits an entirely unverified season and late checks do not select it again', async () => {
+  const f = fixture(8);
+  const selection = f.model.toggleSeasonTiles(1);
+  assert.equal(f.nodes.get('#series-add-btn').disabled, false);
+  assert.match(f.nodes.get('#series-pick-count').textContent, /8 ausgewählt · 8 prüfen/);
+  const download = f.model.seriesAddSelected();
+  await f.model.seriesAddSelected();
+  assert.equal(f.queueRequests.length, 1, 'double click does not submit twice');
+  assert.deepEqual(f.queueRequests[0].body.slugs, f.episodes.map(ep => ep.slug));
+  f.queueRequests[0].resolve({added: 8}); await download;
+  assert.match(f.status.textContent, /8\/8 Episode\(n\) vorgemerkt.*Hintergrund/);
+  f.respond(f.requests[0]); await tick(); f.respond(await requestAt(f, 1)); await selection;
+  assert.equal(f.state.epPicked.size, 0, 'completed language batches cannot create another download selection');
+  assert.equal(f.nodes.get('#series-add-btn').disabled, true);
+});
+
+test('a mixed selection submits verified and pending episodes but excludes locked and scheduled episodes', async () => {
+  const f = fixture(5);
+  f.episodes[0].language_checked = true; f.episodes[0].content_languages = ['de'];
+  f.episodes[1].language_checked = true; f.episodes[1].content_languages = ['en'];
+  f.episodes[2].unreleased = true;
+  const selection = f.model.toggleSeasonTiles(1);
+  const download = f.model.seriesAddSelected();
+  assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug, f.episodes[3].slug, f.episodes[4].slug]);
+  // Hydration must not strand the submitted selection in the same view.
+  f.state.current = structuredClone(f.series);
+  f.queueRequests[0].resolve({added: 3}); await download;
+  f.respond(f.requests[0]); await selection;
+  assert.equal(f.state.epPicked.size, 0);
+});
+
+test('a failed queue request keeps the pending selection available for retry', async () => {
+  const f = fixture(4);
+  const selection = f.model.toggleSeasonTiles(1);
+  const download = f.model.seriesAddSelected();
+  f.queueRequests[0].reject(new Error('offline')); await download;
+  assert.equal(f.nodes.get('#series-add-btn').disabled, false);
+  const retry = f.model.seriesAddSelected();
+  assert.deepEqual(f.queueRequests[1].body.slugs, f.episodes.map(ep => ep.slug));
+  f.queueRequests[1].resolve({added: 4}); await retry;
+  f.respond(f.requests[0]); await selection;
+  assert.equal(f.state.epPicked.size, 0);
+});
+
+test('queued unverified episodes show queue state instead of a new pending selection', () => {
+  const f = fixture(1);
+  f.queued.add(f.episodes[0].slug);
+  assert.equal(f.model.tileClass(f.episodes[0]), 'queued');
+  assert.equal(f.model.isEpisodeActionable(f.episodes[0]), false);
+});
+
+test('a queue response preserves a different selection made while the request was pending', async () => {
+  const f = fixture(2);
+  const first = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  const download = f.model.seriesAddSelected();
+  const second = f.model.toggleEpisodeTile(f.episodes[1].slug);
+  f.queueRequests[0].resolve({added: 1}); await download;
+  f.respond(f.requests[0]); await first;
+  f.respond(await requestAt(f, 1)); await second;
+  assert.deepEqual([...f.state.epPicked], [f.episodes[1].slug]);
+  assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug]);
+});
+
+test('checks finishing before queue acceptance do not leave the submitted selection behind', async () => {
+  const f = fixture(4);
+  const selection = f.model.toggleSeasonTiles(1);
+  const download = f.model.seriesAddSelected();
+  f.respond(f.requests[0]); await selection;
+  assert.equal(f.state.epPicked.size, 4);
+  f.queueRequests[0].resolve({added: 4}); await download;
+  assert.equal(f.state.epPicked.size, 0);
+  assert.equal(f.nodes.get('#series-add-btn').disabled, true);
+});
 
 test('an episode click waits only for its batch, not the rest of the series', async () => {
   const f = fixture();
