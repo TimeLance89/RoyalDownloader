@@ -1,5 +1,6 @@
 """Bounded workers with one running request per provider and fair queues."""
 import threading
+import time
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 
@@ -38,8 +39,11 @@ class ProviderProbeScheduler:
         try:
             if future.set_running_or_notify_cancel():
                 try:
-                    future.set_result(lookup())
+                    result = lookup()
+                    future.probe_finished_at = time.monotonic()
+                    future.set_result(result)
                 except Exception as error:  # noqa: BLE001 -- independent adapter boundary
+                    future.probe_finished_at = time.monotonic()
                     future.set_exception(error)
         finally:
             with self._lock:

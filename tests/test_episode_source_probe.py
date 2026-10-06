@@ -199,3 +199,29 @@ def test_many_slow_provider_episodes_do_not_starve_other_providers():
     finally:
         release.set()
         broker.close()
+
+
+def test_late_source_results_remain_available_to_next_request(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("features.episode_source_probe.time.monotonic", lambda: clock[0])
+    broker = EpisodeSourceProbes(ttl=60)
+    release, started = threading.Event(), threading.Event()
+    jobs, calls = {}, []
+    movie = SimpleNamespace(url="late")
+    def lookup(provider):
+        calls.append(provider)
+        started.set()
+        release.wait(2)
+        return [movie]
+    try:
+        assert broker.search("episode", ["slow"], lookup, timeout=.01, on_jobs=jobs.update) == ([], True)
+        assert started.wait(1)
+        clock[0] = 200.0
+        release.set()
+        assert jobs["slow"].result(timeout=1) == [movie]
+        clock[0] = 201.0
+        assert broker.search("episode", ["slow"], lookup, timeout=0) == ([movie], False)
+        assert calls == ["slow"]
+    finally:
+        release.set()
+        broker.close()

@@ -22,7 +22,7 @@ class EpisodeSourceProbes:
         now = time.monotonic()
         with self._lock:
             for old_key, (created, futures) in list(self._entries.items()):
-                if now - created >= self._ttl and all(future.done() for future in futures.values()):
+                if all(future.done() for future in futures.values()) and now - max((getattr(future, "probe_finished_at", created) for future in futures.values()), default=created) >= self._ttl:
                     del self._entries[old_key]
             entry = self._entries.get(key)
             if entry is None:

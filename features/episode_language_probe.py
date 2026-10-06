@@ -17,7 +17,7 @@ class EpisodeLanguageProbes:
         with self._lock:
             now = time.monotonic()
             for old_key, (created, future) in list(self._entries.items()):
-                if future.done() and now - created >= self._ttl:
+                if future.done() and now - getattr(future, "probe_finished_at", created) >= self._ttl:
                     del self._entries[old_key]
             entry = self._entries.get(key)
             if entry:

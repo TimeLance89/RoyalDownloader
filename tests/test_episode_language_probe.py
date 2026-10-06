@@ -65,3 +65,25 @@ def test_slow_primary_returns_pending_within_budget_and_retry_collects_completed
     finally:
         release.set()
         broker.close()
+
+
+def test_slow_success_is_cached_from_completion_rather_than_request_start(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("features.episode_language_probe.time.monotonic", lambda: clock[0])
+    broker = EpisodeLanguageProbes(ttl=60)
+    started, release = threading.Event(), threading.Event()
+    def lookup():
+        started.set()
+        release.wait(2)
+        return ["de"]
+    try:
+        first = broker.submit("episode", lookup)
+        assert started.wait(1)
+        clock[0] = 200.0
+        release.set()
+        assert first.result(timeout=1) == ["de"]
+        clock[0] = 201.0
+        assert broker.submit("episode", lambda: ["en"]) is first
+    finally:
+        release.set()
+        broker.close()
