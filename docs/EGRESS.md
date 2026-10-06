@@ -9,7 +9,6 @@ made; an egress provider can see connection metadata and remains a trusted party
 ```env
 ROYAL_EGRESS_MODE=privacy
 ROYAL_EGRESS_PROXY=http://proxy.example:3128
-ROYAL_EGRESS_FAIL_CLOSED=true
 ROYAL_EGRESS_LOCAL_BYPASS=true
 ```
 
@@ -19,10 +18,9 @@ ROYAL_EGRESS_LOCAL_BYPASS=true
 - `ROYAL_EGRESS_PROXY_FILE`: alternative readable file containing the entire proxy
   URL. Configure either the file or the URL, not both. Percent-encode special
   characters in credentials. HTTPS proxy TLS certificates are verified.
-- `fail_closed=true` is recommended. Missing/invalid configuration, DNS errors,
+- Privacy mode is always fail-closed. Missing/invalid configuration, DNS errors,
   rejected tunnels and offline proxies fail through existing error paths. There
-  is **never an automatic direct retry**, including when this flag is false;
-  explicitly switch to `direct` if direct traffic is intended.
+  is **never an automatic direct retry** and no option to disable this invariant.
 - `local_bypass=true`: explicitly local integration endpoints remain direct.
   Disabling it routes them to the guard, which rejects private targets; do not
   disable this setting when LAN integrations are required.
@@ -31,6 +29,9 @@ The original SSRF guard is retained. Public IP validation, mixed-answer rejectio
 restricted HTTP(S) ports and redirects apply at its connection boundary. The
 upstream proxy receives a validated **literal IP**, avoiding a second provider
 hostname resolution and DNS rebinding. Origin HTTPS TLS/SNI stays end-to-end.
+If a tunnel fails, the guard sequentially tries the remaining validated A/AAAA
+addresses through the same egress manager and proxy. If all attempts fail, it
+returns the existing connection error; it never opens a direct target socket.
 Proxy credentials are used only inside that boundary, never passed to Chromium,
 yt-dlp command lines or ordinary application clients. Error messages are sanitized.
 

@@ -452,8 +452,8 @@ These request all missing episodes, one missing season, or one episode.
 
 Default `ROYAL_EGRESS_MODE=direct` preserves existing operation. To route external
 traffic through a HTTP(S) CONNECT proxy, set `ROYAL_EGRESS_MODE=privacy`,
-`ROYAL_EGRESS_PROXY` (or `ROYAL_EGRESS_PROXY_FILE`) and keep
-`ROYAL_EGRESS_FAIL_CLOSED=true`. LAN integrations remain direct with
+`ROYAL_EGRESS_PROXY` (or `ROYAL_EGRESS_PROXY_FILE`). Privacy mode is always
+fail-closed, with no direct retry. LAN integrations remain direct with
 `ROYAL_EGRESS_LOCAL_BYPASS=true`. Compose configures both Royal and its isolated
 browser; mount a proxy secret file into both services when using `_FILE`.
 

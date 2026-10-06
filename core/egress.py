@@ -95,7 +95,6 @@ _dns_lock = threading.Lock()
 class EgressManager:
     mode: str = "direct"
     proxy: str = field(default="", repr=False)
-    fail_closed: bool = True
     local_bypass: bool = True
 
     @classmethod
@@ -114,10 +113,9 @@ class EgressManager:
             except (OSError, UnicodeError):
                 raise EgressError("Egress-Proxy-Datei nicht lesbar") from None
         manager = cls(
-            mode,
-            proxy,
-            _boolean(env, "ROYAL_EGRESS_FAIL_CLOSED"),
-            _boolean(env, "ROYAL_EGRESS_LOCAL_BYPASS"),
+            mode=mode,
+            proxy=proxy,
+            local_bypass=_boolean(env, "ROYAL_EGRESS_LOCAL_BYPASS"),
         )
         if mode == "privacy":
             manager._proxy_parts()

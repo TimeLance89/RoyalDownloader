@@ -128,7 +128,11 @@ def _connect_public(hostname: str, port: int, timeout: float = 20.0) -> socket.s
         if manager.mode == "privacy":
             # Pin the validated IP; the upstream proxy cannot re-resolve the
             # provider hostname into a private address. Never fall back direct.
-            return manager.connect_tunnel(target.ip, port, timeout)
+            try:
+                return manager.connect_tunnel(target.ip, port, timeout)
+            except OSError as exc:
+                last_error = exc
+                continue
         upstream = socket.socket(target.family, socket.SOCK_STREAM)
         upstream.settimeout(timeout)
         try:

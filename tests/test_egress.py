@@ -24,7 +24,6 @@ def privacy(monkeypatch):
         "ROYAL_EGRESS_PROXY", "http://alice:private-password@127.0.0.1:9"
     )
     monkeypatch.delenv("ROYAL_EGRESS_PROXY_FILE", raising=False)
-    monkeypatch.setenv("ROYAL_EGRESS_FAIL_CLOSED", "true")
     monkeypatch.setenv("ROYAL_EGRESS_LOCAL_BYPASS", "true")
     yield get_manager()
     guard.stop_safe_proxy()
@@ -303,6 +302,71 @@ def test_proxy_connect_pins_public_ip(privacy, monkeypatch):
     monkeypatch.setattr(EgressManager, "connect_tunnel", connect)
     assert guard._connect_public("example.com", 443) is target
     assert calls == [("93.184.216.34", 443)]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("all_fail", [False, True])
+def test_proxy_retries_validated_addresses(privacy, monkeypatch, reverse, all_fail):
+    addresses = ["93.184.216.34", "2606:4700:4700::1111"]
+    if reverse:
+        addresses.reverse()
+    resolutions = []
+    attempts = []
+    tunnel = object()
+    errors = []
+
+    def resolve(_self, hostname, port, *_args):
+        resolutions.append((hostname, port))
+        return [
+            (
+                socket.AF_INET6 if ":" in ip else socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (ip, port, 0, 0) if ":" in ip else (ip, port),
+            )
+            for ip in addresses
+        ]
+
+    def connect(manager, ip, port, timeout):
+        attempts.append((manager, ip, port, timeout))
+        if len(attempts) == 1 or all_fail:
+            error = EgressError("Egress tunnel unavailable")
+            errors.append(error)
+            raise error
+        return tunnel
+
+    def reject_direct(*_args, **_kwargs):
+        pytest.fail("Privacy retry opened a direct socket")
+
+    monkeypatch.setattr(EgressManager, "resolve", resolve)
+    monkeypatch.setattr(EgressManager, "connect_tunnel", connect)
+    monkeypatch.setattr(socket, "socket", reject_direct)
+    if all_fail:
+        with pytest.raises(OSError, match="Kein sicheres öffentliches Ziel") as failure:
+            guard._connect_public("example.com", 443, 3.0)
+        assert failure.value.__cause__ is errors[-1]
+    else:
+        assert guard._connect_public("example.com", 443, 3.0) is tunnel
+    assert resolutions == [("example.com", 443)]
+    assert [(ip, port, timeout) for _, ip, port, timeout in attempts] == [
+        (ip, 443, 3.0) for ip in addresses
+    ]
+    assert attempts[0][0] is attempts[1][0]
+
+
+def test_proxy_validates_all_addresses_before_retrying(privacy, monkeypatch):
+    monkeypatch.setattr(
+        EgressManager, "_dns_query", lambda *_: ["93.184.216.34", "127.0.0.1"]
+    )
+
+    def reject_connection(*_args, **_kwargs):
+        pytest.fail("Connection attempted before all DNS answers were validated")
+
+    monkeypatch.setattr(EgressManager, "connect_tunnel", reject_connection)
+    monkeypatch.setattr(socket, "socket", reject_connection)
+    with pytest.raises(guard.UnsafeNetworkTarget):
+        guard._connect_public("example.com", 443)
 
 
 @pytest.mark.parametrize("transport", [egress_requests, egress_curl, egress_urllib])
