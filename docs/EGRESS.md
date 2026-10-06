@@ -99,6 +99,10 @@ browser container rebuilt and configured with the same policy as the application
 
 ## Known limitations
 
+- The user's WebUI browser is a separate network client. Existing Google Fonts,
+  TMDB images/logo, YouTube embeds, avatars and external links keep their existing
+  client-side routing. Configure that browser/device separately when its traffic
+  must also use an egress; this backend policy does not proxy it or change the UI.
 - This is application transport policy, not an OS/container firewall. Manual
   commands, third-party services (including Seerr's own outbound traffic), Docker
   image pulls and future new network clients require their own configuration.
