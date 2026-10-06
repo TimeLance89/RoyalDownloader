@@ -1,3 +1,4 @@
+import { languageSetupText } from "./language-copy.js";
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { escapeHtml as escape } from "../../shared/utils/escape-html.js";
@@ -8,7 +9,8 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
   let owner, rows, snapshot, draft, step = 0, busy = false, committed = false, ready = false, trigger;
   const labels = () => snapshot?.providers.languages || {};
   const names = values => values.map(value => labels()[value] || value.toUpperCase()).join(" + ");
-  const text = (de, en) => draft?.uiLanguage === "en" ? en : de;
+  let openingLanguage;
+  const text = (de, en, values) => languageSetupText(draft?.uiLanguage || openingLanguage || language(), de, en, values);
   const selectedNames = () => names([...draft.contentLanguages]);
   const subscriptionLabel = entry => draft.subscriptions.has(entry.base_slug)
     ? `${escape(names(entry.content_languages))} <span aria-hidden="true">→</span> <b>${escape(selectedNames())}</b>`
@@ -24,12 +26,15 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
     by("selection").textContent = `${snapshot.ui_languages[draft.uiLanguage]} / ${selectedNames()}`;
     const changed = draft.subscriptions.size;
     by("subscription-summary").textContent = text(
-      `${changed} von ${snapshot.subscriptions.length} Serien übernehmen die neue Inhaltswahl.`,
-      `${changed} of ${snapshot.subscriptions.length} series will use the new content languages.`);
+      "{changed} von {total} Serien übernehmen die neue Inhaltswahl.",
+      "{changed} of {total} series will use the new content languages.",
+      { changed, total: snapshot.subscriptions.length });
   }
   function render() {
     rows?.dispose(); rows = createScope();
+    dialog.lang = draft.uiLanguage;
     dialog.dataset.step = String(step);
+    by("steps").setAttribute("aria-label", text("Setup-Schritte", "Setup steps"));
     by("title").textContent = text("Dein Royal. Deine Sprache.", "Your Royal. Your language.");
     by("intro").textContent = text("Eine Oberfläche, passende Inhalte und Abos, die mitdenken.", "An interface, content and subscriptions that work together.");
     const steps = [text("Oberfläche", "Interface"), text("Inhalte", "Content"), text("Meine Liste", "My list")];
@@ -73,9 +78,12 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
         render();
       }
     });
+    renderBusyCopy();
+    summary();
+  }
+  function renderBusyCopy() {
     by("busy").querySelector("p").textContent = text("Royal macht alles bereit.", "Royal is getting everything ready.");
     by("busy").querySelectorAll("li").forEach((item, index) => { item.textContent = [text("Sprachprofil speichern", "Save language profile"), text("Quellen & Serien vorbereiten", "Prepare sources & series"), text("Oberfläche umstellen", "Prepare interface")][index]; });
-    summary();
   }
   function close() {
     if ((busy && snapshot) || (committed && !ready)) return;
@@ -110,7 +118,7 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
     } catch (error) {
       if (!current.active) return;
       by("error").textContent = committed
-        ? text(`Profil gespeichert. Die Vorbereitung ist noch nicht fertig: ${error.message}`, `Profile saved. Preparation is not finished: ${error.message}`)
+        ? text("Profil gespeichert. Die Vorbereitung ist noch nicht fertig: {error}", "Profile saved. Preparation is not finished: {error}", { error: error.message })
         : error.message;
       by("footer").hidden = false; by("cancel").disabled = committed;
       by("back").hidden = true;
@@ -120,14 +128,19 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
   }
   async function open({ uiLanguage = language(), contentLanguages } = {}) {
     if (dialog.open) return;
+    openingLanguage = uiLanguage;
     trigger = dialog.ownerDocument.activeElement;
     owner?.dispose(); owner = createScope(); committed = false; ready = false; busy = false; step = 0; snapshot = null; draft = null;
     by("next").hidden = false;
     const current = owner;
     by("content").hidden = true; by("busy").hidden = false; by("steps").hidden = true;
     by("footer").hidden = true; by("error").textContent = ""; by("cancel").disabled = false;
-    by("title").textContent = "Dein Royal. Deine Sprache.";
-    by("busy-copy").textContent = "Dein Sprachprofil wird geladen …";
+    dialog.lang = uiLanguage;
+    by("title").textContent = text("Dein Royal. Deine Sprache.", "Your Royal. Your language.");
+    by("intro").textContent = text("Eine Oberfläche, passende Inhalte und Abos, die mitdenken.", "An interface, content and subscriptions that work together.");
+    by("cancel").textContent = text("Abbrechen", "Cancel");
+    renderBusyCopy();
+    by("busy-copy").textContent = text("Dein Sprachprofil wird geladen …", "Loading your language profile …");
     dialog.showModal();
     current.listen(dialog, "cancel", event => { event.preventDefault(); close(); });
     current.listen(by("cancel"), "click", close);
@@ -161,11 +174,9 @@ export function createLanguageSetup(dialog, { client = api, language, changeLang
         if (!current.active) return;
         snapshot = null; draft = null;
         by("busy").hidden = true;
-        by("error").textContent = uiLanguage === "en"
-          ? "Royal cannot load your language profile right now. Please try again. Nothing has changed."
-          : "Royal kann dein Sprachprofil gerade nicht laden. Bitte erneut versuchen. Es wurde nichts geändert.";
+        by("error").textContent = text("Royal kann dein Sprachprofil gerade nicht laden. Bitte erneut versuchen. Es wurde nichts geändert.", "Royal cannot load your language profile right now. Please try again. Nothing has changed.");
         by("footer").hidden = false; by("next").hidden = false; by("back").hidden = true;
-        by("next").textContent = uiLanguage === "en" ? "Try again" : "Erneut versuchen";
+        by("next").textContent = text("Erneut versuchen", "Try again");
         by("next").focus();
       } finally { if (current.active) busy = false; }
     }
