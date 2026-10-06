@@ -9,6 +9,7 @@ export function createSeriesEpisodes(root, {
   const document = root.ownerDocument;
   const byId = id => id === "series-status" ? status : root.querySelector(`#${id}`);
   const actions = new WeakMap();
+  const pendingSelections = new Map();
   let scope = createScope(), bound = false, queuePending = false;
   const bind = (node, action) => actions.set(node, action);
   function firstEpisodeSlug(series) {
@@ -186,6 +187,10 @@ export function createSeriesEpisodes(root, {
   function applySeriesEpisodeTileState(tile, episode, series) {
     tile.className = "ep-tile " + tileClass(episode) + (episode.in_jellyfin ? " in-jellyfin" : "");
     tile.disabled = !isEpisodeActionable(episode, series);
+    const pending = pendingSelections.get(episode.slug)?.generation === seriesState.viewGeneration
+      && !episodeLanguageChecked(episode);
+    tile.setAttribute("aria-busy", String(pending));
+    tile.classList?.toggle("selection-pending", pending);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languageLock = episodeLanguageLockLabel(episode, series);
     if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
@@ -211,6 +216,7 @@ export function createSeriesEpisodes(root, {
     const series = seriesState.current;
     const container = byId("series-tiles");
     if (!series || !container) return;
+    applyPendingSelections();
     syncSeriesAvailabilityNotice(container, series);
     const episodesBySlug = new Map(seriesEpisodes(series).map((episode) => [episode.slug, episode]));
     for (const tile of container.querySelectorAll(".ep-tile[data-episode-slug]")) {
@@ -227,14 +233,16 @@ export function createSeriesEpisodes(root, {
       if (button) button.disabled = !season.episodes.some(
         (episode) => isEpisodeActionable(episode, series)
       );
-      if (count) count.textContent = `${pickedCount}/${season.episodes.length} gewählt`;
+      const pendingCount = season.episodes.filter(ep => pendingSelections.has(ep.slug) && !episodeLanguageChecked(ep)).length;
+      button?.setAttribute("aria-busy", String(pendingCount > 0));
+      if (count) count.textContent = pendingCount ? `${pickedCount} gewählt · ${pendingCount} prüfen …` : `${pickedCount}/${season.episodes.length} gewählt`;
     }
     const selectableCount = seriesEpisodes(series).filter(
       (episode) => isEpisodeActionable(episode, series)
     ).length;
     byId("series-pick-count").textContent = `${seriesState.epPicked.size} ausgewählt`;
     byId("series-select-all").disabled = selectableCount === 0;
-    byId("series-select-none").disabled = seriesState.epPicked.size === 0 || queuePending;
+    byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
     byId("series-add-btn").disabled = seriesState.epPicked.size === 0 || queuePending;
   }
 
@@ -243,6 +251,7 @@ export function createSeriesEpisodes(root, {
     container.innerHTML = "";
     const series = seriesState.current;
     if (!series) { byId("series-pick-count").textContent = "0 ausgewählt"; return; }
+    applyPendingSelections();
     pruneSeriesEpisodeSelection();
     syncSeriesAvailabilityNotice(container, series);
     const selectableCount = seriesEpisodes(series).filter(
@@ -261,7 +270,9 @@ export function createSeriesEpisodes(root, {
       const seasonNumber = document.createElement("strong");
       seasonNumber.textContent = String(seasonObj.season).padStart(2, "0");
       const seasonCount = document.createElement("small");
-      seasonCount.textContent = `${pickedCount}/${seasonObj.episodes.length} gewählt`;
+      const pendingCount = seasonObj.episodes.filter(ep => pendingSelections.has(ep.slug) && !episodeLanguageChecked(ep)).length;
+      seasonBtn.setAttribute("aria-busy", String(pendingCount > 0));
+      seasonCount.textContent = pendingCount ? `${pickedCount} gewählt · ${pendingCount} prüfen …` : `${pickedCount}/${seasonObj.episodes.length} gewählt`;
       seasonBtn.append(seasonLabel, seasonNumber, seasonCount);
       seasonBtn.disabled = !seasonObj.episodes.some(
         (episode) => isEpisodeActionable(episode, series)
@@ -307,80 +318,67 @@ export function createSeriesEpisodes(root, {
     }
     byId("series-pick-count").textContent = `${seriesState.epPicked.size} ausgewählt`;
     byId("series-select-all").disabled = selectableCount === 0;
-    byId("series-select-none").disabled = seriesState.epPicked.size === 0 || queuePending;
+    byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
     byId("series-add-btn").disabled = seriesState.epPicked.size === 0 || queuePending;
   }
 
-  async function toggleEpisodeTile(slug) {
-    const episode = findCurrentEpisode(slug);
-    const series = seriesState.current;
-    if (isEpisodeEligible(episode) && providerNeedsExactEpisodeLanguage(series)) {
-      try {
-        await verifyHuhuEpisodeLanguages([episode], series);
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        byId("series-status").textContent =
-          `Stream-Sprache konnte nicht geprüft werden: ${error.message}`;
-        return;
+  function applyPendingSelections() {
+    for (const [slug, intent] of pendingSelections) {
+      if (intent.generation !== seriesState.viewGeneration) {
+        pendingSelections.delete(slug);
+        continue;
       }
-      if (seriesState.current !== series) return;
+      const episode = findCurrentEpisode(slug);
+      if (isEpisodeSelectable(episode)) seriesState.epPicked.add(slug);
     }
-    if (!isEpisodeSelectable(episode)) {
-      seriesState.epPicked.delete(slug);
-      renderSeriesTiles();
-      return;
-    }
-    if (seriesState.epPicked.has(slug)) seriesState.epPicked.delete(slug);
-    else seriesState.epPicked.add(slug);
-    renderSeriesTiles();
   }
 
-  async function toggleSeasonTiles(season) {
+  async function selectEpisodes(episodes, select) {
     const series = seriesState.current;
-    const seasonObj = series.seasons.find((s) => s.season === season);
-    if (!seasonObj) return;
-    const eligible = seasonObj.episodes.filter(isEpisodeEligible);
-    if (!eligible.length) return;
     const generation = seriesState.viewGeneration;
-    if (providerNeedsExactEpisodeLanguage(series)) {
-      try {
-        await verifyHuhuEpisodeLanguages(eligible, series);
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        byId("series-status").textContent =
-          `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
-        return;
-      }
-      if (seriesState.current !== series || seriesState.viewGeneration !== generation) return;
+    const intent = { generation };
+    const slugs = episodes.map(episode => episode.slug);
+    for (const slug of slugs) {
+      if (select) pendingSelections.set(slug, intent);
+      else { pendingSelections.delete(slug); seriesState.epPicked.delete(slug); }
     }
-    const selectable = seasonObj.episodes.filter(isEpisodeSelectable);
-    if (!selectable.length) return;
-    const allPicked = selectable.every((episode) => seriesState.epPicked.has(episode.slug));
-    for (const ep of seasonObj.episodes) {
-      if (!isEpisodeSelectable(ep) || allPicked) seriesState.epPicked.delete(ep.slug);
-      else seriesState.epPicked.add(ep.slug);
-    }
+    // Known episodes react immediately; verified batches join the selection
+    // progressively. Pending episodes never become downloadable prematurely.
     renderSeriesTiles();
+    if (!select) return;
+    try {
+      if (providerNeedsExactEpisodeLanguage(series)) await verifyHuhuEpisodeLanguages(episodes, series);
+    } catch (error) {
+      if (error.name !== "AbortError" && generation === seriesState.viewGeneration) {
+        status.textContent = `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
+      }
+    } finally {
+      if (generation === seriesState.viewGeneration && seriesState.current?.base_slug === series.base_slug
+          && seriesState.current?.provider === series.provider) {
+        applyPendingSelections();
+        for (const slug of slugs) if (pendingSelections.get(slug) === intent) pendingSelections.delete(slug);
+        renderSeriesTiles();
+      }
+    }
   }
 
-  async function selectAllSeriesEpisodes() {
-    const series = seriesState.current;
-    if (!series) return;
-    if (providerNeedsExactEpisodeLanguage(series)) {
-      try {
-        await verifyHuhuEpisodeLanguages(seriesEpisodes(series).filter(isEpisodeEligible), series);
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        byId("series-status").textContent =
-          `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
-        return;
-      }
-      if (seriesState.current !== series) return;
-    }
-    seriesState.epPicked = new Set(
-      seriesEpisodes(series).filter(isEpisodeSelectable).map((episode) => episode.slug),
-    );
-    renderSeriesTiles();
+  function toggleEpisodeTile(slug) {
+    const episode = findCurrentEpisode(slug);
+    if (!isEpisodeActionable(episode)) return;
+    return selectEpisodes([episode], !seriesState.epPicked.has(slug) && !pendingSelections.has(slug));
+  }
+
+  function toggleSeasonTiles(season) {
+    const seasonObj = seriesState.current?.seasons.find(s => s.season === season);
+    if (!seasonObj) return;
+    const eligible = seasonObj.episodes.filter(episode => isEpisodeActionable(episode));
+    if (!eligible.length) return;
+    const allPicked = eligible.every(episode => seriesState.epPicked.has(episode.slug) || pendingSelections.has(episode.slug));
+    return selectEpisodes(eligible, !allPicked);
+  }
+
+  function selectAllSeriesEpisodes() {
+    return selectEpisodes(seriesEpisodes().filter(episode => isEpisodeActionable(episode)), true);
   }
 
   function markSeriesSlugDownloaded(slug) {
@@ -440,9 +438,9 @@ export function createSeriesEpisodes(root, {
       }
     });
     scope.listen(byId("series-select-all"), "click", selectAllSeriesEpisodes);
-    scope.listen(byId("series-select-none"), "click", () => { seriesState.epPicked.clear(); renderSeriesTiles(); });
+    scope.listen(byId("series-select-none"), "click", () => { pendingSelections.clear(); seriesState.epPicked.clear(); renderSeriesTiles(); });
     scope.listen(byId("series-add-btn"), "click", seriesAddSelected);
   }
-  function unmount() { scope.dispose(); bound = false; queuePending = false; }
+  function unmount() { scope.dispose(); pendingSelections.clear(); bound = false; queuePending = false; }
   return { mount, unmount, firstEpisodeSlug, seriesEpisodes, isEpisodeQueued, episodeHasEnabledStreamLanguage, episodeLanguageLockLabel, isEpisodeEligible, isEpisodeSelectable, isEpisodeActionable, syncSeriesQueueFlags, pruneSeriesEpisodeSelection, findCurrentEpisode, tileClass, episodeReleaseText, seriesAvailabilityNotice, syncSeriesAvailabilityNotice, applySeriesEpisodeTileState, refreshSeriesTileStates, renderSeriesTiles, toggleEpisodeTile, toggleSeasonTiles, selectAllSeriesEpisodes, markSeriesSlugDownloaded, seriesAddSelected };
 }

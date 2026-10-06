@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import "./movie_catalog_refresh.test.mjs";
+import "./frontend/series-selection.test.mjs";
 import { createCalendarState } from "../web/js/features/calendar/state.js";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");

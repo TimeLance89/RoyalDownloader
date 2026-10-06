@@ -454,24 +454,19 @@ test("episode language verification runs in bounded sequential batches", async (
   const verification = checks.verifyLanguages(episodes, series);
   assert.equal(requests.length, 1, "only the first batch may be in flight");
   assert.equal(requests[0].url, "/api/series/episode-languages");
-  assert.equal(requests[0].body.slugs.length, 20);
+  assert.equal(requests[0].body.slugs.length, 4);
 
   const resolveBatch = (request) => request.resolve({
     available: Object.fromEntries(request.body.slugs.map(slug => [slug, true])),
     languages: Object.fromEntries(request.body.slugs.map(slug => [slug, ["de"]])),
   });
 
-  resolveBatch(requests[0]);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(requests.length, 2, "second batch starts only after the first completed");
-  assert.equal(requests[1].body.slugs.length, 20);
-
-  resolveBatch(requests[1]);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(requests.length, 3);
-  assert.equal(requests[2].body.slugs.length, 5);
-
-  resolveBatch(requests[2]);
+  for (let batch = 0; batch < 12; batch++) {
+    assert.equal(requests.length, batch + 1, "only one batch may be in flight");
+    assert.equal(requests[batch].body.slugs.length, batch === 11 ? 1 : 4);
+    resolveBatch(requests[batch]);
+    await new Promise(resolve => setImmediate(resolve));
+  }
   await verification;
   assert.ok(episodes.every(episode => episode.language_checked === true));
   assert.ok(episodes.every(episode => episode.language_available === true));

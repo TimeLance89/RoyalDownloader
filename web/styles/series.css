@@ -875,3 +875,6 @@
   #tab-home .home-card.is-hover-edge-left { transform-origin: left center; }
   #tab-home .home-card.is-hover-edge-right { transform-origin: right center; }
 }
+
+/* Selection intent is visible while exact language checks finish. */
+.ep-tile.selection-pending { outline: 2px dashed var(--accent, #e5b85c); outline-offset: -3px; }
