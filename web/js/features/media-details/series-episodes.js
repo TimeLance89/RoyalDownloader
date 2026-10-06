@@ -193,6 +193,19 @@ export function createSeriesEpisodes(root, {
     tile.classList?.toggle("selection-pending", pending);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
     const languageLock = episodeLanguageLockLabel(episode, series);
+    let languageNotice = tile.querySelector(".ep-language-lock");
+    if (languageLock) {
+      if (!languageNotice) {
+        languageNotice = document.createElement("small");
+        languageNotice.className = "ep-language-lock";
+        tile.appendChild(languageNotice);
+      }
+      languageNotice.textContent = languageLock;
+    } else languageNotice?.remove();
+    tile.setAttribute("aria-label", episode.unreleased
+      ? `Folge ${episode.episode}, verfügbar ab ${releaseText}`
+      : languageLock ? `Folge ${episode.episode}, ${languageLock} verfügbar, Download gesperrt`
+        : `Folge ${episode.episode}`);
     if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = "Stream-Sprache wird vor der Auswahl geprüft";
@@ -284,7 +297,6 @@ export function createSeriesEpisodes(root, {
       for (const ep of seasonObj.episodes) {
         const tile = document.createElement("button");
         tile.dataset.episodeSlug = ep.slug;
-        applySeriesEpisodeTileState(tile, ep, series);
         const releaseText = ep.unreleased ? episodeReleaseText(ep) : "";
         const languageLock = episodeLanguageLockLabel(ep, series);
         tile.setAttribute(
@@ -298,18 +310,13 @@ export function createSeriesEpisodes(root, {
         const episodeNumber = document.createElement("strong");
         episodeNumber.textContent = String(ep.episode).padStart(2, "0");
         tile.append(episodeLabel, episodeNumber);
-        if (languageLock) {
-          const languageNotice = document.createElement("small");
-          languageNotice.className = "ep-language-lock";
-          languageNotice.textContent = languageLock;
-          tile.appendChild(languageNotice);
-        }
         if (ep.unreleased) {
           const release = document.createElement("small");
           release.className = "ep-release";
           release.textContent = releaseText;
           tile.appendChild(release);
         }
+        applySeriesEpisodeTileState(tile, ep, series);
         bind(tile, () => toggleEpisodeTile(ep.slug));
         tiles.appendChild(tile);
       }

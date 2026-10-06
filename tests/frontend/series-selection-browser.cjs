@@ -18,6 +18,7 @@ const { fixture } = require('./performance-fixture.cjs');
       assert.equal(await page.locator('#series-tiles .season-btn').getAttribute('aria-busy'), 'true');
       assert.match(await page.locator('#series-tiles .season-btn small').textContent(), /12 prüfen/);
       assert.equal(await page.locator('#series-add-btn').isDisabled(), true);
+      await page.evaluate(() => { window.selectionTile = document.querySelector(".ep-tile"); });
       const respond = async (route, denied = []) => {
         const {slugs} = route.request().postDataJSON();
         await route.fulfill({contentType: 'application/json', body: JSON.stringify({
@@ -28,6 +29,7 @@ const { fixture } = require('./performance-fixture.cjs');
       await respond(requests[0], ['sto:delay-s01e2']);
       await page.waitForFunction(() => document.querySelectorAll('.ep-tile.selected').length === 3);
       assert.equal(await page.locator('#series-add-btn').isEnabled(), true);
+      assert.equal(await page.evaluate(() => selectionTile === document.querySelector('.ep-tile')), true, 'language batches preserve existing tiles');
       assert.equal(await page.locator('[data-episode-slug="sto:delay-s01e2"]').isDisabled(), true);
       await page.locator('#series-select-none').click();
       while (requests.length < 2) await page.waitForTimeout(10);

@@ -210,7 +210,8 @@ export function createSeriesChecks(status, {
           }
         }
         pruneSeriesEpisodeSelection?.();
-        renderSeriesTiles();
+        if (refreshSeriesTileStates) refreshSeriesTileStates();
+        else renderSeriesTiles();
       };
       for (const key of job.keys) languagePendingSlugs.set(key, job);
       languageQueue.push(job);
