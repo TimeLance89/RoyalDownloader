@@ -4,7 +4,7 @@ const { fixture } = require("./performance-fixture.cjs");
 
 (async () => {
   await mkdir("artifacts/language-studio", { recursive: true });
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 320]) {
     const run = await fixture({ viewport: { width, height: 1000 }, mobile: width < 600 });
     const { page, errors } = run;
     const config = { movies: ["filmpalast", "moviebox"], series: ["serienstream", "huhu", "vidrift"], anime: ["aniworld", "mkissa"],

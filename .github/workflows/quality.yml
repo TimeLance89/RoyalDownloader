@@ -67,7 +67,9 @@ jobs:
           node tests/frontend/onboarding-studio-browser.cjs
 
       - name: Native mobile gestures, seams, orientation and navigation
-        run: node tests/frontend/mobile-browser.cjs
+        run: |
+          node tests/frontend/mobile-layout.cjs
+          node tests/frontend/mobile-browser.cjs
 
       - name: Mobile settle fallback without scrollend
         env:
