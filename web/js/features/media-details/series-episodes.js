@@ -348,6 +348,9 @@ export function createSeriesEpisodes(root, {
     if (!select) return;
     try {
       if (providerNeedsExactEpisodeLanguage(series)) await verifyHuhuEpisodeLanguages(episodes, series);
+      if (generation === seriesState.viewGeneration && slugs.some(slug => pendingSelections.get(slug) === intent)) {
+        status.textContent = `${seriesState.epPicked.size} Folge(n) ausgewählt.`;
+      }
     } catch (error) {
       if (error.name !== "AbortError" && generation === seriesState.viewGeneration) {
         status.textContent = `Stream-Sprachen konnten nicht geprüft werden: ${error.message}`;
