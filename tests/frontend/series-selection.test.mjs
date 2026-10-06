@@ -99,3 +99,50 @@ test('clear selection and a new view ignore delayed language results', async () 
   assert.deepEqual([...f.state.epPicked], ['new-view']);
   f.model.unmount(); f.checks.unmount();
 });
+
+test('verified German tracks use the enabled profile instead of a stale availability flag', () => {
+  const f = fixture(1);
+  const episode = f.episodes[0];
+  Object.assign(episode, {language_checked: true, language_available: false, content_languages: ['de']});
+  f.state.current.enabled_content_languages = ['de'];
+  assert.equal(f.model.isEpisodeSelectable(episode), true);
+  assert.equal(f.model.episodeLanguageLockLabel(episode), '');
+  episode.content_languages = ['en']; episode.language_available = true;
+  assert.equal(f.model.isEpisodeSelectable(episode), false);
+  assert.equal(f.model.episodeLanguageLockLabel(episode), 'NUR EN');
+  episode.language_checked = false; episode.content_languages = ['de'];
+  assert.equal(f.model.isEpisodeSelectable(episode), false, 'listing hints are not concrete track evidence');
+});
+
+test('hydration cannot relabel confirmed English or unknown tracks as German', async () => {
+  const {createSeriesDetailsLoader} = await import('../../web/js/features/media-details/series-loader.js');
+  const f = fixture(1);
+  const loader = createSeriesDetailsLoader({}, {}, {seriesState: f.state});
+  Object.assign(f.episodes[0], {language_checked: true, language_available: false, content_languages: ['en']});
+  const fresh = structuredClone(f.series);
+  delete fresh.seasons[0].episodes[0].language_checked;
+  delete fresh.seasons[0].episodes[0].language_available;
+  fresh.seasons[0].episodes[0].content_languages = ['de'];
+  const enriched = loader.merge(f.series, fresh);
+  assert.deepEqual(enriched.seasons[0].episodes[0].content_languages, ['en']);
+  f.episodes[0].content_languages = [];
+  assert.deepEqual(loader.merge(f.series, fresh).seasons[0].episodes[0].content_languages, []);
+});
+
+test('one missing episode page leaves all other German episodes selectable and is retryable', async () => {
+  const f = fixture(6);
+  const click = f.model.toggleSeasonTiles(1);
+  const first = f.requests[0], missing = f.episodes[0].slug;
+  const known = first.body.slugs.filter(slug => slug !== missing);
+  first.resolve({languages: Object.fromEntries(known.map(slug => [slug, ['de']])),
+    available: Object.fromEntries(known.map(slug => [slug, true])), pending: [missing]});
+  await tick(); f.respond(f.requests[1]); await click; await tick();
+  assert.equal(f.state.epPicked.size, 5);
+  assert.equal(f.episodes[0].language_checked, undefined);
+  assert.equal(f.model.episodeLanguageLockLabel(f.episodes[0]), '', 'no false NUR DE warning');
+  assert.equal(f.model.isEpisodeActionable(f.episodes[0]), true);
+  const retry = f.model.toggleEpisodeTile(missing);
+  assert.deepEqual(f.requests[2].body.slugs, [missing]);
+  f.respond(f.requests[2]); await retry;
+  assert.equal(f.state.epPicked.size, 6);
+});

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict
 from typing import Any
@@ -15,13 +16,19 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import core.config as appconfig
-from features.movie_releases import release_service, safe_image
 from features.monster_series_extension import (
     inject_monster_search_results,
     monster_tmdb_series,
 )
+from features.movie_releases import release_service, safe_image
 from providers.aniworld import aniworld_episode_page
-from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, provider_track_language, provider_supports_languages
+from providers.catalog import (
+    normalize_content_language,
+    provider_content_language,
+    provider_content_languages,
+    provider_supports_languages,
+    provider_track_language,
+)
 from providers.einschalten import EinschaltenScraper
 from providers.filmfrei24 import FilmFrei24Scraper
 from providers.filmo import FilmoScraper
@@ -29,7 +36,12 @@ from providers.kinoger import KinogerScraper
 from providers.kinox import KinoxScraper
 from providers.megakino import MegaKinoScraper
 from providers.mkissa import anime_episode_page
-from providers.models import FilmpalastSeries, FilmpalastSeriesResult, SeriesEpisode, parse_episode_slug
+from providers.models import (
+    FilmpalastSeries,
+    FilmpalastSeriesResult,
+    SeriesEpisode,
+    parse_episode_slug,
+)
 from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
 from providers.sflix import SflixScraper
@@ -842,6 +854,9 @@ class HuhuEpisodeLanguagesBody(BaseModel):
 class SeriesEpisodeLanguagesBody(BaseModel):
     provider: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
     slugs: list[str] = Field(min_length=1, max_length=30)
+    title: str = Field(default="", max_length=500)
+    aliases: list[str] = Field(default_factory=list, max_length=12)
+    tmdb_id: int | None = Field(default=None, gt=0)
 
 
 class SeriesJellyfinEpisodeBody(BaseModel):
@@ -1206,6 +1221,8 @@ def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
             movie = get_sto_scraper().get_movie(slug)
     else:
         movie = load_movie_for_slug(slug)
+    if movie is None or not getattr(movie, "hosters", None):
+        raise RuntimeError("Episodenquellen konnten nicht geladen werden.")
     return sorted({normalize_content_language(getattr(hoster, "audio_language", "")
                                              or getattr(hoster, "language", ""))
                    for hoster in (getattr(movie, "hosters", None) or [])
@@ -1227,12 +1244,74 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         raise HTTPException(400, "Episoden passen nicht zur gewählten Quelle.")
 
     def _work():
-        languages = {slug: episode_languages_for_slug(provider, slug) for slug in slugs}
         from api.api_library_router import record_watchlist_episode_languages
-        record_watchlist_episode_languages(languages)
+        from application_services.content_language_policy import _source_languages
+        from application_services.download_lifecycle import find_episode_fallbacks
+        from features.episode_source_probe import episode_source_probes
+        from providers.catalog import PROVIDER_CATALOG
+        from providers.models import FilmpalastMovie
+
+        languages, pending, source_providers = {}, [], {}
         enabled = {normalize_content_language(value) for value in state.content_languages}
-        return {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
-                "languages": languages}
+        enabled.discard("")
+        active = tuple(provider_priority("series"))
+        alternatives = tuple(key for key in active if key != provider and provider_supports_languages(key, enabled))
+        # The catalog already loaded the real title; client context also covers
+        # TMDB previews. Every fallback still requires an exact title/ID match.
+        first_base = parse_episode_slug(slugs[0])[0]
+        series = getattr(state, "series_cache", {}).get(first_base)
+        title = str(getattr(series, "title", "") or body.title).strip()
+        deadline = time.monotonic() + 8
+        for slug in slugs:
+            values = None
+            try:
+                values = episode_languages_for_slug(provider, slug)
+            except Exception:
+                pass
+            if title and alternatives and not set(values or []) & enabled:
+                _, season, episode = parse_episode_slug(slug)
+                key = (slug, title, tuple(body.aliases), body.tmdb_id, alternatives, tuple(sorted(enabled)))
+                def lookup(source, season=season, episode=episode, slug=slug):
+                    found = find_episode_fallbacks(title, season, episode, aliases=tuple(body.aliases),
+                        source_slug=slug, excluded_providers=set(PROVIDER_CATALOG) - {source}, limit=1,
+                        tmdb_id=str(body.tmdb_id or ""), raise_on_error=True)
+                    error = getattr(state, "fallback_provider_errors", {}).get(source)
+                    if error and error[0] > time.time():
+                        raise RuntimeError("Serienquelle vorübergehend nicht erreichbar")
+                    return found
+                sources, still_searching = episode_source_probes.search(key, alternatives, lookup,
+                    timeout=min(6, max(0, deadline - time.monotonic())))
+                matching = [source for source in sources if source.hosters and _source_languages(source) & enabled]
+                if matching:
+                    values = sorted(set(values or []) | {language for source in matching for language in _source_languages(source)})
+                    source_providers[slug] = list(dict.fromkeys(source.provider for source in matching if source.provider))
+                    cache = getattr(state, "movie_source_cache", None)
+                    cache_lock = getattr(state, "movie_source_cache_lock", None)
+                    if cache is not None and cache_lock is not None:
+                        # Preserve the logical episode identity. Queue preparation
+                        # consumes these alternate sources through its existing path.
+                        placeholder = FilmpalastMovie(title=f"{title} S{season:02d}E{episode:02d}", url=slug, provider=provider)
+                        with cache_lock:
+                            cache[slug] = [placeholder, *matching]
+                elif still_searching:
+                    pending.append(slug)
+                    # A negative primary result is not final while other sources
+                    # are still searching or temporarily unreachable.
+                    continue
+            if values is None:
+                pending.append(slug)
+                continue
+            languages[slug] = values
+            if not values:
+                pending.append(slug)
+        record_watchlist_episode_languages({slug: values for slug, values in languages.items() if values})
+        payload = {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
+                   "languages": languages}
+        if pending:
+            payload["pending"] = list(dict.fromkeys(pending))
+        if source_providers:
+            payload["source_providers"] = source_providers
+        return payload
 
     try:
         return await run_in_threadpool(_work)

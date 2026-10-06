@@ -1043,6 +1043,8 @@ def find_episode_fallbacks(
     source_slug: str = "",
     excluded_providers: Optional[set[str]] = None,
     limit: int = 0,
+    tmdb_id: str = "",
+    raise_on_error: bool = False,
 ) -> List[FilmpalastMovie]:
     """Lädt dieselbe Episode bei allen passenden Fallback-Katalogen.
 
@@ -1068,12 +1070,12 @@ def find_episode_fallbacks(
         for provider in (excluded_providers or set())
         if str(provider or "").strip()
     }
-    tmdb_id = ""
+    tmdb_id = str(tmdb_id or "").strip()
     parsed_source = parse_episode_slug(source_slug)
     source_base_slug = parsed_source[0] if parsed_source else source_slug
     with state.watchlist_lock:
         watch_entry = watchlist_lookup(source_base_slug)
-        if watch_entry:
+        if watch_entry and not tmdb_id:
             tmdb_id = str(watch_entry.get("tmdb_id") or "").strip()
     fallback_providers = backend_value("SERIES_FALLBACK_PROVIDERS") or tuple(
         provider_priority("series")
@@ -1109,6 +1111,8 @@ def find_episode_fallbacks(
             movie = load_movie_for_slug(ep.slug)
         except Exception as exc:
             log(f"  {label}-Fallback Laden fehlgeschlagen: {exc}", "warn")
+            if raise_on_error:
+                raise
             movie = None
         if movie and movie.hosters and movie.url not in seen_urls:
             seen_urls.add(movie.url)
@@ -1116,6 +1120,8 @@ def find_episode_fallbacks(
             if limit > 0 and len(movies) >= limit:
                 break
             continue
+        if raise_on_error and (movie is None or not movie.hosters):
+            raise RuntimeError(f"{label}: Episodenquellen konnten nicht geprüft werden")
         log(f"  {label}: keine nutzbaren Hoster für die Episode", "warn")
     return movies
 
