@@ -7,7 +7,7 @@ const {fixture} = require('./performance-fixture.cjs');
     const run = await fixture({viewport:{width,height:1000},mobile:width<820});
     const {page} = run;
     const requests = [], bodies = new Map();
-    let progressCalls = 0;
+    let progressCalls = 0, changedProgress = false;
     try {
       await page.route('**/api/series/episode-languages', route => {
         requests.push(route); const body = route.request().postDataJSON(); bodies.set(body.probe_id, body);
@@ -18,8 +18,9 @@ const {fixture} = require('./performance-fixture.cjs');
         const body = bodies.get(id);
         const providers = body ? [
           {slug:body.slugs[0],provider:'serienstream',label:'SerienStream',status:'checking'},
-          {slug:body.slugs[0],provider:'huhu',label:'Huhu',status:'searching'},
+          {slug:body.slugs[0],provider:'huhu',label:'Huhu',status:changedProgress?'retry':'searching'},
           {slug:body.slugs[0],provider:'filmpalast',label:'Filmpalast',status:'waiting'},
+          ...['Moflix','FlixiTV','Movie2k','XCine','KinoX','Kinoger','MegaKino','KinoKing','FilmFrei24','Filmo'].map(label=>({slug:body.slugs[0],provider:label.toLowerCase(),label,status:'no_match'})),
         ] : [];
         return route.fulfill({contentType:'application/json',body:JSON.stringify({providers})});
       });
@@ -38,6 +39,16 @@ const {fixture} = require('./performance-fixture.cjs');
       assert.match(await panel.textContent(),/Filmpalast/);
       const bounds = await panel.boundingBox();
       assert.ok(bounds.x>=0 && bounds.x+bounds.width<=width+1);
+      const providerList = panel.locator('.series-probe-providers');
+      assert.ok(await providerList.evaluate(list=>list.clientHeight<=181), 'all provider rows stay compact');
+      if (width<820) {
+        await providerList.focus();
+        await providerList.evaluate(list=>{list.scrollTop=list.scrollHeight;});
+        changedProgress=true;
+        await page.waitForFunction(()=>document.querySelector('#series-probe-progress').textContent.includes('Vorübergehend nicht erreichbar'));
+        assert.ok(await providerList.evaluate(list=>list.scrollTop>0), 'provider progress updates preserve the user scroll position');
+        assert.equal(await providerList.evaluate(list=>list===document.activeElement),true);
+      }
       await panel.scrollIntoViewIfNeeded();
       await page.screenshot({path:`artifacts/episode-probe/running-${width}.png`});
       const respond = async (route, deny = false) => {
