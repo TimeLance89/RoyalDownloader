@@ -48,7 +48,7 @@
     padding: 20px var(--mobile-gutter) calc(var(--mobile-footer) + 24px);
   }
   #tab-filme { padding-top: 16px; padding-bottom: calc(var(--mobile-footer) + 24px); }
-  #tab-home { padding-bottom: calc(var(--mobile-footer) + 24px); }
+  #tab-home { padding-top: 0; padding-bottom: calc(var(--mobile-footer) + 24px); }
   .tab-content :is(input[type="search"], input[type="text"], input[type="url"], input[type="password"], input[type="number"], select, textarea),
   .language-studio select,
   #setup-wizard :is(input:not([type="checkbox"]):not([type="radio"]), select) {

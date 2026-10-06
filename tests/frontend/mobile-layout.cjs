@@ -29,6 +29,9 @@ async function touchTargets(page, selector) {
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${tab}: page overflow at ${width}`);
         await touchTargets(page, "#mobile-queue-btn, #series-subscriptions-manage, .library-action, .library-filter-tabs button, .library-view-switch button, .calendar-controls button, .calendar-toolbar button, .calendar-view-switch button, .profile-detail-button");
         if (tab === "home") {
+          const header = await bounds(page, ".topbar");
+          const hero = await bounds(page, ".home-hero");
+          assert.ok(Math.abs(hero.top - header.bottom) <= 1, "Home hero starts directly below the sticky header");
           const controls = await bounds(page, ".home-hero-controls");
           const program = await bounds(page, ".home-program");
           assert.ok(controls.bottom <= program.top, "Hero controls remain clear of the program card");
