@@ -166,13 +166,13 @@
     <div id="global-search-grid" class="global-search-grid" aria-live="polite"></div>
   </section>
 
-  <div id="movie-collection-modal" class="media-modal movie-collection-modal" role="dialog"
+  <div id="movie-collection-modal" data-mobile-label="Sammlung" class="media-modal movie-collection-modal" role="dialog"
       aria-modal="true" aria-labelledby="movie-collection-title" hidden>
     <button class="media-modal-backdrop" type="button" data-modal-close="movie-collection-modal"
         aria-label="Filmreihe schließen"></button>
     <section id="movie-collection-panel" class="media-modal-panel movie-collection-panel" tabindex="-1">
       <button class="media-modal-close" type="button" data-modal-close="movie-collection-modal"
-          aria-label="Filmreihe schließen">×</button>
+          aria-label="Filmreihe schließen"><span class="modal-close-glyph" aria-hidden="true">×</span><svg class="modal-back-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
       <header id="movie-collection-hero" class="movie-collection-hero">
         <img id="movie-collection-cover" alt="">
         <div class="movie-collection-copy">
@@ -300,16 +300,17 @@
   </div>
 
   <nav class="mobile-tabs" aria-label="Mobile Hauptnavigation">
-    <button class="tab-btn active" data-tab="home" aria-current="page"><span class="tab-icon" aria-hidden="true">⌂</span><span>Start</span></button>
-    <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true">◆</span><span>Filme</span></button>
-    <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true">▤</span><span>Serien</span></button>
-    <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true">▣</span><span>Bibliothek</span></button>
+    <button class="tab-btn active" data-tab="home" aria-current="page"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg></span><span>Start</span></button>
+    <button class="tab-btn" data-tab="filme"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 4l4 5m3-5 4 5"/></svg></span><span>Filme</span></button>
+    <button class="tab-btn" data-tab="serien"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="3"/><path d="M8 21h8m-4-5v5m-3-12 5 2.5-5 2.5z"/></svg></span><span>Serien</span></button>
+    <button class="tab-btn" data-tab="bibliothek"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6v15h16V6M3 3h18v4H3zM9 11h6"/></svg></span><span>Bibliothek</span></button>
     <div class="nav-menu nav-menu--mobile" data-nav-menu="mobile">
       <button id="mobile-more-toggle" class="nav-menu-trigger" type="button"
           aria-expanded="false" aria-controls="mobile-more-menu">
-        <span class="tab-icon" aria-hidden="true">⋯</span><span>Mehr</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
+        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></span><span>Mehr</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
       </button>
-      <div id="mobile-more-menu" class="nav-menu-popover" aria-label="Weitere Bereiche" hidden>
+      <div id="mobile-more-menu" class="nav-menu-popover" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title" hidden>
+        <header class="mobile-menu-heading"><h2 id="mobile-more-title">Mehr von Royal</h2><button type="button" data-nav-menu-close aria-label="Menü schließen">×</button></header>
         <button class="nav-menu-item" type="button" data-tab="releases">
           <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="m10 9 5 3-5 3z"></path></svg></span><span><strong>Releases</strong><small>Neue Filme</small></span>
         </button>
@@ -755,7 +756,7 @@
           </div>
         </div>
 
-        <div id="fp-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="fp-detail-title" hidden>
+        <div id="fp-detail-modal" data-mobile-label="Filmdetails" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="fp-detail-title" hidden>
           <div class="media-modal-backdrop" data-modal-close="fp-detail-modal" aria-hidden="true"></div>
           <div id="fp-detail-panel" class="panel detail-panel media-modal-panel is-empty" tabindex="-1">
             <div class="detail-backdrop-art" aria-hidden="true"></div>
@@ -777,7 +778,7 @@
               title="Trailerton einschalten"
               hidden
             ><span aria-hidden="true">🔇</span></button>
-            <button id="fp-detail-close" class="media-modal-close" type="button" data-modal-close="fp-detail-modal" aria-label="Filmdetails schließen">×</button>
+            <button id="fp-detail-close" class="media-modal-close" type="button" data-modal-close="fp-detail-modal" aria-label="Filmdetails schließen"><span class="modal-close-glyph" aria-hidden="true">×</span><svg class="modal-back-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
             <div class="panel-head detail-panel-head">
               <div class="detail-head-primary">
                 <span class="detail-archive-code">RD · FILMARCHIV</span>
@@ -965,7 +966,7 @@
           </div>
         </div>
 
-        <div id="series-detail-modal" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
+        <div id="series-detail-modal" data-mobile-label="Seriendetails" class="media-modal" role="dialog" aria-modal="true" aria-labelledby="series-detail-title" hidden>
           <div class="media-modal-backdrop" data-modal-close="series-detail-modal" aria-hidden="true"></div>
           <div class="panel series-detail-panel media-modal-panel" tabindex="-1">
             <div id="series-detail-hero-trailer" class="detail-hero-trailer series-detail-hero-trailer" aria-hidden="true" hidden>
@@ -986,7 +987,7 @@
               title="Trailerton einschalten"
               hidden
             ><span aria-hidden="true">🔇</span></button>
-            <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen">×</button>
+            <button id="series-detail-close" class="media-modal-close" type="button" data-modal-close="series-detail-modal" aria-label="Seriendetails schließen"><span class="modal-close-glyph" aria-hidden="true">×</span><svg class="modal-back-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
             <section class="series-hero-copy" aria-label="Serieninformationen">
               <span class="series-detail-kicker">AUS DEM ROYAL ARCHIV · SERIE</span>
               <h2 id="series-detail-title">(keine Serie ausgewählt)</h2>
@@ -1011,11 +1012,13 @@
                 <span class="series-jellyfin-mark" aria-hidden="true">JF</span>
                 <strong>Jellyfin wird geprüft</strong>
               </div>
+              <div class="series-selection-dock">
               <div class="series-selection-status" aria-live="polite">
                 <span>EPISODENAUSWAHL</span>
                 <strong id="series-pick-count">0 ausgewählt</strong>
               </div>
               <button id="series-add-btn" class="btn btn-accent" disabled>↓ Auswahl herunterladen</button>
+              </div>
             </div>
             <section class="series-episode-browser" aria-labelledby="series-episodes-title">
               <header class="series-episodes-head">
@@ -1209,10 +1212,10 @@
         </div>
       </section>
 
-      <div id="anime-detail-modal" class="media-modal anime-detail-modal" role="dialog" aria-modal="true" aria-labelledby="anime-detail-title" hidden>
+      <div id="anime-detail-modal" data-mobile-label="Anime-Details" class="media-modal anime-detail-modal" role="dialog" aria-modal="true" aria-labelledby="anime-detail-title" hidden>
         <div class="media-modal-backdrop" data-modal-close="anime-detail-modal" aria-hidden="true"></div>
         <div class="anime-detail-panel media-modal-panel" tabindex="-1">
-          <button class="media-modal-close" type="button" data-modal-close="anime-detail-modal" aria-label="Anime-Details schließen">×</button>
+          <button class="media-modal-close" type="button" data-modal-close="anime-detail-modal" aria-label="Anime-Details schließen"><span class="modal-close-glyph" aria-hidden="true">×</span><svg class="modal-back-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
           <div id="anime-detail-banner" class="anime-detail-banner" aria-hidden="true"></div>
           <div class="anime-detail-content">
             <div class="anime-detail-visual">
@@ -1316,10 +1319,10 @@
         </div>
       </section>
 
-      <div id="aniworld-detail-modal" class="media-modal aniworld-detail-modal" role="dialog" aria-modal="true" aria-labelledby="aniworld-detail-title" hidden>
+      <div id="aniworld-detail-modal" data-mobile-label="Anime-Details" class="media-modal aniworld-detail-modal" role="dialog" aria-modal="true" aria-labelledby="aniworld-detail-title" hidden>
         <div class="media-modal-backdrop" data-modal-close="aniworld-detail-modal" aria-hidden="true"></div>
         <div class="aniworld-detail-panel media-modal-panel" tabindex="-1">
-          <button class="media-modal-close" type="button" data-modal-close="aniworld-detail-modal" aria-label="AniWorld-Details schließen">×</button>
+          <button class="media-modal-close" type="button" data-modal-close="aniworld-detail-modal" aria-label="AniWorld-Details schließen"><span class="modal-close-glyph" aria-hidden="true">×</span><svg class="modal-back-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
           <div id="aniworld-detail-banner" class="aniworld-detail-banner" aria-hidden="true"></div>
           <div class="aniworld-detail-scroll">
             <section class="aniworld-detail-profile">

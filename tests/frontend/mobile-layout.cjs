@@ -67,6 +67,7 @@ async function touchTargets(page, selector) {
         }
       }
       await page.locator("#mobile-more-toggle").tap();
+      await page.locator("#mobile-more-menu").evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
       const menu = await bounds(page, "#mobile-more-menu");
       const nav = await bounds(page, ".mobile-tabs");
       assert.ok(menu.left >= 0 && menu.right <= width && menu.bottom <= nav.top, "More menu fits above navigation");

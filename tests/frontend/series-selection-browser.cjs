@@ -11,7 +11,7 @@ const { fixture } = require('./performance-fixture.cjs');
         fixtureApp.core.actions.switchTab('serien', {autoLoad: false});
         const episodes = Array.from({length: 12}, (_, i) => ({slug: `sto:delay-s01e${i+1}`, season: 1, episode: i+1}));
         fixtureApp.discovery.seriesActions.showSeriesDetail({base_slug: 'sto:delay', provider: 'serienstream',
-          title: 'Delayed language fixture', description: '', seasons: [{season: 1, episodes}], episode_count: 12}, episodes[0].slug);
+          title: 'Delayed language fixture', enabled_content_languages: ['de'], description: '', seasons: [{season: 1, episodes}], episode_count: 12}, episodes[0].slug);
       });
       await page.waitForFunction(() => document.querySelectorAll('.ep-tile').length === 12);
       await page.locator('#series-tiles .season-btn').click();

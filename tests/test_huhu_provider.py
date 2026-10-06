@@ -377,3 +377,34 @@ def test_shared_episode_language_endpoint_fails_closed_when_track_language_unkno
 
     assert result["available"] == {slug: False}
     assert result["languages"] == {slug: []}
+
+def test_shared_language_probe_missing_episode_is_retryable_and_preserves_other_results(monkeypatch):
+    import api.api_discovery_router as discovery
+    import api.api_library_router as library
+
+    missing = "serienstream:fixture-s01e01"
+    german = "serienstream:fixture-s01e02"
+    english = "serienstream:fixture-s01e03"
+    recovered = [False]
+    def movie_for(slug):
+        if slug == missing and not recovered[0]:
+            return None
+        return FilmpalastMovie("Fixture", slug, hosters=[HosterInfo(
+            "VOE", "https://example.test/video", "Englisch" if slug == english else "Deutsch")])
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(content_languages={"de"}, sto_lock=threading.RLock()))
+    monkeypatch.setattr(discovery, "get_sto_scraper", lambda: SimpleNamespace(get_movie=movie_for))
+    recorded = []
+    monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda languages: recorded.append(languages))
+    body = discovery.SeriesEpisodeLanguagesBody(provider="serienstream", slugs=[missing, german, english])
+    result = asyncio.run(discovery.api_series_episode_languages(body))
+    assert result["pending"] == [missing]
+    assert result["available"] == {german: True, english: False}
+    assert result["languages"] == {german: ["de"], english: ["en"]}
+    assert missing not in recorded[0]
+    recovered[0] = True
+    result = asyncio.run(discovery.api_series_episode_languages(body))
+    assert "pending" not in result
+    assert result["available"][missing] is True
+    assert result["languages"][missing] == ["de"]

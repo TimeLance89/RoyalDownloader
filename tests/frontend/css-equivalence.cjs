@@ -75,7 +75,9 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // First-run onboarding now shares that design; setup-browser.cjs and
       // onboarding-studio-browser.cjs protect its own layout and readiness.
       .filter(element =>
-        !element.closest("#household-manage")
+        // The mobile app navigation has its own bounds, focus and visual tests.
+        !(innerWidth <= 820 && element.closest(".mobile-tabs"))
+        && !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")
         && !element.closest("#language-setup-dialog")

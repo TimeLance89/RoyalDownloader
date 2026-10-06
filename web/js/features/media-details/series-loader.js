@@ -24,7 +24,14 @@ export function createSeriesDetailsLoader(root, status, {
         const episodes = seasons.get(seasonNumber) || new Map();
         for (const episode of season.episodes || []) {
           const key = episode.slug || `${seasonNumber}:${episode.episode}`;
-          episodes.set(key, { ...(episodes.get(key) || {}), ...episode });
+          const previousEpisode = episodes.get(key);
+          const merged = { ...(previousEpisode || {}), ...episode };
+          if ((previousEpisode?.language_checked || previousEpisode?.huhu_language_checked)
+              && !episode.language_checked && !episode.huhu_language_checked) {
+            // Listing metadata must not replace concrete episode-track evidence.
+            merged.content_languages = previousEpisode.content_languages;
+          }
+          episodes.set(key, merged);
         }
         seasons.set(seasonNumber, episodes);
       }

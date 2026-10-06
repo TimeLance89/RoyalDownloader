@@ -191,6 +191,7 @@ export function createSeriesChecks(status, {
         if (!owner.active) throw new DOMException("Abgebrochen", "AbortError");
         const result = await client.post("/api/series/episode-languages", {
           provider: series.provider, slugs: chunk.map(episode => episode.slug),
+          title: series.title || "", aliases: (series.aliases || []).slice(0, 12), tmdb_id: series.tmdb_id || null,
         }, { signal: owner.signal, timeoutMs: 15_000,
           timeoutMessage: "Die Sprachprüfung antwortet nicht. Bitte erneut auswählen." });
         const live = seriesState.current;
@@ -200,13 +201,19 @@ export function createSeriesChecks(status, {
         }
         const liveEpisodes = new Map((live.seasons || []).flatMap(season => season.episodes || []).map(episode => [episode.slug, episode]));
         for (const episode of chunk) {
+          const languages = result.languages?.[episode.slug];
+          const checked = Array.isArray(languages) && languages.length > 0
+            && typeof result.available?.[episode.slug] === "boolean";
           for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
             if (!target) continue;
+            target.language_check_error = !checked;
+            if (!checked) continue;
             target.language_checked = true;
             target.language_available = result.available?.[episode.slug] === true;
             target.huhu_language_checked = true;
             target.huhu_language_available = target.language_available;
             target.content_languages = result.languages?.[episode.slug] || [];
+            target.source_providers = result.source_providers?.[episode.slug] || [series.provider];
           }
         }
         pruneSeriesEpisodeSelection?.();
@@ -222,7 +229,12 @@ export function createSeriesChecks(status, {
     if (!background) languageQueue.sort((a, b) => Number(waiting.has(b)) - Number(waiting.has(a)));
     if (requested.length) status.textContent = `Prüfe Stream-Sprache für ${requested.length} Folge(n) …`;
     runNextLanguageJob();
-    await Promise.all([...waiting].map(job => job.promise));
+    const results = await Promise.allSettled([...waiting].map(job => job.promise));
+    const failed = results.find(result => result.status === "rejected");
+    if (failed) throw failed.reason;
+    if (requested.some(episode => episode.language_check_error)) {
+      throw new Error("Einige Episodensprachen konnten nicht geladen werden. Bitte erneut auswählen.");
+    }
   }
 
   return {

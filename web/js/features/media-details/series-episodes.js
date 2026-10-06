@@ -46,16 +46,18 @@ export function createSeriesEpisodes(root, {
 
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
     if (episode?.downloaded || episode?.in_jellyfin) return true;
-    if (providerNeedsExactEpisodeLanguage(series)) {
-      if (!episodeLanguageChecked(episode)) return false;
-      return episodeLanguageAvailable(episode);
-    }
     const offered = episode?.content_languages || [];
-    if (!offered.length) return true;
     const enabled = series?.enabled_content_languages?.length
       ? series.enabled_content_languages
       : [...(getEnabledLanguages() || [])];
-    return offered.some((language) => enabled.includes(language));
+    if (providerNeedsExactEpisodeLanguage(series)) {
+      if (!episodeLanguageChecked(episode)) return false;
+      // availability is a snapshot of the profile at probe time. Concrete
+      // tracks remain authoritative when the enabled profile changes.
+      return offered.length ? offered.some(language => enabled.includes(language)) : episodeLanguageAvailable(episode);
+    }
+    if (!offered.length) return true;
+    return offered.some(language => enabled.includes(language));
   }
 
   function episodeLanguageLockLabel(episode, series = seriesState.current) {
@@ -208,7 +210,9 @@ export function createSeriesEpisodes(root, {
         : `Folge ${episode.episode}`);
     if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
-      tile.title = "Stream-Sprache wird vor der Auswahl geprüft";
+      tile.title = episode.language_check_error
+        ? "Sprachprüfung unvollständig · erneut auswählen, um nochmals zu prüfen"
+        : "Stream-Sprache wird vor der Auswahl geprüft";
     }
     else if (!episodeHasEnabledStreamLanguage(episode, series)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
@@ -222,7 +226,16 @@ export function createSeriesEpisodes(root, {
     else if (episode.downloaded) tile.title = "Bereits heruntergeladen";
     else if (isEpisodeQueued(episode)) tile.title = "Bereits in der Warteschlange";
     else if (episode.unreleased) tile.title = `Download gesperrt · verfügbar ab ${releaseText}`;
-    else tile.removeAttribute("title");
+    else if (episode.source_providers?.some(provider => provider !== series.provider)) {
+      tile.title = "Passende Sprache über eine alternative Serienquelle verfügbar";
+    } else tile.removeAttribute("title");
+    const alternate = episode.source_providers?.some(provider => provider !== series.provider)
+      && episodeHasEnabledStreamLanguage(episode, series) && !episode.downloaded && !episode.in_jellyfin;
+    let sourceLabel = tile.querySelector(".ep-source-label");
+    if (alternate) {
+      if (!sourceLabel) { sourceLabel = document.createElement("small"); sourceLabel.className = "ep-source-label"; tile.appendChild(sourceLabel); }
+      sourceLabel.textContent = "Ausweichquelle";
+    } else sourceLabel?.remove();
   }
 
   function refreshSeriesTileStates() {

@@ -878,3 +878,5 @@
 
 /* Selection intent is visible while exact language checks finish. */
 .ep-tile.selection-pending { outline: 2px dashed var(--accent, #e5b85c); outline-offset: -3px; }
+
+.ep-source-label { margin-top: 4px; font-size: 9px; line-height: 1.2; color: #f0c96f; }
