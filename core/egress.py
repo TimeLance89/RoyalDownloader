@@ -210,7 +210,9 @@ class EgressManager:
                 timeout,
             )
             if parts.scheme == "https":
-                connection = ssl.create_default_context().wrap_socket(
+                context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
+                connection = context.wrap_socket(
                     connection, server_hostname=parts.hostname
                 )
             authority = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
@@ -261,6 +263,7 @@ class EgressManager:
             # SSL over an HTTPS-proxy TLS socket requires TLS-in-TLS. urllib3's
             # transport handles both plain sockets and this verified nesting.
             context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             if isinstance(connection, ssl.SSLSocket):
                 from urllib3.util.ssltransport import SSLTransport
 
