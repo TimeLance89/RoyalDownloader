@@ -77,6 +77,8 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       .filter(element =>
         // The mobile app navigation has its own bounds, focus and visual tests.
         !(innerWidth <= 820 && element.closest(".mobile-tabs"))
+        // New provider progress has no frozen visual state; its live layout is tested separately.
+        && !element.closest("#series-probe-progress")
         && !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")

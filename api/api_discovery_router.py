@@ -854,6 +854,8 @@ class HuhuEpisodeLanguagesBody(BaseModel):
 class SeriesEpisodeLanguagesBody(BaseModel):
     provider: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
     slugs: list[str] = Field(min_length=1, max_length=30)
+    probe_id: str = Field(default="", max_length=64, pattern=r"^[a-zA-Z0-9_-]*$")
+    attempt: int = Field(default=0, ge=0, le=2)
     title: str = Field(default="", max_length=500)
     aliases: list[str] = Field(default_factory=list, max_length=12)
     tmdb_id: int | None = Field(default=None, gt=0)
@@ -1230,6 +1232,17 @@ def episode_languages_for_slug(provider: str, slug: str) -> list[str]:
                                                  or getattr(hoster, "language", ""))})
 
 
+EPISODE_PRIMARY_WAIT_SECONDS = 4
+EPISODE_PROBE_BUDGET_SECONDS = 8
+
+
+@router.get("/api/series/episode-probe/{probe_id}")
+async def api_series_episode_probe_progress(probe_id: str):
+    from features.episode_probe_progress import probe_progress
+    rows = probe_progress.snapshot(probe_id)
+    return {"providers": [{**row, "label": PROVIDER_LABELS.get(row["provider"], row["provider"])} for row in rows]}
+
+
 @router.post("/api/v1/series/episode-languages")
 @router.post("/api/series/episode-languages")
 async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
@@ -1247,10 +1260,14 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         from api.api_library_router import record_watchlist_episode_languages
         from application_services.content_language_policy import _source_languages
         from application_services.download_lifecycle import find_episode_fallbacks
+        from application_services.media_identity import _norm_title
+        from features.episode_language_probe import language_probes
+        from features.episode_probe_progress import probe_progress
         from features.episode_source_probe import episode_source_probes
         from providers.catalog import PROVIDER_CATALOG
         from providers.models import FilmpalastMovie
 
+        probe_progress.start(body.probe_id)
         languages, pending, source_providers = {}, [], {}
         enabled = {normalize_content_language(value) for value in state.content_languages}
         enabled.discard("")
@@ -1261,17 +1278,43 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         first_base = parse_episode_slug(slugs[0])[0]
         series = getattr(state, "series_cache", {}).get(first_base)
         title = str(getattr(series, "title", "") or body.title).strip()
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + EPISODE_PROBE_BUDGET_SECONDS
+        primary = {}
+        for slug in slugs:
+            future = language_probes.submit((provider, slug, tuple(sorted(enabled))),
+                lambda slug=slug: episode_languages_for_slug(provider, slug),
+                retry_unmatched=(lambda values: bool(set(values) & enabled)) if body.attempt else None, provider=provider)
+            primary[slug] = future
+            probe_progress.update(body.probe_id, slug, provider, "checking" if future is not None else "waiting", future=future)
+        wait([future for future in primary.values() if future is not None], timeout=min(EPISODE_PRIMARY_WAIT_SECONDS, max(0, deadline - time.monotonic())))
         for slug in slugs:
             values = None
-            try:
-                values = episode_languages_for_slug(provider, slug)
-            except Exception:
-                pass
+            future = primary[slug]
+            if future is not None and future.done():
+                try:
+                    values = future.result()
+                    probe_progress.update(body.probe_id, slug, provider,
+                        "found" if set(values) & enabled else "no_match" if values else "retry")
+                except Exception:
+                    probe_progress.update(body.probe_id, slug, provider, "retry")
             if title and alternatives and not set(values or []) & enabled:
                 _, season, episode = parse_episode_slug(slug)
                 key = (slug, title, tuple(body.aliases), body.tmdb_id, alternatives, tuple(sorted(enabled)))
                 def lookup(source, season=season, episode=episode, slug=slug):
+                    if body.attempt:
+                        # Recheck short-lived catalog misses, preserving hits and
+                        # provider cooldowns rather than repeating cached absence.
+                        lock = getattr(state, "fallback_series_cache_lock", None)
+                        cache = getattr(state, "fallback_series_cache", None)
+                        if lock is not None and cache is not None:
+                            with lock:
+                                keys = {f"{source}:{_norm_title(value)}" for value in (title, *body.aliases)}
+                                if source == "huhu" and body.tmdb_id:
+                                    keys.add(f"{source}:tmdb:{body.tmdb_id}")
+                                for cache_key in keys:
+                                    cached = cache.get(cache_key)
+                                    if cached and cached[1] is None:
+                                        cache.pop(cache_key, None)
                     found = find_episode_fallbacks(title, season, episode, aliases=tuple(body.aliases),
                         source_slug=slug, excluded_providers=set(PROVIDER_CATALOG) - {source}, limit=1,
                         tmdb_id=str(body.tmdb_id or ""), raise_on_error=True)
@@ -1279,10 +1322,23 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                     if error and error[0] > time.time():
                         raise RuntimeError("Serienquelle vorübergehend nicht erreichbar")
                     return found
+                def on_jobs(jobs, slug=slug):
+                    for source, future in jobs.items():
+                        probe_progress.update(body.probe_id, slug, source, "waiting", future=future)
                 sources, still_searching = episode_source_probes.search(key, alternatives, lookup,
-                    timeout=min(6, max(0, deadline - time.monotonic())))
+                    timeout=min(6, max(0, deadline - time.monotonic())), on_jobs=on_jobs,
+                    retry_unmatched=(lambda found: any(_source_languages(movie) & enabled for movie in found)) if body.attempt else None)
+                if values is None and future is not None and future.done():
+                    try:
+                        values = future.result()
+                        probe_progress.update(body.probe_id, slug, provider,
+                            "found" if set(values) & enabled else "no_match" if values else "retry")
+                    except Exception:
+                        pass
                 matching = [source for source in sources if source.hosters and _source_languages(source) & enabled]
                 if matching:
+                    for source in matching:
+                        probe_progress.update(body.probe_id, slug, source.provider, "found")
                     values = sorted(set(values or []) | {language for source in matching for language in _source_languages(source)})
                     source_providers[slug] = list(dict.fromkeys(source.provider for source in matching if source.provider))
                     cache = getattr(state, "movie_source_cache", None)
@@ -1293,7 +1349,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                         placeholder = FilmpalastMovie(title=f"{title} S{season:02d}E{episode:02d}", url=slug, provider=provider)
                         with cache_lock:
                             cache[slug] = [placeholder, *matching]
-                elif still_searching:
+                elif still_searching and not set(values or []) & enabled:
                     pending.append(slug)
                     # A negative primary result is not final while other sources
                     # are still searching or temporarily unreachable.
@@ -1311,6 +1367,9 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
             payload["pending"] = list(dict.fromkeys(pending))
         if source_providers:
             payload["source_providers"] = source_providers
+        if body.probe_id:
+            payload["progress"] = [{**row, "label": PROVIDER_LABELS.get(row["provider"], row["provider"])}
+                                   for row in probe_progress.snapshot(body.probe_id)]
         return payload
 
     try:

@@ -19,7 +19,7 @@ def test_cinema_dock_and_premium_card_finish_precede_mobile_override():
         '@import url("/styles/taste-feedback.css?v=royal-20260926-1");',
         '@import url("/styles/daily-top.css?v=royal-20260926-1");',
         '@import url("/styles/language-studio.css?v=royal-language-studio-1");',
-        '@import url("/styles/mobile.css?v=royal-mobile-20261006-2");',
+        '@import url("/styles/mobile.css?v=royal-mobile-20261006-3");',
     ]
     positions = [imports.index(layer) for layer in ordered_layers]
     assert positions == sorted(positions)

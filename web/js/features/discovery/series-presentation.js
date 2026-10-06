@@ -448,6 +448,8 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   }
 
   function showSeriesDetail(series, sampleSlug) {
+    const progress = byId("series-probe-progress");
+    if (progress) progress.hidden = true;
     seriesState.viewGeneration += 1;
     syncSeriesQueueFlags(series);
     seriesState.current = series;
