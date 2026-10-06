@@ -13,6 +13,7 @@ import os
 import queue
 import re
 import subprocess
+from core.egress import get_manager
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,8 +21,7 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import urljoin
 
-from curl_cffi import requests as cr
-
+from core import egress_curl as cr
 import api.api_library_router as library_router
 import application_services.movie_subscription_stream_quality as stream_quality
 import application_services.source_resolution as source_resolution
@@ -539,8 +539,9 @@ def _download_ytdlp_for_height(self, height: int, concurrent_fragments=None):
         cmd += ["--referer", self.referer]
     if self.origin:
         cmd += ["--add-header", f"Origin:{self.origin}"]
+    cmd.extend(get_manager().ytdlp_args())
     cmd.append(self.stream_url)
-    downloader.logger.debug("yt-dlp subscription cmd: %s", " ".join(cmd))
+    downloader.logger.debug("yt-dlp subscription request via guard")
     popen_kwargs = {}
     if os.name == "nt":
         popen_kwargs["creationflags"] = (
@@ -553,6 +554,7 @@ def _download_ytdlp_for_height(self, height: int, concurrent_fragments=None):
         return False, "Abgebrochen"
     self._proc = subprocess.Popen(
         cmd,
+        env=get_manager().subprocess_environment(self.stream_url, untrusted=True),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

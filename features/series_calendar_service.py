@@ -137,8 +137,7 @@ def normalize_calendar_document(document: object, *, fetched_at: float | None = 
 
 def fetch_calendar_document() -> dict:
     """Lädt Seite und JSON mit einer kurzen, vollständig unabhängigen HTTP-Session."""
-    from curl_cffi import requests as cffi_requests
-
+    from core import egress_curl as cffi_requests
     session = cffi_requests.Session(impersonate="chrome136")
     proxy = safe_proxy_url()
     proxies = {"http": proxy, "https": proxy}

@@ -22,7 +22,7 @@ from datetime import date
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urljoin
 
-import requests
+from core import egress_provider_requests as requests
 from bs4 import BeautifulSoup
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 

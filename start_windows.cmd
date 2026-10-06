@@ -10,7 +10,7 @@ if errorlevel 1 (
 )
 
 echo [Royal] Abhaengigkeiten werden geprueft ...
-py -3 -m pip install -r requirements.lock
+py -3 -m core.egress_bootstrap py -3 -m pip install -r requirements.lock
 if errorlevel 1 (
   echo [Royal] Python-Abhaengigkeiten konnten nicht installiert werden.
   pause

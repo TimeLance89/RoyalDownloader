@@ -439,3 +439,6 @@ metadata remain subject to their respective licenses and terms.
   <strong>Built for private, self-hosted media workflows.</strong><br>
   <a href="https://github.com/TimeLance89/RoyalDownloader">TimeLance89/RoyalDownloader</a>
 </p>
+Privacy Egress is optional and defaults to backward-compatible `direct` mode.
+See [network configuration](docs/EGRESS.md) for proxy routing, LAN bypass and
+fail-closed behavior.

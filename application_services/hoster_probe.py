@@ -36,7 +36,7 @@ def classify_failure(message):
 class ProbeSession:
     """A single disposable session: 12 requests, 30 s, 2 MB total, safe redirects."""
     def __init__(self, seconds=30):
-        import requests
+        from core import egress_provider_requests as requests
         self.transport = requests.Session()
         self.transport.trust_env = False
         self.deadline = time.monotonic() + seconds

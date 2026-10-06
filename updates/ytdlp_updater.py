@@ -4,12 +4,11 @@ import importlib.metadata
 import hashlib
 import re
 import subprocess
+from core.egress import get_manager
 import sys
 from pathlib import Path
 
-import requests
-
-
+from core import egress_requests as requests
 PYPI_URL = "https://pypi.org/pypi/yt-dlp/json"
 _STABLE_VERSION_RE = re.compile(r"^\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?$")
 _VERSION_PREFIX_RE = re.compile(r"^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?")
@@ -108,6 +107,7 @@ class YtDlpRuntimeUpdater:
     def _run_pip(arguments: list[str], timeout: int) -> None:
         completed = subprocess.run(
             [sys.executable, "-m", "pip", *arguments],
+            env=get_manager().subprocess_environment(PYPI_URL, untrusted=True),
             capture_output=True,
             text=True,
             timeout=timeout,

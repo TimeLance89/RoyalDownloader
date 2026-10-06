@@ -6,9 +6,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Optional
 
-import requests
-
-
+from core import egress_requests as requests
 logger = logging.getLogger(__name__)
 
 

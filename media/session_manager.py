@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from core.runtime_paths import data_dir
 from core.network_guard import safe_proxy_url
+from core.egress import get_manager
 from integrations.serienstream_session_identity import (
     SERIESSTREAM_ACCEPT_LANGUAGE,
     SERIESSTREAM_USER_AGENT,
@@ -386,7 +387,7 @@ class SessionManager:
     # Tier 1: curl_cffi
     # ------------------------------------------------------------------
     def _make_curl_session(self):
-        from curl_cffi import requests as cffi_req
+        from core import egress_curl as cffi_req
         session = cffi_req.Session(impersonate=self.IMPERSONATE)
         for name, value in self._cookies.items():
             session.cookies.set(name, value, domain=self.TARGET_DOMAIN)
@@ -467,9 +468,12 @@ class SessionManager:
             "--disable-background-networking",
             "--disable-client-side-phishing-detection",
         ]
-        proxy = safe_proxy_url()
-        if proxy:
-            browser_args.append(f"--proxy-server={proxy}")
+        if get_manager().mode == "privacy":
+            browser_args.extend(get_manager().browser_proxy_args())
+        else:
+            proxy = safe_proxy_url()
+            if proxy:
+                browser_args.append(f"--proxy-server={proxy}")
         browser = await uc.start(
             headless=True,
             lang="de-DE",

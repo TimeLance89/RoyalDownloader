@@ -23,9 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import quote, urlsplit
 
-import requests
-
-
+from core import egress_requests as requests
 LOGGER = logging.getLogger("jellyfin_recommender")
 
 ITEM_FIELDS = "Genres,Tags,Studios,People"

@@ -271,6 +271,9 @@ def _rewrite_remote_websocket_url(value: str) -> str:
 
 
 def _remote_new_target() -> tuple[dict, set[str]]:
+    from core.egress import EgressError, get_manager
+    if get_manager().mode == "privacy" and _remote_browser_base() != ("royal-browser", 9222):
+        raise EgressError("Privacy-Modus benötigt den verwalteten royal-browser oder lokalen Chromium")
     before = {
         str(item.get("id") or "")
         for item in _remote_browser_targets()

@@ -30,6 +30,12 @@ echo "[start.sh] NAS mode active."
 export DNS_OVERRIDE="${DNS_OVERRIDE:-1}"
 export DNS_PRIMARY="${DNS_PRIMARY:-1.1.1.1}"
 export DNS_SECONDARY="${DNS_SECONDARY:-9.9.9.9}"
+export ROYAL_EGRESS_MODE="${ROYAL_EGRESS_MODE:-$(python -c "from core.environment_file import read_env; print(read_env().get('ROYAL_EGRESS_MODE', 'direct'))")}"
+# Privacy uses DNS-over-HTTPS inside the configured egress, retaining Docker's
+# resolver only for explicitly local services and proxy hostname bootstrap.
+if [ "$ROYAL_EGRESS_MODE" = "privacy" ]; then
+    export DNS_OVERRIDE=0
+fi
 
 if [ "$DNS_OVERRIDE" = "1" ] && [ -w /etc/resolv.conf ]; then
     # Accept IP characters only to prevent invalid or injected resolver lines.
@@ -55,8 +61,10 @@ elif [ "$DNS_OVERRIDE" = "1" ]; then
 fi
 
 # Non-fatal diagnostic showing whether the configured resolver is effective.
+if [ "$ROYAL_EGRESS_MODE" != "privacy" ]; then
 python -c "import socket; print('[start.sh] DNS check serienstream.to:', socket.gethostbyname('serienstream.to'))" \
     || echo "[start.sh] WARNING: serienstream.to could not be resolved." >&2
+fi
 
 # --- System dependencies; skip installation on later starts -----------------
 #  chromium: real browser for nodriver and CDP-assisted extraction.
@@ -66,15 +74,15 @@ command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>
 command -v ffmpeg   >/dev/null 2>&1 || need_apt=1
 if [ "$need_apt" = "1" ]; then
     echo "[start.sh] Installing chromium and ffmpeg …"
-    apt-get update
-    apt-get install -y --no-install-recommends \
+    python -m core.egress_bootstrap apt-get update
+    python -m core.egress_bootstrap apt-get install -y --no-install-recommends \
         chromium ffmpeg ca-certificates fonts-liberation
     rm -rf /var/lib/apt/lists/*
 fi
 
 # --- Python dependencies; idempotent ----------------------------------------
 echo "[start.sh] Installing Python dependencies …"
-pip install --no-cache-dir -r requirements.lock
+python -m core.egress_bootstrap pip install --no-cache-dir -r requirements.lock
 
 # Repair the invalid UTF-8 byte shipped in nodriver 0.50.3 cdp/network.py.
 echo "[start.sh] Checking nodriver encoding …"

@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from urllib.parse import urljoin, urlsplit
 
-import requests
+from core import egress_provider_requests as requests
 from bs4 import BeautifulSoup
 
 from providers.models import FilmpalastMovie, HosterInfo, parse_episode_slug

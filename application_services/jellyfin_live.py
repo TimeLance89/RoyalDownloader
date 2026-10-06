@@ -16,8 +16,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import requests
-
+from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from application_services.runtime import backend_value, publish_service
 

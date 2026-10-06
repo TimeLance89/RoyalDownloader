@@ -8,8 +8,7 @@ import time
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from curl_cffi import requests
-
+from core import egress_curl as requests
 from media.hoster_contracts import hoster_key
 from providers.models import HosterInfo
 

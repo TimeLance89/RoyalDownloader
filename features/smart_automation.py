@@ -1,5 +1,6 @@
 """Smart policy for Royal Downloader's unattended NAS automation."""
 
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,11 @@ import os
 import shutil
 import threading
 import time
-import urllib.request
+import urllib.error
+from types import SimpleNamespace
+
+from core import egress_urllib
+
 
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from pathlib import Path
@@ -17,6 +22,8 @@ from urllib.parse import urlparse
 
 import core.config as appconfig
 import media.downloader as downloader_module
+
+urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 MIN_PARALLEL_DOWNLOADS = 1
 MAX_PARALLEL_DOWNLOADS = 4
@@ -619,7 +626,7 @@ class _RateLimitedResponse:
 
 def _install_curl_rate_wrapper() -> None:
     try:
-        from curl_cffi import requests as curl_requests
+        from core import egress_curl as curl_requests
     except Exception:
         return
     if getattr(curl_requests, "__royal_smart_rate_wrapped__", False):

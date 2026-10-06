@@ -56,12 +56,15 @@ def resolve_public_host(
     hostname: str,
     port: int,
     *,
-    resolver: Callable = socket.getaddrinfo,
+    resolver: Callable | None = None,
 ) -> tuple[ResolvedTarget, ...]:
     """Resolve a host and reject the entire answer when any address is unsafe."""
     if not hostname or port not in ALLOWED_PORTS:
         raise UnsafeNetworkTarget("Nur öffentliche HTTP(S)-Ziele auf Port 80/443 sind erlaubt")
     try:
+        if resolver is None:
+            from core.egress import get_manager
+            resolver = get_manager().resolve
         answers = resolver(hostname, port, 0, socket.SOCK_STREAM)
     except (OSError, UnicodeError) as exc:
         raise UnsafeNetworkTarget("Ziel konnte nicht sicher aufgelöst werden") from exc
@@ -84,7 +87,7 @@ def resolve_public_host(
 def ensure_public_http_url(
     raw_url: str,
     *,
-    resolver: Callable = socket.getaddrinfo,
+    resolver: Callable | None = None,
 ) -> SplitResult:
     """Validate an untrusted URL and resolve every advertised address."""
     try:
@@ -102,7 +105,7 @@ def ensure_public_http_url(
     return parsed
 
 
-def is_public_http_url(raw_url: str, *, resolver: Callable = socket.getaddrinfo) -> bool:
+def is_public_http_url(raw_url: str, *, resolver: Callable | None = None) -> bool:
     try:
         ensure_public_http_url(raw_url, resolver=resolver)
         return True
@@ -118,8 +121,18 @@ def validate_peer_ip(peer_ip: str, expected_ip: str) -> None:
 
 
 def _connect_public(hostname: str, port: int, timeout: float = 20.0) -> socket.socket:
+    from core.egress import get_manager
+    manager = get_manager()
     last_error: Optional[Exception] = None
     for target in resolve_public_host(hostname, port):
+        if manager.mode == "privacy":
+            # Pin the validated IP; the upstream proxy cannot re-resolve the
+            # provider hostname into a private address. Never fall back direct.
+            try:
+                return manager.connect_tunnel(target.ip, port, timeout)
+            except OSError as exc:
+                last_error = exc
+                continue
         upstream = socket.socket(target.family, socket.SOCK_STREAM)
         upstream.settimeout(timeout)
         try:
@@ -136,7 +149,10 @@ def _connect_public(hostname: str, port: int, timeout: float = 20.0) -> socket.s
 def _relay(left: socket.socket, right: socket.socket) -> None:
     sockets = (left, right)
     while True:
-        readable, _, _ = select.select(sockets, (), (), 60)
+        # HTTPS proxies can have decrypted bytes buffered without OS readability.
+        readable = [sock for sock in sockets if getattr(sock, "pending", lambda: 0)()]
+        if not readable:
+            readable, _, _ = select.select(sockets, (), (), 60)
         if not readable:
             return
         for source in readable:
@@ -190,7 +206,6 @@ class _GuardProxyHandler(socketserver.BaseRequestHandler):
             method, target, version = lines[0].decode("latin-1").split(" ", 2)
             if method.upper() == "CONNECT":
                 hostname, port = _connect_authority(target)
-                resolve_public_host(hostname, port)
                 upstream = _connect_public(hostname, port)
                 self.request.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 _relay(self.request, upstream)
@@ -206,7 +221,7 @@ class _GuardProxyHandler(socketserver.BaseRequestHandler):
                 origin_target += "?" + parsed.query
             filtered = [
                 line for line in lines[1:]
-                if not line.lower().startswith((b"proxy-connection:", b"connection:"))
+                if not line.lower().startswith((b"proxy-connection:", b"proxy-authorization:", b"connection:"))
             ]
             request = b"\r\n".join(
                 [f"{method} {origin_target} {version}".encode("latin-1"), *filtered, b"Connection: close"]

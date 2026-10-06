@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from urllib.parse import urlparse
 
-import requests
+from core import egress_requests as requests
 
 
 class OllamaError(RuntimeError):

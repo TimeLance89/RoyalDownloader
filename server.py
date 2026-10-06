@@ -30,7 +30,7 @@ import ipaddress
 import secrets
 import socket
 import sys
-import requests
+from core import egress_requests as requests
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from collections import Counter, OrderedDict, defaultdict

@@ -16,6 +16,7 @@ import json
 import hashlib
 import shutil
 import subprocess
+from core.egress import get_manager
 import threading
 import time
 import logging
@@ -379,10 +380,12 @@ def probe_stream_url(
     for key, value in (headers or {}).items():
         if re.fullmatch(r"[A-Za-z0-9-]{1,40}", key) and "\r" not in value and "\n" not in value:
             cmd += ["--add-header", f"{key}:{value}"]
+    cmd.extend(get_manager().ytdlp_args())
     cmd.append(stream_url)
     try:
         proc = subprocess.run(
             cmd,
+            env=get_manager().subprocess_environment(stream_url, untrusted=True),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -397,7 +400,7 @@ def probe_stream_url(
     if proc.returncode != 0 and urlparse(stream_url).hostname and urlparse(stream_url).hostname.endswith(".vincdn.net"):
         # Vinovo's signed MP4 is served to the Chrome-shaped direct downloader
         # even when yt-dlp's initial metadata request receives HTTP 403.
-        from curl_cffi import requests as cr
+        from core import egress_curl as cr
         request_headers = {"Range": "bytes=0-0", **(headers or {})}
         if referer:
             request_headers["Referer"] = referer
@@ -923,6 +926,7 @@ class DownloadJob:
         for key, value in self.headers.items():
             if re.fullmatch(r"[A-Za-z0-9-]{1,40}", key) and "\r" not in value and "\n" not in value:
                 cmd += ["--add-header", f"{key}:{value}"]
+        cmd.extend(get_manager().ytdlp_args())
         cmd.append(self.stream_url)
         logger.debug("yt-dlp media request: %s", urlparse(self.stream_url).hostname)
         popen_kwargs = {}
@@ -937,6 +941,7 @@ class DownloadJob:
             return False, "Abgebrochen"
         self._proc = subprocess.Popen(
             cmd,
+            env=get_manager().subprocess_environment(self.stream_url, untrusted=True),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -1107,7 +1112,7 @@ class DownloadJob:
     # Direct download fallback (MP4 only)
     # ------------------------------------------------------------------
     def _download_direct(self) -> tuple:
-        from curl_cffi import requests as cr
+        from core import egress_curl as cr
         try:
             if self._cancelled:
                 return False, "Abgebrochen"

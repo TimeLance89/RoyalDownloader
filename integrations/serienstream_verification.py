@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from websockets.sync.client import connect
 
+from core.egress import get_manager
 from core.network_guard import safe_proxy_url
 from core.runtime_paths import data_dir
 from media.session_manager import GATE_BLOCKED, SessionManager
@@ -302,9 +303,12 @@ class SerienStreamVerificationManager:
             f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}",
             f"--user-agent={CHROME_USER_AGENT}",
         ]
-        proxy = safe_proxy_url()
-        if proxy:
-            args.append(f"--proxy-server={proxy}")
+        if get_manager().mode == "privacy":
+            args.extend(get_manager().browser_proxy_args())
+        else:
+            proxy = safe_proxy_url()
+            if proxy:
+                args.append(f"--proxy-server={proxy}")
         args.append("about:blank")
         env = {**os.environ, "DISPLAY": self._display}
         self._chrome = subprocess.Popen(
