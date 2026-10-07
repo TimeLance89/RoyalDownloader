@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.8.0 – 2026-10-07
+
 ### Mobile navigation and language profiles
 
 - Improve mobile navigation, safe-area spacing, touch targets, catalog layouts
@@ -39,6 +41,11 @@
   for proxy/DoH connections and update the inherited Perl security baseline.
 - Expand mobile, source-check, search and egress regression coverage; preserve
   the existing module-size and coverage requirements.
+
+See [v1.8.0 release notes](docs/releases/v1.8.0.md). Existing accounts,
+profiles, queues, subscriptions, provider settings, media paths and Storage
+Autopilot state remain compatible. Back up at least `.env`, `data/` and
+`runtime/` before upgrading.
 
 ## v1.7.0 – 2026-10-05
 
