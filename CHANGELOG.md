@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### People discovery
+
+- Add a dedicated People area with TMDB name search, portraits, biographies and
+  combined movie/TV filmographies with role, title and release-date filters.
+- Open filmographies directly from cast names in movie and series details.
+- Check and select filmography movies for batch downloads using existing source,
+  release-date and Jellyfin safeguards; open series in their episode selector.
+
 ## v1.8.0 – 2026-10-07
 
 ### Mobile navigation and language profiles

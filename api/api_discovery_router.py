@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import core.config as appconfig
+from api.api_people_router import create_people_router
 from features.monster_series_extension import (
     inject_monster_search_results,
     monster_tmdb_series,
@@ -171,6 +172,9 @@ _DYNAMIC_CALLS = (
     "series_to_dict",
     "strip_source_suffix",
 )
+
+
+router.routes.extend(create_people_router(lambda: get_tmdb_client()).routes)
 
 
 def create_discovery_router(backend) -> APIRouter:

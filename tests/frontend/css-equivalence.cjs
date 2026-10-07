@@ -79,6 +79,9 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         !(innerWidth <= 820 && element.closest(".mobile-tabs"))
         // New provider progress has no frozen visual state; its live layout is tested separately.
         && !element.closest("#series-probe-progress")
+        // People did not exist in the frozen shell. Its layout and interaction
+        // are covered by people-browser.cjs; navigation remains compared here.
+        && !element.closest("#tab-personen")
         && !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")

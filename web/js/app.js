@@ -10,7 +10,7 @@ export function createApplication({
   home: { mood, homeData, home },
   discovery: {
     movieDiscovery, seriesDiscovery, moviePresentation, resultCards, seriesPresentation,
-    seriesEpisodes, movieCollections, aniworld, anime, seriesChecks, seriesDetailsLoader,
+    seriesEpisodes, movieCollections, people, aniworld, anime, seriesChecks, seriesDetailsLoader,
     movieDetailsLoader, seriesBrowse, movieBrowse, catalogMetadata, posterPreloader,
     catalogRefresh, mediaLanguage, trailers, genres, infinite, artwork, movieHero,
   },
@@ -41,6 +41,7 @@ export function createApplication({
   const downloads = createLiveUpdates(live);
   const releases = createReleases(releaseActions);
   function stopViews() {
+    people?.unmount();
     localization.unmount(); shell.unmount(); movieDiscovery.unmount(); seriesDiscovery.unmount(); moviePresentation.unmountDetail(); movieStatus.unmount(); seriesEpisodes.unmount(); movieDownloads.unmount(); movieCollections.unmount(); tasteProfile.unmount(); aniworld.dispose(); anime.dispose(); seriesChecks.unmount(); seriesDetailsLoader.unmount(); movieDetailsLoader.unmount(); catalogMetadata.unmount(); posterPreloader.unmount(); mediaLanguage.unmount(); mood.unmount(); cardArtwork.unmount(); trailers.unmount(); jellyfinResume.unmount(); catalogJellyfin.unmount(); tasteOnboarding.unmount(); startup.unmount(); genres.unmount(); setup.unmount(); settings.dispose(); jellyfin.dispose(); setupJellyfin.unmount(); providers.unmount(); directory.unmount(); search.unmount();
     homeData.unmount(); artwork.unmount(); intelligence.unmount(); account.unmount();
     subscriptionRules.unmount(); movieSubscriptionRules.unmount();
@@ -61,6 +62,7 @@ export function createApplication({
     unmount() { resultCards.unmount("series"); subscriptionSummary.unmount(); seriesPresentation.unmount(); seriesBrowse.unmount(); posterPreloader.unmount(); catalogRefresh.series.unmount(); infinite.series.unmount(); },
   }, document.getElementById("tab-serien"));
   navigation.register("anime", anime, document.getElementById("tab-anime"));
+  navigation.register("personen", people, document.getElementById("tab-personen"));
   navigation.register("aniworld", {
     mount() { aniworld.mount(); infinite.aniworld.mount(); },
     refresh() { infinite.aniworld.refresh(); },
