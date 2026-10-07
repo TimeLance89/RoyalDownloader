@@ -235,7 +235,17 @@ def _identity_movie_summary(self, title: str, year: str = "") -> Optional[dict]:
     return None
 
 
+def _series_identity_year(title: str, year: str = "") -> str:
+    explicit = str(year or "").strip()
+    if explicit:
+        return explicit
+    seed = _SOURCE_SUFFIX_RE.sub("", str(title or ""))
+    match = _TRAILING_YEAR_RE.search(seed)
+    return re.search(r"(?:19|20)\d{2}", match.group()).group() if match else ""
+
+
 def _identity_series_summary(self, title: str, year: str = "") -> Optional[dict]:
+    year = _series_identity_year(title, year)
     original_key = (
         _tmdb_module._normalize(_clean_query_seed(title, "series")),
         str(year or ""),
@@ -256,8 +266,9 @@ def _identity_series_summary(self, title: str, year: str = "") -> Optional[dict]
     return None
 
 
-def _identity_series(self, title: str, force: bool = False) -> Optional[dict]:
-    original_key = _tmdb_module._normalize(_clean_query_seed(title, "series"))
+def _identity_series(self, title: str, force: bool = False, year: str = "") -> Optional[dict]:
+    year = _series_identity_year(title, year)
+    original_key = (_tmdb_module._normalize(_clean_query_seed(title, "series")), year)
     now = time.time()
     with self._lock:
         cached = self._series_cache.get(original_key)
@@ -269,7 +280,7 @@ def _identity_series(self, title: str, force: bool = False) -> Optional[dict]:
 
     result = None
     for variant in media_title_variants(title, "series"):
-        result = _ORIGINAL_SERIES(self, variant, force=force)
+        result = _ORIGINAL_SERIES(self, variant, force=force, year=year)
         if result:
             break
     with self._lock:
@@ -282,6 +293,7 @@ def _identity_series(self, title: str, force: bool = False) -> Optional[dict]:
 
 
 def _identity_series_matches_id(self, title: str, tmdb_id, year: str = "") -> bool:
+    year = _series_identity_year(title, year)
     for variant in media_title_variants(title, "series"):
         if _ORIGINAL_SERIES_MATCHES_ID(self, variant, tmdb_id, year):
             return True

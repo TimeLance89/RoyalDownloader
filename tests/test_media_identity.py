@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 
 import server as app
 from integrations.jellyfin_client import JellyfinClient
@@ -206,3 +207,42 @@ def test_series_folder_identity_ignores_old_hash_suffix():
     assert app._series_folder_key("Star Wars Skeleton Crew~deadbeef") == (
         app._series_folder_key("Star Wars: Skeleton Crew")
     )
+
+
+@pytest.mark.parametrize("title,old_year,new_year", [
+    ("One Piece", "1999", "2023"),
+    ("Scrubs", "2001", "2026"),
+])
+def test_series_remakes_keep_year_specific_metadata_and_caches(title, old_year, new_year):
+    client = TMDBClient("test-key")
+    results = [_series_result(1, title, old_year), _series_result(2, title, new_year)]
+    results[0]["popularity"] = 1000
+    calls = []
+
+    def request(path, params=None):
+        calls.append((path, dict(params or {})))
+        if path == "/search/tv":
+            # Even an unfiltered response must never override the requested year.
+            return {"results": results}
+        if path.startswith("/tv/"):
+            return {**results[int(path.rsplit("/", 1)[1]) - 1], "seasons": []}
+        return {}
+
+    client._request = request
+    assert client.series(title) is None
+    assert client.series_summary(title) is None
+    assert client.series(title, year=old_year)["tmdb_id"] == 1
+    assert client.series(title, year=new_year)["tmdb_id"] == 2
+    assert client.series(f"{title} ({new_year}) [S.to]")["tmdb_id"] == 2
+    assert client.series_summary(f"{title} ({new_year})")["tmdb_id"] == 2
+    assert client.series_summary(title, old_year)["tmdb_id"] == 1
+    assert client.series(title, year=old_year)["tmdb_id"] == 1
+    assert any(params.get("first_air_date_year") == new_year for path, params in calls if path == "/search/tv")
+
+
+def test_series_year_mismatch_does_not_fall_back_to_original():
+    client = TMDBClient("test-key")
+    client._request = lambda *_args, **_kwargs: {"results": [_series_result(1, "Scrubs", "2001")]}
+    assert client.series_summary("Scrubs", "2026") is None
+    assert client.series("Scrubs", year="2026") is None
+    assert not client.series_matches_id("Scrubs (2026)", 1)

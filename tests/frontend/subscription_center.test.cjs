@@ -303,12 +303,11 @@ test("rendered counters match filter contents and global errors remain visible b
   }
 });
 
-test("header badge only signals actionable attention, not passive inbox entries", () => {
+test("header badge signals unread downloads, open episodes and errors", () => {
   const passive = renderFixture([
     subscription("language", { waiting_language_count: 8, status: "waiting_for_language" }),
     subscription("source", { waiting_release_count: 2, status: "waiting_release" }),
     subscription("upcoming", { upcoming_count: 3 }),
-    subscription("downloaded", { downloaded_count: 5 }),
   ]);
   passive.state.wl.loaded = true;
   passive.inbox.renderNotifBell();
@@ -319,7 +318,7 @@ test("header badge only signals actionable attention, not passive inbox entries"
   assert.ok(passiveBadge.classList.contains("hidden"));
   assert.ok(!passiveBell.classList.contains("is-active"));
   assert.equal(passive.document.getElementById("notif-trigger-label").textContent, "Alles aktuell");
-  assert.equal(passive.document.getElementById("notif-summary").textContent, "4 Einträge");
+  assert.equal(passive.document.getElementById("notif-summary").textContent, "3 Einträge");
 
   const attention = renderFixture([
     subscription("problem-one", { failed_count: 1, status: "failed" }),
@@ -332,12 +331,28 @@ test("header badge only signals actionable attention, not passive inbox entries"
 
   const attentionBell = attention.document.getElementById("notif-bell");
   const attentionBadge = attention.document.getElementById("notif-badge");
-  assert.equal(attentionBadge.textContent, "3");
+  assert.equal(attentionBadge.textContent, "4");
   assert.ok(!attentionBadge.classList.contains("hidden"));
   assert.ok(attentionBell.classList.contains("is-active"));
-  assert.equal(attention.document.getElementById("notif-trigger-label").textContent, "3 Hinweise");
+  assert.equal(attention.document.getElementById("notif-trigger-label").textContent, "4 Hinweise");
   assert.equal(attention.document.getElementById("notif-summary").textContent, "4 Einträge");
   assert.ok(attention.document.getElementById("notif-issue-badge").classList.contains("hidden"));
+});
+
+test("download receipt activates the bell until it is marked read", () => {
+  const fixture = renderFixture([subscription("downloaded", { downloaded_count: 2 })]);
+  fixture.state.wl.loaded = true;
+  fixture.inbox.renderNotifBell();
+  const badge = fixture.document.getElementById("notif-badge");
+  const bell = fixture.document.getElementById("notif-bell");
+  assert.equal(badge.textContent, "1");
+  assert.ok(!badge.classList.contains("hidden"));
+  assert.ok(bell.classList.contains("is-active"));
+  assert.equal(bell.getAttribute("aria-label"), "Abo-Inbox öffnen: 1 Hinweis");
+  fixture.state.wl.items[0].downloaded_count = 0;
+  fixture.inbox.renderNotifBell();
+  assert.ok(badge.classList.contains("hidden"));
+  assert.ok(!bell.classList.contains("is-active"));
 });
 
 

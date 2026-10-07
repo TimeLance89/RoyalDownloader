@@ -42,3 +42,22 @@ def test_series_artwork_batch_returns_fast_results_without_waiting_for_slow_titl
     assert elapsed < 0.5
     assert result["series"]["fast-series"]["title"] == "Fast Series"
     assert result["pending"] == ["slow-series"]
+
+
+def test_series_metadata_batch_keeps_years_embedded_in_titles_separate(monkeypatch):
+    class FakeTmdb:
+        configured = True
+
+        @staticmethod
+        def series_summary(title, _year=""):
+            return {"title": title}
+
+    monkeypatch.setattr(api_discovery_router, "get_tmdb_client", lambda: FakeTmdb())
+    monkeypatch.setattr(api_discovery_router, "TMDB_METADATA_BATCH_BUDGET_SECONDS", 1)
+    body = api_discovery_router.SeriesMetadataBody(items=[
+        {"base_slug": "scrubs-original", "title": "Scrubs (2001)"},
+        {"base_slug": "scrubs-remake", "title": "Scrubs (2026)"},
+    ])
+    result = asyncio.run(api_discovery_router.api_tmdb_series(body))
+    assert result["series"]["scrubs-original"]["title"] == "Scrubs (2001)"
+    assert result["series"]["scrubs-remake"]["title"] == "Scrubs (2026)"

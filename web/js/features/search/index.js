@@ -18,6 +18,10 @@ export function createSearch(page, shell, {
     { key: "movie", label: "Filme", load: (query, signal) => client.get(`/api/movies?${new URLSearchParams({ mode: "search", query })}`, { signal, timeoutMs: 0 }).then(data => (data.results || []).map(homeMovieEntry)) },
     { key: "series", label: "Serien", load: (query, signal) => client.get(`/api/series?${new URLSearchParams({ mode: "search", query })}`, { signal }).then(data => (data.results || []).map(homeSeriesEntry)) },
     { key: "anime", label: "Anime", load: (query, signal) => client.get(`/api/anime?${new URLSearchParams({ mode: "search", query, page: 1 })}`, { signal }).then(data => (data.results || []).map(homeAnimeEntry)) },
+    { key: "aniworld", label: "AniWorld", load: (query, signal) => client.get(`/api/aniworld?${new URLSearchParams({ mode: "search", query, page: 1 })}`, { signal, timeoutMs: 60_000 }).then(data => {
+      if (data.temporarily_unavailable) throw new Error(data.disabled_reason || "AniWorld nicht erreichbar");
+      return (data.results || []).map(item => homeAnimeEntry({ ...item, provider: "aniworld" }));
+    }) },
   ];
   function uniqueCatalogContentEntries(entries) {
     // Provider-Slugs/Base-Slugs sind technische Quellen-IDs und keine

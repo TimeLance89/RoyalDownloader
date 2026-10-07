@@ -706,7 +706,7 @@ async def api_tmdb_series(body: SeriesMetadataBody):
         unique = {}
         for item in body.items[:100]:
             title = strip_source_suffix(item.title)
-            key = (_norm_title(title), str(item.year or ""), item.tmdb_id)
+            key = (title.casefold(), str(item.year or ""), item.tmdb_id)
             group = unique.setdefault(
                 key,
                 {"title": title, "year": item.year, "tmdb_id": item.tmdb_id, "base_slugs": []},
@@ -720,7 +720,7 @@ async def api_tmdb_series(body: SeriesMetadataBody):
         for group in groups:
             job_key = (
                 "series",
-                _norm_title(group["title"]),
+                group["title"].casefold(),
                 str(group.get("year") or ""),
                 group["tmdb_id"],
             )
@@ -1544,12 +1544,14 @@ async def api_aniworld(
     if page < 1 or page > 50:
         raise HTTPException(400, "Seite muss zwischen 1 und 50 liegen.")
     if reason := aniworld_unavailable_reason():
-        return {
-            "results": [], "mode": mode, "page": 1, "has_more": False,
-            "total": 0, "disabled": "aniworld" not in state.provider_enabled.get("anime", []) or not provider_supports_languages("aniworld", state.content_languages),
-            "disabled_reason": reason,
-            "temporarily_unavailable": state.provider_health.status("aniworld")["state"] != "healthy",
-        }
+        disabled = "aniworld" not in state.provider_enabled.get("anime", []) or not provider_supports_languages("aniworld", state.content_languages)
+        if disabled or mode != "search" or not getattr(get_aniworld_scraper(), "has_cached_catalog", lambda: False)():
+            return {
+                "results": [], "mode": mode, "page": 1, "has_more": False,
+                "total": 0, "disabled": disabled,
+                "disabled_reason": reason,
+                "temporarily_unavailable": state.provider_health.status("aniworld")["state"] != "healthy",
+            }
     browse_mode = mode if mode in {
         "search", "latest", "popular", "trending", "updates", "catalog",
     } else "latest"
@@ -1561,6 +1563,8 @@ async def api_aniworld(
 
     def _work():
         with state.aniworld_lock:
+            if reason and browse_mode == "search":
+                return get_aniworld_scraper().search_cached(query, page=page, limit=22)
             return get_aniworld_scraper().browse(
                 mode=browse_mode,
                 query=query,
@@ -1580,6 +1584,7 @@ async def api_aniworld(
         "mode": browse_mode,
         "disabled": False,
         "provider": "aniworld",
+        "notice": payload.get("notice") or ("Suche im gespeicherten AniWorld-Katalog; die Quelle ist vorübergehend nicht erreichbar." if reason else ""),
         "provider_label": PROVIDER_LABELS["aniworld"],
         "content_language": provider_content_language("aniworld"),
         "provider_content_languages": list(provider_content_languages("aniworld")),

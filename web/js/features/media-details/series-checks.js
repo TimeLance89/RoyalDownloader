@@ -32,7 +32,7 @@ export function createSeriesChecks(status, {
       .flatMap((season) => [...(season.episodes || [])]
         .sort((left, right) => Number(left.episode || 0) - Number(right.episode || 0)))
       .filter((episode) => (
-        !episode.unreleased
+        (!episode.unreleased || episode.provider_unreleased === false)
         && !episode.downloaded
         && !episode.in_jellyfin
         && episode.language_checked !== true
@@ -165,7 +165,7 @@ export function createSeriesChecks(status, {
     const baseSlug = series.base_slug;
     const keyFor = episode => `${generation}:${series.provider}:${episode.slug}`;
     const requested = episodes.filter(episode => (
-      !episode.downloaded && !episode.in_jellyfin && !episode.unreleased
+      !episode.downloaded && !episode.in_jellyfin && (!episode.unreleased || episode.provider_unreleased === false)
       && episode.language_checked !== true && episode.huhu_language_checked !== true
     ));
     // A new detail view must not sit behind a cancelled provider request.
@@ -248,6 +248,10 @@ export function createSeriesChecks(status, {
                 target.huhu_language_available = target.language_available;
                 target.content_languages = languages;
                 target.source_providers = result.source_providers?.[episode.slug] || [series.provider];
+                if (target.language_available && target.provider_unreleased === false) {
+                  target.source_release_verified = true;
+                  target.unreleased = false;
+                }
               }
               return !checked;
             });

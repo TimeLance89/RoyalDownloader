@@ -196,22 +196,29 @@ def on_job_done(
         )
         _persist_queue_state()
         watchlist_changed = False
+        parsed_episode = parse_episode_slug(slug)
         with state.watchlist_lock:
             for entry in state.watchlist:
                 base_slug = entry.get("base_slug", "")
                 pending = state.watchlist_new_slugs.get(base_slug, set())
-                was_pending_subscription = slug in pending
                 failures = entry.get("failed_downloads")
-                if not isinstance(failures, dict):
-                    failures = {}
-                    entry["failed_downloads"] = failures
-                if slug not in pending and slug not in failures:
+                failures = failures if isinstance(failures, dict) else {}
+                # A concurrent subscription check may already have removed
+                # the finished episode from pending after finding its file.
+                # Manual downloads and retries also belong to the subscription.
+                belongs_to_subscription = bool(
+                    parsed_episode and parsed_episode[1] > 0 and (
+                        parsed_episode[0] == base_slug
+                        or slug in (entry.get("known_slugs") or [])
+                    )
+                )
+                if slug not in pending and slug not in failures and not (ok and belongs_to_subscription):
                     continue
+                entry["failed_downloads"] = failures
                 if ok:
                     pending.discard(slug)
                     failures.pop(slug, None)
-                    if was_pending_subscription:
-                        _record_watchlist_download_notification(entry, slug)
+                    _record_watchlist_download_notification(entry, slug)
                     if not pending:
                         state.watchlist_new_slugs.pop(base_slug, None)
                 elif msg != "Abgebrochen":

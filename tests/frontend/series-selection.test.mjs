@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeriesChecks } from '../../web/js/features/media-details/series-checks.js';
 import { createSeriesEpisodes } from '../../web/js/features/media-details/series-episodes.js';
+import { createSeriesDetailsLoader } from '../../web/js/features/media-details/series-loader.js';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function requestAt(f, index) {
@@ -35,6 +36,30 @@ function fixture(count = 12, languageConcurrency = 1) {
     languages: Object.fromEntries(request.body.slugs.map(slug => [slug, [denied.includes(slug) ? 'en' : 'de']]))});
   return {episodes, series, state, model, checks, requests, queueRequests, queued, respond, status, root, nodes};
 }
+
+test('confirmed fallback releases a TMDB-scheduled episode and survives enrichment', async () => {
+  const f = fixture(2);
+  Object.assign(f.episodes[0], {unreleased: true, provider_unreleased: false});
+  Object.assign(f.episodes[1], {unreleased: true, provider_unreleased: true, release_label: 'Demnächst'});
+  const checking = f.checks.verifyLanguages(f.episodes, f.series);
+  const request = await requestAt(f, 0);
+  assert.deepEqual(request.body.slugs, [f.episodes[0].slug]);
+  request.resolve({available: {[f.episodes[0].slug]: true}, languages: {[f.episodes[0].slug]: ['de']},
+    source_providers: {[f.episodes[0].slug]: ['hdfilme_family']}});
+  await checking;
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), true);
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[1]), false);
+  const loader = createSeriesDetailsLoader(f.root, f.status, {seriesState: f.state});
+  const fresh = structuredClone(f.series);
+  Object.assign(fresh.seasons[0].episodes[0], {unreleased: true, content_languages: ['en'],
+    language_checked: false, huhu_language_checked: false});
+  f.state.current = loader.merge(f.series, fresh);
+  assert.equal(f.model.isEpisodeSelectable(f.state.current.seasons[0].episodes[0]), true);
+  const upcoming = structuredClone(fresh);
+  upcoming.seasons[0].episodes[0].provider_unreleased = true;
+  f.state.current = loader.merge(f.state.current, upcoming);
+  assert.equal(f.model.isEpisodeSelectable(f.state.current.seasons[0].episodes[0]), false);
+});
 
 test('one download click submits an entirely unverified season and late checks do not select it again', async () => {
   const f = fixture(8);
