@@ -187,12 +187,12 @@ def get_tmdb_client() -> TMDBClient:
     return state.tmdb_client
 
 
-def get_tmdb_series(title: str, tmdb_id="", force: bool = False) -> Optional[dict]:
+def get_tmdb_series(title: str, tmdb_id="", force: bool = False, year: str = "") -> Optional[dict]:
     """Eine gespeicherte TMDB-ID bleibt autoritativ; Titelsuche nur initial."""
     client = get_tmdb_client()
     if tmdb_id:
         return client.series_by_id(tmdb_id, title, force=force)
-    return client.series(title, force=force)
+    return client.series(title, force=force, year=year)
 
 
 def _unreleased_episode_keys(
@@ -236,7 +236,13 @@ def _unreleased_episode_slugs(series: FilmpalastSeries, tmdb_id) -> set[str]:
     }
     unreleased_keys = _unreleased_episode_keys(tmdb_id, set(by_key))
     scheduled = {ep.slug for ep in series.all_episodes if not ep.is_released}
-    return {by_key[key] for key in unreleased_keys} | scheduled
+    published = {
+        ep.slug for ep in series.all_episodes
+        if ep.is_released and ep.content_languages
+    }
+    # Concrete tracks in a released provider row take precedence over TMDB's
+    # regional broadcast calendar. Merely listing an episode is insufficient.
+    return ({by_key[key] for key in unreleased_keys} - published) | scheduled
 
 
 JELLYFIN_CACHE_TTL = 300  # Sekunden – wie lange die komplette Filmliste gecacht wird

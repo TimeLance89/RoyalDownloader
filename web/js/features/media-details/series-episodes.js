@@ -253,7 +253,7 @@ export function createSeriesEpisodes(root, {
       tile.title = "Passende Sprache über eine alternative Serienquelle verfügbar";
     } else tile.removeAttribute("title");
     const alternate = episode.source_providers?.some(provider => provider !== series.provider)
-      && episodeHasEnabledStreamLanguage(episode, series) && !episode.downloaded && !episode.in_jellyfin;
+      && episodeHasEnabledStreamLanguage(episode, series) && !episode.unreleased && !episode.downloaded && !episode.in_jellyfin;
     let sourceLabel = tile.querySelector(".ep-source-label");
     if (alternate) {
       if (!sourceLabel) { sourceLabel = document.createElement("small"); sourceLabel.className = "ep-source-label"; tile.appendChild(sourceLabel); }

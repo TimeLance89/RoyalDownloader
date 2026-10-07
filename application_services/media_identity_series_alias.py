@@ -21,9 +21,10 @@ from application_services import media_identity as _identity
 _ORIGINAL_SERIES = _identity._ORIGINAL_SERIES
 
 
-def _series_with_alias_retry(self, title: str, force: bool = False) -> Optional[dict]:
-    original_key = _tmdb_module._normalize(
-        _identity._clean_query_seed(title, "series")
+def _series_with_alias_retry(self, title: str, force: bool = False, year: str = "") -> Optional[dict]:
+    year = _identity._series_identity_year(title, year)
+    original_key = (
+        _tmdb_module._normalize(_identity._clean_query_seed(title, "series")), year,
     )
     now = time.time()
     with self._lock:
@@ -45,12 +46,12 @@ def _series_with_alias_retry(self, title: str, force: bool = False) -> Optional[
         # The old resolver stores failed punctuation variants under the same
         # normalized key.  Remove only a cached miss before the next distinct
         # TMDB query; positive metadata is never discarded.
-        variant_key = _tmdb_module._normalize(variant)
+        variant_key = (_tmdb_module._normalize(variant), year)
         with self._lock:
             cached_variant = self._series_cache.get(variant_key)
             if cached_variant and cached_variant[1] is None:
                 self._series_cache.pop(variant_key, None)
-        result = _ORIGINAL_SERIES(self, variant, force=force)
+        result = _ORIGINAL_SERIES(self, variant, force=force, year=year)
         if result:
             break
 

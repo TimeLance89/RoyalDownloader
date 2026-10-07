@@ -30,6 +30,13 @@ export function createSeriesDetailsLoader(root, status, {
               && !episode.language_checked && !episode.huhu_language_checked) {
             // Listing metadata must not replace concrete episode-track evidence.
             merged.content_languages = previousEpisode.content_languages;
+            for (const field of ["language_checked", "language_available", "huhu_language_checked",
+              "huhu_language_available", "source_providers", "source_release_verified"]) {
+              if (previousEpisode[field] !== undefined) merged[field] = previousEpisode[field];
+            }
+          }
+          if (merged.source_release_verified && merged.provider_unreleased === false) {
+            merged.unreleased = false;
           }
           episodes.set(key, merged);
         }

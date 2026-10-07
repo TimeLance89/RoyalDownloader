@@ -566,3 +566,51 @@ def test_completed_subscription_episode_creates_bounded_unread_receipt(monkeypat
     assert download_lifecycle._record_watchlist_download_notification(
         entry, "movie-without-episode",
     ) is False
+
+
+@pytest.mark.parametrize("pending,failed,base_slug,known_slugs", [
+    (True, False, "serienstream:show", []),
+    (False, False, "serienstream:show", []),
+    (False, True, "serienstream:show", []),
+    (False, False, "old-provider:show", ["serienstream:show-s01e02"]),
+])
+def test_successful_subscription_download_notifies_after_pending_was_cleared(
+    monkeypatch, pending, failed, base_slug, known_slugs,
+):
+    slug = "serienstream:show-s01e02"
+    entry = {
+        "base_slug": base_slug, "title": "Show", "known_slugs": known_slugs,
+        "failed_downloads": {slug: {"attempts": 1}} if failed else {},
+    }
+    unrelated = {"base_slug": "serienstream:other", "title": "Other"}
+    monkeypatch.setattr(server.state, "watchlist", [entry, unrelated])
+    monkeypatch.setattr(server.state, "watchlist_new_slugs", {base_slug: {slug}} if pending else {})
+    monkeypatch.setattr(server.state, "done_slugs", set())
+    monkeypatch.setattr(server.state, "done_jobs", 0)
+    monkeypatch.setattr(server.state, "total_jobs", 1)
+    monkeypatch.setattr(server.state, "telegram_jobs", {})
+    monkeypatch.setattr(server.state, "seerr_jobs", {})
+    job = queue_jobs.new_job(slug)
+    server.state.queue_jobs[job["job_id"]] = job
+    server.state.queue_job_by_slug[slug] = job["job_id"]
+    server.state.counted_queue_slugs.add(slug)
+    server.state.picked.add(slug)
+    events = []
+    saved = []
+    monkeypatch.setattr(server, "broadcast", events.append)
+    monkeypatch.setattr(server, "_persist_queue_state", lambda: True)
+    monkeypatch.setattr(server, "_persist_watchlist_background", lambda: saved.append(True))
+    monkeypatch.setattr(server, "refresh_jellyfin_after_download", lambda: None)
+
+    assert server.on_job_done(True, "ok", "Show S01E02", Path("show.mp4"), slug=slug)
+    notification = entry["downloaded_episode_notifications"][0]
+    assert notification["slug"] == slug
+    assert notification["read"] is False
+    assert entry["failed_downloads"] == {}
+    assert "downloaded_episode_notifications" not in unrelated
+    assert saved == [True]
+    snapshot = next(event for event in events if event["type"] == "watchlist_update")
+    assert snapshot["watchlist"][0]["downloaded_count"] == 1
+    assert snapshot["watchlist"][0]["last_unread_downloaded_episode"]["episode"] == 2
+    assert not server.on_job_done(True, "duplicate", "Show", Path("show.mp4"), slug=slug)
+    assert len(entry["downloaded_episode_notifications"]) == 1

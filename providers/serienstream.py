@@ -309,7 +309,22 @@ class SerienstreamScraper:
             if candidate and not candidate.startswith("data:"):
                 cover_url = self._abs(candidate)
                 break
-        return self._result(slug, alt.split("|")[0].strip(), cover_url)
+        return self._result(slug, alt.split("|")[0].strip(), cover_url, self._extract_year(a))
+
+    @staticmethod
+    def _extract_year(node, slug: str = "") -> str:
+        start = node.select_one('[itemprop="startDate"]') if node is not None else None
+        value = (
+            str(start.get("content") or start.get("datetime") or start.get_text(" ", strip=True))
+            if start else ""
+        )
+        match = re.search(r"\b(?:19|20)\d{2}\b", value)
+        if not match:
+            year_node = node.select_one(".year, .card-year, .series-year") if node is not None else None
+            match = re.search(r"\b(?:19|20)\d{2}\b", year_node.get_text(" ") if year_node else "")
+        if not match:
+            match = re.search(r"(?<=-)(?:19|20)\d{2}$", slug)
+        return match.group() if match else ""
 
     @staticmethod
     def _slug_from_href(href: str) -> str:
@@ -322,7 +337,7 @@ class SerienstreamScraper:
         return "" if slug in ("stream",) else slug
 
     def _result(
-        self, slug: str, title: str, cover_url: str = "",
+        self, slug: str, title: str, cover_url: str = "", year: str = "",
     ) -> FilmpalastSeriesResult:
         return FilmpalastSeriesResult(
             title=f"{title}  [S.to]",
@@ -330,6 +345,7 @@ class SerienstreamScraper:
             sample_slug=f"{SOURCE_PREFIX}{slug}",
             sample_url=self._series_url(slug),
             cover_url=cover_url,
+            year=year or self._extract_year(None, slug),
         )
 
     # ------------------------------------------------------------------
@@ -397,6 +413,7 @@ class SerienstreamScraper:
             title=series_title, base_slug=f"{SOURCE_PREFIX}{slug}", url=url,
             cover_url=cover_url, description=description, genres=genres,
             seasons=seasons,
+            year=self._extract_year(soup, slug),
         )
 
     def _load_season(self, slug: str, season: int) -> List[SeriesEpisode]:

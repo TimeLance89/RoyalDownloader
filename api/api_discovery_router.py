@@ -706,7 +706,7 @@ async def api_tmdb_series(body: SeriesMetadataBody):
         unique = {}
         for item in body.items[:100]:
             title = strip_source_suffix(item.title)
-            key = (_norm_title(title), str(item.year or ""), item.tmdb_id)
+            key = (title.casefold(), str(item.year or ""), item.tmdb_id)
             group = unique.setdefault(
                 key,
                 {"title": title, "year": item.year, "tmdb_id": item.tmdb_id, "base_slugs": []},
@@ -720,7 +720,7 @@ async def api_tmdb_series(body: SeriesMetadataBody):
         for group in groups:
             job_key = (
                 "series",
-                _norm_title(group["title"]),
+                group["title"].casefold(),
                 str(group.get("year") or ""),
                 group["tmdb_id"],
             )

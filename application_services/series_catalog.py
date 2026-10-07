@@ -1063,11 +1063,11 @@ def series_to_dict(
     """
     downloaded = set() if defer_checks else compute_downloaded_episodes(series)
     with state.watchlist_lock:
-        stored_entry = watchlist_match_series(series.base_slug, series.title)
+        stored_entry = watchlist_lookup(series.base_slug)
         watchlist_entry = dict(stored_entry) if stored_entry else None
     stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
     tmdb_client = get_tmdb_client()
-    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id)
+    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id, year=series.year)
     aliases = list(dict.fromkeys(filter(None, (
         watchlist_entry.get("title", "") if watchlist_entry else "",
         *(watchlist_entry.get("aliases", []) if watchlist_entry else []),
@@ -1078,6 +1078,7 @@ def series_to_dict(
     with state.watchlist_lock:
         refined_entry = watchlist_match_series(
             series.base_slug, series.title, tmdb_id=tmdb_id, aliases=aliases,
+            year=series.year or (tmdb or {}).get("year", ""),
         )
         if refined_entry is not None:
             watchlist_entry = dict(refined_entry)
@@ -1143,11 +1144,13 @@ def series_to_dict(
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,
                 "unreleased": ep.slug in unreleased_slugs or not ep.is_released,
+                "provider_unreleased": not ep.is_released,
             })
         seasons.append({"season": s, "episodes": episodes})
     provider = provider_for_value(series.url or series.base_slug)
     payload = {
         "title": series.title, "base_slug": series.base_slug, "url": series.url,
+        "year": series.year,
         "cover_url": series.cover_url, "description": series.description,
         "genres": series.genres, "seasons": seasons,
         "provider": provider,

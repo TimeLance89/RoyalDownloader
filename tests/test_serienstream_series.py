@@ -64,6 +64,26 @@ def test_filme_tab_cannot_be_resolved_as_episode():
     ) is None
 
 
+@pytest.mark.parametrize("metadata", [
+    '<span itemprop="startDate">2026</span>',
+    '<meta itemprop="startDate" content="2026-02-01">',
+    '<span class="series-year">2026–2027</span>',
+    '',
+])
+def test_remake_detail_keeps_start_year(monkeypatch, metadata):
+    scraper = SerienstreamScraper(session=object())
+    soup = BeautifulSoup(f"<h1>Scrubs</h1>{metadata}", "html.parser")
+    monkeypatch.setattr(scraper, "_get_soup", lambda *_args, **_kwargs: soup)
+    monkeypatch.setattr(scraper, "_episodes_from_soup", lambda *_args: [_episode("scrubs-2026", 1, 1)])
+    assert scraper.get_series("serienstream:scrubs-2026").year == "2026"
+
+
+def test_remake_card_keeps_year_from_slug():
+    scraper = SerienstreamScraper(session=object())
+    soup = BeautifulSoup('<a href="/serie/one-piece-2023"><img alt="One Piece"></a>', "html.parser")
+    assert scraper._parse_cards(soup)[0].year == "2023"
+
+
 def test_blocked_season_is_not_silently_treated_as_missing(monkeypatch):
     scraper = SerienstreamScraper(session=object())
 
