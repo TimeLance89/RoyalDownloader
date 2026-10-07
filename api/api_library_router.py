@@ -157,6 +157,9 @@ def create_library_router(backend) -> APIRouter:
 
     globals().update({name: dynamic(name) for name in _DYNAMIC_CALLS})
     globals()["state"] = backend.state
+    from api.api_saved_media_router import create_saved_media_router
+    from application_services.saved_media import saved_media_sync
+    router.routes.extend(create_saved_media_router(backend.state.saved_media, backend.current_user, saved_media_sync()).routes)
     return router
 
 

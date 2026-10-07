@@ -29,6 +29,11 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/provider-monitor-browser.cjs
+
+      - name: Personal Jellyfin wishes and profile isolation
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/saved-media-browser.cjs
       - name: Storage Autopilot mobile permissions and confirmations
         env:
           ROYAL_BROWSER: webkit

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Personal Jellyfin watchlist
+
+- Add “+ Merken” to movie and series details. Persist wishes per RD profile and
+  synchronize playable files into a private playlist for the linked Jellyfin user.
+- Keep unavailable titles pending across restarts and outages; saving never starts
+  downloads. Reconcile removals, deleted users and changed Jellyfin mappings.
+
 ### People discovery
 
 - Add a dedicated People area with TMDB name search, portraits, biographies and

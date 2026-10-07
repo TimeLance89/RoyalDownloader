@@ -41,6 +41,7 @@ _PREFIXES = {
     ),
     "live_updates": ("/ws", "/api/v1/ws"),
     "library": (
+        "/api/me/saved-media", "/api/v1/me/saved-media",
         "/api/cover", "/api/v1/cover", "/api/movie-subscriptions",
         "/api/v1/movie-subscriptions", "/api/watchlist", "/api/v1/watchlist",
     ),
