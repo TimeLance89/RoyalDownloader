@@ -4,14 +4,14 @@ const { fixture } = require("./performance-fixture.cjs");
 
 (async () => {
   await mkdir("artifacts/language-studio", { recursive: true });
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 320]) {
     const run = await fixture({ viewport: { width, height: 1000 }, mobile: width < 600 });
     const { page, errors } = run;
     const config = { movies: ["filmpalast", "moviebox"], series: ["serienstream", "huhu", "vidrift"], anime: ["aniworld", "mkissa"],
       enabled_movies: ["filmpalast"], enabled_series: ["serienstream", "huhu"], enabled_anime: ["aniworld"],
       content_languages: ["de"], languages: { de: "Deutsch", en: "English" }, labels: { filmpalast: "Filmpalast", moviebox: "MovieBox", serienstream: "SerienStream", huhu: "Huhu", vidrift: "VidRift", aniworld: "AniWorld", mkissa: "MKissa" },
       catalog: { filmpalast: { content_languages: ["de"] }, moviebox: { content_languages: ["en"] }, serienstream: { content_languages: ["de", "en"] }, huhu: { content_languages: ["de", "en"] }, vidrift: { content_languages: ["en"] }, aniworld: { content_languages: ["de"] }, mkissa: { content_languages: ["en"] } } };
-    const snapshot = { ui_language: "de", ui_languages: { de: "Deutsch", en: "English", fr: "Français" }, providers: config,
+    const snapshot = { ui_language: "de", ui_languages: { de: "Deutsch", en: "English", es: "Español", fr: "Français", it: "Italiano", nl: "Nederlands", pl: "Polski", pt: "Português", tr: "Türkçe", uk: "Українська" }, providers: config,
       subscriptions: [{ base_slug: "ahs", title: "American Horror Story", content_languages: ["de"] }, { base_slug: "dark", title: "Dark", content_languages: ["de"] }], revision: "fixture-review" };
     const writes = [];
     let committed = false, releaseCatalog, holdLoad = false, releaseProfile;
@@ -68,6 +68,32 @@ const { fixture } = require("./performance-fixture.cjs");
       assert.doesNotMatch(await page.locator("#language-setup-dialog").innerText(), /Cloudflare|origin web|token=secret/);
       await page.locator('[data-language-setup="next"]').click();
       await page.locator("#language-setup-interface").waitFor();
+      // The private preview works in every offered language without translation
+      // requests, model downloads or persisting the draft to the application.
+      for (const [code, title, next, contentTitle] of [
+        ["es", "Tu Royal. Tu idioma.", "Continuar", "¿Qué idioma quieres escuchar?"],
+        ["fr", "Votre Royal. Votre langue.", "Continuer", "Quelles langues souhaitez-vous entendre ?"],
+        ["it", "Il tuo Royal. La tua lingua.", "Continua", "Quali lingue vuoi ascoltare?"],
+        ["nl", "Jouw Royal. Jouw taal.", "Verder", "Welke talen wil je horen?"],
+        ["pl", "Twój Royal. Twój język.", "Dalej", "Jakich języków chcesz słuchać?"],
+        ["pt", "O teu Royal. O teu idioma.", "Continuar", "Que idiomas queres ouvir?"],
+        ["tr", "Senin Royal’ın. Senin dilin.", "Devam", "Hangi dilleri duymak istersin?"],
+        ["uk", "Твій Royal. Твоя мова.", "Далі", "Які мови хочеш чути?"],
+      ]) {
+        await page.locator("#language-setup-interface").selectOption(code);
+        assert.equal(await page.locator('[data-language-setup="title"]').innerText(), title);
+        assert.equal(await page.locator("#language-setup-dialog").getAttribute("lang"), code);
+        assert.equal(await page.locator('[data-language-setup="next"]').innerText(), next);
+        await page.locator('[data-language-setup="next"]').click();
+        assert.equal(await page.locator('[data-language-setup="content"] h3').innerText(), contentTitle);
+        await page.locator('[data-language-setup="next"]').click();
+        assert.doesNotMatch(await page.locator('[data-language-setup="content"] h3').innerText(), /Sollen deine Serien/);
+        await page.locator('[data-language-setup="back"]').click();
+        await page.locator('[data-language-setup="back"]').click();
+        assert.equal(await page.evaluate(() => document.documentElement.lang), "de");
+        assert.equal(writes.length, 0);
+      }
+      await page.locator("#language-setup-interface").selectOption("en");
       await page.keyboard.press("Tab");
       assert.equal(await page.evaluate(() => document.querySelector("#language-setup-dialog").contains(document.activeElement)), true);
       assert.equal(await page.evaluate(() => document.documentElement.lang), "de");

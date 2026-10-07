@@ -3,7 +3,7 @@ export function createHomeCards({
   mediaCardInitials, setHomeCardArtworkCandidates, setHomeCardMeta, mediaJellyfinStatus, homeEntryKey,
   openDailyTop, registerDock, markLanguage, enhanceTaste, enhanceHero, enhanceDailyTop,
   createCollectionCard, openMovieCollection, homeMovieBySlug, selectFpRow,
-  homeAnimeById, openAnimeDetail, homeSeriesBySlug, loadSeries,
+  homeAnimeById, openAnimeDetail, openAniworldDetail, homeSeriesBySlug, loadSeries,
 }) {
   function openHomeEntry(kind, key) {
       if (kind === "collection") {
@@ -17,7 +17,8 @@ export function createHomeCards({
       }
       if (kind === "anime") {
         const anime = homeAnimeById(key);
-        if (anime) openAnimeDetail(anime);
+        if (anime?.provider === "aniworld") openAniworldDetail(anime);
+        else if (anime) openAnimeDetail(anime);
         return;
       }
       const series = homeSeriesBySlug(key);
@@ -37,7 +38,7 @@ export function createHomeCards({
         media.in_jellyfin = cachedJellyfinStatus === "owned";
       }
     }
-    const key = kind === "movie" ? item.slug : kind === "anime" ? item.id : item.base_slug;
+    const key = kind === "movie" ? item.slug : kind === "anime" ? `${item.provider === "aniworld" ? "aniworld:" : ""}${item.id}` : item.base_slug;
     const card = renderMediaCard({
       media, kind, key, rank, eager, variant, jellyfinState: mediaJellyfinStatus(media),
       coverCandidates: url => coverCandidates(url), initials: mediaCardInitials,

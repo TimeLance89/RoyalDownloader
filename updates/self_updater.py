@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+from core.egress import get_manager
 import sys
 import tarfile
 import tempfile
@@ -15,8 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 from urllib.parse import quote
 
-import requests
-
+from core import egress_requests as requests
 from updates.runtime_release import (
     activate_release,
     prune_releases,
@@ -388,6 +388,7 @@ class SelfUpdater:
             cwd=str(source_root),
             capture_output=True,
             text=True,
+            env=get_manager().subprocess_environment("https://pypi.org/", untrusted=True),
             timeout=900,
             check=False,
         )
@@ -481,6 +482,7 @@ class SelfUpdater:
                 "--no-cache-dir", "-r", str(release / "requirements.lock"),
             ],
             cwd=str(release), capture_output=True, text=True, timeout=900, check=False,
+            env=get_manager().subprocess_environment("https://pypi.org/", untrusted=True),
         )
         if completed.returncode:
             detail = (completed.stderr or completed.stdout or "pip fehlgeschlagen").splitlines()

@@ -5,6 +5,7 @@ ARG APP_UID=1000
 ARG APP_GID=1000
 ARG CHROME_SECURITY_FLOOR="151.0.7922.169-1"
 ARG DEBIAN_CHROMIUM_SECURITY_FLOOR="151.0.7922.169-1~deb12u1"
+ARG DEBIAN_PERL_SECURITY_FLOOR="5.36.0-7+deb12u4"
 
 # System dependencies:
 #  - Chrome/Chromium:  real browser for CDP-assisted extraction and verification.
@@ -24,8 +25,12 @@ RUN set -eux; \
         xvfb \
         ffmpeg \
         ca-certificates \
+        perl-base \
         libpcre2-8-0 \
         fonts-liberation; \
+    # Upgrade the inherited Perl runtime to Debian's CVE-2026 security fixes.
+    perl_version="$(dpkg-query -W -f='${Version}' perl-base)"; \
+    dpkg --compare-versions "${perl_version}" ge "${DEBIAN_PERL_SECURITY_FLOOR}"; \
     architecture="$(dpkg --print-architecture)"; \
     if [ "${architecture}" = "amd64" ]; then \
         python -c "import urllib.request; urllib.request.urlretrieve('https://dl.google.com/linux/linux_signing_key.pub', '/usr/share/keyrings/google-chrome.asc')"; \

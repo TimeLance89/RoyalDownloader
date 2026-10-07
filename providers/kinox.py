@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from curl_cffi import requests as cr
+from core import egress_curl as cr
 from defusedxml import ElementTree as SafeET
 
 from providers.models import FilmpalastMovie, FilmpalastSearchResult, HosterInfo

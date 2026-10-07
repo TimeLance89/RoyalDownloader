@@ -57,6 +57,12 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         language.innerHTML = '<section class="movie-language-panel"><span class="movie-language-kicker">DOWNLOADSPRACHE</span><h3>Welche Sprache möchtest du?</h3><p>Fixture</p><div class="movie-language-options"><button class="movie-language-option"><b>🇩🇪</b><span><strong>Deutsch</strong><small>2 Hoster</small></span></button></div><button class="movie-language-cancel">Abbrechen</button></section>';
         document.body.append(language);
       }, { css: legacyRankingCss, withLegacyStyles });
+      if (withLegacyStyles) {
+        // Apply the intentional mobile polish to both sides. The comparison
+        // still protects desktop and every mobile style outside these rules;
+        // mobile-layout.cjs checks the new geometry and touch contracts.
+        await page.addStyleTag({ content: readFileSync(resolve(root, "web/styles/mobile.css"), "utf8") });
+      }
     }
     const snapshot = () => page.evaluate(() => [...document.querySelectorAll("body, body *")]
       // The frozen baseline protects elements that already existed at 7d93908.
@@ -69,7 +75,11 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // First-run onboarding now shares that design; setup-browser.cjs and
       // onboarding-studio-browser.cjs protect its own layout and readiness.
       .filter(element =>
-        !element.closest("#household-manage")
+        // The mobile app navigation has its own bounds, focus and visual tests.
+        !(innerWidth <= 820 && element.closest(".mobile-tabs"))
+        // New provider progress has no frozen visual state; its live layout is tested separately.
+        && !element.closest("#series-probe-progress")
+        && !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")
         && !element.closest("#language-setup-dialog")

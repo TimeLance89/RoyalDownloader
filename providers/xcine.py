@@ -15,8 +15,7 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from curl_cffi import requests as cr
-
+from core import egress_curl as cr
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,

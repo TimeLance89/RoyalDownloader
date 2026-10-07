@@ -5,7 +5,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from application_services import series_catalog_cache
+from application_services import series_catalog_cache, series_payload
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -13,6 +13,8 @@ from application_services.runtime import (
 from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
+
+series_payload_missing_seasons = series_payload.series_payload_missing_seasons
 
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
@@ -785,25 +787,8 @@ def merge_series_snapshots(
         description=fresh.description or previous.description,
         genres=fresh.genres or previous.genres,
         seasons=seasons,
+        year=fresh.year or previous.year,
     )
-
-
-def series_payload_missing_seasons(payload: dict) -> set[int]:
-    """Erkennt laut TMDB existierende, im Provider-Snapshot fehlende Staffeln."""
-    expected: set[int] = set()
-    for season, count in (payload.get("season_episode_counts") or {}).items():
-        try:
-            number, episode_count = int(season), int(count or 0)
-        except (TypeError, ValueError):
-            continue
-        if number > 0 and episode_count > 0:
-            expected.add(number)
-    present = {
-        int(item.get("season") or 0)
-        for item in payload.get("seasons") or []
-        if int(item.get("season") or 0) > 0
-    }
-    return expected - present
 
 
 def movie_to_dict(
@@ -1063,11 +1048,11 @@ def series_to_dict(
     """
     downloaded = set() if defer_checks else compute_downloaded_episodes(series)
     with state.watchlist_lock:
-        stored_entry = watchlist_match_series(series.base_slug, series.title)
+        stored_entry = watchlist_lookup(series.base_slug)
         watchlist_entry = dict(stored_entry) if stored_entry else None
     stored_tmdb_id = watchlist_entry.get("tmdb_id") if watchlist_entry else ""
     tmdb_client = get_tmdb_client()
-    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id)
+    tmdb = None if defer_checks else get_tmdb_series(series.title, stored_tmdb_id, year=series.year)
     aliases = list(dict.fromkeys(filter(None, (
         watchlist_entry.get("title", "") if watchlist_entry else "",
         *(watchlist_entry.get("aliases", []) if watchlist_entry else []),
@@ -1078,6 +1063,7 @@ def series_to_dict(
     with state.watchlist_lock:
         refined_entry = watchlist_match_series(
             series.base_slug, series.title, tmdb_id=tmdb_id, aliases=aliases,
+            year=series.year or (tmdb or {}).get("year", ""),
         )
         if refined_entry is not None:
             watchlist_entry = dict(refined_entry)
@@ -1143,11 +1129,13 @@ def series_to_dict(
                 "downloaded": ep.slug in downloaded,
                 "in_jellyfin": in_jellyfin,
                 "unreleased": ep.slug in unreleased_slugs or not ep.is_released,
+                "provider_unreleased": not ep.is_released,
             })
         seasons.append({"season": s, "episodes": episodes})
     provider = provider_for_value(series.url or series.base_slug)
     payload = {
         "title": series.title, "base_slug": series.base_slug, "url": series.url,
+        "year": series.year,
         "cover_url": series.cover_url, "description": series.description,
         "genres": series.genres, "seasons": seasons,
         "provider": provider,

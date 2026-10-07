@@ -29,6 +29,10 @@ export function createShell(document, {
     trigger.setAttribute("aria-expanded", String(open));
     popover.hidden = !open;
     popover.inert = !open;
+    if (menu.dataset?.navMenu === "mobile") {
+      document.body?.classList.toggle("mobile-menu-open", open);
+      if (open) popover.querySelector("[data-nav-menu-close]")?.focus();
+    }
     if (!open && restoreFocus) trigger.focus();
   }
 
@@ -59,21 +63,32 @@ export function createShell(document, {
         if (scrim) scrim.hidden = !open || menu.dataset.navMenu !== "mobile";
       });
       scope.listen(popover, "click", (event) => {
+        if (event.target.closest("[data-nav-menu-close]")) {
+          closeNavigationMenus({ restoreFocus: true });
+          return;
+        }
         if (!event.target.closest("[data-tab], [data-mood-open]")) return;
         closeNavigationMenus();
       });
     });
-    scope.listen(document.querySelector("[data-nav-menu-scrim]"), "click", () => closeNavigationMenus());
+    scope.listen(document.querySelector("[data-nav-menu-scrim]"), "click", () => closeNavigationMenus({ restoreFocus: true }));
     scope.listen(document, "pointerdown", (event) => {
       if (event.target.closest("[data-nav-menu], [data-nav-menu-scrim]")) return;
       closeNavigationMenus();
     });
     scope.listen(document, "keydown", (event) => {
-      if (event.key !== "Escape") return;
       const openMenu = document.querySelector("[data-nav-menu].is-open");
       if (!openMenu) return;
-      event.preventDefault();
-      closeNavigationMenus({ restoreFocus: true });
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeNavigationMenus({ restoreFocus: true });
+      } else if (event.key === "Tab" && openMenu.dataset.navMenu === "mobile") {
+        const focusable = [...openMenu.querySelector(".nav-menu-popover").querySelectorAll("button:not([disabled])")]
+          .filter(node => !node.closest("[hidden], .hidden") && node.getClientRects().length);
+        const first = focusable[0], last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     });
     scope.listen(document, "keydown", (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;

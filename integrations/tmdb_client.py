@@ -7,11 +7,16 @@ import threading
 import time
 import unicodedata
 import urllib.error
-import urllib.request
+from types import SimpleNamespace
+
+from core import egress_urllib
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlencode
 
+
+urllib = SimpleNamespace(request=egress_urllib, error=urllib.error)
 
 logger = logging.getLogger(__name__)
 API_BASE = "https://api.themoviedb.org/3"
@@ -132,7 +137,7 @@ class TMDBClient:
         return bool(data and data.get("success"))
 
     @staticmethod
-    def _best_result(results: list, title: str, year: str, title_fields: tuple, date_field: str) -> Optional[dict]:
+    def _best_result(results: list, title: str, year: str, title_fields: tuple, date_field: str, strict_year: bool = False) -> Optional[dict]:
         wanted = _normalize(title)
         if not wanted:
             return None
@@ -144,12 +149,23 @@ class TMDBClient:
             if not exact and not partial:
                 continue
             item_year = _year_from_date(str(item.get(date_field) or ""))
+            if strict_year and year and item_year != str(year):
+                continue
             score = (
                 100 if exact else 30,
                 25 if year and item_year == str(year) else 0,
                 float(item.get("popularity") or 0),
             )
             candidates.append((score, item))
+        if strict_year and not year:
+            # Same-name series from different years cannot be identified by
+            # popularity alone (for example, an adaptation and its original).
+            exact_years = {
+                _year_from_date(str(item.get(date_field) or ""))
+                for score, item in candidates if score[0] == 100
+            }
+            if len(exact_years) > 1:
+                return None
         return max(candidates, key=lambda pair: pair[0])[1] if candidates else None
 
     @staticmethod
@@ -935,6 +951,7 @@ class TMDBClient:
         best = self._best_result(
             search.get("results", []), query_title, str(year or ""),
             ("name", "original_name"), "first_air_date",
+            strict_year=True,
         )
         if best is None and year:
             params.pop("first_air_date_year", None)
@@ -942,6 +959,7 @@ class TMDBClient:
             best = self._best_result(
                 search.get("results", []), query_title, str(year),
                 ("name", "original_name"), "first_air_date",
+                strict_year=True,
             )
 
         result = None
@@ -1033,19 +1051,24 @@ class TMDBClient:
                 self._series_match_cache[cache_key] = True
         return matched
 
-    def series(self, title: str, force: bool = False) -> Optional[dict]:
-        cache_key = _normalize(title)
+    def series(self, title: str, force: bool = False, year: str = "") -> Optional[dict]:
+        year = str(year or "").strip()
+        cache_key = (_normalize(title), year)
         now = time.time()
         with self._lock:
             cached = self._series_cache.get(cache_key)
             if cached and not force and now - cached[0] < _series_cache_ttl(cached[1]):
                 return cached[1]
 
-        search = self._request("/search/tv", {
+        params = {
             "query": title, "language": self.language, "include_adult": "false",
-        }) or {}
+        }
+        if year:
+            params["first_air_date_year"] = year
+        search = self._request("/search/tv", params) or {}
         best = self._best_result(
-            search.get("results", []), title, "", ("name", "original_name"), "first_air_date",
+            search.get("results", []), title, year, ("name", "original_name"), "first_air_date",
+            strict_year=True,
         )
         result = None
         if best:

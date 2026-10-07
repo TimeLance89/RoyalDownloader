@@ -121,6 +121,29 @@ def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
     assert all(not server.state.fp_movies[slug].hosters for slug in slugs)
 
 
+def test_unverified_selection_is_persisted_with_language_before_background_preparation(monkeypatch):
+    slugs = [f"serienstream:exact-show-s01e{i:02d}" for i in range(1, 5)]
+    persisted = []
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda *_args: pytest.fail("acceptance must not wait for provider pages"))
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_require_persistent_snapshot", lambda kind, snapshot: persisted.append((kind, snapshot)))
+
+    def prepare(values, **_kwargs):
+        assert persisted[0][0] == "queue"
+        assert {job["slug"] for job in persisted[0][1]["jobs"]} == set(slugs)
+        assert all(job["content_language"] == "de" for job in persisted[0][1]["jobs"])
+        return set(values)
+
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", prepare)
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs, source="web")))
+    assert response["added"] == 4
+    assert all(server._queue_job_for_slug(slug) for slug in slugs)
+    duplicate = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs, source="web")))
+    assert duplicate["added"] == 0
+    assert len(server.state.queue_jobs) == 4
+
+
 def test_queue_add_after_550_pending_jobs_preserves_new_entry(monkeypatch):
     for episode in range(1, 551):
         slug = f"serienstream:existing-show-s01e{episode:03d}"
@@ -1022,3 +1045,28 @@ def test_language_retry_reloads_tracks_and_accepts_new_german_audio(monkeypatch,
     assert loads == [slug]
     assert enqueued == [refreshed]
     assert refreshed._required_content_language == "de"
+
+
+def test_overlapping_episode_probes_share_one_provider_series_catalog_lookup(monkeypatch):
+    started, release = threading.Event(), threading.Event()
+    calls = []
+    series = FilmpalastSeries(title="Exact Show", base_slug="filmpalast:exact-show", url="https://catalog.test/show",
+        seasons={1: [SeriesEpisode(1, 1, "filmpalast:exact-show-s01e01", "https://catalog.test/episode")]})
+    def search(provider, title):
+        calls.append((provider, title))
+        started.set()
+        release.wait(2)
+        return [SimpleNamespace(title="Exact Show", sample_slug="filmpalast:exact-show-s01e01")]
+    monkeypatch.setattr(server, "_search_series_for_provider", search)
+    monkeypatch.setattr(server, "_load_series_for_provider", lambda *args: series)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(server._fallback_get_series, "filmpalast", "Exact Show")
+        try:
+            assert started.wait(1)
+            second = pool.submit(server._fallback_get_series, "filmpalast", "Exact Show")
+            release.set()
+            assert first.result(timeout=2) is series
+            assert second.result(timeout=2) is series
+            assert calls == [("filmpalast", "Exact Show")]
+        finally:
+            release.set()

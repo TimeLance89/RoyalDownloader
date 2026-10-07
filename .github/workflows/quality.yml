@@ -67,7 +67,12 @@ jobs:
           node tests/frontend/onboarding-studio-browser.cjs
 
       - name: Native mobile gestures, seams, orientation and navigation
-        run: node tests/frontend/mobile-browser.cjs
+        run: |
+          node tests/frontend/series-selection-browser.cjs
+          node tests/frontend/episode-probe-browser.cjs
+          node tests/frontend/mobile-app-browser.cjs
+          node tests/frontend/mobile-layout.cjs
+          node tests/frontend/mobile-browser.cjs
 
       - name: Mobile settle fallback without scrollend
         env:
@@ -154,7 +159,7 @@ jobs:
           backend=false
           while IFS= read -r path; do
             case "$path" in
-              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|.github/workflows/quality.yml)
+              web/*|tests/frontend/*|tests/frontend_smoke.test.mjs|tests/movie_catalog_refresh.test.mjs|.github/workflows/quality.yml)
                 ;;
               *) backend=true; break ;;
             esac
@@ -184,7 +189,7 @@ jobs:
         run: find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Frontend contract smoke tests
-        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs tests/frontend/carousel-geometry.test.mjs tests/frontend/detail-loader.test.mjs tests/frontend/series-pagination.test.mjs
+        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/frontend/aniworld-search.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs tests/frontend/carousel-geometry.test.mjs tests/frontend/detail-loader.test.mjs tests/frontend/series-pagination.test.mjs
 
       - name: Python correctness baseline
         run: ruff check --select E9,F63,F7,F82 .

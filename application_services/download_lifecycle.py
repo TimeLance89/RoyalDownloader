@@ -196,22 +196,29 @@ def on_job_done(
         )
         _persist_queue_state()
         watchlist_changed = False
+        parsed_episode = parse_episode_slug(slug)
         with state.watchlist_lock:
             for entry in state.watchlist:
                 base_slug = entry.get("base_slug", "")
                 pending = state.watchlist_new_slugs.get(base_slug, set())
-                was_pending_subscription = slug in pending
                 failures = entry.get("failed_downloads")
-                if not isinstance(failures, dict):
-                    failures = {}
-                    entry["failed_downloads"] = failures
-                if slug not in pending and slug not in failures:
+                failures = failures if isinstance(failures, dict) else {}
+                # A concurrent subscription check may already have removed
+                # the finished episode from pending after finding its file.
+                # Manual downloads and retries also belong to the subscription.
+                belongs_to_subscription = bool(
+                    parsed_episode and parsed_episode[1] > 0 and (
+                        parsed_episode[0] == base_slug
+                        or slug in (entry.get("known_slugs") or [])
+                    )
+                )
+                if slug not in pending and slug not in failures and not (ok and belongs_to_subscription):
                     continue
+                entry["failed_downloads"] = failures
                 if ok:
                     pending.discard(slug)
                     failures.pop(slug, None)
-                    if was_pending_subscription:
-                        _record_watchlist_download_notification(entry, slug)
+                    _record_watchlist_download_notification(entry, slug)
                     if not pending:
                         state.watchlist_new_slugs.pop(base_slug, None)
                 elif msg != "Abgebrochen":
@@ -957,7 +964,16 @@ def _episode_fallback_aliases(movie_slug: str, title: str) -> tuple[str, ...]:
     return tuple(aliases)
 
 
-def _fallback_get_series(
+def _fallback_get_series(provider: str, title: str, tmdb_id: str = "") -> Optional[FilmpalastSeries]:
+    from features.episode_source_probe import catalog_probe_locks
+    lock = catalog_probe_locks.get(provider)
+    if lock is None:
+        return _fallback_get_series_unlocked(provider, title, tmdb_id)
+    with lock:
+        return _fallback_get_series_unlocked(provider, title, tmdb_id)
+
+
+def _fallback_get_series_unlocked(
     provider: str, title: str, tmdb_id: str = "",
 ) -> Optional[FilmpalastSeries]:
     """Sucht die Serie «title» beim Fallback-Anbieter per Titel-Match und lädt sie.
@@ -1043,6 +1059,8 @@ def find_episode_fallbacks(
     source_slug: str = "",
     excluded_providers: Optional[set[str]] = None,
     limit: int = 0,
+    tmdb_id: str = "",
+    raise_on_error: bool = False,
 ) -> List[FilmpalastMovie]:
     """Lädt dieselbe Episode bei allen passenden Fallback-Katalogen.
 
@@ -1068,12 +1086,12 @@ def find_episode_fallbacks(
         for provider in (excluded_providers or set())
         if str(provider or "").strip()
     }
-    tmdb_id = ""
+    tmdb_id = str(tmdb_id or "").strip()
     parsed_source = parse_episode_slug(source_slug)
     source_base_slug = parsed_source[0] if parsed_source else source_slug
     with state.watchlist_lock:
         watch_entry = watchlist_lookup(source_base_slug)
-        if watch_entry:
+        if watch_entry and not tmdb_id:
             tmdb_id = str(watch_entry.get("tmdb_id") or "").strip()
     fallback_providers = backend_value("SERIES_FALLBACK_PROVIDERS") or tuple(
         provider_priority("series")
@@ -1109,6 +1127,8 @@ def find_episode_fallbacks(
             movie = load_movie_for_slug(ep.slug)
         except Exception as exc:
             log(f"  {label}-Fallback Laden fehlgeschlagen: {exc}", "warn")
+            if raise_on_error:
+                raise
             movie = None
         if movie and movie.hosters and movie.url not in seen_urls:
             seen_urls.add(movie.url)
@@ -1116,6 +1136,8 @@ def find_episode_fallbacks(
             if limit > 0 and len(movies) >= limit:
                 break
             continue
+        if raise_on_error and (movie is None or not movie.hosters):
+            raise RuntimeError(f"{label}: Episodenquellen konnten nicht geprüft werden")
         log(f"  {label}: keine nutzbaren Hoster für die Episode", "warn")
     return movies
 

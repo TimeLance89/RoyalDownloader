@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from websockets.sync.client import connect
 
+from core.egress import get_manager
 from core.network_guard import safe_proxy_url
 from core.runtime_paths import data_dir
 from integrations.serienstream_session_identity import (
@@ -290,9 +291,12 @@ class _BrowserRuntime:
             f"--window-size={VIEWPORT_WIDTH},{VIEWPORT_HEIGHT}",
             f"--user-agent={SERIESSTREAM_USER_AGENT}",
         ]
-        proxy = safe_proxy_url()
-        if proxy:
-            args.append(f"--proxy-server={proxy}")
+        if get_manager().mode == "privacy":
+            args.extend(get_manager().browser_proxy_args())
+        else:
+            proxy = safe_proxy_url()
+            if proxy:
+                args.append(f"--proxy-server={proxy}")
         args.append("about:blank")
         self.chrome = subprocess.Popen(
             args,

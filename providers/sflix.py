@@ -18,8 +18,7 @@ from typing import Callable, Dict, List, Optional
 from urllib.parse import quote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from curl_cffi import requests as cr
-
+from core import egress_curl as cr
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,

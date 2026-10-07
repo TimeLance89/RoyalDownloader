@@ -44,7 +44,7 @@ class Movie2kScraper:
 
     @staticmethod
     def probe_session():
-        from curl_cffi import requests
+        from core import egress_curl as requests
         return requests.Session(impersonate="chrome")
 
     def _soup(self, path):

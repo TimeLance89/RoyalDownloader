@@ -31,13 +31,29 @@ if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/
         const images = [];
         for (const id of rails) {
           const track = page.locator('#' + id);
-          await track.scrollIntoViewIfNeeded();
+          // Element screenshots do not account for sticky/fixed navigation.
+          // Center both captures and prove the chrome cannot obscure the rail.
+          await track.evaluate(element => element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
           await track.evaluate(e => {
             const first = [...e.children].find(c => c.dataset.renderSignature?.startsWith('loop:1:'));
             e.style.scrollSnapType = 'none'; // same logical starting offset on both implementations
             if (Number(e.dataset.homeLoopCount) > 1 && first) e.scrollLeft += first.getBoundingClientRect().left - e.getBoundingClientRect().left - 1;
           });
           await page.waitForTimeout(350);
+          const unobscured = await track.evaluate(element => {
+            const rail = element.getBoundingClientRect();
+            const header = document.querySelector(".topbar").getBoundingClientRect();
+            const nav = document.querySelector(".mobile-tabs");
+            const bottom = getComputedStyle(nav).display === "none" ? innerHeight : nav.getBoundingClientRect().top;
+            return rail.top >= header.bottom && rail.bottom <= bottom;
+          });
+          assert.ok(unobscured, id + " screenshot is clear of fixed navigation");
+          // Page spacing can change the fractional Y origin of an otherwise
+          // identical rail. Align its screenshot crop by less than one CSS px.
+          await track.evaluate(element => {
+            const y = element.getBoundingClientRect().top;
+            element.style.translate = `0px ${Math.round(y) - y}px`;
+          });
           await track.evaluate(async e => {
             await Promise.all([...e.querySelectorAll('img[src]')].map(img => img.decode().catch(() => {})));
           });

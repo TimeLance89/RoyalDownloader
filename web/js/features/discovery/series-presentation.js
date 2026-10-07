@@ -448,6 +448,8 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   }
 
   function showSeriesDetail(series, sampleSlug) {
+    const progress = byId("series-probe-progress");
+    if (progress) progress.hidden = true;
     seriesState.viewGeneration += 1;
     syncSeriesQueueFlags(series);
     seriesState.current = series;
@@ -479,7 +481,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
         .filter((episode) => !episode.downloaded && !episode.in_jellyfin && !episode.unreleased);
       if (publishedMissingEpisodes.length) {
         void verifyHuhuEpisodeLanguages(
-          publishedMissingEpisodes, series,
+          publishedMissingEpisodes, series, { background: true },
         ).catch((error) => {
           if (error.name === "AbortError") return;
           if (seriesState.current === series) {

@@ -98,6 +98,35 @@ def test_ambiguous_title_without_stable_id_does_not_guess(monkeypatch):
     assert server.watchlist_match_series("other", "The Office", tmdb_id=2316)["base_slug"] == "one"
 
 
+def test_watchlist_does_not_attach_remake_to_original_by_title(monkeypatch):
+    monkeypatch.setattr(server.state, "watchlist", [
+        {"base_slug": "original", "title": "Scrubs", "year": "2001", "tmdb_id": 4556},
+    ])
+    assert server.watchlist_match_series("remake", "Scrubs", year="2026") is None
+    assert server.watchlist_match_series("other", "Scrubs", year="2001")["base_slug"] == "original"
+
+
+def test_series_detail_does_not_inherit_original_watchlist_tmdb_id(monkeypatch):
+    monkeypatch.setattr(server.state, "watchlist", [
+        {"base_slug": "original", "title": "Scrubs", "year": "2001", "tmdb_id": 4556},
+    ])
+    series = FilmpalastSeries("Scrubs", "remake", "remake", year="2026")
+    calls = []
+    monkeypatch.setattr(server, "compute_downloaded_episodes", lambda _series: set())
+    monkeypatch.setattr(server, "_unreleased_episode_slugs", lambda *_args: set())
+    monkeypatch.setattr(server, "get_jellyfin_client", lambda: type("Client", (), {"configured": False})())
+
+    def metadata(title, tmdb_id="", **kwargs):
+        calls.append((title, tmdb_id, kwargs.get("year")))
+        return {"title": "Scrubs", "year": "2026", "tmdb_id": 999}
+
+    monkeypatch.setattr(server, "get_tmdb_series", metadata)
+    payload = server.series_to_dict(series)
+    assert calls == [("Scrubs", "", "2026")]
+    assert payload["tmdb_id"] == 999
+    assert payload["watchlisted"] is False
+
+
 def test_targeted_jellyfin_status_never_loads_complete_episode_index(monkeypatch):
     class FakeClient:
         configured = True

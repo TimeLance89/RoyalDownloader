@@ -16,8 +16,7 @@ import time
 import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from curl_cffi import requests
-
+from core import egress_curl as requests
 from core.network_guard import ensure_public_http_url
 from providers.catalog import normalize_content_language
 from providers.models import FilmpalastMovie, HosterInfo

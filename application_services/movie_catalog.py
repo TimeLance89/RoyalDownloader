@@ -263,7 +263,7 @@ def watchlist_lookup(base_slug: str) -> Optional[dict]:
 
 
 def watchlist_match_series(
-    base_slug: str, title: str = "", tmdb_id="", aliases=(),
+    base_slug: str, title: str = "", tmdb_id="", aliases=(), year: str = "",
 ) -> Optional[dict]:
     """Ordnet dieselbe Serie providerübergreifend ihrer Watchlist zu."""
     exact = watchlist_lookup(base_slug)
@@ -284,6 +284,9 @@ def watchlist_match_series(
         return None
     title_matches = []
     for entry in state.watchlist:
+        stored_year = str(entry.get("year") or "").strip()
+        if year and stored_year and str(year).strip() != stored_year:
+            continue
         stored_tmdb = str(entry.get("tmdb_id") or "").strip()
         if wanted_tmdb and stored_tmdb and stored_tmdb != wanted_tmdb:
             continue

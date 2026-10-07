@@ -147,6 +147,7 @@ class FilmpalastSeries:
     description: str = ""
     genres: List[str] = field(default_factory=list)
     seasons: Dict[int, List[SeriesEpisode]] = field(default_factory=dict)
+    year: str = ""
 
     @property
     def season_numbers(self) -> List[int]:

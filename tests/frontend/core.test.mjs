@@ -53,6 +53,44 @@ import { createCalendarStorage } from "../../web/js/features/calendar/storage.js
 import { calendarNormalizeSnapshotPayload } from "../../web/js/features/calendar/model.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { LANGUAGE_SETUP_COPY, languageSetupText } from "../../web/js/features/settings/language-copy.js";
+
+test("language profile has offline copy for every offered interface language and dialog state", () => {
+  const source = readFileSync(new URL("../../web/js/features/settings/language-setup.js", import.meta.url), "utf8");
+  const pairs = [...source.matchAll(/text\(\s*("(?:\\.|[^"\\])*")\s*,\s*("(?:\\.|[^"\\])*")/g)]
+    .map(([, german, english]) => [JSON.parse(german), JSON.parse(english)]);
+  const html = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
+  const select = html.match(/<select id="ui-language"[\s\S]*?<\/select>/)[0];
+  const languages = [...select.matchAll(/value="([a-z]+)"/g)].map(([, code]) => code);
+  assert.equal(languages.length, 10);
+  assert.ok(pairs.length >= 43, "Cover headings, all three steps, loading, errors and progress");
+  for (const language of languages) {
+    for (const [german, english] of pairs) {
+      const translated = languageSetupText(language, german, english);
+      assert.ok(translated, `${language}: ${english}`);
+      if (!["de", "en"].includes(language)) {
+        assert.equal(translated, LANGUAGE_SETUP_COPY[language][english], `${language}: missing ${english}`);
+        assert.notEqual(translated, german, `${language}: German fallback for ${english}`);
+      }
+      assert.deepEqual([...translated.matchAll(/\{\w+\}/g)].map(([key]) => key).sort(),
+        [...english.matchAll(/\{\w+\}/g)].map(([key]) => key).sort());
+    }
+  }
+});
+
+test("language profile formats counts and errors without translating inserted values", () => {
+  assert.equal(languageSetupText("fr-FR", "{changed} von {total}",
+    "{changed} of {total} series will use the new content languages.", { changed: 2, total: 5 }),
+  "2 séries sur 5 utiliseront les nouvelles langues de contenu.");
+  const error = "Unavailable $& {changed}";
+  assert.equal(languageSetupText("uk", "Fehler: {error}",
+    "Profile saved. Preparation is not finished: {error}", { error }),
+  `Профіль збережено. Підготовку ще не завершено: ${error}`);
+  assert.equal(languageSetupText("de", "Zurück", "Back"), "Zurück");
+  assert.equal(languageSetupText("en-US", "Zurück", "Back"), "Back");
+  assert.equal(languageSetupText("unknown", "Zurück", "Back"), "Zurück");
+});
 import { createApi } from "../../web/js/core/api.js";
 import { createScope, delay } from "../../web/js/core/lifecycle.js";
 import { createStore } from "../../web/js/core/store.js";
@@ -923,7 +961,7 @@ test("global search keeps progressive results, cancels superseded requests and p
   input.dispatchEvent(new Event("input"));
   assert.equal(requests.length, 0);
   search.search();
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 5);
   requests[0].resolve({ results: [] });
   await settle();
   assert.equal(search.get().loading, true);
@@ -931,15 +969,21 @@ test("global search keeps progressive results, cancels superseded requests and p
   await settle();
   assert.equal(search.get().results.length, 80);
   assert.equal(search.get().loading, false);
-  assert.deepEqual(search.get().pendingCatalogs, ["Serien", "Anime"]);
+  assert.deepEqual(search.get().pendingCatalogs, ["Serien", "Anime", "AniWorld"]);
+  assert.ok(requests[4].url.startsWith("/api/aniworld?"));
+  requests[4].resolve({ results: [{ id: "bleach", title: "Bleach" }] });
+  await settle();
+  const aniworldEntry = search.get().results.find(entry => entry.item.id === "bleach");
+  assert.equal(aniworldEntry.kind, "anime");
+  assert.equal(aniworldEntry.item.provider, "aniworld");
   input.value = "second";
   search.search();
-  assert.ok(requests.slice(0, 4).every(request => request.signal.aborted));
+  assert.ok(requests.slice(0, 5).every(request => request.signal.aborted));
   requests[2].reject(new Error("obsolete error")); requests[3].resolve({ results: [] });
-  for (const request of requests.slice(4)) request.resolve({ results: [{ title: "New" }] });
+  for (const request of requests.slice(5)) request.resolve({ results: [{ title: "New" }] });
   await settle();
   assert.equal(search.get().failures.length, 0);
-  assert.equal(search.get().results.length, 4);
+  assert.equal(search.get().results.length, 5);
   assert.equal(search.get().query, "second");
   detailOpen = true;
   search.close();
@@ -950,9 +994,9 @@ test("global search keeps progressive results, cancels superseded requests and p
   input.value = "third";
   input.dispatchEvent(new Event("keydown"));
   search.search();
-  assert.equal(requests.length, 12);
+  assert.equal(requests.length, 15);
   search.unmount();
-  for (const request of requests.slice(8)) request.resolve({ results: [] });
+  for (const request of requests.slice(10)) request.resolve({ results: [] });
   await settle();
   assert.deepEqual(search.get().results, []);
 });

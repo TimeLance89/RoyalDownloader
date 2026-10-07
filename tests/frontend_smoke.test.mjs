@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import "./movie_catalog_refresh.test.mjs";
+import "./frontend/series-selection.test.mjs";
 import { createCalendarState } from "../web/js/features/calendar/state.js";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
@@ -998,6 +999,7 @@ test("the stylesheet manifest preserves every ordered CSS module", () => {
     "styles/taste-feedback.css",
     "styles/daily-top.css",
     "styles/language-studio.css",
+    "styles/mobile.css",
   ]);
   for (const path of imports) {
     assert.ok(existsSync(new URL(`../web/${path}`, import.meta.url)), path);

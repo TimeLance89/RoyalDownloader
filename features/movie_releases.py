@@ -13,8 +13,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-import requests
-
+from core import egress_requests as requests
 from core.runtime_paths import data_dir
 
 API_URL = "https://api.movieofthenight.com/v4/changes"

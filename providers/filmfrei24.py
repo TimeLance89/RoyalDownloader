@@ -24,8 +24,7 @@ import unicodedata
 from typing import Callable, List, Optional
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 
-from curl_cffi import requests as cr
-
+from core import egress_curl as cr
 from providers.models import FilmpalastMovie, FilmpalastSearchResult, HosterInfo
 
 
