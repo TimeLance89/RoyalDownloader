@@ -225,3 +225,25 @@ def test_english_track_never_satisfies_pinned_german_lane(monkeypatch):
 
     assert result.stream_info is None
     assert probed == []
+
+
+def test_german_subtitles_never_satisfy_german_audio(monkeypatch):
+    probed = []
+    _prepare(monkeypatch, lambda url, **_kwargs: (probed.append(url) or True, "ok"))
+    for label in ("Deutsch (Untertitel)", "Deutsch Sub", "German Subbed",
+                  "Original (deutsche Untertitel)", "Japanisch (deutsche Untertitel)"):
+        movie = _episode(_hoster(label, "sub"))
+        movie.provider = "serienstream"
+        movie._required_content_language = "de"
+        assert source_resolution._extract_from_movie(movie, set()).stream_info is None
+    assert probed == []
+
+
+def test_subtitle_only_label_cannot_inherit_default_german(monkeypatch):
+    probed = []
+    _prepare(monkeypatch, lambda url, **_kwargs: (probed.append(url) or True, "ok"))
+    result = source_resolution._extract_from_movie(
+        _episode(_hoster("Deutsch (Untertitel)", "sub"), _hoster("Deutsch", "dub")), set()
+    )
+    assert result.stream_info == ("https://example.invalid/dub.m3u8", "hls")
+    assert probed == ["https://example.invalid/dub.m3u8"]

@@ -6,6 +6,7 @@ möglichen Providerfähigkeiten. Konkrete Titel und Episoden bestimmen ihre Trac
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
@@ -85,6 +86,13 @@ def normalize_content_language(value: str, default: str = "") -> str:
     """Normalisiert BCP-47-Codes und verbreitete Sprachbezeichnungen."""
     raw = str(value or "").strip().replace("_", "-").casefold()
     if not raw:
+        return default
+    # A subtitle label names the translation, not the audio track.
+    # Explicit original-audio labels (e.g. Japanese with German subtitles)
+    # still normalize from their leading audio language below.
+    if re.match(r"^(?:deutsch|german|de|ger)\b", raw) and re.search(
+        r"\b(?:untertitel\w*|subtitles?|subs?|subbed|omu)\b", raw
+    ):
         return default
     normalized = _LANGUAGE_ALIASES.get(raw)
     if normalized:
@@ -322,7 +330,7 @@ PROVIDER_CATALOG = {
         source_prefixes=("aniworld:",),
         domains=("aniworld.to",),
         content_languages=("de", "en"),
-        track_languages=(("dub", "de"), ("sub", "de"), ("eng", "en")),
+        track_languages=(("dub", "de"), ("sub", "ja"), ("eng", "en")),
     ),
     "flixitv": ProviderDefinition(
         key="flixitv", label="FlixiTV", content_language="de",

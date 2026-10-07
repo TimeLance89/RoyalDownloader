@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Download language
+
+- Keep German subtitles out of German audio downloads and provider fallbacks.
+- Recognize AniWorld subtitle flags separately from German dub flags; preserve
+  explicitly selected Japanese audio with German subtitles.
+
 ### Personal Jellyfin watchlist
 
 - Fix private playlist synchronization with Jellyfin dashboard API keys: publish

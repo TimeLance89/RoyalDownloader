@@ -121,3 +121,16 @@ def test_merged_monster_anthology_loads_hinted_seasons_when_root_has_no_nav(monk
         f"serienstream:{slug}-s03e01",
         f"serienstream:{slug}-s04e01",
     ]
+
+
+def test_subtitle_language_id_overrides_misleading_german_label():
+    from providers.catalog import normalize_content_language
+    scraper = SerienstreamScraper(session=object())
+    soup = BeautifulSoup('''<button data-play-url="/r?t=sub" data-language-id="3"
+        data-language-label="Deutsch" data-provider-name="VOE"></button>
+        <button data-play-url="/r?t=dub" data-language-id="1"
+        data-language-label="Deutsch" data-provider-name="VOE"></button>''', "html.parser")
+    dub, sub = scraper._extract_hosters(soup)
+    assert dub.is_de
+    assert not sub.is_de
+    assert normalize_content_language(sub.language) == ""

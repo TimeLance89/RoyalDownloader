@@ -90,7 +90,8 @@ def _concrete_stream_language(
     hoster_language: str = "",
 ) -> str:
     explicit = normalize_content_language(hoster_language)
-    if explicit:
+    if str(hoster_language or "").strip():
+        # An unrecognized/subtitle-only label must not inherit catalog German.
         return explicit
 
     # A multi-language provider's primary/default language is a catalog hint,
@@ -186,7 +187,7 @@ def _extract_from_movie(
         if required_language:
             language_allowed = bool(hoster_language) and language_allowed
         elif not hoster_language:
-            language_allowed = True
+            language_allowed = not bool(str(hoster.language or "").strip())
         if not language_allowed:
             log(
                 f"  Überspringe {hoster.name}: Stream-Sprache "

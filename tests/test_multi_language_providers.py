@@ -92,13 +92,13 @@ def test_real_load_path_keeps_explicit_raw_and_honors_disabled_aniworld_english(
     assert movie_catalog.load_movie_for_slug(english.url) is None
 
 
-@pytest.mark.parametrize("tracks,expected", [({"dub": 1, "sub": 1}, ["de"]), ({"dub": 1, "sub": 1, "eng": 1}, ["de", "en"])])
+@pytest.mark.parametrize("tracks,expected", [({"dub": 1, "sub": 1}, ["de", "ja"]), ({"dub": 1, "sub": 1, "eng": 1}, ["de", "ja", "en"])])
 def test_title_tracks_never_inherit_provider_capabilities(tracks, expected):
     anime = AniWorldAnime("fixture", "Fixture", translations=tracks,
                           episodes=[AniWorldEpisode(1, 1, tracks=tuple(tracks))])
     assert anime.public_dict()["content_languages"] == expected
     assert anime.public_dict()["translations"] == tracks
-    assert aniworld_episode_page(anime, "sub")["episodes"][0]["content_language"] == "de"
+    assert aniworld_episode_page(anime, "sub")["episodes"][0]["content_language"] == "ja"
     assert provider_content_languages("aniworld") == ("de", "en")
 
 
