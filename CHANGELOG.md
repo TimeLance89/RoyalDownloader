@@ -7,6 +7,9 @@
 - Add a dedicated People area with TMDB name search, portraits, biographies and
   combined movie/TV filmographies with role, title and release-date filters.
 - Open filmographies directly from cast names in movie and series details.
+- Add known-work highlights, richer profile facts, recent profiles, release-year,
+  department and Jellyfin filters, and checked movie selections that survive filtering.
+- Bound initial filmography rendering and reveal additional works on demand.
 - Check and select filmography movies for batch downloads using existing source,
   release-date and Jellyfin safeguards; open series in their episode selector.
 

@@ -58,6 +58,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
   movieState,
   seriesState,
   people: createPeople(document.getElementById("tab-personen"), {
+    getQueuedSlugs: () => state.queuedSlugs,
     coverUrl: url => artworkUrls.coverUrl(url),
     openMovie: (...args) => services.movieActions.selectFpRow(...args),
     openSeries: (...args) => services.seriesActions.loadSeries(...args),
