@@ -63,6 +63,11 @@ jobs:
       - name: People filmography, mobile filters and checked batch downloads
         run: node tests/frontend/people-browser.cjs
 
+      - name: Personal Jellyfin wishes, separate profiles and delayed responses
+        run: |
+          node --test tests/frontend/saved-media.test.mjs
+          node tests/frontend/saved-media-browser.cjs
+
       - name: First-run setup and authentication browser regression
         if: ${{ !cancelled() }}
         run: |

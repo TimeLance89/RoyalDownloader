@@ -860,8 +860,8 @@ def _delete_user_owned_data(user_id: str) -> dict:
             for entry in removed_watchlist:
                 state.watchlist_new_slugs.pop(str(entry.get("base_slug") or ""), None)
             erased["watchlist_entries"] = len(removed_watchlist)
-
     erased["personal_requests"] = state.personal_requests.delete_for_user(owner)
+    erased["saved_media"] = state.saved_media.delete_for_user(owner)
     erased["taste_profile"] = state.taste_profiles.delete_for_user(owner)
     return erased
 

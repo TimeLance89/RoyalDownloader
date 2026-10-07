@@ -25,6 +25,7 @@ from core.runtime_cache import BoundedTTLCache
 from core.runtime_paths import data_dir
 from features.taste_profile import UserTasteProfileStore
 from core.personal_requests import PersonalRequestStore
+from core.saved_media import SavedMediaStore
 from core.module_manager import ModuleManager
 from modules.registry import BUILTIN_MODULES
 from integrations.tmdb_client import TMDBClient
@@ -255,6 +256,7 @@ class AppState:
         self.queue_history: list[dict] = list(queue_document["history"])
         self.subscription_content_languages = appconfig.load_subscription_languages()
         self.personal_requests = PersonalRequestStore(appconfig.personal_requests_file())
+        self.saved_media = SavedMediaStore(appconfig.personal_requests_file().with_name("saved_media.json"))
         self.personal_requests.backfill([*self.queue_jobs.values(), *self.queue_history])
         self.queue_persistence_revision = int(queue_document.get("revision") or 0)
         self.queue_job_persist_times: dict[str, float] = {}

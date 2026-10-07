@@ -1,4 +1,5 @@
 import { createScope } from "../../core/lifecycle.js";
+import { createSavedMediaAction } from "../media-details/saved-media.js";
 
 export function createSeriesPresentation(catalogRoot, detailRoot, {
   watchModeLabel, seriesState, getHomeData, coverUrl,
@@ -6,6 +7,12 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
 }) {
   const document = catalogRoot.ownerDocument;
   const byId = id => catalogRoot.querySelector(`#${id}`) || detailRoot.querySelector(`#${id}`);
+  let savedMedia = null;
+  function showSavedMedia(series) {
+    savedMedia ||= createSavedMediaAction(byId("series-save"), byId("series-save-note"));
+    savedMedia.show(series, "tv");
+  }
+  function closeSavedMedia() { savedMedia?.close(); }
   let scope = null, featureCandidate = null, cancelArtwork = () => {};
   // ── Serien-Tab ─────────────────────────────────────────────────────────────
 
@@ -337,6 +344,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
 
 
   function showSeriesLoading(result) {
+    showSavedMedia(result);
     seriesState.viewGeneration += 1;
     seriesState.current = null;
     byId("series-detail-title").textContent = result.title;
@@ -448,6 +456,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   }
 
   function showSeriesDetail(series, sampleSlug) {
+    showSavedMedia(series);
     const progress = byId("series-probe-progress");
     if (progress) progress.hidden = true;
     seriesState.viewGeneration += 1;
@@ -496,9 +505,10 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   function mount() {
     if (scope?.active) return;
     scope = createScope();
+    scope.add(closeSavedMedia);
     scope.listen(byId("series-feature-open"), "click", () => { if (featureCandidate) loadSeries(featureCandidate); });
     renderSeriesCatalogHero();
   }
-  function unmount() { scope?.dispose(); scope = null; cancelArtwork(); }
-  return { mount, unmount, updateSeriesInfiniteState, updateSeriesFeatureArtwork, renderSeriesCatalogHero, seriesCardSeasonSummary, createSeriesResultRow, renderSeriesResults, findSeriesResultCard, updateSeriesResultCard, updateSeriesResultSelection, applySeriesResults, seriesStructureFingerprint, showSeriesLoading, renderSeriesDetailMeta, updateWatchBtn, setSeriesDetailArtwork, updateSeriesOverview, showSeriesDetail };
+  function unmount() { closeSavedMedia(); scope?.dispose(); scope = null; cancelArtwork(); }
+  return { mount, unmount, closeSavedMedia, updateSeriesInfiniteState, updateSeriesFeatureArtwork, renderSeriesCatalogHero, seriesCardSeasonSummary, createSeriesResultRow, renderSeriesResults, findSeriesResultCard, updateSeriesResultCard, updateSeriesResultSelection, applySeriesResults, seriesStructureFingerprint, showSeriesLoading, renderSeriesDetailMeta, updateWatchBtn, setSeriesDetailArtwork, updateSeriesOverview, showSeriesDetail };
 }
