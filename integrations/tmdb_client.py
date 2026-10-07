@@ -10,6 +10,7 @@ import urllib.error
 from types import SimpleNamespace
 
 from core import egress_urllib
+from integrations.tmdb_people import TMDBPeopleMixin
 
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -79,7 +80,7 @@ def _clean_movie_query_title(title: str) -> str:
     ).strip()
 
 
-class TMDBClient:
+class TMDBClient(TMDBPeopleMixin):
     def __init__(self, api_key: str = "", language: str = "de-DE", timeout: float = 8.0):
         self.api_key = (api_key or "").strip()
         self.language = language
@@ -91,6 +92,7 @@ class TMDBClient:
         self._movie_search_cache: dict = {}
         self._collection_search_cache: dict = {}
         self._collection_cache: dict = {}
+        self._people_cache: dict = {}
         self._movie_cache: dict = {}
         self._movie_id_cache: dict = {}
         self._series_cache: dict = {}
@@ -368,6 +370,7 @@ class TMDBClient:
             "writers": writers[:4],
             "cast": [
                 {
+                    "id": member.get("id"),
                     "name": str(member.get("name") or "").strip(),
                     "character": str(member.get("character") or "").strip(),
                     "profile_url": self._profile_url(member.get("profile_path") or ""),
@@ -855,6 +858,7 @@ class TMDBClient:
             ][:4],
             "cast": [
                 {
+                    "id": member.get("id"),
                     "name": member.get("name", ""),
                     "character": member.get("character", ""),
                     "profile_url": self._profile_url(member.get("profile_path") or ""),

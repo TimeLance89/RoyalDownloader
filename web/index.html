@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/style-tokens.css?v=royal-20260801-1">
 <link rel="stylesheet" href="/style.css?v=royal-20261001-1">
 <link rel="stylesheet" href="/styles/source-sentinel.css">
+<link rel="stylesheet" href="/styles/people.css">
 </head>
 <body>
 <div id="royal-loader" class="royal-loader" role="status" aria-live="polite" aria-label="Royal Downloader wird geladen">
@@ -58,6 +59,9 @@
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="m15 9-2 5-5 2 2-5z"></path></svg></span><span class="nav-discovery-label">Entdecken</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"></path></svg></span>
         </button>
         <div id="desktop-discovery-menu" class="nav-menu-popover" aria-label="Entdecken" hidden>
+          <button class="nav-menu-item" type="button" data-tab="personen">
+            <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg></span><span><strong>Personen</strong><small>Schauspiel & Filmografien</small></span>
+          </button>
           <button class="nav-menu-item" type="button" data-tab="releases">
             <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="m10 9 5 3-5 3z"></path></svg></span><span><strong>Releases</strong><small>Neue Filme und Kinostarts</small></span>
           </button>
@@ -316,6 +320,9 @@
         </button>
         <button class="nav-menu-item" type="button" data-tab="kalender">
           <span class="nav-menu-icon" aria-hidden="true">▦</span><span><strong>Kalender</strong><small>Neue Folgen</small></span>
+        </button>
+        <button class="nav-menu-item" type="button" data-tab="personen">
+          <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg></span><span><strong>Personen</strong><small>Filmografien entdecken</small></span>
         </button>
         <button class="nav-menu-item anime-tab-button" type="button" data-tab="anime">
           <span class="nav-menu-icon" aria-hidden="true">◉</span><span><strong>Anime</strong><small>Entdecken</small></span>
@@ -1160,6 +1167,36 @@
           </section>
         </div>
       </main>
+    </section>
+
+    <section class="tab-content people-section" id="tab-personen" aria-label="Personen entdecken">
+      <header class="people-heading">
+        <div><p class="people-eyebrow">ENTDECKEN / PERSONEN</p><h1>Die Menschen.<br><span>Ihre Geschichten.</span></h1><p>Vom Lieblingsgesicht zum nächsten Film. Entdecke Schauspiel, Serien und die Werke dahinter.</p></div>
+        <form id="people-search-form" class="people-search-form" role="search">
+          <label for="people-search">Wen möchtest du entdecken?</label>
+          <div><input id="people-search" type="search" placeholder="Name suchen …" maxlength="200" autocomplete="off"><button class="people-button" type="submit">Suchen</button></div>
+          <small>Personen und alternative Namen · TMDB</small>
+        </form>
+      </header>
+      <div class="people-status-row"><p id="people-status" role="status" aria-live="polite"></p><button id="people-retry" class="people-button" type="button" data-people-action="retry" hidden>Erneut versuchen</button></div>
+      <div id="people-directory">
+        <div id="people-results" class="people-grid"></div>
+        <nav class="people-pagination" aria-label="Personenseiten"><button id="people-prev" class="people-button" type="button" data-people-action="prev">← Zurück</button><span id="people-page"></span><button id="people-next" class="people-button" type="button" data-people-action="next">Weiter →</button></nav>
+      </div>
+      <div id="people-profile" hidden>
+        <button id="people-back" class="people-button people-back" type="button" data-people-action="back">← Alle Personen</button>
+        <div id="people-profile-hero" class="people-profile-hero"></div>
+        <div class="people-filmography-heading"><div><p class="people-eyebrow">DIE WERKE</p><h3>Filmografie <span id="people-work-count"></span></h3></div><button id="people-films" class="people-button people-primary" type="button" data-people-action="films">Filme prüfen & auswählen</button></div>
+        <p id="people-batch-note" class="people-batch-note"></p>
+        <div class="people-filters">
+          <label>Inhalte<select id="people-filter-type"><option value="all">Filme & Serien</option><option value="movie">Filme</option><option value="tv">Serien</option></select></label>
+          <label>Mitwirkung<select id="people-filter-role"><option value="acting">Schauspiel</option><option value="all">Alle Mitwirkungen</option></select></label>
+          <label>Sortierung<select id="people-filter-sort"><option value="popular">Beliebtheit</option><option value="newest">Neueste zuerst</option></select></label>
+          <label class="people-work-search">Werk suchen<input id="people-filter-query" type="search" placeholder="Titel filtern …"></label>
+        </div>
+        <div id="people-works" class="people-works"></div>
+        <p class="people-attribution">Personen & Filmografie: TMDB. Verfügbarkeit wird beim Öffnen eines Werks geprüft.</p>
+      </div>
     </section>
 
     <section class="tab-content anime-tab-content" id="tab-anime">

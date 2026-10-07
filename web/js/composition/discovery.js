@@ -19,6 +19,7 @@ import { createSeriesPresentation } from "../features/discovery/series-presentat
 import { createSeriesEpisodes } from "../features/media-details/series-episodes.js";
 
 import { createMovieCollections } from "../features/collections/index.js";
+import { createPeople } from "../features/people/index.js";
 
 import { createAniworld } from "../features/discovery/aniworld.js";
 
@@ -56,10 +57,18 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
   const services = {
   movieState,
   seriesState,
+  people: createPeople(document.getElementById("tab-personen"), {
+    coverUrl: url => artworkUrls.coverUrl(url),
+    openMovie: (...args) => services.movieActions.selectFpRow(...args),
+    openSeries: (...args) => services.seriesActions.loadSeries(...args),
+    openFilms: (...args) => services.movieCollections.openFilms(...args),
+  }),
   movieDiscovery: createDetailDiscovery(document.getElementById("fp-detail-modal"), {
+        openPerson: id => { getCore().actions.switchTab("personen"); void services.people.open(id); },
         kind: "movie", coverUrl: url => artworkUrls.coverUrl(url), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), fpTrailerYoutubeKey: (...args) => services.movieActions.fpTrailerYoutubeKey(...args), openFpTrailerModal: (...args) => services.movieActions.openFpTrailerModal(...args),
       }),
   seriesDiscovery: createDetailDiscovery(document.getElementById("series-detail-modal"), {
+        openPerson: id => { getCore().actions.switchTab("personen"); void services.people.open(id); },
         kind: "series", coverUrl: url => artworkUrls.coverUrl(url), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), loadSeries: (...args) => services.seriesActions.loadSeries(...args), fpTrailerYoutubeKey: (...args) => services.movieActions.fpTrailerYoutubeKey(...args), openFpTrailerModal: (...args) => services.movieActions.openFpTrailerModal(...args),
       }),
   moviePresentation: createMoviePresentation(document.getElementById("tab-filme"), document.getElementById("fp-detail-modal"), {
