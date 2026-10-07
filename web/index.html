@@ -1171,30 +1171,43 @@
 
     <section class="tab-content people-section" id="tab-personen" aria-label="Personen entdecken">
       <header class="people-heading">
-        <div><p class="people-eyebrow">ENTDECKEN / PERSONEN</p><h1>Die Menschen.<br><span>Ihre Geschichten.</span></h1><p>Vom Lieblingsgesicht zum nächsten Film. Entdecke Schauspiel, Serien und die Werke dahinter.</p></div>
+        <div><h1>Personen entdecken</h1><p>Finde Schauspiel, Regie und die Werke dahinter. Stelle aus einer Filmografie deine nächste Filmauswahl zusammen.</p></div>
         <form id="people-search-form" class="people-search-form" role="search">
           <label for="people-search">Wen möchtest du entdecken?</label>
           <div><input id="people-search" type="search" placeholder="Name suchen …" maxlength="200" autocomplete="off"><button class="people-button" type="submit">Suchen</button></div>
           <small>Personen und alternative Namen · TMDB</small>
+          <button class="people-text-button" type="button" data-people-action="reset-search">Beliebte Personen entdecken</button>
         </form>
       </header>
       <div class="people-status-row"><p id="people-status" role="status" aria-live="polite"></p><button id="people-retry" class="people-button" type="button" data-people-action="retry" hidden>Erneut versuchen</button></div>
       <div id="people-directory">
+        <div id="people-recent" class="people-recent" hidden></div>
+        <div class="people-directory-toolbar"><h2>Personen <span id="people-directory-count"></span></h2><label>Bereich dieser Seite<select id="people-directory-role"><option value="all">Alle Bereiche</option><option value="Acting">Schauspiel</option><option value="Directing">Regie</option><option value="Writing">Drehbuch</option><option value="Production">Produktion</option></select></label></div>
         <div id="people-results" class="people-grid"></div>
         <nav class="people-pagination" aria-label="Personenseiten"><button id="people-prev" class="people-button" type="button" data-people-action="prev">← Zurück</button><span id="people-page"></span><button id="people-next" class="people-button" type="button" data-people-action="next">Weiter →</button></nav>
       </div>
       <div id="people-profile" hidden>
         <button id="people-back" class="people-button people-back" type="button" data-people-action="back">← Alle Personen</button>
         <div id="people-profile-hero" class="people-profile-hero"></div>
-        <div class="people-filmography-heading"><div><p class="people-eyebrow">DIE WERKE</p><h3>Filmografie <span id="people-work-count"></span></h3></div><button id="people-films" class="people-button people-primary" type="button" data-people-action="films">Filme prüfen & auswählen</button></div>
+        <section id="people-highlights-section" class="people-highlights-section" aria-label="Bekannte Werke"><h3>Bekannte Werke</h3><p>Ein Einstieg in diese Filmografie, nach Beliebtheit ausgewählt.</p><div id="people-highlights" class="people-highlights"></div></section>
+        <div class="people-filmography-heading"><div><h3>Die gesamte Filmografie <span id="people-work-count"></span></h3></div><button id="people-films" class="people-button people-primary" type="button" data-people-action="films">Filme prüfen & auswählen</button></div>
         <p id="people-batch-note" class="people-batch-note"></p>
+        <div class="people-library-panel"><div><strong>Was fehlt in deiner Sammlung?</strong><p id="people-library-status" role="status" aria-live="polite"></p></div><button id="people-library-check" class="people-button" type="button" data-people-action="library">Jellyfin-Bestand prüfen</button></div>
         <div class="people-filters">
           <label>Inhalte<select id="people-filter-type"><option value="all">Filme & Serien</option><option value="movie">Filme</option><option value="tv">Serien</option></select></label>
-          <label>Mitwirkung<select id="people-filter-role"><option value="acting">Schauspiel</option><option value="all">Alle Mitwirkungen</option></select></label>
-          <label>Sortierung<select id="people-filter-sort"><option value="popular">Beliebtheit</option><option value="newest">Neueste zuerst</option></select></label>
-          <label class="people-work-search">Werk suchen<input id="people-filter-query" type="search" placeholder="Titel filtern …"></label>
+          <label>Sortierung<select id="people-filter-sort"><option value="popular">Beliebtheit</option><option value="newest">Neueste zuerst</option><option value="oldest">Älteste zuerst</option><option value="rating">Bewertung</option><option value="title">Titel A–Z</option></select></label>
+          <label class="people-work-search">Werk oder Rolle suchen<input id="people-filter-query" type="search" placeholder="Titel, Originaltitel oder Rolle …"></label>
         </div>
+        <details id="people-advanced-filters" class="people-advanced-filters"><summary>Weitere Filter <span id="people-active-filters"></span></summary><div class="people-filters">
+          <label>Mitwirkung<select id="people-filter-role"><option value="acting">Schauspiel</option><option value="all">Alle Mitwirkungen</option></select></label>
+          <label>Jahr<select id="people-filter-year"><option value="all">Alle Jahre</option></select></label>
+          <label>Veröffentlichung<select id="people-filter-release"><option value="all">Alle Werke</option><option value="released">Veröffentlicht</option><option value="upcoming">Angekündigt</option></select></label>
+          <label>Jellyfin-Bestand<select id="people-filter-library"><option value="all">Alle Bestände</option><option value="missing">Fehlt in Jellyfin</option><option value="owned">In Jellyfin</option><option value="unavailable">Bestand unklar</option><option value="unchecked">Noch nicht geprüft</option></select></label>
+        </div></details>
+        <div class="people-filmography-tools"><button id="people-select-visible" class="people-button" type="button" data-people-action="select-visible">Gefilterte Filme vormerken</button><button class="people-text-button" type="button" data-people-action="reset-filters">Filter zurücksetzen</button></div>
+        <div id="people-selection" class="people-selection" hidden><div><strong id="people-selection-count"></strong><p id="people-selection-note"></p></div><div class="people-selection-actions"><button class="people-text-button" type="button" data-people-action="clear-selection">Auswahl leeren</button><button id="people-selection-review" class="people-button people-primary" type="button" data-people-action="selection">Auswahl prüfen</button></div></div>
         <div id="people-works" class="people-works"></div>
+        <button id="people-show-more" class="people-button people-show-more" type="button" data-people-action="more" hidden>Weitere Werke anzeigen</button>
         <p class="people-attribution">Personen & Filmografie: TMDB. Verfügbarkeit wird beim Öffnen eines Werks geprüft.</p>
       </div>
     </section>
