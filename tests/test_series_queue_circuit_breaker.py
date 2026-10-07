@@ -121,6 +121,29 @@ def test_queue_add_twenty_episodes_does_not_load_pages(monkeypatch):
     assert all(not server.state.fp_movies[slug].hosters for slug in slugs)
 
 
+def test_unverified_selection_is_persisted_with_language_before_background_preparation(monkeypatch):
+    slugs = [f"serienstream:exact-show-s01e{i:02d}" for i in range(1, 5)]
+    persisted = []
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    monkeypatch.setattr(server, "load_movie_for_slug", lambda *_args: pytest.fail("acceptance must not wait for provider pages"))
+    monkeypatch.setattr(server, "_content_already_available", lambda *_args: (False, ""))
+    monkeypatch.setattr(server, "_require_persistent_snapshot", lambda kind, snapshot: persisted.append((kind, snapshot)))
+
+    def prepare(values, **_kwargs):
+        assert persisted[0][0] == "queue"
+        assert {job["slug"] for job in persisted[0][1]["jobs"]} == set(slugs)
+        assert all(job["content_language"] == "de" for job in persisted[0][1]["jobs"])
+        return set(values)
+
+    monkeypatch.setattr(server, "_enqueue_automatic_downloads", prepare)
+    response = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs, source="web")))
+    assert response["added"] == 4
+    assert all(server._queue_job_for_slug(slug) for slug in slugs)
+    duplicate = asyncio.run(server.api_queue_add(server.QueueAddBody(slugs=slugs, source="web")))
+    assert duplicate["added"] == 0
+    assert len(server.state.queue_jobs) == 4
+
+
 def test_queue_add_after_550_pending_jobs_preserves_new_entry(monkeypatch):
     for episode in range(1, 551):
         slug = f"serienstream:existing-show-s01e{episode:03d}"

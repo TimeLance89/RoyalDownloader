@@ -925,7 +925,7 @@ test('already queued EN-only episodes still receive exact language evidence', as
   const { createSeriesEpisodes } = await import("../web/js/features/media-details/series-episodes.js");
   const model = createSeriesEpisodes({ ownerDocument: {} }, { seriesState: fixture.seriesState,
     getQueuedSlugs: () => new Set([fixture.episode.slug]), getEnabledLanguages: () => ["de"] });
-  assert.equal(model.tileClass(fixture.episode), "wrong-language");
+  assert.equal(model.tileClass(fixture.episode), "queued");
   assert.equal(model.episodeLanguageLockLabel(fixture.episode), "NUR EN");
   assert.equal(model.isEpisodeSelectable(fixture.episode), false);
   fixture.checks.unmount();

@@ -134,9 +134,32 @@ export function createSeriesEpisodes(root, {
     return seriesEpisodes().find((episode) => episode.slug === slug) || null;
   }
 
+  function pendingDownloadSlugs() {
+    return [...pendingSelections].filter(([slug, intent]) => {
+      const episode = findCurrentEpisode(slug);
+      return intent.generation === seriesState.viewGeneration
+        && isEpisodeEligible(episode) && !episodeLanguageChecked(episode);
+    }).map(([slug]) => slug);
+  }
+
+  function downloadSelectionSlugs() {
+    return [...new Set([...seriesState.epPicked, ...pendingDownloadSlugs()])];
+  }
+
+  function updateDownloadSelectionControls() {
+    const pending = pendingDownloadSlugs().length;
+    const count = downloadSelectionSlugs().length;
+    byId("series-pick-count").textContent = pending
+      ? `${count} ausgewählt · ${pending} prüfen …` : `${count} ausgewählt`;
+    byId("series-add-btn").disabled = count === 0 || queuePending;
+    byId("series-add-btn").title = pending
+      ? "Gesamte Auswahl vormerken · Sprache und Quellen werden im Hintergrund geprüft" : "";
+  }
+
   function tileClass(ep) {
     if (ep.downloaded) return "downloaded";
     if (ep.unreleased) return "scheduled";
+    if (isEpisodeQueued(ep)) return "queued";
     if (providerNeedsExactEpisodeLanguage(seriesState.current)
         && !episodeLanguageChecked(ep)
         && !ep.downloaded
@@ -144,7 +167,6 @@ export function createSeriesEpisodes(root, {
       return "language-pending";
     }
     if (!episodeHasEnabledStreamLanguage(ep)) return "wrong-language";
-    if (isEpisodeQueued(ep)) return "queued";
     if (seriesState.epPicked.has(ep.slug) && isEpisodeSelectable(ep)) return "selected";
     return "available";
   }
@@ -190,11 +212,11 @@ export function createSeriesEpisodes(root, {
     tile.className = "ep-tile " + tileClass(episode) + (episode.in_jellyfin ? " in-jellyfin" : "");
     tile.disabled = !isEpisodeActionable(episode, series);
     const pending = pendingSelections.get(episode.slug)?.generation === seriesState.viewGeneration
-      && !episodeLanguageChecked(episode);
+      && !episodeLanguageChecked(episode) && !isEpisodeQueued(episode);
     tile.setAttribute("aria-busy", String(pending));
     tile.classList?.toggle("selection-pending", pending);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
-    const languageLock = episodeLanguageLockLabel(episode, series);
+    const languageLock = isEpisodeQueued(episode) ? "" : episodeLanguageLockLabel(episode, series);
     let languageNotice = tile.querySelector(".ep-language-lock");
     if (languageLock) {
       if (!languageNotice) {
@@ -208,7 +230,8 @@ export function createSeriesEpisodes(root, {
       ? `Folge ${episode.episode}, verfügbar ab ${releaseText}`
       : languageLock ? `Folge ${episode.episode}, ${languageLock} verfügbar, Download gesperrt`
         : `Folge ${episode.episode}`);
-    if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
+    if (isEpisodeQueued(episode)) tile.title = "Vorgemerkt · Sprache und Quellen werden vor dem Download geprüft";
+    else if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = episode.language_check_error
         ? "Sprachprüfung unvollständig · erneut auswählen, um nochmals zu prüfen"
@@ -266,10 +289,9 @@ export function createSeriesEpisodes(root, {
     const selectableCount = seriesEpisodes(series).filter(
       (episode) => isEpisodeActionable(episode, series)
     ).length;
-    byId("series-pick-count").textContent = `${seriesState.epPicked.size} ausgewählt`;
+    updateDownloadSelectionControls();
     byId("series-select-all").disabled = selectableCount === 0;
     byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
-    byId("series-add-btn").disabled = seriesState.epPicked.size === 0 || queuePending;
   }
 
   function renderSeriesTiles() {
@@ -336,10 +358,9 @@ export function createSeriesEpisodes(root, {
       row.appendChild(tiles);
       container.appendChild(row);
     }
-    byId("series-pick-count").textContent = `${seriesState.epPicked.size} ausgewählt`;
+    updateDownloadSelectionControls();
     byId("series-select-all").disabled = selectableCount === 0;
     byId("series-select-none").disabled = (seriesState.epPicked.size === 0 && pendingSelections.size === 0) || queuePending;
-    byId("series-add-btn").disabled = seriesState.epPicked.size === 0 || queuePending;
   }
 
   function applyPendingSelections() {
@@ -417,17 +438,21 @@ export function createSeriesEpisodes(root, {
   async function seriesAddSelected() {
     if (!scope.active || queuePending) return;
     const owner = scope, series = seriesState.current, generation = seriesState.viewGeneration;
-    const current = () => owner.active && seriesState.current === series && seriesState.viewGeneration === generation && !root.hidden;
+    const current = () => owner.active && seriesState.viewGeneration === generation && !root.hidden
+      && (seriesState.current === series || (series?.base_slug
+        && seriesState.current?.base_slug === series.base_slug && seriesState.current?.provider === series.provider));
     pruneSeriesEpisodeSelection();
-    if (!seriesState.epPicked.size) {
+    const slugs = downloadSelectionSlugs();
+    const submittedIntents = new Map(slugs.map(slug => [slug, pendingSelections.get(slug)]));
+    const pendingCount = pendingDownloadSlugs().length;
+    if (!slugs.length) {
       byId("series-status").textContent =
         "Keine herunterladbaren Episoden ausgewählt.";
       renderSeriesTiles();
       return;
     }
     queuePending = true;
-    const slugs = [...seriesState.epPicked];
-    byId("series-status").textContent = `Lade ${slugs.length} Episode(n) …`;
+    byId("series-status").textContent = `Merke ${slugs.length} Episode(n) vor …`;
     const addButton = byId("series-add-btn");
     addButton.disabled = true;
     try {
@@ -436,11 +461,21 @@ export function createSeriesEpisodes(root, {
       if (Number(resp.added || 0) > 0 && series) {
         trackDiscoveryPreference("series", series, 5, "download");
       }
+      if (current()) {
+        for (const slug of slugs) {
+          // Consume only this click's selection. A later batch must not
+          // reselect an already submitted episode or consume newer intent.
+          if (!pendingSelections.has(slug) || pendingSelections.get(slug) === submittedIntents.get(slug)) {
+            pendingSelections.delete(slug);
+            seriesState.epPicked.delete(slug);
+          }
+        }
+      }
       refreshQueueUiAfterChange(resp);
       if (!current()) return;
       byId("series-status").textContent =
-        `${resp.added}/${slugs.length} Episode(n) automatisch gestartet`;
-      seriesState.epPicked.clear();
+        `${resp.added}/${slugs.length} Episode(n) vorgemerkt${pendingCount
+          ? " · Sprache und Quellen werden im Hintergrund geprüft" : " · Downloads starten automatisch"}`;
     } catch (error) {
       if (!current()) return;
       byId("series-status").textContent =
