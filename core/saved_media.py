@@ -57,11 +57,25 @@ class SavedMediaStore:
                 wishes.remove(existing)
             self._commit(document)
 
-    def bind(self, server, user, playlist_id):
+    def bind(self, server, user, playlist_id, *, protocol=0):
         with self.lock:
             document = deepcopy(self.document)
             document.setdefault("playlists", {}).setdefault(server, {})[user] = playlist_id
+            document.setdefault("playlist_protocols", {}).setdefault(server, {})[user] = protocol
+            old = self.document.get("playlists", {}).get(server, {}).get(user)
+            if old and old != playlist_id:
+                retired = document.setdefault("retired_playlists", {}).setdefault(server, [])
+                if old not in retired:
+                    retired.append(old)
             self._commit(document)
+
+    def forget_retired_playlist(self, server, identity):
+        with self.lock:
+            document = deepcopy(self.document)
+            retired = document.setdefault("retired_playlists", {}).setdefault(server, [])
+            if identity in retired:
+                retired.remove(identity)
+                self._commit(document)
 
     def delete_for_user(self, owner):
         with self.lock:

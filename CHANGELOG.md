@@ -4,6 +4,10 @@
 
 ### Personal Jellyfin watchlist
 
+- Fix private playlist synchronization with Jellyfin dashboard API keys: publish
+  populated private generations instead of using owner-only update endpoints.
+- Keep pending wishes out of empty native playlists; migrate old bindings and
+  retry removal of retired playlists after restart.
 - Add “+ Merken” to movie and series details. Persist wishes per RD profile and
   synchronize playable files into a private playlist for the linked Jellyfin user.
 - Keep unavailable titles pending across restarts and outages; saving never starts

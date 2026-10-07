@@ -53,20 +53,29 @@ class JellyfinSavedMixin:
             raise ValueError("Jellyfin playlist redirect rejected")
         return response.json() if response.content else {}
 
-    def create_saved_playlist(self, user_id):
+    def create_saved_playlist(self, user_id, ids=()):
         result = self._saved_request("POST", "/Playlists", {
-            "Name": playlist_name(user_id), "Ids": [], "UserId": jellyfin_id(user_id),
+            "Name": playlist_name(user_id), "Ids": list(ids), "UserId": jellyfin_id(user_id),
             "MediaType": "Video", "IsPublic": False, "Users": [],
         })
         return jellyfin_id(result["Id"])
 
-    def replace_saved_playlist(self, playlist_id, user_id, ids):
-        self._saved_request("POST", f"/Playlists/{jellyfin_id(playlist_id)}", {
-            "Name": playlist_name(user_id), "Ids": ids, "IsPublic": False, "Users": [],
-        })
-
-    def saved_playlist(self, playlist_id):
-        return self._saved_request("GET", f"/Playlists/{jellyfin_id(playlist_id)}")
+    def saved_playlist(self, playlist_id, user_id):
+        # /Playlists/{id} and its update route use the token's user claim.
+        # A dashboard API key has no user claim. The items route explicitly
+        # accepts the linked user and therefore works with server API keys.
+        items, start = [], 0
+        while True:
+            page = self._saved_request("GET", f"/Playlists/{jellyfin_id(playlist_id)}/Items", params={
+                "UserId": jellyfin_id(user_id), "StartIndex": start, "Limit": 500,
+            })
+            rows = page.get("Items") or []
+            items.extend(rows)
+            start += len(rows)
+            if not rows or start >= page.get("TotalRecordCount", start):
+                return {"ItemIds": [jellyfin_id(item["Id"]) for item in items]}
+            if start >= 100_000:
+                raise ValueError("Managed Jellyfin playlist exceeds bounded read limit")
 
     def delete_saved_playlist(self, playlist_id):
         self._saved_request("DELETE", f"/Items/{jellyfin_id(playlist_id)}")
