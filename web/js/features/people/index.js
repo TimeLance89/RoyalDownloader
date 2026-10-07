@@ -199,9 +199,10 @@ export function createPeople(root, { client = api, coverUrl, openMovie, openSeri
     const link = node("a", "people-tmdb-link", "Profil auf TMDB öffnen"); link.href = `https://www.themoviedb.org/person/${Number(person.id)}`; link.target = "_blank"; link.rel = "noopener noreferrer"; factsPanel.append(link);
     hero.append(image(person.profile_url, person.name, "people-profile-portrait"), copy, factsPanel);
     const picks = byId("people-highlights"); picks.replaceChildren();
-    for (const item of highlights(person.credits)) {
+    for (const item of highlights(person.credits, person.department)) {
       const card = button("", "work"); card.className = "people-highlight"; card.dataset.tmdbId = item.tmdb_id; card.dataset.mediaType = item.media_type;
-      card.append(image(item.backdrop_url || item.cover_url, item.title, "people-highlight-art"), node("strong", "", item.title), node("span", "people-facts", `${item.media_type === "tv" ? "Serie" : "Film"} · ${item.year || "Ohne Datum"}`)); picks.append(card);
+      card.setAttribute("aria-label", `${item.title}: ${item.media_type === "tv" ? "Serie" : "Film"} öffnen`);
+      card.append(image(item.cover_url, item.title, "people-highlight-art"), node("strong", "", item.title), node("span", "people-facts", `${item.media_type === "tv" ? "Serie" : "Film"} · ${item.year || "Ohne Datum"}`)); picks.append(card);
     }
     byId("people-highlights-section").hidden = !picks.childElementCount;
     byId("people-library-check").disabled = libraryPending || !person.credits.length;
