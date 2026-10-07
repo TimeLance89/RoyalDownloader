@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Mobile navigation and language profiles
+
+- Improve mobile navigation, safe-area spacing, touch targets, catalog layouts
+  and responsive dialogs while retaining native rail gestures.
+- Translate the language-profile dialog into every supported interface language.
+
+### Episode selection and source verification
+
+- Show live progress for episode checks across enabled sources and publish
+  verified episodes progressively without rebuilding every episode tile.
+- Share bounded provider checks across selections and retries, retaining late
+  successes so a slow source does not lose its verified results.
+- Queue the complete requested season selection while source checks are pending;
+  keep deferred episodes waiting for the requested language and source.
+- Keep published provider tracks and confirmed fallback episodes selectable even
+  when TMDB dates differ. Explicitly upcoming provider episodes remain locked.
+
+### Series identity, subscriptions and anime search
+
+- Distinguish same-name originals and remakes by release year, including metadata
+  caches, watchlist matching and merged provider snapshots.
+- Restore unread subscription download receipts and the inbox bell badge when
+  concurrent checks have already removed completed episodes from pending.
+- Include AniWorld in global anime search and open the matching provider detail
+  view. Search catalogue titles and aliases when AJAX fails, paginate results,
+  and retain cached search during provider outages.
+
+### Optional privacy egress and verification
+
+- Add configurable central routing through a validating outbound proxy for
+  providers, downloads, browser sessions and external integrations. Privacy mode
+  fails closed; direct routing remains the default and local integrations retain
+  their explicit LAN bypass.
+- Document proxy configuration and transport boundaries, require TLS 1.2 or newer
+  for proxy/DoH connections and update the inherited Perl security baseline.
+- Expand mobile, source-check, search and egress regression coverage; preserve
+  the existing module-size and coverage requirements.
+
 ## v1.7.0 – 2026-10-05
 
 ### Unified first-run onboarding
