@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.7.0 – 2026-10-05
+
 ### Unified first-run onboarding
 
 - Bring first-run setup into the language studio design with seven clear steps,
@@ -63,6 +65,11 @@
   KinoKing and SerienStream so their default DE label is no longer mistaken for
   proof about every stream.
 
+
+See [v1.7.0 release notes](docs/releases/v1.7.0.md). Existing accounts,
+profiles, queues, subscriptions, provider settings, media paths and Storage
+Autopilot state remain compatible. Back up at least `.env`, `data/` and
+`runtime/` before upgrading.
 
 ## v1.6.0 – 2026-10-04
 
