@@ -498,7 +498,7 @@ text = path.read_text(encoding="utf-8")
 if 'name="lbl_royal_downloader"' not in text:
     text = text.replace(
         '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin Debug</string>',
-        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD 0.3</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
+        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD 0.4</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
         1,
     )
 path.write_text(text, encoding="utf-8")
