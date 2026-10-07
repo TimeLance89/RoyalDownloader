@@ -260,3 +260,84 @@
   .media-modal .series-detail-panel > .series-action-bar { z-index: auto; }
   .series-probe-progress { scroll-margin-top: 80px; scroll-margin-bottom: 112px; }
 }
+
+
+/* Personal wishes share the detail action grid and keep feedback in its own row. */
+@media (max-width: 820px) {
+  .media-modal #fp-detail-save,
+  .media-modal #series-save {
+    grid-area: saved;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .media-modal :is(.detail-head-actions, .series-action-bar) .saved-media-note {
+    width: 100%;
+    box-sizing: border-box;
+    justify-self: stretch;
+    grid-area: saved-note;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 2px;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .media-modal .detail-body .detail-head-actions:has(#fp-detail-save) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "download trailer"
+      "subscribe subscribe"
+      "saved saved"
+      "saved-note saved-note"
+      "taste taste"
+      "availability jellyfin"
+      "feedback feedback";
+  }
+
+  .media-modal .series-action-bar:has(#series-save) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "watch trailer"
+      "saved saved"
+      "saved-note saved-note"
+      "taste taste"
+      "jellyfin jellyfin";
+  }
+
+  .media-modal .series-action-bar:has(#series-save) .series-jellyfin-status {
+    grid-area: jellyfin;
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .media-modal .detail-body .detail-head-actions:has(#fp-detail-save) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "download"
+      "trailer"
+      "subscribe"
+      "saved"
+      "saved-note"
+      "taste"
+      "availability"
+      "jellyfin"
+      "feedback";
+  }
+
+  .media-modal .series-action-bar:has(#series-save) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "watch"
+      "saved"
+      "saved-note"
+      "taste"
+      "trailer"
+      "jellyfin";
+  }
+}
