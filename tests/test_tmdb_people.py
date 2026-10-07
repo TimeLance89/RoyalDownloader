@@ -21,6 +21,7 @@ def test_credits_preserve_movie_tv_identity_and_merge_roles(monkeypatch):
     assert len(person["credits"]) == 2
     film, series = person["credits"]
     assert film["roles"] == ["First", "Second", "Producer"]
+    assert film["characters"] == ["First", "Second"]
     assert film["departments"] == ["Acting", "Production"]
     assert film["year"] == "2023"
     assert series["year"] == "1999"

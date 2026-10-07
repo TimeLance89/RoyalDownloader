@@ -10,6 +10,8 @@
 - Add known-work highlights, richer profile facts, recent profiles, release-year,
   department and Jellyfin filters, and checked movie selections that survive filtering.
 - Bound initial filmography rendering and reveal additional works on demand.
+- Use compact portrait posters for "Known for", ranked by vote count within the
+  person's primary department; prefer acting roles over self/archival appearances.
 - Check and select filmography movies for batch downloads using existing source,
   release-date and Jellyfin safeguards; open series in their episode selector.
 

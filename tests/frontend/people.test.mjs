@@ -29,8 +29,31 @@ test("advanced filters distinguish roles, release dates and ambiguous library st
   assert.equal(filterCredits(credits, { role: "all", sort: "newest" }).at(-1), credits[2]);
   assert.equal(filterCredits(credits, { role: "all", sort: "oldest" }).at(-1), credits[2]);
   assert.deepEqual(filterCredits(credits, { role: "all", sort: "rating" }), [credits[2], credits[0], credits[1]], "a single vote cannot outrank established ratings");
-  assert.deepEqual(highlights(credits), [credits[2], credits[0]], "unreleased titles never lead the profile");
+  assert.deepEqual(highlights(credits), [credits[2]], "unreleased titles and other departments never lead an acting profile");
   assert.equal(filmCandidate(credits[0], statuses, new Set()), false);
   assert.equal(filmCandidate({ ...credits[1], media_type: "movie" }, statuses, new Set()), false);
   assert.equal(filmCandidate({ ...credits[2], slug: "tmdb:2" }, statuses, new Set(["tmdb:2"])), false);
+});
+
+test("known for favors established acting works over popular self appearances", () => {
+  const work = (id, title, extra = {}) => ({ tmdb_id: id, media_type: "movie", title, cover_url: "poster", departments: ["Acting"], characters: ["Character"], ...extra });
+  const forrest = work(1, "Forrest Gump", { vote_count: 28000, popularity: 20 });
+  const toy = work(2, "Toy Story", { vote_count: 21000, characters: ["Woody (voice)"] });
+  const simpsons = work(3, "The Simpsons", { media_type: "tv", vote_count: 10000, characters: ["Self (voice)"] });
+  const talk = work(4, "Late Night", { media_type: "tv", popularity: 10000, vote_count: 100, characters: ["Self"], roles: ["Self", "Producer"] });
+  const archive = work(5, "Archive", { vote_count: 50000, characters: ["Tom (archive footage)"] });
+  const production = work(6, "Produced film", { vote_count: 100000, departments: ["Production"] });
+  const upcoming = work(7, "Future", { release_date: "2099-01-01", vote_count: 100000 });
+  assert.deepEqual(highlights([talk, simpsons, archive, production, upcoming, toy, forrest, forrest]), [forrest, toy]);
+  assert.deepEqual(highlights([talk, simpsons]), [simpsons, talk], "presenters retain self credits when those are their body of work");
+});
+
+test("known for respects directors, TV actors and distinct movie/TV identities", () => {
+  const work = (id, media_type, title, departments, votes) => ({ tmdb_id: id, media_type, title, departments, vote_count: votes, cover_url: "poster" });
+  const directed = work(1, "movie", "Directed", ["Directing"], 100);
+  const series = work(1, "tv", "Defining series", ["Acting"], 20000);
+  const movie = work(1, "movie", "Acted", ["Acting"], 10000);
+  assert.deepEqual(highlights([directed, movie, series], "Directing"), [directed]);
+  assert.deepEqual(highlights([movie, series]), [series, movie], "TV is not demoted and equal numeric IDs stay separate");
+  assert.deepEqual(highlights([{ ...movie, cover_url: "" }]), []);
 });

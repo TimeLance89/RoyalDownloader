@@ -79,12 +79,14 @@ class TMDBPeopleMixin:
                         "rating": credit.get("vote_average", 0),
                         "vote_count": credit.get("vote_count", 0),
                         "popularity": credit.get("popularity", 0),
-                        "roles": [], "departments": [],
+                        "roles": [], "characters": [], "departments": [],
                     })
                     role = credit.get("character") if kind == "cast" else credit.get("job")
                     department = "Acting" if kind == "cast" else credit.get("department", "Crew")
                     if role and role not in item["roles"]:
                         item["roles"].append(role)
+                    if kind == "cast" and role and role not in item["characters"]:
+                        item["characters"].append(role)
                     if department not in item["departments"]:
                         item["departments"].append(department)
             return {**_person(row), "biography": row.get("biography", ""),

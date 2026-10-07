@@ -34,6 +34,26 @@ export function filmCandidate(item, statuses, queued, today) {
   return item.media_type === "movie" && !isUpcoming(item, today)
     && statuses.get(creditKey(item)) !== "owned" && !queued.has(item.slug);
 }
-export function highlights(credits) {
-  return filterCredits(credits, { role: "all" }).filter(item => !isUpcoming(item) && item.cover_url).slice(0, 6);
+export function highlights(credits, department = "Acting") {
+  const eligible = credits.filter(item => !isUpcoming(item) && item.cover_url);
+  const primary = eligible.filter(item => (item.departments || []).includes(department));
+  let candidates = primary.length ? primary : eligible;
+  if (department === "Acting") {
+    // A show's popularity describes the whole show, not this person's guest role.
+    // Prefer characters over self/archival appearances, retaining self credits
+    // when those are the person's actual body of work (e.g. a presenter).
+    const acting = candidates.filter(item => {
+      const characters = item.characters || item.roles || [];
+      return !characters.length || characters.some(role =>
+        !/^(?:self|himself|herself|themself|themselves|sich selbst|er selbst|sie selbst)\b|\b(?:archive footage|archival footage|archivmaterial)\b/i.test(role.trim()));
+    });
+    if (acting.length) candidates = acting;
+  }
+  const ordered = candidates.slice().sort((a, b) =>
+    Number(b.vote_count || 0) - Number(a.vote_count || 0)
+    || Number(b.rating || 0) - Number(a.rating || 0)
+    || a.title.localeCompare(b.title));
+  const unique = new Map();
+  for (const item of ordered) if (!unique.has(creditKey(item))) unique.set(creditKey(item), item);
+  return [...unique.values()].slice(0, 8);
 }
