@@ -74,6 +74,7 @@ class JellyfinFixture:
         self.library = {A: [], B: []}
         self.playlists = {}
         self.owners = {}
+        self.playlist_users = {}
         self.writes = []
         self.fail = False
 
@@ -83,19 +84,20 @@ class JellyfinFixture:
     def saved_server_id(self):
         return UUID(int=400).hex
 
-    def create_saved_playlist(self, user):
-        playlist = UUID(int=100 + len(self.playlists)).hex
-        self.playlists[playlist] = {"ItemIds": [], "OpenAccess": False, "Shares": []}
+    def create_saved_playlist(self, user, ids=()):
+        playlist = UUID(int=100 + len(self.writes)).hex
+        self.playlists[playlist] = {"ItemIds": list(ids), "OpenAccess": False, "Shares": []}
         self.owners[user] = playlist
+        self.playlist_users[playlist] = user
+        self.writes.append((user, list(ids)))
         return playlist
 
-    def saved_playlist(self, identity):
+    def saved_playlist(self, identity, user):
+        assert self.playlist_users[identity] == user
         return deepcopy(self.playlists[identity])
 
-    def replace_saved_playlist(self, identity, user, ids):
-        assert identity == self.owners[user]
-        self.writes.append((user, list(ids)))
-        self.playlists[identity] = {"ItemIds": list(ids), "OpenAccess": False, "Shares": []}
+    def delete_saved_playlist(self, identity):
+        self.playlists.pop(identity, None)
 
 
 def test_sync_is_user_scoped_delayed_idempotent_and_retries_outages(tmp_path):
@@ -119,13 +121,14 @@ def test_sync_is_user_scoped_delayed_idempotent_and_retries_outages(tmp_path):
     assert sync.status(profiles[0])["state"] == "error"
     jf.fail = False
     # Removal and remapping clear the old private list, without moving other users' wishes.
+    old = jf.owners[A]
     profiles[0]["jellyfin_user_id"] = B
     sync.run()
-    assert jf.playlists[jf.owners[A]]["ItemIds"] == []
+    assert old not in jf.playlists
     assert jf.playlists[jf.owners[B]]["ItemIds"] == [MOVIE]
     store.set("a", "movie", 7, "Film", False)
     sync.run()
-    assert jf.playlists[jf.owners[B]]["ItemIds"] == []
+    assert jf.owners[B] not in jf.playlists
 
 
 def test_unlinked_wishes_wait_and_mapping_changes_during_scan_cancel_writes(tmp_path):
@@ -174,9 +177,9 @@ def test_native_playlist_is_video_private_and_has_unique_profile_name(monkeypatc
         calls.append((method, path, body))
         return {"Id": UUID(int=100).hex}
     monkeypatch.setattr(client, "_saved_request", request)
-    playlist = client.create_saved_playlist(A)
-    client.replace_saved_playlist(playlist, A, [MOVIE])
+    client.create_saved_playlist(A, [MOVIE])
     assert calls[0][2]["UserId"] == A
+    assert calls[0][2]["Ids"] == [MOVIE]
     assert calls[0][2]["MediaType"] == "Video"
     assert all(call[2]["IsPublic"] is False and call[2]["Users"] == [] for call in calls)
     assert playlist_name(A) != playlist_name(B)
@@ -232,10 +235,10 @@ def test_deleting_native_playlist_recreates_it_without_losing_wishes(tmp_path):
     sync.run()
     old = jf.owners[A]
     original_read = jf.saved_playlist
-    def missing(identity):
+    def missing(identity, user):
         if identity == old:
             raise HTTPError(response=SimpleNamespace(status_code=404))
-        return original_read(identity)
+        return original_read(identity, user)
     jf.saved_playlist = missing
     sync.run()
     sync.run()
@@ -259,7 +262,7 @@ def test_disabled_profile_removes_managed_contents_and_reasserts_privacy(tmp_pat
     assert jf.playlists[jf.owners[A]]["Shares"] == []
     profile["enabled"] = False
     sync.run()
-    assert jf.playlists[jf.owners[A]]["ItemIds"] == []
+    assert jf.owners[A] not in jf.playlists
 
 
 def test_server_url_change_reuses_stable_binding_and_guid_format_does_not_trigger_writes(tmp_path):
@@ -276,3 +279,87 @@ def test_server_url_change_reuses_stable_binding_and_guid_format_does_not_trigge
     sync.run()
     assert jf.owners[A] == playlist
     assert len(jf.playlists) == len(jf.writes) == 1
+
+
+def test_api_key_transport_only_uses_explicit_owner_creation_and_item_reads(monkeypatch):
+    client = JellyfinClient("http://jellyfin.test", "dashboard-key")
+    identity = UUID(int=100).hex
+    calls = []
+    def request(method, path, body=None, params=None):
+        calls.append((method, path, body, params))
+        if method == "POST" and path == "/Playlists":
+            assert body["UserId"] == A and body["Ids"] == [MOVIE]
+            assert body["IsPublic"] is False and body["Users"] == []
+            return {"Id": identity}
+        if method == "GET" and path == f"/Playlists/{identity}/Items":
+            assert params["UserId"] == A
+            return {"Items": [{"Id": MOVIE}], "TotalRecordCount": 1}
+        raise AssertionError("Owner-only playlist metadata routes do not accept dashboard API keys")
+    monkeypatch.setattr(client, "_saved_request", request)
+    assert client.saved_playlist(client.create_saved_playlist(A, [MOVIE]), A)["ItemIds"] == [MOVIE]
+    assert len(calls) == 2
+
+
+def test_pending_wishes_never_create_empty_native_playlists(tmp_path):
+    store = SavedMediaStore(tmp_path / "saved.json")
+    store.set("a", "movie", 7, "Film", True)
+    jf = JellyfinFixture()
+    sync = SavedMediaSync(store, lambda: jf, lambda: [{"id": "a", "enabled": True, "jellyfin_user_id": A}])
+    sync.run()
+    sync.run()
+    assert not jf.playlists and not jf.writes
+    assert len(store.items("a")) == 1
+
+
+def test_legacy_empty_binding_migrates_to_populated_private_generation(tmp_path):
+    store = SavedMediaStore(tmp_path / "saved.json")
+    store.set("a", "movie", 7, "Film", True)
+    jf = JellyfinFixture()
+    old = jf.create_saved_playlist(A)
+    store.bind(jf.saved_server_id(), A, old)
+    jf.library[A] = [movie()]
+    sync = SavedMediaSync(store, lambda: jf, lambda: [{"id": "a", "enabled": True, "jellyfin_user_id": A}])
+    sync.run()
+    binding = store.snapshot()["playlists"][jf.saved_server_id()][A]
+    assert binding != old and old not in jf.playlists
+    assert jf.playlists[binding] == {"ItemIds": [MOVIE], "OpenAccess": False, "Shares": []}
+    assert store.snapshot()["playlist_protocols"][jf.saved_server_id()][A] == 1
+
+
+def test_retired_cleanup_survives_restart_and_does_not_delete_active_list(tmp_path):
+    store = SavedMediaStore(tmp_path / "saved.json")
+    store.set("a", "movie", 7, "Film", True)
+    jf = JellyfinFixture()
+    jf.library[A] = [movie()]
+    profiles = lambda: [{"id": "a", "enabled": True, "jellyfin_user_id": A}]
+    sync = SavedMediaSync(store, lambda: jf, profiles)
+    sync.run()
+    old = jf.owners[A]
+    jf.library[A] = [movie(Id=UUID(int=13).hex)]
+    original_delete = jf.delete_saved_playlist
+    jf.delete_saved_playlist = Mock(side_effect=OSError("temporary outage"))
+    sync.run()
+    active = jf.owners[A]
+    assert active != old and old in store.snapshot()["retired_playlists"][jf.saved_server_id()]
+    jf.delete_saved_playlist = original_delete
+    restored = SavedMediaStore(store.path)
+    SavedMediaSync(restored, lambda: jf, profiles).run()
+    assert old not in jf.playlists and active in jf.playlists
+    assert not restored.snapshot()["retired_playlists"][jf.saved_server_id()]
+
+
+def test_failed_publication_keeps_previous_binding_and_cleans_replacement(tmp_path, monkeypatch):
+    store = SavedMediaStore(tmp_path / "saved.json")
+    store.set("a", "movie", 7, "Film", True)
+    jf = JellyfinFixture()
+    jf.library[A] = [movie()]
+    profiles = lambda: [{"id": "a", "enabled": True, "jellyfin_user_id": A}]
+    sync = SavedMediaSync(store, lambda: jf, profiles)
+    sync.run()
+    old = jf.owners[A]
+    jf.library[A] = [movie(Id=UUID(int=13).hex)]
+    monkeypatch.setattr(store, "bind", Mock(side_effect=OSError("disk full")))
+    sync.run()
+    assert store.snapshot()["playlists"][jf.saved_server_id()][A] == old
+    assert list(jf.playlists) == [old]
+    assert sync.status(profiles()[0])["state"] == "error"

@@ -82,12 +82,47 @@ class SavedMediaSync:
         with self.lock:
             return dict(self.statuses.get(key, {"state": "pending", "ready": []}))
 
+    def _cleanup_retired(self, client, server):
+        snapshot = self.store.snapshot()
+        active = set(snapshot.get("playlists", {}).get(server, {}).values())
+        for identity in snapshot.get("retired_playlists", {}).get(server, []):
+            if self.stopped or identity in active:
+                continue
+            try:
+                client.delete_saved_playlist(identity)
+            except Exception as exc:
+                if getattr(getattr(exc, "response", None), "status_code", None) != 404:
+                    logger.warning("Alte RD-Merkliste konnte nicht entfernt werden")
+                    continue
+            self.store.forget_retired_playlist(server, identity)
+
+    def _publish(self, client, server, user, ids, document, profiles):
+        # Publish populated, private generations. Owner-only update endpoints
+        # cannot be called with Jellyfin's dashboard API key.
+        replacement = client.create_saved_playlist(user, ids) if ids else ""
+        try:
+            if replacement:
+                actual = client.saved_playlist(replacement, user)
+                if sorted(jellyfin_id(value) for value in actual["ItemIds"]) != ids:
+                    raise RuntimeError("Jellyfin did not publish the expected saved contents")
+            current = self.client()
+            if (self.stopped or self.store.snapshot()["wishes"] != document["wishes"]
+                    or self.profiles() != profiles
+                    or (current.base_url, current.api_key) != (client.base_url, client.api_key)):
+                self.request()
+                raise RuntimeError("Personal Jellyfin profile changed during publication")
+            self.store.bind(server, user, replacement, protocol=1)
+        except Exception:
+            if replacement:
+                client.delete_saved_playlist(replacement)
+            raise
+
     def run(self):
         client = self.client()
         if not client.configured:
             return
         document = self.store.snapshot()
-        if not document["wishes"] and not document.get("playlists"):
+        if not document["wishes"] and not document.get("playlists") and not document.get("retired_playlists"):
             return
         try:
             server = client.saved_server_id()
@@ -97,6 +132,7 @@ class SavedMediaSync:
                 self.statuses = {key: {"state": "error", "ready": []} for key in self.statuses}
             return
         bindings = document.get("playlists", {}).get(server, {})
+        self._cleanup_retired(client, server)
         grouped = {}
         profiles = self.profiles()
         for profile in profiles:
@@ -125,29 +161,25 @@ class SavedMediaSync:
                         or (current_client.base_url, current_client.api_key) != (client.base_url, client.api_key)):
                     self.request()
                     return
-                if not playlist:
-                    playlist = client.create_saved_playlist(jf_user)
+                existing = {"ItemIds": []}
+                if playlist:
                     try:
-                        self.store.bind(server, jf_user, playlist)
-                    except OSError:
-                        client.delete_saved_playlist(playlist)
-                        raise
-                try:
-                    existing = client.saved_playlist(playlist)
-                except Exception as exc:
-                    if getattr(getattr(exc, "response", None), "status_code", None) != 404:
-                        raise
-                    self.store.bind(server, jf_user, "")
-                    self.request()
-                    continue
+                        existing = client.saved_playlist(playlist, jf_user)
+                    except Exception as exc:
+                        if getattr(getattr(exc, "response", None), "status_code", None) != 404:
+                            raise
+                        existing = {"ItemIds": [], "Missing": True}
                 current_client = self.client()
                 if (self.stopped or self.profiles() != profiles or self.store.snapshot()["wishes"] != document["wishes"]
                         or (current_client.base_url, current_client.api_key) != (client.base_url, client.api_key)):
                     self.request()
                     return
-                if (sorted(jellyfin_id(item_id) for item_id in existing.get("ItemIds") or []) != desired
-                        or existing.get("OpenAccess") is not False or existing.get("Shares")):
-                    client.replace_saved_playlist(playlist, jf_user, desired)
+                legacy = document.get("playlist_protocols", {}).get(server, {}).get(jf_user) != 1
+                if ((playlist and (legacy or not desired or existing.get("Missing")))
+                        or sorted(jellyfin_id(item_id) for item_id in existing.get("ItemIds") or []) != desired
+                        or existing.get("OpenAccess") is True or existing.get("Shares")):
+                    self._publish(client, server, jf_user, desired, document, profiles)
+                    self._cleanup_retired(client, server)
                 status = {"state": "synced", "ready": [f"{kind}:{identity}" for kind, identity in resolved]}
             except Exception:
                 logger.warning("Persönliche Jellyfin-Merkliste konnte nicht synchronisiert werden", exc_info=True)
