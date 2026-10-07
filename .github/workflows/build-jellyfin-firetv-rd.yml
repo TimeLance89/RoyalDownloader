@@ -1,6 +1,12 @@
 name: Build Jellyfin RD Fire TV
 
 on:
+  pull_request:
+    branches:
+      - experiment/jellyfin-firetv-rd
+    paths:
+      - "tools/jellyfin-firetv-rd/**"
+      - ".github/workflows/build-jellyfin-firetv-rd.yml"
   workflow_dispatch:
   push:
     branches:
@@ -45,6 +51,10 @@ jobs:
       - name: Build debug APK
         working-directory: jellyfin
         run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Verify personal watchlist policy
+        working-directory: jellyfin
+        run: ./gradlew :app:testDebugUnitTest --tests 'org.jellyfin.androidtv.ui.home.RoyalWatchlistPolicyTests'
 
       - name: Collect APK
         run: |
