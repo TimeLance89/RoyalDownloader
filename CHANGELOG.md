@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Mobile details
+
+- Align the personal watchlist button with movie and series actions on phones;
+  keep its feedback separate from Jellyfin status and prevent implicit columns.
+
 ### Download language
 
 - Keep German subtitles out of German audio downloads and provider fallbacks.

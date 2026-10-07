@@ -2,8 +2,9 @@ const assert = require('node:assert/strict');
 const { fixture } = require('./performance-fixture.cjs');
 
 (async () => {
-  for (const mobile of [false, true]) {
-    const run = await fixture({ mobile, engine: process.env.ROYAL_BROWSER || 'chromium', viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
+  for (const width of [1440, 320, 390, 430, 768, 820]) {
+    const mobile = width <= 820;
+    const run = await fixture({ mobile, engine: process.env.ROYAL_BROWSER || 'chromium', viewport: { width, height: mobile ? 844 : 1000 } });
     const { page, errors } = run;
     try {
       let owner = 'a', failWrite = false, delayRead = false, releaseRead;
@@ -39,18 +40,45 @@ const { fixture } = require('./performance-fixture.cjs');
         await page.waitForFunction(() => !document.getElementById('fp-detail-save').disabled);
       };
       const close = () => page.evaluate(() => fixtureApp.core.actions.closeMediaModal('fp-detail-modal'));
+      const checkActionLayout = async (selector, buttonId) => {
+        if (!mobile) return;
+        const layout = await page.locator(selector).evaluate((bar, id) => {
+          const bounds = bar.getBoundingClientRect();
+          const styles = getComputedStyle(bar);
+          const controls = [...bar.children].filter(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && getComputedStyle(element).position !== 'fixed';
+          }).map(element => {
+            const rect = element.getBoundingClientRect();
+            return { id: element.id || element.className, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+          });
+          const button = document.getElementById(id).getBoundingClientRect();
+          return { controls, left: bounds.left, right: bounds.right,
+            innerWidth: bounds.width - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight)
+              - parseFloat(styles.borderLeftWidth) - parseFloat(styles.borderRightWidth),
+            buttonWidth: button.width, buttonHeight: button.height };
+        }, buttonId);
+        assert.ok(Math.abs(layout.buttonWidth - layout.innerWidth) < 2, `save button fills the action row at ${width}px`);
+        assert.ok(layout.buttonHeight >= 44, 'save button keeps a touch-sized target');
+        for (const [index, control] of layout.controls.entries()) {
+          assert.ok(control.left >= layout.left - 1 && control.right <= layout.right + 1, `${control.id} fits its action bar at ${width}px`);
+          for (const other of layout.controls.slice(index + 1)) {
+            const overlap = Math.min(control.right, other.right) - Math.max(control.left, other.left) > 1
+              && Math.min(control.bottom, other.bottom) - Math.max(control.top, other.top) > 1;
+            assert.equal(overlap, false, `${control.id} and ${other.id} must not overlap at ${width}px`);
+          }
+        }
+      };
       await open(7);
+      await checkActionLayout('.detail-head-actions', 'fp-detail-save');
       await page.locator('#fp-detail-save').click();
       await page.waitForFunction(() => document.getElementById('fp-detail-save').textContent === 'Gemerkt ✓');
       assert.match(await page.locator('#fp-detail-save-note').textContent(), /sobald verfügbar/);
-      if (mobile) {
-        const savedBounds = await page.locator('#fp-detail-save').boundingBox();
-        assert.ok(savedBounds.width > 300 && savedBounds.x >= 0 && savedBounds.x + savedBounds.width <= 390, 'mobile save button spans its row without overflowing');
-      }
+      await checkActionLayout('.detail-head-actions', 'fp-detail-save');
       assert.equal(writes[0].media_type, 'movie');
       assert.equal(writes[0].tmdb_id, 7);
       assert.equal(Object.hasOwn(writes[0], 'jellyfin_user_id'), false);
-      if (process.env.ROYAL_PEOPLE_SCREENSHOTS) await page.screenshot({ path: `${process.env.ROYAL_PEOPLE_SCREENSHOTS}/saved-movie-${mobile ? 'mobile' : 'desktop'}.png` });
+      if (process.env.ROYAL_PEOPLE_SCREENSHOTS) await page.screenshot({ path: `${process.env.ROYAL_PEOPLE_SCREENSHOTS}/saved-movie-${width}.png` });
       await close(); await open(7);
       assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'true');
       owner = 'b'; await close(); await open(7);
@@ -59,15 +87,20 @@ const { fixture } = require('./performance-fixture.cjs');
       await page.locator('#fp-detail-save').click();
       await page.waitForFunction(() => document.getElementById('fp-detail-save-note').textContent.includes('nicht geändert'));
       assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'false', 'failed writes never paint a saved state');
+      await checkActionLayout('.detail-head-actions', 'fp-detail-save');
       failWrite = false;
       owner = 'a'; await close();
       await page.evaluate(() => { void fixtureApp.discovery.seriesActions.loadSeries({ base_slug: 'people-tmdb:7', sample_slug: 'people-tmdb:7', tmdb_id: 7, title: 'Series 7' }); });
       await page.waitForFunction(() => !document.getElementById('series-save').disabled && document.getElementById('series-detail-title').textContent === 'Series 7');
       assert.equal(await page.locator('#series-save').getAttribute('aria-pressed'), 'false', 'equal numeric film and TV identities are distinct');
+      await checkActionLayout('.series-action-bar', 'series-save');
       await page.locator('#series-save').click();
       await page.waitForFunction(() => document.getElementById('series-save').textContent === 'Gemerkt ✓');
+      await checkActionLayout('.series-action-bar', 'series-save');
+      await page.locator('#series-detail-trailer').evaluate(button => { button.hidden = false; });
+      await checkActionLayout('.series-action-bar', 'series-save');
       assert.equal(await page.locator('#series-detail-modal').evaluate(el => el.scrollWidth <= el.clientWidth), true, 'series save controls fit the detail');
-      if (process.env.ROYAL_PEOPLE_SCREENSHOTS) await page.screenshot({ path: `${process.env.ROYAL_PEOPLE_SCREENSHOTS}/saved-series-${mobile ? 'mobile' : 'desktop'}.png` });
+      if (process.env.ROYAL_PEOPLE_SCREENSHOTS) await page.screenshot({ path: `${process.env.ROYAL_PEOPLE_SCREENSHOTS}/saved-series-${width}.png` });
       await page.evaluate(() => fixtureApp.core.actions.closeMediaModal('series-detail-modal'));
       await open(7); await page.locator('#fp-detail-save').click();
       await page.waitForFunction(() => document.getElementById('fp-detail-save').getAttribute('aria-pressed') === 'false');
@@ -82,7 +115,7 @@ const { fixture } = require('./performance-fixture.cjs');
       assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'false', 'late responses cannot overwrite the next title');
       assert.deepEqual(queue, [], 'saving a wish never queues downloads');
       assert.deepEqual(errors, []);
-      console.log(`Personal saved media ${mobile ? 'mobile' : 'desktop'} passed`);
+      console.log(`Personal saved media ${width}px passed`);
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
