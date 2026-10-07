@@ -123,12 +123,15 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.evaluate(() => fixtureApp.core.actions.switchTab("einstellungen"));
       await monitor.waitFor({ state: "visible" });
       await page.evaluate(() => {
-        // Capture the real scoped poll without waiting 15 seconds or replacing
-        // its callback. Lifecycle remount also verifies listener ownership.
+        // Drive the real scoped poll explicitly below. Leaving its 15s timer
+        // active lets slower WebKit workers re-render a disclosure mid-click.
         fixtureApp.settings.providers.settings.unmount();
         const original = window.setInterval;
         window.setInterval = (callback, delay, ...args) => {
-          if (delay === 15000) window.sentinelPoll = callback;
+          if (delay === 15000) {
+            window.sentinelPoll = callback;
+            return 0;
+          }
           return original(callback, delay, ...args);
         };
         try { fixtureApp.settings.providers.settings.mount(); }
