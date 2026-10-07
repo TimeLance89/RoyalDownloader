@@ -27,7 +27,7 @@ REDIRECT_MARKER = "/redirect/"
 TRACK_LANGUAGE_IDS = {"dub": "1", "eng": "2", "sub": "3"}
 TRACK_LABELS = {
     "dub": "Deutsch Dub",
-    "sub": "Deutsch Sub",
+    "sub": "Japanisch (deutsche Untertitel)",
     "eng": "Englisch",
 }
 
@@ -460,10 +460,10 @@ class AniWorldScraper:
                     latest_episode=int(episode_raw),
                 )
             entry = entries[slug]
-            sources = " ".join(
-                str(image.get("src") or image.get("data-src") or "")
+            sources = {
+                urlsplit(str(image.get("src") or image.get("data-src") or "")).path.rsplit("/", 1)[-1].casefold()
                 for image in row.select("img.flag")
-            ).casefold()
+            }
             for track, marker in (
                 ("dub", "german.svg"),
                 ("sub", "japanese-german.svg"),
@@ -648,9 +648,10 @@ class AniWorldScraper:
             seen.add(number)
             title_node = row.select_one(".seasonEpisodeTitle strong")
             original_node = row.select_one(".seasonEpisodeTitle span")
-            sources = " ".join(
-                str(image.get("src") or "") for image in row.select("img.flag")
-            ).casefold()
+            sources = {
+                urlsplit(str(image.get("src") or "")).path.rsplit("/", 1)[-1].casefold()
+                for image in row.select("img.flag")
+            }
             tracks = tuple(
                 track
                 for track, marker in (

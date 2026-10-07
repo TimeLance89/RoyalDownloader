@@ -225,7 +225,7 @@ def _movie_content_language(
     fallback: str = "",
 ) -> str:
     explicit = normalize_content_language(hoster_language)
-    if explicit:
+    if str(hoster_language or "").strip():
         return explicit
     if movie is not None:
         stored = normalize_content_language(

@@ -1639,6 +1639,7 @@ async def api_aniworld_detail(
         available = {
             track: count for track, count in anime.translations.items()
             if provider_track_language("aniworld", track) in enabled_languages
+            or (track == "sub" and "de" in enabled_languages)
         }
         track = requested_track if requested_track in available else (
             "dub" if available.get("dub") else
@@ -1677,7 +1678,7 @@ async def api_aniworld_detail(
             "translation": track,
             "translation_labels": {track: label for track, label in {
                 "dub": "Deutsch Dub",
-                "sub": "Deutsch Sub",
+                "sub": "Japanisch · deutsche Untertitel",
                 "eng": "Englisch",
             }.items() if track in available},
             **episodes,

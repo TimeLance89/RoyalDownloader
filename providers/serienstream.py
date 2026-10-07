@@ -74,8 +74,8 @@ GENRES: Dict[str, str] = {
 }
 
 # Sprach-ID -> Anzeige-/Sortier-Label. 1 = Deutsch (Dub) bevorzugt,
-# 3 = Deutsch mit Untertitel, 2 = Englisch (Original) als letzter Fallback.
-LANG_LABEL = {"1": "Deutsch", "2": "Englisch", "3": "Deutsch (Untertitel)"}
+# 3 identifies German subtitles; it does not prove German audio.
+LANG_LABEL = {"1": "Deutsch", "2": "Englisch", "3": "Original (deutsche Untertitel)"}
 LANG_PRIORITY = {"1": 0, "3": 1, "2": 2}
 
 
@@ -518,8 +518,8 @@ class SerienstreamScraper:
                 continue
             provider = (btn.get("data-provider-name") or "").strip() or "Hoster"
             lang_id = str(btn.get("data-language-id") or "1")
-            language = (btn.get("data-language-label")
-                        or LANG_LABEL.get(lang_id, "")).strip()
+            language = (LANG_LABEL["3"] if lang_id == "3" else
+                        (btn.get("data-language-label") or LANG_LABEL.get(lang_id, ""))).strip()
             key = (provider.lower(), lang_id, play)
             if key in seen:
                 continue
