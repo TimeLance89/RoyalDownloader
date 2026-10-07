@@ -38,6 +38,8 @@ const { fixture } = require('./performance-fixture.cjs');
       });
       await page.evaluate(() => fixtureApp.core.actions.switchTab('personen'));
       await page.locator('#people-results button').first().waitFor();
+      assert.equal(await page.locator('#people-search').evaluate(el => getComputedStyle(el).borderRadius), '6px');
+      assert.equal(await page.locator('#people-search-form button').evaluate(el => getComputedStyle(el).borderRadius), '6px');
       await page.locator('#people-search').fill('Florence');
       await page.locator('#people-search-form button').click();
       await page.waitForFunction(() => document.getElementById('people-status').textContent.includes('Florence'));
