@@ -5,7 +5,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from application_services import series_catalog_cache
+from application_services import series_catalog_cache, series_payload
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -13,6 +13,8 @@ from application_services.runtime import (
 from features.monster_series_extension import parse_monster_virtual_episode
 
 globals().update(import_backend_namespace())
+
+series_payload_missing_seasons = series_payload.series_payload_missing_seasons
 
 # --- Serienanbieter ----------------------------------------------------------
 def _sto_get_series(value: str) -> Optional[FilmpalastSeries]:
@@ -785,25 +787,8 @@ def merge_series_snapshots(
         description=fresh.description or previous.description,
         genres=fresh.genres or previous.genres,
         seasons=seasons,
+        year=fresh.year or previous.year,
     )
-
-
-def series_payload_missing_seasons(payload: dict) -> set[int]:
-    """Erkennt laut TMDB existierende, im Provider-Snapshot fehlende Staffeln."""
-    expected: set[int] = set()
-    for season, count in (payload.get("season_episode_counts") or {}).items():
-        try:
-            number, episode_count = int(season), int(count or 0)
-        except (TypeError, ValueError):
-            continue
-        if number > 0 and episode_count > 0:
-            expected.add(number)
-    present = {
-        int(item.get("season") or 0)
-        for item in payload.get("seasons") or []
-        if int(item.get("season") or 0) > 0
-    }
-    return expected - present
 
 
 def movie_to_dict(

@@ -9,6 +9,7 @@ import math
 import re
 import threading
 import time
+import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
@@ -113,6 +114,22 @@ class AniWorldScraper:
     def _abs(value: str) -> str:
         return urljoin(f"{BASE_URL}/", str(value or "").strip())
 
+    def has_cached_catalog(self) -> bool:
+        return bool(self._catalog_cache and self._catalog_cache[1])
+
+    def search_cached(self, query: str, page: int = 1, limit: int = 22) -> dict:
+        """Search local titles without network probes or health observations."""
+        entries = self._search_catalog(query, self._catalog_cache[1] if self._catalog_cache else [])
+        page = max(1, int(page))
+        limit = max(1, min(50, int(limit)))
+        start = (page - 1) * limit
+        return {
+            "results": [entry.public_dict() for entry in entries[start:start + limit]],
+            "page": page,
+            "has_more": start + limit < len(entries),
+            "total": len(entries),
+        }
+
     def _soup(self, url: str) -> BeautifulSoup:
         response = self.session.get(url, timeout=25)
         response.raise_for_status()
@@ -169,7 +186,7 @@ class AniWorldScraper:
                 entries = self._parse_cards(container or soup)
             else:
                 entries = self._parse_cards(soup)
-        if mode != "catalog":
+        if mode not in {"catalog", "search"}:
             entries = entries[:limit]
             page = 1
         start = (page - 1) * limit
@@ -180,6 +197,8 @@ class AniWorldScraper:
             "has_more": start + limit < len(entries),
             "total": len(entries),
         }
+        if mode == "search" and self._catalog_cache and time.time() - self._catalog_cache[0] >= 900:
+            payload["notice"] = "Suche im gespeicherten AniWorld-Katalog. Die Quelle ist derzeit nicht erreichbar; Details können vorübergehend fehlen."
         if mode == "catalog":
             catalog = self._catalog()
             payload["facets"] = {
@@ -196,6 +215,28 @@ class AniWorldScraper:
         query = str(query or "").strip()
         if not query:
             return []
+        if self._catalog_cache:
+            return self._search_catalog(query, self._catalog(allow_stale=True))
+        try:
+            return self._remote_search(query)
+        except (requests.RequestException, RuntimeError, ValueError):
+            return self._search_catalog(query, self._catalog(allow_stale=True))
+
+    @staticmethod
+    def _search_catalog(query: str, entries: list[AniWorldAnime]) -> list[AniWorldAnime]:
+        def normalize(value):
+            value = unicodedata.normalize("NFKD", value).casefold()
+            return " ".join(re.sub(r"[^\w]+", " ", "".join(char for char in value if not unicodedata.combining(char))).split())
+        wanted = normalize(query).split()
+        return [entry for entry in entries if wanted and any(
+            all(word in normalize(title) for word in wanted)
+            for title in (entry.title, *entry.alternative_titles)
+        )]
+
+    def _remote_search(self, query: str) -> list[AniWorldAnime]:
+        query = str(query or "").strip()
+        if not query:
+            return []
         response = self.session.post(
             f"{BASE_URL}/ajax/search",
             data={"keyword": query},
@@ -208,7 +249,10 @@ class AniWorldScraper:
         response.raise_for_status()
         entries: list[AniWorldAnime] = []
         seen: set[str] = set()
-        for item in response.json() or []:
+        results = response.json()
+        if not isinstance(results, list) or any(not isinstance(item, dict) for item in results):
+            raise ValueError("AniWorld-Suche enthält keine verwertbare Antwort.")
+        for item in results:
             link = str(item.get("link") or "")
             match = re.fullmatch(r"/anime/stream/([a-z0-9-]+)", link)
             if not match or match.group(1) in seen:
@@ -229,13 +273,22 @@ class AniWorldScraper:
         for index, entry in enumerate(entries):
             if enriched := catalog.get(entry.id):
                 entries[index] = enriched
+        entries.extend(
+            entry for entry in self._search_catalog(query, list(catalog.values()))
+            if entry.id not in seen
+        )
         return entries
 
-    def _catalog(self) -> list[AniWorldAnime]:
+    def _catalog(self, allow_stale: bool = False) -> list[AniWorldAnime]:
         cached = self._catalog_cache
         if cached and time.time() - cached[0] < 900:
             return cached[1]
-        soup = self._soup(f"{BASE_URL}/animes")
+        try:
+            soup = self._soup(f"{BASE_URL}/animes")
+        except (requests.RequestException, RuntimeError, ValueError):
+            if allow_stale and cached:
+                return cached[1]
+            raise
         entries: dict[str, AniWorldAnime] = {}
         for group in soup.select("#seriesContainer .genre"):
             heading = group.select_one(".seriesGenreList h3")
@@ -261,6 +314,10 @@ class AniWorldScraper:
                     [*entry.alternative_titles, *alternatives]
                 ))
         result = sorted(entries.values(), key=lambda item: item.title.casefold())
+        if not result:
+            if allow_stale and cached:
+                return cached[1]
+            raise ValueError("AniWorld-Katalog enthält keine verwertbaren Einträge.")
         self._catalog_cache = (time.time(), result)
         return result
 

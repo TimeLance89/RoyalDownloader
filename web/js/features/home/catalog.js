@@ -31,10 +31,12 @@ export function createHomeCatalog({
   }
 
   function homeAnimeById(id) {
+    const aniworld = String(id).startsWith("aniworld:");
+    const wantedId = aniworld ? String(id).slice("aniworld:".length) : String(id);
     return [
       ...getAnimeResults(),
       ...getSearchResults().filter((entry) => entry.kind === "anime").map((entry) => entry.item),
-    ].find((item) => String(item.id) === String(id)) || null;
+    ].find((item) => String(item.id) === wantedId && (item.provider === "aniworld") === aniworld) || null;
   }
 
   function mediaJellyfinStatus(media) {
@@ -81,7 +83,7 @@ export function createHomeCatalog({
     if (entry.kind === "collection") return `collection:${entry.item.collection_id}`;
     const key = entry.kind === "movie"
       ? entry.item.slug
-      : entry.kind === "anime" ? entry.item.id : entry.item.base_slug;
+      : entry.kind === "anime" ? `${entry.item.provider === "aniworld" ? "aniworld:" : ""}${entry.item.id}` : entry.item.base_slug;
     return `${entry.kind}:${key}`;
   }
 

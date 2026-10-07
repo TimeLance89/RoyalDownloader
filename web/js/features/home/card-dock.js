@@ -374,7 +374,7 @@ export function createCardDock(root, {
     active.listen(details, "click", () => {
       hideHomeCardDock({ immediate: true });
       openHomeEntry(entry.kind, entry.kind === "movie" ? entry.item.slug
-        : entry.kind === "anime" ? entry.item.id : entry.item.base_slug);
+        : entry.kind === "anime" ? `${entry.item.provider === "aniworld" ? "aniworld:" : ""}${entry.item.id}` : entry.item.base_slug);
     });
     actions.appendChild(details);
 

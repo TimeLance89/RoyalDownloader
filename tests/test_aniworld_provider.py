@@ -1,4 +1,6 @@
 from pathlib import Path
+import time
+import pytest
 import asyncio
 import threading
 from types import SimpleNamespace
@@ -41,6 +43,88 @@ class _Session:
 
     def post(self, _url, **_kwargs):
         return _Response(json_body=[])
+
+
+def test_search_recovers_from_ajax_outage_using_catalog_and_aliases(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("Cloudflare 520")
+    monkeypatch.setattr(scraper.session, "post", unavailable)
+    monkeypatch.setattr(scraper, "_soup", lambda _url: BeautifulSoup('''
+        <div id="seriesContainer"><div class="genre">
+        <a href="/anime/stream/demon-slayer" data-alternative-title="Kimetsu no Yaiba">Demon Slayer</a>
+        </div></div>''', "html.parser"))
+    result = scraper.browse(mode="search", query="kimetsu yaiba")
+    assert [entry["id"] for entry in result["results"]] == ["demon-slayer"]
+    assert result["results"][0]["provider"] == "aniworld"
+
+
+def test_cached_search_paginates_without_ajax_requests(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    scraper._catalog_cache = (time.time(), [AniWorldAnime(id=f"test-{i}", title=f"Test {i}") for i in range(30)])
+    monkeypatch.setattr(scraper.session, "post", lambda *_args, **_kwargs: pytest.fail("cached search must not use AJAX"))
+    result = scraper.browse(mode="search", query="test", page=2, limit=22)
+    assert result["total"] == 30
+    assert result["page"] == 2
+    assert len(result["results"]) == 8
+
+
+def test_search_recovers_from_invalid_ajax_payload(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    monkeypatch.setattr(scraper.session, "post", lambda *_args, **_kwargs: _Response(json_body={"error": "upstream unavailable"}))
+    monkeypatch.setattr(scraper, "_catalog", lambda **_kwargs: [AniWorldAnime(id="bleach", title="Bleach")])
+    assert scraper.browse(mode="search", query="bleach")["results"][0]["id"] == "bleach"
+
+
+def test_cold_search_finds_catalog_alias_when_ajax_returns_no_match(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    monkeypatch.setattr(scraper, "_catalog", lambda: [AniWorldAnime(
+        id="demon-slayer", title="Demon Slayer", alternative_titles=["Kimetsu no Yaiba"],
+    )])
+    assert scraper.browse(mode="search", query="kimetsu yaiba")["results"][0]["id"] == "demon-slayer"
+
+
+@pytest.mark.parametrize("invalid_html", [False, True])
+def test_search_retains_stale_catalog_during_outage(monkeypatch, invalid_html):
+    scraper = AniWorldScraper(session=_Session({}))
+    scraper._catalog_cache = (time.time() - 1800, [AniWorldAnime(id="bleach", title="Bleach")])
+    def unavailable(_url):
+        if invalid_html:
+            return BeautifulSoup("<html>Cloudflare error</html>", "html.parser")
+        raise RuntimeError("Cloudflare 520")
+    monkeypatch.setattr(scraper, "_soup", unavailable)
+    result = scraper.browse(mode="search", query="bleach")
+    assert result["results"][0]["id"] == "bleach"
+    assert "gespeicherten" in result["notice"]
+    assert scraper.has_cached_catalog()
+
+
+def test_search_outage_without_any_catalog_is_not_reported_as_no_results(monkeypatch):
+    scraper = AniWorldScraper(session=_Session({}))
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("Cloudflare 520")
+    monkeypatch.setattr(scraper.session, "post", unavailable)
+    monkeypatch.setattr(scraper, "_soup", unavailable)
+    with pytest.raises(RuntimeError):
+        scraper.browse(mode="search", query="bleach")
+
+
+def test_cached_search_remains_available_during_provider_cooldown(monkeypatch):
+    import server  # noqa: F401 - register the application service backend
+    import api.api_discovery_router as discovery
+    scraper = AniWorldScraper(session=_Session({}))
+    scraper._catalog_cache = (time.time(), [AniWorldAnime(id="bleach", title="Bleach")])
+    monkeypatch.setattr(discovery, "state", SimpleNamespace(
+        provider_enabled={"anime": ["aniworld"]}, content_languages={"de"}, aniworld_lock=threading.RLock(),
+        provider_health=SimpleNamespace(routing_allowed=lambda _provider: False, status=lambda _provider: {"state": "degraded"}),
+    ))
+    monkeypatch.setattr(discovery, "get_aniworld_scraper", lambda: scraper)
+    monkeypatch.setattr(scraper, "browse", lambda **_kwargs: pytest.fail("cached search must not probe the offline provider"))
+    result = asyncio.run(discovery.api_aniworld(mode="search", query="bleach"))
+    assert result["results"][0]["id"] == "bleach"
+    assert "gespeicherten" in result["notice"]
+    discovery.state.provider_enabled["anime"] = []
+    assert asyncio.run(discovery.api_aniworld(mode="search", query="bleach"))["disabled"] is True
 
 
 def _detail_html():

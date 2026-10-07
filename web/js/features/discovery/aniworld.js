@@ -256,7 +256,7 @@ export function createAniworld(root, modal, {
     if (!append) cancelPosters();
     const request = createScope();
     cancelBrowse = view.add(() => request.dispose());
-    data.loading = true; data.loadError = "";
+    data.loading = true; data.loadError = ""; data.disabledReason = "";
     if (!append) data.results = [];
     const requestSeq = ++data.requestSeq;
     setAniworldMode(mode);
@@ -265,7 +265,7 @@ export function createAniworld(root, modal, {
     try {
       const response = await client.get(`/api/aniworld?${new URLSearchParams({ mode, query, page,
         letter: mode === "catalog" && data.letter !== "ALL" ? data.letter : "",
-        genre: mode === "catalog" ? data.genre : "" })}`, { signal: request.signal });
+        genre: mode === "catalog" ? data.genre : "" })}`, { signal: request.signal, ...(mode === "search" ? { timeoutMs: 60_000 } : {}) });
       if (!mounted.active || !request.active || requestSeq !== data.requestSeq) return;
       const appendFrom = append ? data.results.length : 0;
       const incoming = response.results || [];
@@ -277,7 +277,9 @@ export function createAniworld(root, modal, {
       data.total = Number(response.total) || 0; data.loaded = true;
       data.disabledReason = response.disabled || response.temporarily_unavailable ? response.disabled_reason : "";
       if (response.facets) data.facets = response.facets;
-      byId("aniworld-status").textContent = data.disabledReason || `${data.total.toLocaleString("de-DE")} Titel gefunden`;
+      byId("aniworld-status").textContent = data.disabledReason || [
+        `${data.total.toLocaleString("de-DE")} Titel gefunden`, response.notice,
+      ].filter(Boolean).join(" · ");
       if (mode === "catalog") renderAniworldFacets();
       renderAniworldResults(appendFrom);
       void hydrateAniworldPosters(incoming);
