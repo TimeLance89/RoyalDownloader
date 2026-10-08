@@ -8,6 +8,37 @@ from features.episode_source_probe import EpisodeSourceProbes
 from providers.models import FilmpalastMovie, HosterInfo
 
 
+@pytest.mark.parametrize("preferences,requested", [({}, ["de"]), ({"serienstream:chicago-pd": ["de"]}, ["en"])])
+def test_episode_probe_uses_requested_or_retained_language_instead_of_global_lanes(monkeypatch, preferences, requested):
+    import server  # noqa: F401
+    import api.api_discovery_router as discovery
+    import api.api_library_router as library
+    from features.episode_language_probe import EpisodeLanguageProbes
+
+    broker = EpisodeLanguageProbes(workers=1)
+    monkeypatch.setattr("features.episode_language_probe.language_probes", broker)
+    slug = "serienstream:chicago-pd-s13e07"
+    runtime = SimpleNamespace(content_languages={"de", "en"}, subscription_content_languages=preferences,
+        series_cache={})
+    monkeypatch.setattr(discovery, "state", runtime)
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
+    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *_args: ["en"])
+    monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda _values: None)
+    try:
+        # Warm the same episode with the global mixed language configuration.
+        first = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="serienstream", slugs=[slug])))
+        assert first["available"][slug] is (not preferences)
+        result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="serienstream", slugs=[slug], content_languages=requested)))
+        assert result["available"][slug] is False
+        assert result["languages"][slug] == ["en"]
+        assert result["selected_content_languages"] == ["de"]
+    finally:
+        broker.close()
+
+
 @pytest.mark.parametrize("fallback_language", ["en", "de", None])
 def test_primary_audio_evidence_and_fallback_progress_are_independent(monkeypatch, fallback_language):
     import server  # noqa: F401

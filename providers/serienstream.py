@@ -517,9 +517,10 @@ class SerienstreamScraper:
             if not play:
                 continue
             provider = (btn.get("data-provider-name") or "").strip() or "Hoster"
-            lang_id = str(btn.get("data-language-id") or "1")
-            language = (LANG_LABEL["3"] if lang_id == "3" else
-                        (btn.get("data-language-label") or LANG_LABEL.get(lang_id, ""))).strip()
+            lang_id = str(btn.get("data-language-id") or "").strip()
+            # IDs identify the audio track; labels can be stale or describe
+            # subtitles. Missing metadata never implies the default German dub.
+            language = (LANG_LABEL.get(lang_id) or btn.get("data-language-label") or "").strip()
             key = (provider.lower(), lang_id, play)
             if key in seen:
                 continue
@@ -535,7 +536,7 @@ class SerienstreamScraper:
         # aber diese Vor-Sortierung hält die Reihenfolge innerhalb gleicher
         # Scores stabil (Dub vor Sub vor Englisch).
         def sort_key(h: HosterInfo):
-            lang_id = "1"
+            lang_id = ""
             for k, v in LANG_LABEL.items():
                 if v == h.language:
                     lang_id = k

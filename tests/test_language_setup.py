@@ -116,6 +116,18 @@ def test_subscription_queue_contract_uses_its_retained_language(monkeypatch):
     assert server._ensure_queue_job(slug, movie)["content_language"] == "de"
 
 
+def test_manual_subscribed_episode_keeps_german_without_auto_download_attribute(monkeypatch):
+    base = "serienstream:chicago-pd"
+    movie = FilmpalastMovie("Chicago P.D. S13E07", f"{base}-s13e07", provider="serienstream",
+        hosters=[HosterInfo("VOE", "https://voe.test/en", "en")])
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    monkeypatch.setattr(server.state, "subscription_content_languages", {base: ["de"]})
+    monkeypatch.setattr(server.state, "watchlist", [{"base_slug": base, "title": "Chicago P.D."}])
+    monkeypatch.setattr(server.state, "queue_jobs", {})
+    monkeypatch.setattr(server.state, "queue_job_by_slug", {})
+    assert server._ensure_queue_job(f"{base}-s13e07", movie)["content_language"] == "de"
+
+
 def test_retained_subscription_can_still_reach_its_old_language_provider(monkeypatch):
     from application_services import movie_catalog
     from providers import sentinel_runtime

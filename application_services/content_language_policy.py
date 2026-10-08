@@ -26,6 +26,7 @@ from application_services.runtime import (
 from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, selected_episode_language
 from providers.models import FilmpalastSearchResult, parse_episode_slug
 from features.episode_language_policy import concrete_source_language
+from features.subscription_languages import subscription_content_languages
 
 
 globals().update(import_backend_namespace())
@@ -447,9 +448,19 @@ def _ensure_queue_job(slug: str, movie=None, *, job_id: str = ""):
             # are stronger evidence than the global DE/EN installation lanes.
             language = explicit_track
         else:
+            with state.watchlist_lock:
+                cached = state.series_cache.get(episode[0])
+                entry = watchlist_match_series(
+                    episode[0], getattr(cached, "title", "") or strip_episode_suffix(movie.title),
+                    tmdb_id=getattr(cached, "tmdb_id", ""), year=getattr(cached, "year", ""),
+                )
+                desired = subscription_content_languages(
+                    entry or {"base_slug": episode[0]}, state.content_languages,
+                    getattr(state, "subscription_content_languages", {}),
+                )
             selected = {
                 normalize_content_language(value)
-                for value in (getattr(movie, "_subscription_content_languages", None) or state.content_languages)
+                for value in (getattr(movie, "_subscription_content_languages", None) or desired)
                 if normalize_content_language(value)
             }
             offered = _source_languages(movie) & selected

@@ -22,6 +22,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from features.movie_releases import release_service, safe_image
+from features.subscription_languages import subscription_content_languages
 from providers.aniworld import aniworld_episode_page
 from providers.catalog import (
     normalize_content_language,
@@ -863,6 +864,7 @@ class SeriesEpisodeLanguagesBody(BaseModel):
     title: str = Field(default="", max_length=500)
     aliases: list[str] = Field(default_factory=list, max_length=12)
     tmdb_id: int | None = Field(default=None, gt=0)
+    content_languages: list[str] | None = Field(default=None, min_length=1, max_length=2)
 
 
 class SeriesJellyfinEpisodeBody(BaseModel):
@@ -1254,6 +1256,10 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
     if provider not in provider_priority("series"):
         raise HTTPException(409, f"{provider} ist in den Serienquellen deaktiviert.")
     slugs = list(dict.fromkeys(body.slugs))
+    if body.content_languages is not None and any(
+        value not in {"de", "en"} for value in body.content_languages
+    ):
+        raise HTTPException(400, "Unbekannte Downloadsprache.")
     if any(
         provider_for_value(slug) != provider or parse_episode_slug(slug) is None
         for slug in slugs
@@ -1273,13 +1279,17 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
 
         probe_progress.start(body.probe_id)
         languages, pending, source_providers = {}, [], {}
-        enabled = {normalize_content_language(value) for value in state.content_languages}
+        first_base = parse_episode_slug(slugs[0])[0]
+        preferences = getattr(state, "subscription_content_languages", {})
+        desired = subscription_content_languages(
+            {"base_slug": first_base}, body.content_languages or state.content_languages, preferences,
+        )
+        enabled = {normalize_content_language(value) for value in desired}
         enabled.discard("")
         active = tuple(provider_priority("series"))
         alternatives = tuple(key for key in active if key != provider and provider_supports_languages(key, enabled))
         # The catalog already loaded the real title; client context also covers
         # TMDB previews. Every fallback still requires an exact title/ID match.
-        first_base = parse_episode_slug(slugs[0])[0]
         series = getattr(state, "series_cache", {}).get(first_base)
         title = str(getattr(series, "title", "") or body.title).strip()
         deadline = time.monotonic() + EPISODE_PROBE_BUDGET_SECONDS
@@ -1368,7 +1378,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                 pending.append(slug)
         record_watchlist_episode_languages({slug: values for slug, values in languages.items() if values and slug not in pending})
         payload = {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
-                   "languages": languages}
+                   "languages": languages, "selected_content_languages": sorted(enabled)}
         if pending:
             payload["pending"] = list(dict.fromkeys(pending))
         if source_providers:

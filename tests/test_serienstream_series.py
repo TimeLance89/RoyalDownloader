@@ -134,3 +134,11 @@ def test_subtitle_language_id_overrides_misleading_german_label():
     assert dub.is_de
     assert not sub.is_de
     assert normalize_content_language(sub.language) == ""
+@pytest.mark.parametrize("attributes,expected", [
+    ('data-language-id="2" data-language-label="Deutsch"', "Englisch"),
+    ("", ""),
+])
+def test_episode_hoster_never_invents_german_audio(attributes, expected):
+    scraper = SerienstreamScraper(session=object())
+    soup = BeautifulSoup(f'<button data-play-url="/r?t=stream" {attributes}></button>', "html.parser")
+    assert scraper._extract_hosters(soup)[0].language == expected
