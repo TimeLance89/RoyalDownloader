@@ -3,7 +3,8 @@
 # ruff: noqa: F821
 
 from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
-from providers.catalog import provider_content_languages, selected_source_language_allowed
+from providers.catalog import selected_source_language_allowed
+from features.episode_language_policy import concrete_source_language
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -89,25 +90,11 @@ def _concrete_stream_language(
     provider: str,
     hoster_language: str = "",
 ) -> str:
-    explicit = normalize_content_language(hoster_language)
-    if str(hoster_language or "").strip():
-        # An unrecognized/subtitle-only label must not inherit catalog German.
-        return explicit
-
-    # A multi-language provider's primary/default language is a catalog hint,
-    # not proof that this exact title/episode/hoster has that audio track.
-    capabilities = tuple(
-        language for language in provider_content_languages(provider)
-        if normalize_content_language(language)
+    release_language = _title_release_language(getattr(movie, "title", ""))
+    return concrete_source_language(
+        provider, hoster_language, release_language or getattr(movie, "content_language", ""),
+        source_explicit=bool(release_language or getattr(movie, "_content_language_explicit", False)),
     )
-    stored = normalize_content_language(
-        str(getattr(movie, "content_language", "") or "")
-    )
-    if len(set(capabilities)) <= 1:
-        return stored or (normalize_content_language(capabilities[0]) if capabilities else "")
-    if bool(getattr(movie, "_content_language_explicit", False)):
-        return stored
-    return ""
 
 def _extract_from_movie(
     movie: FilmpalastMovie,

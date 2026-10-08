@@ -25,6 +25,7 @@ from application_services.runtime import (
 )
 from providers.catalog import normalize_content_language, provider_content_language, provider_content_languages, selected_episode_language
 from providers.models import FilmpalastSearchResult, parse_episode_slug
+from features.episode_language_policy import concrete_source_language
 
 
 globals().update(import_backend_namespace())
@@ -279,32 +280,22 @@ def _queue_requested_language(slug: str) -> str:
 
 def _source_languages(source) -> set[str]:
     provider = _movie_provider(source)
+    release_language = _title_release_language(getattr(source, "title", ""))
+    source_language = (
+        release_language
+        or str(getattr(source, "content_language", "") or "")
+    )
     languages = {
-        normalize_content_language(
+        concrete_source_language(
+            provider,
             getattr(hoster, "audio_language", "")
-            or getattr(hoster, "language", "")
+            or getattr(hoster, "language", ""),
+            source_language,
+            source_explicit=bool(release_language or getattr(source, "_content_language_explicit", False)),
         )
         for hoster in (getattr(source, "hosters", None) or [])
     }
     languages.discard("")
-
-    explicit = normalize_content_language(
-        _title_release_language(getattr(source, "title", ""))
-        or str(getattr(source, "content_language", "") or "")
-    )
-    capabilities = {
-        normalize_content_language(value)
-        for value in provider_content_languages(provider)
-        if normalize_content_language(value)
-    }
-    if explicit and (
-        bool(getattr(source, "_content_language_explicit", False))
-        or len(capabilities) <= 1
-        or explicit in languages
-    ):
-        languages.add(explicit)
-    if not languages and len(capabilities) == 1:
-        languages.update(capabilities)
     return languages
 
 

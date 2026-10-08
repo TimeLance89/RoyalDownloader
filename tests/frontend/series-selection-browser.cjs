@@ -17,7 +17,7 @@ const { fixture } = require('./performance-fixture.cjs');
       await page.locator('#series-tiles .season-btn').click();
       assert.equal(await page.locator('#series-tiles .season-btn').getAttribute('aria-busy'), 'true');
       assert.match(await page.locator('#series-tiles .season-btn small').textContent(), /12 prüfen/);
-      assert.equal(await page.locator('#series-add-btn').isEnabled(), true, 'pending selection can be submitted immediately');
+      assert.equal(await page.locator('#series-add-btn').isDisabled(), true, 'pending intent cannot enter the queue');
       await page.evaluate(() => { window.selectionTile = document.querySelector(".ep-tile"); });
       const respond = async (route, denied = []) => {
         const {slugs} = route.request().postDataJSON();
@@ -49,7 +49,14 @@ const { fixture } = require('./performance-fixture.cjs');
           title: 'Deferred download fixture', enabled_content_languages: ['de'], description: '', seasons: [{season: 1, episodes}], episode_count: 8}, episodes[0].slug);
       });
       await page.locator('#series-tiles .season-btn').click();
-      assert.match(await page.locator('#series-pick-count').textContent(), /8 ausgewählt · 8 prüfen/);
+      assert.match(await page.locator('#series-pick-count').textContent(), /0 ausgewählt · 8 in Prüfung/);
+      assert.equal(await page.locator('#series-add-btn').isDisabled(), true);
+      assert.equal(queueRequests.length, 0);
+      assert.equal(await page.locator('.ep-tile .ep-language-lock').first().textContent(), 'PRÜFUNG');
+      const held = requests.filter(route=>route.request().postDataJSON().slugs.some(slug=>slug.startsWith('sto:deferred')));
+      assert.equal(held.length,2);
+      for (const route of held) await respond(route);
+      await page.waitForFunction(() => document.querySelectorAll('.ep-tile.selected').length === 8);
       await page.locator('#series-add-btn').click();
       await page.waitForFunction(() => document.querySelector('#series-status').textContent.includes('Merke 8'));
       while (!queueRequests.length) await page.waitForTimeout(10);
@@ -58,17 +65,14 @@ const { fixture } = require('./performance-fixture.cjs');
       await queueRequests[0].fulfill({json:{added:8,auto_started:8,done_jobs:0,total_jobs:8,
         queue:{count:8,groups:[],activity:{},providers:{}}}});
       await page.waitForFunction(() => document.querySelector('#series-status').textContent.includes('8/8 Episode(n) vorgemerkt'));
-      assert.match(await page.locator('#series-status').textContent(), /Hintergrund geprüft/);
-      const held = requests.filter(route=>route.request().postDataJSON().slugs.some(slug=>slug.startsWith('sto:deferred')));
-      assert.equal(held.length,2);
-      for (const route of held) await respond(route);
+      assert.match(await page.locator('#series-status').textContent(), /Downloads starten automatisch/);
       await page.waitForFunction(() => document.querySelector('#series-probe-progress').textContent.includes('Prüfung abgeschlossen'));
       assert.equal(await page.locator('.ep-tile.selected').count(),0,'late checks do not reselect submitted episodes');
       assert.equal(queueRequests.length,1);
       assert.equal(await page.locator('#series-add-btn').isDisabled(),true);
       await page.locator('#series-detail-close').click();
       assert.deepEqual(run.errors, []);
-      console.log(JSON.stringify({width, immediateFeedback: true, progressiveSelection: true, cancelledSelection: true, deferredDownload:true}));
+      console.log(JSON.stringify({width, immediateFeedback: true, progressiveSelection: true, cancelledSelection: true, verifiedDownload:true}));
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exit(1); });

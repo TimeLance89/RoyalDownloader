@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+import pytest
 
 import server
 from api.api_queue_router import MovieDownloadPreference
 from application_services import content_language_policy
+from application_services import source_resolution
 from providers.models import (
     FilmpalastMovie,
     FilmpalastSearchResult,
@@ -50,6 +52,48 @@ def _movie_source(title: str, provider: str, language: str, suffix: str):
             )
         ],
     )
+
+
+@pytest.mark.parametrize("provider", ["hdfilme_family", "huhu", "serienstream"])
+@pytest.mark.parametrize("language,expected", [("en", {"en"}), ("de", {"de"}), ("German Sub", set())])
+def test_discovery_and_download_share_concrete_audio_evidence(provider, language, expected):
+    movie = _movie_source("Fixture S13E07", provider, "de", "e07")
+    # Even explicit release metadata cannot invent a second audio track.
+    movie._content_language_explicit = True
+    movie.hosters[0].language = language
+    assert content_language_policy._source_languages(movie) == expected
+    assert source_resolution._concrete_stream_language(movie, provider, language) == next(iter(expected), "")
+
+
+def test_audio_language_wins_over_german_subtitle_label():
+    movie = _movie_source("Fixture", "hdfilme_family", "de", "sub")
+    movie.hosters[0].language = "German Sub"
+    movie.hosters[0].audio_language = "ja"
+    assert content_language_policy._source_languages(movie) == {"ja"}
+
+
+def test_provider_defaults_do_not_add_tracks_to_a_bilingual_source():
+    movie = _movie_source("Fixture", "hdfilme_family", "de", "mixed")
+    movie.hosters[0].language = "en"
+    movie.hosters.append(HosterInfo("VOE", "https://example.test/ja", "ja"))
+    assert content_language_policy._source_languages(movie) == {"en", "ja"}
+
+
+def test_a_source_without_hosters_proves_no_download_language():
+    movie = _movie_source("Fixture", "hdfilme_family", "de", "empty")
+    movie.hosters = []
+    assert content_language_policy._source_languages(movie) == set()
+
+
+@pytest.mark.parametrize("provider,title,stored,expected", [
+    ("hdfilme_family", "Fixture [ENGLISH]", "de", "en"),
+    ("serienstream", "Fixture [GERMAN]", "en", "de"),
+])
+def test_release_language_evidence_agrees_for_unlabeled_hosters(provider, title, stored, expected):
+    movie = _movie_source(title, provider, stored, "unlabeled")
+    movie.hosters[0].language = ""
+    assert content_language_policy._source_languages(movie) == {expected}
+    assert source_resolution._concrete_stream_language(movie, provider, "") == expected
 
 
 def test_movie_catalog_alternates_language_lanes_even_with_more_german_results(monkeypatch):
