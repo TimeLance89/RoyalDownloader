@@ -241,6 +241,8 @@ export function createSeriesChecks(status, {
               for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
                 if (!target) continue;
                 target.language_check_error = !checked;
+                // Partial evidence is visible, but cannot grant download access.
+                if (Array.isArray(languages) && languages.length) target.content_languages = languages;
                 if (!checked) continue;
                 target.language_checked = true;
                 target.language_available = result.available[episode.slug];

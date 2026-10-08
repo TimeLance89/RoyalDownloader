@@ -1355,6 +1355,8 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                             cache[slug] = [placeholder, *matching]
                 elif still_searching and not set(values or []) & enabled:
                     pending.append(slug)
+                    if values:
+                        languages[slug] = values
                     # A negative primary result is not final while other sources
                     # are still searching or temporarily unreachable.
                     continue
@@ -1364,7 +1366,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
             languages[slug] = values
             if not values:
                 pending.append(slug)
-        record_watchlist_episode_languages({slug: values for slug, values in languages.items() if values})
+        record_watchlist_episode_languages({slug: values for slug, values in languages.items() if values and slug not in pending})
         payload = {"available": {slug: bool(set(values) & enabled) for slug, values in languages.items()},
                    "languages": languages}
         if pending:
