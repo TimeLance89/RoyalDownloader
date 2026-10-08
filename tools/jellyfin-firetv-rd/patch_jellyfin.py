@@ -6,6 +6,12 @@ root = Path(sys.argv[1] if len(sys.argv) > 1 else "jellyfin")
 
 bridge_path = root / "app/src/main/java/org/jellyfin/androidtv/integration/royaldownloader/RoyalDownloaderBridge.kt"
 bridge_path.parent.mkdir(parents=True, exist_ok=True)
+policy_source = Path(__file__).with_name("RoyalDownloadPolicy.kt")
+(bridge_path.parent / policy_source.name).write_text(policy_source.read_text(encoding="utf-8"), encoding="utf-8")
+policy_tests = root / "app/src/test/kotlin/integration/royaldownloader"
+policy_tests.mkdir(parents=True, exist_ok=True)
+test_source = Path(__file__).with_name("RoyalDownloadPolicyTests.kt")
+(policy_tests / test_source.name).write_text(test_source.read_text(encoding="utf-8"), encoding="utf-8")
 bridge_path.write_text(r'''package org.jellyfin.androidtv.integration.royaldownloader
 
 import android.app.AlertDialog
@@ -31,6 +37,7 @@ import java.net.URLEncoder
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -44,10 +51,14 @@ object RoyalDownloaderBridge {
     private const val KEY_TOKEN = "token"
 
     private lateinit var appContext: Context
+    @Volatile private var loginPassword: String? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mappedItems = ConcurrentHashMap<UUID, RoyalItem>()
+    private val mappedItems = Collections.synchronizedMap(object : LinkedHashMap<UUID, RoyalItem>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UUID, RoyalItem>?): Boolean = size > 512
+    })
+    private val pendingDownloads = ConcurrentHashMap.newKeySet<UUID>()
 
-    private enum class Kind { CONFIG, ERROR, MOVIE, SERIES }
+    private enum class Kind { CONFIG, ERROR, STATUS, MOVIE, SERIES }
 
     private data class RoyalItem(
         val kind: Kind,
@@ -70,9 +81,15 @@ object RoyalDownloaderBridge {
         return mappedItems.containsKey(id)
     }
 
+    fun statusItem(title: String, detail: String = ""): BaseItemDto =
+        toBaseItem(RoyalItem(Kind.STATUS, title, detail = detail))
+
+    fun searchPrompt(): BaseItemDto = if (isConfigured())
+        statusItem("Filme und Serien in RD suchen", "Titel eingeben oder Sprachsuche verwenden. OK auf einem Treffer: Download anfordern.")
+        else toBaseItem(RoyalItem(Kind.CONFIG, "Royal Downloader verbinden", detail = "RD-Adresse und Zugangsdaten einrichten"))
+
     fun search(query: String): List<BaseItemDto> {
         if (!::appContext.isInitialized) return emptyList()
-        mappedItems.clear()
         if (!isConfigured()) {
             return listOf(toBaseItem(RoyalItem(Kind.CONFIG, "Royal Downloader verbinden", detail = "Einmal RD-Adresse und Zugangsdaten hinterlegen")))
         }
@@ -163,17 +180,33 @@ object RoyalDownloaderBridge {
         val id = item?.id ?: return false
         val royal = mappedItems[id] ?: return false
         when (royal.kind) {
+            Kind.STATUS -> Unit
             Kind.CONFIG, Kind.ERROR -> showConfigurationDialog(context)
-            Kind.MOVIE, Kind.SERIES -> scope.launch {
-                val message = try {
-                    requestDownload(royal)
-                } catch (error: Exception) {
-                    "Royal Downloader: ${error.message ?: "Anfrage fehlgeschlagen"}"
+            Kind.MOVIE, Kind.SERIES -> AlertDialog.Builder(context)
+                .setTitle(royal.title)
+                .setMessage(if (royal.kind == Kind.SERIES)
+                    "Fehlende veröffentlichte Episoden über Royal Downloader herunterladen?"
+                    else "Film über Royal Downloader herunterladen?")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Herunterladen") { _, _ ->
+                    if (pendingDownloads.add(id)) {
+                        Toast.makeText(context, "Anfrage wird geprüft …", Toast.LENGTH_SHORT).show()
+                        scope.launch {
+                            val message = try {
+                                requestDownload(royal)
+                            } catch (error: Exception) {
+                                val diagnosed = diagnose(error)
+                                "${diagnosed.first}: ${diagnosed.second}"
+                            } finally {
+                                pendingDownloads.remove(id)
+                            }
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 }
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                }
-            }
+                .show()
         }
         return true
     }
@@ -181,11 +214,12 @@ object RoyalDownloaderBridge {
     private fun isConfigured(): Boolean {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return prefs.getString(KEY_URL, "").orEmpty().isNotBlank()
-            && prefs.getString(KEY_USER, "").orEmpty().isNotBlank()
-            && prefs.getString(KEY_PASSWORD, "").orEmpty().isNotBlank()
+            && (prefs.getString(KEY_TOKEN, "").orEmpty().isNotBlank() ||
+                (prefs.getString(KEY_USER, "").orEmpty().isNotBlank()
+                    && (loginPassword ?: prefs.getString(KEY_PASSWORD, "")).orEmpty().isNotBlank()))
     }
 
-    private fun showConfigurationDialog(context: Context) {
+    fun showConfigurationDialog(context: Context, onSaved: () -> Unit = {}) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -225,10 +259,11 @@ object RoyalDownloaderBridge {
                     rawUrl.isNotBlank() -> "https://$rawUrl"
                     else -> rawUrl
                 }.trimEnd('/')
+                loginPassword = password.text.toString()
                 prefs.edit()
                     .putString(KEY_URL, normalizedUrl)
                     .putString(KEY_USER, user.text.toString().trim())
-                    .putString(KEY_PASSWORD, password.text.toString())
+                    .remove(KEY_PASSWORD)
                     .remove(KEY_TOKEN)
                     .apply()
 
@@ -243,6 +278,7 @@ object RoyalDownloaderBridge {
                     }
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        onSaved()
                     }
                 }
             }
@@ -264,7 +300,7 @@ object RoyalDownloaderBridge {
         val matches = response.optJSONObject("matches") ?: return items
         return items.filter { item ->
             val key = if (item.kind == Kind.MOVIE) item.slug else item.baseSlug
-            !matches.optBoolean(key, false)
+            !RoyalDownloadPolicy.hideSearchResult(item.kind == Kind.MOVIE, matches.optBoolean(key, false))
         }
     }
 
@@ -293,6 +329,13 @@ object RoyalDownloaderBridge {
                 .put("refresh_jellyfin", true)
                 .put("defer_checks", false),
         )
+        if (!RoyalDownloadPolicy.canQueueSeries(
+                availabilityPending = detail.optBoolean("availability_pending", true),
+                jellyfinConfigured = if (detail.isNull("jellyfin_configured")) null else detail.optBoolean("jellyfin_configured"),
+                jellyfinPending = detail.optBoolean("jellyfin_pending", false),
+                jellyfinAvailable = if (detail.isNull("jellyfin_available")) null else detail.optBoolean("jellyfin_available"),
+                jellyfinStale = detail.optBoolean("jellyfin_stale", false),
+            )) return "${item.title}: Bestandsprüfung unvollständig. Später erneut versuchen."
         val slugs = JSONArray()
         val seasons = detail.optJSONArray("seasons") ?: JSONArray()
         for (seasonIndex in 0 until seasons.length()) {
@@ -314,7 +357,7 @@ object RoyalDownloaderBridge {
     }
 
     private fun toBaseItem(item: RoyalItem): BaseItemDto {
-        val id = UUID.randomUUID()
+        val id = UUID.nameUUIDFromBytes("rd:${item.kind}:${item.slug}:${item.baseSlug}:${item.title}".toByteArray(StandardCharsets.UTF_8))
         mappedItems[id] = item
         val displayName = if (item.year.isBlank()) item.title else "${item.title} (${item.year})"
         return BaseItemDto(
@@ -330,23 +373,33 @@ object RoyalDownloaderBridge {
     }
 
     private fun probeApi() {
-        val response = rawRequest("GET", "/api/v1/health", null, null, readTimeoutMs = 8_000)
-        if (response.optString("status") != "ok") {
-            throw IllegalStateException("RD-Healthcheck antwortet unerwartet")
+        val response = rawRequest("GET", "/api/v1/capabilities", null, null, readTimeoutMs = 8_000)
+        val versions = response.optJSONArray("supported_api_versions") ?: JSONArray()
+        if (response.optString("name") != "Royal Downloader" ||
+            response.optInt("minimum_api_version", Int.MAX_VALUE) > 1 ||
+            (0 until versions.length()).none { versions.optInt(it) == 1 }) {
+            throw IllegalStateException("RD-Server unterstützt API v1 nicht")
         }
+        if (response.optBoolean("setup_required", false))
+            throw IllegalStateException("RD zuerst im Browser einrichten")
     }
 
+    @Synchronized
     private fun ensureToken(): String {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.getString(KEY_TOKEN, "").orEmpty().takeIf { it.isNotBlank() }?.let { return it }
+        prefs.getString(KEY_TOKEN, "").orEmpty().takeIf { it.isNotBlank() }?.let {
+            prefs.edit().remove(KEY_PASSWORD).apply()
+            return it
+        }
         val login = JSONObject()
             .put("username", prefs.getString(KEY_USER, "").orEmpty())
-            .put("password", prefs.getString(KEY_PASSWORD, "").orEmpty())
+            .put("password", (loginPassword ?: prefs.getString(KEY_PASSWORD, "")).orEmpty())
             .put("device_label", "Jellyfin Fire TV")
         val response = rawRequest("POST", "/api/v1/auth/login", login, null, readTimeoutMs = 20_000)
         val token = response.optString("access_token")
         if (token.isBlank()) throw IllegalStateException("RD-Anmeldung lieferte kein Token")
-        prefs.edit().putString(KEY_TOKEN, token).apply()
+        prefs.edit().putString(KEY_TOKEN, token).remove(KEY_PASSWORD).apply()
+        loginPassword = null
         return token
     }
 
@@ -356,14 +409,13 @@ object RoyalDownloaderBridge {
         body: JSONObject? = null,
         readTimeoutMs: Int = 30_000,
     ): JSONObject {
-        var token = ensureToken()
+        val token = ensureToken()
         return try {
             rawRequest(method, path, body, token, readTimeoutMs)
         } catch (error: RoyalHttpException) {
             if (error.status != 401) throw error
             appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_TOKEN).apply()
-            token = ensureToken()
-            rawRequest(method, path, body, token, readTimeoutMs)
+            throw RoyalHttpException(401, "Sitzung abgelaufen. Royal Downloader erneut verbinden.")
         }
     }
 
@@ -402,13 +454,17 @@ object RoyalDownloaderBridge {
         val base = prefs.getString(KEY_URL, "").orEmpty().trim().trimEnd('/')
         if (base.isBlank()) throw IllegalStateException("RD-Adresse fehlt")
         val uri = URI.create(base + path)
+        require(uri.scheme in setOf("http", "https") && uri.host != null &&
+            uri.userInfo == null && uri.rawQuery == URI.create(path).rawQuery && uri.fragment == null) {
+            "Ungültige RD-Adresse. HTTP(S)-Adresse ohne Zugangsdaten, Query oder Fragment verwenden."
+        }
         val connection = uri.toURL().openConnection() as HttpURLConnection
         connection.requestMethod = method
-        connection.instanceFollowRedirects = true
+        connection.instanceFollowRedirects = false
         connection.connectTimeout = 8_000
         connection.readTimeout = readTimeoutMs
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "Jellyfin-RD-FireTV/0.2")
+        connection.setRequestProperty("User-Agent", "Jellyfin-RD-FireTV/0.5")
         connection.setRequestProperty("Connection", "close")
         if (!token.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
         if (body != null) {
@@ -458,20 +514,7 @@ if needle not in text:
 text = text.replace(needle, replacement, 1)
 path.write_text(text, encoding="utf-8")
 
-# SearchViewModel: run RD search in parallel and append it as a row.
-path = root / "app/src/main/java/org/jellyfin/androidtv/ui/search/SearchViewModel.kt"
-text = path.read_text(encoding="utf-8")
-text = text.replace("import kotlinx.coroutines.Job\n", "import kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.Job\n")
-text = text.replace(
-    "import org.jellyfin.androidtv.R\n",
-    "import org.jellyfin.androidtv.R\nimport org.jellyfin.androidtv.integration.royaldownloader.RoyalDownloaderBridge\n",
-)
-old = '''\t\tsearchJob = viewModelScope.launch {\n\t\t\tdelay(debounce)\n\n\t\t\t_searchResultsFlow.value = groups.map { (stringRes, itemKinds) ->\n\t\t\t\tasync {\n\t\t\t\t\tval result = searchRepository.search(trimmed, itemKinds)\n\t\t\t\t\tval items = result.getOrNull().orEmpty()\n\n\t\t\t\t\tSearchResultGroup(stringRes, items)\n\t\t\t\t}\n\t\t\t}.awaitAll()\n\t\t}\n'''
-new = '''\t\tsearchJob = viewModelScope.launch {\n\t\t\tdelay(debounce)\n\n\t\t\tval royalSearch = async(Dispatchers.IO) { RoyalDownloaderBridge.search(trimmed) }\n\t\t\tval jellyfinGroups = groups.map { (stringRes, itemKinds) ->\n\t\t\t\tasync {\n\t\t\t\t\tval result = searchRepository.search(trimmed, itemKinds)\n\t\t\t\t\tval items = result.getOrNull().orEmpty()\n\n\t\t\t\t\tSearchResultGroup(stringRes, items)\n\t\t\t\t}\n\t\t\t}.awaitAll()\n\t\t\tval royalItems = royalSearch.await()\n\t\t\t_searchResultsFlow.value = buildList {\n\t\t\t\taddAll(jellyfinGroups)\n\t\t\t\tif (royalItems.isNotEmpty()) add(SearchResultGroup(R.string.lbl_royal_downloader, royalItems))\n\t\t\t}\n\t\t}\n'''
-if old not in text:
-    raise SystemExit("SearchViewModel patch anchor not found")
-text = text.replace(old, new, 1)
-path.write_text(text, encoding="utf-8")
+# Native Jellyfin search remains unchanged; RD has its own destination.
 
 # SearchFragmentDelegate: intercept RD fake items and don't ask Jellyfin for their backdrops.
 path = root / "app/src/main/java/org/jellyfin/androidtv/ui/search/SearchFragmentDelegate.kt"
@@ -498,11 +541,13 @@ text = path.read_text(encoding="utf-8")
 if 'name="lbl_royal_downloader"' not in text:
     text = text.replace(
         '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin Debug</string>',
-        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD 0.4</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
+        '<string name="app_name_debug" translatable="false" tools:ignore="UnusedResources">Jellyfin RD 0.5</string>\n    <string name="lbl_royal_downloader" translatable="false">Royal Downloader</string>',
         1,
     )
 path.write_text(text, encoding="utf-8")
 
 from patch_watchlist import patch_watchlist
 patch_watchlist(root)
+from patch_search import patch_search
+patch_search(root)
 print("RoyalDownloader Fire TV search and personal watchlist patch applied")
