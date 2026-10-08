@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+Changes since v1.8.0, promoted from Overnight to `main` on 2026-10-08.
+
+### Updater reliability
+
+- Require successful current CI and signature checks for every installation,
+  including explicitly confirmed switches back to Stable; recheck pending CI
+  promptly instead of retaining a stale approval.
+- Revalidate the selected channel and automatic-update mode before installation;
+  prevent outdated status responses from overwriting newer checks or installs.
+- Verify restarts using the running process revision and local capabilities;
+  report restart failures and the actual restored revision after rollback.
+- Bound archive processing, close failed transfers and validate extraction paths
+  before creating directories. Preserve the staged runtime and manual rollback.
+
+### Episode availability and subscription languages
+
+- Apply the subscription's audio preferences consistently to episode checks,
+  detail selection and manual downloads; keep language evidence independent for
+  each episode and source.
+- Require verified audio before selecting or downloading an episode. A listed
+  episode or a provider's general language list no longer confirms that the
+  requested audio exists for that episode, including English-only Chicago P.D.
+  episodes when German audio is selected.
+- Start automatic checks at the beginning for a confirmed empty library; with
+  existing downloads or Jellyfin episodes, prioritize missing episodes around
+  the latest available season while continuing to check older gaps.
+- Give explicit episode selections priority, share running checks and reorder
+  waiting checks when library data arrives; queued jobs do not count as owned.
+
 ### Movie availability
 
 - Share bounded source checks across concurrent detail requests and retain late
