@@ -600,7 +600,8 @@ test("changing the updater channel persists immediately", () => {
 
 test("an updater restart reloads only after the exact target revision is active", () => {
   assert.match(app, /waitForUpdatedServer\(installer\.target_sha/);
-  assert.match(app, /\/api\/updater\/status\?force=true/);
+  assert.match(app, /\/api\/v1\/capabilities\?_=/);
+  assert.doesNotMatch(app, /\/api\/updater\/status\?force=true/);
   assert.match(app, /installed === normalizedTarget/);
   assert.match(app, /Neustart fehlgeschlagen/);
   assert.doesNotMatch(app, /fetch\("\/api\/health"/);

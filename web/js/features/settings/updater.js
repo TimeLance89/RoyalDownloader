@@ -7,6 +7,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   let scope;
   let dirty = false;
   let revision = 0;
+  let checkRevision = 0;
   let savedConfig = null;
   function shortRevision(value) {
     const revision = String(value || "").trim();
@@ -52,7 +53,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       status.textContent = "Automatisch · Update wird installiert.";
       return;
     }
-    status.textContent = `Automatisch · alle ${interval} Std. · Installation nur bei leerer Queue.`;
+    status.textContent = `Automatisch · alle ${interval} Std. · Downloads werden zum Neustart gesichert und pausiert.`;
   }
 
   function applyUpdaterStatus(data) {
@@ -87,7 +88,8 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       && installer.target_sha === data.latest_sha
       && data.update_available === true
       && !data.error
-      && !(channel === "overnight" && data.quality_approved === false);
+      && data.quality_approved !== false && data.security_approved !== false
+      && !data.security_blocked;
     if (installer.active || errorForOfferedTarget) {
       installButton.classList.toggle("hidden", installer.state !== "error");
       applyUpdaterInstallStatus(installer);
@@ -107,13 +109,20 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       detail.textContent = data.error;
       return;
     }
-    if (channel === "overnight" && data.quality_approved === false) {
+    if (data.quality_approved === false) {
       card.dataset.state = data.quality_gate === "failed" ? "error" : "unknown";
       badge.textContent = data.quality_gate === "failed" ? "!" : "CI";
       status.textContent = data.quality_gate === "failed"
-        ? "Overnight-Quality fehlgeschlagen"
-        : "Overnight wird noch geprüft";
+        ? `${channelLabel}-Quality fehlgeschlagen`
+        : `${channelLabel} wird noch geprüft`;
       detail.textContent = "Dieser Commit wird erst nach erfolgreichen vollständigen Quality Gates als Update angeboten.";
+      return;
+    }
+    if (data.security_blocked || data.security_approved === false) {
+      card.dataset.state = "error";
+      badge.textContent = "!";
+      status.textContent = "Update-Freigabe fehlt";
+      detail.textContent = "Die Commit-Signatur konnte nicht bestätigt werden. Bitte erneut prüfen.";
       return;
     }
     if (data.possible_downgrade) {
@@ -243,12 +252,16 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     cancelPoll = current.timeout(async () => {
       try {
         const payload = await client.get(
-          `/api/updater/status?force=true&_=${Date.now()}`,
-          { cache: "no-store", signal: current.signal },
+          `/api/v1/capabilities?_=${Date.now()}`,
+          { cache: "no-store", signal: current.signal, timeoutMs: 5000 },
         );
         if (!current.active) return;
-        const installed = String(payload.current_sha || "").trim().toLowerCase();
-        if (installed === normalizedTarget) {
+        const installed = String(payload.current_sha || payload.build || "").trim().toLowerCase();
+        const legacyBuildMatches = !payload.current_sha
+          && /^[0-9a-f]{12}$/.test(installed)
+          && /^[0-9a-f]{40}$/.test(normalizedTarget)
+          && normalizedTarget.startsWith(installed);
+        if (installed === normalizedTarget || legacyBuildMatches) {
           updaterRestartStartedAt = 0;
           updaterRestartTarget = "";
           reload();
@@ -304,27 +317,29 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
   async function checkForUpdates(force = false) {
     if (!scope?.active) return;
     const current = scope;
+    const atCheckRevision = ++checkRevision;
     const button = byId("updater-check");
     const card = byId("updater-card");
     const status = byId("updater-status");
     const detail = byId("updater-detail");
+    if (card.dataset.installing === "true") return;
     button.disabled = true;
     card.dataset.state = "checking";
     status.textContent = "Prüfe GitHub …";
     detail.textContent = "Neuester Stand wird geladen.";
     try {
       const result = await client.get(`/api/updater/status?${new URLSearchParams({ force: String(force) })}`, { signal: current.signal });
-      if (!current.active) return;
+      if (!current.active || checkRevision !== atCheckRevision) return;
       applyUpdaterStatus(result);
     } catch (error) {
-      if (!current.active) return;
+      if (!current.active || checkRevision !== atCheckRevision) return;
       const temporary = ["request_timeout", "network_error"].includes(error.code);
       applyUpdaterStatus({
         error_code: temporary ? "github_unavailable" : "",
         error: temporary ? "Die Update-Prüfung ist momentan nicht erreichbar. Bitte erneut prüfen." : error.message,
       });
     } finally {
-      if (current.active) button.disabled = card.dataset.installing === "true";
+      if (current.active && checkRevision === atCheckRevision) button.disabled = card.dataset.installing === "true";
     }
   }
 
@@ -333,6 +348,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     if (!scope?.active) return;
     const current = scope;
     const atRevision = revision;
+    checkRevision++;
     const result = await client.post("/api/updater/config", {
       update_mode: byId("updater-mode").value,
       update_channel: byId("updater-channel").value,
@@ -357,7 +373,14 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
       };
       scope.listen(root, "input", changed);
       scope.listen(root, "change", changed);
-      scope.add(socket.subscribe("updater_install", data => applyUpdaterInstallStatus(data.installer || {})));
+      scope.add(socket.subscribe("updater_install", data => {
+        const installer = data.installer || {};
+        const offeredTarget = byId("updater-install").dataset.sha;
+        if (installer.active || !installer.target_sha || !offeredTarget || installer.target_sha === offeredTarget) {
+          checkRevision++;
+        }
+        applyUpdaterInstallStatus(installer);
+      }));
       scope.add(socket.subscribe("updater_config", data => applyUpdaterConfig(data.config || {})));
       scope.add(socket.subscribe("connection.open", () => void checkForUpdates(false)));
       scope.listen(byId("updater-check"), "click", () => checkForUpdates(true));
@@ -380,6 +403,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
           ? "Overnight · früher Zugriff aus overnight; kann instabil sein."
           : "Stable · geprüfte und freigegebene Änderungen aus main (empfohlen).";
         const status = byId("updater-mode-status");
+        checkRevision++;
         const selected = select.value;
         const atRevision = revision;
         select.disabled = true;

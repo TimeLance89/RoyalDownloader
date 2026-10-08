@@ -11,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
@@ -29,6 +30,8 @@ from updates.runtime_release import (
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 _MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 _MAX_EXTRACTED_BYTES = 250 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 20_000
+_ARCHIVE_DOWNLOAD_SECONDS = 5 * 60
 _MANIFEST_NAME = ".update_files.json"
 _PROTECTED_TOP_LEVEL = {".git", "data", "downloads", "debug", "runtime"}
 _PROTECTED_FILE_NAMES = {".env", ".app_commit_sha", _MANIFEST_NAME, "settings.ini"}
@@ -164,6 +167,11 @@ class SelfUpdater:
             if self._state in _ACTIVE_STATES:
                 raise RuntimeError("Ein Update läuft bereits")
             release = rollback_release(root)
+            try:
+                target_sha = (release / ".app_commit_sha").read_text(encoding="utf-8").strip()
+            except OSError:
+                target_sha = ""
+            self._target_sha = target_sha if _COMMIT_RE.fullmatch(target_sha) else ""
             self._state = "restarting"
             self._message = f"Rollback auf {release.name} – Server startet neu"
             self._error = ""
@@ -171,8 +179,14 @@ class SelfUpdater:
         if self.on_state:
             self.on_state(payload)
         if self.restart_callback:
-            self.restart_callback()
-        return payload
+            try:
+                self.restart_callback()
+            except Exception as exc:
+                self.report_restart_failure(exc)
+        return self.status()
+
+    def report_restart_failure(self, error: Exception) -> None:
+        self._set_state("error", "Installation abgeschlossen; Neustart fehlgeschlagen", str(error))
 
     def _set_state(self, state: str, message: str, error: str = "") -> None:
         with self._lock:
@@ -216,34 +230,44 @@ class SelfUpdater:
             return
         self._set_state("restarting", "Update installiert – Server startet neu")
         if self.restart_callback:
-            self.restart_callback()
+            try:
+                self.restart_callback()
+            except Exception as exc:
+                self.report_restart_failure(exc)
 
     def _download_archive(self, target_sha: str, destination: Path) -> None:
         url = f"https://github.com/{self.repository}/archive/{quote(target_sha, safe='')}.tar.gz"
+        deadline = time.monotonic() + _ARCHIVE_DOWNLOAD_SECONDS
         response = requests.get(url, stream=True, timeout=(10, 60))
-        response.raise_for_status()
-        expected = int(response.headers.get("Content-Length") or 0)
-        if expected > _MAX_ARCHIVE_BYTES:
-            raise RuntimeError("GitHub-Archiv ist unerwartet groß")
-        received = 0
-        with destination.open("wb") as handle:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if not chunk:
-                    continue
-                received += len(chunk)
-                if received > _MAX_ARCHIVE_BYTES:
-                    raise RuntimeError("GitHub-Archiv überschreitet das Größenlimit")
-                handle.write(chunk)
-        if not received:
-            raise RuntimeError("GitHub hat ein leeres Archiv geliefert")
+        try:
+            response.raise_for_status()
+            expected = int(response.headers.get("Content-Length") or 0)
+            if expected > _MAX_ARCHIVE_BYTES:
+                raise RuntimeError("GitHub-Archiv ist unerwartet groß")
+            received = 0
+            with destination.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Zeitlimit beim Laden des GitHub-Archivs überschritten")
+                    if not chunk:
+                        continue
+                    received += len(chunk)
+                    if received > _MAX_ARCHIVE_BYTES:
+                        raise RuntimeError("GitHub-Archiv überschreitet das Größenlimit")
+                    handle.write(chunk)
+            if not received:
+                raise RuntimeError("GitHub hat ein leeres Archiv geliefert")
+            if expected and received != expected:
+                raise RuntimeError("GitHub-Archiv wurde unvollständig übertragen")
+        finally:
+            response.close()
 
     def _extract_archive(self, archive: Path, destination: Path) -> Path:
         extracted_bytes = 0
         with tarfile.open(archive, mode="r:gz") as bundle:
-            members = bundle.getmembers()
-            if len(members) > 20_000:
-                raise RuntimeError("GitHub-Archiv enthält zu viele Dateien")
-            for member in members:
+            for index, member in enumerate(bundle, 1):
+                if index > _MAX_ARCHIVE_MEMBERS:
+                    raise RuntimeError("GitHub-Archiv enthält zu viele Dateien")
                 relative = PurePosixPath(member.name)
                 if relative.is_absolute() or ".." in relative.parts:
                     raise RuntimeError("Unsicherer Pfad im GitHub-Archiv")
@@ -303,7 +327,7 @@ class SelfUpdater:
     @staticmethod
     def _safe_relative(value: str) -> Optional[Path]:
         relative = Path(str(value).replace("\\", "/"))
-        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        if relative.is_absolute() or relative.drive or not relative.parts or ".." in relative.parts:
             return None
         if relative.parts[0] in _PROTECTED_TOP_LEVEL or relative.name in _PROTECTED_FILE_NAMES:
             return None
@@ -335,9 +359,9 @@ class SelfUpdater:
 
     def _destination(self, relative: str) -> Path:
         destination = self.app_dir.joinpath(*Path(relative).parts)
-        destination.parent.mkdir(parents=True, exist_ok=True)
         if not destination.parent.resolve().is_relative_to(self.app_dir):
             raise RuntimeError(f"Unsicheres Update-Ziel: {relative}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
         return destination
 
     @staticmethod

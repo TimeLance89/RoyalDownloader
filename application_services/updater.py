@@ -56,6 +56,13 @@ def log(msg: str, level: str = ""):
 
 def _restart_after_update(queue_already_paused: bool = False) -> None:
     def _restart():
+        try:
+            _perform_restart()
+        except Exception as exc:
+            UPDATE_INSTALLER.report_restart_failure(exc)
+            log(f"Update-Neustart fehlgeschlagen: {exc}", "warn")
+
+    def _perform_restart():
         preserved = 0 if queue_already_paused else _pause_downloads_for_update_restart()
         if preserved:
             log(
@@ -114,8 +121,8 @@ def _updater_config_payload() -> dict:
     # Die Datei ist die autoritative Quelle. Besonders direkt nach einem
     # Kanalwechsel darf ein älterer In-Memory-Snapshot die Oberfläche nicht
     # wieder von Overnight auf Stable zurücksetzen.
-    persisted = appconfig.load_updater()
     with state.updater_config_lock:
+        persisted = appconfig.load_updater()
         if state.updater_cfg != persisted:
             state.updater_cfg = dict(persisted)
         config = dict(persisted)
@@ -147,14 +154,23 @@ def _update_block_reason_locked() -> str:
     return ""
 
 
-def _start_update_when_idle(target_sha: str) -> dict:
+def _start_update_when_idle(
+    target_sha: str, *, expected_channel: str | None = None, automatic: bool = False,
+) -> dict:
     """Startet das Update auch bei aktiver Queue.
 
     Downloads dürfen während des Ladens weiterlaufen. Direkt vor dem Neustart
     werden alle noch offenen Slugs persistent gesichert und die Prozesse sauber
     gestoppt; der neue Server stellt sie automatisch wieder her.
     """
-    with state.queue_lifecycle_lock:
+    with state.updater_config_lock, state.queue_lifecycle_lock:
+        config = appconfig.load_updater()
+        state.updater_cfg = dict(config)
+        channel = appconfig.normalize_update_channel(config.get("update_channel"))
+        if expected_channel is not None and channel != expected_channel:
+            raise RuntimeError("Update-Kanal wurde geändert; bitte erneut prüfen.")
+        if automatic and config.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
+            raise RuntimeError("Automatische Installation wurde deaktiviert.")
         if state.ytdlp_update_active:
             raise RuntimeError("yt-dlp wird gerade aktualisiert")
         queued = bool(
@@ -189,10 +205,14 @@ def _attempt_automatic_update() -> str:
         _set_updater_runtime("error", message, checked=True)
         log(f"Automatische Updateprüfung fehlgeschlagen: {message}", "warn")
         return "error"
-    if update.get("quality_approved") is False:
+    if (
+        update.get("quality_approved") is not True
+        or update.get("security_approved") is not True
+        or update.get("security_blocked")
+    ):
         _set_updater_runtime(
             "unavailable",
-            "Der Overnight-Build wird erst nach erfolgreichen Quality Gates angeboten.",
+            "Der Build benötigt erfolgreiche Quality Gates und eine bestätigte Commit-Signatur.",
             checked=True,
         )
         return "unavailable"
@@ -236,7 +256,7 @@ def _attempt_automatic_update() -> str:
             if state.updater_cfg.get("update_mode") != appconfig.UPDATE_MODE_AUTOMATIC:
                 _set_updater_runtime("manual", "Automatische Installation wurde deaktiviert.", checked=True)
                 return "manual"
-        _start_update_when_idle(target_sha)
+        _start_update_when_idle(target_sha, expected_channel=channel, automatic=True)
     except (RuntimeError, ValueError) as exc:
         message = str(exc)
         result = "deferred" if "zurückgestellt" in message else "error"
