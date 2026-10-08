@@ -7,7 +7,7 @@ const { fixture } = require('./performance-fixture.cjs');
     const run = await fixture({ mobile, engine: process.env.ROYAL_BROWSER || 'chromium', viewport: { width, height: mobile ? 844 : 1000 } });
     const { page, errors } = run;
     try {
-      let owner = 'a', failWrite = false, delayRead = false, releaseRead;
+      let owner = 'a', failWrite = false, delayRead = false, releaseRead, reads = 0;
       const saved = new Map([['a', []], ['b', []]]), writes = [], queue = [];
       const gate = new Promise(resolve => { releaseRead = resolve; });
       const movie = id => ({ slug: `tmdb:${id}`, tmdb_id: id, title: `Movie ${id}`, year: '2020', cover_url: '/fixture-art.svg', details_loaded: true, hosters: [], genres: [] });
@@ -22,9 +22,12 @@ const { fixture } = require('./performance-fixture.cjs');
             const items = saved.get(requestOwner).filter(item => !(item.media_type === body.media_type && item.tmdb_id === body.tmdb_id));
             if (body.saved) items.push(body);
             saved.set(requestOwner, items);
-          } else if (delayRead) {
-            delayRead = false;
-            await gate;
+          } else {
+            reads++;
+            if (delayRead) {
+              delayRead = false;
+              await gate;
+            }
           }
           return route.fulfill({ json: { items: saved.get(requestOwner), sync: { state: 'pending', ready: [] } } });
         }
@@ -81,6 +84,13 @@ const { fixture } = require('./performance-fixture.cjs');
       if (process.env.ROYAL_PEOPLE_SCREENSHOTS) await page.screenshot({ path: `${process.env.ROYAL_PEOPLE_SCREENSHOTS}/saved-movie-${width}.png` });
       await close(); await open(7);
       assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'true');
+      const priorReads = reads;
+      delayRead = true;
+      await page.evaluate(item => fixtureApp.discovery.moviePresentation.showFpDetail(item.slug, item), movie(7));
+      assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'true', 'provider updates preserve personal state');
+      assert.equal(await page.locator('#fp-detail-save').isDisabled(), false, 'provider updates cannot restart personal status loading');
+      assert.equal(reads, priorReads, 'the open detail retains one personal-status request scope');
+      delayRead = false;
       owner = 'b'; await close(); await open(7);
       assert.equal(await page.locator('#fp-detail-save').getAttribute('aria-pressed'), 'false', 'another profile does not inherit personal state');
       failWrite = true;

@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
 
 import core.config as appconfig
 from api.api_people_router import create_people_router
@@ -23,6 +24,7 @@ from features.monster_series_extension import (
 )
 from features.movie_releases import release_service, safe_image
 from features.subscription_languages import subscription_content_languages
+from features.movie_probes import MovieProbeIncomplete, movie_detail_probes, movie_probe_context, movie_probe_scope
 from providers.aniworld import aniworld_episode_page
 from providers.catalog import (
     normalize_content_language,
@@ -50,6 +52,7 @@ from providers.sflix import SflixScraper
 from providers.xcine import XcineScraper
 
 router = APIRouter(tags=["discovery"])
+MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
 
 
 def aniworld_unavailable_reason():
@@ -387,9 +390,11 @@ async def api_movies(mode: str = "search", query: str = "", genre: str = "", pag
 
 @router.get("/api/v1/movie/{slug:path}")
 @router.get("/api/movie/{slug:path}")
-async def api_movie(slug: str, tmdb_id: int | None = None):
+async def api_movie(slug: str, tmdb_id: int | None = None, progressive: bool = False):
     def _work():
-        movie = state.fp_movies.get(slug)
+        settings = movie_probe_context(state) if progressive else None
+        movie = None if progressive else state.fp_movies.get(slug)
+        direct_error = None
         if movie is None or not getattr(movie, "hosters", None):
             try:
                 movie = load_movie_for_slug(slug)
@@ -397,6 +402,7 @@ async def api_movie(slug: str, tmdb_id: int | None = None):
                 if tmdb_id is None or slug.casefold() == f"tmdb:{tmdb_id}":
                     raise
                 log(f"Direkte Filmquelle fehlgeschlagen ({slug}), suche TMDB-Fallback: {exc}", "warn")
+                direct_error = exc
                 movie = None
         if (
             (movie is None or not getattr(movie, "hosters", None))
@@ -405,15 +411,65 @@ async def api_movie(slug: str, tmdb_id: int | None = None):
         ):
             try:
                 movie = load_movie_for_slug(f"tmdb:{tmdb_id}")
+                if progressive and settings != movie_probe_context(state):
+                    raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
+                if movie is not None and getattr(state, "movie_source_cache", None) is not None:
+                    with state.movie_source_cache_lock:
+                        sources = state.movie_source_cache.get(f"tmdb:{tmdb_id}")
+                        if sources:
+                            state.movie_source_cache[slug] = list(sources)
             except (LookupError, ValueError):
                 movie = None
         if movie is not None and getattr(movie, "hosters", None):
+            if progressive and settings != movie_probe_context(state):
+                raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
             state.fp_movies[slug] = movie
-            return movie_detail_to_dict(slug, movie)
+            payload = movie_detail_to_dict(slug, movie)
+            if progressive:
+                complete = not getattr(movie, "_movie_availability_incomplete", False)
+                checked_at = getattr(movie, "_movie_probe_checked_at", time.time())
+                payload["availability"] = {"state": "available", "complete": complete,
+                    "checked_at": checked_at, "expires_at": checked_at + 180 if complete else time.time() + 1,
+                    "retry_after_ms": 1200}
+            return payload
+        if direct_error is not None:
+            raise MovieProbeIncomplete("Die direkte Quelle konnte nicht abschließend geprüft werden.") from direct_error
         return None
 
+    def _probe():
+        context = movie_probe_context(state)
+        with movie_probe_scope():
+            payload = _work()
+        if context != movie_probe_context(state):
+            raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
+        return payload
+
+    def pending(state_name="checking"):
+        return JSONResponse(status_code=202, content={"slug": slug, "hosters": [],
+            "availability": {"state": state_name, "complete": False,
+                             "retry_after_ms": 5000 if state_name == "retrying" else 1200}},
+            headers={"Cache-Control": "no-store", "Retry-After": "2"})
+
     try:
-        payload = await run_in_threadpool(_work)
+        if progressive:
+            context = (movie_probe_context(state), tuple(provider_priority("movies")), slug, tmdb_id)
+            future = movie_detail_probes.submit(context, slug, _probe)
+            if future is None:
+                return pending()
+            try:
+                payload = await run_in_threadpool(future.result, MOVIE_AVAILABILITY_WAIT_SECONDS)
+            except FutureTimeout:
+                if not future.done():
+                    return pending()
+                raise
+        else:
+            payload = await run_in_threadpool(_work)
+    except (MovieProbeIncomplete, TimeoutError, ConnectionError) as exc:
+        log(f"Filmprüfung noch offen ({slug}): {exc}", "warn")
+        if progressive:
+            return pending("retrying")
+        raise HTTPException(503, {"code": "movie_probe_pending",
+                                 "message": "Quellenprüfung noch offen. Bitte erneut versuchen."}) from exc
     except LookupError as exc:
         log(f"Filmquelle nicht verfügbar ({slug}): {exc}", "warn")
         payload = None

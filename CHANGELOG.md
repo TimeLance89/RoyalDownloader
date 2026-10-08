@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Movie availability
+
+- Share bounded source checks across concurrent detail requests and retain late
+  provider answers; adopt them in the open detail view without reopening it.
+- Distinguish pending checks and temporary provider failures from confirmed
+  absence. Retry transient failures, show usable sources immediately, and keep
+  additional language checks independent.
+- Revalidate expired availability proofs instead of trusting old catalog hosters;
+  use the same progressive checks before starting movie downloads.
+- Preserve the personal watchlist state and pending save requests while movie
+  availability or metadata updates refresh the same open detail.
+
 ### Mobile details
 
 - Align the personal watchlist button with movie and series actions on phones;

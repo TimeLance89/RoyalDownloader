@@ -27,6 +27,7 @@ from providers.catalog import normalize_content_language, provider_content_langu
 from providers.models import FilmpalastSearchResult, parse_episode_slug
 from features.episode_language_policy import concrete_source_language
 from features.subscription_languages import subscription_content_languages
+from features.movie_probes import MovieProbeIncomplete, interactive_movie_probe, movie_language_probes, movie_probe_context
 
 
 globals().update(import_backend_namespace())
@@ -319,9 +320,10 @@ def _cached_sources(slug: str, movie=None) -> list:
     return sources
 
 
-def _expand_catalog_movie_sources(slug: str, movie):
+def _expand_catalog_movie_sources(slug: str, movie, *, strict=False):
     """Resolve all active provider languages only when a catalog detail is opened."""
 
+    context = movie_probe_context(state)
     if movie is None or parse_episode_slug(slug):
         return [movie] if movie is not None else []
     sources = _cached_sources(slug, movie)
@@ -339,17 +341,23 @@ def _expand_catalog_movie_sources(slug: str, movie):
     summary = get_tmdb_client().movie_summary(clean_movie_title(movie.title), movie.year)
     tmdb_id = str((summary or {}).get("tmdb_id") or "").strip()
     if not tmdb_id.isdigit():
+        if strict:
+            raise MovieProbeIncomplete("Weitere Sprachquellen konnten noch nicht zugeordnet werden.")
         return sources
     try:
         _RESOLUTION_GUARD.active = True
         resolved = list(resolve_tmdb_movie_sources(tmdb_id))
     except Exception as exc:
         log(f"Sprachquellen für «{movie.title}» konnten nicht gebündelt werden: {exc}", "warn")
+        if strict:
+            raise
         return sources
     finally:
         _RESOLUTION_GUARD.active = False
     if not resolved:
         return sources
+    if context != movie_probe_context(state):
+        raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
     with state.movie_source_cache_lock:
         state.movie_source_cache[slug] = list(resolved)
     return resolved
@@ -375,7 +383,22 @@ def load_movie_for_slug(slug: str):
 
     sources = _cached_sources(slug, movie)
     if not is_tmdb_slug:
-        sources = _expand_catalog_movie_sources(slug, movie)
+        languages = {language for source in sources for language in _source_languages(source)}
+        desired = _queue_requested_language(slug)
+        needs_expansion = (_mixed_german_english_enabled() and not {"de", "en"}.issubset(languages)) or (
+            desired and desired not in languages)
+        if interactive_movie_probe() and needs_expansion:
+            context = (movie_probe_context(state), tuple(provider_priority("movies")), slug)
+            future = movie_language_probes.submit(context, slug,
+                lambda: _expand_catalog_movie_sources(slug, movie, strict=True))
+            if future is not None and future.done() and not future.cancelled() and future.exception() is None:
+                sources = future.result()
+                movie._movie_availability_incomplete = any(
+                    getattr(source, "_movie_availability_incomplete", False) for source in sources)
+            else:
+                movie._movie_availability_incomplete = True
+        elif not interactive_movie_probe():
+            sources = _expand_catalog_movie_sources(slug, movie)
 
     desired = _queue_requested_language(slug)
     if desired:

@@ -17,7 +17,7 @@ import { createCalendarState } from "../web/js/features/calendar/state.js";
 
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 const transport = readFileSync(new URL("../web/js/core/api.js", import.meta.url), "utf8");
-const api = ["shared/utils/artwork-url", "features/downloads/sync", "features/downloads/view", "features/downloads/movies", "features/integrations/catalog-jellyfin"].map(path => readFileSync(new URL(`../web/js/${path}.js`, import.meta.url), "utf8")).join("\n");
+const api = ["shared/utils/artwork-url", "features/downloads/sync", "features/downloads/view", "features/downloads/movies", "features/media-details/movie-availability", "features/integrations/catalog-jellyfin"].map(path => readFileSync(new URL(`../web/js/${path}.js`, import.meta.url), "utf8")).join("\n");
 const localization = readFileSync(new URL("../web/js/core/localization.js", import.meta.url), "utf8");
 const login = readFileSync(new URL("../web/js/features/auth/index.js", import.meta.url), "utf8");
 const loader = readFileSync(new URL("../web/js/shared/components/startup-curtain.js", import.meta.url), "utf8");
@@ -1065,7 +1065,7 @@ test("movie download failures stay visible with their exact queue reason", () =>
     /const movie = provided \|\| await prepareFpMovieDownload\(slug, owner\);[\s\S]*?if \(!movie \|\| !owner\.active\) return;[\s\S]*?await client\.post\("\/api\/queue\/add"/,
   );
   assert.match(app, /Jellyfin wird live geprüft\. Der Download startet danach automatisch\./);
-  assert.match(app, /if \(Array\.isArray\(cached\?\.hosters\) && cached\.hosters\.length\) return cached/);
+  assert.match(app, /if \(freshMovieAvailability\(cached\)\) return cached/);
   assert.doesNotMatch(app, /void api\.movie\(slug\)\.then/);
   assert.match(app, /Download nicht gestartet:/);
   assert.match(app, /Download fehlgeschlagen:/);
@@ -1074,16 +1074,17 @@ test("movie download failures stay visible with their exact queue reason", () =>
     /client\.get\(`[\s\S]*?if \(!current\(\)\) return;/,
   );
   assert.doesNotMatch(app, /!String\(slug\)\.startsWith\("tmdb:"\)/);
-  assert.match(app, /!queued && \(metadataOnly \|\| !hasHosters\)/);
+  assert.match(app, /!queued && !retry && \(metadataOnly \|\| !hasHosters\)/);
   assert.match(app, /Prüfe Verfügbarkeit …/);
   assert.match(app, /Derzeit nicht verfügbar/);
   assert.match(app, /error\.code === "movie_hoster_unavailable"/);
   assert.match(
     app,
-    /const tmdbId = movieState\.metadataCache\[slug\]\?\.tmdb_id[\s\S]*?client\.get\(`/,
+    /const tmdbId = movieState\.metadataCache\[slug\]\?\.tmdb_id[\s\S]*?fetchMovieAvailability\(/,
   );
   assert.match(api, /client.get\(`\/api\/movie\//);
-  assert.match(api, /new URLSearchParams\(\{ tmdb_id: String\(tmdbId\) \}\)/);
+  assert.match(api, /new URLSearchParams\(\{ progressive: "true" \}\)/);
+  assert.match(api, /query\.set\("tmdb_id", String\(id\)\)/);
 });
 
 test("Royal archive behaves like a searchable media center", () => {
