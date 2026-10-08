@@ -10,6 +10,46 @@ async function requestAt(f, index) {
   assert.ok(f.requests[index], `request ${index} starts`);
   return f.requests[index];
 }
+
+test('subscription language is sent to probes and mixed-profile evidence cannot grant German selection', async () => {
+  const f = fixture(1);
+  f.series.enabled_content_languages = ['de'];
+  Object.assign(f.episodes[0], {language_checked: true, language_available: true,
+    content_languages: ['en'], language_profile: ['de', 'en']});
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  const selection = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  for (let i = 0; i < 2; i++) {
+    const request = await requestAt(f, i);
+    assert.deepEqual(request.body.content_languages, ['de']);
+    request.resolve({languages: {[f.episodes[0].slug]: ['en']},
+      available: {[f.episodes[0].slug]: false}, selected_content_languages: ['de']});
+  }
+  await selection;
+  assert.equal(f.model.tileClass(f.episodes[0]), 'wrong-language');
+  await f.model.seriesAddSelected();
+  assert.equal(f.queueRequests.length, 0);
+});
+
+test('source identity keeps incomplete subscribed payloads behind language verification', () => {
+  const f = fixture(1);
+  delete f.series.provider;
+  f.series.base_slug = 'serienstream:show';
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  assert.equal(f.model.tileClass(f.episodes[0]), 'language-pending');
+});
+
+test('language changes ignore a delayed response from the previous profile', async () => {
+  const f = fixture(1);
+  f.series.enabled_content_languages = ['en'];
+  const selection = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  const request = await requestAt(f, 0);
+  f.series.enabled_content_languages = ['de'];
+  request.resolve({languages: {[f.episodes[0].slug]: ['en']},
+    available: {[f.episodes[0].slug]: true}, selected_content_languages: ['en']});
+  await selection;
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  assert.equal(f.episodes[0].language_checked, undefined);
+});
 function fixture(count = 12, languageConcurrency = 1) {
   const episodes = Array.from({length: count}, (_, i) => ({slug: `sto:show-s01e${i+1}`, season: 1, episode: i+1}));
   const series = {base_slug: 'sto:show', provider: 'serienstream', seasons: [{season: 1, episodes}]};

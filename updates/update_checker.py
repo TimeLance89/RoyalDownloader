@@ -38,6 +38,26 @@ def _valid_commit(value: str) -> str:
     return value if _COMMIT_RE.fullmatch(value) else ""
 
 
+def latest_verify_state(payload: dict) -> str:
+    """A rerun supersedes older results, including earlier successful runs."""
+    runs = [item for item in payload.get("check_runs", [])
+            if isinstance(item, dict) and item.get("name") == "verify"]
+    if not runs:
+        return "missing"
+
+    def order(item):
+        try:
+            run_id = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        return run_id, str(item.get("started_at") or "")
+
+    latest = max(runs, key=order)
+    if latest.get("status") != "completed":
+        return "pending"
+    return "passed" if latest.get("conclusion") == "success" else "failed"
+
+
 def _detect_git_commit(root: Path) -> str:
     marker = root / ".git"
     if marker.is_file():
@@ -442,18 +462,7 @@ class UpdateChecker:
         payload = self._get_json(
             f"commits/{quote(commit, safe='')}/check-runs?per_page=100",
         )
-        runs = [
-            item for item in payload.get("check_runs", [])
-            if isinstance(item, dict) and item.get("name") == "verify"
-        ]
-        if any(
-            item.get("status") == "completed" and item.get("conclusion") == "success"
-            for item in runs
-        ):
-            return "passed"
-        if any(item.get("status") != "completed" for item in runs):
-            return "pending"
-        return "failed" if runs else "missing"
+        return latest_verify_state(payload)
 
     def _check_uncached(self) -> dict:
         current = detect_local_commit(self.app_dir)
@@ -576,7 +585,10 @@ class UpdateChecker:
             and self._cache is not None
             and (now - self._cache_time) < min(
                 self.cache_seconds,
-                ERROR_CACHE_SECONDS if self._cache.get("error") or not self._cache.get("current_sha")
+                ERROR_CACHE_SECONDS if (
+                    self._cache.get("error") or not self._cache.get("current_sha")
+                    or self._cache.get("quality_gate") in {"pending", "missing"}
+                )
                 else self.cache_seconds,
             )
         ):

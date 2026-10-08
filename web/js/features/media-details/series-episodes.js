@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { needsEpisodeLanguageProof, seriesDownloadLanguages, episodeLanguageChecked as checkedForProfile } from "./series-language-policy.js";
 
 /** Episode eligibility, selection and queue commands share the series detail lifecycle. */
 export function createSeriesEpisodes(root, {
@@ -26,17 +27,11 @@ export function createSeriesEpisodes(root, {
   }
 
   function providerNeedsExactEpisodeLanguage(series = seriesState.current) {
-    if (!series) return false;
-    if (["huhu", "serienstream"].includes(series.provider)) return true;
-    const capabilities = Array.isArray(series.provider_content_languages)
-      ? series.provider_content_languages.filter(Boolean)
-      : [];
-    return capabilities.length > 1;
+    return needsEpisodeLanguageProof(series);
   }
 
   function episodeLanguageChecked(episode) {
-    return episode?.language_checked === true
-      || episode?.huhu_language_checked === true;
+    return checkedForProfile(episode, seriesState.current, getEnabledLanguages() || []);
   }
 
   function episodeLanguageAvailable(episode) {
@@ -47,9 +42,7 @@ export function createSeriesEpisodes(root, {
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
     if (episode?.downloaded || episode?.in_jellyfin) return true;
     const offered = episode?.content_languages || [];
-    const enabled = series?.enabled_content_languages?.length
-      ? series.enabled_content_languages
-      : [...(getEnabledLanguages() || [])];
+    const enabled = seriesDownloadLanguages(series, getEnabledLanguages() || []);
     if (providerNeedsExactEpisodeLanguage(series)) {
       if (!episodeLanguageChecked(episode)) return false;
       // availability is a snapshot of the profile at probe time. Concrete

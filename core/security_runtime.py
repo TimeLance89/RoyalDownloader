@@ -537,18 +537,7 @@ def _install_update_checker_hardening(update_checker_module) -> None:
         payload = self._get_json(
             f"commits/{update_checker_module.quote(commit, safe='')}/check-runs?per_page=100",
         )
-        runs = [
-            item for item in payload.get("check_runs", [])
-            if isinstance(item, dict) and item.get("name") == "verify"
-        ]
-        if any(
-            item.get("status") == "completed" and item.get("conclusion") == "success"
-            for item in runs
-        ):
-            return "passed"
-        if any(item.get("status") != "completed" for item in runs):
-            return "pending"
-        return "failed" if runs else "missing"
+        return update_checker_module.latest_verify_state(payload)
 
     original_check_uncached = cls._check_uncached
 

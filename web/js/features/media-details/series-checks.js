@@ -3,6 +3,7 @@ import { createEpisodeProbeProgress } from "./series-probe-progress.js";
 import { delay } from "../../core/lifecycle.js";
 import { createScope } from "../../core/lifecycle.js";
 import { loadSeriesDetails } from "./series-api.js";
+import { needsEpisodeLanguageProof, seriesEpisodeProvider, seriesDownloadLanguages, episodeLanguageChecked } from "./series-language-policy.js";
 
 export function createSeriesChecks(status, {
   seriesState, isVisible, firstEpisodeSlug, pruneSeriesEpisodeSelection, refreshSeriesTileStates,
@@ -17,12 +18,7 @@ export function createSeriesChecks(status, {
   let progressGeneration = -1;
 
   function providerNeedsExactEpisodeLanguage(series) {
-    if (!series) return false;
-    if (["huhu", "serienstream"].includes(series.provider)) return true;
-    const capabilities = Array.isArray(series.provider_content_languages)
-      ? series.provider_content_languages.filter(Boolean)
-      : [];
-    return capabilities.length > 1;
+    return needsEpisodeLanguageProof(series);
   }
 
   function publishedMissingLanguageEpisodes(series) {
@@ -35,8 +31,7 @@ export function createSeriesChecks(status, {
         (!episode.unreleased || episode.provider_unreleased === false)
         && !episode.downloaded
         && !episode.in_jellyfin
-        && episode.language_checked !== true
-        && episode.huhu_language_checked !== true
+        && !episodeLanguageChecked(episode, series)
       ));
   }
   async function refreshSeriesJellyfinStatus(force = false) {
@@ -163,10 +158,13 @@ export function createSeriesChecks(status, {
     const generation = seriesState.viewGeneration;
     if (progressGeneration !== generation) { progress.reset(); progressGeneration = generation; }
     const baseSlug = series.base_slug;
-    const keyFor = episode => `${generation}:${series.provider}:${episode.slug}`;
+    const provider = seriesEpisodeProvider(series);
+    const desired = seriesDownloadLanguages(series);
+    const languageKey = desired.join(",");
+    const keyFor = episode => `${generation}:${provider}:${languageKey}:${episode.slug}`;
     const requested = episodes.filter(episode => (
       !episode.downloaded && !episode.in_jellyfin && (!episode.unreleased || episode.provider_unreleased === false)
-      && episode.language_checked !== true && episode.huhu_language_checked !== true
+      && !episodeLanguageChecked(episode, series)
     ));
     // A new detail view must not sit behind a cancelled provider request.
     for (const job of activeLanguageJobs) {
@@ -198,7 +196,8 @@ export function createSeriesChecks(status, {
         const negativeEvidence = new Map();
         for (let attempt = 0; attempt < 3 && remaining.length; attempt++) {
           const current = () => owner.active && generation === seriesState.viewGeneration
-            && seriesState.current?.base_slug === baseSlug && seriesState.current?.provider === series.provider && isVisible();
+            && seriesState.current?.base_slug === baseSlug && seriesEpisodeProvider(seriesState.current) === provider
+            && seriesDownloadLanguages(seriesState.current).join(",") === languageKey && isVisible();
           if (!current()) throw new DOMException("Abgebrochen", "AbortError");
           const probeId = globalThis.crypto?.randomUUID?.() || `probe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           const initial = [{provider: series.provider, label: series.provider_label || series.provider, status: "checking"}];
@@ -221,7 +220,8 @@ export function createSeriesChecks(status, {
           let providers = initial;
           try {
             const result = await client.post("/api/series/episode-languages", {
-              provider: series.provider, slugs: remaining.map(episode => episode.slug), probe_id: probeId, attempt,
+              provider, slugs: remaining.map(episode => episode.slug), probe_id: probeId, attempt,
+              ...(desired.length ? { content_languages: desired } : {}),
               title: series.title || "", aliases: [...new Set([...(series.aliases || []), series.original_title].filter(Boolean))].slice(0, 12), tmdb_id: series.tmdb_id || null,
             }, {signal: owner.signal, timeoutMs: 15_000,
               timeoutMessage: "Die Sprachprüfung antwortet gerade nicht."});
@@ -249,6 +249,7 @@ export function createSeriesChecks(status, {
                 target.huhu_language_checked = true;
                 target.huhu_language_available = target.language_available;
                 target.content_languages = languages;
+                target.language_profile = result.selected_content_languages || desired;
                 target.source_providers = result.source_providers?.[episode.slug] || [series.provider];
                 if (target.language_available && target.provider_unreleased === false) {
                   target.source_release_verified = true;
