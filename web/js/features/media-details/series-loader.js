@@ -26,12 +26,16 @@ export function createSeriesDetailsLoader(root, status, {
           const key = episode.slug || `${seasonNumber}:${episode.episode}`;
           const previousEpisode = episodes.get(key);
           const merged = { ...(previousEpisode || {}), ...episode };
+          if (previousEpisode?.in_jellyfin && fresh.jellyfin_configured
+              && (fresh.jellyfin_pending || fresh.jellyfin_available !== true || fresh.jellyfin_stale)) {
+            merged.in_jellyfin = true;
+          }
           if ((previousEpisode?.language_checked || previousEpisode?.huhu_language_checked)
               && !episode.language_checked && !episode.huhu_language_checked) {
             // Listing metadata must not replace concrete episode-track evidence.
             merged.content_languages = previousEpisode.content_languages;
             for (const field of ["language_checked", "language_available", "huhu_language_checked",
-              "huhu_language_available", "source_providers", "source_release_verified"]) {
+              "huhu_language_available", "source_providers", "source_release_verified", "language_profile"]) {
               if (previousEpisode[field] !== undefined) merged[field] = previousEpisode[field];
             }
           }

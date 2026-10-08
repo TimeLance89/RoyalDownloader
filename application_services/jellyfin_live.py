@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from core import egress_requests as requests
 from integrations.jellyfin_auth import jellyfin_auth_headers
 from application_services.runtime import backend_value, publish_service
+from application_services.saved_media import saved_media_sync
 
 logger = logging.getLogger(__name__)
 state = backend_value("state")
@@ -416,6 +417,7 @@ def _monitor_loop() -> None:
     while not _live_stop_event.is_set():
         try:
             _monitor_cycle(force_full=_consume_force_refresh())
+            saved_media_sync().tick()
         except Exception:
             logger.exception("Unerwarteter Fehler im Jellyfin-Livemonitor")
         if _live_stop_event.is_set():
@@ -550,6 +552,7 @@ def _content_already_available(movie, slug: str):
 
 def warm_jellyfin_identity_cache() -> None:
     """Prime all ownership caches off the request path, then keep them live."""
+    saved_media_sync().start()
     if backend_value("get_jellyfin_client")().configured:
         try:
             _monitor_cycle(force_full=True)
@@ -560,6 +563,7 @@ def warm_jellyfin_identity_cache() -> None:
 
 def stop_jellyfin_recommender() -> None:
     global _live_thread
+    saved_media_sync().stop()
     _live_stop_event.set()
     _live_wake_event.set()
     thread = _live_thread

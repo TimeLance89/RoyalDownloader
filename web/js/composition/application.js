@@ -51,6 +51,7 @@ export function mountApplication({ state, downloadsDomain, coreDomain, discovery
       seriesPresentation: discoveryDomain.seriesPresentation,
       seriesEpisodes: discoveryDomain.seriesEpisodes,
       movieCollections: discoveryDomain.movieCollections,
+      people: discoveryDomain.people,
       aniworld: discoveryDomain.aniworld,
       anime: discoveryDomain.anime,
       seriesChecks: discoveryDomain.seriesChecks,

@@ -18,6 +18,7 @@ const { fixture } = require('./performance-fixture.cjs');
       const oldGate = new Promise(resolve => { releaseOld = resolve; });
       const metadataGate = new Promise(resolve => { releaseMetadata = resolve; });
       const providerRequests = [];
+      let pendingRequests = 0;
       await page.route('**/api/**', async route => {
         const url = new URL(route.request().url());
         const path = url.pathname;
@@ -33,6 +34,14 @@ const { fixture } = require('./performance-fixture.cjs');
         if (path.startsWith('/api/movie/')) {
           const id = Number(decodeURIComponent(path.split('/').at(-1)).split(':')[1]);
           providerRequests.push(id);
+          if (id === 7) {
+            pendingRequests++;
+            if (pendingRequests <= 2) return route.fulfill({ status: 202, json: {
+              hosters: [], availability: { state: 'checking', complete: false, retry_after_ms: 600 },
+            } });
+            return route.fulfill({ json: { title: 'Similar 7', hosters: [{ name: 'VOE', url: 'https://example.test/embed' }],
+              availability: { state: 'available', complete: true, expires_at: Date.now() / 1000 + 180 } } });
+          }
           if (id === 2) return route.fulfill({ status: 503, json: { detail: 'Cloudflare origin invalid or incomplete response' } });
           if (id === 4) await oldGate;
           return route.fulfill({ json: { title: `Similar ${id}`, description: '', genres: [], hosters: id === 6 ? [] : [{ name: 'VOE', url: 'https://example.test/embed' }] } });
@@ -84,6 +93,14 @@ const { fixture } = require('./performance-fixture.cjs');
       assert.equal(await page.locator('#fp-detail-title').textContent(), 'Similar 5');
       await similar(6); await waitMovie(6);
       assert.equal(await page.locator('#fp-detail-availability').textContent(), 'Derzeit nicht verfügbar');
+      await similar(7);
+      await page.waitForFunction(() => document.getElementById('fp-detail-title').textContent === 'Similar 7'
+        && document.getElementById('fp-detail-availability').classList.contains('is-loading'));
+      assert.equal(await page.locator('#fp-detail-add').isDisabled(), true);
+      await waitMovie(7);
+      assert.match(await page.locator('#fp-detail-availability').textContent(), /Hoster bereit/);
+      assert.equal(await page.locator('#fp-detail-add').isDisabled(), false);
+      assert.equal(pendingRequests, 3, 'late answer appears in the same view after pending polls');
       await page.evaluate(item => { void fixtureApp.discovery.seriesDetailsLoader.open({ ...item, sample_slug: item.title, base_slug: '', similar_titles: [{ ...item, tmdb_id: 21, title: 'Similar 21', description: 'Series recommendation 21' }] }); }, item(20));
       await page.waitForFunction(() => !document.querySelector('#series-tiles .series-loading') && document.getElementById('series-desc').textContent === 'Complete metadata 20');
       const card = page.locator('#series-detail-similar button').first();

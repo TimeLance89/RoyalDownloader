@@ -1,13 +1,14 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { mergeDetailMetadata } from "./metadata.js";
+import { fetchMovieAvailability, freshMovieAvailability } from "./movie-availability.js";
 
 /** A dialog owns independent metadata, library and provider requests. */
 export function createMovieDetailsLoader({
   movieState, updateFpResultSelection, homeMovieBySlug, trackDiscoveryPreference, showFpDetail,
   basicMovieMetadata, setFpDetailAvailability, openMediaModal,
   findFpResultCard, updateFpResultCard, refreshMovieFeatureCandidates, refreshFpJellyfinStatus,
-  client = api,
+  client = api, resolveAvailability = fetchMovieAvailability,
 }) {
   let scope = null;
   async function selectFpRow(slug, initialItem = null) {
@@ -20,7 +21,12 @@ export function createMovieDetailsLoader({
     movieState.selectedSlug = slug;
     updateFpResultSelection();
     let metadata = mergeDetailMetadata(basicMovieMetadata({ ...item, slug }), movieState.metadataCache[slug]);
-    let provider = movieState.moviesCache[slug];
+    const cached = movieState.moviesCache[slug];
+    let provider = freshMovieAvailability(cached) ? cached : null;
+    if (cached && !provider) {
+      delete movieState.moviesCache[slug];
+      updateFpResultCard(slug);
+    }
     const detail = { slug, metadataState: metadata.details_loaded ? "ready" : "loading",
       availabilityState: provider ? (provider.hosters?.length ? "available" : "unavailable") : "checking" };
     movieState.detail = detail;
@@ -29,10 +35,12 @@ export function createMovieDetailsLoader({
       // Provider fields own availability; nonempty TMDB fields own presentation.
       const movie = { ...(metadata.details_loaded
         ? mergeDetailMetadata(provider || {}, metadata) : mergeDetailMetadata(metadata, provider)),
-        hosters: provider?.hosters || [], hoster_route: provider?.hoster_route || "Derzeit nicht verfügbar" };
-      if (provider) movieState.moviesCache[slug] = movie;
+        hosters: provider?.hosters || [], hoster_route: provider?.hoster_route || "Derzeit nicht verfügbar",
+        availability: detail.availabilityState === "pending" ? { state: "pending", complete: false } : provider?.availability };
+      if (provider || detail.availabilityState === "pending") movieState.moviesCache[slug] = movie;
       showFpDetail(slug, movie, detail.availabilityState === "checking");
       if (detail.availabilityState === "failed") setFpDetailAvailability("Anbieter derzeit nicht erreichbar", "error");
+      else if (detail.availabilityState === "pending") setFpDetailAvailability("Quellenprüfung noch offen · Erneut prüfen möglich", "error");
       else if (detail.availabilityState === "unavailable") setFpDetailAvailability("Derzeit nicht verfügbar", "ready");
     };
     movieState.metadataCache[slug] = metadata;
@@ -59,15 +67,24 @@ export function createMovieDetailsLoader({
       render();
     }
     async function loadProvider() {
-      if (provider) return;
+      if (provider && provider.availability?.complete !== false) return;
       const initialId = Number(metadata.tmdb_id) || 0;
-      const deadline = Date.now() + 20_000;
-      const requestProvider = tmdbId => {
-        const query = tmdbId > 0 ? `?${new URLSearchParams({ tmdb_id: String(tmdbId) })}` : "";
-        return client.get(`/api/movie/${encodeURIComponent(slug)}${query}`, {
-          signal: owner.signal, timeoutMs: Math.max(1, deadline - Date.now()),
-        });
+      const deadline = Date.now() + 60_000;
+      const apply = resolved => {
+        if (!current()) return;
+        if (resolved.hosters?.length || resolved.availability?.complete !== false) {
+          provider = resolved;
+          movieState.moviesCache[slug] = resolved;
+          detail.availabilityState = resolved.hosters?.length ? "available" : "unavailable";
+          updateFpResultCard(slug);
+          render();
+        } else if (!provider?.hosters?.length && resolved.availability?.state === "retrying") {
+          setFpDetailAvailability("Quellen vorübergehend nicht erreichbar · Prüfe erneut …", "loading");
+        }
       };
+      const requestProvider = tmdbId => resolveAvailability({ client, slug,
+        tmdbId: () => Number(metadata.tmdb_id) || tmdbId, signal: owner.signal,
+        budgetMs: Math.max(1, deadline - Date.now()), onUpdate: apply });
       try {
         let resolved;
         try { resolved = await requestProvider(initialId); }
@@ -80,13 +97,11 @@ export function createMovieDetailsLoader({
           resolved = await requestProvider(Number(metadata.tmdb_id));
         }
         if (!current()) return;
-        provider = resolved;
-        movieState.moviesCache[slug] = resolved;
-        detail.availabilityState = resolved.hosters?.length ? "available" : "unavailable";
-        updateFpResultCard(slug);
+        apply(resolved);
       } catch (error) {
         if (!current()) return;
-        detail.availabilityState = error.code === "movie_hoster_unavailable" ? "unavailable" : "failed";
+        if (!provider?.hosters?.length) detail.availabilityState = error.code === "movie_hoster_unavailable" ? "unavailable"
+          : ["movie_probe_pending", "movie_provider_unavailable", "request_timeout", "network_error", "invalid_json"].includes(error.code) ? "pending" : "failed";
         console.warn("Anbietersuche fehlgeschlagen:", error);
       }
       render();

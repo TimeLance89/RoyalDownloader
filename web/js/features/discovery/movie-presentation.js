@@ -1,4 +1,5 @@
 import { createScope } from "../../core/lifecycle.js";
+import { createSavedMediaAction } from "../media-details/saved-media.js";
 
 export function createMoviePresentation(catalogRoot, detailRoot, {
   locale, movieState, getQueuedSlugs, coverUrl, subscriptionFor, openSubscription,
@@ -7,6 +8,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   const document = catalogRoot.ownerDocument;
   const byId = id => catalogRoot.querySelector(`#${id}`) || detailRoot.querySelector(`#${id}`);
   const actions = new WeakMap();
+  const savedMedia = createSavedMediaAction(byId("fp-detail-save"), byId("fp-detail-save-note"));
   let scope = null, detailScope = null;
   function bind(node, type, callback) { actions.set(node, { type, callback }); }
   function dispatch(event) {
@@ -678,6 +680,7 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function showFpDetail(slug, movie, metadataOnly = false) {
+    savedMedia.show(movie, "movie");
     const detailPanel = byId("fp-detail-panel");
     const cover = byId("fp-detail-cover");
     // Die Abo-Aktion darf nicht von späteren Metadaten-/Hosterfeldern abhängen.
@@ -795,6 +798,6 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     detailScope = createScope(); detailScope.listen(detailRoot, "change", dispatch);
     detailScope.listen(byId("fp-detail-subscribe"), "click", openSelectedMovieSubscription);
   }
-  function unmountDetail() { detailScope?.dispose(); detailScope = null; }
-  return { mount, unmount, mountDetail, unmountDetail, fpStatusMessage, setActiveGenreFilter, mergeCatalogItems, mergeCatalogSources, updateFpInfiniteState, fpResultYear, setFpJellyfinBadge, setFpPosterJellyfinBadge, updateFpJellyfinBadges, fpResultMedia, fpResultAvailability, findFpResultCard, updateFpResultCard, syncFpDetailQueueAction, syncFpQueueIndicators, updateFpResultSelection, renderFpResults, applyFpResults, basicMovieMetadata, metadataPreviewMovie, renderFpDetailItems, setFpDetailAvailability, setFpDetailJellyfinStatus, fpDetailJellyfinValue, formatMovieDate, formatMovieNumber, formatMovieMoney, movieCertificationLabel, movieStatusLabel, setFpDetailText, renderFpCast, configureFpSubscriptionAction, openSelectedMovieSubscription, presentMovieSubscriptions, movieQualityRank, renderFpDownloadSources, showFpDetail };
+  function unmountDetail() { savedMedia.close(); detailScope?.dispose(); detailScope = null; }
+  return { closeSavedMedia: savedMedia.close, mount, unmount, mountDetail, unmountDetail, fpStatusMessage, setActiveGenreFilter, mergeCatalogItems, mergeCatalogSources, updateFpInfiniteState, fpResultYear, setFpJellyfinBadge, setFpPosterJellyfinBadge, updateFpJellyfinBadges, fpResultMedia, fpResultAvailability, findFpResultCard, updateFpResultCard, syncFpDetailQueueAction, syncFpQueueIndicators, updateFpResultSelection, renderFpResults, applyFpResults, basicMovieMetadata, metadataPreviewMovie, renderFpDetailItems, setFpDetailAvailability, setFpDetailJellyfinStatus, fpDetailJellyfinValue, formatMovieDate, formatMovieNumber, formatMovieMoney, movieCertificationLabel, movieStatusLabel, setFpDetailText, renderFpCast, configureFpSubscriptionAction, openSelectedMovieSubscription, presentMovieSubscriptions, movieQualityRank, renderFpDownloadSources, showFpDetail };
 }

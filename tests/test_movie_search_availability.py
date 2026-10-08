@@ -1,6 +1,10 @@
 """Regression tests for complete provider-first movie search."""
 
 from types import SimpleNamespace
+import threading
+
+import pytest
+from features.movie_probes import MovieProbeIncomplete, MovieProbePool
 
 import server
 from application_services import movie_search_availability as availability
@@ -349,6 +353,49 @@ def test_non_search_slug_remains_transparent_pass_through(monkeypatch):
 
     assert loaded is None
     assert load_calls == ["moflix:direct"]
+
+
+def test_group_provider_outage_is_unknown_instead_of_empty_hoster_result(monkeypatch):
+    candidates = [_candidate("moflix:alpha", "Alpha", "2024")]
+
+    def fail(_):
+        raise TimeoutError("origin timed out")
+
+    _configure(monkeypatch, [], candidates, loader=fail)
+    server._tmdb_search_results("Alpha")
+    with pytest.raises(MovieProbeIncomplete):
+        server.load_movie_for_slug("moflix:alpha")
+
+
+def test_group_unparsed_detail_is_unknown_instead_of_confirmed_absence(monkeypatch):
+    candidates = [_candidate("moflix:alpha", "Alpha", "2024")]
+    _configure(monkeypatch, [], candidates, loader=lambda _: None)
+    server._tmdb_search_results("Alpha")
+    with pytest.raises(MovieProbeIncomplete):
+        server.load_movie_for_slug("moflix:alpha")
+
+
+def test_group_stalled_priority_provider_does_not_block_fast_fallback(monkeypatch):
+    candidates = [_candidate("moflix:alpha", "Alpha", "2024"),
+                  _candidate("filmpalast:alpha", "Alpha", "2024", "filmpalast")]
+    release = threading.Event()
+    pool = MovieProbePool(workers=2)
+
+    def load(slug):
+        if slug.startswith("moflix:"):
+            release.wait(2)
+            return None
+        return _loaded("Alpha", "2024", "filmpalast")
+
+    monkeypatch.setattr(availability, "movie_source_probes", pool)
+    _configure(monkeypatch, [], candidates, loader=load)
+    try:
+        server._tmdb_search_results("Alpha")
+        movie = server.load_movie_for_slug("moflix:alpha")
+        assert movie.provider == "filmpalast" and not release.is_set()
+    finally:
+        release.set()
+        pool.close()
 
 
 def test_tmdb_result_limit_never_caps_provider_result_count(monkeypatch):

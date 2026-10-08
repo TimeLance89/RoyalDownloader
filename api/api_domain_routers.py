@@ -41,12 +41,14 @@ _PREFIXES = {
     ),
     "live_updates": ("/ws", "/api/v1/ws"),
     "library": (
+        "/api/me/saved-media", "/api/v1/me/saved-media",
         "/api/cover", "/api/v1/cover", "/api/movie-subscriptions",
         "/api/v1/movie-subscriptions", "/api/watchlist", "/api/v1/watchlist",
     ),
     "discovery": (
         "/api/genres", "/api/v1/genres", "/api/movies", "/api/v1/movies",
         "/api/movie-collections", "/api/v1/movie-collections",
+        "/api/people", "/api/v1/people",
         "/api/movie", "/api/v1/movie", "/api/series", "/api/v1/series",
         "/api/series-calendar", "/api/v1/series-calendar",
         "/api/anime", "/api/v1/anime", "/api/home", "/api/v1/home",

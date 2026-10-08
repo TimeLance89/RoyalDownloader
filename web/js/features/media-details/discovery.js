@@ -1,20 +1,30 @@
 import { createScope } from "../../core/lifecycle.js";
 
 /** Shared recommendation and trailer cards retain the existing movie/series copy and markup. */
-export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadSeries, fpTrailerYoutubeKey, openFpTrailerModal }) {
+export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadSeries, fpTrailerYoutubeKey, openFpTrailerModal, openPerson }) {
   const document = root.ownerDocument, prefix = kind === "movie" ? "fp-detail" : "series-detail";
   const byId = id => root.querySelector(`#${id}`);
   const setText = (id, value, fallback = "—") => { byId(id).textContent = value || fallback; };
   const actions = new WeakMap();
+  function renderCast(id, members) {
+    const container = byId(id); container.replaceChildren();
+    const cast = (members || []).filter(member => member?.name).slice(0, 6);
+    if (!cast.length) { container.textContent = "—"; return; }
+    cast.forEach((member, index) => {
+      if (index) container.append(document.createTextNode(", "));
+      if (!(Number(member.id) > 0) || !openPerson) { container.append(document.createTextNode(member.name)); return; }
+      const button = document.createElement("button"); button.type = "button";
+      button.className = "people-cast-link"; button.textContent = member.name;
+      button.setAttribute("aria-label", `${member.name}: Filmografie öffnen`);
+      actions.set(button, () => openPerson(Number(member.id))); container.append(button);
+    });
+  }
   let scope = null;
   let similarSnapshot = null;
   function renderFpAbout(movie) {
     setText("fp-detail-about-title", movie.title, "den Film");
     setText("fp-detail-directors", (movie.directors || []).join(", "));
-    setText(
-      "fp-detail-about-cast",
-      (movie.cast || []).slice(0, 6).map((member) => member?.name).filter(Boolean).join(", "),
-    );
+    renderCast("fp-detail-about-cast", movie.cast);
     setText("fp-detail-writers", (movie.writers || []).join(", "));
     setText("fp-detail-about-genres", (movie.genres || []).join(", "));
     setText("fp-detail-studios", (movie.production_companies || []).join(", "));
@@ -54,7 +64,7 @@ export function createDetailDiscovery(root, { kind, coverUrl, selectFpRow, loadS
     section.hidden = !hasAbout;
     setSeriesDiscoveryText("series-detail-about-title", series.title || "die Serie");
     setSeriesDiscoveryText("series-detail-creators", (series.creators || []).join(", "));
-    setSeriesDiscoveryText("series-detail-about-cast", cast.join(", "));
+    renderCast("series-detail-about-cast", series.cast);
     setSeriesDiscoveryText("series-detail-about-genres", (series.genres || []).join(", "));
     setSeriesDiscoveryText("series-detail-production", [...new Set(production)].join(", "));
     setSeriesDiscoveryText("series-detail-original-status", originalStatus);

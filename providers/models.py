@@ -61,7 +61,8 @@ class HosterInfo:
 
     @property
     def is_de(self) -> bool:
-        return self.language.lower().startswith("deutsch") or self.language.lower() == "de"
+        from providers.catalog import normalize_content_language
+        return normalize_content_language(self.audio_language or self.language) == "de"
 
     @property
     def is_hd(self) -> bool:

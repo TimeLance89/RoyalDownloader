@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,15 +12,17 @@ TASTE = (ROOT / "web/js/features/home/taste-ranking.js").read_text(encoding="utf
 
 
 def test_cinema_dock_and_premium_card_finish_precede_mobile_override():
-    imports = [line for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
+    # Cache versions change when CSS changes; this contract protects layer order.
+    imports = [re.sub(r"\?[^'\"]+", "", line)
+               for line in STYLE_MANIFEST.splitlines() if line.startswith("@import")]
     ordered_layers = [
-        "@import url('/styles/home-card-hover.css?v=royal-20260811-5');",
-        "@import url('/styles/home-card-premium.css?v=royal-20260830-2');",
-        "@import url('/styles/home-rails-mockup.css?v=royal-20260915-2');",
-        '@import url("/styles/taste-feedback.css?v=royal-20260926-1");',
-        '@import url("/styles/daily-top.css?v=royal-20260926-1");',
-        '@import url("/styles/language-studio.css?v=royal-language-studio-1");',
-        '@import url("/styles/mobile.css?v=royal-mobile-20261006-3");',
+        "@import url('/styles/home-card-hover.css');",
+        "@import url('/styles/home-card-premium.css');",
+        "@import url('/styles/home-rails-mockup.css');",
+        '@import url("/styles/taste-feedback.css");',
+        '@import url("/styles/daily-top.css");',
+        '@import url("/styles/language-studio.css");',
+        '@import url("/styles/mobile.css");',
     ]
     positions = [imports.index(layer) for layer in ordered_layers]
     assert positions == sorted(positions)

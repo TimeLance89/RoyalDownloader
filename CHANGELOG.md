@@ -2,6 +2,82 @@
 
 ## Unreleased
 
+Changes since v1.8.0, promoted from Overnight to `main` on 2026-10-08.
+
+### Updater reliability
+
+- Require successful current CI and signature checks for every installation,
+  including explicitly confirmed switches back to Stable; recheck pending CI
+  promptly instead of retaining a stale approval.
+- Revalidate the selected channel and automatic-update mode before installation;
+  prevent outdated status responses from overwriting newer checks or installs.
+- Verify restarts using the running process revision and local capabilities;
+  report restart failures and the actual restored revision after rollback.
+- Bound archive processing, close failed transfers and validate extraction paths
+  before creating directories. Preserve the staged runtime and manual rollback.
+
+### Episode availability and subscription languages
+
+- Apply the subscription's audio preferences consistently to episode checks,
+  detail selection and manual downloads; keep language evidence independent for
+  each episode and source.
+- Require verified audio before selecting or downloading an episode. A listed
+  episode or a provider's general language list no longer confirms that the
+  requested audio exists for that episode, including English-only Chicago P.D.
+  episodes when German audio is selected.
+- Start automatic checks at the beginning for a confirmed empty library; with
+  existing downloads or Jellyfin episodes, prioritize missing episodes around
+  the latest available season while continuing to check older gaps.
+- Give explicit episode selections priority, share running checks and reorder
+  waiting checks when library data arrives; queued jobs do not count as owned.
+
+### Movie availability
+
+- Share bounded source checks across concurrent detail requests and retain late
+  provider answers; adopt them in the open detail view without reopening it.
+- Distinguish pending checks and temporary provider failures from confirmed
+  absence. Retry transient failures, show usable sources immediately, and keep
+  additional language checks independent.
+- Revalidate expired availability proofs instead of trusting old catalog hosters;
+  use the same progressive checks before starting movie downloads.
+- Preserve the personal watchlist state and pending save requests while movie
+  availability or metadata updates refresh the same open detail.
+
+### Mobile details
+
+- Align the personal watchlist button with movie and series actions on phones;
+  keep its feedback separate from Jellyfin status and prevent implicit columns.
+
+### Download language
+
+- Keep German subtitles out of German audio downloads and provider fallbacks.
+- Recognize AniWorld subtitle flags separately from German dub flags; preserve
+  explicitly selected Japanese audio with German subtitles.
+
+### Personal Jellyfin watchlist
+
+- Fix private playlist synchronization with Jellyfin dashboard API keys: publish
+  populated private generations instead of using owner-only update endpoints.
+- Keep pending wishes out of empty native playlists; migrate old bindings and
+  retry removal of retired playlists after restart.
+- Add “+ Merken” to movie and series details. Persist wishes per RD profile and
+  synchronize playable files into a private playlist for the linked Jellyfin user.
+- Keep unavailable titles pending across restarts and outages; saving never starts
+  downloads. Reconcile removals, deleted users and changed Jellyfin mappings.
+
+### People discovery
+
+- Add a dedicated People area with TMDB name search, portraits, biographies and
+  combined movie/TV filmographies with role, title and release-date filters.
+- Open filmographies directly from cast names in movie and series details.
+- Add known-work highlights, richer profile facts, recent profiles, release-year,
+  department and Jellyfin filters, and checked movie selections that survive filtering.
+- Bound initial filmography rendering and reveal additional works on demand.
+- Use compact portrait posters for "Known for", ranked by vote count within the
+  person's primary department; prefer acting roles over self/archival appearances.
+- Check and select filmography movies for batch downloads using existing source,
+  release-date and Jellyfin safeguards; open series in their episode selector.
+
 ## v1.8.0 – 2026-10-07
 
 ### Mobile navigation and language profiles

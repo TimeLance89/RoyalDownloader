@@ -1,6 +1,7 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { queueAddFailureReason } from "./outcome.js";
+import { fetchMovieAvailability, freshMovieAvailability } from "../media-details/movie-availability.js";
 
 /** User-started mutations survive detail navigation, but never the authenticated session. */
 export function createMovieDownloads(root, {
@@ -49,13 +50,19 @@ export function createMovieDownloads(root, {
 
   async function prepareFpMovieDownload(slug, owner) {
     const cached = movieState.moviesCache[slug];
-    if (Array.isArray(cached?.hosters) && cached.hosters.length) return cached;
+    if (freshMovieAvailability(cached)) return cached;
     const tmdbId = movieState.metadataCache[slug]?.tmdb_id
       || movieState.results.find((item) => item.slug === slug)?.tmdb_id
       || homeMovieBySlug(slug)?.tmdb_id
       || null;
-    const query = Number(tmdbId) > 0 ? `?${new URLSearchParams({ tmdb_id: String(tmdbId) })}` : "";
-    const movie = await client.get(`/api/movie/${encodeURIComponent(slug)}${query}`, { signal: owner.signal });
+    const movie = await fetchMovieAvailability({ client, slug, tmdbId, signal: owner.signal, firstAvailable: true,
+      onUpdate: movie => {
+        if (owner.active && movie.hosters?.length) {
+          movieState.moviesCache[slug] = movie;
+          updateFpResultCard(slug);
+          if (visible(slug)) showFpDetail(slug, movie);
+        }
+      } });
     if (!owner.active) return null;
     movieState.moviesCache[slug] = movie;
     updateFpResultCard(slug);
@@ -118,12 +125,13 @@ export function createMovieDownloads(root, {
     const addBtn = byId("fp-detail-add");
     const queued = getQueuedSlugs().has(slug), owned = fpDetailJellyfinValue(slug, movie) === true;
     const hasHosters = Array.isArray(movie.hosters) && movie.hosters.length > 0;
+    const retry = movie.availability?.state === "pending";
     const mutationPending = pending.has(slug);
     renderFpDownloadFeedback(slug);
     addBtn.hidden = owned && !queued;
-    addBtn.disabled = mutationPending || (owned && !queued) || (!queued && (metadataOnly || !hasHosters));
+    addBtn.disabled = mutationPending || (owned && !queued) || (!queued && !retry && (metadataOnly || !hasHosters));
     addBtn.textContent = mutationPending ? (queued ? "Entferne …" : "Füge hinzu …")
-      : queued ? "✕ Aus Queue entfernen" : metadataOnly ? "Prüfe Verfügbarkeit …"
+      : queued ? "✕ Aus Queue entfernen" : retry ? "Quellen erneut prüfen" : metadataOnly ? "Prüfe Verfügbarkeit …"
         : hasHosters ? "↓ Herunterladen" : "Derzeit nicht verfügbar";
   }
   async function detailAction() {
@@ -140,7 +148,7 @@ export function createMovieDownloads(root, {
       movieState.downloadSelections.set(slug, { provider: `language:${language}`, quality: previous.quality || "" });
     }
     const selection = movieState.downloadSelections.get(slug);
-    const operation = toggleFpPick(slug, { movie: metadataOnly ? null : movie, preferences: selection ? { [slug]: selection } : {} });
+    const operation = toggleFpPick(slug, { movie: metadataOnly || !freshMovieAvailability(movie) ? null : movie, preferences: selection ? { [slug]: selection } : {} });
     configureFpDetailAction(slug, movie, metadataOnly);
     await operation;
   }

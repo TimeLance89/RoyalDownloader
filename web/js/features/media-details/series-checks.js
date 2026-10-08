@@ -3,6 +3,8 @@ import { createEpisodeProbeProgress } from "./series-probe-progress.js";
 import { delay } from "../../core/lifecycle.js";
 import { createScope } from "../../core/lifecycle.js";
 import { loadSeriesDetails } from "./series-api.js";
+import { needsEpisodeLanguageProof, seriesEpisodeProvider, seriesDownloadLanguages, episodeLanguageChecked } from "./series-language-policy.js";
+import { episodeLanguageBatches } from "./series-language-order.js";
 
 export function createSeriesChecks(status, {
   seriesState, isVisible, firstEpisodeSlug, pruneSeriesEpisodeSelection, refreshSeriesTileStates,
@@ -17,28 +19,52 @@ export function createSeriesChecks(status, {
   let progressGeneration = -1;
 
   function providerNeedsExactEpisodeLanguage(series) {
-    if (!series) return false;
-    if (["huhu", "serienstream"].includes(series.provider)) return true;
-    const capabilities = Array.isArray(series.provider_content_languages)
-      ? series.provider_content_languages.filter(Boolean)
-      : [];
-    return capabilities.length > 1;
+    return needsEpisodeLanguageProof(series);
   }
 
   function publishedMissingLanguageEpisodes(series) {
     if (!providerNeedsExactEpisodeLanguage(series)) return [];
     return [...(series.seasons || [])]
-      .sort((left, right) => Number(right.season || 0) - Number(left.season || 0))
       .flatMap((season) => [...(season.episodes || [])]
         .sort((left, right) => Number(left.episode || 0) - Number(right.episode || 0)))
       .filter((episode) => (
         (!episode.unreleased || episode.provider_unreleased === false)
         && !episode.downloaded
         && !episode.in_jellyfin
-        && episode.language_checked !== true
-        && episode.huhu_language_checked !== true
+        && !episodeLanguageChecked(episode, series)
       ));
   }
+
+  function reorderBackgroundJobs(series) {
+    const jobs = languageQueue.filter(job => job.background && job.baseSlug === series.base_slug
+      && job.generation === seriesState.viewGeneration);
+    const order = new Map(episodeLanguageBatches(series, jobs.flatMap(job => job.episodes))
+      .flat().map((episode, index) => [episode.slug, index]));
+    const rank = job => Math.min(...job.episodes.map(episode => order.get(episode.slug)));
+    jobs.sort((left, right) => rank(left) - rank(right));
+    let index = 0;
+    for (let position = 0; position < languageQueue.length; position++) {
+      if (languageQueue[position].background && languageQueue[position].baseSlug === series.base_slug
+          && languageQueue[position].generation === seriesState.viewGeneration) languageQueue[position] = jobs[index++];
+    }
+  }
+
+  function applyJellyfinStatus(series, status) {
+    for (const season of series.seasons || []) {
+      for (const episode of season.episodes || []) {
+        if (Object.hasOwn(status.episodes || {}, episode.slug)
+            && (status.episodes[episode.slug] || (status.available && !status.stale))) {
+          episode.in_jellyfin = Boolean(status.episodes[episode.slug]);
+        }
+      }
+    }
+    series.jellyfin_configured = Boolean(status.configured);
+    series.jellyfin_pending = false;
+    series.jellyfin_available = Boolean(status.available);
+    series.jellyfin_stale = Boolean(status.stale);
+    series.jellyfin_checked_at = Number(status.checked_at || 0);
+  }
+
   async function refreshSeriesJellyfinStatus(force = false) {
     if (!isVisible()) return false;
     const current = seriesState.current;
@@ -51,6 +77,7 @@ export function createSeriesChecks(status, {
     const viewGeneration = seriesState.viewGeneration;
     const refreshGeneration = ++refreshSequence;
     refreshByBase.set(baseSlug, refreshGeneration);
+    let latestLibraryStatus = null;
     const quickStatusPromise = client.post("/api/series/jellyfin-status", {
       title: current.title, tmdb_id: current.tmdb_id || null, aliases: current.aliases || [],
       episodes: (current.seasons || []).flatMap(season => (season.episodes || []).map(episode => ({
@@ -61,18 +88,9 @@ export function createSeriesChecks(status, {
       const isSameView = seriesState.viewGeneration === viewGeneration;
       if (!owner.active || !isLatestForSeries || !isSameView || seriesState.current?.base_slug !== baseSlug) return;
       const live = seriesState.current;
-      for (const season of live.seasons || []) {
-        for (const episode of season.episodes || []) {
-          if (Object.hasOwn(status.episodes || {}, episode.slug)) {
-            episode.in_jellyfin = Boolean(status.episodes[episode.slug]);
-          }
-        }
-      }
-      live.jellyfin_configured = Boolean(status.configured);
-      live.jellyfin_pending = false;
-      live.jellyfin_available = Boolean(status.available);
-      live.jellyfin_stale = Boolean(status.stale);
-      live.jellyfin_checked_at = Number(status.checked_at || 0);
+      latestLibraryStatus = status;
+      applyJellyfinStatus(live, status);
+      reorderBackgroundJobs(live);
       seriesState.cache[baseSlug] = live;
       pruneSeriesEpisodeSelection();
       refreshSeriesTileStates();
@@ -92,6 +110,8 @@ export function createSeriesChecks(status, {
       syncSeriesQueueFlags(refreshed);
       const previousStructure = seriesStructureFingerprint(seriesState.current);
       const enriched = mergeSeriesDetailPayload(seriesState.current || current, refreshed);
+      // A completed live inventory check must survive a slower cached enrichment.
+      if (latestLibraryStatus) applyJellyfinStatus(enriched, latestLibraryStatus);
       seriesState.current = enriched;
       seriesState.cache[baseSlug] = enriched;
       pruneSeriesEpisodeSelection();
@@ -102,7 +122,7 @@ export function createSeriesChecks(status, {
       updateSeriesStatus(enriched);
 
       // The first detail payload can be a lightweight/cache snapshot without
-      // provider capability metadata. Re-run the latest published season after
+      // provider capability metadata. Schedule unverified published episodes after
       // hydration so exact language truth never depends on a user click.
       const languageEpisodes = publishedMissingLanguageEpisodes(enriched);
       if (languageEpisodes.length) {
@@ -160,13 +180,20 @@ export function createSeriesChecks(status, {
   async function verifyHuhuEpisodeLanguages(episodes, series = seriesState.current, { background = false } = {}) {
     if (!series || !providerNeedsExactEpisodeLanguage(series)) return;
     if (!isVisible()) throw new DOMException("Abgebrochen", "AbortError");
+    // Lightweight listings have no inventory yet. Hydration schedules automatic
+    // probes; explicit selections can already be checked independently.
+    if (background && series.availability_pending
+        && !(series.seasons || []).some(season => (season.episodes || []).some(episode => episode.downloaded || episode.in_jellyfin))) return;
     const generation = seriesState.viewGeneration;
     if (progressGeneration !== generation) { progress.reset(); progressGeneration = generation; }
     const baseSlug = series.base_slug;
-    const keyFor = episode => `${generation}:${series.provider}:${episode.slug}`;
+    const provider = seriesEpisodeProvider(series);
+    const desired = seriesDownloadLanguages(series);
+    const languageKey = desired.join(",");
+    const keyFor = episode => `${generation}:${provider}:${languageKey}:${episode.slug}`;
     const requested = episodes.filter(episode => (
       !episode.downloaded && !episode.in_jellyfin && (!episode.unreleased || episode.provider_unreleased === false)
-      && episode.language_checked !== true && episode.huhu_language_checked !== true
+      && !episodeLanguageChecked(episode, series)
     ));
     // A new detail view must not sit behind a cancelled provider request.
     for (const job of activeLanguageJobs) {
@@ -184,21 +211,29 @@ export function createSeriesChecks(status, {
     }
     const waiting = new Set(requested.map(episode => languagePendingSlugs.get(keyFor(episode))).filter(Boolean));
     const pending = requested.filter(episode => !languagePendingSlugs.has(keyFor(episode)));
-    // Small serial probes publish results promptly without flooding the provider.
-    for (let index = 0; index < pending.length; index += 4) {
-      const chunk = pending.slice(index, index + 4);
+    // Selected episodes retain their order; automatic checks follow the inventory.
+    const batches = background ? episodeLanguageBatches(series, pending)
+      : Array.from({length: Math.ceil(pending.length / 4)}, (_, index) => pending.slice(index * 4, index * 4 + 4));
+    for (const chunk of batches) {
       const owner = createScope();
       languageJobs.add(owner);
-      const job = { owner, generation, keys: chunk.map(keyFor) };
+      const job = { owner, generation, baseSlug, background, episodes: chunk, keys: chunk.map(keyFor) };
       job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
       job.run = async () => {
         if (!owner.active) throw new DOMException("Abgebrochen", "AbortError");
-        let remaining = [...chunk];
+        const liveEpisodes = new Map((seriesState.current?.seasons || []).flatMap(season => season.episodes || [])
+          .map(episode => [episode.slug, episode]));
+        let remaining = chunk.filter(episode => {
+          const live = liveEpisodes.get(episode.slug) || episode;
+          return !live.downloaded && !live.in_jellyfin && (!live.unreleased || live.provider_unreleased === false)
+            && !episodeLanguageChecked(live, seriesState.current);
+        });
         let lastError = null;
         const negativeEvidence = new Map();
         for (let attempt = 0; attempt < 3 && remaining.length; attempt++) {
           const current = () => owner.active && generation === seriesState.viewGeneration
-            && seriesState.current?.base_slug === baseSlug && seriesState.current?.provider === series.provider && isVisible();
+            && seriesState.current?.base_slug === baseSlug && seriesEpisodeProvider(seriesState.current) === provider
+            && seriesDownloadLanguages(seriesState.current).join(",") === languageKey && isVisible();
           if (!current()) throw new DOMException("Abgebrochen", "AbortError");
           const probeId = globalThis.crypto?.randomUUID?.() || `probe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           const initial = [{provider: series.provider, label: series.provider_label || series.provider, status: "checking"}];
@@ -221,7 +256,8 @@ export function createSeriesChecks(status, {
           let providers = initial;
           try {
             const result = await client.post("/api/series/episode-languages", {
-              provider: series.provider, slugs: remaining.map(episode => episode.slug), probe_id: probeId, attempt,
+              provider, slugs: remaining.map(episode => episode.slug), probe_id: probeId, attempt,
+              ...(desired.length ? { content_languages: desired } : {}),
               title: series.title || "", aliases: [...new Set([...(series.aliases || []), series.original_title].filter(Boolean))].slice(0, 12), tmdb_id: series.tmdb_id || null,
             }, {signal: owner.signal, timeoutMs: 15_000,
               timeoutMessage: "Die Sprachprüfung antwortet gerade nicht."});
@@ -241,12 +277,15 @@ export function createSeriesChecks(status, {
               for (const target of new Set([episode, liveEpisodes.get(episode.slug)])) {
                 if (!target) continue;
                 target.language_check_error = !checked;
+                // Partial evidence is visible, but cannot grant download access.
+                if (Array.isArray(languages) && languages.length) target.content_languages = languages;
                 if (!checked) continue;
                 target.language_checked = true;
                 target.language_available = result.available[episode.slug];
                 target.huhu_language_checked = true;
                 target.huhu_language_available = target.language_available;
                 target.content_languages = languages;
+                target.language_profile = result.selected_content_languages || desired;
                 target.source_providers = result.source_providers?.[episode.slug] || [series.provider];
                 if (target.language_available && target.provider_unreleased === false) {
                   target.source_release_verified = true;
@@ -281,7 +320,10 @@ export function createSeriesChecks(status, {
     }
     // A click waits only for its own batches, and moves queued work ahead of
     // unrelated automatic checks. The active request remains shared.
-    if (!background) languageQueue.sort((a, b) => Number(waiting.has(b)) - Number(waiting.has(a)));
+    if (!background) {
+      for (const job of waiting) job.background = false;
+      languageQueue.sort((a, b) => Number(waiting.has(b)) - Number(waiting.has(a)));
+    }
     if (requested.length) status.textContent = `Prüfe Stream-Sprache für ${requested.length} Folge(n) …`;
     runNextLanguageJob();
     if (!background && requested.length) progress.reveal();

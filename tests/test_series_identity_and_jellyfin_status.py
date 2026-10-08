@@ -89,6 +89,20 @@ def test_series_detail_exposes_offered_and_enabled_episode_languages(monkeypatch
     ]
 
 
+def test_subscribed_detail_retains_german_with_global_english_enabled(monkeypatch):
+    entry = {"base_slug": "serienstream:chicago-pd", "title": "Chicago P.D.", "tmdb_id": 58841}
+    monkeypatch.setattr(server.state, "watchlist", [entry])
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    monkeypatch.setattr(server.state, "subscription_content_languages", {entry["base_slug"]: ["de"]})
+    series = _series(entry["base_slug"])
+    series.title = entry["title"]
+    series.seasons[1][1].content_languages = ("en",)
+    assert server.series_to_dict(series, defer_checks=True)["enabled_content_languages"] == ["de"]
+    # A different provider must keep the subscription's logical language choice.
+    series.base_slug = series.url = "moflix:chicago-pd"
+    assert server.series_to_dict(series, defer_checks=True)["enabled_content_languages"] == ["de"]
+
+
 def test_ambiguous_title_without_stable_id_does_not_guess(monkeypatch):
     monkeypatch.setattr(server.state, "watchlist", [
         {"base_slug": "one", "title": "The Office", "tmdb_id": 2316},

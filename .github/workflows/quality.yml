@@ -60,6 +60,14 @@ jobs:
       - name: Similar title navigation and independent detail failures
         run: node tests/frontend/similar-browser.cjs
 
+      - name: People filmography, mobile filters and checked batch downloads
+        run: node tests/frontend/people-browser.cjs
+
+      - name: Personal Jellyfin wishes, separate profiles and delayed responses
+        run: |
+          node --test tests/frontend/saved-media.test.mjs
+          node tests/frontend/saved-media-browser.cjs
+
       - name: First-run setup and authentication browser regression
         if: ${{ !cancelled() }}
         run: |
@@ -189,7 +197,7 @@ jobs:
         run: find web -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Frontend contract smoke tests
-        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/frontend/aniworld-search.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs tests/frontend/carousel-geometry.test.mjs tests/frontend/detail-loader.test.mjs tests/frontend/series-pagination.test.mjs
+        run: node --test tests/frontend_smoke.test.mjs tests/frontend/core.test.mjs tests/frontend/aniworld-search.test.mjs tests/series_card_summary.test.mjs tests/frontend/subscription_center.test.cjs tests/frontend/carousel-geometry.test.mjs tests/frontend/detail-loader.test.mjs tests/frontend/series-pagination.test.mjs tests/frontend/series-selection.test.mjs tests/frontend/people.test.mjs
 
       - name: Python correctness baseline
         run: ruff check --select E9,F63,F7,F82 .

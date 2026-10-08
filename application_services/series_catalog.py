@@ -11,6 +11,7 @@ from application_services.runtime import (
     publish_service,
 )
 from features.monster_series_extension import parse_monster_virtual_episode
+from features.subscription_languages import subscription_content_languages
 
 globals().update(import_backend_namespace())
 
@@ -1142,7 +1143,10 @@ def series_to_dict(
         "provider_label": PROVIDER_LABELS.get(provider, provider),
         "content_language": provider_content_language(provider),
         "language_label": PROVIDER_CATALOG[provider].language_label,
-        "enabled_content_languages": sorted(state.content_languages),
+        "enabled_content_languages": sorted(subscription_content_languages(
+            watchlist_entry or {"base_slug": series.base_slug}, state.content_languages,
+            getattr(state, "subscription_content_languages", {}),
+        )),
         "provider_content_languages": list(provider_content_languages(provider)),
         "episode_count": len(series.all_episodes),
         "watchlisted": watchlist_entry is not None,

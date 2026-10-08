@@ -1002,6 +1002,10 @@ test("global search keeps progressive results, cancels superseded requests and p
 });
 
 
+function settle() {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
 function updaterFixture(client, reload = () => {}) {
   const nodes = new Map();
   const node = () => Object.assign(new EventTarget(), {
@@ -1013,6 +1017,96 @@ function updaterFixture(client, reload = () => {}) {
   const socket = subscriptionSocket();
   return { view: createUpdater(root, { client, socket, reload }), root, socket, nodes };
 }
+
+test("updater ignores earlier checks after a newer check completes", async () => {
+  const pending = [];
+  const { view, nodes } = updaterFixture({ get: () => new Promise(resolve => pending.push(resolve)) });
+  try {
+    view.mount();
+    const refresh = view.refresh(true);
+    pending[1]({ latest_sha: "b", update_channel: "overnight", update_available: true,
+      config: { update_channel: "overnight" } });
+    await refresh;
+    pending[0]({ latest_sha: "a", update_channel: "stable", update_available: true,
+      config: { update_channel: "stable" } });
+    await settle();
+    assert.equal(nodes.get("#updater-channel").value, "overnight");
+    assert.equal(nodes.get("#updater-install").dataset.sha, "b");
+  } finally { view.unmount(); }
+});
+
+test("updater live installation supersedes a delayed idle check", async () => {
+  let resolve;
+  const { view, socket, root, nodes } = updaterFixture({ get: () => new Promise(done => { resolve = done; }) });
+  try {
+    view.mount();
+    socket.emit("updater_install", { installer: { active: true, state: "installing", target_sha: "b" } });
+    resolve({ installer: { active: false }, latest_sha: "a", update_available: true });
+    await settle();
+    assert.equal(root.dataset.installing, "true");
+    assert.equal(nodes.get("#updater-install").dataset.sha, "b");
+    assert.equal(nodes.get("#updater-install").disabled, true);
+  } finally { view.unmount(); }
+});
+
+test("updater explains missing stable approval before allowing a channel switch", async () => {
+  for (const blocked of [{ quality_approved: false, quality_gate: "failed" }, { security_blocked: true }]) {
+    const { view, root, nodes } = updaterFixture({ get: async () => ({
+      update_channel: "stable", possible_downgrade: true, latest_sha: "b", ...blocked,
+    }) });
+    try {
+      view.mount();
+      await settle();
+      assert.equal(root.dataset.state, "error");
+      assert.notEqual(nodes.get("#updater-status").textContent, "Bestätigter Branchwechsel erforderlich");
+    } finally { view.unmount(); }
+  }
+});
+
+test("updater verifies the local running process without consulting GitHub", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const target = "b".repeat(40);
+  let running = "a".repeat(40), reloads = 0;
+  const urls = [];
+  const { view, socket } = updaterFixture({ get: async url => {
+    urls.push(url);
+    if (url.startsWith("/api/v1/capabilities")) return { current_sha: running };
+    return { error: "GitHub ist nicht erreichbar.", error_code: "github_unavailable" };
+  } }, () => reloads++);
+  try {
+    view.mount();
+    await settle();
+    socket.emit("updater_install", { installer: { active: true, state: "restarting", target_sha: target } });
+    t.mock.timers.tick(3000);
+    await settle();
+    assert.equal(reloads, 0);
+    running = target;
+    t.mock.timers.tick(3000);
+    await settle();
+    assert.equal(reloads, 1);
+    assert.equal(urls.filter(url => url.startsWith("/api/updater/status")).length, 1);
+    assert.equal(urls.filter(url => url.startsWith("/api/v1/capabilities")).length, 2);
+  } finally { view.unmount(); }
+});
+
+test("updater accepts older capabilities only with a full 12-digit build fingerprint", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const target = "b".repeat(40);
+  let build = target.slice(0, 7), reloads = 0;
+  const { view, socket } = updaterFixture({ get: async () => ({ build }) }, () => reloads++);
+  try {
+    view.mount();
+    await settle();
+    socket.emit("updater_install", { installer: { active: true, state: "restarting", target_sha: target } });
+    t.mock.timers.tick(3000);
+    await settle();
+    assert.equal(reloads, 0);
+    build = target.slice(0, 12);
+    t.mock.timers.tick(3000);
+    await settle();
+    assert.equal(reloads, 1);
+  } finally { view.unmount(); }
+});
 
 test("updater presents temporary failures as retryable and recovers on the next check", async () => {
   let fail = true;

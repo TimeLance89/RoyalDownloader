@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createSeriesChecks } from '../../web/js/features/media-details/series-checks.js';
 import { createSeriesEpisodes } from '../../web/js/features/media-details/series-episodes.js';
 import { createSeriesDetailsLoader } from '../../web/js/features/media-details/series-loader.js';
+import { episodeLanguageBatches } from '../../web/js/features/media-details/series-language-order.js';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function requestAt(f, index) {
@@ -10,10 +11,125 @@ async function requestAt(f, index) {
   assert.ok(f.requests[index], `request ${index} starts`);
   return f.requests[index];
 }
+
+function inventoryFixture(count = 15, episodesPerSeason = 12) {
+  const seasons = Array.from({length: count}, (_, index) => ({season: index + 1,
+    episodes: Array.from({length: episodesPerSeason}, (_, episode) => ({season: index + 1, episode: episode + 1,
+      slug: `sto:show-s${index + 1}e${episode + 1}`}))}));
+  return {base_slug: 'sto:show', provider: 'serienstream', seasons};
+}
+const missingEpisodes = series => series.seasons.flatMap(season => season.episodes)
+  .filter(episode => !episode.downloaded && !episode.in_jellyfin && !episode.unreleased);
+
+test('a new fifteen-season series starts at the beginning even with shuffled catalog seasons', () => {
+  const series = inventoryFixture();
+  series.seasons.reverse();
+  const before = structuredClone(series);
+  const batches = episodeLanguageBatches(series, missingEpisodes(series));
+  assert.deepEqual(batches[0].map(episode => episode.slug), ['sto:show-s1e1', 'sto:show-s1e2', 'sto:show-s1e3', 'sto:show-s1e4']);
+  assert.equal(batches.at(-1).at(-1).slug, 'sto:show-s15e12');
+  assert.deepEqual(series, before, 'scheduling never changes the displayed catalog or evidence');
+});
+
+test('Chicago P.D. continues at S13E07 and regularly probes older inventory gaps', () => {
+  const series = inventoryFixture();
+  for (const season of series.seasons) for (const episode of season.episodes) {
+    episode.downloaded = season.season < 13 || (season.season === 13 && episode.episode <= 5);
+    episode.in_jellyfin = season.season === 13 && episode.episode === 6;
+  }
+  for (const episode of series.seasons[0].episodes) episode.downloaded = false;
+  const batches = episodeLanguageBatches(series, missingEpisodes(series));
+  assert.equal(batches[0][0].slug, 'sto:show-s13e7');
+  assert.equal(batches[1][0].slug, 'sto:show-s13e11');
+  assert.equal(batches[2][0].slug, 'sto:show-s1e1', 'old gaps progress before all newer seasons complete');
+  assert.equal(batches[3][0].slug, 'sto:show-s14e3');
+  assert.equal(batches.flat().length, missingEpisodes(series).length);
+  assert.equal(new Set(batches.flat().map(episode => episode.slug)).size, batches.flat().length);
+});
+
+test('a completed library prioritizes the next published season and skips upcoming episodes', () => {
+  const series = inventoryFixture(15, 4);
+  for (const season of series.seasons.slice(0, 14)) for (const episode of season.episodes) episode.in_jellyfin = true;
+  series.seasons[14].episodes[3].unreleased = true;
+  assert.deepEqual(episodeLanguageBatches(series, missingEpisodes(series))[0].map(episode => episode.slug),
+    ['sto:show-s15e1', 'sto:show-s15e2', 'sto:show-s15e3']);
+});
+
+test('provider listings and queued episodes never establish an inventory continuation', () => {
+  const series = inventoryFixture(15, 4);
+  for (const episode of series.seasons[14].episodes) Object.assign(episode, {queued: true, content_languages: ['de']});
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s1e1');
+});
+
+test('an unavailable or pending library is unknown rather than empty; retained positives still anchor it', () => {
+  const series = inventoryFixture();
+  Object.assign(series, {jellyfin_configured: true, jellyfin_available: false});
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s15e1');
+  series.jellyfin_available = true;
+  series.jellyfin_pending = true;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s15e1');
+  series.seasons[12].episodes[0].in_jellyfin = true;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s13e2');
+  series.seasons[12].episodes[0].in_jellyfin = false;
+  series.jellyfin_pending = false;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s1e1');
+  series.jellyfin_stale = true;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s15e1');
+});
+
+test('a hole inside the current season is checked before continuing and a finished library backfills old holes', () => {
+  const series = inventoryFixture(3, 4);
+  for (const season of series.seasons) for (const episode of season.episodes) episode.downloaded = true;
+  series.seasons[2].episodes[1].downloaded = false;
+  series.seasons[0].episodes[0].downloaded = false;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s3e2');
+  series.seasons[2].episodes[1].downloaded = true;
+  assert.equal(episodeLanguageBatches(series, missingEpisodes(series))[0][0].slug, 'sto:show-s1e1');
+});
+
+test('subscription language is sent to probes and mixed-profile evidence cannot grant German selection', async () => {
+  const f = fixture(1);
+  f.series.enabled_content_languages = ['de'];
+  Object.assign(f.episodes[0], {language_checked: true, language_available: true,
+    content_languages: ['en'], language_profile: ['de', 'en']});
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  const selection = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  for (let i = 0; i < 2; i++) {
+    const request = await requestAt(f, i);
+    assert.deepEqual(request.body.content_languages, ['de']);
+    request.resolve({languages: {[f.episodes[0].slug]: ['en']},
+      available: {[f.episodes[0].slug]: false}, selected_content_languages: ['de']});
+  }
+  await selection;
+  assert.equal(f.model.tileClass(f.episodes[0]), 'wrong-language');
+  await f.model.seriesAddSelected();
+  assert.equal(f.queueRequests.length, 0);
+});
+
+test('source identity keeps incomplete subscribed payloads behind language verification', () => {
+  const f = fixture(1);
+  delete f.series.provider;
+  f.series.base_slug = 'serienstream:show';
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  assert.equal(f.model.tileClass(f.episodes[0]), 'language-pending');
+});
+
+test('language changes ignore a delayed response from the previous profile', async () => {
+  const f = fixture(1);
+  f.series.enabled_content_languages = ['en'];
+  const selection = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  const request = await requestAt(f, 0);
+  f.series.enabled_content_languages = ['de'];
+  request.resolve({languages: {[f.episodes[0].slug]: ['en']},
+    available: {[f.episodes[0].slug]: true}, selected_content_languages: ['en']});
+  await selection;
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  assert.equal(f.episodes[0].language_checked, undefined);
+});
 function fixture(count = 12, languageConcurrency = 1) {
   const episodes = Array.from({length: count}, (_, i) => ({slug: `sto:show-s01e${i+1}`, season: 1, episode: i+1}));
   const series = {base_slug: 'sto:show', provider: 'serienstream', seasons: [{season: 1, episodes}]};
-  const state = {current: series, viewGeneration: 1, epPicked: new Set()};
+  const state = {current: series, cache: {}, viewGeneration: 1, epPicked: new Set()};
   const node = () => Object.assign(new EventTarget(), {dataset: {}, textContent: '', innerHTML: '',
     setAttribute() {}, removeAttribute() {}, append() {}, appendChild() {}, prepend() {},
     querySelector: () => null, querySelectorAll: () => []});
@@ -23,10 +139,15 @@ function fixture(count = 12, languageConcurrency = 1) {
   }});
   const requests = [], queueRequests = [], queued = new Set(), status = {textContent: ''};
   let model;
+  const merger = createSeriesDetailsLoader(root, status, {seriesState: state});
   const checks = createSeriesChecks(status, {seriesState: state, isVisible: () => true, retryDelays: [0, 0], languageConcurrency,
+    firstEpisodeSlug: current => current.seasons[0]?.episodes[0]?.slug,
+    syncSeriesQueueFlags() {}, seriesStructureFingerprint: () => '', mergeSeriesDetailPayload: merger.merge,
+    updateSeriesOverview() {}, updateWatchBtn() {}, updateSeriesStatus() {},
     pruneSeriesEpisodeSelection: () => model?.pruneSeriesEpisodeSelection(),
+    refreshSeriesTileStates: () => model?.refreshSeriesTileStates(),
     renderSeriesTiles: () => model?.renderSeriesTiles(),
-    client: {post: (url, body, options) => new Promise((resolve, reject) => requests.push({body, options, resolve, reject}))}});
+    client: {post: (url, body, options) => new Promise((resolve, reject) => requests.push({url, body, options, resolve, reject}))}});
   model = createSeriesEpisodes(root, {status, seriesState: state, getQueuedSlugs: () => queued,
     getEnabledLanguages: () => ['de'], verifyHuhuEpisodeLanguages: checks.verifyLanguages,
     trackDiscoveryPreference() {}, refreshQueueUiAfterChange() {},
@@ -36,6 +157,103 @@ function fixture(count = 12, languageConcurrency = 1) {
     languages: Object.fromEntries(request.body.slugs.map(slug => [slug, [denied.includes(slug) ? 'en' : 'de']]))});
   return {episodes, series, state, model, checks, requests, queueRequests, queued, respond, status, root, nodes};
 }
+
+async function finishBackground(f, work) {
+  let finished = false;
+  const done = work.finally(() => { finished = true; });
+  for (let iteration = 0; iteration < 150 && !finished; iteration++) {
+    for (const request of f.requests.filter(request => request.url === '/api/series/episode-languages' && !request.answered)) {
+      request.answered = true; f.respond(request);
+    }
+    await tick();
+  }
+  assert.equal(finished, true, 'independent background batches finish');
+  await done;
+}
+
+test('a late Jellyfin inventory reprioritizes waiting probes while a selected older episode keeps precedence', async () => {
+  const f = fixture(1);
+  f.state.current = inventoryFixture();
+  Object.assign(f.state.current, {jellyfin_configured: true, jellyfin_available: false});
+  const work = f.checks.refresh();
+  const libraryRequest = f.requests[0], loadRequest = f.requests[1];
+  assert.equal(libraryRequest.url, '/api/series/jellyfin-status');
+  loadRequest.resolve(structuredClone(f.state.current));
+  const active = await requestAt(f, 2);
+  assert.equal(active.body.slugs[0], 'sto:show-s15e1');
+  const selection = f.model.toggleEpisodeTile('sto:show-s1e9');
+  libraryRequest.resolve({configured: true, available: true, stale: false,
+    episodes: Object.fromEntries(missingEpisodes(f.state.current).map(episode => [episode.slug,
+      episode.season === 13 && episode.episode <= 6]))});
+  await tick();
+  assert.equal(active.options.signal.aborted, false, 'new inventory does not cancel a running probe');
+  active.answered = true; f.respond(active);
+  const clicked = await requestAt(f, 3);
+  assert.equal(clicked.body.slugs[0], 'sto:show-s1e9');
+  clicked.answered = true; f.respond(clicked); await selection;
+  const continuation = await requestAt(f, 4);
+  assert.equal(continuation.body.slugs[0], 'sto:show-s13e7');
+  assert.equal(f.state.epPicked.has('sto:show-s1e9'), true);
+  await finishBackground(f, work);
+  assert.equal(f.requests.filter(request => request.url === '/api/series/episode-languages')
+    .some(request => request.body.slugs.some(slug => /^sto:show-s13e[1-6]$/.test(slug))), false,
+    'newly confirmed inventory is skipped even if its batch was already waiting');
+});
+
+test('automatic probes defer a lightweight inventory snapshot while explicit selections remain independent', async () => {
+  const f = fixture(4);
+  f.series.availability_pending = true;
+  await f.checks.verifyLanguages(f.episodes, f.series, {background: true});
+  assert.equal(f.requests.length, 0);
+  const selection = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  const request = await requestAt(f, 0);
+  assert.deepEqual(request.body.slugs, [f.episodes[0].slug]);
+  f.respond(request); await selection;
+  assert.equal(f.state.epPicked.has(f.episodes[0].slug), true);
+});
+
+test('a live inventory received before cached enrichment still starts at the continuation', async () => {
+  const f = fixture(1);
+  f.state.current = inventoryFixture(15, 4);
+  Object.assign(f.state.current, {jellyfin_configured: true, jellyfin_available: false});
+  const cached = structuredClone(f.state.current);
+  const work = f.checks.refresh();
+  f.requests[0].resolve({configured: true, available: true, stale: false,
+    episodes: {'sto:show-s13e1': true}});
+  await tick();
+  f.requests[1].resolve(cached);
+  const first = await requestAt(f, 2);
+  assert.equal(first.body.slugs[0], 'sto:show-s13e2');
+  assert.equal(f.state.current.seasons[12].episodes[0].in_jellyfin, true);
+  assert.equal(f.state.current.jellyfin_available, true);
+  await finishBackground(f, work);
+});
+
+test('an unavailable live inventory and cached enrichment retain previously confirmed Jellyfin episodes', async () => {
+  const f = fixture(1);
+  f.state.current = inventoryFixture(15, 4);
+  Object.assign(f.state.current, {jellyfin_configured: true, jellyfin_available: true});
+  f.state.current.seasons[12].episodes[0].in_jellyfin = true;
+  const unavailable = structuredClone(f.state.current);
+  unavailable.jellyfin_available = false;
+  unavailable.seasons[12].episodes[0].in_jellyfin = false;
+  const work = f.checks.refresh();
+  f.requests[0].resolve({configured: true, available: false, stale: false,
+    episodes: {'sto:show-s13e1': false}});
+  await tick();
+  f.requests[1].resolve(unavailable);
+  const first = await requestAt(f, 2);
+  assert.equal(first.body.slugs[0], 'sto:show-s13e2');
+  assert.equal(f.state.current.seasons[12].episodes[0].in_jellyfin, true);
+  await finishBackground(f, work);
+  const fresh = structuredClone(f.state.current);
+  fresh.jellyfin_available = true;
+  fresh.jellyfin_stale = false;
+  fresh.seasons[12].episodes[0].in_jellyfin = false;
+  const loader = createSeriesDetailsLoader(f.root, f.status, {seriesState: f.state});
+  assert.equal(loader.merge(f.state.current, fresh).seasons[12].episodes[0].in_jellyfin, false,
+    'an authoritative later removal still updates the inventory');
+});
 
 test('confirmed fallback releases a TMDB-scheduled episode and survives enrichment', async () => {
   const f = fixture(2);
@@ -61,47 +279,49 @@ test('confirmed fallback releases a TMDB-scheduled episode and survives enrichme
   assert.equal(f.model.isEpisodeSelectable(f.state.current.seasons[0].episodes[0]), false);
 });
 
-test('one download click submits an entirely unverified season and late checks do not select it again', async () => {
+test('an unverified season cannot enter the queue; confirmed batches become downloadable', async () => {
   const f = fixture(8);
   const selection = f.model.toggleSeasonTiles(1);
-  assert.equal(f.nodes.get('#series-add-btn').disabled, false);
-  assert.match(f.nodes.get('#series-pick-count').textContent, /8 ausgewählt · 8 prüfen/);
+  assert.equal(f.nodes.get('#series-add-btn').disabled, true);
+  assert.match(f.nodes.get('#series-pick-count').textContent, /0 ausgewählt · 8 in Prüfung/);
+  await f.model.seriesAddSelected();
+  assert.equal(f.queueRequests.length, 0, 'programmatic submission cannot bypass the disabled button');
+  f.respond(f.requests[0]); await tick();
   const download = f.model.seriesAddSelected();
   await f.model.seriesAddSelected();
   assert.equal(f.queueRequests.length, 1, 'double click does not submit twice');
-  assert.deepEqual(f.queueRequests[0].body.slugs, f.episodes.map(ep => ep.slug));
-  f.queueRequests[0].resolve({added: 8}); await download;
-  assert.match(f.status.textContent, /8\/8 Episode\(n\) vorgemerkt.*Hintergrund/);
-  f.respond(f.requests[0]); await tick(); f.respond(await requestAt(f, 1)); await selection;
-  assert.equal(f.state.epPicked.size, 0, 'completed language batches cannot create another download selection');
-  assert.equal(f.nodes.get('#series-add-btn').disabled, true);
+  assert.deepEqual(f.queueRequests[0].body.slugs, f.episodes.slice(0, 4).map(ep => ep.slug));
+  f.queueRequests[0].resolve({added: 4}); await download;
+  f.respond(await requestAt(f, 1)); await selection;
+  assert.deepEqual([...f.state.epPicked], f.episodes.slice(4).map(ep => ep.slug), 'independent pending batches retain their selection intent');
+  assert.equal(f.nodes.get('#series-add-btn').disabled, false);
 });
 
-test('a mixed selection submits verified and pending episodes but excludes locked and scheduled episodes', async () => {
+test('a mixed selection submits only verified episodes and keeps pending intent across hydration', async () => {
   const f = fixture(5);
   f.episodes[0].language_checked = true; f.episodes[0].content_languages = ['de'];
   f.episodes[1].language_checked = true; f.episodes[1].content_languages = ['en'];
   f.episodes[2].unreleased = true;
   const selection = f.model.toggleSeasonTiles(1);
   const download = f.model.seriesAddSelected();
-  assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug, f.episodes[3].slug, f.episodes[4].slug]);
+  assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug]);
   // Hydration must not strand the submitted selection in the same view.
   f.state.current = structuredClone(f.series);
-  f.queueRequests[0].resolve({added: 3}); await download;
+  f.queueRequests[0].resolve({added: 1}); await download;
   f.respond(f.requests[0]); await selection;
-  assert.equal(f.state.epPicked.size, 0);
+  assert.deepEqual([...f.state.epPicked], [f.episodes[3].slug, f.episodes[4].slug]);
 });
 
-test('a failed queue request keeps the pending selection available for retry', async () => {
+test('a failed queue request keeps the confirmed selection available for retry', async () => {
   const f = fixture(4);
   const selection = f.model.toggleSeasonTiles(1);
+  f.respond(f.requests[0]); await selection;
   const download = f.model.seriesAddSelected();
   f.queueRequests[0].reject(new Error('offline')); await download;
   assert.equal(f.nodes.get('#series-add-btn').disabled, false);
   const retry = f.model.seriesAddSelected();
   assert.deepEqual(f.queueRequests[1].body.slugs, f.episodes.map(ep => ep.slug));
   f.queueRequests[1].resolve({added: 4}); await retry;
-  f.respond(f.requests[0]); await selection;
   assert.equal(f.state.epPicked.size, 0);
 });
 
@@ -114,25 +334,28 @@ test('queued unverified episodes show queue state instead of a new pending selec
 
 test('a queue response preserves a different selection made while the request was pending', async () => {
   const f = fixture(2);
+  Object.assign(f.episodes[0], {language_checked: true, content_languages: ['de']});
   const first = f.model.toggleEpisodeTile(f.episodes[0].slug);
   const download = f.model.seriesAddSelected();
   const second = f.model.toggleEpisodeTile(f.episodes[1].slug);
   f.queueRequests[0].resolve({added: 1}); await download;
-  f.respond(f.requests[0]); await first;
-  f.respond(await requestAt(f, 1)); await second;
+  await first;
+  f.respond(f.requests[0]); await second;
   assert.deepEqual([...f.state.epPicked], [f.episodes[1].slug]);
   assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug]);
 });
 
-test('checks finishing before queue acceptance do not leave the submitted selection behind', async () => {
+test('checks finishing before queue acceptance preserve newly confirmed, unsubmitted episodes', async () => {
   const f = fixture(4);
+  Object.assign(f.episodes[0], {language_checked: true, content_languages: ['de']});
   const selection = f.model.toggleSeasonTiles(1);
   const download = f.model.seriesAddSelected();
   f.respond(f.requests[0]); await selection;
   assert.equal(f.state.epPicked.size, 4);
-  f.queueRequests[0].resolve({added: 4}); await download;
-  assert.equal(f.state.epPicked.size, 0);
-  assert.equal(f.nodes.get('#series-add-btn').disabled, true);
+  assert.deepEqual(f.queueRequests[0].body.slugs, [f.episodes[0].slug]);
+  f.queueRequests[0].resolve({added: 1}); await download;
+  assert.deepEqual([...f.state.epPicked], f.episodes.slice(1).map(ep => ep.slug));
+  assert.equal(f.nodes.get('#series-add-btn').disabled, false);
 });
 
 test('an episode click waits only for its batch, not the rest of the series', async () => {
@@ -285,6 +508,30 @@ test('closing a view during backoff cancels automatic retry', async () => {
   f.state.viewGeneration++;
   await click; await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(f.requests.length, 1);
+});
+
+
+test('Chicago P.D. EN-only evidence stays visible and cannot be queued while alternatives are pending', async () => {
+  const f = fixture(1);
+  const click = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  for (let i = 0; i < 3; i++) {
+    const request = await requestAt(f, i);
+    request.resolve({languages: {[f.episodes[0].slug]: ['en']},
+      available: {[f.episodes[0].slug]: false}, pending: [f.episodes[0].slug]});
+  }
+  await click;
+  assert.deepEqual(f.episodes[0].content_languages, ['en']);
+  assert.equal(f.model.tileClass(f.episodes[0]), 'language-pending');
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), false);
+  await f.model.seriesAddSelected();
+  assert.equal(f.queueRequests.length, 0);
+  const tile = {setAttribute() {}, removeAttribute() {}, appendChild(child) {this.notice = child;}, querySelector() {return null;}};
+  f.model.applySeriesEpisodeTileState(tile, f.episodes[0], f.series);
+  assert.equal(tile.notice.textContent, 'NUR EN');
+  // A failed alternative must remain retryable; a later real DE source releases it.
+  const retry = f.model.toggleEpisodeTile(f.episodes[0].slug);
+  f.respond(await requestAt(f, 3)); await retry;
+  assert.equal(f.model.isEpisodeSelectable(f.episodes[0]), true);
 });
 
 

@@ -482,7 +482,7 @@ export function createMovieCollections(root, {
     await resolveMovieCollectionPart(part, requestId);
   }
 
-  async function openMovieCollection(collectionId, trigger = null) {
+  async function openMovieCollection(collectionId, trigger = null, suppliedCollection = null) {
     if (!session.active) return;
     close();
     detail = createScope();
@@ -502,7 +502,8 @@ export function createMovieCollections(root, {
     byId("movie-collection-download-all").disabled = true;
     openMediaModal("movie-collection-modal", trigger);
     try {
-      const response = await client.get(`/api/movie-collections/${encodeURIComponent(collectionId)}`, { signal: detail.signal });
+      const response = suppliedCollection ? { collection: suppliedCollection }
+        : await client.get(`/api/movie-collections/${encodeURIComponent(collectionId)}`, { signal: detail.signal });
       if (requestId !== data.requestSeq) return;
       const collection = response.collection;
       data.collection = collection;
@@ -632,5 +633,5 @@ export function createMovieCollections(root, {
     });
   }
   function unmount() { close(); session.dispose(); listening = false; }
-  return { get: () => data, open: openMovieCollection, createCard: createMovieCollectionSearchCard, close, mount, unmount };
+  return { get: () => data, open: openMovieCollection, openFilms: (collection, trigger) => openMovieCollection(0, trigger, collection), createCard: createMovieCollectionSearchCard, close, mount, unmount };
 }

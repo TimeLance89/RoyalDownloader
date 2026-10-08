@@ -36,6 +36,8 @@ Select **Stable** and save. The updater compares the installed commit with
 `main`. If `main` is behind the installed build or the histories have diverged,
 the status is marked as a possible downgrade/branch change. Automatic
 installation pauses and the user must explicitly confirm the target commit.
+Confirmation never bypasses the required CI and commit-signature approvals.
+An installation is rejected if its checked channel changes before it starts.
 
 For Docker/NAS runtime installations, the new revision is staged and tested
 before activation. `runtime/current` changes atomically and
@@ -105,8 +107,9 @@ bash /tmp/royal-update/install.sh /volume1/Deluxe Downloader_Deluxe
 
 Both `main` and `overnight` run Python and frontend tests, syntax checks, Ruff,
 Bandit, dependency audit, Docker build, health, persistence, and restart smoke
-checks. The updater also checks the Quality result for the exact Overnight
-commit and fails closed while it is pending, missing, or unsuccessful. The
+checks. The updater also checks the latest `verify` result and the signature
+for the exact target commit on both channels. It fails closed while approval
+is pending, missing, or unsuccessful. The
 release workflow additionally rejects tags whose commit is not an ancestor of
 `main`.
 
@@ -119,3 +122,6 @@ No registry image is introduced by this channel model. If images are added
 later, release tags and `stable` belong to Stable; Overnight may use
 `overnight` and `overnight-<commit>`. Release candidates must never update
 `latest`.
+
+See [the updater audit](UPDATER_AUDIT.md) for the verified failure cases and
+the remaining limits of automatic recovery after a failed server start.

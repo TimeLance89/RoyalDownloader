@@ -2,9 +2,89 @@
 import asyncio
 import threading
 from types import SimpleNamespace
+import pytest
 
 from features.episode_source_probe import EpisodeSourceProbes
 from providers.models import FilmpalastMovie, HosterInfo
+
+
+@pytest.mark.parametrize("preferences,requested", [({}, ["de"]), ({"serienstream:chicago-pd": ["de"]}, ["en"])])
+def test_episode_probe_uses_requested_or_retained_language_instead_of_global_lanes(monkeypatch, preferences, requested):
+    import server  # noqa: F401
+    import api.api_discovery_router as discovery
+    import api.api_library_router as library
+    from features.episode_language_probe import EpisodeLanguageProbes
+
+    broker = EpisodeLanguageProbes(workers=1)
+    monkeypatch.setattr("features.episode_language_probe.language_probes", broker)
+    slug = "serienstream:chicago-pd-s13e07"
+    runtime = SimpleNamespace(content_languages={"de", "en"}, subscription_content_languages=preferences,
+        series_cache={})
+    monkeypatch.setattr(discovery, "state", runtime)
+    monkeypatch.setattr(discovery, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda _slug: "serienstream")
+    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *_args: ["en"])
+    monkeypatch.setattr(library, "record_watchlist_episode_languages", lambda _values: None)
+    try:
+        # Warm the same episode with the global mixed language configuration.
+        first = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="serienstream", slugs=[slug])))
+        assert first["available"][slug] is (not preferences)
+        result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="serienstream", slugs=[slug], content_languages=requested)))
+        assert result["available"][slug] is False
+        assert result["languages"][slug] == ["en"]
+        assert result["selected_content_languages"] == ["de"]
+    finally:
+        broker.close()
+
+
+@pytest.mark.parametrize("fallback_language", ["en", "de", None])
+def test_primary_audio_evidence_and_fallback_progress_are_independent(monkeypatch, fallback_language):
+    import server  # noqa: F401
+    import api.api_discovery_router as discovery
+    import api.api_library_router as library
+    import application_services.download_lifecycle as lifecycle
+    from features.episode_language_probe import EpisodeLanguageProbes
+
+    primary = EpisodeLanguageProbes(workers=1)
+    sources = EpisodeSourceProbes(workers=1)
+    monkeypatch.setattr("features.episode_language_probe.language_probes", primary)
+    monkeypatch.setattr("features.episode_source_probe.episode_source_probes", sources)
+    slug = "serienstream:chicago-pd-s13e07"
+    runtime = SimpleNamespace(content_languages={"de"}, series_cache={}, fallback_provider_errors={},
+        movie_source_cache={}, movie_source_cache_lock=threading.Lock())
+    monkeypatch.setattr(discovery, "state", runtime)
+    monkeypatch.setattr(discovery, "provider_priority", lambda kind: ["serienstream", "hdfilme_family"])
+    monkeypatch.setattr(discovery, "provider_for_value", lambda value: "serienstream")
+    monkeypatch.setattr(discovery, "episode_languages_for_slug", lambda *args: ["en"])
+    recorded = []
+    monkeypatch.setattr(library, "record_watchlist_episode_languages", recorded.append)
+
+    def fallback(*args, **kwargs):
+        if fallback_language is None:
+            raise RuntimeError("Temporary outage")
+        movie = FilmpalastMovie("Chicago P.D. S13E07", "https://fallback.test/episode",
+            provider="hdfilme_family", content_language="de",
+            hosters=[HosterInfo("VOE", "https://stream.test/file", fallback_language)])
+        movie._content_language_explicit = True
+        return [movie]
+
+    monkeypatch.setattr(lifecycle, "find_episode_fallbacks", fallback)
+    try:
+        result = asyncio.run(discovery.api_series_episode_languages(discovery.SeriesEpisodeLanguagesBody(
+            provider="serienstream", slugs=[slug], title="Chicago P.D.")))
+        assert result["available"][slug] is (fallback_language == "de")
+        assert result["languages"][slug] == (["de", "en"] if fallback_language == "de" else ["en"])
+        assert (slug in result.get("pending", [])) is (fallback_language is None)
+        if fallback_language is None:
+            assert recorded == [{}], "unfinished alternatives cannot publish a final subscription denial"
+        else:
+            assert recorded == [{slug: result["languages"][slug]}]
+        assert (slug in runtime.movie_source_cache) is (fallback_language == "de")
+    finally:
+        primary.close()
+        sources.close()
 
 
 def test_slow_source_does_not_erase_fast_results_and_overlapping_probes_are_shared():

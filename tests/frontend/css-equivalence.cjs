@@ -79,6 +79,12 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
         !(innerWidth <= 820 && element.closest(".mobile-tabs"))
         // New provider progress has no frozen visual state; its live layout is tested separately.
         && !element.closest("#series-probe-progress")
+        // People did not exist in the frozen shell. Its layout and interaction
+        // are covered by people-browser.cjs; navigation remains compared here.
+        && !element.closest("#tab-personen")
+        // These four personal-watchlist controls have no frozen counterpart.
+        // saved-media-browser.cjs checks their layout and profile isolation.
+        && !element.matches("#fp-detail-save, #fp-detail-save-note, #series-save, #series-save-note")
         && !element.closest("#household-manage")
         && !element.closest("#account-avatar-card")
         && !element.closest("#tab-einstellungen")

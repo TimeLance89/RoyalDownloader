@@ -381,8 +381,11 @@ test("SerienStream language truth auto-checks after hydration without an episode
   assert.deepEqual(language.body.slugs, [
     "serienstream:american-horror-story-s13e03",
     "serienstream:american-horror-story-s13e04",
-    "serienstream:american-horror-story-s12e09",
   ]);
+  const gap = requests.filter(request => request.url === "/api/series/episode-languages")[1];
+  assert.deepEqual(gap.body.slugs, ["serienstream:american-horror-story-s12e09"]);
+  gap.resolve({available: {"serienstream:american-horror-story-s12e09": true},
+    languages: {"serienstream:american-horror-story-s12e09": ["de"]}});
 
   language.resolve({
     available: {
@@ -396,10 +399,10 @@ test("SerienStream language truth auto-checks after hydration without an episode
       "serienstream:american-horror-story-s12e09": ["de"],
     },
   });
-  for (let n = 0; n < 100 && requests.filter(request => request.url === "/api/series/episode-languages").length < 2; n++) {
+  for (let n = 0; n < 100 && requests.filter(request => request.url === "/api/series/episode-languages").length < 3; n++) {
     await new Promise(resolve => setTimeout(resolve, 1));
   }
-  const confirmation = requests.filter(request => request.url === "/api/series/episode-languages")[1];
+  const confirmation = requests.filter(request => request.url === "/api/series/episode-languages")[2];
   assert.deepEqual(confirmation.body.slugs, ["serienstream:american-horror-story-s13e03"]);
   confirmation.resolve({available: {"serienstream:american-horror-story-s13e03": false},
     languages: {"serienstream:american-horror-story-s13e03": ["en"]}});

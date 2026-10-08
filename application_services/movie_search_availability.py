@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -21,6 +22,8 @@ from application_services.runtime import (
     publish_service,
 )
 from core.runtime_cache import BoundedTTLCache
+from features.movie_probes import MovieProbeIncomplete, interactive_movie_probe, movie_probe_context, movie_source_probes
+from application_services.movie_availability import _movie_routing_incomplete
 
 
 globals().update(import_backend_namespace())
@@ -447,20 +450,63 @@ def load_movie_for_slug(slug: str):
     try:
         group = _MOVIE_SEARCH_GROUP_CACHE[slug]
     except KeyError:
+        if interactive_movie_probe() and not str(slug).casefold().startswith("tmdb:"):
+            def direct():
+                movie = _ORIGINAL_LOAD_MOVIE_FOR_SLUG(slug)
+                if movie is None:
+                    raise MovieProbeIncomplete("Der Anbieter lieferte keine auswertbare Filmseite.")
+                movie._movie_probe_checked_at = time.time()
+                return movie if getattr(movie, "hosters", None) else None
+
+            results = movie_source_probes.collect([(slug, provider_for_value(slug), direct)],
+                context=("direct", movie_probe_context(state)), timeout=4.0)
+            if results.incomplete:
+                raise MovieProbeIncomplete("Die direkte Filmquelle konnte noch nicht geprüft werden.")
+            movie = next((movie for _, movie in results), None)
+            if movie is not None:
+                movie._movie_availability_incomplete = False
+            return movie
         return _ORIGINAL_LOAD_MOVIE_FOR_SLUG(slug)
 
-    for record in _resolution_records_for_slug(slug, group):
+    settings = movie_probe_context(state)
+    active = tuple(provider_priority("movies"))
+    records = [record for record in _resolution_records_for_slug(slug, group)
+               if record["provider"] in active]
+    context = ("group", movie_probe_context(state), active, slug, group.get("match_year"),
+               tuple((record["slug"], record["title"]) for record in records),
+               (group.get("tmdb") or {}).get("tmdb_id"))
+
+    def probe(record):
         candidate = record["candidate"]
         source_slug = record["slug"]
         try:
-            loaded = state.fp_movies.get(source_slug)
-            if loaded is None:
-                loaded = _ORIGINAL_LOAD_MOVIE_FOR_SLUG(source_slug)
+            loaded = _ORIGINAL_LOAD_MOVIE_FOR_SLUG(source_slug)
         except Exception as exc:
             log(f"Filmquelle {record['title']} nicht ladbar: {exc}", "warn")
-            continue
+            raise
+        if loaded is None:
+            raise MovieProbeIncomplete("Der Suchtreffer lieferte keine auswertbare Filmseite.")
         if not _loaded_matches_group(loaded, candidate, group):
+            return None
+        loaded._movie_probe_checked_at = time.time()
+        return loaded
+
+    jobs = [(record["slug"], record["provider"], lambda item=record: probe(item))
+            for record in records]
+    # Give the explicitly selected source a short head start, then fail over
+    # concurrently. A stalled preferred provider cannot serialize all others.
+    results = movie_source_probes.collect(jobs[:1], context=context, timeout=0.15)
+    if not any(movie for _, movie in results):
+        results = movie_source_probes.collect(jobs, context=context, timeout=4.0)
+    loaded_by_slug = dict(results)
+    for record in records:
+        source_slug = record["slug"]
+        loaded = loaded_by_slug.get(source_slug)
+        if loaded is None:
             continue
+        if settings != movie_probe_context(state):
+            raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
+        loaded._movie_availability_incomplete = results.incomplete
         state.fp_movies[source_slug] = loaded
         # Keep the originally selected search slug stable for queue/UI state even
         # when the actual working source came from another provider.
@@ -471,6 +517,9 @@ def load_movie_for_slug(slug: str):
                 f"{PROVIDER_LABELS.get(record['provider'], record['provider'])} geöffnet."
             )
         return loaded
+
+    if results.incomplete or _movie_routing_incomplete():
+        raise MovieProbeIncomplete("Die Filmquellen sind noch nicht abschließend geprüft.")
 
     log(
         f"Kein aktuell nutzbarer Hoster für Suchtreffer {slug}; "

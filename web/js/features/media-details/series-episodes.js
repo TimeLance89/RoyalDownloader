@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { needsEpisodeLanguageProof, seriesDownloadLanguages, episodeLanguageChecked as checkedForProfile } from "./series-language-policy.js";
 
 /** Episode eligibility, selection and queue commands share the series detail lifecycle. */
 export function createSeriesEpisodes(root, {
@@ -26,17 +27,11 @@ export function createSeriesEpisodes(root, {
   }
 
   function providerNeedsExactEpisodeLanguage(series = seriesState.current) {
-    if (!series) return false;
-    if (["huhu", "serienstream"].includes(series.provider)) return true;
-    const capabilities = Array.isArray(series.provider_content_languages)
-      ? series.provider_content_languages.filter(Boolean)
-      : [];
-    return capabilities.length > 1;
+    return needsEpisodeLanguageProof(series);
   }
 
   function episodeLanguageChecked(episode) {
-    return episode?.language_checked === true
-      || episode?.huhu_language_checked === true;
+    return checkedForProfile(episode, seriesState.current, getEnabledLanguages() || []);
   }
 
   function episodeLanguageAvailable(episode) {
@@ -47,9 +42,7 @@ export function createSeriesEpisodes(root, {
   function episodeHasEnabledStreamLanguage(episode, series = seriesState.current) {
     if (episode?.downloaded || episode?.in_jellyfin) return true;
     const offered = episode?.content_languages || [];
-    const enabled = series?.enabled_content_languages?.length
-      ? series.enabled_content_languages
-      : [...(getEnabledLanguages() || [])];
+    const enabled = seriesDownloadLanguages(series, getEnabledLanguages() || []);
     if (providerNeedsExactEpisodeLanguage(series)) {
       if (!episodeLanguageChecked(episode)) return false;
       // availability is a snapshot of the profile at probe time. Concrete
@@ -134,7 +127,7 @@ export function createSeriesEpisodes(root, {
     return seriesEpisodes().find((episode) => episode.slug === slug) || null;
   }
 
-  function pendingDownloadSlugs() {
+  function pendingSelectionSlugs() {
     return [...pendingSelections].filter(([slug, intent]) => {
       const episode = findCurrentEpisode(slug);
       return intent.generation === seriesState.viewGeneration
@@ -143,17 +136,17 @@ export function createSeriesEpisodes(root, {
   }
 
   function downloadSelectionSlugs() {
-    return [...new Set([...seriesState.epPicked, ...pendingDownloadSlugs()])];
+    return [...seriesState.epPicked].filter(slug => isEpisodeSelectable(findCurrentEpisode(slug)));
   }
 
   function updateDownloadSelectionControls() {
-    const pending = pendingDownloadSlugs().length;
+    const pending = pendingSelectionSlugs().length;
     const count = downloadSelectionSlugs().length;
     byId("series-pick-count").textContent = pending
-      ? `${count} ausgewählt · ${pending} prüfen …` : `${count} ausgewählt`;
+      ? `${count} ausgewählt · ${pending} in Prüfung …` : `${count} ausgewählt`;
     byId("series-add-btn").disabled = count === 0 || queuePending;
     byId("series-add-btn").title = pending
-      ? "Gesamte Auswahl vormerken · Sprache und Quellen werden im Hintergrund geprüft" : "";
+      ? "Nur bestätigte Folgen herunterladen · weitere Folgen werden unabhängig geprüft" : "";
   }
 
   function tileClass(ep) {
@@ -216,26 +209,32 @@ export function createSeriesEpisodes(root, {
     tile.setAttribute("aria-busy", String(pending));
     tile.classList?.toggle("selection-pending", pending);
     const releaseText = episode.unreleased ? episodeReleaseText(episode) : "";
+    const languagePending = providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
+      && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased && !isEpisodeQueued(episode);
+    const offered = episode.content_languages || [];
     const languageLock = isEpisodeQueued(episode) ? "" : episodeLanguageLockLabel(episode, series);
+    const languageText = languageLock || (languagePending
+      ? (offered.length === 1 ? `NUR ${String(offered[0]).toUpperCase()}` : "PRÜFUNG") : "");
     let languageNotice = tile.querySelector(".ep-language-lock");
-    if (languageLock) {
+    if (languageText) {
       if (!languageNotice) {
         languageNotice = document.createElement("small");
         languageNotice.className = "ep-language-lock";
         tile.appendChild(languageNotice);
       }
-      languageNotice.textContent = languageLock;
+      languageNotice.textContent = languageText;
     } else languageNotice?.remove();
     tile.setAttribute("aria-label", episode.unreleased
       ? `Folge ${episode.episode}, verfügbar ab ${releaseText}`
       : languageLock ? `Folge ${episode.episode}, ${languageLock} verfügbar, Download gesperrt`
+        : languagePending ? `Folge ${episode.episode}, ${languageText}, Quellenprüfung offen, Download gesperrt`
         : `Folge ${episode.episode}`);
     if (isEpisodeQueued(episode)) tile.title = "Vorgemerkt · Sprache und Quellen werden vor dem Download geprüft";
     else if (providerNeedsExactEpisodeLanguage(series) && !episodeLanguageChecked(episode)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
       tile.title = episode.language_check_error
         ? "Sprachprüfung unvollständig · erneut auswählen, um nochmals zu prüfen"
-        : "Stream-Sprache wird vor der Auswahl geprüft";
+        : `${languageText} · weitere Quellen werden geprüft · noch nicht zum Download freigegeben`;
     }
     else if (!episodeHasEnabledStreamLanguage(episode, series)
         && !episode.downloaded && !episode.in_jellyfin && !episode.unreleased) {
@@ -444,10 +443,9 @@ export function createSeriesEpisodes(root, {
     pruneSeriesEpisodeSelection();
     const slugs = downloadSelectionSlugs();
     const submittedIntents = new Map(slugs.map(slug => [slug, pendingSelections.get(slug)]));
-    const pendingCount = pendingDownloadSlugs().length;
     if (!slugs.length) {
       byId("series-status").textContent =
-        "Keine herunterladbaren Episoden ausgewählt.";
+        pendingSelectionSlugs().length ? "Die ausgewählten Folgen werden noch geprüft." : "Keine herunterladbaren Episoden ausgewählt.";
       renderSeriesTiles();
       return;
     }
@@ -474,8 +472,7 @@ export function createSeriesEpisodes(root, {
       refreshQueueUiAfterChange(resp);
       if (!current()) return;
       byId("series-status").textContent =
-        `${resp.added}/${slugs.length} Episode(n) vorgemerkt${pendingCount
-          ? " · Sprache und Quellen werden im Hintergrund geprüft" : " · Downloads starten automatisch"}`;
+        `${resp.added}/${slugs.length} Episode(n) vorgemerkt · Downloads starten automatisch`;
     } catch (error) {
       if (!current()) return;
       byId("series-status").textContent =

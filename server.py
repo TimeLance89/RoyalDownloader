@@ -351,7 +351,8 @@ API_VERSION = 1
 EVENT_SCHEMA_VERSION = 1
 WEBSOCKET_AUTH_RECHECK_SECONDS = 30.0
 WEBSOCKET_CLIENT_QUEUE_SIZE = 128
-SERVER_BUILD = detect_local_commit(APP_DIR)[:12]
+SERVER_COMMIT = detect_local_commit(APP_DIR)
+SERVER_BUILD = SERVER_COMMIT[:12]
 SESSION_STORE = appauth.SessionStore(path=appconfig.sessions_file())
 USER_STORE = UserStore(appconfig.users_file(), appconfig.load_auth())
 PROFILE_AVATAR_STORE = ProfileAvatarStore(data_dir() / "profile_avatars")
@@ -481,9 +482,7 @@ provider_monitor = ProviderMonitor(
 )
 install_runtime(provider_monitor)
 
-# ---------------------------------------------------------------------------
 # FastAPI-App
-# ---------------------------------------------------------------------------
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
     global _background_services_started
@@ -603,6 +602,7 @@ def _capabilities_payload():
         "supported_api_versions": [API_VERSION],
         "minimum_api_version": API_VERSION,
         "build": SERVER_BUILD or None,
+        "current_sha": SERVER_COMMIT or None,
         "initialized": appconfig.is_initialized(),
         "setup_required": setup_required(),
         "authentication": {
@@ -860,8 +860,8 @@ def _delete_user_owned_data(user_id: str) -> dict:
             for entry in removed_watchlist:
                 state.watchlist_new_slugs.pop(str(entry.get("base_slug") or ""), None)
             erased["watchlist_entries"] = len(removed_watchlist)
-
     erased["personal_requests"] = state.personal_requests.delete_for_user(owner)
+    erased["saved_media"] = state.saved_media.delete_for_user(owner)
     erased["taste_profile"] = state.taste_profiles.delete_for_user(owner)
     return erased
 

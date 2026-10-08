@@ -294,6 +294,8 @@ class _Checker:
             "ahead_by": 1,
             "behind_by": 1 if self.comparison in {"behind", "diverged"} else 0,
             "error": "",
+            "security_approved": True,
+            "quality_approved": True,
         }
 
     def check_branch(self, branch, force=False):
@@ -372,7 +374,7 @@ def test_api_channel_change_is_saved_and_reconfigures_checker(
 def test_overnight_to_stable_divergence_requires_confirmation(monkeypatch):
     _bind_updater(monkeypatch, "stable", comparison="diverged")
     started = []
-    monkeypatch.setattr(server, "_start_update_when_idle", started.append)
+    monkeypatch.setattr(server, "_start_update_when_idle", lambda sha, **_kwargs: started.append(sha))
 
     status = asyncio.run(server.api_updater_status(True))
     assert status["possible_downgrade"] is True

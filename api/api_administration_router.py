@@ -221,6 +221,12 @@ async def api_updater_install(body: UpdateInstallBody):
     target_sha = str(update.get("latest_sha") or "")
     if not target_sha or target_sha != body.target_sha.strip():
         raise HTTPException(409, "Der angebotene GitHub-Stand hat sich geändert; bitte erneut prüfen.")
+    if (
+        update.get("error") or update.get("security_blocked")
+        or update.get("security_approved") is not True
+        or update.get("quality_approved") is not True
+    ):
+        raise HTTPException(409, "Die Update-Freigabe fehlt; bitte erneut prüfen.")
     possible_downgrade = bool(update.get("possible_downgrade"))
     if possible_downgrade and not body.confirm_channel_switch:
         raise HTTPException(
@@ -231,7 +237,10 @@ async def api_updater_install(body: UpdateInstallBody):
     if update.get("update_available") is not True and not possible_downgrade:
         raise HTTPException(409, "Für diesen Build ist kein installierbares Update verfügbar.")
     try:
-        installer = _start_update_when_idle(target_sha)
+        installer = await run_in_threadpool(
+            _start_update_when_idle, target_sha,
+            expected_channel=update["update_channel"],
+        )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"installer": installer}
@@ -280,11 +289,15 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     channel = str(raw_channel or "").strip().casefold()
     if channel not in appconfig.UPDATE_CHANNELS:
         raise HTTPException(400, "Update-Kanal muss 'stable' oder 'overnight' sein.")
-    if not await run_in_threadpool(appconfig.save_updater, mode, interval, channel):
-        raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
-    updater_cfg = await run_in_threadpool(appconfig.load_updater)
-    with state.updater_config_lock:
-        state.updater_cfg = updater_cfg
+    def save_configuration():
+        # Persisting and admitting an installation share one critical section.
+        with state.updater_config_lock:
+            if not appconfig.save_updater(mode, interval, channel):
+                raise HTTPException(500, "Update-Einstellungen konnten nicht gespeichert werden.")
+            state.updater_cfg = appconfig.load_updater()
+            return dict(state.updater_cfg)
+
+    updater_cfg = await run_in_threadpool(save_configuration)
     await run_in_threadpool(UPDATE_CHECKER.set_branch, updater_cfg["update_branch"])
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
         _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")

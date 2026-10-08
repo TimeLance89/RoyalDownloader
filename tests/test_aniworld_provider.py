@@ -547,3 +547,36 @@ def test_aniworld_can_return_a_complete_long_running_series_without_episode_page
     assert payload["page_count"] == 1
     assert payload["total"] == 1205
     assert len(payload["episodes"]) == 1205
+
+
+def test_subtitle_flag_never_advertises_german_dub():
+    soup = BeautifulSoup('''<table class="seasonEpisodesList"><tbody><tr>
+      <td><a href="/anime/stream/sailor-moon/staffel-1/episode-1">1</a></td>
+      <td><img class="flag" src="/public/img/japanese-german.svg?v=1"></td>
+    </tr></tbody></table>''', "html.parser")
+    episodes = AniWorldScraper._episodes_from_soup(soup, 1)
+    assert episodes[0].tracks == ("sub",)
+
+
+def test_explicit_aniworld_sub_has_japanese_audio():
+    from providers.catalog import selected_source_language_allowed, selected_episode_language
+    slug = "aniworld:sailor-moon|sub-s01e001"
+    assert selected_episode_language("aniworld", slug) == "ja"
+    assert selected_source_language_allowed("aniworld", "ja", {"de"}, slug)
+    assert not selected_source_language_allowed("aniworld", "ja", {"de"}, "aniworld:sailor-moon|dub-s01e001")
+
+
+def test_explicit_sub_download_keeps_audio_contract(monkeypatch):
+    import server
+    from application_services import movie_catalog, content_language_policy
+    monkeypatch.setattr(server.state, "content_languages", {"de"})
+    slug = "aniworld:sailor-moon|sub-s01e001"
+    from providers.models import FilmpalastMovie, HosterInfo
+    movie = FilmpalastMovie("Sailor Moon S01E01", slug, provider="aniworld",
+                           content_language="ja",
+                           hosters=[HosterInfo("VOE", "https://example.invalid/sub", "Japanisch (deutsche Untertitel)")])
+    monkeypatch.setattr(movie_catalog, "get_aniworld_scraper", lambda: SimpleNamespace(get_episode=lambda _slug: movie))
+    assert movie_catalog.load_movie_for_slug(slug) is movie
+    job = {}
+    monkeypatch.setattr(content_language_policy, "_ORIGINAL_ENSURE_QUEUE_JOB", lambda *_args, **_kwargs: job)
+    assert content_language_policy._ensure_queue_job(slug, movie)["content_language"] == "ja"
