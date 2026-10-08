@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import uuid
+import threading
+import time
 import pytest
+from features.movie_probes import MovieProbePool, movie_probe_context, movie_probe_scope
 
 import server
 from api.api_queue_router import MovieDownloadPreference
@@ -52,6 +55,48 @@ def _movie_source(title: str, provider: str, language: str, suffix: str):
             )
         ],
     )
+
+
+def test_interactive_movie_can_download_while_other_language_resolves(monkeypatch):
+    from application_services import movie_search_availability
+
+    release = threading.Event()
+    source_pool = MovieProbePool(workers=2)
+    language_pool = MovieProbePool(workers=2)
+    slug = f"moflix:{uuid.uuid4().hex}"
+    german = _movie_source("Fixture", "moflix", "de", "de")
+    english = _movie_source("Fixture", "sflix", "en", "en")
+    monkeypatch.setattr(server.state, "content_languages", {"de", "en"})
+    monkeypatch.setattr(server.state, "fp_movies", {})
+    monkeypatch.setattr(server.state, "movie_source_cache", {})
+    monkeypatch.setattr(server, "provider_priority", lambda _: ["moflix", "sflix"])
+    monkeypatch.setattr(movie_search_availability, "movie_source_probes", source_pool)
+    monkeypatch.setattr(movie_search_availability, "_ORIGINAL_LOAD_MOVIE_FOR_SLUG", lambda _: german)
+    monkeypatch.setattr(content_language_policy, "movie_language_probes", language_pool)
+
+    def expand(selected_slug, _movie, **_kwargs):
+        release.wait(2)
+        server.state.movie_source_cache[selected_slug] = [german, english]
+        return [german, english]
+
+    monkeypatch.setattr(content_language_policy, "_expand_catalog_movie_sources", expand)
+    try:
+        started = time.monotonic()
+        with movie_probe_scope():
+            first = server.load_movie_for_slug(slug)
+        assert first is german and first.hosters and first._movie_availability_incomplete
+        assert time.monotonic() - started < 0.5
+        release.set()
+        context = (movie_probe_context(server.state), ("moflix", "sflix"), slug)
+        language_pool.submit(context, slug, lambda: None).result(1)
+        with movie_probe_scope():
+            second = server.load_movie_for_slug(slug)
+        assert not second._movie_availability_incomplete
+        assert {source.content_language for source in server.state.movie_source_cache[slug]} == {"de", "en"}
+    finally:
+        release.set()
+        source_pool.close()
+        language_pool.close()
 
 
 @pytest.mark.parametrize("provider", ["hdfilme_family", "huhu", "serienstream"])

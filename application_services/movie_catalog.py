@@ -3,6 +3,9 @@
 # ruff: noqa: F821
 
 from features.subscription_languages import subscription_content_languages
+from features.movie_probes import MovieProbeIncomplete, ProbeResults
+from application_services.movie_availability import _bounded_movie_details, _movie_probe_context, _movie_routing_incomplete
+from core.runtime_cache import BoundedTTLCache
 
 import threading
 import time
@@ -42,34 +45,7 @@ _MOVIE_CATALOG_PREFETCH_LOCK = threading.Lock()
 # own network timeouts and cannot be forcibly interrupted by Python threads.
 MOVIE_DETAIL_SEARCH_BUDGET_SECONDS = 4.0
 MOVIE_DETAIL_LOAD_BUDGET_SECONDS = 8.0
-_MOVIE_DETAIL_POOL = ThreadPoolExecutor(max_workers=12, thread_name_prefix="movie-detail")
-_MOVIE_DETAIL_SLOTS = threading.BoundedSemaphore(36)
-
-
-def _bounded_movie_details(jobs, budget):
-    futures = {}
-    for key, job in jobs:
-        if not _MOVIE_DETAIL_SLOTS.acquire(blocking=False):
-            log(f"Filmprüfung ausgelastet: {key}", "warn")
-            continue
-        try:
-            future = _MOVIE_DETAIL_POOL.submit(job)
-        except Exception:
-            _MOVIE_DETAIL_SLOTS.release()
-            raise
-        future.add_done_callback(lambda _done: _MOVIE_DETAIL_SLOTS.release())
-        futures[future] = key
-    done, pending = wait(futures, timeout=budget)
-    for future in pending:
-        future.cancel()
-        log(f"Filmprüfung Zeitlimit: {futures[future]}", "warn")
-    results = []
-    for future in done:
-        try:
-            results.append((futures[future], future.result()))
-        except Exception as exc:
-            log(f"Filmprüfung {futures[future]} fehlgeschlagen: {exc}", "warn")
-    return results
+_MOVIE_SOURCE_COMPLETE = BoundedTTLCache("movie_source_complete", max_entries=512, ttl_seconds=180)
 
 
 def strip_source_suffix(title: str) -> str:
@@ -400,6 +376,7 @@ def load_movie_for_slug(slug: str) -> Optional[FilmpalastMovie]:
             "info",
         )
         return None
+    movie._movie_probe_checked_at = time.time()
     return movie
 
 
@@ -447,14 +424,14 @@ def search_movie_candidates(query: str, *, interactive: bool = False) -> List[Fi
     ]
     results: List[FilmpalastSearchResult] = []
     if not tasks:
-        return results
+        return ProbeResults(results, incomplete=_movie_routing_incomplete()) if interactive else results
     if interactive:
         completed = _bounded_movie_details(
-            [(key, fn) for key, _name, fn in tasks], MOVIE_DETAIL_SEARCH_BUDGET_SECONDS,
+            [(key, fn) for key, _name, fn in tasks], MOVIE_DETAIL_SEARCH_BUDGET_SECONDS, context=("search", q),
         )
         for key, values in completed:
             results.extend(_apply_provider_metadata_many(values, key))
-        return results
+        return ProbeResults(results, incomplete=completed.incomplete or _movie_routing_incomplete())
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = [(key, name, pool.submit(fn)) for key, name, fn in tasks]
         for key, name, future in futures:
@@ -550,14 +527,18 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
     if not key.isdigit():
         raise ValueError("Ungültige TMDB-Film-ID.")
     virtual_slug = f"tmdb:{int(key)}"
+    context = _movie_probe_context()
+    resolution_key = (context, virtual_slug)
     with state.movie_source_cache_lock:
         cached = state.movie_source_cache.get(virtual_slug)
-        if cached:
+        if cached and _MOVIE_SOURCE_COMPLETE.get(resolution_key) and all(
+            getattr(source, "_movie_probe_checked_at", 0) + 180 > time.time() for source in cached
+        ):
             return list(cached)
 
     tmdb = get_tmdb_client().movie_by_id(key)
     if not tmdb:
-        raise LookupError("Der gewählte TMDB-Film ist nicht verfügbar.")
+        raise MovieProbeIncomplete("Filmidentität konnte noch nicht geladen werden.")
     search_titles = []
     for value in (tmdb.get("title"), tmdb.get("original_title")):
         value = " ".join(str(value or "").split()).strip()
@@ -575,8 +556,11 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
     candidates: List[FilmpalastSearchResult] = []
     seen_candidates: set[str] = set()
     provider_candidate_counts: Counter = Counter()
+    incomplete = False
     for search_title in search_titles:
-        for candidate in search_movie_candidates(search_title, interactive=True):
+        found = search_movie_candidates(search_title, interactive=True)
+        incomplete = incomplete or getattr(found, "incomplete", False)
+        for candidate in found:
             provider = str(candidate.provider or provider_for_value(candidate.slug)).casefold()
             if provider_candidate_counts[provider] >= 3 or candidate.slug in seen_candidates:
                 continue
@@ -590,11 +574,13 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
 
     def _load(candidate: FilmpalastSearchResult):
         try:
-            loaded = state.fp_movies.get(candidate.slug) or load_movie_for_slug(candidate.slug)
+            loaded = _RAW_LOAD_MOVIE_FOR_SLUG(candidate.slug)
         except Exception as exc:
             log(f"Filmquelle {candidate.title} nicht ladbar: {exc}", "warn")
-            return None
-        if not loaded or not loaded.hosters:
+            raise
+        if loaded is None:
+            raise MovieProbeIncomplete("Der Suchtreffer lieferte keine auswertbare Filmseite.")
+        if not loaded.hosters:
             return None
         loaded_year = _resolved_movie_year(
             loaded.title, loaded.year or candidate.year,
@@ -603,15 +589,19 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
             return None
         if not _movie_matches_tmdb_choice(loaded.title, loaded_year, aliases, wanted_year):
             return None
+        if context != _movie_probe_context():
+            raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
         state.fp_movies[candidate.slug] = loaded
         return loaded
 
     loaded_sources: List[FilmpalastMovie] = []
     if candidates:
-        loaded_sources = [movie for _key, movie in _bounded_movie_details(
+        completed = _bounded_movie_details(
             [(candidate.slug, lambda item=candidate: _load(item)) for candidate in candidates],
-            MOVIE_DETAIL_LOAD_BUDGET_SECONDS,
-        ) if movie is not None]
+            MOVIE_DETAIL_LOAD_BUDGET_SECONDS, context=("source", virtual_slug), source_load=True,
+        )
+        incomplete = incomplete or completed.incomplete
+        loaded_sources = [movie for _key, movie in completed if movie is not None]
 
     positions = {
         provider: index for index, provider in enumerate(provider_priority("movies"))
@@ -628,6 +618,8 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
         seen_providers.add(provider)
         unique_sources.append(movie)
     if not unique_sources:
+        if incomplete:
+            raise MovieProbeIncomplete("Filmquellen werden noch geprüft oder sind vorübergehend nicht erreichbar.")
         raise LookupError(
             f"«{tmdb.get('title') or search_titles[0]}» wurde bei keinem aktiven Anbieter gefunden."
         )
@@ -642,12 +634,18 @@ def resolve_tmdb_movie_sources(tmdb_id) -> List[FilmpalastMovie]:
         genres=tmdb.get("genres") or unique_sources[0].genres,
     )
     sources = [primary, *unique_sources[1:]]
+    primary._movie_probe_checked_at = getattr(unique_sources[0], "_movie_probe_checked_at", time.time())
+    for source in sources:
+        source._movie_availability_incomplete = incomplete
+    if context != _movie_probe_context():
+        raise MovieProbeIncomplete("Die Quelleneinstellungen haben sich während der Prüfung geändert.")
     with state.movie_source_cache_lock:
-        existing = state.movie_source_cache.get(virtual_slug)
-        if existing:
-            return list(existing)
         state.movie_source_cache[virtual_slug] = list(sources)
         state.fp_movies[virtual_slug] = primary
+        if not incomplete:
+            _MOVIE_SOURCE_COMPLETE[resolution_key] = True
+        else:
+            _MOVIE_SOURCE_COMPLETE.pop(resolution_key, None)
     log(
         f"TMDB-Film «{primary.title}»: {len(sources)} Anbieterquelle(n) gebündelt."
     )
@@ -1204,6 +1202,8 @@ def warm_home_movie_cache():
     except Exception as exc:
         log(f"Startansicht konnte nicht vorab geladen werden: {exc}", "warn")
 
+
+_RAW_LOAD_MOVIE_FOR_SLUG = load_movie_for_slug
 
 _SERVICE_EXPORTS = (
     "strip_source_suffix",
