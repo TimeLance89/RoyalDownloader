@@ -110,8 +110,43 @@ const { fixture } = require('./performance-fixture.cjs');
       assert.equal(queueRequests.length, 1, 'no additional queue request from missing German sources');
       assert.ok(chicagoProbes.length > 0);
       await page.locator('#series-detail-close').click();
+      await page.unroute('**/api/series/episode-languages');
+      for (const partial of [false, true]) {
+        const probes = [];
+        await page.route('**/api/series/episode-languages', route => {probes.push(route);});
+        await page.evaluate(partial => {
+          const base = `serienstream:hybrid-${partial ? 'partial' : 'new'}`;
+          const seasons = Array.from({length: 15}, (_, index) => ({season: index+1,
+            episodes: Array.from({length: 4}, (_, episode) => ({season: index+1, episode: episode+1,
+              slug: `${base}-s${index+1}e${episode+1}`,
+              downloaded: partial && index > 0 && index < 12,
+              in_jellyfin: partial && index === 12 && episode < 2}))}));
+          fixtureApp.discovery.seriesActions.showSeriesDetail({base_slug: base, provider: 'serienstream',
+            title: 'Hybrid inventory fixture', enabled_content_languages: ['de'],
+            jellyfin_configured: true, jellyfin_available: true, seasons, episode_count: 60}, seasons[0].episodes[0].slug);
+        }, partial);
+        await page.waitForFunction(() => document.querySelectorAll('.ep-tile').length === 60);
+        while (probes.length < 2) await page.waitForTimeout(10);
+        assert.ok(probes[0].request().postDataJSON().slugs[0].endsWith(partial ? 's13e3' : 's1e1'));
+        assert.equal(await page.locator('#series-add-btn').isDisabled(), true);
+        // Keep the first request pending; the other lane must keep making progress.
+        await respond(probes[1]);
+        while (probes.length < 3) await page.waitForTimeout(10);
+        assert.ok(probes[2].request().postDataJSON().slugs[0].endsWith(partial ? 's1e1' : 's3e1'));
+        await respond(probes[0]);
+        let answered = 2;
+        for (let turn = 0; turn < 100 && await page.locator('.ep-tile.language-pending').count(); turn++) {
+          while (answered < probes.length) await respond(probes[answered++]);
+          await page.waitForTimeout(10);
+        }
+        assert.equal(await page.locator('.ep-tile.language-pending').count(), 0);
+        assert.equal(await page.locator('.ep-tile.selected').count(), 0, 'automatic order never creates a download selection');
+        assert.equal(queueRequests.length, 1, 'automatic probes never enqueue downloads');
+        await page.locator('#series-detail-close').click();
+        await page.unroute('**/api/series/episode-languages');
+      }
       assert.deepEqual(run.errors, []);
-      console.log(JSON.stringify({width, immediateFeedback: true, progressiveSelection: true, cancelledSelection: true, verifiedDownload:true, chicagoGermanOnly:true}));
+      console.log(JSON.stringify({width, immediateFeedback: true, progressiveSelection: true, cancelledSelection: true, verifiedDownload:true, chicagoGermanOnly:true, hybridInventoryOrder:true}));
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exit(1); });
