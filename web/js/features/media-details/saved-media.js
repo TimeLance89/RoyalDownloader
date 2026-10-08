@@ -1,20 +1,27 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 
-/** Personal state is fetched anew for every detail; never cached across profiles. */
+/** Personal state belongs to one open detail and survives its content updates. */
 export function createSavedMediaAction(button, note, { client = api } = {}) {
-  let scope = null;
-  function close() { scope?.dispose(); scope = null; }
+  let scope = null, activeKey = null, activeMedia = null;
+  function close() { scope?.dispose(); scope = null; activeKey = null; activeMedia = null; }
   function show(media, mediaType) {
+    const identity = Number(media?.tmdb_id);
+    const validIdentity = Number.isSafeInteger(identity) && identity > 0;
+    const key = validIdentity ? `${mediaType}:${identity}` : null;
+    if (key && key === activeKey && scope?.active) {
+      activeMedia = media;
+      return;
+    }
     close();
     if (!button || !note) return;
     const current = createScope(); scope = current;
-    const identity = Number(media?.tmdb_id);
+    activeKey = key; activeMedia = media;
     let saved = false, loaded = false, busy = false, reading = false, revision = 0;
     button.disabled = true; button.textContent = "+ Merken";
     button.setAttribute("aria-pressed", "false");
     note.textContent = "";
-    if (!Number.isSafeInteger(identity) || identity <= 0) {
+    if (!validIdentity) {
       note.textContent = "Vormerken ist möglich, sobald der Titel eindeutig zugeordnet ist.";
       return;
     }
@@ -51,7 +58,7 @@ export function createSavedMediaAction(button, note, { client = api } = {}) {
       busy = true; button.disabled = true;
       try {
         const payload = await client.post("/api/me/saved-media", {
-          media_type: mediaType, tmdb_id: identity, title: String(media.title || "Titel").slice(0, 240), saved: !saved,
+          media_type: mediaType, tmdb_id: identity, title: String(activeMedia?.title || "Titel").slice(0, 240), saved: !saved,
         }, { signal: current.signal });
         if (current.active) render(payload);
       } catch (error) {

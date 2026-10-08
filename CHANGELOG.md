@@ -11,6 +11,8 @@
   additional language checks independent.
 - Revalidate expired availability proofs instead of trusting old catalog hosters;
   use the same progressive checks before starting movie downloads.
+- Preserve the personal watchlist state and pending save requests while movie
+  availability or metadata updates refresh the same open detail.
 
 ### Mobile details
 
