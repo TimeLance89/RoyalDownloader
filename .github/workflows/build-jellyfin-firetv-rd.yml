@@ -22,6 +22,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      JELLYFIN_VERSION: "0.19.10"
     steps:
       - name: Checkout integration scripts
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -52,9 +54,9 @@ jobs:
         working-directory: jellyfin
         run: ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Verify personal watchlist policy
+      - name: Verify watchlist and download policies
         working-directory: jellyfin
-        run: ./gradlew :app:testDebugUnitTest --tests 'org.jellyfin.androidtv.ui.home.RoyalWatchlistPolicyTests'
+        run: ./gradlew :app:testDebugUnitTest --tests 'org.jellyfin.androidtv.ui.home.RoyalWatchlistPolicyTests' --tests 'org.jellyfin.androidtv.integration.royaldownloader.RoyalDownloadPolicyTests' --tests 'org.jellyfin.androidtv.ui.search.RoyalSearchViewModelTests'
 
       - name: Collect APK
         run: |
