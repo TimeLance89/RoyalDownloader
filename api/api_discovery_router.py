@@ -1329,7 +1329,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         from application_services.media_identity import _norm_title
         from features.episode_language_probe import language_probes
         from features.episode_probe_progress import probe_progress
-        from features.episode_source_probe import episode_source_probes
+        from features.episode_source_probe import episode_source_probes, episode_source_providers
         from providers.catalog import PROVIDER_CATALOG
         from providers.models import FilmpalastMovie
 
@@ -1342,7 +1342,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
         )
         enabled = {normalize_content_language(value) for value in desired}
         enabled.discard("")
-        active = tuple(provider_priority("series"))
+        active = episode_source_providers(provider_priority("series"), provider_priority("anime"))
         alternatives = tuple(key for key in active if key != provider and provider_supports_languages(key, enabled))
         # The catalog already loaded the real title; client context also covers
         # TMDB previews. Every fallback still requires an exact title/ID match.
@@ -1387,7 +1387,7 @@ async def api_series_episode_languages(body: SeriesEpisodeLanguagesBody):
                                         cache.pop(cache_key, None)
                     found = find_episode_fallbacks(title, season, episode, aliases=tuple(body.aliases),
                         source_slug=slug, excluded_providers=set(PROVIDER_CATALOG) - {source}, limit=1,
-                        tmdb_id=str(body.tmdb_id or ""), raise_on_error=True)
+                        tmdb_id=str(body.tmdb_id or ""), raise_on_error=True, content_languages=enabled)
                     error = getattr(state, "fallback_provider_errors", {}).get(source)
                     if error and error[0] > time.time():
                         raise RuntimeError("Serienquelle vorübergehend nicht erreichbar")

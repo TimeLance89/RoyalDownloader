@@ -1100,7 +1100,7 @@ def _watchlist_episode_language_evidence(entry, series, episode_states):
                     excluded = {key for key in PROVIDER_CATALOG if not provider_supports_languages(key, desired)}
                     alternatives = find_episode_fallbacks(series.title, episode.season, episode.episode,
                         aliases=tuple(entry.get("aliases") or ()), source_slug=episode.slug,
-                        excluded_providers=excluded, limit=2)
+                        excluded_providers=excluded, limit=2, content_languages=desired)
                     values = sorted(set(values) | {language for candidate in alternatives
                         if candidate.hosters for language in _source_languages(candidate)})
                 checks[episode.slug] = {"languages": values, "checked_at": time.time()}

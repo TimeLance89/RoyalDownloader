@@ -21,6 +21,10 @@
 
 ### Download language
 
+- Include enabled AniWorld sources in series episode checks, subscriptions and
+  runtime fallback after the configured series providers. Require an exact title
+  or alias, matching native season/episode numbering and the requested audio track;
+  keep the original queue identity and output path when switching providers.
 - Keep German subtitles out of German audio downloads and provider fallbacks.
 - Recognize AniWorld subtitle flags separately from German dub flags; preserve
   explicitly selected Japanese audio with German subtitles.

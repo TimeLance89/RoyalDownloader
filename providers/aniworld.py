@@ -18,7 +18,10 @@ from urllib.parse import urljoin, urlsplit
 from core import egress_provider_requests as requests
 from bs4 import BeautifulSoup
 
-from providers.models import FilmpalastMovie, HosterInfo, parse_episode_slug
+from providers.models import (
+    FilmpalastMovie, FilmpalastSeries, FilmpalastSeriesResult, HosterInfo,
+    SeriesEpisode, parse_episode_slug,
+)
 from providers.catalog import provider_track_language
 
 BASE_URL = "https://aniworld.to"
@@ -320,6 +323,48 @@ class AniWorldScraper:
             raise ValueError("AniWorld-Katalog enthält keine verwertbaren Einträge.")
         self._catalog_cache = (time.time(), result)
         return result
+
+    def search_series(self, query: str) -> list[FilmpalastSeriesResult]:
+        """Expose anime identities to the exact series fallback matcher."""
+        results = []
+        for anime in self._search(query):
+            result = FilmpalastSeriesResult(
+                title=anime.title,
+                base_slug=f"{SOURCE_PREFIX}{anime.id}",
+                sample_slug=f"{SOURCE_PREFIX}{anime.id}",
+                sample_url=f"{BASE_URL}/anime/stream/{anime.id}",
+                year=anime.year,
+                cover_url=anime.cover_url,
+            )
+            result._fallback_aliases = tuple(anime.alternative_titles)
+            results.append(result)
+        return results
+
+    def get_series(self, value: str) -> FilmpalastSeries:
+        """Keep native season/episode numbering and episode-level audio lanes."""
+        anime = self.get_anime(self._normalize_id(value))
+        seasons = {}
+        for episode in anime.episodes:
+            # AniWorld's films are a separate work, never a series fallback.
+            if episode.season <= 0 or episode.kind != "episode":
+                continue
+            tracks = [track for track in TRACK_LANGUAGE_IDS if track in episode.tracks]
+            seasons.setdefault(episode.season, []).append(SeriesEpisode(
+                season=episode.season,
+                episode=episode.number,
+                slug=aniworld_episode_slug(anime.id, tracks[0] if tracks else "dub", episode.season, episode.number),
+                url=f"{BASE_URL}/anime/stream/{anime.id}/staffel-{episode.season}/episode-{episode.number}",
+                release_name=episode.title,
+                content_languages=tuple(provider_track_language("aniworld", track) for track in tracks),
+            ))
+        series = FilmpalastSeries(
+            title=anime.title, base_slug=f"{SOURCE_PREFIX}{anime.id}",
+            url=f"{BASE_URL}/anime/stream/{anime.id}",
+            cover_url=anime.cover_url, description=anime.description,
+            genres=anime.genres, seasons=seasons, year=anime.year,
+        )
+        series._fallback_aliases = tuple(anime.alternative_titles)
+        return series
 
     def get_poster(self, anime_id: str) -> str:
         """Return the cover published on the AniWorld title page itself."""
