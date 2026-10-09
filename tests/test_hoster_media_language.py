@@ -75,14 +75,16 @@ def test_browser_rendered_release_title_is_kept_before_tab_closes(monkeypatch):
         def add_handler(self, _event, handler):
             handlers.append(handler)
 
-        async def send(self, _command):
+        async def send(self, command):
             sends.append(True)
             if len(sends) == 2:
                 handlers[0](SimpleNamespace(request=SimpleNamespace(url="https://cdn.example/master.m3u8")))
-
-        async def evaluate(self, _script, *, return_by_value=False):
-            assert return_by_value is True
-            return [GERSUB, None, None]
+            if len(sends) == 3:
+                request = next(command)
+                assert request["method"] == "Runtime.evaluate"
+                assert request["params"]["returnByValue"] is True
+                assert "serializationOptions" not in request["params"]
+                return SimpleNamespace(value=[GERSUB, None, None]), None
 
         async def close(self):
             closed.append(True)

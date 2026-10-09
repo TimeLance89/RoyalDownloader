@@ -710,6 +710,7 @@ class VOEBrowserPool:
     ) -> Optional[Tuple[str, str]]:
         import nodriver.cdp.network as cdp_net
         import nodriver.cdp.page as cdp_page
+        import nodriver.cdp.runtime as cdp_runtime
 
         m3u8_urls: List[str] = []
         mpd_urls: List[str] = []
@@ -762,11 +763,12 @@ class VOEBrowserPool:
                     except Exception:
                         pass
             try:
-                titles = await tab.evaluate(
+                title_result, _ = await tab.send(cdp_runtime.evaluate(
                     "[document.title, document.querySelector('h1')?.textContent, "
                     "document.querySelector('meta[property=\"og:title\"]')?.content]",
                     return_by_value=True,
-                )
+                ))
+                titles = title_result.value
                 if isinstance(titles, list):
                     media_titles = [value for value in titles if isinstance(value, str)]
             except Exception:
