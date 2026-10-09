@@ -236,6 +236,14 @@ jobs:
           coverage report --include='application_services/security_hardening.py' --fail-under=90
           coverage xml -o coverage.xml
 
+      - name: Load pinned Python base image from official mirror
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        run: |
+          # Same official manifest as Docker Hub; avoid shared-runner pull limits.
+          python_base="public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+          docker pull "${python_base}"
+          docker tag "${python_base}" python:3.12.13-slim-bookworm
+
       - name: Build container image
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         run: |

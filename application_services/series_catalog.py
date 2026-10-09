@@ -39,6 +39,9 @@ def _sto_search_series(query: str) -> List[FilmpalastSeriesResult]:
             raise
 
 def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSeriesResult]:
+    if provider == "aniworld":
+        with state.aniworld_lock:
+            return get_aniworld_scraper().search_series(query)
     if provider == "serienstream":
         return _sto_search_series(query)
     if provider == "filmpalast":
@@ -71,6 +74,9 @@ def _search_series_for_provider(provider: str, query: str) -> List[FilmpalastSer
     return []
 
 def _load_series_for_provider(provider: str, value: str) -> Optional[FilmpalastSeries]:
+    if provider == "aniworld":
+        with state.aniworld_lock:
+            return get_aniworld_scraper().get_series(value)
     if provider == "serienstream":
         return _sto_get_series(value)
     if provider == "filmpalast":

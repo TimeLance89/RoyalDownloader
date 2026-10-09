@@ -11,6 +11,9 @@ from features.monster_series_extension import (
     monster_source_episode_slug,
     parse_monster_virtual_episode,
 )
+from features.episode_source_probe import episode_source_providers
+from features.subscription_languages import subscription_content_languages
+from providers.aniworld import aniworld_episode_slug
 
 globals().update(import_backend_namespace())
 
@@ -1011,6 +1014,14 @@ def _fallback_get_series_unlocked(
                 (result for result in results if _norm_title(result.title) == wanted),
                 None,
             )
+            if provider == "aniworld":
+                exact = [result for result in results if _norm_title(result.title) == wanted]
+                if not exact:
+                    exact = [result for result in results if wanted in {
+                        _norm_title(value) for value in getattr(result, "_fallback_aliases", ())
+                    }]
+                # Never choose an arbitrary remake or similarly named anime.
+                best = exact[0] if len({result.base_slug for result in exact}) == 1 else None
             if best and provider == "kinoking" and tmdb_id:
                 result_tmdb = str(getattr(best, "tmdb_id", "") or "")
                 if result_tmdb != tmdb_id:
@@ -1032,6 +1043,10 @@ def _fallback_get_series_unlocked(
     with state.fallback_series_cache_lock:
         state.fallback_provider_errors.pop(provider, None)
     if provider in {"flixitv", "kinoking", "movie2k", "hdfilme_family"} and series and _norm_title(series.title) != _norm_title(title):
+        return None
+    if provider == "aniworld" and series and _norm_title(title) not in {
+        _norm_title(value) for value in (series.title, *getattr(series, "_fallback_aliases", ()))
+    }:
         return None
     if series and not series.seasons:
         return None
@@ -1061,6 +1076,7 @@ def find_episode_fallbacks(
     limit: int = 0,
     tmdb_id: str = "",
     raise_on_error: bool = False,
+    content_languages=None,
 ) -> List[FilmpalastMovie]:
     """Lädt dieselbe Episode bei allen passenden Fallback-Katalogen.
 
@@ -1093,8 +1109,15 @@ def find_episode_fallbacks(
         watch_entry = watchlist_lookup(source_base_slug)
         if watch_entry and not tmdb_id:
             tmdb_id = str(watch_entry.get("tmdb_id") or "").strip()
+    if content_languages is None:
+        required = _queue_requested_language(source_slug) if source_slug else ""
+        content_languages = [required] if required else subscription_content_languages(
+            watch_entry or {"base_slug": source_base_slug}, state.content_languages,
+            getattr(state, "subscription_content_languages", {}),
+        )
+    desired = {normalize_content_language(value) for value in content_languages} - {""}
     fallback_providers = backend_value("SERIES_FALLBACK_PROVIDERS") or tuple(
-        provider_priority("series")
+        episode_source_providers(provider_priority("series"), provider_priority("anime"))
     )
     searched_labels = [
         PROVIDER_LABELS.get(provider, provider)
@@ -1116,15 +1139,41 @@ def find_episode_fallbacks(
                 break
         if not series:
             continue
+        if provider == "aniworld":
+            reference = state.series_cache.get(source_base_slug)
+            if reference:
+                if reference.year and series.year and reference.year != series.year:
+                    log("  AniWorld: Erscheinungsjahr passt nicht zur angeforderten Serie", "warn")
+                    continue
+                # Different season splits can silently turn the same S/E number
+                # into a different episode. Do not guess an offset or flatten.
+                numbering_mismatch = any(
+                    {item.episode for item in episodes} !=
+                    {item.episode for item in series.seasons.get(number, [])}
+                    for number, episodes in reference.seasons.items()
+                    if 0 < number <= season and episodes
+                )
+                if numbering_mismatch:
+                    log("  AniWorld: abweichende Staffelzählung, kein sicherer Episoden-Fallback", "warn")
+                    continue
         ep = next((e for e in series.seasons.get(season, []) if e.episode == episode), None)
         if not ep:
             label = PROVIDER_LABELS.get(provider, provider)
             log(f"  {label}: S{season:02d}E{episode:02d} nicht im Katalog", "warn")
             continue
         label = PROVIDER_LABELS.get(provider, provider)
+        episode_slug = ep.slug
+        if provider == "aniworld":
+            language = next((value for value in ("de", "en", "ja")
+                             if value in desired and value in ep.content_languages), "")
+            if not language:
+                log(f"  AniWorld: S{season:02d}E{episode:02d} ohne angeforderte Tonspur", "info")
+                continue
+            track = {"de": "dub", "en": "eng", "ja": "sub"}[language]
+            episode_slug = aniworld_episode_slug(series.base_slug, track, season, episode)
         log(f"  → Fallback {label}: S{season:02d}E{episode:02d} gefunden, lade Hoster …")
         try:
-            movie = load_movie_for_slug(ep.slug)
+            movie = load_movie_for_slug(episode_slug)
         except Exception as exc:
             log(f"  {label}-Fallback Laden fehlgeschlagen: {exc}", "warn")
             if raise_on_error:

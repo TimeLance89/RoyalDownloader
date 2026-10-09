@@ -46,12 +46,21 @@ provider capabilities, never a title's actual tracks. Concrete title translation
 counts and episode tracks determine availability. Two German dub/sub tracks still
 count as one German provider path.
 
-AniWorld declares DE/EN; `dub` and `sub` both map to DE, `eng` to EN.
+AniWorld declares DE/EN; `dub` maps to DE, `eng` to EN, and `sub` to JA
+(Japanese audio with German subtitles). A subtitle flag is not German audio.
 MKissa declares EN for global selection; `dub`/`sub` map to EN and `raw` to JA.
 JA can be normalized and stored on a concrete raw job but is not advertised in
 the global selector. An auxiliary track is permitted only for the explicitly
 selected episode slug while its provider matches an enabled global language;
 it does not exempt ordinary DE/EN tracks from the language policy.
+
+Series episode probes, subscriptions and runtime retries append enabled AniWorld
+after the configured series providers. Matching requires an unambiguous exact
+title or alias, the native season/episode number and the requested audio track.
+Known different release years or season splits reject the fallback. Movies and
+specials in AniWorld season zero are excluded. Provider health, user exclusions,
+catalog caching and transient-error cooldowns apply through the shared fallback
+service. A source switch retains the original logical queue slug and output path.
 
 The provider catalog API adds `primary_language`, `content_languages` and
 `language_labels`, retaining `content_language` and `language_label`. Aggregate
