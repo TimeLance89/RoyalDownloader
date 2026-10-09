@@ -7,6 +7,6 @@ wasmtime==49.0.0
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 requests==2.34.2
-cryptography==50.0.0
+cryptography==50.0.2
 defusedxml==0.7.1
 urllib3==2.8.0
