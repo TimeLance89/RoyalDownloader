@@ -80,7 +80,8 @@ def test_browser_rendered_release_title_is_kept_before_tab_closes(monkeypatch):
             if len(sends) == 2:
                 handlers[0](SimpleNamespace(request=SimpleNamespace(url="https://cdn.example/master.m3u8")))
 
-        async def evaluate(self, _script):
+        async def evaluate(self, _script, *, return_by_value=False):
+            assert return_by_value is True
             return [GERSUB, None, None]
 
         async def close(self):

@@ -764,7 +764,8 @@ class VOEBrowserPool:
             try:
                 titles = await tab.evaluate(
                     "[document.title, document.querySelector('h1')?.textContent, "
-                    "document.querySelector('meta[property=\"og:title\"]')?.content]"
+                    "document.querySelector('meta[property=\"og:title\"]')?.content]",
+                    return_by_value=True,
                 )
                 if isinstance(titles, list):
                     media_titles = [value for value in titles if isinstance(value, str)]
