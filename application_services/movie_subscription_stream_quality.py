@@ -35,6 +35,7 @@ from media.media_quality import (
     normalize_media_profile,
     probe_media_profile,
 )
+from media.source_language import stream_audio_language_allowed
 
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
@@ -256,6 +257,7 @@ def _pre_resolved_payload(result, profile: dict) -> dict:
         "quality": result.quality,
         "audio_language": getattr(result, "audio_language", ""),
         "headers": dict(getattr(result, "headers", {}) or {}),
+        "media_titles": list(getattr(result, "media_titles", ())),
         "profile": normalize_media_profile(profile),
     }
 
@@ -416,6 +418,11 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
         and float(cached.get("expires_at") or 0.0) > time.time()
         and cached.get("stream_info")
         and cached_language in enabled_languages
+        and "media_titles" in cached
+        and stream_audio_language_allowed(
+            cached["stream_info"], cached_language, cached["media_titles"],
+            normalize_content_language(cached.get("audio_language")),
+        )
         and source_url not in excluded
         and source_url not in barren
     ):
@@ -424,6 +431,7 @@ def _extract_from_movie(movie, unsupported_domains: set, excluded_hoster_urls=No
             "stream_info", "hoster_used", "hoster_url_used", "source_hoster_url",
             "referer", "origin", "gated", "provider", "content_language", "quality",
             "audio_language", "headers",
+            "media_titles",
         ):
             setattr(result, field, cached.get(field))
         result.resolved_from_cache = True

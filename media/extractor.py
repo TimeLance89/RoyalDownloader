@@ -27,6 +27,7 @@ from typing import Callable, List, Optional, Tuple
 from urllib.parse import quote, urljoin, urlparse
 
 from core.egress import get_manager
+from media.source_language import StreamInfo, with_media_titles
 from core.network_guard import (
     UnsafeNetworkTarget,
     ensure_public_http_url,
@@ -709,10 +710,12 @@ class VOEBrowserPool:
     ) -> Optional[Tuple[str, str]]:
         import nodriver.cdp.network as cdp_net
         import nodriver.cdp.page as cdp_page
+        import nodriver.cdp.runtime as cdp_runtime
 
         m3u8_urls: List[str] = []
         mpd_urls: List[str] = []
         mp4_urls: List[str] = []
+        media_titles = []
 
         def _remember_stream(url: str, source: str):
             if _is_test_url(url):
@@ -759,6 +762,17 @@ class VOEBrowserPool:
                         )
                     except Exception:
                         pass
+            try:
+                title_result, _ = await tab.send(cdp_runtime.evaluate(
+                    "[document.title, document.querySelector('h1')?.textContent, "
+                    "document.querySelector('meta[property=\"og:title\"]')?.content]",
+                    return_by_value=True,
+                ))
+                titles = title_result.value
+                if isinstance(titles, list):
+                    media_titles = [value for value in titles if isinstance(value, str)]
+            except Exception:
+                pass
         finally:
             # Immer frischer Tab pro Film. Das verhindert den beobachteten
             # "Session with given id not found"-Fehler nach closeTarget.
@@ -768,11 +782,11 @@ class VOEBrowserPool:
                 pass
 
         if m3u8_urls:
-            return m3u8_urls[0], "hls"
+            return StreamInfo(m3u8_urls[0], "hls", media_titles)
         if mpd_urls:
-            return mpd_urls[0], "dash"
+            return StreamInfo(mpd_urls[0], "dash", media_titles)
         if mp4_urls:
-            return mp4_urls[0], "mp4"
+            return StreamInfo(mp4_urls[0], "mp4", media_titles)
         self._log("Keine Stream-URL gefunden.")
         return None
 
@@ -830,7 +844,7 @@ def extract_doodstream_url(
     token = pass_path.rsplit("/", 1)[-1]
     rand = "".join(random.choices(string.ascii_letters + string.digits, k=10))
     final_url = f"{data_base}{rand}?token={token}&expiry={int(time.time() * 1000)}"
-    return final_url, "mp4"
+    return with_media_titles((final_url, "mp4"), html)
 
 
 def extract_vidara_url(
@@ -1108,7 +1122,7 @@ def extract_stream_url(
             _log(f"Unsicheres Stream-Ziel blockiert: {exc}")
             return None
         _log(f"Stream-URL (Regex): {result[0][:60]}...")
-        return result
+        return with_media_titles(result, html)
 
     if pool is None:
         _log("Regex erfolglos – kein Browser-Pool übergeben.")
@@ -1127,7 +1141,7 @@ def extract_stream_url(
         except UnsafeNetworkTarget as exc:
             _log(f"Unsicheres Browser-Stream-Ziel blockiert: {exc}")
             return None
-    return result
+    return with_media_titles(result, html)
 
 
 def _get_alias_url(html: str, original_url: str) -> Optional[str]:
