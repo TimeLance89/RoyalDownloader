@@ -1402,10 +1402,11 @@ def save_movie_subscriptions(entries: List[dict]) -> bool:
 def load_queue_state() -> tuple[dict, bool]:
     """Load the complete queue document and report whether migration is due."""
     path = _queue_file()
-    if not path.exists():
-        return normalize_document(None)
     with _config_lock:
         try:
+            # Loader restores a damaged/missing primary from the verified backup.
+            # If both copies are unusable, startup must fail closed: pretending
+            # this is an empty queue would lose outstanding download claims.
             document, migrated = load_queue_document(path)
             jobs = [job for job in document["jobs"] if not _is_season_zero_slug(job.get("slug", ""))]
             history = [job for job in document["history"] if not _is_season_zero_slug(job.get("slug", ""))]
@@ -1414,8 +1415,10 @@ def load_queue_state() -> tuple[dict, bool]:
             document["history"] = history
             return document, migrated or filtered
         except Exception as exc:
-            logger.warning("Download-Queue nicht lesbar (%s): %s", path, exc)
-            return normalize_document(None)
+            logger.error("Download-Queue nicht wiederherstellbar (%s): %s", path, exc)
+            raise RuntimeError(
+                "Download-Queue nicht wiederherstellbar; Originaldateien wurden nicht überschrieben"
+            ) from exc
 
 
 def load_queue() -> List[str]:

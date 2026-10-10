@@ -195,21 +195,44 @@ def normalize_document(
     }, migrated
 
 
-def load_document(path: Path) -> tuple[dict[str, Any], bool]:
-    if not path.exists():
-        return normalize_document(None)
-    return normalize_document(json.loads(path.read_text(encoding="utf-8")))
+def _backup_path(path: Path) -> Path:
+    """Previous known-good queue snapshot, never a separate queue identity."""
+    return path.with_name(f"{path.name}.bak")
 
 
-def atomic_save(path: Path, document: dict[str, Any]) -> None:
-    normalized, _migrated = normalize_document(document, recover_active=False)
+def _decode_queue_payload(payload: bytes) -> tuple[dict[str, Any], bool]:
+    """Reject damaged queue structures instead of silently dropping jobs."""
+    raw = json.loads(payload.decode("utf-8"))
+    if isinstance(raw, list):
+        if any(not isinstance(slug, str) or not slug.strip() for slug in raw):
+            raise ValueError("Ungültiger Legacy-Queue-Eintrag")
+    elif isinstance(raw, dict):
+        jobs = raw.get("jobs", raw.get("active_jobs"))
+        history = raw.get("history", [])
+        if not isinstance(jobs, list) or not isinstance(history, list):
+            raise ValueError("Queue-Liste oder Historie beschädigt")
+        if any(
+            not isinstance(job, dict) or not isinstance(job.get("slug"), str)
+            or not job["slug"].strip()
+            for job in (*jobs, *history)
+        ):
+            raise ValueError("Queue-Job ohne gültige Identität")
+    else:
+        raise ValueError("Ungültiges Queue-Dokument")
+    return normalize_document(raw)
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Private fsynced replacement, including metadata directory where possible."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(
         f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
     )
     try:
-        payload = json.dumps(normalized, ensure_ascii=False, indent=2)
-        with open(tmp, "w", encoding="utf-8") as file:
+        # A media title or requester name may appear in a queue entry.
+        with open(tmp, "xb") as file:
+            if hasattr(os, "fchmod"):
+                os.fchmod(file.fileno(), 0o600)
             file.write(payload)
             file.flush()
             os.fsync(file.fileno())
@@ -221,11 +244,51 @@ def atomic_save(path: Path, document: dict[str, Any]) -> None:
             finally:
                 os.close(directory_fd)
         except OSError:
-            # Some NAS/file-system combinations do not support directory fsync;
-            # the atomic replace itself remains valid there.
+            # Some NAS filesystems cannot fsync directories.
             pass
     finally:
+        tmp.unlink(missing_ok=True)
+
+
+def load_document(path: Path) -> tuple[dict[str, Any], bool]:
+    """Recover a corrupt/missing primary from the last complete backup.
+
+    Never interpret corruption as a legitimate empty queue. Preserve both files
+    if neither snapshot is valid, so an operator can restore them manually.
+    """
+    backup = _backup_path(path)
+    if path.is_symlink() or backup.is_symlink():
+        raise RuntimeError("Queue-Snapshot darf kein Symlink sein")
+    if not path.exists() and not backup.exists():
+        return normalize_document(None)
+    if path.exists():
         try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
+            return _decode_queue_payload(path.read_bytes())
+        except (ValueError, UnicodeError) as primary_error:
+            if not backup.exists():
+                raise RuntimeError(
+                    "Download-Queue beschädigt; keine gültige Sicherung vorhanden"
+                ) from primary_error
+    try:
+        payload = backup.read_bytes()
+        restored, _migrated = _decode_queue_payload(payload)
+    except (OSError, ValueError, UnicodeError) as backup_error:
+        raise RuntimeError(
+            "Download-Queue und Sicherung beschädigt; Start abgebrochen"
+        ) from backup_error
+    _atomic_write_bytes(path, payload)
+    return restored, True
+
+
+def atomic_save(path: Path, document: dict[str, Any]) -> None:
+    normalized, _migrated = normalize_document(document, recover_active=False)
+    payload = (json.dumps(normalized, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    backup = _backup_path(path)
+    if path.is_symlink() or backup.is_symlink():
+        raise RuntimeError("Queue-Snapshot darf kein Symlink sein")
+    # Preserve the preceding verified snapshot *before* replacing primary.
+    # On the first write, seed the backup with the same initial snapshot.
+    previous = path.read_bytes() if path.exists() else payload
+    _decode_queue_payload(previous)
+    _atomic_write_bytes(backup, previous)
+    _atomic_write_bytes(path, payload)
