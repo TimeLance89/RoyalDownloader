@@ -40,7 +40,7 @@ import { createSettings } from "../../web/js/features/settings/index.js";
 import { createIntelligenceSettings } from "../../web/js/features/settings/intelligence.js";
 import { createIntegrationSettings } from "../../web/js/features/integrations/settings.js";
 import { integrationHealth } from "../../web/js/features/integrations/health.js";
-import { createUpdater } from "../../web/js/features/settings/updater.js";
+import { createUpdater, updaterChangeLinks } from "../../web/js/features/settings/updater.js";
 import { createSearch } from "../../web/js/features/search/index.js";
 import { createRecommendations } from "../../web/js/features/home/recommendations.js";
 import { createHomeData } from "../../web/js/features/home/data.js";
@@ -1800,4 +1800,51 @@ test("queue wait copy distinguishes missing requested audio from provider outage
   assert.equal(queueWaitCopy({ status: "waiting_provider", wait_reason: "language_unavailable",
     content_language: "de", next_retry_at: 1900 }, 1000),
     "Wartet auf passende Sprache (DE) · Nächster Sprachtest in ~15 Min.");
+});
+
+test("updater shows immutable change comparison and changelog for offered builds", () => {
+  const repository_url = "https://github.com/TimeLance89/RoyalDownloader";
+  const current_sha = "a".repeat(40);
+  const latest_sha = "b".repeat(40);
+  for (const update_channel of ["stable", "overnight"]) {
+    const links = updaterChangeLinks({
+      repository_url, current_sha, latest_sha, update_channel,
+      update_available: true, quality_approved: true, security_approved: true,
+    });
+    assert.deepEqual(links, {
+      compare: `${repository_url}/compare/${current_sha}...${latest_sha}`,
+      changelog: `${repository_url}/blob/${latest_sha}/CHANGELOG.md`,
+    });
+  }
+});
+
+test("updater safely handles missing revisions, stale results and untrusted repository URLs", () => {
+  const repository_url = "https://github.com/TimeLance89/RoyalDownloader";
+  const latest_sha = "b".repeat(40);
+  const offered = { repository_url, latest_sha, update_available: true };
+  assert.deepEqual(updaterChangeLinks(offered), {
+    compare: "",
+    changelog: `${repository_url}/blob/${latest_sha}/CHANGELOG.md`,
+  });
+  assert.equal(updaterChangeLinks({ ...offered, update_available: false }), null);
+  assert.equal(updaterChangeLinks({ ...offered, error: "timeout" }), null);
+  assert.equal(updaterChangeLinks({ ...offered, quality_approved: false }), null);
+  assert.equal(updaterChangeLinks({ ...offered, security_approved: false }), null);
+  assert.equal(updaterChangeLinks({ ...offered, security_blocked: true }), null);
+  assert.equal(updaterChangeLinks({ ...offered, repository_url: "javascript:alert(1)" }), null);
+  assert.equal(updaterChangeLinks({ ...offered, repository_url: repository_url + "?redirect=bad" }), null);
+  assert.equal(updaterChangeLinks({ ...offered, latest_sha: "invalid" }), null);
+  const downgrade = updaterChangeLinks({
+    ...offered, current_sha: "a".repeat(40),
+    update_available: false, possible_downgrade: true,
+  });
+  assert.ok(downgrade.compare.includes("/compare/"), "branch switches retain an exact diff");
+});
+
+test("update links are initially hidden and their layout stays in the update status", () => {
+  const html = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
+  const updater = html.slice(html.indexOf('id="updater-card"'), html.indexOf('id="updater-repository"'));
+  assert.match(updater, /id="updater-detail"[\\s\\S]*id="updater-links" class="updater-links hidden"/);
+  assert.match(updater, /id="updater-changes" class="hidden"/);
+  assert.match(updater, /id="updater-changelog" class="hidden"/);
 });
