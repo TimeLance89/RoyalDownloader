@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-### Provider retry worker resilience
-
-- Keep the single waiting-source worker alive when provider status, retry
-  timestamps or probe orchestration unexpectedly fail.
-- Use a bounded ten-second recovery delay instead of immediately spawning a
-  new daemon thread on each unexpected exception. Preserve waiting jobs and
-  their existing retry windows without changing provider selection.
-- Add deterministic crash-loop regression coverage.
-
 ### Self-healing Docker updates
 
 - Keep an independent bootstrap-owned startup watchdog outside replaceable
