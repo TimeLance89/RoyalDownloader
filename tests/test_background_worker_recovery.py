@@ -24,14 +24,14 @@ def test_watchlist_worker_retries_instead_of_dying_on_jellyfin_exception(monkeyp
         raise OSError("simulated Jellyfin network failure")
 
     intervals = []
-    monkeypatch.setattr(automation, "get_jellyfin_client", fail_jellyfin)
-    monkeypatch.setattr(automation, "log", lambda *_args: None)
+    monkeypatch.setattr(server, "get_jellyfin_client", fail_jellyfin)
+    monkeypatch.setattr(server, "log", lambda *_args: None)
 
     def stop_after_wait(interval):
         intervals.append(interval)
         raise _StopAfterProbe
 
-    monkeypatch.setattr(automation, "wait_for_watchlist_auto_check", stop_after_wait)
+    monkeypatch.setattr(server, "wait_for_watchlist_auto_check", stop_after_wait)
     with pytest.raises(_StopAfterProbe):
         automation.watchlist_auto_check_loop()
     assert intervals == [60]
@@ -40,17 +40,17 @@ def test_watchlist_worker_retries_instead_of_dying_on_jellyfin_exception(monkeyp
 def test_watchlist_worker_keeps_movie_checks_separate_from_failed_series(monkeypatch):
     movies = []
     intervals = []
-    monkeypatch.setattr(automation, "get_jellyfin_client", lambda: type("JF", (), {"configured": False})())
-    monkeypatch.setattr(automation, "_watchlist_auto_check_once",
+    monkeypatch.setattr(server, "get_jellyfin_client", lambda: type("JF", (), {"configured": False})())
+    monkeypatch.setattr(server, "_watchlist_auto_check_once",
                         lambda: (_ for _ in ()).throw(OSError("series offline")))
-    monkeypatch.setattr(automation, "check_movie_subscriptions", lambda: movies.append(True))
-    monkeypatch.setattr(automation, "log", lambda *_args: None)
+    monkeypatch.setattr(server, "check_movie_subscriptions", lambda: movies.append(True))
+    monkeypatch.setattr(server, "log", lambda *_args: None)
 
     def stop_after_wait(interval):
         intervals.append(interval)
         raise _StopAfterProbe
 
-    monkeypatch.setattr(automation, "wait_for_watchlist_auto_check", stop_after_wait)
+    monkeypatch.setattr(server, "wait_for_watchlist_auto_check", stop_after_wait)
     with pytest.raises(_StopAfterProbe):
         automation.watchlist_auto_check_loop()
     assert movies == [True]
@@ -98,15 +98,15 @@ def test_seerr_worker_retries_failed_hydration_then_processes_requests(monkeypat
     })
     monkeypatch.setattr(seerr, "_seerr_stop_event", _FiniteStop(2))
     monkeypatch.setattr(seerr, "_seerr_wake_event", wake)
-    monkeypatch.setattr(seerr, "log", lambda *_args: None)
+    monkeypatch.setattr(server, "log", lambda *_args: None)
 
     def hydrate():
         attempts.append(True)
         if len(attempts) == 1:
             raise ValueError("simulated stale request state")
 
-    monkeypatch.setattr(seerr, "_hydrate_seerr_jobs", hydrate)
-    monkeypatch.setattr(seerr, "seerr_poll_once", lambda: polls.append(True) or {"ok": True})
+    monkeypatch.setattr(server, "_hydrate_seerr_jobs", hydrate)
+    monkeypatch.setattr(server, "seerr_poll_once", lambda: polls.append(True) or {"ok": True})
     seerr.seerr_poll_loop()
 
     assert len(attempts) == 2
@@ -122,8 +122,8 @@ def test_seerr_worker_is_not_killed_by_unexpected_poll_exception(monkeypatch):
     })
     monkeypatch.setattr(seerr, "_seerr_stop_event", _FiniteStop(2))
     monkeypatch.setattr(seerr, "_seerr_wake_event", wake)
-    monkeypatch.setattr(seerr, "_hydrate_seerr_jobs", lambda: None)
-    monkeypatch.setattr(seerr, "log", lambda *_args: None)
+    monkeypatch.setattr(server, "_hydrate_seerr_jobs", lambda: None)
+    monkeypatch.setattr(server, "log", lambda *_args: None)
 
     def intermittent():
         calls.append(True)
@@ -131,7 +131,7 @@ def test_seerr_worker_is_not_killed_by_unexpected_poll_exception(monkeypatch):
             raise RuntimeError("remote error")
         return {"ok": True}
 
-    monkeypatch.setattr(seerr, "seerr_poll_once", intermittent)
+    monkeypatch.setattr(server, "seerr_poll_once", intermittent)
     seerr.seerr_poll_loop()
     assert len(calls) == 2
     assert wake.delays == [20, 20]
