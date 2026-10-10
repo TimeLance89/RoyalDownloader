@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Update transparency
+
+- Show direct links to the precise GitHub commit/file comparison and the
+  target commit's changelog whenever an update is offered in Settings.
+- Keep these links tied to the checked revision, hide them for blocked or
+  failed checks, and retain all existing update approval and rollback gates.
+
 ### Movie availability
 
 - Share bounded source checks across concurrent detail requests and retain late
