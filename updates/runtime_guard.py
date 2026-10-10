@@ -60,7 +60,9 @@ def _request_json(endpoint: str) -> dict | None:
             "http://127.0.0.1:8765" + endpoint,
             headers={"Host": "127.0.0.1:8765"},
         )
-        with urllib.request.urlopen(request, timeout=2) as response:
+        # Never route a localhost readiness check through configured proxies.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=2) as response:
             if response.status != 200:
                 return None
             return json.loads(response.read(2048))
