@@ -1,31 +1,57 @@
+# Dependabot reads this file from the repository's default branch (main).
+# Routine version updates target overnight; security updates remain independent.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+      day: monday
+      time: "17:00"
+      timezone: Europe/Berlin
     target-branch: overnight
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
+    groups:
+      pip-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+      day: monday
+      time: "17:00"
+      timezone: Europe/Berlin
     target-branch: overnight
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - security
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
+      day: monday
+      time: "17:00"
+      timezone: Europe/Berlin
     target-branch: overnight
     open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - security
+    groups:
+      docker-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
