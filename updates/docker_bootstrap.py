@@ -11,6 +11,7 @@ import sys
 import venv
 from pathlib import Path
 
+from updates.recovery_journal import abort_staging, stage_release
 from updates.runtime_release import (
     activate_release,
     read_release_link,
@@ -209,7 +210,13 @@ def _initial_release(bundle: Path, runtime_root: Path) -> Path:
             shutil.rmtree(release, ignore_errors=True)
     if not release.exists():
         _prepare_release(source, release)
-    activate_release(runtime_root, release)
+    old_release = read_release_link(runtime_root, "current")
+    stage_release(runtime_root, release, old_release)
+    try:
+        activate_release(runtime_root, release)
+    except Exception:
+        abort_staging(runtime_root, release)
+        raise
     if source != runtime_root:
         _remember_bundle_identity(runtime_root, identity)
     print(f"[bootstrap] Runtime aktiviert: {release.name}", flush=True)
@@ -236,8 +243,13 @@ def main() -> None:
     os.environ["APP_BASE_PYTHON"] = sys.executable
     os.environ["APP_BOOTSTRAP_PATH"] = str(bundle / "container_entrypoint.py")
     python = _python_for(release)
-    os.chdir(release)
-    os.execv(str(python), [str(python), str(release / "server.py")])
+    if os.environ.get("ROYAL_GUARD_CHILD") == "1":
+        # In-app restart: stay inside the existing immutable supervisor.
+        os.chdir(release)
+        os.execv(str(python), [str(python), str(release / "server.py")])
+    # The watchdog must run from the original image, not from the candidate.
+    from updates.runtime_guard import supervise
+    sys.exit(supervise(runtime_root, bundle))
 
 
 if __name__ == "__main__":

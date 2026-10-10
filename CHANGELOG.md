@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Self-healing Docker updates
+
+- Keep an independent bootstrap-owned startup watchdog outside replaceable
+  runtime releases, with local health and exact running-revision verification.
+- Persist the planned update in an atomically written recovery journal before
+  changing the runtime symlink; restore the last known-good release once after
+  a failed boot, including interrupted rollback recovery and bad-revision
+  blocking. Existing media, queue and application settings remain untouched.
+- Require a rebuilt Docker image to activate the independent watchdog; legacy
+  non-versioned source updates remain outside this protection.
+
 ### Update transparency
 
 - Show direct links to the precise GitHub commit/file comparison and the
