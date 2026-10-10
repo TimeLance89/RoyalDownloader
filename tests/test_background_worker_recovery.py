@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
-import server
 from application_services import automation, seerr
 
 
