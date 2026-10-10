@@ -206,7 +206,7 @@ class SelfUpdater:
         if not supported:
             raise RuntimeError(reason)
         runtime_root = self._runtime_root()
-        if runtime_root is not None:
+        if runtime_root is not None and os.environ.get("ROYAL_GUARD_CHILD") == "1":
             recovery = read_journal(runtime_root)
             if recovery["state"] == "pending":
                 raise RuntimeError("Das vorherige Update wartet noch auf den Starttest")
@@ -548,14 +548,16 @@ class SelfUpdater:
                 raise RuntimeError("Release-Ziel existiert mit einer anderen Revision")
             self._smoke_release(final_release, self._release_python(final_release))
             old_release = read_release_link(runtime_root, "current")
-            stage_release(runtime_root, final_release, old_release)
+            if os.environ.get("ROYAL_GUARD_CHILD") == "1":
+                stage_release(runtime_root, final_release, old_release)
             try:
                 activate_release(runtime_root, final_release)
                 self._verify_active_release(runtime_root, final_release, target_sha)
             except Exception:
                 if old_release is not None:
                     activate_release(runtime_root, old_release)
-                abort_staging(runtime_root, final_release)
+                if os.environ.get("ROYAL_GUARD_CHILD") == "1":
+                    abort_staging(runtime_root, final_release)
                 raise
             self._prune_runtime_releases(runtime_root)
             return
@@ -579,7 +581,8 @@ class SelfUpdater:
             self._smoke_release(staging, python)
             os.replace(staging, final_release)
             old_release = read_release_link(runtime_root, "current")
-            stage_release(runtime_root, final_release, old_release)
+            if os.environ.get("ROYAL_GUARD_CHILD") == "1":
+                stage_release(runtime_root, final_release, old_release)
             try:
                 activate_release(runtime_root, final_release)
                 self._verify_active_release(runtime_root, final_release, target_sha)
@@ -588,7 +591,8 @@ class SelfUpdater:
             except Exception:
                 if old_release is not None:
                     activate_release(runtime_root, old_release)
-                abort_staging(runtime_root, final_release)
+                if os.environ.get("ROYAL_GUARD_CHILD") == "1":
+                    abort_staging(runtime_root, final_release)
                 raise
         finally:
             if staging.exists():
