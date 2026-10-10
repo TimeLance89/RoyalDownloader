@@ -322,10 +322,16 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function recordVisiblePersonalForReshuffle() {
-    strictPersonalEntries().slice(0, 7).forEach((entry) => {
-      const key = tasteV2LogicalKey(entry);
-      if (key) sessionExposure.add(key);
-    });
+    // The personal rail now skips poster-only candidates. Record only cards
+    // that can actually appear with landscape artwork, or reshuffles penalize
+    // unseen posters and keep showing the same wallpaper recommendations.
+    strictPersonalEntries()
+      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
+      .slice(0, 7)
+      .forEach((entry) => {
+        const key = tasteV2LogicalKey(entry);
+        if (key) sessionExposure.add(key);
+      });
     scoreCache.clear();
   }
 

@@ -105,6 +105,18 @@ export function createHomeLanes(root, {
       .slice(0, 24);
   }
 
+  // Personal Spotlight must never fall back to portrait posters. Hydrate the
+  // full ranked reservoir before choosing seven ready landscape artworks,
+  // otherwise poster-only matches at the front crowd out usable backdrops.
+  function homePersonalArtworkCandidates() {
+    return homePersonalizedEntries().slice(0, 24);
+  }
+
+  function homePersonalWallpaperEntries() {
+    return homePersonalArtworkCandidates()
+      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url));
+  }
+
   function homeGemEntries() {
     const topKeys = new Set(homeTopEntries().map(homeEntryKey));
     const candidates = homeAllEntries()
@@ -140,7 +152,7 @@ export function createHomeLanes(root, {
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
-      personal: takeDistinctHomeLane(homePersonalizedEntries(), seen, 7, 7),
+      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 7, 7),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,
@@ -177,14 +189,16 @@ export function createHomeLanes(root, {
     const layout = currentHomeLayout();
     const hidden = new Set(layout.hidden_rails);
     const exploreVisible = layout.rail_order.includes("explore") && !hidden.has("explore");
+    const personalVisible = layout.rail_order.includes("personal") && !hidden.has("personal");
     return uniqueHomeEntries([
       ...layout.rail_order
         .filter((railId) => !hidden.has(railId))
         .flatMap((railId) => lanes[railId] || []),
       ...(exploreVisible ? homeExploreArtworkCandidates() : []),
+      ...(personalVisible ? homePersonalArtworkCandidates() : []),
       ...homeHeroCandidates(),
     ]);
   }
 
-  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeExploreArtworkCandidates, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout };
+  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeExploreArtworkCandidates, homePersonalArtworkCandidates, homePersonalWallpaperEntries, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout };
 }

@@ -18,13 +18,15 @@ export function createRailRenderer(root, {
   let resizeFrame = null;
   const pendingPosters = new Set(), metadata = new WeakMap();
   let posterFrame = null;
-  function homeRailCardSignature(entry, rank = 0, variant = "") {
+  function homeRailCardSignature(entry, rank = 0, variant = "", wallpaperOnly = false) {
     const media = homeEntryMedia(entry);
-    const artwork = rank
-      ? (media.cover_url || media.backdrop_url || "")
-      : (media.backdrop_url || media.cover_url || "");
+    const artwork = wallpaperOnly
+      ? (media.backdrop_url || "")
+      : rank
+        ? (media.cover_url || media.backdrop_url || "")
+        : (media.backdrop_url || media.cover_url || "");
     return JSON.stringify([
-      homeEntryKey(entry), rank, variant, artwork,
+      homeEntryKey(entry), rank, variant, artwork, wallpaperOnly,
     ]);
   }
 

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Personal home wallpaper artwork
+
+- Show only TMDB landscape backdrops in the "Für dich ausgewählt" spotlight,
+  never portrait poster fallbacks stretched into 16:9 cards.
+- Hydrate the full personalized recommendation reservoir and fill the seven
+  visible slots from candidates with confirmed backdrop artwork.
+- Keep ranking, click actions, card design and all other home rails unchanged.
+
 ### Queue state recovery
 
 - Preserve the preceding valid queue snapshot in a private, fsynced
