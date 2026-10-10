@@ -2,9 +2,14 @@
 
 ## Unreleased
 
-Changes since v1.8.0, consolidated from Stable (`main`) and the tested
-Overnight branch for the 2026-10-10 promotion. The official Stable release tag
-remains v1.8.0 until a separate versioned release is published.
+_No changes recorded since v1.9.0._
+
+## v1.9.0 – 2026-10-10
+
+Stable v1.9.0 consolidates the tested Stable and Overnight improvements since
+v1.8.0. It introduces People discovery, a per-profile Jellyfin watchlist,
+safer episode language verification and AniWorld fallback, progressive movie
+availability, a more transparent updater, and maintenance reliability fixes.
 
 ### Updater reliability
 
@@ -99,6 +104,9 @@ remains v1.8.0 until a separate versioned release is published.
   person's primary department; prefer acting roles over self/archival appearances.
 - Check and select filmography movies for batch downloads using existing source,
   release-date and Jellyfin safeguards; open series in their episode selector.
+
+See [v1.9.0 release notes](docs/releases/v1.9.0.md) for highlights,
+compatibility, upgrade instructions and known limitations.
 
 ## v1.8.0 – 2026-10-07
 
