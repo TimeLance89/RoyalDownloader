@@ -358,6 +358,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     if (card.dataset.installing === "true") return;
     button.disabled = true;
     card.dataset.state = "checking";
+    byId("updater-links").classList.add("hidden");
     status.textContent = "Prüfe GitHub …";
     detail.textContent = "Neuester Stand wird geladen.";
     try {
