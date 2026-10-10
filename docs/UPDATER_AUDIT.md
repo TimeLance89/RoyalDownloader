@@ -54,6 +54,14 @@ Downloads laufen während der Vorbereitung weiter und werden zum Neustart gesich
    unabhängiger Prozess-Watchdog gegen eine beliebig langsam tröpfelnde
    Verbindung.
 
+> **Follow-up in Overnight, 2026-10-10:** The self-healing Docker guard
+> addresses the first two limitations above for versioned Docker installations:
+> the image-owned bootstrap supervises actual startup and keeps a durable update
+> journal. This audit remains the historical baseline, and the external NAS
+> deployment still requires a freshly built Docker image before the guard is active.
+> See [Self-healing Docker updater](SELF_HEALING_UPDATER.md) for verification,
+> recovery boundaries and what still requires a NAS field test.
+
 ## Verifikation
 
 Regressionen decken gesperrte Stable-Rückwechsel, neuere rote/laufende CI,
