@@ -223,13 +223,34 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
-      - name: Load pinned Python base image from official mirror
+      - name: Load pinned Python base image with registry fallback
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 8
+        shell: bash
         run: |
-          # Same official manifest as Docker Hub; avoid shared-runner pull limits.
-          python_base="public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
-          docker pull "${python_base}"
-          docker tag "${python_base}" python:3.12.13-slim-bookworm
+          # Identical official digest at each registry: never fall back to an
+          # unpinned or floating base image if a public mirror is rate-limited.
+          digest="sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+          local_tag="python:3.12.13-slim-bookworm"
+          images=(
+            "public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@${digest}"
+            "mirror.gcr.io/library/python:3.12.13-slim-bookworm@${digest}"
+            "docker.io/library/python:3.12.13-slim-bookworm@${digest}"
+          )
+          for attempt in 1 2; do
+            for image in "${images[@]}"; do
+              echo "::notice::Trying pinned Python base image from ${image%%/*} (round ${attempt})"
+              if timeout 75s docker pull --platform linux/amd64 "${image}"; then
+                docker tag "${image}" "${local_tag}"
+                echo "Pinned Python base image ready from ${image%%/*}"
+                exit 0
+              fi
+              echo "::warning::Base image registry unavailable; trying next mirror"
+            done
+            sleep $((attempt * 8))
+          done
+          echo "::error::Unable to pull pinned Python base image from any registry"
+          exit 1
 
       - name: Build container image
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
