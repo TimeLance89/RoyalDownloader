@@ -45,6 +45,8 @@ import { createSearch } from "../../web/js/features/search/index.js";
 import { createRecommendations } from "../../web/js/features/home/recommendations.js";
 import { createHomeData } from "../../web/js/features/home/data.js";
 import { createHomeLanes } from "../../web/js/features/home/lanes.js";
+import { HOME_RAIL_CATALOG } from "../../web/js/features/home/layout-model.js";
+import { createHomeCards } from "../../web/js/features/home/cards.js";
 import { createSubscriptions } from "../../web/js/features/subscriptions/state.js";
 import { libraryVisibleItems } from "../../web/js/features/subscriptions/model.js";
 import { movieSubscriptionFor } from "../../web/js/features/subscriptions/movie-model.js";
@@ -220,6 +222,99 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
     lanes.homeArtworkEntriesInLayout().map(entryKey),
     ["series:ready", "series:pending-a", "series:pending-b"],
   );
+});
+
+test("personal spotlight renders only hydrated landscape backdrops, not portrait posters", () => {
+  const personal = Array.from({ length: 18 }, (_, index) => ({
+    kind: "movie",
+    item: {
+      slug: `film-${index}`,
+      title: `Film ${index}`,
+      cover_url: `/poster-${index}.jpg`,
+      ...(index >= 8 ? { backdrop_url: `/wallpaper-${index}.jpg` } : {}),
+      genres: [],
+    },
+  }));
+  const entryKey = (entry) => `${entry.kind}:${entry.item.slug || entry.item.base_slug}`;
+  const unique = (entries) => {
+    const keys = new Set();
+    return entries.filter((entry) => {
+      const key = entryKey(entry);
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+  };
+  const data = { topMovies: [], newMovies: [], cinemaMovies: [], discoveryMovies: [],
+    trendingSeries: [], newSeries: [], discoverySeries: [] };
+  const lanes = createHomeLanes({ querySelector: () => null }, {
+    allowedHomeEntries: (entries) => entries,
+    uniqueHomeEntries: unique,
+    homeMovieEntry: (item) => ({ kind: "movie", item }),
+    homeSeriesEntry: (item) => ({ kind: "series", item }),
+    interleaveHomeEntries: (a, b) => unique([...a, ...b]),
+    loadDiscoveryProfile: () => ({ genres: {}, recent: [] }),
+    stableDailyOrder: (entries) => [...entries],
+    homeEntryMedia: (entry) => entry.item,
+    homeEntryKey: entryKey, homeTopEntries: () => [],
+    stableDiscoveryHash: () => 1, localDateKey: () => "2026-10-10",
+    homeHeroCandidates: () => [], homePersonalizedEntries: () => personal,
+    currentHomeLayout: () => ({ rail_order: ["personal"], hidden_rails: [] }),
+    mediaJellyfinStatus: () => "missing", getJellyfinStatus: () => "",
+    getData: () => data, discoveryV2ExposurePenalty: () => 0,
+  });
+
+  const definition = HOME_RAIL_CATALOG.find((rail) => rail.id === "personal");
+  assert.equal(definition.layout, "spotlight");
+  assert.equal(definition.wallpaperOnly, true);
+  const visible = lanes.homeDiscoveryLanes().personal;
+  assert.equal(visible.length, 7, "backdrop-ready candidates replace poster-only top matches");
+  assert.deepEqual(visible.map(entryKey), Array.from({ length: 7 }, (_, i) => `movie:film-${i + 8}`));
+  assert.ok(visible.every((entry) => entry.item.backdrop_url));
+  const hydratable = lanes.homeArtworkEntriesInLayout();
+  assert.equal(hydratable.length, 18, "unresolved personal matches remain eligible for TMDB hydration");
+  assert.ok(hydratable.some((entry) => entry.item.slug === "film-0"));
+});
+
+test("personal wallpaper cards remove portrait poster fallbacks without changing normal rails", () => {
+  const captured = [];
+  const cards = createHomeCards({
+    getMovieMetadata: () => ({}),
+    getJellyfinStatus: () => null,
+    renderMediaCard: ({ media }) => {
+      captured.push(media);
+      return { querySelector: () => null };
+    },
+    coverCandidates: (value) => [value],
+    mediaCardInitials: () => "F",
+    setHomeCardArtworkCandidates: () => {},
+    setHomeCardMeta: () => {},
+    mediaJellyfinStatus: () => "missing",
+    homeEntryKey: (entry) => entry.item.slug,
+    openDailyTop: () => false,
+    registerDock: () => {},
+    markLanguage: () => {},
+    enhanceTaste: () => {},
+    enhanceHero: () => {},
+    enhanceDailyTop: (card) => card,
+    createCollectionCard: () => ({}),
+    openMovieCollection: () => {},
+    homeMovieBySlug: () => null,
+    selectFpRow: () => {},
+    homeAnimeById: () => null,
+    openAnimeDetail: () => {},
+    openAniworldDetail: () => {},
+    homeSeriesBySlug: () => null,
+    loadSeries: () => {},
+  });
+  const item = { slug: "personal-film", title: "Personal Film",
+    backdrop_url: "/wallpaper.jpg", cover_url: "/portrait.jpg" };
+  cards.create({ kind: "movie", item }, 0, false, "spotlight-lead", { wallpaperOnly: true });
+  assert.equal(captured[0].backdrop_url, "/wallpaper.jpg");
+  assert.equal(captured[0].cover_url, "");
+  assert.equal(item.cover_url, "/portrait.jpg", "original catalog item stays unchanged");
+  cards.create({ kind: "movie", item });
+  assert.equal(captured[1].cover_url, "/portrait.jpg", "other rails retain existing fallback behavior");
 });
 
 test("HTTP sends JSON, cookies and all supported verbs", async () => {
