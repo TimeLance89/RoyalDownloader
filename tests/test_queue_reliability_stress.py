@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
-
 from core.queue_jobs import (
     HISTORY_LIMIT, SCHEMA_VERSION, atomic_save, load_document,
     new_job, normalize_document,
