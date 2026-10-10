@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Reliability of scheduled integrations and large queues
+
+- Keep series automation alive when Jellyfin initialization, subscription
+  checks or invalid stored schedule settings temporarily fail; retry in a
+  bounded interval instead of losing the only scheduled worker.
+- Restore Seerr polling after hydration, configuration and remote failures;
+  clamp invalid intervals and preserve its existing retry semantics.
+- Add deterministic stress scenarios for 650 persisted queue jobs, 800
+  concurrent producer claims, restart identity, duplicate suppression and
+  bounded terminal history, without network or media side effects.
+
 ### Self-healing Docker updates
 
 - Keep an independent bootstrap-owned startup watchdog outside replaceable
