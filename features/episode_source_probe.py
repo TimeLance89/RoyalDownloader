@@ -10,6 +10,14 @@ from providers.catalog import PROVIDER_CATALOG
 catalog_probe_locks = {provider: threading.RLock() for provider in PROVIDER_CATALOG}
 
 
+def episode_source_providers(series_providers, anime_providers):
+    """Keep series priority and add the enabled AniWorld episode fallback."""
+    return tuple(dict.fromkeys([
+        *series_providers,
+        *(provider for provider in anime_providers if provider == "aniworld"),
+    ]))
+
+
 class EpisodeSourceProbes:
     def __init__(self, *, workers=4, ttl=60, capacity=32):
         self._pool = ProviderProbeScheduler(workers, "episode-sources")

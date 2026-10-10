@@ -2,6 +2,26 @@ import { api } from "../../core/api.js";
 import { websocket } from "../../core/websocket.js";
 import { createScope } from "../../core/lifecycle.js";
 
+// Links point to the exact offered commit, not a moving branch head.
+export function updaterChangeLinks(data) {
+  const repository = String(data?.repository_url || "").replace(/\/$/, "");
+  const validSha = value => /^[0-9a-f]{40}$/i.test(String(value || ""));
+  if (!/^https:\/\/github\.com\/[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repository)
+      || !validSha(data?.latest_sha)
+      || (data.update_available !== true && !data.possible_downgrade)
+      || data.error || data.security_blocked
+      || data.quality_approved === false || data.security_approved === false) {
+    return null;
+  }
+  const latest = String(data.latest_sha);
+  const current = String(data.current_sha || "");
+  return {
+    compare: validSha(current) && current !== latest
+      ? `${repository}/compare/${current}...${latest}` : "",
+    changelog: `${repository}/blob/${latest}/CHANGELOG.md`,
+  };
+}
+
 export function createUpdater(root, { client = api, socket = websocket, reload = () => location.reload() } = {}) {
   const byId = id => id === "updater-card" ? root : root.querySelector(`#${id}`);
   let scope;
@@ -62,6 +82,19 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     const detail = byId("updater-detail");
     const badge = byId("updater-badge");
     const repository = byId("updater-repository");
+    const links = updaterChangeLinks(data);
+    const linksContainer = byId("updater-links");
+    const compareLink = byId("updater-changes");
+    const changelogLink = byId("updater-changelog");
+    for (const [element, url] of [
+      [compareLink, links?.compare],
+      [changelogLink, links?.changelog],
+    ]) {
+      element.classList.toggle("hidden", !url);
+      if (url) element.href = url;
+      else element.removeAttribute("href");
+    }
+    linksContainer.classList.toggle("hidden", !links);
     const installButton = byId("updater-install");
     const channel = data.update_channel === "overnight" ? "overnight" : "stable";
     const branch = data.update_branch || data.branch || (channel === "overnight" ? "overnight" : "main");
@@ -325,6 +358,7 @@ export function createUpdater(root, { client = api, socket = websocket, reload =
     if (card.dataset.installing === "true") return;
     button.disabled = true;
     card.dataset.state = "checking";
+    byId("updater-links").classList.add("hidden");
     status.textContent = "Prüfe GitHub …";
     detail.textContent = "Neuester Stand wird geladen.";
     try {

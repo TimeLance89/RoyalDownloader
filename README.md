@@ -344,6 +344,10 @@ read access to checks. Restart Royal after changing `.env`.
 
 Third-party providers can change or become unavailable at any time. Royal keeps
 adapters isolated and follows the configured fallback order when a source fails.
+Enabled AniWorld sources also serve as an additional fallback for matching anime
+episodes selected through a series provider. The fallback requires the same title,
+season and episode, and the requested audio track; German subtitles alone do not
+satisfy a German audio download.
 
 </details>
 

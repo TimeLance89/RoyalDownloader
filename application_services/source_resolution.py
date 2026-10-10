@@ -5,6 +5,7 @@
 from providers.sentinel_runtime import observe_hoster_safely, hoster_profile_safely, hoster_attempt_safely, observe_language_safely
 from providers.catalog import selected_source_language_allowed
 from features.episode_language_policy import concrete_source_language
+from media.source_language import stream_audio_language_allowed
 
 from application_services.runtime import (
     import_backend_namespace,
@@ -22,6 +23,7 @@ class _HosterResult:
         "resolved_from_cache",
         "audio_language",
         "headers",
+        "media_titles",
     )
 
     def __init__(self):
@@ -38,6 +40,7 @@ class _HosterResult:
         self.resolved_from_cache = False
         self.audio_language = ""
         self.headers = {}
+        self.media_titles = ()
 
 
 def _shared_browser_pool(reason: str):
@@ -213,6 +216,7 @@ def _extract_from_movie(
         # above for routing but must not be fabricated as a yt-dlp track tag.
         res.audio_language = hoster_audio_language
         res.headers = dict(getattr(hoster, "headers", {}) or {})
+        res.media_titles = ()
         log(f"  Versuche Hoster: {hoster.name}")
 
         # serienstream.to liefert Hoster als lazy /r?t=-Redirect. Erst JETZT,
@@ -667,6 +671,19 @@ def _extract_from_movie(
 
         if res.stream_info:
             stream_url, _stream_type = res.stream_info
+            res.media_titles = tuple(getattr(res.stream_info, "media_titles", ()))
+            if not stream_audio_language_allowed(
+                res.stream_info, res.content_language, res.media_titles,
+                normalize_content_language(res.audio_language),
+            ):
+                log(
+                    f"  Überspringe {hoster.name}: Hoster-Datei ist GerSub "
+                    "(deutsche Untertitel), keine bestätigte deutsche Tonspur.",
+                    "warn",
+                )
+                res.stream_info = None
+                barren_hoster_urls.update((hoster.url, play_url))
+                continue
             log(f"  Prüfe Hoster: {hoster.name}")
             ok, probe_msg = probe_stream_url(stream_url, referer=res.referer, origin=res.origin, headers=res.headers)
             observe_hoster_safely(name, play_url, ok, (time.monotonic() - resolve_started) * 1000, res.provider, probe_msg, stream_url if _stream_type != "web" else "")

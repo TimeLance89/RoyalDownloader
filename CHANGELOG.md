@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Changes since v1.8.0, promoted from Overnight to `main` on 2026-10-08.
+Changes since v1.8.0, consolidated from Stable (`main`) and the tested
+Overnight branch for the 2026-10-10 promotion. The official Stable release tag
+remains v1.8.0 until a separate versioned release is published.
 
 ### Updater reliability
 
@@ -31,6 +33,22 @@ Changes since v1.8.0, promoted from Overnight to `main` on 2026-10-08.
 - Give explicit episode selections priority, share running checks and reorder
   waiting checks when library data arrives; queued jobs do not count as owned.
 
+### Update transparency
+
+- Show direct links to the precise GitHub commit/file comparison and the
+  target commit's changelog whenever an update is offered in Settings.
+- Keep these links tied to the checked revision, hide them for blocked or
+  failed checks, and retain all existing update approval and rollback gates.
+
+### Dependency update maintenance
+
+- Run routine Dependabot checks weekly on Mondays at 17:00 Europe/Berlin
+  for Python dependencies, GitHub Actions and Docker; group minor and patch
+  updates by ecosystem to reduce duplicate pull requests.
+- Remove invalid Dependabot label overrides while preserving the `overnight`
+  target branch and existing limits. Major upgrades remain separate and
+  security updates keep their default-branch behavior.
+
 ### Movie availability
 
 - Share bounded source checks across concurrent detail requests and retain late
@@ -50,6 +68,10 @@ Changes since v1.8.0, promoted from Overnight to `main` on 2026-10-08.
 
 ### Download language
 
+- Include enabled AniWorld sources in series episode checks, subscriptions and
+  runtime fallback after the configured series providers. Require an exact title
+  or alias, matching native season/episode numbering and the requested audio track;
+  keep the original queue identity and output path when switching providers.
 - Keep German subtitles out of German audio downloads and provider fallbacks.
 - Recognize AniWorld subtitle flags separately from German dub flags; preserve
   explicitly selected Japanese audio with German subtitles.
