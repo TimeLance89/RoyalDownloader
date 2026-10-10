@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Telegram ingress backpressure
+
+- Bound concurrently executing message and callback handlers to 24 instead of
+  starting an unbounded thread for every incoming Telegram update.
+- Do not advance the Telegram polling offset for updates that cannot be
+  admitted under load. Retry them on the next poll instead of losing requests.
+- Release handler capacity even when a command raises an exception; retain
+  existing chat authorization, commands and message presentation.
+
 ### Self-healing Docker updates
 
 - Keep an independent bootstrap-owned startup watchdog outside replaceable
