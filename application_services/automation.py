@@ -332,7 +332,11 @@ def _watchlist_auto_check_delay(checked: int, total: int, interval_min: int) -> 
             )
         if retry_jellyfin:
             return WATCHLIST_JELLYFIN_RETRY_SECONDS
-    return max(5, int(interval_min)) * 60
+    try:
+        configured = int(interval_min)
+    except (TypeError, ValueError, OverflowError):
+        configured = 30
+    return max(5, min(configured, 24 * 60)) * 60
 
 
 def watchlist_auto_check_loop():
@@ -341,28 +345,39 @@ def watchlist_auto_check_loop():
     aktiv ist und wir im Zeitfenster sind – die neuen Folgen direkt herunter.
     Das Intervall ist über die Automatik-Einstellungen konfigurierbar."""
     while True:
-        interval_min = state.automation.get("check_interval_min", 30)
         checked = total = 0
-        jf_configured = get_jellyfin_client().configured
-        if jf_configured and getattr(state, "jellyfin_live_stale", False):
-            with state.watchlist_lock:
-                total = len(state.watchlist)
-            log(
-                "Automatische Bibliotheks-Prüfung wartet auf aktuellen Jellyfin-Livestatus.",
-                "warn",
-            )
-        else:
-            try:
-                checked, total = _watchlist_auto_check_once()
-            except Exception as exc:
-                log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
-            try:
-                check_movie_subscriptions()
-            except Exception as exc:
-                log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
-        wait_for_watchlist_auto_check(
-            _watchlist_auto_check_delay(checked, total, interval_min)
+        retry_after_failure = False
+        interval_min = 30
+        try:
+            interval_min = state.automation.get("check_interval_min", 30)
+            jf_configured = get_jellyfin_client().configured
+            if jf_configured and getattr(state, "jellyfin_live_stale", False):
+                with state.watchlist_lock:
+                    total = len(state.watchlist)
+                log(
+                    "Automatische Bibliotheks-Prüfung wartet auf aktuellen Jellyfin-Livestatus.",
+                    "warn",
+                )
+            else:
+                try:
+                    checked, total = _watchlist_auto_check_once()
+                except Exception as exc:
+                    retry_after_failure = True
+                    log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
+                try:
+                    check_movie_subscriptions()
+                except Exception as exc:
+                    retry_after_failure = True
+                    log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
+        except Exception as exc:
+            # A transient Jellyfin/configuration failure must not permanently
+            # kill the daemon and strand all future scheduled work.
+            retry_after_failure = True
+            log(f"Automatik-Watchdog wird nach Fehler erneut versuchen: {exc}", "warn")
+        delay = 60 if retry_after_failure else _watchlist_auto_check_delay(
+            checked, total, interval_min
         )
+        wait_for_watchlist_auto_check(delay)
 
 
 _SERVICE_EXPORTS = (
