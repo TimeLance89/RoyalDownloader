@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Queue state recovery
+
+- Preserve the preceding valid queue snapshot in a private, fsynced
+  `download_queue.json.bak` before replacing the primary queue document.
+- Restore corrupt or missing primary state from a validated backup without
+  changing logical job IDs or restart semantics.
+- Fail startup closed when neither file is trustworthy; never turn unreadable
+  queued work into an apparently empty download queue.
+- Cover interrupted writes, malformed documents, legacy migration and backup
+  recovery with deterministic regressions.
+
 ### Self-healing Docker updates
 
 - Keep an independent bootstrap-owned startup watchdog outside replaceable
