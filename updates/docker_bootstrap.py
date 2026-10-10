@@ -11,7 +11,9 @@ import sys
 import venv
 from pathlib import Path
 
-from updates.recovery_journal import abort_staging, stage_release
+from updates.recovery_journal import (
+    abort_staging, clear_interrupted_before_activation, stage_release,
+)
 from updates.runtime_release import (
     activate_release,
     read_release_link,
@@ -232,6 +234,9 @@ def main() -> None:
         os.execv(sys.executable, [sys.executable, str(bundle / "server.py")])
     runtime_root = Path(configured).resolve()
     runtime_root.mkdir(parents=True, exist_ok=True)
+    # Resolve a power loss before activation *before* bundle reconciliation,
+    # which may otherwise try staging the same release a second time.
+    clear_interrupted_before_activation(runtime_root)
     if "--rollback" in sys.argv:
         rollback_release(runtime_root)
     release = _initial_release(bundle, runtime_root)
