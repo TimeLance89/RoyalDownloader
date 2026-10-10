@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import server  # noqa: F401 - register the composed application-service backend
 from application_services import automation, seerr
 
 
