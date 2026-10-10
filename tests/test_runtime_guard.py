@@ -214,3 +214,35 @@ def test_guard_finishes_failed_power_loss_rollback_before_start(monkeypatch, tmp
     assert guard.supervise(tmp_path, tmp_path) == 0
     assert launched == [old]
     assert read_release_link(tmp_path, "current") == old
+
+
+def test_readiness_transport_is_loopback_only_and_never_uses_proxy(monkeypatch):
+    connections = []
+
+    class LocalResponse:
+        status = 200
+
+        def read(self, limit):
+            assert limit == 2048
+            return b'{"status":"ok"}'
+
+    class LocalConnection:
+        def __init__(self, host, port, timeout):
+            connections.append((host, port, timeout))
+            assert (host, port, timeout) == ("127.0.0.1", 8765, 2)
+
+        def request(self, method, endpoint, headers):
+            assert (method, endpoint) == ("GET", "/api/health")
+            assert headers["Host"] == "127.0.0.1:8765"
+
+        def getresponse(self):
+            return LocalResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(guard.http.client, "HTTPConnection", LocalConnection)
+    assert guard._request_json("https://example.com/steal") is None
+    assert not connections
+    assert guard._request_json("/api/health") == {"status": "ok"}
+    assert connections == [("127.0.0.1", 8765, 2)]
