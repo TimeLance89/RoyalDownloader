@@ -540,12 +540,11 @@ jobs:
           git worktree remove --force "${RUNNER_TEMP}/royal-release-rc3" >/dev/null 2>&1 || true
           rm -rf "${RUNNER_TEMP}/royal-release-backup-${GITHUB_RUN_ID}"
 
-      - name: Upload security and coverage artifacts
+      - name: Upload security artifacts
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
         with:
           name: security-verification-artifacts
           path: |
-            coverage.xml
             dependency-sbom.cdx.json
             container-sbom.cdx.json
