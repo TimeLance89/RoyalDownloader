@@ -634,6 +634,14 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
+test("personal spotlight requests only landscape artwork without removing ranking", () => {
+  assert.match(homeLayoutEditor, /id: "personal"[^\n]*layout: "spotlight", wallpaperOnly: true/);
+  assert.match(app, /homePersonalWallpaperEntries\(\)/);
+  assert.match(app, /\.filter\(\(entry\) => Boolean\(homeEntryMedia\(entry\)\.backdrop_url\)\)/);
+  assert.match(app, /personalVisible \? homePersonalArtworkCandidates\(\) : \[\]/);
+  assert.match(app, /homeRailCardSignature\(entry, rank, variant, wallpaperOnly\)/);
+});
+
 test("explore rail renders wallpaper-only cards without portrait-poster fallback", () => {
   assert.match(homeLayoutEditor, /id: "explore"[\s\S]*wallpaperOnly: true/);
   assert.match(app, /wallpaperOnly: Boolean\(definition\.wallpaperOnly\)/);
