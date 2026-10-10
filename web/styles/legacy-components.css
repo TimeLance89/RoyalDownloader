@@ -1708,6 +1708,24 @@ body.settings-active .log-console { display: none; }  /* eigener Vollbereich, ke
 .updater-actions .dim { overflow-wrap: anywhere; font-size: 10.5px; }
 .updater-actions .btn { flex: 0 0 auto; }
 .updater-buttons { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.updater-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 5px;
+}
+.updater-links a {
+  color: var(--accent-hov);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.updater-links a:hover { color: var(--text); }
+.updater-links a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 .updater-repository {
   width: fit-content;
   color: var(--text-dim);
