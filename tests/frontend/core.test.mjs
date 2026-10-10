@@ -1011,6 +1011,7 @@ function updaterFixture(client, reload = () => {}) {
   const node = () => Object.assign(new EventTarget(), {
     dataset: {}, textContent: "", value: "", disabled: false,
     classList: { toggle() {}, add() {}, remove() {} },
+    removeAttribute() {},
   });
   const root = node();
   root.querySelector = id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); };
