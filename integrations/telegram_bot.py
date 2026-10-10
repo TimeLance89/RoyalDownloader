@@ -16,6 +16,7 @@ class TelegramBot:
     POLL_TIMEOUT_SECONDS = 5
     POLL_HTTP_TIMEOUT_SECONDS = 8
     STOP_TIMEOUT_SECONDS = 10.0
+    MAX_CONCURRENT_HANDLERS = 24
 
     def __init__(
         self,
@@ -35,6 +36,8 @@ class TelegramBot:
         self._last_error = ""
         self._stop_event = threading.Event()
         self._lifecycle_lock = threading.RLock()
+        # Finite callback capacity: no thread-per-message exhaustion.
+        self._handler_slots = threading.BoundedSemaphore(self.MAX_CONCURRENT_HANDLERS)
 
     def start(self):
         with self._lifecycle_lock:
@@ -227,12 +230,34 @@ class TelegramBot:
             self._last_error = message
             self.log_cb(message, "warn")
 
-    def _dispatch_update(self, update: dict) -> None:
-        update_id = update.get("update_id")
-        if isinstance(update_id, int):
-            self._offset = max(self._offset or 0, update_id + 1)
+    def _schedule_handler(self, handler, args: tuple) -> bool:
+        """Accept only bounded concurrent work, re-polling when saturated."""
+        if not self._handler_slots.acquire(blocking=False):
+            return False
 
+        def handle() -> None:
+            try:
+                handler(*args)
+            except Exception as exc:
+                self._log_error_once(f"Telegram-Verarbeitung fehlgeschlagen: {exc}")
+            finally:
+                self._handler_slots.release()
+
+        try:
+            threading.Thread(target=handle, daemon=True).start()
+        except Exception:
+            self._handler_slots.release()
+            raise
+        return True
+
+    def _dispatch_update(self, update: dict) -> bool:
+        """Only acknowledge the Telegram update after handler admission.
+
+        A saturated dispatcher does not advance the polling offset, allowing
+        Telegram to redeliver that update instead of silently losing it.
+        """
         callback = update.get("callback_query") or {}
+        admitted = True
         if callback and self.callback_cb:
             message = callback.get("message") or {}
             chat = message.get("chat") or {}
@@ -242,26 +267,25 @@ class TelegramBot:
             sender = callback.get("from") or {}
             sender_name = str(sender.get("username") or sender.get("first_name") or "")
             if chat_id and callback_id and data:
-                threading.Thread(
-                    target=self.callback_cb,
-                    args=(chat_id, callback_id, data, sender_name),
-                    daemon=True,
-                ).start()
-            return
-
-        message = update.get("message") or {}
-        text = str(message.get("text") or "").strip()
-        chat = message.get("chat") or {}
-        chat_id = str(chat.get("id") or "")
-        sender = message.get("from") or {}
-        sender_name = str(sender.get("username") or sender.get("first_name") or "")
-        if not text or not chat_id:
-            return
-        threading.Thread(
-            target=self.message_cb,
-            args=(chat_id, text, sender_name),
-            daemon=True,
-        ).start()
+                admitted = self._schedule_handler(
+                    self.callback_cb, (chat_id, callback_id, data, sender_name),
+                )
+        elif not callback:
+            message = update.get("message") or {}
+            text = str(message.get("text") or "").strip()
+            chat = message.get("chat") or {}
+            chat_id = str(chat.get("id") or "")
+            sender = message.get("from") or {}
+            sender_name = str(sender.get("username") or sender.get("first_name") or "")
+            if text and chat_id:
+                admitted = self._schedule_handler(
+                    self.message_cb, (chat_id, text, sender_name),
+                )
+        if admitted:
+            update_id = update.get("update_id")
+            if isinstance(update_id, int):
+                self._offset = max(self._offset or 0, update_id + 1)
+        return admitted
 
     def _loop(self):
         try:
@@ -296,7 +320,10 @@ class TelegramBot:
                     )
                     self._last_error = ""
                     for update in data.get("result", []):
-                        self._dispatch_update(update)
+                        if not self._dispatch_update(update):
+                            self._log_error_once("Telegram-Verarbeitung ausgelastet; Update wird erneut zugestellt.")
+                            self._stop_event.wait(0.25)
+                            break
                 except urllib.error.HTTPError as exc:
                     try:
                         detail = exc.read().decode("utf-8", errors="replace")
