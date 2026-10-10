@@ -6,14 +6,13 @@ the bootstrap after an in-app update. No Docker socket or root privileges.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from updates.recovery_journal import (
@@ -55,19 +54,22 @@ def _on_signal(_signal, _frame) -> None:
 
 
 def _request_json(endpoint: str) -> dict | None:
-    try:
-        request = urllib.request.Request(
-            "http://127.0.0.1:8765" + endpoint,
-            headers={"Host": "127.0.0.1:8765"},
-        )
-        # Never route a localhost readiness check through configured proxies.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(request, timeout=2) as response:
-            if response.status != 200:
-                return None
-            return json.loads(response.read(2048))
-    except (OSError, ValueError, urllib.error.URLError):
+    # Readiness is strictly a loopback IPC probe, not outbound application
+    # traffic. The explicit constant address and stdlib HTTPConnection avoid
+    # proxy settings and cannot route requests to third-party destinations.
+    if endpoint not in {"/api/health", "/api/v1/capabilities"}:
         return None
+    connection = http.client.HTTPConnection("127.0.0.1", 8765, timeout=2)
+    try:
+        connection.request("GET", endpoint, headers={"Host": "127.0.0.1:8765"})
+        response = connection.getresponse()
+        if response.status != 200:
+            return None
+        return json.loads(response.read(2048))
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    finally:
+        connection.close()
 
 
 def _healthy(release: Path) -> bool:
