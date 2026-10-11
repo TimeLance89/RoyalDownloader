@@ -160,20 +160,6 @@ const { fixture } = require("./performance-fixture.cjs");
       await command(monitor.locator('[data-action="save"]'), "/api/providers/monitor/config", "PUT", interact);
       await monitor.locator('[data-monitor="health-title"]').getByText("Aktion erforderlich").waitFor();
       assert.match(await monitor.locator('[data-monitor="coverage"]').innerText(), /Serien.*Keine verfügbare Quelle/s);
-      await page.evaluate(() => {
-        window.disclosureTrace = [];
-        const root = document.querySelector("#provider-monitor");
-        for (const type of ["pointerdown", "pointerup", "click", "toggle"]) {
-          root.addEventListener(type, event => {
-            const panel = root.querySelector('[data-panel="filmpalast-repairs"]');
-            disclosureTrace.push({ type, time: performance.now(), target: event.target.tagName,
-              panel: event.target.closest("details")?.dataset.panel || event.target.closest("details")?.dataset.provider,
-              open: panel?.open, providerOpen: root.querySelector('details[data-provider="filmpalast"]')?.open,
-              trusted: event.isTrusted, pointer: event.pointerType, x: event.clientX, y: event.clientY });
-            if (disclosureTrace.length > 100) disclosureTrace.shift();
-          }, true);
-        }
-      });
       await monitor.locator('[data-action="details"]')[interact]();
       assert.equal(await monitor.locator('[data-monitor="technical"]').evaluate(node => node.open), true);
       unavailable = false;
@@ -329,13 +315,6 @@ const { fixture } = require("./performance-fixture.cjs");
       await page.waitForFunction(() => document.querySelector("#provider-monitor").getAttribute("aria-busy") === "false");
       assert.deepEqual(errors, []);
       console.log(`provider monitor ${width}px: diagnostics, probe, config, confirmation and rollback passed`);
-    } catch (error) {
-      console.error(JSON.stringify({ engine: process.env.ROYAL_BROWSER || "chromium", width,
-        disclosure: await page.evaluate(() => ({ trace: window.disclosureTrace || [],
-          repair: document.querySelector('#provider-monitor [data-panel="filmpalast-repairs"]')?.outerHTML,
-          technicalOpen: document.querySelector('#provider-monitor [data-monitor="technical"]')?.open,
-          busy: document.querySelector('#provider-monitor')?.getAttribute("aria-busy") })) }));
-      throw error;
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

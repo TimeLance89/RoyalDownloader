@@ -1,4 +1,4 @@
-name: Stability integration
+name: Royal Stability (consolidated)
 
 on:
   pull_request:
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      BASELINE_SHA: ${{ github.event.pull_request.base.sha || 'eec71900ddc5298987842b8430115becc978aa02' }}
+      BASELINE_SHA: ${{ github.event.pull_request.base.sha || 'origin/overnight' }}
       TEST_MODE: ${{ inputs.mode || 'suite' }}
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
@@ -104,6 +104,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: stability-integration-${{ github.run_id }}
+          name: stability-consolidated-${{ github.run_id }}
           path: artifacts/stability-ci/
           retention-days: 14
