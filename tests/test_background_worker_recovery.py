@@ -6,6 +6,7 @@ import pytest
 
 import server  # noqa: F401 - register the composed application-service backend
 from application_services import automation, seerr
+from application_services import movie_subscription_runtime_hardening as movie_runtime
 
 
 class _StopAfterProbe(BaseException):
@@ -20,6 +21,7 @@ def test_watchlist_scheduler_invalid_interval_stays_bounded():
 
 
 def test_watchlist_worker_retries_instead_of_dying_on_jellyfin_exception(monkeypatch):
+    monkeypatch.setattr(movie_runtime, "_ensure_movie_loop", lambda: None)
     def fail_jellyfin():
         raise OSError("simulated Jellyfin network failure")
 
@@ -38,6 +40,8 @@ def test_watchlist_worker_retries_instead_of_dying_on_jellyfin_exception(monkeyp
 
 
 def test_watchlist_worker_keeps_movie_checks_separate_from_failed_series(monkeypatch):
+    movie_workers = []
+    monkeypatch.setattr(movie_runtime, "_ensure_movie_loop", lambda: movie_workers.append(True))
     movies = []
     intervals = []
     monkeypatch.setattr(server, "get_jellyfin_client", lambda: type("JF", (), {"configured": False})())
@@ -53,7 +57,10 @@ def test_watchlist_worker_keeps_movie_checks_separate_from_failed_series(monkeyp
     monkeypatch.setattr(server, "wait_for_watchlist_auto_check", stop_after_wait)
     with pytest.raises(_StopAfterProbe):
         automation.watchlist_auto_check_loop()
-    assert movies == [True]
+    # Movie inventories have their own worker; a failed series pass must not
+    # run another inventory inline or prevent that worker from being ensured.
+    assert movie_workers == [True]
+    assert movies == []
     assert intervals == [60]
 
 
