@@ -220,6 +220,11 @@ jobs:
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
 
+      - name: Focused direct HTTP resume regression tests
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: timeout 180s python -m pytest -q tests/test_http_resume.py
+
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
