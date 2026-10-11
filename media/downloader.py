@@ -1161,6 +1161,7 @@ class DownloadJob:
                 "User-Agent": BROWSER_USER_AGENT,
                 "Accept": "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
                 "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
+                "Accept-Encoding": "identity",
                 "Sec-Fetch-Dest": "video",
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Site": "cross-site",
@@ -1210,6 +1211,11 @@ class DownloadJob:
             response.raise_for_status()
             if saved is None and status != 200:
                 return False, "HTTP-Server lieferte keine vollständige Mediendatei"
+            # Encoded HTTP bodies have different byte offsets than the
+            # decoded media stream; never use them for checkpoint offsets.
+            content_encoding = str(response.headers.get("Content-Encoding", "")).strip().lower()
+            if content_encoding not in ("", "identity"):
+                return False, "Komprimierte HTTP-Antwort ist nicht fortsetzbar"
             content_type = (response.headers.get("Content-Type") or "").lower()
             if any(bad in content_type for bad in ("text/", "html", "json", "xml")):
                 return False, f"Stream lieferte keinen Film ({content_type or 'unbekannter Content-Type'})"
