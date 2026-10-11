@@ -207,3 +207,48 @@ def test_expired_checkpoint_cleanup_preserves_current_and_foreign_files(tmp_path
     assert cleanup_expired_http_resumes([root]) == 1
     assert not part.exists()
     assert (foreign / "important.txt").read_text() == "keep"
+
+
+def test_user_cancel_discards_checkpoint_but_update_restart_preserves_it(tmp_path):
+    first = make_job(tmp_path, "user-cancel")
+    store = first._http_resume_store()
+    path = store.prepare(total=1024, etag='"v1"')
+    path.write_bytes(b"A" * 200)
+    first.cancel()
+    first._run()
+    assert store.load() is None
+
+    second = make_job(tmp_path, "update-cancel")
+    store = second._http_resume_store()
+    path = store.prepare(total=1024, etag='"v1"')
+    path.write_bytes(b"B" * 200)
+    second.cancel(preserve_resume=True)
+    second._run()
+    assert store.load() is not None
+
+
+def test_queue_restart_flag_only_changes_real_download_job_cancellation():
+    from media.downloader import DownloadQueue
+
+    class OtherWork:
+        def __init__(self):
+            self.was_cancelled = False
+        def cancel(self):
+            self.was_cancelled = True
+
+    queue = DownloadQueue()
+    movie = downloader.DownloadJob(
+        "https://media.example.test/movie.mp4", "mp4", Path("/tmp/movie.mp4"),
+        queue_slug="movie:123",
+    )
+    other = OtherWork()
+    # Inspect the queue contract without starting background jobs.
+    import threading
+    with queue._lock:
+        queue._active[1] = (movie, threading.Thread(), 0)
+        queue._active[2] = (other, threading.Thread(), 0)
+    # Avoid the reaper's join of never-started mock threads.
+    queue._reap_cancelled = lambda _jobs: None
+    queue.cancel_all(preserve_resume=True)
+    assert movie._cancelled and movie._preserve_resume_on_cancel
+    assert other.was_cancelled
