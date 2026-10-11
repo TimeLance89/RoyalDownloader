@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -26,7 +27,10 @@ def main():
                f'--timeout={args.test_timeout}', '--durations=20',
                f'--junitxml={output / "tests.xml"}', *args.tests]
     started = time.monotonic()
-    with (output / 'tests.log').open('w') as log:
+    # Fixture media needs the real test disk's free-space accounting. The
+    # container's small /tmp tmpfs must not make the 5 GiB reserve guard fail.
+    with tempfile.TemporaryDirectory(prefix='stability-fixtures-', dir=output.parent) as fixture_tmp, (output / 'tests.log').open('w') as log:
+        env['TMPDIR'] = fixture_tmp
         try:
             result = subprocess.run(command, cwd=args.root.resolve(), env=env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
