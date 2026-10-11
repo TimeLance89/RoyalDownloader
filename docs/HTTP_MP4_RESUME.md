@@ -26,8 +26,10 @@ direct MP4 responses that provide an exact full length and a **strong ETag**.
   existing media validation still runs on the recovered file.
 - Fully downloaded bytes are moved to the ordinary isolated attempt staging
   location. Existing audio/video validation and collision-free atomic publish
-  remain unchanged. Cancel removes checkpoint state; transient transfer errors
-  may retain a resumable partial for a future retry.
+  remain unchanged. Explicit user cancellation removes checkpoint state.
+  Planned in-app updater restarts preserve it through the existing queue
+  suspension mechanism. Transient transfer errors may also retain a
+  resumable partial for a future retry.
 - Week-old abandoned checkpoints are eligible for the ordinary bounded
   staging cleanup (with ownership markers and explicit file allowlist).
 
