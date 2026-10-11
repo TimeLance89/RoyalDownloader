@@ -11,6 +11,8 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+from defusedxml.ElementTree import parse as parse_xml
+
 
 def resolve_process_pid(pid):
     """Resolve PID when the host procfs is mounted in a nested PID namespace."""
@@ -82,7 +84,7 @@ def run_process(command, root, env, log_path, timeout):
 def merge_junit(paths, output):
     merged = ET.Element('testsuites')
     for path in paths:
-        root = ET.parse(path).getroot()
+        root = parse_xml(path, forbid_dtd=True).getroot()
         merged.extend([root] if root.tag == 'testsuite' else list(root))
     ET.ElementTree(merged).write(output, encoding='utf-8', xml_declaration=True)
 

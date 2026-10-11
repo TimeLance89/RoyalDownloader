@@ -137,3 +137,17 @@ def test_procfs_reaping_race_is_absent_but_permissions_are_not(monkeypatch):
     import pytest
     with pytest.raises(PermissionError):
         stopped(12345)
+
+
+def test_junit_merge_rejects_dtd_and_external_entities(tmp_path):
+    import pytest
+    from defusedxml.common import DefusedXmlException
+    private = tmp_path / 'private.txt'
+    private.write_text('synthetic-secret-must-not-be-read')
+    source = tmp_path / 'malicious.xml'
+    source.write_text(f'<!DOCTYPE testsuite [<!ENTITY leaked SYSTEM "{private.as_uri()}">]>'
+                      '<testsuite><testcase>&leaked;</testcase></testsuite>')
+    output = tmp_path / 'merged.xml'
+    with pytest.raises(DefusedXmlException):
+        runner.merge_junit([source], output)
+    assert not output.exists()
