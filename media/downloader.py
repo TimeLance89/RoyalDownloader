@@ -1286,6 +1286,14 @@ class DownloadJob:
             finally:
                 if fd != -1:
                     os.close(fd)
+            if saved is not None:
+                # A 206 body must contain exactly the advertised range,
+                # independent of whether it happens to reach the file total.
+                range_end = int(
+                    str(response.headers["Content-Range"]).split("/")[0].rsplit("-", 1)[1]
+                )
+                if downloaded - saved.offset != range_end - saved.offset + 1:
+                    return False, "HTTP-Teildaten stimmen nicht mit Content-Range überein"
             if total > 0 and downloaded != total:
                 return False, f"Stream endete vorzeitig ({downloaded}/{total} Bytes)"
             if store is not None and (saved is not None or output != self.staging_path):
