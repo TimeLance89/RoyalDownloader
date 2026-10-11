@@ -163,7 +163,7 @@ class HTTPResumeStore:
                 # Never take ownership of a pre-existing unmarked directory.
                 if folder.exists() and not self._owned(folder):
                     raise OSError("Unowned HTTP resume directory")
-                folder.parent.mkdir(parents=True, exist_ok=True)
+                folder.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 folder.mkdir(mode=0o700, exist_ok=True)
                 if not self._trusted(folder):
                     raise OSError("Unsafe HTTP resume directory")
@@ -196,8 +196,9 @@ class HTTPResumeStore:
                 part = folder / "payload.part"
                 if part.is_symlink():
                     raise OSError("Unsafe HTTP resume payload symlink")
-                with part.open("wb"):
-                    pass
+                with part.open("wb") as file:
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(file.fileno(), 0o600)
                 return part
             except OSError as exc:
                 errors.append(str(exc))
