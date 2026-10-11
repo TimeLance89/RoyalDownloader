@@ -200,8 +200,8 @@ def _write_persistent_snapshot(resource: str, snapshot) -> bool:
         except Exception as exc:
             log(f"{resource}: Persistenzfehler: {exc}", "warn")
             saved = False
-    if saved:
-        _mark_persistence_success(resource)
+        if saved:
+            _mark_persistence_success(resource)
     return saved
 
 
@@ -224,15 +224,15 @@ def _retry_persistence_once(resource: str) -> bool:
         except Exception as exc:
             log(f"{resource}: Persistenz-Retry fehlgeschlagen: {exc}", "warn")
             saved = False
-    if saved:
-        with state.persistence_status_lock:
-            current = state.persistence_pending.get(resource)
-            if current is not None and int(current["generation"]) == generation:
-                state.persistence_pending.pop(resource, None)
-                state.persistence_errors.pop(resource, None)
-        return True
-    _mark_persistence_failure(resource, pending=True)
-    return False
+        if saved:
+            with state.persistence_status_lock:
+                current = state.persistence_pending.get(resource)
+                if current is not None and int(current["generation"]) == generation:
+                    state.persistence_pending.pop(resource, None)
+                    state.persistence_errors.pop(resource, None)
+            return True
+        _mark_persistence_failure(resource, pending=True)
+        return False
 
 
 def _persistence_retry_loop(resource: str) -> None:
@@ -285,9 +285,13 @@ def _schedule_persistence_retry(resource: str, snapshot) -> None:
 
 
 def _persist_background_snapshot(resource: str, snapshot) -> bool:
-    if _write_persistent_snapshot(resource, snapshot):
-        return True
-    _schedule_persistence_retry(resource, snapshot)
+    # Commit and retry bookkeeping are one resource transaction. Otherwise
+    # an older failed writer can enqueue its retry after a newer success, or
+    # an older success can erase a newer failed writer's pending snapshot.
+    with state.persistence_write_locks[resource]:
+        if _write_persistent_snapshot(resource, snapshot):
+            return True
+        _schedule_persistence_retry(resource, snapshot)
     log(
         f"{resource}: Zustand konnte nicht gespeichert werden; Retry vorgemerkt.",
         "warn",
@@ -309,8 +313,9 @@ def _persistence_unavailable(resource: str) -> HTTPException:
 
 
 def _require_persistent_snapshot(resource: str, snapshot) -> None:
-    if not _write_persistent_snapshot(resource, snapshot):
-        raise _persistence_unavailable(resource)
+    with state.persistence_write_locks[resource]:
+        if not _write_persistent_snapshot(resource, snapshot):
+            raise _persistence_unavailable(resource)
 
 
 def _persist_watchlist_background() -> bool:
