@@ -112,7 +112,7 @@ class HTTPResumeStore:
                     continue
                 data = json.loads(meta.read_text(encoding="utf-8"))
                 size = part.stat().st_size
-                total = data.get("total")
+                total = data.get("total") if isinstance(data, dict) else None
                 if (
                     not isinstance(data, dict)
                     or data.get("schema") != _SCHEMA
