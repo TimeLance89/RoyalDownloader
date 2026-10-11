@@ -163,6 +163,9 @@ def test_full_checkpoint_is_revalidated_by_standard_finalize_path(monkeypatch, t
     job = make_job(tmp_path, "attempt-two")
     part = job._http_resume_store().prepare(total=1024, etag='"v1"')
     part.write_bytes(b"A" * 1024)
+    # The fixture intentionally uses a reserved example host; the ordinary
+    # egress guard is separately tested and stays enabled in production.
+    monkeypatch.setattr(downloader, "ensure_public_http_url", lambda _url: None)
     monkeypatch.setattr(curl, "get", lambda *_a, **_k: pytest.fail("no HTTP call needed"))
     ok, msg = job._download_direct()
     assert ok, msg
