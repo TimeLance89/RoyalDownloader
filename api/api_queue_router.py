@@ -1288,19 +1288,19 @@ async def api_queue_clear():
 @router.get("/api/v1/queue")
 @router.get("/api/queue")
 async def api_queue_get():
-    return {"queue": build_queue_payload()}
+    return {"queue": await run_in_threadpool(build_queue_payload)}
 
 
 @router.get("/api/v1/queue/jobs")
 @router.get("/api/queue/jobs")
 async def api_queue_jobs():
-    return queue_jobs_payload()
+    return await run_in_threadpool(queue_jobs_payload)
 
 
 @router.get("/api/v1/queue/history")
 @router.get("/api/queue/history")
 async def api_queue_history():
-    return queue_history_payload()
+    return await run_in_threadpool(queue_history_payload)
 
 
 def _job_or_404(job_id: str, *, include_history: bool = False) -> dict:
