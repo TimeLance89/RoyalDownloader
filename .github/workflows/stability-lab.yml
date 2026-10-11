@@ -1,0 +1,121 @@
+name: Royal Stability Lab
+
+on:
+  pull_request:
+    branches: [overnight]
+    paths:
+      - ".github/workflows/stability-lab.yml"
+      - "scripts/stability_lab_runner.py"
+      - "scripts/stability_benchmark.py"
+      - "tests/**"
+      - "core/**"
+      - "media/**"
+      - "application_services/**"
+      - "providers/**"
+      - "storage/**"
+      - "api/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stability-lab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-python:
+    name: "Python isolation ${{ matrix.shard }}/8"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked test dependencies
+        run: python -m pip install -r requirements-dev.lock
+      - name: Execute test files in bounded isolated processes
+        run: |
+          python scripts/stability_lab_runner.py \
+            --shard ${{ matrix.shard }} --shards 8 --timeout 90 \
+            --output "artifacts/stability-lab/shard-${{ matrix.shard }}" \
+            --summary "artifacts/stability-lab/summary-${{ matrix.shard }}.md"
+      - name: Show shard summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "artifacts/stability-lab/summary-${{ matrix.shard }}.md" ]]; then
+            cat "artifacts/stability-lab/summary-${{ matrix.shard }}.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload full failure logs and test timing data
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: stability-python-shard-${{ matrix.shard }}
+          path: artifacts/stability-lab/
+          if-no-files-found: warn
+          retention-days: 14
+
+  paired-performance:
+    name: Paired queue performance baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - name: Check out baseline on the same runner
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha || 'overnight' }}
+          path: baseline
+      - name: Set up Python
+        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked test dependencies
+        run: python -m pip install -r requirements-dev.lock
+      - name: Measure baseline
+        run: |
+          python scripts/stability_benchmark.py run \
+            --root baseline --samples 5 \
+            --output "${{ github.workspace }}/artifacts/stability-lab/performance/baseline.json"
+      - name: Measure candidate
+        run: |
+          python scripts/stability_benchmark.py run \
+            --root . --samples 5 \
+            --output "${{ github.workspace }}/artifacts/stability-lab/performance/candidate.json"
+      - name: Compare throughput, latency and memory
+        run: |
+          python scripts/stability_benchmark.py compare \
+            --baseline artifacts/stability-lab/performance/baseline.json \
+            --candidate artifacts/stability-lab/performance/candidate.json \
+            --summary artifacts/stability-lab/performance/summary.md
+      - name: Show comparison
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/stability-lab/performance/summary.md ]]; then
+            cat artifacts/stability-lab/performance/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload benchmark comparisons
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0
+        with:
+          name: stability-queue-performance
+          path: artifacts/stability-lab/performance/
+          if-no-files-found: warn
+          retention-days: 14
