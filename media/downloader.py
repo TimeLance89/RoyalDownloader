@@ -578,6 +578,7 @@ class DownloadJob:
         self.on_done = on_done or (lambda ok, msg: None)
         self._proc: Optional[subprocess.Popen] = None
         self._cancelled = False
+        self._preserve_resume_on_cancel = False
 
     @property
     def staging_name(self) -> str:
@@ -587,7 +588,10 @@ class DownloadJob:
         except ValueError:
             return str(self.staging_path)
 
-    def cancel(self):
+    def cancel(self, *, preserve_resume: bool = False):
+        # Planned application restarts preserve durable HTTP checkpoints.
+        # A user-initiated cancel still deletes that job's saved partial.
+        self._preserve_resume_on_cancel = bool(preserve_resume)
         self._cancelled = True
         self._terminate_process_tree()
 
@@ -661,14 +665,14 @@ class DownloadJob:
                 success, msg = self._finalize()
             if not success:
                 self._cleanup_staging()
-            if self._cancelled and resume_store:
+            if self._cancelled and resume_store and not self._preserve_resume_on_cancel:
                 resume_store.discard()
             if success and resume_store:
                 resume_store.discard()
             self.on_done(success, msg)
         except Exception as exc:
             self._cleanup_staging()
-            if self._cancelled:
+            if self._cancelled and not self._preserve_resume_on_cancel:
                 store = self._http_resume_store()
                 if store:
                     store.discard()
@@ -1258,6 +1262,8 @@ class DownloadJob:
                     fd = -1
                     for chunk in response.iter_content(chunk_size=1024 * 256):
                         if self._cancelled:
+                            file.flush()
+                            os.fsync(file.fileno())
                             return False, "Abgebrochen"
                         storage_error = self._storage_budget_check()
                         if storage_error:
@@ -1448,14 +1454,17 @@ class DownloadQueue:
             )
             self._scheduler_thread.start()
 
-    def cancel_all(self):
+    def cancel_all(self, *, preserve_resume=False):
         with self._lock:
             self._running = False
             self._scheduler_generation += 1
             cancelled = []
             cancelled_jobs = []
             for jid, (job, thread, _t) in list(self._active.items()):
-                job.cancel()
+                if preserve_resume and isinstance(job, DownloadJob):
+                    job.cancel(preserve_resume=True)
+                else:
+                    job.cancel()
                 cancelled.append((jid, thread))
                 cancelled_jobs.append(job)
             self._jobs.clear()
