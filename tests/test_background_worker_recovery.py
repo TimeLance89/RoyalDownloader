@@ -12,6 +12,13 @@ class _StopAfterProbe(BaseException):
     pass
 
 
+# The published service functions are dynamic wrappers that forward into
+# server. Test the original worker implementation so monkeypatched service
+# dependencies are guaranteed to be the ones used by the loop.
+_WATCHLIST_LOOP = automation.watchlist_auto_check_loop.__wrapped__
+_SEERR_LOOP = seerr.seerr_poll_loop.__wrapped__
+
+
 def test_watchlist_scheduler_invalid_interval_stays_bounded():
     assert automation._watchlist_auto_check_delay(1, 1, "invalid") == 1800
     assert automation._watchlist_auto_check_delay(1, 1, None) == 1800
@@ -33,7 +40,7 @@ def test_watchlist_worker_retries_instead_of_dying_on_jellyfin_exception(monkeyp
 
     monkeypatch.setattr(automation, "wait_for_watchlist_auto_check", stop_after_wait)
     with pytest.raises(_StopAfterProbe):
-        automation.watchlist_auto_check_loop()
+        _WATCHLIST_LOOP()
     assert intervals == [60]
 
 
@@ -52,7 +59,7 @@ def test_watchlist_worker_keeps_movie_checks_separate_from_failed_series(monkeyp
 
     monkeypatch.setattr(automation, "wait_for_watchlist_auto_check", stop_after_wait)
     with pytest.raises(_StopAfterProbe):
-        automation.watchlist_auto_check_loop()
+        _WATCHLIST_LOOP()
     assert movies == [True]
     assert intervals == [60]
 
@@ -107,7 +114,7 @@ def test_seerr_worker_retries_failed_hydration_then_processes_requests(monkeypat
 
     monkeypatch.setattr(seerr, "_hydrate_seerr_jobs", hydrate)
     monkeypatch.setattr(seerr, "seerr_poll_once", lambda: polls.append(True) or {"ok": True})
-    seerr.seerr_poll_loop()
+    _SEERR_LOOP()
 
     assert len(attempts) == 2
     assert polls == [True]
@@ -132,6 +139,6 @@ def test_seerr_worker_is_not_killed_by_unexpected_poll_exception(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(seerr, "seerr_poll_once", intermittent)
-    seerr.seerr_poll_loop()
+    _SEERR_LOOP()
     assert len(calls) == 2
     assert wake.delays == [20, 20]
