@@ -1,0 +1,132 @@
+{
+  "passed": true,
+  "failures": [],
+  "comparisons": [
+    {
+      "size": 650,
+      "metric": "queue_payload",
+      "baseline": 46.73815999990438,
+      "candidate": 50.33999000011136,
+      "limit": 60.42269999988048
+    },
+    {
+      "size": 650,
+      "metric": "durable_signature",
+      "baseline": 4.445218999990175,
+      "candidate": 4.636155999833136,
+      "limit": 7.5565237499877185
+    },
+    {
+      "size": 650,
+      "metric": "snapshot",
+      "baseline": 11.257297000156541,
+      "candidate": 11.023114000181522,
+      "limit": 16.071621250195676
+    },
+    {
+      "size": 650,
+      "metric": "atomic_persist",
+      "baseline": 35.0373829999171,
+      "candidate": 35.5362249999871,
+      "limit": 45.796728749896374
+    },
+    {
+      "size": 650,
+      "metric": "recovery",
+      "baseline": 13.668995999978506,
+      "candidate": 13.936650999994527,
+      "limit": 19.086244999973133
+    },
+    {
+      "size": 650,
+      "metric": "cpu_seconds",
+      "baseline": 1.098385392,
+      "candidate": 1.143083222,
+      "limit": 1.39298174
+    },
+    {
+      "size": 1000,
+      "metric": "queue_payload",
+      "baseline": 72.76738400014438,
+      "candidate": 78.23961799999779,
+      "limit": 92.95923000018047
+    },
+    {
+      "size": 1000,
+      "metric": "durable_signature",
+      "baseline": 7.031509999933405,
+      "candidate": 7.279806000042299,
+      "limit": 10.789387499916756
+    },
+    {
+      "size": 1000,
+      "metric": "snapshot",
+      "baseline": 17.052931999842258,
+      "candidate": 18.779238999968584,
+      "limit": 23.316164999802822
+    },
+    {
+      "size": 1000,
+      "metric": "atomic_persist",
+      "baseline": 54.20610900000611,
+      "candidate": 60.362339999983305,
+      "limit": 69.75763625000764
+    },
+    {
+      "size": 1000,
+      "metric": "recovery",
+      "baseline": 21.614045999967857,
+      "candidate": 21.428796999998667,
+      "limit": 29.01755749995982
+    },
+    {
+      "size": 1000,
+      "metric": "cpu_seconds",
+      "baseline": 1.73854234,
+      "candidate": 1.79225819,
+      "limit": 2.193177925
+    },
+    {
+      "size": 5000,
+      "metric": "queue_payload",
+      "baseline": 353.7128660000235,
+      "candidate": 347.42935200006286,
+      "limit": 444.14108250002937
+    },
+    {
+      "size": 5000,
+      "metric": "durable_signature",
+      "baseline": 39.62931399996705,
+      "candidate": 36.12777000012102,
+      "limit": 51.536642499958816
+    },
+    {
+      "size": 5000,
+      "metric": "snapshot",
+      "baseline": 88.36120399996616,
+      "candidate": 83.6271210000632,
+      "limit": 112.4515049999577
+    },
+    {
+      "size": 5000,
+      "metric": "atomic_persist",
+      "baseline": 272.75153300001875,
+      "candidate": 262.63475900009325,
+      "limit": 342.93941625002344
+    },
+    {
+      "size": 5000,
+      "metric": "recovery",
+      "baseline": 109.58501799996156,
+      "candidate": 109.92510400001265,
+      "limit": 138.98127249995196
+    },
+    {
+      "size": 5000,
+      "metric": "cpu_seconds",
+      "baseline": 8.886215424000001,
+      "candidate": 8.706016844,
+      "limit": 11.12776928
+    }
+  ]
+}
