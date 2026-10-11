@@ -40,11 +40,13 @@ class FakeHTTPResponse:
 
 
 def make_job(tmp_path, attempt):
-    return downloader.DownloadJob(
+    job = downloader.DownloadJob(
         "https://media.example.test/test.mp4", "mp4",
         tmp_path / "test.mp4", queue_slug="movie:test",
         job_id="stable-logical-job", attempt_id=attempt, allow_slow=True,
     )
+    job._fallback_staging_root = tmp_path / "fallback"
+    return job
 
 
 def test_only_strong_etags_allow_range_resume():
@@ -181,3 +183,27 @@ def test_symlinked_checkpoint_is_rejected(tmp_path):
     store.prepare(total=1024, etag='"v1"')
     assert part.is_symlink()
     assert not (tmp_path / "outside.mp4").exists()
+
+
+def test_expired_checkpoint_cleanup_preserves_current_and_foreign_files(tmp_path):
+    import os
+    import time
+    from media.http_resume import cleanup_expired_http_resumes
+
+    job = make_job(tmp_path, "attempt-one")
+    store = job._http_resume_store()
+    part = store.prepare(total=1024, etag='"v1"')
+    part.write_bytes(b"A" * 200)
+    root = part.parent.parent.parent
+    foreign = root / "unrelated"
+    foreign.mkdir()
+    (foreign / "important.txt").write_text("keep")
+    old = time.time() - 9 * 24 * 3600
+    os.utime(part, (old, old))
+
+    planned = cleanup_expired_http_resumes([root], preview=True)
+    assert len(planned) == 1
+    assert planned[0]["size_bytes"] == 200
+    assert cleanup_expired_http_resumes([root]) == 1
+    assert not part.exists()
+    assert (foreign / "important.txt").read_text() == "keep"
