@@ -159,37 +159,43 @@ def _ensure_movie_loop() -> None:
     with _movie_loop_lock:
         if _movie_loop_started:
             return
-        _movie_loop_started = True
         threading.Thread(
             target=movie_subscription_auto_check_loop,
             name="movie-subscription-check",
             daemon=True,
         ).start()
+        _movie_loop_started = True
 
 
 def watchlist_auto_check_loop():
     """Keep series checks responsive while movie inventories run separately."""
-    _ensure_movie_loop()
     while True:
-        interval_min = state.automation.get("check_interval_min", 30)
         checked = total = 0
-        jf_configured = get_jellyfin_client().configured
-        if jf_configured and getattr(state, "jellyfin_live_stale", False):
-            with state.watchlist_lock:
-                total = len(state.watchlist)
-            log(
-                "Automatische Bibliotheks-Prüfung wartet auf aktuellen "
-                "Jellyfin-Livestatus.",
-                "warn",
-            )
-        else:
-            try:
-                checked, total = _ORIGINAL_WATCHLIST_CHECK_ONCE()
-            except Exception as exc:
-                log(f"Automatische Bibliotheks-Prüfung fehlgeschlagen: {exc}", "warn")
-        _WAIT_FOR_WATCHLIST_AUTO_CHECK(
-            _ORIGINAL_WATCHLIST_CHECK_DELAY(checked, total, interval_min)
+        interval_min = 30
+        retry_after_failure = False
+        try:
+            _ensure_movie_loop()
+            interval_min = state.automation.get("check_interval_min", 30)
+            jf_configured = get_jellyfin_client().configured
+            if jf_configured and getattr(state, "jellyfin_live_stale", False):
+                with state.watchlist_lock:
+                    total = len(state.watchlist)
+                log(
+                    "Automatische Bibliotheks-Prüfung wartet auf aktuellen "
+                    "Jellyfin-Livestatus.",
+                    "warn",
+                )
+            else:
+                checked, total = _watchlist_auto_check_once()
+        except Exception as exc:
+            retry_after_failure = True
+            log(f"Automatik-Watchdog wird nach Fehler erneut versuchen: {exc}", "warn")
+        # Resolve the composed seams at call time. Captured aliases bypassed
+        # later wrappers and made isolated worker tests wait on the real event.
+        delay = 60 if retry_after_failure else _watchlist_auto_check_delay(
+            checked, total, interval_min,
         )
+        wait_for_watchlist_auto_check(delay)
 
 
 # Preserve the established service-ownership contract for diagnostics/tests.
