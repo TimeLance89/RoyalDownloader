@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -20,6 +21,9 @@ from providers.aniworld import SOURCE_PREFIX as ANIWORLD_PREFIX
 from providers.models import FilmpalastMovie, parse_episode_slug, strip_episode_suffix
 
 router = APIRouter(tags=["queue"])
+# These builders are CPU-heavy Python work. Share the existing AnyIO pool,
+# but do not make concurrent readers compete for the GIL or snapshot locks.
+_queue_read_limiter = CapacityLimiter(1)
 
 
 def _unbound_dependency(*_args, **_kwargs):
@@ -1288,19 +1292,19 @@ async def api_queue_clear():
 @router.get("/api/v1/queue")
 @router.get("/api/queue")
 async def api_queue_get():
-    return {"queue": await run_in_threadpool(build_queue_payload)}
+    return {"queue": await to_thread.run_sync(build_queue_payload, limiter=_queue_read_limiter)}
 
 
 @router.get("/api/v1/queue/jobs")
 @router.get("/api/queue/jobs")
 async def api_queue_jobs():
-    return await run_in_threadpool(queue_jobs_payload)
+    return await to_thread.run_sync(queue_jobs_payload, limiter=_queue_read_limiter)
 
 
 @router.get("/api/v1/queue/history")
 @router.get("/api/queue/history")
 async def api_queue_history():
-    return await run_in_threadpool(queue_history_payload)
+    return await to_thread.run_sync(queue_history_payload, limiter=_queue_read_limiter)
 
 
 def _job_or_404(job_id: str, *, include_history: bool = False) -> dict:
