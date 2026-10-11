@@ -192,6 +192,17 @@ class HTTPResumeStore:
                         f.flush()
                         os.fsync(f.fileno())
                     os.replace(tmp, meta)
+                    # Persist the directory entry too, where the NAS filesystem
+                    # supports it. A power failure must not leave a guessed
+                    # checkpoint that can be silently trusted.
+                    try:
+                        dir_fd = os.open(folder, os.O_RDONLY)
+                        try:
+                            os.fsync(dir_fd)
+                        finally:
+                            os.close(dir_fd)
+                    except OSError:
+                        pass
                 finally:
                     tmp.unlink(missing_ok=True)
                 part = folder / "payload.part"
