@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           run_offline() {
-            timeout 1100s docker run --rm --network none --cap-drop ALL \
+            timeout 1100s docker run --rm --network none --user "$(id -u):$(id -g)" --cap-drop ALL \
               --security-opt no-new-privileges --pids-limit 256 --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=512m \
               -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
@@ -73,6 +73,10 @@ jobs:
           baseline_exit=$?
           set -e
           echo "$baseline_exit" > artifacts/stability-ci/baseline-exit.txt
+          if [[ ! -s artifacts/stability-ci/baseline-tests/tests.xml ]]; then
+            echo 'Baseline did not produce test results'
+            exit 2
+          fi
           if [[ "$baseline_exit" != 0 && "$baseline_exit" != 1 ]]; then
             echo 'Baseline infrastructure or timeout failure'
             exit "$baseline_exit"
@@ -83,7 +87,7 @@ jobs:
         shell: bash
         run: |
           run_offline() {
-            timeout 600s docker run --rm --network none --cap-drop ALL \
+            timeout 600s docker run --rm --network none --user "$(id -u):$(id -g)" --cap-drop ALL \
               --security-opt no-new-privileges --pids-limit 256 --read-only \
               --tmpfs /tmp:rw,nosuid,nodev,size=512m \
               -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
