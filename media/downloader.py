@@ -27,7 +27,9 @@ from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url, request_proxy_kwargs, safe_proxy_url
-from media.http_resume import HTTPResumeStore, range_matches, strong_etag
+from media.http_resume import (
+    HTTPResumeStore, cleanup_expired_http_resumes, range_matches, strong_etag,
+)
 
 # Fallback, falls das bevorzugte Staging direkt neben dem Ziel nicht angelegt
 # werden kann. Normalerweise liegt jeder Job in
@@ -278,6 +280,13 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
             root.rmdir()
         except OSError:
             pass
+    # HTTP resume checkpoints have their own 7-day retention and must never
+    # be deleted by the ordinary 24-hour attempt-directory cleanup.
+    expired = cleanup_expired_http_resumes(roots, preview=preview, max_items=max_items)
+    if preview:
+        planned.extend(expired)
+    else:
+        removed += expired
     return planned if preview else removed
 
 
@@ -606,7 +615,7 @@ class DownloadJob:
             # Direct, static MP4 objects create resumable checkpoints first.
             # A recovered checkpoint also takes precedence over yt-dlp's new
             # attempt-specific staging directory. Other sources are unchanged.
-            direct_first = self.stream_type == "mp4" and (
+            direct_first = bool(self.queue_slug) and self.stream_type == "mp4" and (
                 existing_resume is not None
                 or urlparse(self.stream_url).path.casefold().endswith(".mp4")
             )
