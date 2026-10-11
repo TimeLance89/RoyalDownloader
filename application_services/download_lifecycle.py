@@ -519,7 +519,7 @@ def _pause_downloads_for_update_restart() -> int:
                 raise RuntimeError(
                     "Queue-Zustand konnte vor dem Update nicht gesichert werden."
                 )
-        state.dl_queue.cancel_all()
+        state.dl_queue.cancel_all(preserve_resume=True)
 
     # Laufende yt-dlp-Prozesse und Browser-Tabs möglichst sauber beenden, bevor
     # execv den Server ersetzt. Nach spätestens 20 Sekunden übernimmt der
