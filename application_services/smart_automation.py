@@ -58,18 +58,25 @@ def movie_subscription_auto_check_loop() -> None:
     """Check quality subscriptions on their own optional nighttime schedule."""
 
     while True:
-        interval_min = max(5, int(state.automation.get("check_interval_min", 30)))
         started = time.monotonic()
-        allowed, reason = smart_policy.automatic_movie_upgrade_decision(state)
-        if allowed:
-            try:
+        retry_after_failure = False
+        try:
+            configured = int(state.automation.get("check_interval_min", 30))
+        except (TypeError, ValueError, OverflowError):
+            configured = 30
+        interval_min = max(5, min(configured, 24 * 60))
+        try:
+            allowed, reason = smart_policy.automatic_movie_upgrade_decision(state)
+            if allowed:
                 check_movie_subscriptions()
-            except Exception as exc:
-                log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
-        elif reason:
-            _log_deferred("Film-Upgrades", reason)
+            elif reason:
+                _log_deferred("Film-Upgrades", reason)
+        except Exception as exc:
+            retry_after_failure = True
+            log(f"Automatische Film-Abo-Prüfung fehlgeschlagen: {exc}", "warn")
         elapsed = time.monotonic() - started
-        time.sleep(max(5.0, interval_min * 60.0 - elapsed))
+        delay = 60 if retry_after_failure else max(5.0, interval_min * 60.0 - elapsed)
+        time.sleep(delay)
 
 
 # Keep existing diagnostics/tests that treat automation.py as the functional

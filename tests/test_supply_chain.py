@@ -28,8 +28,12 @@ def test_runtime_dependencies_and_images_are_exactly_pinned():
     compose = _content("docker-compose.yml")
     assert "FROM python:3.12.13-slim-bookworm" in dockerfile
     workflow = _content(".github/workflows/quality.yml")
-    assert "public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2" in workflow
-    assert 'docker tag "${python_base}" python:3.12.13-slim-bookworm' in workflow
+    assert 'digest="sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"' in workflow
+    for registry in ("public.ecr.aws/docker/library", "mirror.gcr.io/library", "docker.io/library"):
+        assert f'"{registry}/python:3.12.13-slim-bookworm@${{digest}}"' in workflow
+    assert 'local_tag="python:3.12.13-slim-bookworm"' in workflow
+    assert 'docker tag "${image}" "${local_tag}"' in workflow
+    assert 'timeout 75s docker pull --platform linux/amd64 "${image}"' in workflow
     assert "pip install --no-cache-dir -r requirements.lock" in dockerfile
     assert "SEERR_IMAGE_TAG:-v3.4.1" in compose
     assert "SEERR_IMAGE_TAG:-latest" not in compose

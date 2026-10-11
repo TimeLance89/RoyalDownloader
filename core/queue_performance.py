@@ -150,19 +150,17 @@ def _optimized_queue_cancel_all(self, *, preserve_resume=False):
     with self._lock:
         self._running = False
         self._scheduler_generation += 1
-        cancelled = []
-        cancelled_jobs = []
-        for jid, (job, thread, _started) in list(self._active.items()):
-            if preserve_resume and isinstance(job, DownloadJob):
-                job.cancel(preserve_resume=True)
-            else:
-                job.cancel()
-            cancelled.append((jid, thread))
-            cancelled_jobs.append(job)
+        cancelled = [(jid, thread) for jid, (_job, thread, _started) in self._active.items()]
+        cancelled_jobs = [job for job, _thread, _started in self._active.values()]
         self._jobs.clear()
         self._pending_preparations = 0
         self._pending_downloads = 0
         self._pending_download_hosts.clear()
+    for job in cancelled_jobs:
+        if preserve_resume and isinstance(job, DownloadJob):
+            job.cancel(preserve_resume=True)
+        else:
+            job.cancel()
     if cancelled:
         threading.Thread(
             target=self._reap_cancelled,
@@ -257,10 +255,10 @@ def _optimized_queue_scheduler(self, generation: int):
                     # keep the original polling behavior without spinning.
                     break
 
-                jid, job = self._jobs.pop(best_index)
+                job = self._start_pending_locked(best_index)
+                if job is None:
+                    break
                 _decrement_pending_locked(self, job)
-                thread = job.start()
-                self._active[jid] = (job, thread, time.monotonic())
                 if _is_preparation_job(job):
                     active_preparations += 1
                 else:
