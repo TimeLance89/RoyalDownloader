@@ -60,8 +60,8 @@ def test_compare_404_uses_latest_parent_without_reporting_github_failure(
     assert result["comparison"] == "ahead"
     assert result["ahead_by"] == 1
     assert result["behind_by"] == 0
-    assert result["commit_signature_verified"] is True
-    assert result["security_approved"] is True
+    assert result["quality_gate"] == "passed"
+    assert result["quality_approved"] is True
     assert result["update_available"] is True
     assert result["error"] == ""
 
@@ -97,7 +97,8 @@ def test_compare_404_without_provable_ancestry_fails_safe(monkeypatch, tmp_path)
     assert result["update_available"] is False
     assert result["ahead_by"] == 0
     assert result["behind_by"] == 0
-    assert result["security_approved"] is True
+    assert result["quality_gate"] == "not_required"
+    assert result["quality_approved"] is True
     assert result["error"] == ""
 
 
@@ -124,6 +125,8 @@ def test_non_404_compare_error_is_still_reported(monkeypatch, tmp_path):
 
     assert result["comparison"] == "unknown"
     assert result["update_available"] is None
-    assert result["security_approved"] is False
+    assert result["quality_gate"] == "not_required"
+    # Fail closed on an unknown comparison regardless of quality eligibility.
+    assert result["update_available"] is None
     assert result["error_code"] == "github_unavailable"
     assert "GitHub" in result["error"]
