@@ -27,7 +27,7 @@ from types import ModuleType
 from typing import Any
 
 import api.api_queue_router as api_queue_router
-from media.downloader import DownloadQueue
+from media.downloader import DownloadJob, DownloadQueue
 
 
 QUEUE_UPDATE_INTERVAL_SECONDS = 0.5
@@ -146,14 +146,17 @@ def _optimized_queue_remove_pending(self, predicate):
         return removed
 
 
-def _optimized_queue_cancel_all(self):
+def _optimized_queue_cancel_all(self, *, preserve_resume=False):
     with self._lock:
         self._running = False
         self._scheduler_generation += 1
         cancelled = []
         cancelled_jobs = []
         for jid, (job, thread, _started) in list(self._active.items()):
-            job.cancel()
+            if preserve_resume and isinstance(job, DownloadJob):
+                job.cancel(preserve_resume=True)
+            else:
+                job.cancel()
             cancelled.append((jid, thread))
             cancelled_jobs.append(job)
         self._jobs.clear()

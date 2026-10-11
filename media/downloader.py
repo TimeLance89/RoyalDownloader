@@ -27,6 +27,9 @@ from typing import Callable, Dict, Optional
 from urllib.parse import urlparse
 
 from core.network_guard import UnsafeNetworkTarget, ensure_public_http_url, request_proxy_kwargs, safe_proxy_url
+from media.http_resume import (
+    HTTPResumeStore, cleanup_expired_http_resumes, range_matches, strong_etag,
+)
 
 # Fallback, falls das bevorzugte Staging direkt neben dem Ziel nicht angelegt
 # werden kann. Normalerweise liegt jeder Job in
@@ -277,6 +280,13 @@ def cleanup_stale_staging(target_roots=(), older_than_seconds: int = 24 * 60 * 6
             root.rmdir()
         except OSError:
             pass
+    # HTTP resume checkpoints have their own 7-day retention and must never
+    # be deleted by the ordinary 24-hour attempt-directory cleanup.
+    expired = cleanup_expired_http_resumes(roots, preview=preview, max_items=max_items)
+    if preview:
+        planned.extend(expired)
+    else:
+        removed += expired
     return planned if preview else removed
 
 
@@ -568,6 +578,7 @@ class DownloadJob:
         self.on_done = on_done or (lambda ok, msg: None)
         self._proc: Optional[subprocess.Popen] = None
         self._cancelled = False
+        self._preserve_resume_on_cancel = False
 
     @property
     def staging_name(self) -> str:
@@ -577,7 +588,10 @@ class DownloadJob:
         except ValueError:
             return str(self.staging_path)
 
-    def cancel(self):
+    def cancel(self, *, preserve_resume: bool = False):
+        # Planned application restarts preserve durable HTTP checkpoints.
+        # A user-initiated cancel still deletes that job's saved partial.
+        self._preserve_resume_on_cancel = bool(preserve_resume)
         self._cancelled = True
         self._terminate_process_tree()
 
@@ -586,27 +600,50 @@ class DownloadJob:
         thread.start()
         return thread
 
+    def _http_resume_store(self):
+        # Only durable queue jobs can safely reuse the same logical identity.
+        if self.stream_type != "mp4" or not self.queue_slug:
+            return None
+        return HTTPResumeStore(
+            self.out_path, self.job_id, self.stream_url, self._fallback_staging_root,
+        )
+
     def _run(self):
         try:
             if self._cancelled:
+                if not self._preserve_resume_on_cancel:
+                    store = self._http_resume_store()
+                    if store:
+                        store.discard()
                 self.on_done(False, "Abgebrochen")
                 return
             self.on_start()
-            # Die Hoster-Probe läuft bereits über yt-dlp. Deshalb denselben Weg
-            # auch für den echten Download zuerst nutzen; der generische
-            # Extraktor verarbeitet direkte MP4-URLs zuverlässiger als ein
-            # einfacher HTTP-Client (Redirects, Referer, CDN-Header).
-            success, msg = self._download_ytdlp()
+            resume_store = self._http_resume_store()
+            existing_resume = resume_store.load() if resume_store else None
+            # Direct, static MP4 objects create resumable checkpoints first.
+            # A recovered checkpoint also takes precedence over yt-dlp's new
+            # attempt-specific staging directory. Other sources are unchanged.
+            direct_first = bool(self.queue_slug) and self.stream_type == "mp4" and (
+                existing_resume is not None
+                or urlparse(self.stream_url).path.casefold().endswith(".mp4")
+            )
+            if direct_first:
+                success, msg = self._download_direct()
+                if (
+                    not success and not self._cancelled
+                    and self.failure_kind not in ("slow", "storage")
+                ):
+                    self._cleanup_staging()
+                    success, msg = self._download_ytdlp()
+            else:
+                # Preserve yt-dlp as the default for HLS, DASH, embedded and
+                # non-obvious MP4 streams with CDN-specific requirements.
+                success, msg = self._download_ytdlp()
             if (
-                not success
-                and not self._cancelled
+                not success and not self._cancelled
                 and self.failure_kind == "fragment"
                 and HLS_CONCURRENT_FRAGMENTS > 1
             ):
-                # Ein einzelnes gescheitertes Fragment reisst mit parallelen
-                # Downloads die gesamte Datei mit. Seriell bleibt der Zielstream
-                # offen, der Abbruch trifft nur das wirklich defekte Fragment –
-                # und yt-dlp meldet die echte Ursache statt der Folgefehler.
                 self.on_progress(-1, "Fragment abgebrochen – erneuter Versuch ohne Parallelität …")
                 self._cleanup_staging()
                 parallel_msg = msg
@@ -616,6 +653,7 @@ class DownloadJob:
             if (
                 not success
                 and not self._cancelled
+                and not direct_first
                 and self.stream_type == "mp4"
                 and ".m3u8" not in self.stream_url.lower()
                 and self.failure_kind not in ("slow", "storage")
@@ -628,14 +666,20 @@ class DownloadJob:
             if success and self._cancelled:
                 success, msg = False, "Abgebrochen"
             if success:
-                # Staging -> Ziel verschieben
                 success, msg = self._finalize()
             if not success:
-                # Bei Download-, Prüf- oder Finalize-Fehlern Staging aufräumen.
                 self._cleanup_staging()
+            if self._cancelled and resume_store and not self._preserve_resume_on_cancel:
+                resume_store.discard()
+            if success and resume_store:
+                resume_store.discard()
             self.on_done(success, msg)
         except Exception as exc:
             self._cleanup_staging()
+            if self._cancelled and not self._preserve_resume_on_cancel:
+                store = self._http_resume_store()
+                if store:
+                    store.discard()
             self.on_done(False, str(exc))
 
     def _finalize(self) -> tuple:
@@ -1112,77 +1156,163 @@ class DownloadJob:
     # Direct download fallback (MP4 only)
     # ------------------------------------------------------------------
     def _download_direct(self) -> tuple:
+        """Stream an MP4, resuming only with an exact strong ETag/Range match."""
         from core import egress_curl as cr
+        response = None
         try:
             if self._cancelled:
                 return False, "Abgebrochen"
             self.failure_kind = ""
             self.average_speed_bps = 0.0
+            ensure_public_http_url(self.stream_url)
             headers = {
                 "User-Agent": BROWSER_USER_AGENT,
                 "Accept": "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
                 "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
+                "Accept-Encoding": "identity",
                 "Sec-Fetch-Dest": "video",
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Site": "cross-site",
             }
             if urlparse(self.stream_url).hostname and urlparse(self.stream_url).hostname.endswith(".vincdn.net"):
-                # The CDN checks the User-Agent against the TLS fingerprint.
-                # Let curl_cffi send its matching Chrome user agent.
                 headers.pop("User-Agent")
             if self.referer:
                 headers["Referer"] = self.referer
             if self.origin:
                 headers["Origin"] = self.origin
-            resp = cr.get(
-                self.stream_url,
-                stream=True,
-                headers=headers,
-                timeout=30,
-                allow_redirects=True,
-                impersonate="chrome136",
-                **request_proxy_kwargs(self.stream_url),
+            store = self._http_resume_store()
+            saved = store.load() if store else None
+            if saved is not None and saved.offset == saved.total:
+                # The transfer finished before the previous process exited.
+                # Existing _finalize() still verifies audio/video before publish.
+                prepared, detail = self._prepare_staging()
+                if not prepared:
+                    return False, f"Staging nicht nutzbar: {detail}"
+                store.commit_to_staging(saved.folder / "payload.part", self.staging_path)
+                store.discard()
+                self.downloaded_bytes = saved.total
+                self.total_bytes = saved.total
+                return True, "HTTP-Download aus vollständig gesichertem Stand wiederhergestellt"
+
+            request_headers = dict(headers)
+            if saved is not None:
+                request_headers["Range"] = f"bytes={saved.offset}-"
+                request_headers["If-Range"] = saved.etag
+            request_kwargs = dict(
+                stream=True, timeout=30, allow_redirects=True,
+                impersonate="chrome136", **request_proxy_kwargs(self.stream_url),
             )
-            resp.raise_for_status()
-            content_type = (resp.headers.get("Content-Type") or "").lower()
+            response = cr.get(self.stream_url, headers=request_headers, **request_kwargs)
+            status = int(getattr(response, "status_code", 200))
+            if saved is not None and (
+                status != 206
+                or not range_matches(response.headers, saved.offset, saved.total, saved.etag)
+            ):
+                # HTTP 200 means that the server ignored Range or changed its
+                # representation. Start clean; never append the returned body.
+                if status != 200:
+                    response.close()
+                    response = cr.get(self.stream_url, headers=headers, **request_kwargs)
+                    status = int(getattr(response, "status_code", 200))
+                store.discard()
+                saved = None
+            response.raise_for_status()
+            if saved is None and status != 200:
+                return False, "HTTP-Server lieferte keine vollständige Mediendatei"
+            # Encoded HTTP bodies have different byte offsets than the
+            # decoded media stream; never use them for checkpoint offsets.
+            content_encoding = str(response.headers.get("Content-Encoding", "")).strip().lower()
+            if content_encoding not in ("", "identity"):
+                return False, "Komprimierte HTTP-Antwort ist nicht fortsetzbar"
+            content_type = (response.headers.get("Content-Type") or "").lower()
             if any(bad in content_type for bad in ("text/", "html", "json", "xml")):
                 return False, f"Stream lieferte keinen Film ({content_type or 'unbekannter Content-Type'})"
-            total = int(resp.headers.get("Content-Length", 0))
+
+            if saved is not None:
+                total = saved.total
+                downloaded = saved.offset
+                output = saved.folder / "payload.part"
+                mode = "ab"
+            else:
+                length = response.headers.get("Content-Length", 0)
+                total = max(0, int(length or 0))
+                downloaded = 0
+                etag = strong_etag(response.headers.get("ETag", ""))
+                if store is not None and total and etag:
+                    output = store.prepare(total=total, etag=etag)
+                else:
+                    prepared, detail = self._prepare_staging()
+                    if not prepared:
+                        return False, f"Staging nicht nutzbar: {detail}"
+                    output = self.staging_path
+                mode = "wb"
+
             self.total_bytes = total or None
-            downloaded = 0
+            self.downloaded_bytes = downloaded
             started = time.monotonic()
             speed_watchdog = None if self.allow_slow else _ByteGrowthWatchdog(started_at=started)
-            prepared, detail = self._prepare_staging()
-            if not prepared:
-                return False, f"Staging nicht nutzbar: {detail}"
-            with open(self.staging_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=1024 * 256):
-                    if self._cancelled:
-                        return False, "Abgebrochen"
-                    storage_error = self._storage_budget_check()
-                    if storage_error:
-                        self.failure_kind = "storage"
-                        return False, storage_error
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    self.downloaded_bytes = downloaded
-                    now = time.monotonic()
-                    self.average_speed_bps = downloaded / max(now - started, 0.001)
-                    if speed_watchdog and speed_watchdog.observe(downloaded, now):
-                        self.failure_kind = "slow"
-                        return False, (
-                            f"{SLOW_FAILURE_PREFIX} "
-                            f"({self._format_speed(speed_watchdog.last_rate_bps)})"
-                        )
-                    if total > 0:
-                        pct = downloaded / total * 100
-                        self.eta_seconds = int(
-                            max(0, total - downloaded) / max(self.average_speed_bps, 1)
-                        )
-                        self.on_progress(pct, f"{downloaded // 1024 // 1024} MB")
-            if total > 0 and downloaded < total:
+            if speed_watchdog:
+                speed_watchdog.window_bytes = downloaded
+            if saved is not None and total:
+                self.on_progress(downloaded / total * 100, "HTTP-Download wird fortgesetzt …")
+            flags = os.O_WRONLY | (os.O_APPEND if mode == "ab" else os.O_TRUNC)
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(output, flags)
+            try:
+                if saved is not None and os.fstat(fd).st_size != saved.offset:
+                    raise OSError("HTTP resume payload changed during opening")
+                with os.fdopen(fd, "ab" if mode == "ab" else "wb") as file:
+                    fd = -1
+                    for chunk in response.iter_content(chunk_size=1024 * 256):
+                        if self._cancelled:
+                            file.flush()
+                            os.fsync(file.fileno())
+                            return False, "Abgebrochen"
+                        storage_error = self._storage_budget_check()
+                        if storage_error:
+                            self.failure_kind = "storage"
+                            return False, storage_error
+                        if not chunk:
+                            continue
+                        file.write(chunk)
+                        downloaded += len(chunk)
+                        if total and downloaded > total:
+                            return False, "Stream enthält mehr Bytes als angegeben"
+                        self.downloaded_bytes = downloaded
+                        now = time.monotonic()
+                        self.average_speed_bps = (downloaded - (saved.offset if saved else 0)) / max(now - started, 0.001)
+                        if speed_watchdog and speed_watchdog.observe(downloaded, now):
+                            self.failure_kind = "slow"
+                            return False, (
+                                f"{SLOW_FAILURE_PREFIX} "
+                                f"({self._format_speed(speed_watchdog.last_rate_bps)})"
+                            )
+                        if total > 0:
+                            self.eta_seconds = int(max(0, total - downloaded) / max(self.average_speed_bps, 1))
+                            self.on_progress(downloaded / total * 100, f"{downloaded // 1024 // 1024} MB")
+                    file.flush()
+                    os.fsync(file.fileno())
+            finally:
+                if fd != -1:
+                    os.close(fd)
+            if saved is not None:
+                # A 206 body must contain exactly the advertised range,
+                # independent of whether it happens to reach the file total.
+                range_end = int(
+                    str(response.headers["Content-Range"]).split("/")[0].rsplit("-", 1)[1]
+                )
+                if downloaded - saved.offset != range_end - saved.offset + 1:
+                    return False, "HTTP-Teildaten stimmen nicht mit Content-Range überein"
+            if total > 0 and downloaded != total:
                 return False, f"Stream endete vorzeitig ({downloaded}/{total} Bytes)"
-            return True, "Direct OK"
+            if store is not None and (saved is not None or output != self.staging_path):
+                prepared, detail = self._prepare_staging()
+                if not prepared:
+                    return False, f"Staging nicht nutzbar: {detail}"
+                store.commit_to_staging(output, self.staging_path)
+                store.discard()
+            return True, "Direct HTTP OK"
         except Exception as exc:
             detail = str(exc).casefold()
             if "timeout" in detail or "timed out" in detail:
@@ -1191,7 +1321,13 @@ class DownloadJob:
                 "connection", "httpsconnectionpool", "ssl", "name resolution", "resolve",
             )):
                 return False, "Stream-Verbindung konnte nicht aufgebaut werden"
+            logger.warning("Direct HTTP transfer failed: %s", type(exc).__name__)
             return False, "Direkter Stream-Download fehlgeschlagen"
+        finally:
+            if response is not None:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
 
 
 class DownloadQueue:
@@ -1322,14 +1458,17 @@ class DownloadQueue:
             )
             self._scheduler_thread.start()
 
-    def cancel_all(self):
+    def cancel_all(self, *, preserve_resume=False):
         with self._lock:
             self._running = False
             self._scheduler_generation += 1
             cancelled = []
             cancelled_jobs = []
             for jid, (job, thread, _t) in list(self._active.items()):
-                job.cancel()
+                if preserve_resume and isinstance(job, DownloadJob):
+                    job.cancel(preserve_resume=True)
+                else:
+                    job.cancel()
                 cancelled.append((jid, thread))
                 cancelled_jobs.append(job)
             self._jobs.clear()
