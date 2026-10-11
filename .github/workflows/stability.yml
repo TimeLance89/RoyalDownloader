@@ -1,0 +1,100 @@
+name: Stability integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stability.yml'
+      - 'scripts/stability/**'
+      - '**/*.py'
+      - 'requirements*.lock'
+      - 'Dockerfile*'
+      - 'docs/stability/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASELINE_SHA: ${{ github.event.pull_request.base.sha || 'eec71900ddc5298987842b8430115becc978aa02' }}
+      HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+      # Temporary integration checkout only. Never push, merge or deploy it.
+      # Immutable commits for PRs #502–#506 from the 2026-10-11 audit.
+      AUDIT_FIXES: >-
+        bed2225e63b492452b2304a3fdc2e180672c6a02
+        af9c5b4286336a45d87f3fb1ce47878c5270ce13
+        64631d91bcec52e26e776c7f0211af24281d853e
+        ebe943349cdbb3190c0214f76b3f222413904db7
+        5e58f19dda640ce512932e5e37d8615533b365be
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare frozen baseline and temporary integration checkout
+        shell: bash
+        run: |
+          mkdir -p _stability artifacts/stability-ci
+          git worktree add --detach _stability/baseline "$BASELINE_SHA"
+          git worktree add --detach _stability/candidate HEAD
+          if [[ "$HEAD_BRANCH" != audit/stability-harness-20261011 ]]; then
+            AUDIT_FIXES=""
+          fi
+          for sha in $AUDIT_FIXES; do
+            git cat-file -e "${sha}^{commit}" || git fetch origin "$sha"
+            if ! git merge-base --is-ancestor "$sha" HEAD; then
+              git -C _stability/candidate -c user.name='Stability CI' -c user.email='stability-ci@invalid.example' cherry-pick "$sha"
+            fi
+          done
+          git -C _stability/candidate rev-parse HEAD > artifacts/stability-ci/integration-sha.txt
+          git -C _stability/candidate diff "$BASELINE_SHA" --stat > artifacts/stability-ci/integration-diff.txt
+      - name: Build pinned, disposable Python test image
+        run: docker build -f scripts/stability/Dockerfile -t royal-stability:test .
+      - name: Run baseline and candidate with no external network
+        shell: bash
+        run: |
+          run_offline() {
+            timeout 1100s docker run --rm --network none --cap-drop ALL \
+              --security-opt no-new-privileges --pids-limit 256 --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+              -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+              royal-stability:test "$@"
+          }
+          set +e
+          run_offline scripts/stability/run_suite.py \
+            --root _stability/baseline --output artifacts/stability-ci/baseline-tests
+          baseline_exit=$?
+          set -e
+          echo "$baseline_exit" > artifacts/stability-ci/baseline-exit.txt
+          if [[ "$baseline_exit" != 0 && "$baseline_exit" != 1 ]]; then
+            echo 'Baseline infrastructure or timeout failure'
+            exit "$baseline_exit"
+          fi
+          run_offline scripts/stability/run_suite.py \
+            --root _stability/candidate --output artifacts/stability-ci/candidate-tests
+      - name: Measure paired queues and concurrent API requests
+        shell: bash
+        run: |
+          run_offline() {
+            timeout 600s docker run --rm --network none --cap-drop ALL \
+              --security-opt no-new-privileges --pids-limit 256 --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+              -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+              royal-stability:test "$@"
+          }
+          run_offline scripts/stability/benchmark.py --root _stability/baseline --repeats 3 --output artifacts/stability-ci/baseline-metrics.json
+          run_offline scripts/stability/benchmark.py --root _stability/candidate --repeats 3 --output artifacts/stability-ci/candidate-metrics.json
+          run_offline scripts/stability/response_benchmark.py --baseline "$GITHUB_WORKSPACE/_stability/baseline" --candidate "$GITHUB_WORKSPACE/_stability/candidate" --output artifacts/stability-ci/response-metrics.json
+          run_offline scripts/stability/budget.py artifacts/stability-ci/baseline-metrics.json artifacts/stability-ci/candidate-metrics.json --responses artifacts/stability-ci/response-metrics.json > artifacts/stability-ci/performance-budget.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: stability-integration-${{ github.run_id }}
+          path: artifacts/stability-ci/

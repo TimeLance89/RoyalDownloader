@@ -10,7 +10,7 @@ import server  # noqa: F401 - registers the composed service backend
 from application_services import download_lifecycle as lifecycle
 
 
-@pytest.mark.parametrize("fault", ["health_error", "bad_deadline"])
+@pytest.mark.parametrize("fault", ["health_error"])
 def test_provider_retry_worker_recovers_from_fault_without_spawning_another_worker(
     monkeypatch, fault,
 ):
@@ -57,6 +57,36 @@ def test_provider_retry_worker_recovers_from_fault_without_spawning_another_work
         assert state.provider_retry_worker_running is False
         if fault == "health_error":
             assert attempts == ["serienstream"]
+    finally:
+        with state.queue_claim_lock:
+            state.provider_waiting_jobs.clear()
+            state.provider_waiting_jobs.update(saved)
+            state.provider_retry_worker_running = previous_running
+
+
+def test_malformed_deadline_is_due_and_uses_normal_provider_policy(monkeypatch):
+    state = lifecycle.state
+    saved = dict(state.provider_waiting_jobs)
+    previous_running = state.provider_retry_worker_running
+    calls = []
+    try:
+        with state.queue_claim_lock:
+            state.provider_waiting_jobs.clear()
+            state.provider_waiting_jobs["fixture"] = {"slug": "fixture", "next_retry_at": "bad"}
+            state.provider_retry_worker_running = True
+        monkeypatch.setattr(state, "provider_health", SimpleNamespace(
+            status=lambda _provider: {"state": lifecycle.HEALTHY},
+        ))
+        def resume():
+            calls.append(True)
+            with state.queue_claim_lock:
+                state.provider_waiting_jobs.clear()
+        monkeypatch.setattr(lifecycle, "_resume_waiting_provider_jobs", resume)
+        monkeypatch.setattr(lifecycle, "_ensure_provider_retry_worker",
+                            lambda: pytest.fail("must not respawn"))
+        lifecycle._provider_retry_worker()
+        assert calls == [True]
+        assert state.provider_retry_worker_running is False
     finally:
         with state.queue_claim_lock:
             state.provider_waiting_jobs.clear()
