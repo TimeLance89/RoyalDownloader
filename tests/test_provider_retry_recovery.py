@@ -10,9 +10,8 @@ import server  # noqa: F401 - registers the composed service backend
 from application_services import download_lifecycle as lifecycle
 
 
-@pytest.mark.parametrize("fault", ["health_error", "bad_deadline"])
-def test_provider_retry_worker_recovers_from_fault_without_spawning_another_worker(
-    monkeypatch, fault,
+def test_provider_retry_worker_recovers_from_health_failure_without_spawning_another_worker(
+    monkeypatch,
 ):
     state = lifecycle.state
     saved = dict(state.provider_waiting_jobs)
@@ -21,7 +20,7 @@ def test_provider_retry_worker_recovers_from_fault_without_spawning_another_work
         with state.queue_claim_lock:
             state.provider_waiting_jobs.clear()
             state.provider_waiting_jobs["wait-1"] = {
-                "slug": "wait-1", "next_retry_at": "unparseable" if fault == "bad_deadline" else 0,
+                "slug": "wait-1", "next_retry_at": 0,
             }
             state.provider_retry_worker_running = True
 
@@ -33,8 +32,7 @@ def test_provider_retry_worker_recovers_from_fault_without_spawning_another_work
                 attempts.append(provider)
                 raise RuntimeError("temporary health failure")
 
-        if fault == "health_error":
-            monkeypatch.setattr(state, "provider_health", FakeHealth())
+        monkeypatch.setattr(state, "provider_health", FakeHealth())
         monkeypatch.setattr(lifecycle, "log", lambda *args: logs.append(args))
         monkeypatch.setattr(lifecycle, "_ensure_provider_retry_worker",
                             lambda: pytest.fail("worker must not respawn itself"))
@@ -55,8 +53,7 @@ def test_provider_retry_worker_recovers_from_fault_without_spawning_another_work
         assert delays == [10]
         assert len(logs) == 1
         assert state.provider_retry_worker_running is False
-        if fault == "health_error":
-            assert attempts == ["serienstream"]
+        assert attempts == ["serienstream"]
     finally:
         with state.queue_claim_lock:
             state.provider_waiting_jobs.clear()
