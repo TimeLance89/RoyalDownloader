@@ -113,7 +113,7 @@ def main() -> int:
         f"- Total: {report['seconds_total']} seconds\n"
         "\n| Module | Result | Seconds |\n|---|---|---:|\n"
         + "".join(
-            f"| \\u0060{r['file']}\\u0060 | {r['status']} | {r['seconds']:.2f} |\n"
+            f"| {r['file']} | {r['status']} | {r['seconds']:.2f} |\n"
             for r in records
         )
     )
