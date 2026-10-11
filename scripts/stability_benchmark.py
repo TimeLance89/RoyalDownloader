@@ -25,6 +25,7 @@ from pathlib import Path
 
 
 def _workloads():
+    import server  # noqa: F401 - install the actual optimized queue lifecycle
     from core.queue_jobs import (
         SCHEMA_VERSION, atomic_save, load_document, new_job, normalize_document,
     )
