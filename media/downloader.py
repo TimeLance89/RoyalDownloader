@@ -1425,9 +1425,11 @@ class DownloadQueue:
                 job for job, _thread, _started in self._active.values()
                 if predicate(job)
             ]
-            for job in matched:
-                job.cancel()
-            return matched
+        # cancel() may wait for a subprocess or invoke queue-aware callbacks.
+        # Keep that work outside the scheduler lock.
+        for job in matched:
+            job.cancel()
+        return matched
 
     def pending_count(self) -> int:
         with self._lock:
@@ -1456,22 +1458,40 @@ class DownloadQueue:
             self._scheduler_thread = threading.Thread(
                 target=self._scheduler, args=(generation,), daemon=True,
             )
-            self._scheduler_thread.start()
+            try:
+                self._scheduler_thread.start()
+            except Exception:
+                self._running = False
+                self._scheduler_thread = None
+                raise
+
+    def _start_pending_locked(self, index: int):
+        """Publish a worker only after thread creation actually succeeded."""
+        jid, job = self._jobs[index]
+        try:
+            thread = job.start()
+        except Exception as exc:
+            # Resource exhaustion must not lose the pending job or leave a
+            # dead scheduler marked running. A later start can retry it.
+            self._running = False
+            logger.error("Queue-Worker konnte nicht gestartet werden: %s", exc)
+            return None
+        self._jobs.pop(index)
+        self._active[jid] = (job, thread, time.monotonic())
+        return job
 
     def cancel_all(self, *, preserve_resume=False):
         with self._lock:
             self._running = False
             self._scheduler_generation += 1
-            cancelled = []
-            cancelled_jobs = []
-            for jid, (job, thread, _t) in list(self._active.items()):
-                if preserve_resume and isinstance(job, DownloadJob):
-                    job.cancel(preserve_resume=True)
-                else:
-                    job.cancel()
-                cancelled.append((jid, thread))
-                cancelled_jobs.append(job)
+            cancelled = [(jid, thread) for jid, (_job, thread, _t) in self._active.items()]
+            cancelled_jobs = [job for job, _thread, _t in self._active.values()]
             self._jobs.clear()
+        for job in cancelled_jobs:
+            if preserve_resume and isinstance(job, DownloadJob):
+                job.cancel(preserve_resume=True)
+            else:
+                job.cancel()
         if cancelled:
             threading.Thread(
                 target=self._reap_cancelled,
@@ -1552,9 +1572,8 @@ class DownloadQueue:
                     # gleicher Klasse kompatibel, Filme werden aber nicht von
                     # später vorbereiteten Serienfolgen wieder verdrängt.
                     _priority, index = min(candidates)
-                    jid, job = self._jobs.pop(index)
-                    thread = job.start()
-                    self._active[jid] = (job, thread, time.monotonic())
+                    if self._start_pending_locked(index) is None:
+                        break
 
             # 3. Nichts zu tun + Queue leer + Queue done → raus
             with self._lock:
