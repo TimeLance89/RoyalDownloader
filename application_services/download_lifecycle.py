@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import math
+
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,
@@ -644,9 +646,24 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
     return False
 
 
+def _waiting_retry_at(item: dict) -> float:
+    """Recover an invalid per-episode deadline without blocking all retries.
+
+    Waiting-job state may be reconstructed after a crash or be supplied by a
+    provider callback. A single malformed/non-finite deadline must not poison
+    the shared retry worker. Use an already-due value so the ordinary provider
+    cooldown and source retry logic can calculate a fresh valid deadline.
+    """
+    try:
+        deadline = float(item.get("next_retry_at", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return deadline if math.isfinite(deadline) and deadline >= 0 else 0.0
+
+
 def _waiting_retry_due(item: dict, now: float | None = None) -> bool:
     now = time.time() if now is None else now
-    return now >= float(item.get("next_retry_at", 0) or 0)
+    return now >= _waiting_retry_at(item)
 
 
 def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
@@ -785,7 +802,7 @@ def _provider_retry_worker() -> None:
                 now = time.time()
                 due = [item for item in waiting if _waiting_retry_due(item, now)]
                 next_due = min(
-                    (float(item.get("next_retry_at", 0) or 0) for item in waiting),
+                    (_waiting_retry_at(item) for item in waiting),
                     default=now,
                 )
                 due_delay = max(0.0, next_due - now)
