@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+from itertools import islice
 import json
 import os
 import re
@@ -228,11 +229,12 @@ def cleanup_expired_http_resumes(staging_roots, *, preview=False, max_items=100)
     removed = 0
     limit = max(1, min(1000, int(max_items)))
     for staging_root in staging_roots:
-        base = Path(staging_root) / ".http-resume"
-        if base.is_symlink() or not base.is_dir():
+        root = Path(staging_root)
+        base = root / ".http-resume"
+        if root.is_symlink() or base.is_symlink() or not base.is_dir():
             continue
         try:
-            children = list(base.iterdir())[:limit]
+            children = list(islice(base.iterdir(), limit))
         except OSError:
             continue
         for folder in children:
