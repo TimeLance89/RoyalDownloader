@@ -611,6 +611,10 @@ class DownloadJob:
     def _run(self):
         try:
             if self._cancelled:
+                if not self._preserve_resume_on_cancel:
+                    store = self._http_resume_store()
+                    if store:
+                        store.discard()
                 self.on_done(False, "Abgebrochen")
                 return
             self.on_start()
