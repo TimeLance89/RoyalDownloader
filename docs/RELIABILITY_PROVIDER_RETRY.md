@@ -20,3 +20,18 @@ and malformed waiting-job deadlines without contacting any provider.
 
 An independent NAS test is still required to establish long-running
 behavior under genuine network and storage faults.
+
+## Poison-pill deadline isolation (follow-up)
+
+The shared retry scheduler now safely interprets each waiting episode's
+`next_retry_at` independently. A malformed value, negative timestamp, NaN
+or infinity is treated as already due instead of throwing and repeatedly
+aborting a scan of every queued episode.
+
+The existing provider availability checks, cooldown gate, fallback throttling
+and source backoff remain authoritative: interpreting a bad deadline as due
+does not bypass those gates. A normal retry writes a fresh deadline using
+the existing logic. Valid future deadlines remain unchanged.
+
+Regression coverage: `tests/test_provider_retry_deadline_isolation.py`.
+The tests do not perform network traffic or touch the user's NAS data.
