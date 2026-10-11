@@ -160,6 +160,9 @@ class HTTPResumeStore:
             try:
                 if not self._trusted(folder):
                     raise OSError("Unsafe symlink in HTTP resume path")
+                # Never take ownership of a pre-existing unmarked directory.
+                if folder.exists() and not self._owned(folder):
+                    raise OSError("Unowned HTTP resume directory")
                 folder.parent.mkdir(parents=True, exist_ok=True)
                 folder.mkdir(mode=0o700, exist_ok=True)
                 if not self._trusted(folder):
@@ -216,3 +219,59 @@ class HTTPResumeStore:
                 dst.flush()
                 os.fsync(dst.fileno())
             source.unlink()
+
+
+def cleanup_expired_http_resumes(staging_roots, *, preview=False, max_items=100):
+    """Bounded, ownership-checked janitor for week-old abandoned checkpoints."""
+    results = []
+    removed = 0
+    limit = max(1, min(1000, int(max_items)))
+    for staging_root in staging_roots:
+        base = Path(staging_root) / ".http-resume"
+        if base.is_symlink() or not base.is_dir():
+            continue
+        try:
+            children = list(base.iterdir())[:limit]
+        except OSError:
+            continue
+        for folder in children:
+            if (
+                folder.is_symlink() or not folder.is_dir()
+                or not re.fullmatch(r"[0-9a-f]{32}", folder.name)
+            ):
+                continue
+            marker = folder / ".royal-http-resume"
+            part = folder / "payload.part"
+            meta = folder / "checkpoint.json"
+            try:
+                if (
+                    not all(_regular_file(item) for item in (marker, part, meta))
+                    or marker.stat().st_size > 64
+                    or marker.read_text(encoding="ascii") != folder.name
+                    or set(x.name for x in folder.iterdir()) != {
+                        marker.name, part.name, meta.name,
+                    }
+                    or part.stat().st_mtime > time.time() - _MAX_AGE_SECONDS
+                ):
+                    continue
+                if preview:
+                    results.append({
+                        "path": str(folder),
+                        "category": "royal_http_resume",
+                        "size_bytes": part.stat().st_size,
+                        "modified_at": part.stat().st_mtime,
+                    })
+                    continue
+                part.unlink()
+                meta.unlink()
+                marker.unlink()
+                folder.rmdir()
+                removed += 1
+            except (OSError, UnicodeError):
+                continue
+        if not preview:
+            try:
+                base.rmdir()
+            except OSError:
+                pass
+    return results if preview else removed
