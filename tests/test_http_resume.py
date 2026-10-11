@@ -97,6 +97,7 @@ def test_direct_mp4_resumes_after_new_attempt_without_redownloading_prefix(monke
     assert not success and "vorzeitig" in msg
     saved = first._http_resume_store().load()
     assert saved and saved.offset == 400 and saved.total == 1024
+    monkeypatch.setattr(curl, "get", original_get)
 
     second = make_job(tmp_path, "attempt-two")
     success, msg = second._download_direct()
@@ -175,5 +176,8 @@ def test_symlinked_checkpoint_is_rejected(tmp_path):
     part.unlink()
     part.symlink_to(tmp_path / "outside.mp4")
     assert store.load() is None
-    with pytest.raises(OSError):
-        store.prepare(total=1024, etag='"v1"')
+    # A symlink must never be dereferenced, even if another safe staging
+    # location remains available as a fallback.
+    store.prepare(total=1024, etag='"v1"')
+    assert part.is_symlink()
+    assert not (tmp_path / "outside.mp4").exists()
