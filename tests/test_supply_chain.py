@@ -32,6 +32,7 @@ def test_runtime_dependencies_and_images_are_exactly_pinned():
     for registry in ("public.ecr.aws/docker/library", "mirror.gcr.io/library", "docker.io/library"):
         assert f'"{registry}/python:3.12.13-slim-bookworm@${{digest}}"' in workflow
     assert 'local_tag="python:3.12.13-slim-bookworm"' in workflow
+    assert 'docker pull --platform linux/amd64 "${image}"' in workflow
     assert 'docker tag "${image}" "${local_tag}"' in workflow
     assert 'timeout 75s docker pull --platform linux/amd64 "${image}"' in workflow
     assert "pip install --no-cache-dir -r requirements.lock" in dockerfile

@@ -18,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+import tracemalloc
 
 
 def timed(function, repeat=7):
@@ -67,6 +68,19 @@ def measure(root, size):
     result['durable_signature'] = timed(controller._current_durable_signature)
     result['snapshot'] = timed(server._queue_state_snapshot)
     snapshot = server._queue_state_snapshot()
+    # Keep the useful #500 history workload, at the canonical three sizes.
+    history = []
+    for i in range(500):
+        entry = queue_jobs.new_job(f'fixture:history-{i}', job_id=f'history-{i}')
+        entry.update(status='completed', completed_at=float(i + 1))
+        history.append(entry)
+    with_history = dict(snapshot, history=history)
+    def normalize_history():
+        normalized, _ = queue_jobs.normalize_document(with_history)
+        assert len(normalized['jobs']) == size
+        assert len(normalized['history']) == 500
+        return normalized
+    result['normalize_with_history'] = timed(normalize_history, repeat=3)
     path = Path(scratch.name) / 'benchmark-queue.json'
     result['atomic_persist'] = timed(lambda: queue_jobs.atomic_save(path, snapshot), repeat=3)
     result['recovery'] = timed(lambda: queue_jobs.load_document(path), repeat=3)
@@ -150,6 +164,14 @@ def measure(root, size):
     result['elapsed_seconds'] = time.perf_counter() - started
     result['cpu_percent_one_core'] = 100 * result['cpu_seconds'] / result['elapsed_seconds']
     result['peak_rss_mib'] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    # Allocation tracing is a separate memory probe. It must not contaminate
+    # production wall/CPU timings as it did in the old Stability Lab budget.
+    tracemalloc.start()
+    try:
+        normalize_history()
+        result['python_allocated_peak_mib'] = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
+    finally:
+        tracemalloc.stop()
     result['completed_synthetic_operations'] = size
     # This is metadata processing, not measured media-download bandwidth.
     scratch.cleanup()

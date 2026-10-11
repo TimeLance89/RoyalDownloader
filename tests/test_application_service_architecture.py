@@ -6,6 +6,8 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
+import server  # noqa: F401 - register the service composition root for isolated testing
+
 from application_services.auth import (
     AuthRuntimeDependencies,
     configure_auth_dependencies,

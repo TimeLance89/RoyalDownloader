@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
+import server  # noqa: F401 - initialize TMDB provider adapter dependencies
 from application_services.provider_monitor import ProviderMonitor
 from application_services.provider_probe import ProviderProbe, diagnose, identity
 from application_services.provider_repair import ProviderRepair, validate_profile

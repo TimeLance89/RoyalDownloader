@@ -42,6 +42,10 @@ socket.getaddrinfo = fixture_dns
 
 
 def pytest_configure(config):
+    global _configured
+    if globals().get('_configured', False):
+        return
+    _configured = True
     for key in list(os.environ):
         if "proxy" in key.lower():
             os.environ.pop(key, None)
