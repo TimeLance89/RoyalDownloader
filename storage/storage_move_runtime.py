@@ -28,6 +28,7 @@ from storage.storage_move import (
     _measure_move_source,
     _move_source_key,
     plan_move_candidate,
+    read_move_journal,
 )
 
 SCHEMA_VERSION = 2
@@ -65,6 +66,7 @@ def _persisted(job: dict) -> dict:
 
 
 def _save_locked() -> None:
+    read_move_journal(JOB_PATH)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "jobs": [_persisted(job) for job in _ACTIVE.values()],
@@ -596,6 +598,7 @@ def create_move_job(
     autopilot_id: str = "",
     minimum_reserve_bytes: int = 0,
 ) -> dict:
+    read_move_journal(JOB_PATH)
     if not 0 <= minimum_reserve_bytes <= 4096 * 1024 ** 3:
         raise ValueError("Ungültige Speicherreserve.")
     plan = plan_move_candidate(
@@ -786,7 +789,7 @@ def _adopt_legacy_restart(item: dict) -> dict | None:
 
 def _recover() -> None:
     try:
-        raw = json.loads(JOB_PATH.read_text(encoding="utf-8"))
+        raw = read_move_journal(JOB_PATH)
     except (OSError, ValueError, TypeError):
         return
     if not isinstance(raw, dict):
