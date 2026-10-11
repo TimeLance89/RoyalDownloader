@@ -16,9 +16,10 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
     } catch { res.writeHead(404).end(); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const browser = await playwright[engine].launch({ headless: true });
-  const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 3 : 1 });
+  let browser;
   try {
+  browser = await playwright[engine].launch({ headless: true });
+  const context = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 3 : 1 });
   const page = await context.newPage();
   if (process.env.ROYAL_SCROLLEND_FALLBACK === '1') await page.addInitScript(() => {
     window.addEventListener('scrollend', event => event.stopImmediatePropagation(), true);
@@ -95,9 +96,11 @@ async function fixture({ viewport = { width: 1440, height: 1000 }, mobile = fals
       return performance.now() - start;
     };
   });
-  return { browser, page, cdp, errors, async close() { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
+  return { browser, page, cdp, errors, async close() { try { await browser.close(); } finally { await new Promise(resolve => server.close(resolve)); } } };
   } catch (error) {
-    await browser.close(); await new Promise(resolve => server.close(resolve)); throw error;
+    await browser?.close().catch(() => {});
+    await new Promise(resolve => server.close(resolve));
+    throw error;
   }
 }
 

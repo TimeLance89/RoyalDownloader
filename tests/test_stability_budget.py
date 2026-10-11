@@ -68,3 +68,25 @@ def test_real_budget_regressions_are_red(kind):
         else:
             row['thread_count_after'] = 2
     assert not budget.compare(valid(), candidate)['passed']
+
+
+def responses():
+    row = {'queue_ms': [1, 1, 1], 'health_ms': [1, 1, 1],
+           'queue_median_ms': 1, 'health_median_ms': 1,
+           'burst_health_ms': [1] * 12, 'burst_wall_ms': [1] * 3,
+           'burst_health_median_ms': 1, 'burst_wall_median_ms': 1,
+           'burst_concurrency': 8, 'cpu_seconds': 1, 'peak_rss_mib': 100}
+    return {label: [dict(copy.deepcopy(row), size=size) for size in budget.SIZES]
+            for label in ('baseline', 'candidate')}
+
+
+@pytest.mark.parametrize('kind', ['health', 'throughput'])
+def test_concurrent_burst_regression_is_red(kind):
+    data = responses()
+    key = 'burst_health_median_ms' if kind == 'health' else 'burst_wall_median_ms'
+    data['candidate'][0][key] = 100
+    assert not budget.compare(valid(), valid(), data)['passed']
+
+
+def test_identical_concurrent_workload_passes():
+    assert budget.compare(valid(), valid(), responses())['passed']

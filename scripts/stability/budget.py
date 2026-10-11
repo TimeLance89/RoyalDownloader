@@ -74,7 +74,11 @@ def compare(baseline, candidate, responses=None):
                 raise ValueError('Missing or duplicated response sizes')
             for r in rows:
                 number(r['queue_median_ms']); number(r['health_median_ms'])
-                for key in ('queue_ms', 'health_ms'):
+                for key in ('burst_health_median_ms', 'burst_wall_median_ms', 'cpu_seconds', 'peak_rss_mib'):
+                    number(r[key])
+                if r['burst_concurrency'] != 8:
+                    raise ValueError('Changed concurrent request workload')
+                for key in ('queue_ms', 'health_ms', 'burst_health_ms', 'burst_wall_ms'):
                     if len(r[key]) < 3:
                         raise ValueError('Insufficient response samples')
                     for sample in r[key]:
@@ -84,6 +88,10 @@ def compare(baseline, candidate, responses=None):
             b = bases[c['size']]
             if c['queue_median_ms'] > b['queue_median_ms'] * 1.25 + 5:
                 failures.append(f"{c['size']}: queue response regression")
+            if c['burst_health_median_ms'] > 30:
+                failures.append(f"{c['size']}: concurrent burst health stalled")
+            if c['burst_wall_median_ms'] > b['burst_wall_median_ms'] * 1.25 + 10:
+                failures.append(f"{c['size']}: concurrent burst throughput regression")
             if c['health_median_ms'] > 30:
                 failures.append(f"{c['size']}: concurrent health stalled")
     return {'passed': not failures, 'failures': failures, 'comparisons': comparisons}

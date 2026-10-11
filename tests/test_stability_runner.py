@@ -20,13 +20,23 @@ def stopped(pid):
         return True
 
 
+def owned_descendant_script(pidfile, parent_wait):
+    # /proc can expose host PIDs while Python sees nested namespace PIDs.
+    child = ("import time; from pathlib import Path; "
+             "pid=next(line.split()[1] for line in Path('/proc/self/status').read_text().splitlines() if line.startswith('Pid:')); "
+             f"Path({str(pidfile)!r}).write_text(pid); time.sleep(20)")
+    return ("import subprocess,sys,time; from pathlib import Path; "
+            f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
+            f"path=Path({str(pidfile)!r}); "
+            "deadline=time.monotonic()+2; "
+            "exec('while not path.exists() and time.monotonic()<deadline: time.sleep(.01)'); "
+            "assert path.exists(); " + ("time.sleep(20)" if parent_wait else ""))
+
+
 def test_deadline_kills_owned_descendants_and_records_failure(tmp_path):
     pidfile = tmp_path / 'descendant.pid'
-    code = ("import subprocess,sys,time; from pathlib import Path; "
-            "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(20)']); "
-            f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(20)")
-    result = runner.run_process([sys.executable, '-c', code], tmp_path,
-                                dict(os.environ), tmp_path / 'timeout.log', 1)
+    result = runner.run_process([sys.executable, '-c', owned_descendant_script(pidfile, True)],
+                                tmp_path, dict(os.environ), tmp_path / 'timeout.log', 1)
     assert result['exit_code'] == 124 and result['timeout']
     pid = int(pidfile.read_text())
     for _ in range(30):
@@ -38,11 +48,8 @@ def test_deadline_kills_owned_descendants_and_records_failure(tmp_path):
 
 def test_normal_parent_exit_also_cleans_owned_descendants(tmp_path):
     pidfile = tmp_path / 'descendant.pid'
-    code = ("import subprocess,sys; from pathlib import Path; "
-            "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(20)']); "
-            f"Path({str(pidfile)!r}).write_text(str(p.pid))")
-    result = runner.run_process([sys.executable, '-c', code], tmp_path,
-                                dict(os.environ), tmp_path / 'clean.log', 3)
+    result = runner.run_process([sys.executable, '-c', owned_descendant_script(pidfile, False)],
+                                tmp_path, dict(os.environ), tmp_path / 'clean.log', 3)
     assert result['exit_code'] == 0
     pid = int(pidfile.read_text())
     for _ in range(30):
