@@ -2,6 +2,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import server  # noqa: F401 - bind the service backend in isolated runs
+
 from application_services import movie_subscription_quality as quality_policy
 from providers.filmpalast import FilmpalastScraper
 

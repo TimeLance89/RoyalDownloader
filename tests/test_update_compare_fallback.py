@@ -1,4 +1,5 @@
 import requests
+import server  # noqa: F401 - install the production security/quality gate
 
 import updates.update_checker as update_checker
 from updates.update_checker import UpdateChecker

@@ -4,6 +4,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+import server  # noqa: F401 - initialize service and API composition explicitly
+
 from api import api_discovery_router
 from application_services import movie_catalog
 from features.monster_series_extension import (
