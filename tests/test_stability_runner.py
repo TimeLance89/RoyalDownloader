@@ -16,7 +16,7 @@ spec.loader.exec_module(runner)
 def stopped(pid):
     try:
         return Path(f'/proc/{pid}/stat').read_text().split()[2] == 'Z'
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
 
 
@@ -123,3 +123,17 @@ def test_owned_process_rss_is_measured_across_pid_namespace(tmp_path):
     if Path('/proc/self/status').exists():
         assert result['sampled_pytest_max_rss_mib'] > 8
         assert result['sampled_pytest_peak_threads'] >= 1
+
+
+def test_procfs_reaping_race_is_absent_but_permissions_are_not(monkeypatch):
+    import errno
+    def vanished(_path, **_kwargs):
+        raise ProcessLookupError(errno.ESRCH, 'reaped between open and read')
+    monkeypatch.setattr(Path, 'read_text', vanished)
+    assert stopped(12345)
+    def denied(_path, **_kwargs):
+        raise PermissionError(errno.EACCES, 'cannot inspect a live child')
+    monkeypatch.setattr(Path, 'read_text', denied)
+    import pytest
+    with pytest.raises(PermissionError):
+        stopped(12345)
