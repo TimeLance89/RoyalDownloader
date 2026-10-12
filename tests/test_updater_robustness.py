@@ -180,7 +180,7 @@ def test_pending_quality_cache_recovers_without_waiting_ten_minutes(monkeypatch,
                                     "conclusion": "success"}]}
         if "compare/" in path:
             return {"status": "ahead", "ahead_by": 1}
-        return {"sha": "b" * 40, "commit": {"message": "build", "verification": {"verified": True}}}
+        return {"sha": "b" * 40, "commit": {"message": "build", "verification": {"verified": True, "reason": "valid"}}}
 
     monkeypatch.setattr(checker, "_get_json", get_json)
     assert checker.check()["update_available"] is False

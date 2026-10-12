@@ -554,9 +554,23 @@ def _install_update_checker_hardening(update_checker_module) -> None:
             commit_payload = self._get_json(
                 f"commits/{update_checker_module.quote(latest_sha, safe='')}",
             )
+            # The signer metadata must belong to the exact immutable revision
+            # that was offered. Never trust a branch name or a different SHA.
+            response_sha = str(commit_payload.get("sha") or "").strip()
+            exact_commit = (
+                re.fullmatch(r"[0-9a-fA-F]{40}", latest_sha) is not None
+                and response_sha.casefold() == latest_sha.casefold()
+            )
             verification = ((commit_payload.get("commit") or {}).get("verification") or {})
-            verified = bool(verification.get("verified"))
-            reason = str(verification.get("reason") or ("valid" if verified else "unverified"))
+            reason = (
+                str(verification.get("reason") or "unverified")
+                if exact_commit else "revision_mismatch"
+            )
+            verified = bool(
+                exact_commit
+                and verification.get("verified") is True
+                and reason == "valid"
+            )
         except Exception as exc:  # fail closed on trust metadata errors
             reason = f"verification_error:{type(exc).__name__}"
             if isinstance(exc, (update_checker_module.requests.RequestException,
