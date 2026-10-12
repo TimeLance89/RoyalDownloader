@@ -65,7 +65,7 @@ def test_temporary_failure_cache_expires_quickly_and_recovers(checker, monkeypat
             raise requests.Timeout()
         if "check-runs" in path:
             return {"check_runs": [{"name": "verify", "status": "completed", "conclusion": "success"}]}
-        return {"sha": "a" * 40, "commit": {"message": "build", "verification": {"verified": True}}}
+        return {"sha": "a" * 40, "commit": {"message": "build", "verification": {"verified": True, "reason": "valid"}}}
 
     monkeypatch.setattr(checker, "_get_json", get)
     assert checker.check()["error_code"] == "check_timeout"
@@ -135,7 +135,7 @@ def test_signature_timeout_never_approves_update_and_can_recover(checker, monkey
             return {"status": "ahead", "ahead_by": 1}
         if fail[0]:
             raise requests.Timeout()
-        return {"commit": {"verification": {"verified": True}}}
+        return {"sha": "b" * 40, "commit": {"verification": {"verified": True, "reason": "valid"}}}
 
     monkeypatch.setattr(checker, "_get_json", get)
     result = checker.check(force=True)
