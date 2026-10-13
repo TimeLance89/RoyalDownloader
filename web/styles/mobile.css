@@ -7,23 +7,35 @@
   }
 
   .topbar {
+    display: grid;
+    /* Search, queue and avatar get independent tracks on narrow screens. */
+    grid-template-columns: minmax(0, 1fr) 44px minmax(44px, max-content) 44px;
+    align-items: center;
     min-height: var(--mobile-header);
     padding: env(safe-area-inset-top, 0px) 12px 0;
     gap: 8px;
   }
-  .topbar .brand { flex-basis: 132px; width: 132px; }
-  /* The closed and opened search share one absolute anchor, so both
-     width transitions animate without jumping across header controls. */
-  .topbar .global-search-shell { right: 64px; flex-basis: 44px; width: 44px; height: 44px; }
+  .topbar .brand { grid-column: 1; min-width: 0; max-width: 100%; width: 132px; }
+  .topbar .global-search-shell {
+    grid-column: 2;
+    position: relative;
+    right: auto;
+    justify-self: end;
+    width: 44px;
+    height: 44px;
+  }
   .topbar .global-search-toggle { flex-basis: 42px; width: 42px; height: 42px; }
   .topbar .global-search-shell:is(.is-expanded, .has-value) {
-    width: calc(100% - 80px);
+    position: relative;
+    right: auto;
+    width: min(calc(100vw - 128px), 330px);
     min-width: 0;
     background: #101216;
   }
   .topbar .global-search-shell input { height: 42px; font-size: 16px; }
   .topbar .global-search-clear { width: 44px; height: 42px; }
-  .topbar #mobile-queue-btn { min-width: 44px; min-height: 44px; padding: 0 8px; }
+  .topbar #mobile-queue-btn { grid-column: 3; justify-self: center; min-width: 44px; min-height: 44px; padding: 0 8px; }
+  .topbar .user-menu { grid-column: 4; justify-self: center; }
   .topbar .user-menu-trigger { min-width: 44px; min-height: 44px; justify-content: center; }
   .user-menu-dropdown { max-width: calc(100vw - 24px); max-height: calc(100dvh - var(--mobile-header) - var(--mobile-footer) - 16px); overflow-y: auto; }
 

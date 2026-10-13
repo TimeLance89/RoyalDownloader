@@ -374,13 +374,13 @@
   .topbar::after, .topbar .brand::after { display: none; }
   .topbar .brand { flex: 0 0 145px; width: 145px; height: 50px; margin-right: auto; }
   .topbar > .tabs, .topbar .bell-wrap, .topbar #settings-btn { display: none; }
-  /* The icon stays absolutely positioned both before and after expansion.
-     Switching between flex and absolute layout breaks the closing animation. */
+  /* Its own mobile grid track separates search from queue/avatar.
+     The expanded input grows left, keeping the same right edge. */
   .topbar .global-search-shell {
-    position: absolute;
-    right: 57px;
+    position: relative;
+    right: auto;
     z-index: 5;
-    flex: 0 0 42px;
+    justify-self: end;
     width: 42px;
     height: 42px;
     overflow: hidden;
@@ -389,7 +389,7 @@
   .topbar .global-search-shell::before, .topbar .global-search-shell::after { display: none; }
   .topbar .global-search-toggle { flex-basis: 40px; width: 40px; height: 40px; }
   .topbar .global-search-shell input { width: 0; padding: 0; opacity: 0; }
-  .topbar .global-search-shell:is(.is-expanded, .has-value) { width: min(68vw, 330px); }
+  .topbar .global-search-shell:is(.is-expanded, .has-value) { position: relative; right: auto; width: min(68vw, 330px); }
   .topbar .global-search-shell:is(.is-expanded, .has-value) input { width: 100%; padding: 0 12px; opacity: 1; }
   .topbar .user-menu { padding-right: 0; }
   .topbar .user-menu::after { display: none; }
