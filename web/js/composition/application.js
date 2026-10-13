@@ -1,3 +1,4 @@
+import { queueArtwork } from "../features/downloads/presentation.js";
 import { createQueueView } from "../features/downloads/view.js";
 import { createApplication } from "../app.js";
 import { createSettingsNavigation } from "../features/settings/navigation.js";
@@ -7,6 +8,11 @@ import { createHomeLifecycle } from "../features/home/index.js";
 export function mountApplication({ state, downloadsDomain, coreDomain, discoveryDomain, profileDomain, searchDomain, integrationsDomain, subscriptionsDomain, homeDomain, settingsDomain }) {
 
   const queueView = createQueueView(document.getElementById("queue-dock"), {
+    getArtwork: item => queueArtwork(item, {
+      movieState: discoveryDomain.movieState, seriesState: discoveryDomain.seriesState,
+      homeMovie: slug => homeDomain.actions.homeMovieBySlug(slug),
+      homeSeries: slug => homeDomain.actions.homeSeriesBySlug(slug),
+    }, window.location.origin),
     state, invalidate: () => downloadsDomain.queueSync.invalidate(),
     showPersistenceWarning: (...args) => coreDomain.actions.showPersistenceWarning(...args), renderSerienstreamHealth: (...args) => coreDomain.actions.renderSerienstreamHealth(...args),
     syncSeriesQueueFlags: (...args) => discoveryDomain.seriesActions.syncSeriesQueueFlags(...args), syncAnimeQueueFlags: (...args) => discoveryDomain.animeActions.syncAnimeQueueFlags(...args), syncAniworldQueueFlags: (...args) => discoveryDomain.aniworldActions.syncAniworldQueueFlags(...args),

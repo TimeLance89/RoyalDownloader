@@ -298,6 +298,8 @@ export function createShellActions({
 
   function openMobileQueue() {
     document.body.classList.add("queue-open");
+    const dock = document.getElementById("queue-dock");
+    dock.setAttribute("role", "dialog"); dock.setAttribute("aria-modal", "true");
     document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "false");
     document.getElementById("queue-drawer").setAttribute("aria-hidden", "false");
     document.getElementById("queue-drawer").inert = false;
@@ -305,7 +307,11 @@ export function createShellActions({
   }
 
   function closeMobileQueue() {
+    const wasOpen = document.body.classList.contains("queue-open");
     document.body.classList.remove("queue-open");
+    const dock = document.getElementById("queue-dock");
+    dock.removeAttribute("role"); dock.removeAttribute("aria-modal");
+    if (wasOpen) document.getElementById("mobile-queue-btn").focus();
     document.getElementById("mobile-queue-backdrop").setAttribute("aria-hidden", "true");
     if (window.matchMedia("(max-width: 820px)").matches) {
       document.getElementById("queue-drawer").setAttribute("aria-hidden", "true");
@@ -320,12 +326,17 @@ export function createShellActions({
     state.download.percent = safePercent;
     const stage = document.getElementById("download-stage");
     stage.dataset.state = kind;
+    const knownProgress = percent !== null && percent !== undefined && percent !== ""
+      && Number.isFinite(Number(percent)) && Number(percent) >= 0;
+    stage.dataset.progress = knownProgress ? "known" : "unknown";
     document.getElementById("dl-state-icon").textContent = kind === "done" ? "✓" : kind === "active" ? "↓" : kind === "error" ? "!" : kind === "cancelled" ? "×" : "↓";
     document.getElementById("dl-state-title").textContent = title;
     document.getElementById("dl-status").textContent = detail;
     document.getElementById("dl-percent").textContent = `${Math.round(safePercent)}%`;
     document.getElementById("progress-fill").style.width = `${safePercent}%`;
-    stage.querySelector(".progress-bar").setAttribute("aria-valuenow", String(Math.round(safePercent)));
+    const progressBar = stage.querySelector(".progress-bar");
+    if (knownProgress) progressBar.setAttribute("aria-valuenow", String(Math.round(safePercent)));
+    else progressBar.removeAttribute("aria-valuenow");
     document.getElementById("mobile-queue-btn").classList.toggle("downloading", state.download.active);
     document.getElementById("cancel-btn").disabled = !state.download.active;
   }

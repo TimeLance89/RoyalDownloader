@@ -78,3 +78,37 @@ def test_mobile_queue_remains_a_safe_area_aware_sheet():
     assert "body.queue-open #queue-dock .queue-panel" in CSS
     assert "border-radius: 22px 22px 0 0" in CSS
     assert "env(safe-area-inset-bottom)" in CSS
+
+
+def test_mobile_center_wallpaper_is_decorative_and_separate_from_controls():
+    from html.parser import HTMLParser
+
+    class DockParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.ids = []
+            self.artwork_images = 0
+            self.in_artwork = False
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if attributes.get("id"):
+                self.ids.append(attributes["id"])
+            if attributes.get("class") == "queue-wallpaper":
+                assert attributes.get("aria-hidden") == "true"
+                self.in_artwork = True
+            if self.in_artwork and tag == "img":
+                assert attributes.get("alt") == ""
+                assert "src" not in attributes
+                self.artwork_images += 1
+
+        def handle_endtag(self, tag):
+            if self.in_artwork and tag == "div":
+                self.in_artwork = False
+
+    parser = DockParser()
+    parser.feed(HTML)
+    assert len(parser.ids) == len(set(parser.ids))
+    assert parser.artwork_images == 2
+    assert "queue-summary" in parser.ids
+    assert "download-current" in parser.ids
