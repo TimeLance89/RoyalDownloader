@@ -12,10 +12,11 @@
     gap: 8px;
   }
   .topbar .brand { flex-basis: 132px; width: 132px; }
-  .topbar .global-search-shell { flex-basis: 44px; width: 44px; height: 44px; }
+  /* The closed and opened search share one absolute anchor, so both
+     width transitions animate without jumping across header controls. */
+  .topbar .global-search-shell { right: 64px; flex-basis: 44px; width: 44px; height: 44px; }
   .topbar .global-search-toggle { flex-basis: 42px; width: 42px; height: 42px; }
-  .topbar .global-search-shell:is(.is-expanded, .has-value, :focus-within) {
-    right: 64px;
+  .topbar .global-search-shell:is(.is-expanded, .has-value) {
     width: calc(100% - 80px);
     min-width: 0;
     background: #101216;

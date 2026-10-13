@@ -1029,12 +1029,27 @@ test("recommendation refinement retains its timer across identical refreshes and
 
 test("global search keeps progressive results, cancels superseded requests and preserves detail context", async () => {
   const nodes = new Map();
-  const makeNode = () => Object.assign(new EventTarget(), {
-    value: "", children: [], hidden: false, dataset: {}, textContent: "", classList: { toggle() {}, add() {}, remove() {} },
-    setAttribute() {}, focus() {}, contains() { return false; }, querySelectorAll: () => [],
-    appendChild(node) { this.children.push(node); }, replaceChildren(...nodes) { this.children = nodes; },
-    querySelector(id) { if (!nodes.has(id)) nodes.set(id, makeNode()); return nodes.get(id); },
-  });
+  const makeNode = () => {
+    // Model DOMTokenList state: the search's expanded/closed behavior is
+    // intentional, so a no-op classList must not mask regressions.
+    const tokens = new Set();
+    return Object.assign(new EventTarget(), {
+      value: "", children: [], hidden: false, dataset: {}, textContent: "",
+      classList: {
+        contains(token) { return tokens.has(token); },
+        add(...values) { values.forEach(value => tokens.add(value)); },
+        remove(...values) { values.forEach(value => tokens.delete(value)); },
+        toggle(token, force) {
+          const enabled = force === undefined ? !tokens.has(token) : Boolean(force);
+          if (enabled) tokens.add(token); else tokens.delete(token);
+          return enabled;
+        },
+      },
+      setAttribute() {}, focus() {}, contains() { return false; }, querySelectorAll: () => [],
+      appendChild(node) { this.children.push(node); }, replaceChildren(...nodes) { this.children = nodes; },
+      querySelector(id) { if (!nodes.has(id)) nodes.set(id, makeNode()); return nodes.get(id); },
+    });
+  };
   const doc = Object.assign(new EventTarget(), { body: makeNode(), createElement: makeNode, activeElement: null });
   const page = makeNode(); page.ownerDocument = doc;
   const shell = makeNode(); shell.ownerDocument = doc;

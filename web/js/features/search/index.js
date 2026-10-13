@@ -129,7 +129,7 @@ export function createSearch(page, shell, {
     page.ownerDocument.body.classList.toggle("global-search-open", data.active);
     shell.classList.toggle("has-value", Boolean(input.value));
     clear.hidden = !input.value;
-    toggle.setAttribute("aria-expanded", String(data.active || page.ownerDocument.activeElement === input));
+    toggle.setAttribute("aria-expanded", String(shell.classList.contains("is-expanded")));
     if (!data.active) return;
 
     grid.replaceChildren();
@@ -200,9 +200,12 @@ export function createSearch(page, shell, {
 
   function openGlobalSearch() {
     if (!scope?.active) return;
-    data.active = true;
-    renderGlobalSearchResults();
-    input?.focus();
+    // The magnifier reveals the input first, without opening an empty result overlay.
+    // Focus synchronously inside the actual tap to preserve mobile keyboard activation.
+    shell.classList.add("is-expanded");
+    toggle.setAttribute("aria-expanded", "true");
+    toggle.setAttribute("aria-label", "Suche schließen");
+    input?.focus({ preventScroll: true });
   }
 
   function runGlobalSearch() {
@@ -242,9 +245,14 @@ export function createSearch(page, shell, {
     data.active = false;
     data.loading = false;
     data.submitted = false;
+    data.failures = [];
+    data.pendingCatalogs = [];
     input.value = "";
+    if (page.ownerDocument.activeElement === input) input.blur();
+    shell.classList.remove("is-expanded", "has-value");
+    toggle.setAttribute("aria-label", "Suche öffnen");
     renderGlobalSearchResults();
-    if (restoreFocus) toggle?.focus();
+    if (restoreFocus) toggle?.focus({ preventScroll: true });
   }
 
 
@@ -254,16 +262,24 @@ export function createSearch(page, shell, {
     mount() {
       if (scope) return;
       scope = createScope();
-      scope.listen(toggle, "click", openGlobalSearch);
+      scope.listen(toggle, "click", () => {
+        if (shell.classList.contains("is-expanded")) {
+          closeGlobalSearch({ restoreFocus: true });
+        } else {
+          openGlobalSearch();
+        }
+      });
       scope.listen(input, "focus", () => {
         shell.classList.add("is-expanded");
         toggle.setAttribute("aria-expanded", "true");
+        toggle.setAttribute("aria-label", "Suche schließen");
       });
       scope.listen(input, "blur", () => {
         scope.timeout(() => {
           if (input.value || shell.contains(page.ownerDocument.activeElement)) return;
           shell.classList.remove("is-expanded");
           toggle.setAttribute("aria-expanded", "false");
+          toggle.setAttribute("aria-label", "Suche öffnen");
         }, 0);
       });
       scope.listen(input, "input", syncGlobalSearchDraft);
@@ -274,12 +290,10 @@ export function createSearch(page, shell, {
         } else if (event.key === "Escape") {
           event.preventDefault();
           closeGlobalSearch({ restoreFocus: true });
-          shell.classList.remove("is-expanded");
         }
       });
       scope.listen(byId("global-search-clear"), "click", () => {
         closeGlobalSearch({ restoreFocus: true });
-        shell.classList.remove("is-expanded");
       });
       page.querySelectorAll("[data-global-search-scope]").forEach((button) => {
         scope.listen(button, "click", () => {
