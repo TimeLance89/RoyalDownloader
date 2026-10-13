@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
 
@@ -99,7 +99,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
       - name: Install isolated measurement tooling
@@ -120,7 +120,7 @@ jobs:
           ROYAL_VISUAL_BASELINE_WEB="${RUNNER_TEMP}/royal-perf-baseline/web" node tests/frontend/carousel-visual.cjs
       - name: Offscreen layout budget and stable page height
         run: node tests/frontend/offscreen-browser.cjs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: frontend-performance
@@ -181,7 +181,7 @@ jobs:
           cache: pip
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
 
@@ -568,7 +568,7 @@ jobs:
 
       - name: Upload security artifacts
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # immutable v6 line
         with:
           name: security-verification-artifacts
           path: |
