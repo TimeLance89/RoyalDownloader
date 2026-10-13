@@ -645,7 +645,9 @@ test("collections abort closed reads and isolate late queue results from the nex
   assert.equal(requests[2].url, "/api/jellyfin/matches");
   requests[2].resolve({ matches: { "tmdb:2": false } }); await second;
   assert.match(requests[3].url, /\/api\/movie\//);
-  requests[3].resolve({ title: "Film", source_count: 1 });
+  assert.match(requests[3].url, /progressive=true/, "collections must use the progressive source probe");
+  requests[3].resolve({ title: "Film", hosters: [{ name: "VOE", url: "https://example.test/embed" }],
+    source_count: 1, availability: { state: "available", complete: true } });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(model.get().availability.get(part.slug).selected, true);
   nodes.get("#movie-collection-download-all").dispatchEvent(new Event("click"));
