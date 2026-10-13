@@ -97,6 +97,11 @@ function renderQueue(payload) {
       row.dataset.status = queueStatus(item);
       const position = document.createElement("span");
       position.className = "queue-position";
+      const episode = queueEpisode(item.slug);
+      if (episode) {
+        position.dataset.episode = `E${String(episode.episode).padStart(2, "0")}`;
+        position.setAttribute("aria-label", `Staffel ${episode.season}, Episode ${episode.episode}`);
+      }
       position.textContent = String(queuePosition).padStart(2, "0");
       const content = document.createElement("span");
       content.className = "queue-item-content";
@@ -117,10 +122,12 @@ function renderQueue(payload) {
       const progressFill = document.createElement("i");
       progressFill.style.width = `${Math.max(0, Math.min(100, Number(item.progress) || 0))}%`;
       progress.appendChild(progressFill);
-      const episode = queueEpisode(item.slug);
+      const titleEpisode = String(item.title || "").match(/\bS(\d{1,2})E(\d{1,3})\b/i);
+      const hasEpisodeTitle = episode && titleEpisode
+        && Number(titleEpisode[1]) === episode.season && Number(titleEpisode[2]) === episode.episode;
       const episodeCopy = document.createElement("span");
       episodeCopy.className = "queue-mobile-copy queue-item-episode";
-      episodeCopy.textContent = episode ? `Staffel ${episode.season} · Episode ${episode.episode}` : "";
+      episodeCopy.textContent = episode && !hasEpisodeTitle ? `Staffel ${episode.season} · Episode ${episode.episode}` : "";
       content.append(title, episodeCopy, route, metrics, progress);
 
       const status = document.createElement("span");

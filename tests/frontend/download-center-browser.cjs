@@ -56,6 +56,8 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
         assert.equal(await page.locator("#queue-dock").getAttribute("aria-modal"), "true");
         assert.equal(await page.evaluate(() => document.activeElement.id), "mobile-queue-close");
         assert.equal(await page.locator(".queue-wallpaper img").count(), 2);
+        assert.equal(await page.locator('.queue-item[data-job-id="cinema-0"] .queue-position').getAttribute("data-episode"), "E01");
+        assert.ok((await box(page, '.queue-item[data-job-id="cinema-1"]')).height <= 140, "Waiting cards remain compact with 44px actions");
         const header = await box(page, "#queue-dock .panel-head"), list = await box(page, "#queue-list");
         const stage = await box(page, "#download-stage"), actions = await box(page, ".queue-drawer-actions");
         assert.ok(header.y + header.height <= list.y + 1, "Close and title remain above queue");

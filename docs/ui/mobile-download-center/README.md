@@ -22,6 +22,11 @@ existing artwork policy at bounded `w500` resolution. A visible-sheet-only metad
 recheck accommodates late hydration without fetching metadata. Failed images keep
 the neutral background and never become a queue error.
 
+Episode badges use the verified episode slug; an existing matching title code
+avoids a redundant metadata line. The mobile heading scales down on narrow
+screens. The wallpaper gradient also has a worst-case white-artwork contrast
+contract for the small header text (at least 4.5:1).
+
 Queue nodes and their listeners are reused for unchanged card structure. Progress
 updates look up the job directly. History rows are created only when expanded;
 unchanged history snapshots retain their DOM. Controls preserve the existing

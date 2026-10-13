@@ -1284,7 +1284,7 @@
   #queue-dock .queue-wallpaper img.is-visible { opacity: .8; }
   #queue-dock .queue-wallpaper::after {
     content: ""; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(5, 7, 12, .48), rgba(5, 7, 12, .78) 48%, #08090c), linear-gradient(90deg, rgba(8, 9, 12, .3), transparent);
+    background: linear-gradient(180deg, rgba(5, 7, 12, .74), rgba(5, 7, 12, .82) 48%, #08090c), linear-gradient(90deg, rgba(8, 9, 12, .3), transparent);
   }
   body.queue-open .queue-backdrop { background: rgba(0, 0, 0, .72); backdrop-filter: none; -webkit-backdrop-filter: none; }
   #queue-dock .queue-desktop-copy { display: none; }
@@ -1294,7 +1294,7 @@
   #queue-dock .queue-drawer-main > .panel-head { align-items: flex-start; gap: 8px; margin: 0 0 12px; }
   #queue-dock .queue-drawer-heading { display: grid; min-width: 0; gap: 5px; }
   #queue-dock .queue-drawer-kicker { font: 700 10px/1.3 "DM Sans", sans-serif; color: #d6bb8a; letter-spacing: .18em; }
-  #queue-dock .queue-drawer-heading .panel-title { color: #f6f3f0; font: 650 20px/1.25 "DM Sans", sans-serif; letter-spacing: -.035em; }
+  #queue-dock .queue-drawer-heading .panel-title { color: #f6f3f0; font: 650 clamp(16px, 5vw, 20px)/1.25 "DM Sans", sans-serif; letter-spacing: -.035em; }
   #queue-dock .queue-summary { color: #b8b4b3; font: 500 11px/1.4 "DM Sans", sans-serif; }
   #queue-dock #mobile-queue-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; margin: 0; padding: 0; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); border-radius: 14px; }
   #queue-dock .queue-list { flex: 1 1 auto; min-height: 80px; padding: 0 2px 0 0; background: transparent; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
@@ -1309,6 +1309,8 @@
   }
   #queue-dock .queue-item:hover { transform: none; }
   #queue-dock .queue-position { width: 30px; height: 34px; align-self: start; color: #b7b0a3; font-size: 10px; }
+  #queue-dock .queue-position[data-episode] { font-size: 0; }
+  #queue-dock .queue-position[data-episode]::after { grid-area: 1 / 1; content: attr(data-episode); font-size: 9px; }
   #queue-dock .queue-item-content { gap: 4px; }
   #queue-dock .queue-item-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
   #queue-dock .queue-item-episode { color: #d5c7ae; font: 500 10px/1.35 "DM Sans", sans-serif; }
