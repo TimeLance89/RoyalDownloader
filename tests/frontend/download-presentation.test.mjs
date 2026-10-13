@@ -16,7 +16,10 @@ test("unknown percentages never become a fabricated zero", () => {
   assert.equal(queuePercent(0), 0);
   assert.equal(queuePercent(55.5), 55.5);
   assert.equal(queuePercent(200), 100);
-  assert.equal(queueStatus({ done: true, job_status: "queued" }), "completed");
+  assert.equal(queueStatus({ done: true, job_status: "queued" }), "queued");
+  assert.equal(queueStatus({ done: true, job_status: "downloading" }), "downloading");
+  assert.equal(queueStatus({ done: true, job_status: "failed" }), "failed");
+  assert.equal(queueStatus({ done: true }), "completed");
 });
 
 test("exact series identity selects series artwork and never an episode still", () => {

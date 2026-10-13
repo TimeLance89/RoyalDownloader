@@ -160,6 +160,13 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
         assert.equal(await page.locator("#download-stage").getAttribute("data-progress"), "known");
         assert.equal(await page.locator("#dl-percent").textContent(), "42%");
 
+        await page.evaluate(payload => {
+          payload.groups[0].items[0].done = true;
+          fixtureApp.core.actions.renderQueue(payload);
+        }, snapshot(1));
+        assert.equal(await page.locator(".queue-item-status").textContent(), "Lädt", "Legacy done flags never hide a live job");
+        assert.equal(await page.locator(".queue-item").evaluate(node => node.classList.contains("done")), false);
+
         // Failed backdrop falls back to poster. A delayed old image cannot replace newer content.
         await page.evaluate(() => { fixtureApp.discovery.seriesState.cache.cinema = { backdrop_url: "/missing.jpg", cover_url: "/fixture-art.svg?poster" }; });
         await seed(page, snapshot(1));

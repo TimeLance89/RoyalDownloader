@@ -92,7 +92,7 @@ function renderQueue(payload) {
       const rows = createScope();
       const row = document.createElement("div");
       rowCache.set(key, { row, signature, scope: rows });
-      row.className = "queue-item" + (item.done ? " done" : "");
+      row.className = "queue-item" + (queueStatus(item) === "completed" ? " done" : "");
       row.dataset.jobId = item.job_id || "";
       row.dataset.status = queueStatus(item);
       const position = document.createElement("span");

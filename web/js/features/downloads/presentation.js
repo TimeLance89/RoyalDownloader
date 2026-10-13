@@ -6,7 +6,7 @@ export function queueEpisode(slug) {
 }
 
 export function queueStatus(item) {
-  return item.done ? "completed" : item.job_status || item.status || "queued";
+  return item.job_status || item.status || (item.done ? "completed" : "queued");
 }
 
 export function queuePercent(value) {
