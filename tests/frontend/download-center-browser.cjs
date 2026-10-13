@@ -23,6 +23,22 @@ async function seed(page, payload) {
   }, payload);
 }
 async function box(page, selector) { return page.locator(selector).boundingBox(); }
+async function queueFocusSettled(page, id) {
+  try {
+    await page.waitForFunction(id => document.activeElement.id === id, id);
+  } catch (error) {
+    console.error("Queue focus diagnostic", await page.evaluate(id => {
+      const target = document.getElementById(id);
+      const style = getComputedStyle(target);
+      return { width: innerWidth, mobile: matchMedia("(max-width: 820px)").matches,
+        open: document.body.classList.contains("queue-open"),
+        activeId: document.activeElement.id, activeTag: document.activeElement.tagName,
+        targetId: id, targetDisplay: style.display, targetVisibility: style.visibility,
+        targetInert: !!target.closest("[inert]"), targetRect: target.getBoundingClientRect().toJSON() };
+    }, id));
+    throw error;
+  }
+}
 
 (async () => {
   await mkdir(output, { recursive: true });
@@ -207,9 +223,9 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
         await page.waitForFunction(() => !document.body.classList.contains("queue-open"));
         assert.equal(await page.locator("#queue-dock").getAttribute("aria-modal"), null);
         assert.equal(await page.locator("#queue-drawer").evaluate(node => node.inert), true);
-        await page.waitForFunction(() => document.activeElement.id === "queue-dock-toggle");
+        await queueFocusSettled(page, "queue-dock-toggle");
         await page.setViewportSize({ width, height: 844 });
-        await page.waitForFunction(() => document.activeElement.id === "mobile-queue-btn");
+        await queueFocusSettled(page, "mobile-queue-btn");
       }
       assert.ok(!requests.some(path => /\/api\/(tmdb|providers)/.test(path)), "Presentation performs no metadata/provider searches");
       assert.deepEqual(run.errors, []);

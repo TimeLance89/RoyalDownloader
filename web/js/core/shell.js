@@ -101,14 +101,27 @@ export function createShell(document, {
     scope.listen(document.defaultView, "resize", () => {
       closeNavigationMenus();
       const mobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
-      const focusAfterLayout = (id, expectedMobile) => scope.timeout(() => {
-        const currentMobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
-        const active = document.activeElement;
-        if (currentMobile === expectedMobile && !document.body.classList.contains("queue-open")
-            && (active === document.body || active?.id === "queue-dock-toggle" || active?.id === "mobile-queue-close" || active?.id === "mobile-queue-btn")) {
-          document.getElementById(id).focus();
-        }
-      }, 350); // Existing sheet visibility transition takes 320ms.
+      const focusAfterLayout = (id, expectedMobile) => {
+        const previousFocus = document.activeElement;
+        let frames = 0;
+        const settle = () => {
+          const currentMobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
+          const active = document.activeElement;
+          if (currentMobile !== expectedMobile || document.body.classList.contains("queue-open")) return;
+          // Preserve a deliberate focus change while the responsive layout settles.
+          if (active !== previousFocus && active !== document.body && active !== document.documentElement
+              && !["queue-dock-toggle", "mobile-queue-close", "mobile-queue-btn"].includes(active?.id)) return;
+          const target = document.getElementById(id);
+          if (target.getClientRects().length && !target.closest("[inert]")
+              && document.defaultView.getComputedStyle(target).visibility === "visible") {
+            target.focus({ preventScroll: true });
+            if (document.activeElement === target) return;
+          }
+          // WebKit can finish its viewport/visibility update after the resize event.
+          if (++frames < 90) scope.frame(settle);
+        };
+        scope.frame(settle);
+      };
       if (!mobile && document.body.classList.contains("queue-open")) {
         closeMobileQueue();
         setQueueDockExpanded(false);
