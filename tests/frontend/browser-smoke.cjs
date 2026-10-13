@@ -592,8 +592,11 @@ const server = createServer(async (req, res) => {
     assert.equal(passwordChanges, 1);
     accountMode = "ready";
 
-    // Search starts only on submit, paints progressively, and cancels superseded queries.
+    // A magnifier tap must focus its text input before any result overlay is shown.
     await page.locator("#global-search-toggle").click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "global-search-input");
+    assert.equal(await page.locator("#global-search-page").isHidden(), true);
+    assert.equal(await page.locator("#global-search-toggle").getAttribute("aria-expanded"), "true");
     await page.locator("#global-search-input").fill("SearchFixture");
     assert.equal(await page.locator("#global-search-grid .home-card").count(), 0);
     await page.locator("#global-search-input").press("Enter");
@@ -617,6 +620,34 @@ const server = createServer(async (req, res) => {
     await page.waitForFunction(() => document.getElementById("global-search-grid").textContent.includes("Suche fehlgeschlagen"));
     await page.locator("#global-search-clear").click();
     assert.equal(await page.locator("#global-search-page").isHidden(), true);
+    assert.equal(await page.locator("#global-search-toggle").getAttribute("aria-expanded"), "false");
+    assert.equal(await page.locator("#global-search-shell").evaluate(node => node.classList.contains("is-expanded")), false);
+
+    // Reproduce mobile tap/focus and closing animation without real provider traffic.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#global-search-toggle").click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "global-search-input");
+    assert.equal(await page.locator("#global-search-page").isHidden(), true);
+    await page.waitForTimeout(300);
+    assert.ok((await page.locator("#global-search-shell").boundingBox()).width > 190,
+      "mobile search expands beside the header controls");
+    await page.locator("#global-search-input").fill("mobile draft");
+    assert.equal(await page.locator("#global-search-page").isVisible(), true);
+    await page.locator("#global-search-input").press("Escape");
+    assert.equal(await page.locator("#global-search-page").isHidden(), true);
+    assert.equal(await page.locator("#global-search-toggle").getAttribute("aria-expanded"), "false");
+    assert.equal(await page.evaluate(() => document.body.classList.contains("global-search-open")), false);
+    await page.waitForTimeout(320);
+    assert.ok((await page.locator("#global-search-shell").boundingBox()).width <= 45,
+      "mobile search collapses without stale focus styles");
+    await page.locator("#global-search-toggle").click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "global-search-input");
+    await page.locator("#global-search-toggle").click();
+    assert.equal(await page.locator("#global-search-toggle").getAttribute("aria-expanded"), "false");
+    await page.waitForTimeout(320);
+    assert.ok((await page.locator("#global-search-shell").boundingBox()).width <= 45,
+      "second tap collapses the empty search");
+    await page.setViewportSize({ width: 1440, height: 1000 });
     searchMode = "ready";
 
     // Integration reads and sync do not overwrite an unsaved form.
