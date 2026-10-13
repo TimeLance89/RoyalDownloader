@@ -212,12 +212,7 @@ body.global-search-open { overflow: hidden; }
 }
 
 @media (max-width: 560px) {
-  .global-search-shell:is(.is-expanded, .has-value) {
-    position: absolute;
-    right: 58px;
-    width: calc(100vw - 170px);
-    min-width: 190px;
-  }
+  /* Header-grid mobile sizing takes precedence for the search control. */
   .global-search-shell input { font-size: 12px; }
   .global-search-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .global-search-head h1 { font-size: 23px; }

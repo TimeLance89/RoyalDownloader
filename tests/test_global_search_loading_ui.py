@@ -47,4 +47,8 @@ def test_mobile_global_search_uses_explicit_focus_and_animatable_layout():
     assert '.global-search-shell:is(.is-expanded, .has-value)' in mobile
     assert ':focus-within' not in mobile.split('.global-search-shell:is(', 1)[1].split('}', 1)[0]
     assert 'width 260ms' in premium
-    assert 'position: absolute;' in premium
+    assert 'position: relative;' in premium
+    assert 'grid-template-columns: minmax(0, 1fr) 44px minmax(44px, max-content) 44px;' in mobile
+    assert 'grid-column: 2;' in mobile
+    assert 'grid-column: 3;' in mobile
+    assert 'grid-column: 4;' in mobile
