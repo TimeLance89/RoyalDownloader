@@ -409,7 +409,9 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
 
 test("searches run only after an explicit submit", () => {
   assert.match(app, /scope\.listen\(byId\("home-search"\), "input",/);
-  assert.match(app, /scope\.listen\(toggle, "click", openGlobalSearch\)/);
+  assert.match(app, /scope\.listen\(toggle, "click", \(\) => \{/);
+  assert.match(app, /if \(shell\.classList\.contains\("is-expanded"\)\)/);
+  assert.match(app, /openGlobalSearch\(\)/);
   assert.match(app, /scope\.listen\(input, "input", syncGlobalSearchDraft\)/);
   assert.match(app, /if \(event\.key === "Enter"\) \{[\s\S]*?runGlobalSearch\(\)/);
   assert.match(app, /scope\.listen\(byId\("fp-search"\), "input", \(\) => \{\s*syncSearchClearButtons\(\);\s*closeSearchSuggestions\("fp-search-suggestions", "fp-search"\);/);
