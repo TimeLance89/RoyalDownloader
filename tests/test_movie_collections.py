@@ -65,6 +65,11 @@ def test_collection_flow_checks_jellyfin_before_providers_and_uses_queue_truth()
     assert 'download.textContent = "Prüfen & laden"' in source
     assert 'normalized.includes("sicherheitsprüfung")' in source
     assert "retryMovieCollectionJellyfinPart(part)" in source
+    assert 'import { fetchMovieAvailability }' in source
+    assert 'firstAvailable: true' in source
+    assert 'providerStatus === "unavailable"' in source
+    assert 'providerStatus === "error"' in source
+    assert '"Prüfung fehlgeschlagen"' in source
     retry_flow = source[source.index("async function retryMovieCollectionJellyfinPart"):]
     assert retry_flow.index("await checkJellyfin") < retry_flow.index(
         "await queueCollectionMovies([part.slug])",

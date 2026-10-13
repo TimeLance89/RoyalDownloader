@@ -10,6 +10,7 @@ const { fixture } = require('./performance-fixture.cjs');
       const credits = [work(1, 'movie', 'Available film'), work(2, 'movie', 'Owned film'), work(3, 'movie', 'Unavailable film'), work(1, 'tv', 'Series with same ID'), { ...work(4, 'movie', 'Future film'), release_date: '2099-01-01', year: '2099' }];
       const person = { id: 42, name: 'Florence Pugh', department: 'Acting', profile_url: '/fixture-art.svg', birthplace: 'Oxford, England', birthday: '1996-01-03', biography: 'An actor with stories across films and television.', credits };
       const queues = [], lookups = [], seriesLookups = [];
+      let firstCollectionProbe = 0;
       let failProfile = true;
       const largeCredits = Array.from({ length: 110 }, (_, i) => ({ ...work(100 + i, 'movie', `Archive ${i}`), departments: i < 2 ? ['Directing'] : ['Acting'], year: '1999', release_date: '1999-01-01' }));
       let delayLibrary = false, releaseLibrary, notifyLibraryStarted;
@@ -37,6 +38,13 @@ const { fixture } = require('./performance-fixture.cjs');
         }
         if (path.startsWith('/api/movie/')) {
           const id = Number(url.searchParams.get('tmdb_id')); lookups.push(id);
+          // A cold collection source must not be reported as unavailable or
+          // downloadable from a 202 response without any confirmed hosters.
+          if (id === 1 && url.searchParams.get('progressive') === 'true' && ++firstCollectionProbe === 1) {
+            return route.fulfill({ status: 202, json: { hosters: [], availability: {
+              state: 'checking', complete: false, retry_after_ms: 600,
+            } } });
+          }
           if (id === 3) return route.fulfill({ status: 404, json: { detail: { code: 'movie_hoster_unavailable', message: 'Kein Hoster verfügbar' } } });
           return route.fulfill({ json: { ...credits.find(item => item.tmdb_id === id), hosters: id === 3 ? [] : [{ name: 'VOE', url: 'https://example.test/embed' }] } });
         }
@@ -94,6 +102,11 @@ const { fixture } = require('./performance-fixture.cjs');
       await page.locator('#people-films').click();
       await page.waitForFunction(() => !fixtureApp.discovery.movieCollections.get().resolving && fixtureApp.discovery.movieCollections.get().collection);
       await page.waitForFunction(() => document.getElementById('movie-collection-status').textContent.includes('vollständig geprüft'));
+      assert.equal(firstCollectionProbe, 2, 'the unfinished first source request is polled until a hoster is confirmed');
+      assert.equal(await page.locator('#movie-collection-films [data-slug="tmdb:1"] .is-provider-available').count(), 1,
+        'a late confirmed source becomes available without reopening the collection');
+      assert.equal(await page.locator('#movie-collection-films [data-slug="tmdb:3"] .is-provider-unavailable').count(), 1,
+        'a definitive negative remains unavailable');
       assert.ok(!lookups.includes(2), 'owned films skip provider lookup');
       assert.ok(!lookups.includes(4), 'future films skip provider lookup');
       await page.locator('#movie-collection-select-all').click();
