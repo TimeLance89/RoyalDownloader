@@ -43,5 +43,8 @@ def test_mobile_global_search_uses_explicit_focus_and_animatable_layout():
     assert 'shell.classList.remove("is-expanded", "has-value");' in HOME_JS
     assert ':focus-within' not in premium
     assert ':focus-within' not in SEARCH_CSS
+    mobile = (ROOT / "web/styles/mobile.css").read_text(encoding="utf-8")
+    assert '.global-search-shell:is(.is-expanded, .has-value)' in mobile
+    assert ':focus-within' not in mobile.split('.global-search-shell:is(', 1)[1].split('}', 1)[0]
     assert 'width 260ms' in premium
     assert 'position: absolute;' in premium
