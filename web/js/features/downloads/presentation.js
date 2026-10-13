@@ -17,8 +17,9 @@ export function queuePercent(value) {
 export function queueFocus(groups, currentId = "") {
   const items = groups.flatMap(group => group.items);
   const active = items.filter(item => ["downloading", "preparing", "cancelling"].includes(queueStatus(item)));
-  return active.find(item => item.job_id === currentId) || active.find(item => queueStatus(item) === "downloading")
-    || active[0] || items.find(item => ["queued", "waiting", "waiting_provider", "paused"].includes(queueStatus(item))) || null;
+  const downloads = active.filter(item => queueStatus(item) === "downloading");
+  return downloads.find(item => item.job_id === currentId) || downloads[0]
+    || active.find(item => item.job_id === currentId) || active[0] || items.find(item => ["queued", "waiting", "waiting_provider", "paused"].includes(queueStatus(item))) || null;
 }
 
 /** Read only already-loaded metadata. Exact identities avoid another show's episode artwork. */

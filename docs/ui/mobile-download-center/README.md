@@ -37,7 +37,8 @@ Mobile layout reserves space for metrics/progress, uses 44px action targets,
 keeps destructive controls and transfer outside the list, and uses a scrolling
 main section on short landscape/keyboard viewports. Reduced motion disables
 sheet, artwork and progress animation. Keyboard focus stays inside the open sheet
-and returns to its trigger when closed. Unknown progress removes `aria-valuenow`
+and returns to its trigger when closed. Crossing the desktop breakpoint invokes
+the existing close controller and transfers focus to the visible dock control. Unknown progress removes `aria-valuenow`
 and uses source activity rather than a fabricated percentage.
 
 ## Reproducible renderings

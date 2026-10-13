@@ -6,6 +6,7 @@ test("queue focus uses a real active job before the next planned item", () => {
   const items = ["queued", "preparing", "downloading", "downloading"].map((job_status, job_id) => ({ job_status, job_id: String(job_id) }));
   assert.equal(queueFocus([{ items }]).job_id, "2");
   assert.equal(queueFocus([{ items }], "3").job_id, "3");
+  assert.equal(queueFocus([{ items }], "1").job_id, "2", "A previous preparing job cannot displace a running transfer");
   assert.equal(queueFocus([{ items: [items[0]] }]).job_id, "0");
   assert.equal(queueFocus([]), null);
   assert.equal(queueFocus([{ items: [{ job_status: "failed" }] }]), null);

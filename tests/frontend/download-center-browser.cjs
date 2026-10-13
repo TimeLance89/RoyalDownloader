@@ -202,6 +202,14 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
         await page.locator("#mobile-queue-close").tap();
         assert.equal(await page.locator("#queue-drawer").getAttribute("aria-hidden"), "true");
         assert.equal(await page.evaluate(() => document.activeElement.id), "mobile-queue-btn");
+        await page.locator("#mobile-queue-btn").tap();
+        await page.setViewportSize({ width: 900, height: 600 });
+        await page.waitForFunction(() => !document.body.classList.contains("queue-open"));
+        assert.equal(await page.locator("#queue-dock").getAttribute("aria-modal"), null);
+        assert.equal(await page.locator("#queue-drawer").evaluate(node => node.inert), true);
+        await page.waitForFunction(() => document.activeElement.id === "queue-dock-toggle");
+        await page.setViewportSize({ width, height: 844 });
+        await page.waitForFunction(() => document.activeElement.id === "mobile-queue-btn");
       }
       assert.ok(!requests.some(path => /\/api\/(tmdb|providers)/.test(path)), "Presentation performs no metadata/provider searches");
       assert.deepEqual(run.errors, []);

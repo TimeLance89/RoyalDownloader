@@ -8,7 +8,7 @@ export function createShell(document, {
   refreshQueueUiAfterChange, renderSerienstreamHealth, setDownloadState, getDownloadPercent, openDirectory,
   client = api,
 }) {
-  let scope = null;
+  let scope = null, queueBreakpointFocus = false;
   const pending = new Set();
   async function command(url, accept) {
     if (!scope?.active || pending.has(url)) return;
@@ -98,11 +98,32 @@ export function createShell(document, {
       document.getElementById("global-search-shell").classList.add("is-expanded");
       input.focus();
     });
-    scope.listen(document.defaultView, "resize", () => closeNavigationMenus());
+    scope.listen(document.defaultView, "resize", () => {
+      closeNavigationMenus();
+      const mobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
+      const focusAfterLayout = (id, expectedMobile) => scope.timeout(() => {
+        const currentMobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
+        const active = document.activeElement;
+        if (currentMobile === expectedMobile && !document.body.classList.contains("queue-open")
+            && (active === document.body || active?.id === "queue-dock-toggle" || active?.id === "mobile-queue-close" || active?.id === "mobile-queue-btn")) {
+          document.getElementById(id).focus();
+        }
+      }, 350); // Existing sheet visibility transition takes 320ms.
+      if (!mobile && document.body.classList.contains("queue-open")) {
+        closeMobileQueue();
+        setQueueDockExpanded(false);
+        queueBreakpointFocus = true;
+        focusAfterLayout("queue-dock-toggle", false);
+      } else if (mobile && (queueBreakpointFocus || document.activeElement?.id === "queue-dock-toggle")) {
+        queueBreakpointFocus = false;
+        focusAfterLayout("mobile-queue-btn", true);
+      }
+    });
   }
 
   function mount() {
     if (scope?.active) return;
+    queueBreakpointFocus = false;
     scope = createScope(); initNavigationMenus();
     document.getElementById("serienstream-retry").disabled = false;
   scope.listen(document.getElementById("mobile-queue-btn"), "click", openMobileQueue);
