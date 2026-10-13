@@ -15,7 +15,10 @@ export function createQueueView(root, {
   const wallpaper = createQueueWallpaper(root, getArtwork);
   const historyPanel = root.querySelector(".queue-history-panel");
   function updateFocus() {
-    const item = queueFocus(state.queue.groups || [], currentJobId);
+    const groups = state.queue.groups || [];
+    const live = rowCache.get(currentJobId)?.row.dataset.status === "downloading"
+      ? groups.flatMap(group => group.items).find(item => item.job_id === currentJobId) : null;
+    const item = live || queueFocus(groups, currentJobId);
     find("download-current").textContent = item?.title || "";
     wallpaper.update(item);
   }
@@ -195,11 +198,15 @@ function renderQueue(payload) {
   const pendingDownloads = Math.max(0, Number(activity.pending_downloads) || 0);
   const downloadStage = find("download-stage");
   const hasLiveProgress = downloadStage?.dataset.state === "active"
+    && downloadStage.dataset.progress === "known"
     && find("dl-state-title")?.textContent !== "Bereit";
+  const focusedDownload = queueFocus(payload.groups, currentJobId);
+  const snapshotPercent = focusedDownload && (Number(focusedDownload.total_bytes) > 0 || Number(focusedDownload.progress) > 0)
+    ? queuePercent(focusedDownload.progress) : null;
   if (activeDownloads && !hasLiveProgress) {
     setDownloadState("active", activeDownloads === 1 ? "Download läuft" : `${activeDownloads} Downloads laufen`,
       pendingDownloads ? `${pendingDownloads} weiterer Download ist bereit` : "Stream geladen · Download aktiv",
-      null);
+      snapshotPercent);
   } else if (!activeDownloads && activePreparations) {
     const paused = ["cooldown", "probing", "blocked"].includes(payload.providers?.serienstream?.state);
     setDownloadState("active", paused ? "Ersatzquelle wird gesucht" : "Quelle wird geprüft",
@@ -249,6 +256,8 @@ function updateQueueJobProgress(jobId, job) {
   const row = rowCache.get(String(jobId))?.row;
   if (!row) return;
   paintProgress(row, { ...job, job_status: "downloading" });
+  // A verified progress event may arrive ahead of the next authoritative snapshot.
+  if (row.dataset.status !== "downloading") rowCache.get(String(jobId)).signature = "";
   row.dataset.status = "downloading";
   row.querySelector(".queue-item-status").textContent = "Lädt";
   currentJobId = String(jobId);

@@ -98,6 +98,22 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
       assert.equal(await page.evaluate(() => queueDomSize === document.getElementById("queue-dock").querySelectorAll("*").length), true);
       assert.equal(requests.filter(path => path === "/fixture-art.svg").length, imageRequests, "No image reload on progress updates");
       await stable.dispose();
+      if (run.cdp && width === 390) {
+        await run.cdp.send("HeapProfiler.collectGarbage");
+        const before = (await run.cdp.send("Performance.getMetrics")).metrics.find(metric => metric.name === "JSHeapUsedSize").value;
+        const duration = await page.evaluate(payload => {
+          const started = performance.now();
+          for (let index = 0; index < 200; index++) {
+            payload.groups[0].items[0].progress = index % 100;
+            fixtureApp.core.actions.renderQueue(payload);
+          }
+          return performance.now() - started;
+        }, snapshot(150));
+        await run.cdp.send("HeapProfiler.collectGarbage");
+        const after = (await run.cdp.send("Performance.getMetrics")).metrics.find(metric => metric.name === "JSHeapUsedSize").value;
+        assert.ok(after - before < 8 * 1024 * 1024, "Large live queue updates have bounded retained heap");
+        console.log(JSON.stringify({ engine, queueSize: 150, snapshots: 200, durationMs: duration, retainedHeapBytes: after - before }));
+      }
 
       await page.evaluate(() => fixtureApp.core.actions.renderQueueHistory(Array.from({ length: 500 }, (_, index) => ({ job_id: `history-${index}`, title: `Historie ${index}`, status: index ? "completed" : "failed", error: index ? "" : "Quelle nicht verfügbar" }))));
       assert.equal(await page.locator(".queue-history-item").count(), 0, "Closed history creates no rows");
@@ -134,6 +150,15 @@ async function box(page, selector) { return page.locator(selector).boundingBox()
         assert.equal(await page.locator("#download-stage").getAttribute("data-progress"), "unknown");
         await page.emulateMedia({ reducedMotion: "reduce" });
         assert.equal(await page.locator("#progress-fill").evaluate(node => getComputedStyle(node).animationName), "none");
+
+        // A preparing transfer must become a real download even before its next progress event.
+        await page.evaluate(payload => {
+          fixtureApp.core.actions.setDownloadState("active", "Quelle wird geprüft", "1 aktiv", null);
+          fixtureApp.core.actions.renderQueue(payload);
+        }, snapshot(1));
+        assert.equal(await page.locator("#dl-state-title").textContent(), "Download läuft");
+        assert.equal(await page.locator("#download-stage").getAttribute("data-progress"), "known");
+        assert.equal(await page.locator("#dl-percent").textContent(), "42%");
 
         // Failed backdrop falls back to poster. A delayed old image cannot replace newer content.
         await page.evaluate(() => { fixtureApp.discovery.seriesState.cache.cinema = { backdrop_url: "/missing.jpg", cover_url: "/fixture-art.svg?poster" }; });
