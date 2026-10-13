@@ -78,3 +78,62 @@ def test_mobile_queue_remains_a_safe_area_aware_sheet():
     assert "body.queue-open #queue-dock .queue-panel" in CSS
     assert "border-radius: 22px 22px 0 0" in CSS
     assert "env(safe-area-inset-bottom)" in CSS
+
+
+def test_mobile_center_wallpaper_is_decorative_and_separate_from_controls():
+    from html.parser import HTMLParser
+
+    class DockParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.ids = []
+            self.artwork_images = 0
+            self.in_artwork = False
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if attributes.get("id"):
+                self.ids.append(attributes["id"])
+            if attributes.get("class") == "queue-wallpaper":
+                assert attributes.get("aria-hidden") == "true"
+                self.in_artwork = True
+            if self.in_artwork and tag == "img":
+                assert attributes.get("alt") == ""
+                assert "src" not in attributes
+                self.artwork_images += 1
+
+        def handle_endtag(self, tag):
+            if self.in_artwork and tag == "div":
+                self.in_artwork = False
+
+    parser = DockParser()
+    parser.feed(HTML)
+    assert len(parser.ids) == len(set(parser.ids))
+    assert parser.artwork_images == 2
+    assert "queue-summary" in parser.ids
+    assert "download-current" in parser.ids
+
+
+def test_mobile_header_contrast_survives_maximum_white_artwork():
+    import re
+
+    mobile = CSS.split("/* Mobile Download Center:", 1)[1].split("/* ── Royal Transfer Deck", 1)[0]
+    opacity = float(re.search(r"img\.is-visible \{ opacity: ([.0-9]+)", mobile)[1])
+    overlay = re.search(r"background: linear-gradient\(180deg, rgba\((\d+), (\d+), (\d+), ([.0-9]+)\)", mobile)
+    tint = tuple(int(overlay[index]) for index in (1, 2, 3))
+    alpha = float(overlay[4])
+    # A completely white image over the brightest channel of the neutral surface.
+    # Ignore the additional horizontal dark gradient: this is the lighter bound.
+    neutral = tuple(int("38201c"[index:index + 2], 16) for index in (0, 2, 4))
+    background = tuple((255 * opacity + base * (1 - opacity)) * (1 - alpha) + channel * alpha
+                       for base, channel in zip(neutral, tint))
+
+    def luminance(rgb):
+        linear = [(value / 255 / 12.92 if value / 255 <= 0.04045
+                   else ((value / 255 + 0.055) / 1.055) ** 2.4) for value in rgb]
+        return sum(value * weight for value, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    for selector in ("queue-summary", "queue-drawer-kicker"):
+        color = re.search(r"#queue-dock \." + selector + r" \{[^}]*color: #([a-f0-9]{6})", mobile)[1]
+        foreground = tuple(int(color[index:index + 2], 16) for index in (0, 2, 4))
+        assert (luminance(foreground) + 0.05) / (luminance(background) + 0.05) >= 4.5

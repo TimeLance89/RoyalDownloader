@@ -87,6 +87,21 @@ jobs:
           ROYAL_SCROLLEND_FALLBACK: "1"
         run: node tests/frontend/mobile-browser.cjs
 
+      - name: Mobile Download Center states, artwork, actions and large queues
+        env:
+          ROYAL_DOWNLOAD_BASELINE: ${{ runner.temp }}/royal-download-baseline/web
+        run: |
+          git worktree add --detach "${RUNNER_TEMP}/royal-download-baseline" da5e5e72690facdb175d1540d2cb0a7618edbdf8
+          node --test tests/frontend/download-presentation.test.mjs
+          node tests/frontend/download-center-browser.cjs
+
+      - name: Upload mobile Download Center before and after renderings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mobile-download-center-chromium
+          path: artifacts/mobile-download-center/
+
       - name: Frozen desktop and mobile CSS equivalence
         if: ${{ !cancelled() }}
         run: node tests/frontend/css-equivalence.cjs

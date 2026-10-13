@@ -2170,12 +2170,14 @@
     <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
     <aside id="queue-dock" class="sidebar" aria-label="Downloadplan">
       <div class="panel queue-panel">
+        <div class="queue-wallpaper" aria-hidden="true"><img alt="" decoding="async"><img alt="" decoding="async"></div>
         <div id="queue-drawer" class="queue-drawer" aria-hidden="true" inert>
           <section class="queue-drawer-main" aria-labelledby="queue-drawer-title">
             <div class="panel-head">
               <div class="queue-drawer-heading">
-                <span class="queue-drawer-kicker">ALS NÄCHSTES</span>
-                <span id="queue-drawer-title" class="panel-title pink">DOWNLOADPLAN</span>
+                <span class="queue-drawer-kicker"><span class="queue-desktop-copy">ALS NÄCHSTES</span><span class="queue-mobile-copy">DOWNLOAD CENTER</span></span>
+                <span id="queue-drawer-title" class="panel-title pink"><span class="queue-desktop-copy">DOWNLOADPLAN</span><span class="queue-mobile-copy">Dein Royal Downloadplan</span></span>
+                <span id="queue-summary" class="queue-mobile-copy queue-summary">0 aktiv · 0 vorgemerkt</span>
               </div>
               <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
             </div>
@@ -2215,6 +2217,7 @@
               </div>
               <strong id="dl-percent" class="download-percent">0%</strong>
             </div>
+            <span id="download-current" class="queue-mobile-copy download-current" translate="no"></span>
             <div class="progress-bar" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="progress-fill" class="progress-fill"></div>
             </div>

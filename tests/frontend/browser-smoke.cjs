@@ -33,6 +33,9 @@ const server = createServer(async (req, res) => {
         }
       }, { once: true });
     });
+    // Static third-party branding/fonts are fixtures too; resource errors still fail below.
+    await page.route("https://fonts.googleapis.com/**", route => route.fulfill({ contentType: "text/css", body: "" }));
+    await page.route("https://www.themoviedb.org/assets/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#162844"/></svg>' }));
     const errors = [], missing = [], calls = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(error.stack); });
     // Only the exact browser network diagnostic for intentional 503 fixtures is expected.
@@ -448,7 +451,7 @@ const server = createServer(async (req, res) => {
     await page.waitForTimeout(650);
     assert.equal(await page.locator("#tab-home").evaluate(el => el.classList.contains("active")), true);
     socket.send(JSON.stringify({ type: "queue_update", queue: { ...queue, count: 1, groups: [{ name: "Test", items: [{ job_id: "job", slug: "film", title: "Fixture Download", job_status: "downloading", progress: 10 }] }] } }));
-    await page.getByText("Fixture Download", { exact: true }).waitFor({ state: "attached" });
+    await page.locator("#queue-list").getByText("Fixture Download", { exact: true }).waitFor({ state: "attached" });
     socket.send(JSON.stringify({ type: "progress", job_id: "job", pct: 55, label: "Fixture Download", job: { progress: 55 } }));
     await page.waitForFunction(() => document.querySelector('.queue-item-progress i')?.style.width === "55%");
     await page.evaluate(() => document.querySelector('.queue-item button[aria-label$="abbrechen"]').click());

@@ -38,3 +38,15 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/storage-autopilot-browser.cjs
+
+      - name: Mobile Download Center WebKit states, artwork and actions
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/download-center-browser.cjs
+
+      - name: Upload WebKit Download Center renderings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mobile-download-center-webkit
+          path: artifacts/mobile-download-center/
