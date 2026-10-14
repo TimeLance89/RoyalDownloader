@@ -4,13 +4,13 @@ import { notificationCount } from "./model.js";
 import { createNotificationView } from "./view.js";
 import { notificationApi } from "./api.js";
 
-export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0 }) {
+export function createNotifications(root, { getSnapshot, check, onSnapshot, openEntry, openLibrary, coverUrl, subscriptionMonogram, libraryCheckedLabel, requests = notificationApi, getSnapshotVersion = () => 0, beforeOpen = () => {} }) {
   const document = root.ownerDocument;
   const find = id => root.querySelector(`#${id}`);
   const ui = { filter: "all", reading: "", feedback: "", feedbackError: false };
   let shell;
   let actions;
-  let checking = false;
+  let checking = false, opener = null;
   if (!find("notif-issue-badge")) {
     const badge = document.createElement("span");
     badge.id = "notif-issue-badge"; badge.className = "notif-issue-badge hidden";
@@ -32,14 +32,23 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
     view.unmount();
     find("notif-dropdown").classList.add("hidden");
     find("notif-bell").setAttribute("aria-expanded", "false");
-    if (restoreFocus) find("notif-bell").focus({ preventScroll: true });
+    document.querySelectorAll("[data-notifications-open]").forEach(trigger => trigger.setAttribute("aria-expanded", "false"));
+    if (restoreFocus) {
+      const target = opener?.getClientRects?.()?.length ? opener
+        : opener?.hasAttribute("data-notifications-open") ? document.getElementById("mobile-more-toggle") : find("notif-bell");
+      target?.focus({ preventScroll: true });
+    }
   }
-  function open() {
+  function open(trigger = null) {
     if (!shell?.active) return;
+    beforeOpen();
+    opener = trigger || find("notif-bell");
     if (!actions?.active) actions = createScope();
     find("notif-dropdown").classList.remove("hidden");
     find("notif-bell").setAttribute("aria-expanded", "true");
+    document.querySelectorAll("[data-notifications-open]").forEach(button => button.setAttribute("aria-expanded", "true"));
     refresh();
+    if (document.defaultView?.matchMedia?.("(max-width: 820px)").matches) find("notif-close").focus({ preventScroll: true });
   }
   async function runCheck(slugs) {
     const current = actions;
@@ -78,6 +87,12 @@ export function createNotifications(root, { getSnapshot, check, onSnapshot, open
       if (shell?.active) return;
       shell = createScope();
       shell.listen(find("notif-bell"), "click", event => { event.stopPropagation(); if (actions?.active) close(); else open(); });
+      document.querySelectorAll("[data-notifications-open]").forEach(trigger => shell.listen(trigger, "click", event => {
+        event.stopPropagation(); open(trigger);
+      }));
+      shell.listen(document, "keydown", event => {
+        if (event.key === "Escape" && actions?.active) { event.preventDefault(); close(true); }
+      });
       shell.listen(document, "click", event => {
         // A row action may replace its own DOM before the event bubbles here.
         const inside = event.composedPath ? event.composedPath().includes(root) : root.contains(event.target);

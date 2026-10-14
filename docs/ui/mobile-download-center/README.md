@@ -74,3 +74,42 @@ mobile components. Dedicated Download Center checks protect the new sheet.
 Validation results and workflow links are recorded in the pull request. Do not
 merge on the basis of screenshots or focused tests alone; a merge recommendation
 requires successful full CI gates. No NAS deployment is part of this change.
+
+
+## Follow-up from phone screenshots, 14 October
+
+The production screenshots exposed a short movie queue and an empty picked list
+with an active transfer. These now have explicit browser regressions:
+
+- The summary uses authoritative activity counts even when there are no picked
+  entries. Verified progress retains just the active content identity, without
+  adding anything back to the queue. An idle snapshot clears that identity.
+- Loaded movie search results join the existing exact-identity artwork caches.
+  No additional metadata/provider requests are made. The middle of the wallpaper
+  is more visible while the dark header and contrast contract remain protected.
+- Empty plans use a compact sheet. Cards without telemetry omit its empty line;
+  running rows still reserve live metric space. The list has no horizontal scroll.
+- Mobile tab switches no longer blur/scale the entire catalog for 550ms. Warm
+  Home navigation reuses its existing cards; normal data, taste, layout, forced
+  and day updates still render. Desktop render behavior remains unchanged.
+- The mobile More menu opens the existing Abo-Inbox and carries its real attention
+  count. Its original filters, read/check actions and subscription permissions
+  remain intact. Closing restores focus to the visible More control.
+- The wallpaper observer ignores unrelated body-class changes during navigation.
+
+Actual offline Chromium renderings (390px, same deterministic artwork fixture):
+
+| Before correction | Compact movie queue |
+| --- | --- |
+| ![Before](followup-before-movies-390.png) | ![After](followup-after-movies-390.png) |
+
+| Empty plan with active transfer | Existing mobile subscription inbox |
+| --- | --- |
+| ![Transfer](followup-empty-active-390.png) | ![Inbox](followup-inbox-390.png) |
+
+`mobile-app-browser.cjs` now checks native taps, first-paint navigation state and
+inbox access at 320, 360, 390, 430, 768 and desktop 1440px. Chromium uses 4x CPU
+throttling for the mobile cases. The same contracts also run in the existing
+WebKit workflow. `home-navigation.test.mjs` covers cold/warm, normal/forced,
+day/invalidation and unchanged desktop rendering. Existing gates and thresholds
+are retained. Engine/width screenshots and first-paint timings are CI output.

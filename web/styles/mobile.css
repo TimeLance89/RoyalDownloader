@@ -183,6 +183,14 @@
   :root { --mobile-footer: calc(72px + env(safe-area-inset-bottom, 0px)); }
   html { scroll-padding-top: calc(var(--mobile-header) + 12px); }
   body { -webkit-tap-highlight-color: transparent; }
+  /* A full-catalog blur/scale animation delays every mobile navigation paint. */
+  .tab-content.active { animation: none; }
+  /* The existing fixed inbox needs its host even when its desktop trigger is hidden. */
+  .topbar .bell-wrap { display: contents; }
+  .topbar #notif-bell { display: none; }
+  #mobile-more-toggle { position: relative; }
+  .mobile-inbox-badge { position: absolute; top: 3px; right: 7px; min-width: 16px; padding: 2px 4px; border-radius: 8px; background: #c90c22; color: #fff; font: 700 9px/1.2 "DM Sans", sans-serif; }
+  .mobile-inbox-badge.hidden { display: none; }
   body.mobile-menu-open { overflow: hidden; }
   .topbar { background: rgba(8, 11, 16, .96); box-shadow: 0 6px 20px rgba(0, 0, 0, .18); }
   .topbar::after { display: none; }

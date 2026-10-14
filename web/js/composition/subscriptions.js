@@ -50,6 +50,7 @@ export function composeSubscriptions({ movieSubscriptions, movieSubscriptionRule
         WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT,
       }),
   notifications: createNotifications(document.querySelector(".bell-wrap"), {
+        beforeOpen: () => getCore().actions.closeNavigationMenus(),
         getSnapshot: subscriptions.get,
         getSnapshotVersion: () => subscriptions.revision,
         check: subscriptions.check, onSnapshot: subscriptions.accept,

@@ -10,7 +10,7 @@ export function createQueueView(root, {
   syncSeriesQueueFlags, syncAnimeQueueFlags, syncAniworldQueueFlags,
   syncFpQueueIndicators, setDownloadState, setMobileCount, refresh, getArtwork = () => [],
 }) {
-  let scope, historyRows, historyJobs = [], historyKey = "", currentJobId = "";
+  let scope, historyRows, historyJobs = [], historyKey = "", currentJobId = "", currentItem = null;
   const rowCache = new Map(), groupCache = new Map();
   const wallpaper = createQueueWallpaper(root, getArtwork);
   const historyPanel = root.querySelector(".queue-history-panel");
@@ -18,7 +18,11 @@ export function createQueueView(root, {
     const groups = state.queue.groups || [];
     const live = rowCache.get(currentJobId)?.row.dataset.status === "downloading"
       ? groups.flatMap(group => group.items).find(item => item.job_id === currentJobId) : null;
-    const item = live || queueFocus(groups, currentJobId);
+    const focused = live || queueFocus(groups, currentJobId);
+    const ongoing = Number(state.queue.activity?.active_downloads) > 0 && currentItem?.job_status === "downloading";
+    const item = focused && queueStatus(focused) === "downloading" ? focused
+      : ongoing ? currentItem : focused;
+    currentItem = item;
     find("download-current").textContent = item?.title || "";
     wallpaper.update(item);
   }
@@ -61,7 +65,8 @@ function renderQueue(payload) {
   const desired = [], retained = new Set(), retainedGroups = new Set();
   if (!payload.groups.length) {
     list.replaceChildren(createViewState({ state: "empty", className: "queue-empty",
-      title: "Der Downloadplan ist leer", detail: "Filme oder Episoden erscheinen hier, sobald du sie hinzufügst.",
+      title: Number(payload.activity?.active_downloads) > 0 ? "Keine weiteren Downloads vorgemerkt" : "Der Downloadplan ist leer",
+      detail: Number(payload.activity?.active_downloads) > 0 ? "Der laufende Transfer wird unten angezeigt." : "Filme oder Episoden erscheinen hier, sobald du sie hinzufügst.",
     }));
   }
 
@@ -192,10 +197,13 @@ function renderQueue(payload) {
   }
   syncFpQueueIndicators();
   const queueItems = payload.groups.flatMap(group => group.items);
-  const active = queueItems.filter(item => ["downloading", "preparing", "cancelling"].includes(queueStatus(item))).length;
+  const active = Math.max(
+    queueItems.filter(item => ["downloading", "preparing", "cancelling"].includes(queueStatus(item))).length,
+    (Number(payload.activity?.active_downloads) || 0) + (Number(payload.activity?.active_preparations) || 0),
+  );
   const pending = queueItems.filter(item => ["queued", "waiting", "waiting_provider", "paused"].includes(queueStatus(item))).length;
   find("queue-summary").textContent = `${active} aktiv · ${pending} vorgemerkt`;
-  if (!queueItems.some(item => item.job_id === currentJobId && ["downloading", "preparing", "cancelling"].includes(queueStatus(item)))) currentJobId = "";
+  if (!active && !queueItems.some(item => item.job_id === currentJobId && ["downloading", "preparing", "cancelling"].includes(queueStatus(item)))) { currentJobId = ""; currentItem = null; }
   updateFocus();
 
   const activity = payload.activity || {};
@@ -260,16 +268,19 @@ function paintProgress(row, job) {
   row.querySelector(".queue-item-metrics").textContent = queueJobMetrics(job);
 }
 function updateQueueJobProgress(jobId, job) {
-  const row = rowCache.get(String(jobId))?.row;
-  if (!row) return;
-  paintProgress(row, { ...job, job_status: "downloading" });
-  // A verified progress event may arrive ahead of the next authoritative snapshot.
-  if (row.dataset.status !== "downloading") rowCache.get(String(jobId)).signature = "";
-  row.dataset.status = "downloading";
-  row.querySelector(".queue-item-status").textContent = "Lädt";
   currentJobId = String(jobId);
   const item = state.queue.groups.flatMap(group => group.items).find(item => item.job_id === currentJobId);
-  if (item) { find("download-current").textContent = item.title; wallpaper.update(item); }
+  // An active transfer may outlive the picked list. Keep its verified identity only,
+  // without recreating queue entries or exposing stale completed content.
+  if (item || job.slug) currentItem = { ...(item || (currentItem?.job_id === currentJobId ? currentItem : null) || {}), ...job, job_id: currentJobId, job_status: "downloading" };
+  const row = rowCache.get(currentJobId)?.row;
+  if (row) {
+    paintProgress(row, { ...job, job_status: "downloading" });
+    if (row.dataset.status !== "downloading") rowCache.get(currentJobId).signature = "";
+    row.dataset.status = "downloading";
+    row.querySelector(".queue-item-status").textContent = "Lädt";
+  }
+  if (currentItem) { find("download-current").textContent = currentItem.title || ""; wallpaper.update(currentItem); }
 }
 
 function renderQueueHistory(jobs) {
@@ -344,7 +355,12 @@ function renderQueueHistory(jobs) {
       });
       scope.listen(historyPanel, "toggle", () => { if (historyPanel.open) renderQueueHistory(historyJobs); });
       // Recheck late catalog hydration only while visible; this never requests metadata.
-      const observer = new MutationObserver(() => updateFocus());
+      let wasOpen = document.body.classList.contains("queue-open");
+      const observer = new MutationObserver(() => {
+        const open = document.body.classList.contains("queue-open");
+        if (open && !wasOpen) updateFocus();
+        wasOpen = open;
+      });
       observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
       scope.observe(observer);
       scope.interval(() => { if (document.body.classList.contains("queue-open")) updateFocus(); }, 4000);
@@ -359,7 +375,7 @@ function renderQueueHistory(jobs) {
     unmount() {
       scope?.dispose(); historyRows?.dispose(); wallpaper.dispose();
       for (const cached of rowCache.values()) cached.scope.dispose();
-      rowCache.clear(); groupCache.clear(); historyJobs = []; historyKey = ""; currentJobId = "";
+      rowCache.clear(); groupCache.clear(); historyJobs = []; historyKey = ""; currentJobId = ""; currentItem = null;
       scope = historyRows = null;
     },
   };

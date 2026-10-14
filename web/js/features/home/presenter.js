@@ -13,7 +13,14 @@ export function createHomePresenter(root, {
     animateShuffle();
   }
 
-  function renderHome({ force = false } = {}) {
+  function renderHome({ force = false, navigation = false } = {}) {
+    // Data/taste/layout updates still render normally. A warm mobile tab switch
+    // reuses its existing cards instead of reconciling the entire catalog in a tap.
+    if (navigation && !force && data.rendered && data.discoveryDay === localDateKey()
+        && root.ownerDocument?.defaultView?.matchMedia?.("(max-width: 820px)").matches) {
+      if (currentHomeLayout().hero_visible) scheduleHomeHeroRotation();
+      return;
+    }
     rememberAllHomeRailScroll();
     data.discoveryDay = localDateKey();
     const profile = loadDiscoveryProfile();

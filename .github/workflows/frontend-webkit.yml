@@ -39,6 +39,11 @@ jobs:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/storage-autopilot-browser.cjs
 
+      - name: Native mobile navigation and subscription inbox
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/mobile-app-browser.cjs
+
       - name: Mobile Download Center WebKit states, artwork and actions
         env:
           ROYAL_BROWSER: webkit
