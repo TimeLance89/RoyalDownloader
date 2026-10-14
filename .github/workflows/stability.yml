@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/stability.yml'
       - 'scripts/stability/**'
+      - 'web/js/features/downloads/**'
+      - 'web/js/features/notifications/**'
+      - 'web/js/features/home/presenter.js'
       - '**/*.py'
       - 'requirements*.lock'
       - 'Dockerfile*'
