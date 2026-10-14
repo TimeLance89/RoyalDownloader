@@ -624,14 +624,14 @@
   }
 
   .media-modal .series-action-bar { grid-template-columns: 1fr; }
+  /* Watch and trailer are assigned to distinct named grid areas by the
+     final mobile stylesheet; do not force both into column one. */
   .media-modal .series-selection-status,
-  .media-modal #series-watch-btn,
-  .media-modal .series-trailer-btn,
-  .media-modal #series-add-btn { grid-column: 1; }
+  .media-modal #series-add-btn { grid-column: 1 / -1; }
 
   .media-modal .series-jellyfin-status {
-    grid-column: 1;
-    grid-row: 4;
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 
   .media-modal .series-detail-panel .toolbar {

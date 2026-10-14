@@ -72,10 +72,23 @@ const {fixture} = require('./performance-fixture.cjs');
           language_checked:true, language_available:i!==0, content_languages:[i===0?'en':'de']}));
         fixtureApp.discovery.seriesActions.showSeriesDetail({base_slug:'serienstream:fixture',provider:'serienstream',
           title:'Royal Serien',description:'Staffeln entdecken und passende Folgen auswählen.',enabled_content_languages:['de'],
-          seasons:[{season:1,episodes}],episode_count:60,backdrop_url:'/fixture-art.svg'},episodes[0].slug);
+          seasons:[{season:1,episodes}],episode_count:60,backdrop_url:'/fixture-art.svg',
+          trailer:{site:'YouTube',key:'abcdefghijk',name:'Official preview'}},episodes[0].slug);
       });
       await page.locator('#series-tiles .ep-tile').nth(1).click();
+      assert.equal(await page.locator('#series-detail-trailer').isVisible(), true,
+        'series detail always offers a discoverable trailer action');
+      assert.match(await page.locator('#series-detail-trailer').textContent(), /Trailer/);
       if (mobile) {
+        await page.waitForTimeout(2200);
+        assert.equal(await page.locator('#series-detail-hero-frame').getAttribute('src'), null,
+          'mobile series must not autoplay video behind the synopsis');
+        const watch = await page.locator('#series-watch-btn').boundingBox();
+        const trailer = await page.locator('#series-detail-trailer').boundingBox();
+        assert.ok(watch && trailer && Math.abs(watch.y - trailer.y) < 8,
+          'trailer and subscription are the first two mobile actions');
+        assert.ok(watch.x + watch.width <= trailer.x + 1,
+          'mobile trailer and subscription buttons cannot overlap');
         const panel = await page.locator('#series-detail-modal .media-modal-panel').boundingBox();
         assert.equal(Math.round(panel.width),width); assert.equal(Math.round(panel.height),844);
         assert.equal(Math.round(panel.x),0); assert.equal(Math.round(panel.y),0);
@@ -97,6 +110,25 @@ const {fixture} = require('./performance-fixture.cjs');
         assert.equal(await page.locator('.series-selection-dock').evaluate(e => getComputedStyle(e).display),'contents');
         assert.equal(await page.locator('#series-detail-close .modal-back-icon').isVisible(),false);
       }
+      // Verified TMDB trailer opens the existing full player rather than
+      // silently failing or playing behind the mobile synopsis.
+      await page.locator('#series-detail-trailer').click();
+      assert.equal(await page.locator('#fp-trailer-modal').isVisible(), true,
+        'explicit series trailer control opens the existing full player');
+      assert.match(await page.locator('#fp-trailer-frame').getAttribute('src') || '', /youtube-nocookie\.com\/embed\/abcdefghijk/);
+      await page.locator('#fp-trailer-close').click();
+      assert.equal(await page.locator('#fp-trailer-modal').isHidden(), true);
+      await page.evaluate(() => {
+        window.__trailerSearch = null;
+        window.open = (...args) => { window.__trailerSearch = args; return null; };
+        fixtureApp.discovery.seriesActions.configureSeriesTrailer({title:'Royal Serien',year:2026});
+      });
+      assert.match(await page.locator('#series-detail-trailer').textContent(), /Trailer suchen/);
+      await page.locator('#series-detail-trailer').click();
+      const manualTrailer = await page.evaluate(() => window.__trailerSearch);
+      assert.ok(manualTrailer[0].startsWith('https://www.youtube.com/results?search_query='));
+      assert.equal(manualTrailer[1], '_blank');
+      assert.equal(manualTrailer[2], 'noopener,noreferrer');
       await page.locator('#series-detail-close').click();
       assert.equal(await page.locator('#series-detail-modal').isVisible(),false);
       assert.equal(await page.evaluate(() => document.body.classList.contains('media-modal-open')),false);

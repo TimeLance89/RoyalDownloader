@@ -392,6 +392,9 @@ export function createTrailers(document, { window = document.defaultView, storag
       || !heroTrailerAutoplayEnabled()
       || completedSeriesHeroTrailers.has(key)
       || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      // An autoplay YouTube iframe behind the synopsis is unstable on touch
+      // devices. The manually opened trailer modal remains fully available.
+      || window.matchMedia?.("(max-width: 820px)").matches
     ) {
       stopSeriesDetailHeroTrailer();
       return;
@@ -438,12 +441,26 @@ export function createTrailers(document, { window = document.defaultView, storag
     const trailerSeries = available
       ? { ...series, trailer: { ...series.trailer, key: trailerKey } }
       : null;
-    button.hidden = !available;
-    button.onclick = trailerSeries
-      ? () => openFpTrailerModal(trailerSeries, button, "series")
-      : null;
-    if (available) scheduleSeriesDetailHeroTrailer(trailerSeries);
-    else stopSeriesDetailHeroTrailer();
+    // Keep the action discoverable when the preferred content language has
+    // no playable TMDB trailer. Never silently fall back to foreign audio.
+    button.hidden = false;
+    if (available) {
+      button.innerHTML = '<span aria-hidden="true">▶</span> Trailer';
+      button.setAttribute("aria-label", "Serientrailer abspielen");
+      button.removeAttribute("title");
+      button.onclick = () => openFpTrailerModal(trailerSeries, button, "series");
+      scheduleSeriesDetailHeroTrailer(trailerSeries);
+    } else {
+      const name = [String(series?.title || "").trim(), String(series?.year || "").trim()]
+        .filter(Boolean).join(" ");
+      const search = "https://www.youtube.com/results?search_query="
+        + encodeURIComponent(name + " offizieller Trailer");
+      button.textContent = "Trailer suchen ↗";
+      button.setAttribute("aria-label", "Serientrailer auf YouTube suchen (neuer Tab)");
+      button.title = "Kein Trailer in der eingestellten Inhaltssprache hinterlegt.";
+      button.onclick = () => window.open(search, "_blank", "noopener,noreferrer");
+      stopSeriesDetailHeroTrailer();
+    }
   }
 
 
