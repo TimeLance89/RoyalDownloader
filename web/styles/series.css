@@ -630,8 +630,8 @@
   .media-modal #series-add-btn { grid-column: 1; }
 
   .media-modal .series-jellyfin-status {
-    grid-column: 1;
-    grid-row: 4;
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 
   .media-modal .series-detail-panel .toolbar {
