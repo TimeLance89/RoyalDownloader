@@ -148,7 +148,7 @@ export function createShellActions({
     // cannot inherit the previous tab's viewport depth and eagerly load pages.
     if (tabChanged) tabScroll.restore(name);
     document.dispatchEvent(new CustomEvent("royal:navigate", { detail: { name, autoLoad } }));
-    if (name === "home") renderHome();
+    if (name === "home") renderHome({ navigation: true });
     if (name === "filme" && autoLoad) ensureFpResults();
     if (name === "serien" && autoLoad) ensureSeriesResults();
     if (name === "anime" && autoLoad && !getAnime().get().loaded) animeBrowse("latest", 1);

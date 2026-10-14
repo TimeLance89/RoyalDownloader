@@ -43,3 +43,12 @@ test("movie artwork uses loaded metadata with bounded image resolution and safe 
   assert.deepEqual(queueArtwork({ slug: "film" }, meta, "https://royal.test"), ["https://royal.test/poster.jpg"]);
   assert.deepEqual(queueArtwork(null, meta, "https://royal.test"), []);
 });
+
+
+test("movie list artwork survives an empty detail cache without another metadata request", () => {
+  const meta = { movieState: { moviesCache: {}, metadataCache: {}, results: [
+    { slug: "quick", backdrop_url: "/quick.jpg" }, { slug: "other", backdrop_url: "/wrong.jpg" },
+  ] }, seriesState: { cache: {}, results: [] }, homeMovie: () => null, homeSeries: () => null };
+  assert.deepEqual(queueArtwork({ slug: "quick" }, meta, "https://royal.test"), ["https://royal.test/quick.jpg"]);
+  assert.deepEqual(queueArtwork({ slug: "unknown" }, meta, "https://royal.test"), []);
+});

@@ -92,7 +92,7 @@ jobs:
           ROYAL_DOWNLOAD_BASELINE: ${{ runner.temp }}/royal-download-baseline/web
         run: |
           git worktree add --detach "${RUNNER_TEMP}/royal-download-baseline" da5e5e72690facdb175d1540d2cb0a7618edbdf8
-          node --test tests/frontend/download-presentation.test.mjs
+          node --test tests/frontend/download-presentation.test.mjs tests/frontend/home-navigation.test.mjs
           node tests/frontend/download-center-browser.cjs
 
       - name: Upload mobile Download Center before and after renderings

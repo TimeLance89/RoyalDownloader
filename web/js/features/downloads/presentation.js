@@ -30,7 +30,8 @@ export function queueArtwork(item, { movieState, seriesState, homeMovie, homeSer
   const candidates = series ? [seriesState.cache[series], seriesState.current?.base_slug === series ? seriesState.current : null,
     seriesState.results.find(media => media.base_slug === series), homeSeries(series)]
     : [movieState.metadataCache[item.slug], movieState.moviesCache[item.slug],
-      movieState.detail?.slug === item.slug ? movieState.detail : null, homeMovie(item.slug), item];
+      movieState.detail?.slug === item.slug ? movieState.detail : null,
+      movieState.results?.find(media => media.slug === item.slug), homeMovie(item.slug), item];
   const urls = createArtworkUrls(origin);
   const images = [candidates.find(media => media?.backdrop_url)?.backdrop_url,
     candidates.find(media => media?.cover_url || media?.poster_url)?.cover_url

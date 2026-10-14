@@ -15,6 +15,20 @@ function snapshot(count = 50) {
     speed_bps: index === 0 ? 4500000 : 0, eta_seconds: index === 0 ? 138 : null,
   })) }] : [], activity: { active_downloads: count ? 1 : 0, pending_downloads: Math.max(0, count - 1) }, providers: {} };
 }
+function movieSnapshot() {
+  return { count: 3, groups: [{ name: "Filme", items: ["Quick – Die Erschaffung eines Serienkillers", "Fatman", "Der große Crash – Margin Call"].map((title, index) => ({
+    job_id: `film-${index}`, slug: ["quick", "fatman", "margin-call"][index], title,
+    job_status: index ? "preparing" : "downloading", progress: null, content_language: "de",
+    provider: index === 1 ? "filmpalast" : "filmfrei24", hoster_label: index === 1 ? "VIDARA +2" : "FilmFrei24 Direct",
+  })) }], activity: { active_downloads: 1, active_preparations: 2 }, providers: {} };
+}
+async function seedMovies(page) {
+  await page.evaluate(payload => {
+    fixtureApp.discovery.movieState.results = [{ slug: "quick", backdrop_url: "/fixture-art.svg?movie" }];
+    fixtureApp.core.actions.setDownloadState("active", "Download läuft", "Stream geladen · Download aktiv", null);
+    fixtureApp.core.actions.renderQueue(payload);
+  }, movieSnapshot());
+}
 async function seed(page, payload) {
   await page.evaluate(payload => {
     fixtureApp.discovery.seriesState.cache.cinema = { base_slug: "cinema", title: "The Last of Us", backdrop_url: "/fixture-art.svg" };
@@ -51,6 +65,7 @@ async function queueFocusSettled(page, id) {
         await run.page.evaluate(width => width < 821 ? fixtureApp.core.actions.openMobileQueue() : fixtureApp.core.actions.setQueueDockExpanded(true), width);
         await run.page.waitForTimeout(500);
         await run.page.screenshot({ scale: "css", path: `${output}/${engine}-before-${width}.png` });
+        if (width === 390) { await seedMovies(run.page); await run.page.waitForTimeout(500); await run.page.screenshot({ scale: "css", path: `${output}/${engine}-before-movies-${width}.png` }); }
       } finally { await run.close(); }
     }
   }
@@ -184,6 +199,30 @@ async function queueFocusSettled(page, id) {
         }, snapshot(1));
         assert.equal(await page.locator(".queue-item-status").textContent(), "Lädt", "Legacy done flags never hide a live job");
         assert.equal(await page.locator(".queue-item").evaluate(node => node.classList.contains("done")), false);
+
+        // User screenshots: short movie list without metrics and a transfer
+        // continuing after the picked list is cleared. Activity remains server-owned.
+        await seedMovies(page);
+        await page.waitForFunction(() => document.querySelector(".queue-wallpaper img.is-visible")?.src.includes("movie"));
+        assert.equal(await page.locator("#queue-summary").textContent(), "3 aktiv · 0 vorgemerkt");
+        assert.ok((await box(page, '[data-job-id="film-1"]')).height <= 120, "Source cards with no metrics do not reserve empty telemetry rows");
+        assert.ok(await page.locator("#queue-list").evaluate(node => node.scrollWidth <= node.clientWidth + 1), "No horizontal queue scrollbar");
+        await page.screenshot({ scale: "css", path: `${output}/${engine}-movies-${width}.png` });
+        await page.evaluate(() => {
+          fixtureApp.core.actions.renderQueue({ count: 0, groups: [], activity: { active_downloads: 1 }, providers: {} });
+          fixtureApp.core.actions.updateQueueJobProgress("film-0", { slug: "quick", title: "Quick – Die Erschaffung eines Serienkillers", progress: 89.3 });
+        });
+        assert.equal(await page.locator("#queue-summary").textContent(), "1 aktiv · 0 vorgemerkt");
+        assert.equal(await page.locator("#download-current").textContent(), "Quick – Die Erschaffung eines Serienkillers");
+        assert.equal(await page.locator(".queue-item").count(), 0, "Progress never recreates a removed queue entry");
+        assert.ok((await page.locator("#queue-list .queue-empty").textContent()).includes("Keine weiteren Downloads vorgemerkt"));
+        assert.ok((await box(page, ".queue-panel")).height < 600, "Empty queue uses a compact sheet");
+        assert.ok(await page.locator(".queue-wallpaper img.is-visible").evaluate(node => node.src.includes("movie")), "Active artwork survives an empty picked list");
+        await page.screenshot({ scale: "css", path: `${output}/${engine}-empty-active-${width}.png` });
+        await page.evaluate(() => fixtureApp.core.actions.renderQueue({ count: 0, groups: [], activity: { active_downloads: 0 }, providers: {} }));
+        assert.equal(await page.locator("#download-current").textContent(), "", "Authoritative idle snapshot clears previous identity");
+        assert.equal(await page.locator(".queue-wallpaper img.is-visible").count(), 0);
+        await seed(page, snapshot(1));
 
         // Failed backdrop falls back to poster. A delayed old image cannot replace newer content.
         await page.evaluate(() => { fixtureApp.discovery.seriesState.cache.cinema = { backdrop_url: "/missing.jpg", cover_url: "/fixture-art.svg?poster" }; });
