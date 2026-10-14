@@ -110,6 +110,14 @@ const {fixture} = require('./performance-fixture.cjs');
         assert.equal(await page.locator('.series-selection-dock').evaluate(e => getComputedStyle(e).display),'contents');
         assert.equal(await page.locator('#series-detail-close .modal-back-icon').isVisible(),false);
       }
+      // Verified TMDB trailer opens the existing full player rather than
+      // silently failing or playing behind the mobile synopsis.
+      await page.locator('#series-detail-trailer').click();
+      assert.equal(await page.locator('#fp-trailer-modal').isVisible(), true,
+        'explicit series trailer control opens the existing full player');
+      assert.match(await page.locator('#fp-trailer-frame').getAttribute('src') || '', /youtube-nocookie\.com\/embed\/abcdefghijk/);
+      await page.locator('#fp-trailer-close').click();
+      assert.equal(await page.locator('#fp-trailer-modal').isHidden(), true);
       await page.evaluate(() => {
         window.__trailerSearch = null;
         window.open = (...args) => { window.__trailerSearch = args; return null; };
