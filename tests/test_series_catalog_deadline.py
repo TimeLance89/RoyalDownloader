@@ -6,7 +6,122 @@ import pytest
 from fastapi import HTTPException
 
 import server  # noqa: F401 - registers the application service backend
-from application_services import series_catalog
+from application_services import series_catalog, series_catalog_cache
+
+
+@pytest.fixture
+def clean_catalog_cache():
+    with server.state.series_list_cache_lock:
+        saved = dict(server.state.series_list_cache)
+        server.state.series_list_cache.clear()
+    yield
+    with server.state.series_list_cache_lock:
+        server.state.series_list_cache.clear()
+        server.state.series_list_cache.update(saved)
+
+
+def series_items(prefix, count):
+    return [server.FilmpalastSeriesResult(
+        title=f"{prefix} {index}", base_slug=f"{prefix}-{index}",
+        sample_slug=f"{prefix}-{index}/s01e01", sample_url=f"https://example.invalid/{prefix}/{index}",
+    ) for index in range(count)]
+
+
+def test_slow_source_does_not_block_fast_followup_pages(monkeypatch, clean_catalog_cache):
+    items = series_items("fast", 100)
+
+    def load_pages(_mode, _letter, requests, _budget, _deadline, timed_out):
+        timed_out[0] = any(provider == "serienstream" for provider, _page in requests)
+        return {(provider, page): items[(page - 1) * 32:page * 32]
+                for provider, page in requests if provider == "filmpalast"}
+
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
+    monkeypatch.setattr(server, "_load_series_provider_pages", load_pages)
+    monkeypatch.setattr(server, "_schedule_series_provider_prefetch", lambda *_args: None)
+    first = server.series_catalog_page("discover", 1)
+    second = server.series_catalog_page("discover", 2)
+    assert len(first["entries"]) == len(second["entries"]) == 32
+    assert second["entries"][0].result.base_slug == "fast-32"
+    assert second["has_more"] is True
+
+
+def test_late_source_does_not_shift_already_emitted_offsets(monkeypatch, clean_catalog_cache):
+    fast, late = series_items("fast", 64), series_items("late", 32)
+    ready = [False]
+
+    def load_pages(_mode, _letter, requests, _budget, _deadline, timed_out):
+        timed_out[0] = not ready[0]
+        loaded = {}
+        for provider, page in requests:
+            if provider == "serienstream" and not ready[0]:
+                continue
+            items = late if provider == "serienstream" else fast
+            loaded[(provider, page)] = items[(page - 1) * 32:page * 32]
+        return loaded
+
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream", "filmpalast"])
+    monkeypatch.setattr(server, "_load_series_provider_pages", load_pages)
+    monkeypatch.setattr(server, "_schedule_series_provider_prefetch", lambda *_args: None)
+    first = server.series_catalog_page("discover", 1)
+    ready[0] = True
+    second = server.series_catalog_page("discover", 2)
+    third = server.series_catalog_page("discover", 3)
+    slugs = [entry.result.base_slug for result in [first, second, third] for entry in result["entries"]]
+    assert len(slugs) == len(set(slugs)) == 96
+    assert set(slugs) == {item.base_slug for item in [*fast, *late]}
+    assert third["has_more"] is False
+
+
+@pytest.mark.parametrize("cached_failure", [False, True])
+def test_failed_provider_page_is_pending_instead_of_catalog_end(monkeypatch, clean_catalog_cache, cached_failure):
+    def failed(*_args):
+        raise RuntimeError("Provider unavailable")
+
+    if cached_failure:
+        key = ("series-provider", "updates", "", "filmpalast", 1)
+        series_catalog_cache.cache_page(key, [], failed=True, ttl=30)
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["filmpalast"])
+    monkeypatch.setattr(series_catalog, "_fetch_series_provider_page", failed)
+    with pytest.raises(server.SeriesCatalogColdLoadLimit):
+        server.series_catalog_page("discover", 1)
+
+
+def test_partial_initial_page_waits_instead_of_skipping_offsets(monkeypatch, clean_catalog_cache):
+    items = series_items("partial", 12)
+
+    def load_pages(_mode, _letter, _requests, _budget, _deadline, timed_out):
+        timed_out[0] = True
+        return {("huhu", 1): items}
+
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["huhu", "serienstream"])
+    monkeypatch.setattr(server, "_load_series_provider_pages", load_pages)
+    with pytest.raises(server.SeriesCatalogColdLoadLimit):
+        server.series_catalog_page("discover", 1)
+
+
+def test_empty_successful_provider_page_is_a_real_catalog_end(monkeypatch, clean_catalog_cache):
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["filmpalast"])
+    monkeypatch.setattr(series_catalog, "_fetch_series_provider_page", lambda *_args: [])
+    result = server.series_catalog_page("discover", 1)
+    assert result["entries"] == []
+    assert result["has_more"] is False
+
+
+def test_full_serienstream_catalog_continues_past_296(monkeypatch, clean_catalog_cache):
+    from types import SimpleNamespace
+
+    items = series_items("catalog", 400)
+    scraper = SimpleNamespace(list_series_catalog=lambda page: items[(page - 1) * 32:page * 32])
+    monkeypatch.setattr(server, "provider_priority", lambda _kind: ["serienstream"])
+    monkeypatch.setattr(server.state.provider_health, "request_allowed", lambda _provider: True)
+    monkeypatch.setattr(server, "get_sto_scraper", lambda: scraper)
+    monkeypatch.setattr(server, "_schedule_series_provider_prefetch", lambda *_args: None)
+    slugs = []
+    for page in range(1, 14):
+        result = server.series_catalog_page("discover", page)
+        slugs.extend(entry.result.base_slug for entry in result["entries"])
+        assert result["has_more"] is (page < 13)
+    assert slugs == [item.base_slug for item in items]
 
 
 def test_incomplete_followup_page_waits_without_skipping_titles(monkeypatch):

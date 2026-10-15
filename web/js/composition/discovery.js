@@ -190,8 +190,9 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
           },
         }),
         series: createInfiniteScroll(document.getElementById("tab-serien"), {
+          trackScrollIntent: true,
           sentinel: document.getElementById("series-infinite"), retryButton: document.getElementById("series-infinite-retry"),
-          loadNext: () => services.seriesActions.loadNextSeriesPage(), retry() {
+          loadNext: options => services.seriesActions.loadNextSeriesPage(options), retry() {
             const mode = seriesState.browseMode;
             if (seriesState.loadingBrowse || !mode || mode === "search") return;
             if (seriesState.lastPageFull) services.seriesActions.loadNextSeriesPage({ retry: true }); else services.seriesActions.seriesBrowse(mode, 1);

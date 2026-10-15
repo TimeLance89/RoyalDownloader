@@ -92,6 +92,7 @@ class SerienstreamScraper:
         )
         # A-Z-Katalog ist eine grosse Seite (~2.4 MB); einmal je Prozess cachen.
         self._catalog_cache: Optional[List[FilmpalastSeriesResult]] = None
+        self._browse_catalog_cache: Optional[List[FilmpalastSeriesResult]] = None
         # /beliebte-serien (Rubriken Neu/Angesagt) kurz cachen.
         self._beliebte_cache: Optional[tuple] = None
         # True sobald serienstream das Captcha-Gate (Turnstile) aktiviert hat –
@@ -206,6 +207,25 @@ class SerienstreamScraper:
     # Rückwärtskompatibel: list_series -> angesagte Serien
     def list_series(self, page: int = 1) -> List[FilmpalastSeriesResult]:
         return self.list_trending(page)
+
+    def list_series_catalog(self, page: int = 1) -> List[FilmpalastSeriesResult]:
+        """Browse the entire catalog, beyond the limited recommendation lists."""
+        if self._browse_catalog_cache is None:
+            catalog = self._load_catalog()
+            try:
+                highlights = [*self.list_trending(), *self.list_new()]
+            except Exception as exc:
+                self._log(f"serienstream Empfehlungen nicht verfügbar: {exc}")
+                highlights = []
+            seen = set()
+            ordered = []
+            for result in [*highlights, *catalog]:
+                if result.base_slug not in seen:
+                    seen.add(result.base_slug)
+                    ordered.append(result)
+            self._browse_catalog_cache = ordered
+        start = (max(1, int(page)) - 1) * 32
+        return self._browse_catalog_cache[start:start + 32]
 
     @staticmethod
     def _cards_under_heading(soup: BeautifulSoup, needle: str) -> list:

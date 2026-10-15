@@ -26,7 +26,12 @@ def cache_state(cache_key: tuple) -> tuple[Optional[list], str]:
         ttl = cached[2] if cached and len(cached) > 2 else SERIES_LIST_CACHE_TTL
         age = time.time() - cached[0] if cached else 0.0
         if cached and age < ttl:
+            if len(cached) > 3 and cached[3]:
+                return list(cached[1]), "failed"
             return list(cached[1]), "fresh"
+        if cached and len(cached) > 3 and cached[3]:
+            state.series_list_cache.pop(cache_key, None)
+            return None, "missing"
         if cached and age < SERIES_LIST_STALE_TTL:
             return list(cached[1]), "stale"
         if cached:
@@ -39,7 +44,7 @@ def cached_page(cache_key: tuple) -> Optional[list]:
     return results if freshness == "fresh" else None
 
 
-def cache_page(cache_key: tuple, results: list, ttl: int = SERIES_LIST_CACHE_TTL) -> None:
+def cache_page(cache_key: tuple, results: list, ttl: int = SERIES_LIST_CACHE_TTL, *, failed: bool = False) -> None:
     now = time.time()
     with state.series_list_cache_lock:
         expired = [
@@ -54,7 +59,25 @@ def cache_page(cache_key: tuple, results: list, ttl: int = SERIES_LIST_CACHE_TTL
                 key=lambda key: state.series_list_cache[key][0],
             )
             state.series_list_cache.pop(oldest, None)
-        state.series_list_cache[cache_key] = (now, list(results), ttl)
+        state.series_list_cache[cache_key] = (now, list(results), ttl, failed)
+
+
+def stabilize_catalog(key: tuple, entries: list, page: int, size: int, merge: Callable) -> list:
+    """Keep already emitted offsets when a slow source joins later waves."""
+    cache_key = ("series-browse-order", *key)
+    with state.series_list_cache_lock:
+        cached = state.series_list_cache.get(cache_key)
+        if cached and time.time() - cached[0] >= SERIES_LIST_STALE_TTL:
+            cached = None
+        if not cached and page != 1:
+            return entries
+        ordered = merge(list(cached[1]) if cached else [], entries)
+        # Retain only the emitted prefix, so unread titles can still be refreshed.
+        emitted = max(len(cached[1]) if cached else 0, page * size)
+        state.series_list_cache[cache_key] = (
+            time.time(), ordered[:emitted], SERIES_LIST_STALE_TTL,
+        )
+        return ordered
 
 
 def load_pages(
@@ -79,7 +102,12 @@ def load_pages(
         )
         cache_key = ("series-provider", cache_mode, letter_key, provider, int(source_page))
         cached, freshness = cache_state(cache_key)
-        if freshness == "missing":
+        if freshness == "failed":
+            if timed_out is not None:
+                timed_out[0] = True
+            if cached:
+                loaded[(provider, source_page)] = list(cached)
+        elif freshness == "missing":
             missing.append((provider, source_page, cache_key))
         else:
             loaded[(provider, source_page)] = list(cached or [])
@@ -106,7 +134,7 @@ def load_pages(
                 "warn",
             )
             results = list(stale_fallback or [])
-            cache_page(cache_key, results, ttl=SERIES_LIST_FAILURE_CACHE_TTL)
+            cache_page(cache_key, results, ttl=SERIES_LIST_FAILURE_CACHE_TTL, failed=True)
         else:
             cache_page(cache_key, results)
         finally:
@@ -163,7 +191,8 @@ def load_pages(
         try:
             loaded[(provider, source_page)] = list(future.result())
         except Exception:
-            loaded[(provider, source_page)] = []
+            if timed_out is not None:
+                timed_out[0] = True
     return loaded
 
 

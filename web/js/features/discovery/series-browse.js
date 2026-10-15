@@ -10,17 +10,18 @@ export function createSeriesBrowse(root, {
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null, request = null, cancelRequest = null;
+  let nextPage = null;
   const current = id => scope?.active && request?.scope.active
     && request.id === id && seriesState.browseRequestSeq === id;
   const transientCatalogError = error => error?.code === "series_catalog_pending"
     || [409, 429, 502, 503, 504, 520, 521, 522, 524].includes(Number(error?.status))
     || ["network_error", "request_timeout"].includes(error?.code);
-  function scheduleTransientRecheck() {
+  function scheduleInfiniteRecheck(next = recheckSeriesInfinite) {
     const owner = scope;
     const callback = () => {
       if (!owner?.active || getActiveTab() !== "serien"
           || seriesState.loadingBrowse || seriesState.loadError) return;
-      recheckSeriesInfinite();
+      next();
     };
     if (typeof scheduleRecheck === "function") {
       scheduleRecheck(callback);
@@ -86,6 +87,7 @@ export function createSeriesBrowse(root, {
     if (!scope?.active) return;
     if (seriesState.browseMode !== "search" && !seriesState.searchReturn) return;
     cancelRequest?.();
+    nextPage = null;
     const saved = seriesState.searchReturn;
     seriesState.searchReturn = null;
     byId("series-search").value = "";
@@ -106,6 +108,7 @@ export function createSeriesBrowse(root, {
       sources: saved.sources,
     });
     renderSeriesTiles();
+    void prepareNextSeriesPage();
   }
 
   async function seriesSearch() {
@@ -118,6 +121,7 @@ export function createSeriesBrowse(root, {
     rememberSearch(q, "series");
     closeSearchSuggestions("series-search-suggestions", "series-search");
     rememberSeriesSearchContext();
+    nextPage = null;
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
     seriesState.browseMode = "search";
@@ -157,8 +161,39 @@ export function createSeriesBrowse(root, {
       : { mode, page };
   }
 
+  function prepareNextSeriesPage() {
+    const mode = seriesState.browseMode;
+    if (!scope?.active || getActiveTab() !== "serien" || seriesState.loadingBrowse
+        || !mode || mode === "search" || !seriesState.lastPageFull) return;
+    const id = seriesState.browseRequestSeq;
+    const page = seriesState.page + 1;
+    if (nextPage?.id === id && nextPage.mode === mode && nextPage.page === page) return nextPage.promise;
+    const pending = { id, mode, page, data: null, error: null };
+    nextPage = pending;
+    const valid = () => nextPage === pending && current(id)
+      && seriesState.browseMode === mode && seriesState.page + 1 === page;
+    pending.promise = load(seriesParams(mode, page), id, true)
+      .then(async data => {
+        if (!valid()) return;
+        await preloadSeriesPosterImages(data.results || [], 2000, scope.signal);
+        if (valid()) pending.data = data;
+      })
+      .catch(error => {
+        if (!valid()) return;
+        if (transientCatalogError(error)) {
+          scheduleInfiniteRecheck(() => {
+            if (!valid()) return;
+            nextPage = null;
+            void prepareNextSeriesPage();
+          });
+        } else pending.error = error;
+      });
+    return pending.promise;
+  }
+
   async function seriesBrowse(mode, page, { append = false } = {}) {
     if (!scope?.active) return;
+    nextPage = null;
     if (mode !== "search") clearSeriesSearchContext();
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
@@ -173,8 +208,9 @@ export function createSeriesBrowse(root, {
       byId("series-status").textContent = `Lade ${modeLabels[mode] || "Serien"} …`;
     }
     let recheckAfterSettle = false;
+    let retryInitialPage = false;
     try {
-      const data = await load(seriesParams(mode, page), requestId, append);
+      const data = await load(seriesParams(mode, page), requestId, true);
       if (!current(requestId)) return false;
       // Serienkarten sofort stabil anhaengen; Poster, TMDB und Jellyfin werden
       // parallel pro Karte ergaenzt statt die ganze Folgeseite zu sperren.
@@ -182,13 +218,14 @@ export function createSeriesBrowse(root, {
       if (append) void preloadSeriesPosterImages(data.results || [], 2000, scope.signal);
       if (!append) seriesState.previewFromHome = false;
       if (!append && page === 1) seriesState.lastCatalogRefreshAt = Date.now();
+      recheckAfterSettle = true;
       return true;
     } catch (error) {
       if (!current(requestId)) return false;
       byId("series-status").textContent = append
         ? `Nachladen fehlgeschlagen: ${error.message}`
         : `Fehler: ${error.message}`;
-      if (append && transientCatalogError(error)) {
+      if (transientCatalogError(error)) {
         // A cold provider page is not a permanent pagination failure. Keep the
         // sentinel armed and try again once the in-flight provider futures had
         // time to populate the cache. A persistent loadError would otherwise
@@ -196,6 +233,7 @@ export function createSeriesBrowse(root, {
         seriesState.loadError = "";
         byId("series-status").textContent = "Weitere Serien werden vorbereitet …";
         recheckAfterSettle = true;
+        retryInitialPage = !append;
       } else if (append) {
         seriesState.loadError = error.message;
       } else {
@@ -208,7 +246,11 @@ export function createSeriesBrowse(root, {
       if (current(requestId)) {
         seriesState.loadingBrowse = false;
         updateSeriesInfiniteState();
-        if (recheckAfterSettle) scheduleTransientRecheck();
+        if (retryInitialPage) {
+          scheduleInfiniteRecheck(() => {
+            if (current(requestId)) void seriesBrowse(mode, page);
+          });
+        } else if (recheckAfterSettle) void prepareNextSeriesPage();
       }
     }
   }
@@ -219,13 +261,14 @@ export function createSeriesBrowse(root, {
     if (seriesState.results.length) {
       if (!byId("series-results").childElementCount) renderSeriesResults();
       refreshSeriesCatalogInBackground();
+      void prepareNextSeriesPage();
       return;
     }
     if (seriesState.loadingBrowse) return;
     seriesBrowse("discover", 1);
   }
 
-  async function loadNextSeriesPage({ retry = false } = {}) {
+  async function loadNextSeriesPage({ retry = false, reveal = false } = {}) {
     if (!scope?.active) return;
     const mode = seriesState.browseMode;
     if (
@@ -236,7 +279,26 @@ export function createSeriesBrowse(root, {
       || (seriesState.loadError && !retry)
       || !seriesState.lastPageFull
     ) return;
-    await seriesBrowse(mode, seriesState.page + 1, { append: true });
+    if (retry) {
+      if (nextPage?.error) nextPage = null;
+      seriesState.loadError = "";
+      updateSeriesInfiniteState();
+    }
+    if ((reveal || retry) && nextPage?.data) {
+      const data = nextPage.data;
+      nextPage = null;
+      ++seriesState.browseRequestSeq;
+      applySeriesResults(data, { append: true });
+      void prepareNextSeriesPage();
+      return;
+    }
+    if ((reveal || retry) && nextPage?.error) {
+      seriesState.loadError = nextPage.error.message;
+      updateSeriesInfiniteState();
+      return;
+    }
+    // Completion only fills this buffer. A later downward scroll reveals it.
+    await prepareNextSeriesPage();
   }
 
   return {
@@ -277,6 +339,7 @@ export function createSeriesBrowse(root, {
     },
     unmount() {
       scope?.dispose(); scope = null; request = null; cancelRequest = null;
+      nextPage = null;
       seriesState.loadingBrowse = false;
     },
     clear: clearSeriesSearchContext, remember: rememberSeriesSearchContext, restore: restoreSeriesSearchContext,
