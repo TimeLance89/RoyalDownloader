@@ -399,7 +399,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   for (const id of ["tab-filme", "fp-infinite", "tab-serien", "series-infinite"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
-  assert.match(app, /scope\.listen\(win, "scroll", refresh, \{ passive: true \}\)/);
+  assert.match(app, /scope\.listen\(win, "scroll", onScroll, \{ passive: true \}\)/);
   assert.match(app, /sentinel\.getBoundingClientRect\(\)\.top/);
   assert.match(app, /if \(!scope\?\.active \|\| scheduled\) return/);
   assert.match(app, /createInfiniteScroll\(document.getElementById\("tab-filme"\)/);

@@ -14,6 +14,8 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
     try {
       page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
       const requests = [];
+      let seriesPageTwoLoaded;
+      const seriesPageTwo = new Promise(resolve => { seriesPageTwoLoaded = resolve; });
       const movies = Array.from({ length: 34 }, (_, i) => ({
         slug: `filmpalast:catalog-${i}`, title: `Catalog Movie ${String(i).padStart(2, "0")}`,
         year: i % 2 ? "2015" : "2026", rating: i % 2 ? 6 : 9, genres: ["Drama"],
@@ -50,6 +52,7 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
           data = { configured: true, statuses: Object.fromEntries(route.request().postDataJSON().items.map(item => [item.slug, item.title.endsWith("00") ? "owned" : "missing"])) };
         } else return route.fallback();
         await route.fulfill({ json: data });
+        if (path === "/api/series" && Number(url.searchParams.get("page")) === 2) seriesPageTwoLoaded();
       });
       // Remove Home's synthetic performance seed: catalog content must come from HTTP.
       await page.evaluate(async () => {
@@ -109,7 +112,16 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
         await page.waitForFunction(selector => document.querySelector(selector)?.textContent === "Loaded catalog detail fixture", tab === "filme" ? "#fp-detail-desc" : "#series-desc");
         await page.keyboard.press("Escape");
         await page.waitForSelector(`#${modal}-modal`, { state: "hidden" });
+        if (tab === "serien") {
+          await seriesPageTwo;
+          // Poster preparation may use its full two-second budget. Completion
+          // must leave the current 32 cards untouched until downward input.
+          await page.waitForTimeout(2200);
+          assert.equal(await page.locator(selector).count(), 32);
+          assert.notEqual(await page.locator("#series-infinite").getAttribute("data-state"), "loading");
+        }
         await page.locator(`${selector}`).last().scrollIntoViewIfNeeded();
+        if (tab === "serien") await page.mouse.wheel(0, 200);
         await page.waitForFunction(selector => document.querySelectorAll(selector).length === 34, selector);
         assert.ok(requests.some(path => path.startsWith(`/api/${tab === "filme" ? "movies" : "series"}?`) && /page=2/.test(path)));
         assert.equal(await page.locator(`#${tab === "filme" ? "movie" : "series"}-subscriptions-title`).isVisible(), true);
