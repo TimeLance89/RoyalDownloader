@@ -78,7 +78,17 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         openSubscription: (...args) => getSubscriptions().movieSubscriptionRules.open(...args),
         activateResultCard: (...args) => services.movieActions.activateResultCard(...args), applyFpSmartFilters: (...args) => services.movieActions.applyFpSmartFilters(...args), configureFpDetailAction: (...args) => services.movieActions.configureFpDetailAction(...args), configureFpTrailer: (...args) => services.movieActions.configureFpTrailer(...args), createResultCardVisual: (...args) => services.movieActions.createResultCardVisual(...args), dedupeCatalogMedia: (...args) => getSubscriptions().actions.dedupeCatalogMedia(...args), discardObservedResultPosters: (...args) => services.movieActions.discardObservedResultPosters(...args), fpMetadataPreloadItems: (...args) => services.movieActions.fpMetadataPreloadItems(...args), fpSmartFilteredResults: (...args) => services.movieActions.fpSmartFilteredResults(...args), fpSmartFilters: (...args) => services.movieActions.fpSmartFilters(...args), homeMovieBySlug: (...args) => getHome().actions.homeMovieBySlug(...args), mediaJellyfinStatus: (...args) => getHome().actions.mediaJellyfinStatus(...args), mergeFpMetadata: (...args) => services.movieActions.mergeFpMetadata(...args), preloadTmdbMetadata: (...args) => services.movieActions.preloadTmdbMetadata(...args), refreshFpJellyfinStatus: (...args) => services.movieActions.refreshFpJellyfinStatus(...args), refreshMovieFeatureCandidates: (...args) => getHome().actions.refreshMovieFeatureCandidates(...args), renderFpAbout: (...args) => services.movieActions.renderFpAbout(...args), renderFpExtras: (...args) => services.movieActions.renderFpExtras(...args), renderFpSimilarTitles: (...args) => services.movieActions.renderFpSimilarTitles(...args), scheduleFpCatalogRefresh: (...args) => services.movieActions.scheduleFpCatalogRefresh(...args), selectFpRow: (...args) => services.movieActions.selectFpRow(...args), setCatalogJellyfinBadge: (...args) => getHome().actions.setCatalogJellyfinBadge(...args), syncResultCardPoster: (...args) => services.movieActions.syncResultCardPoster(...args), toggleFpPick: (...args) => services.movieActions.toggleFpPick(...args), updateTasteFeedbackButtons: (...args) => getHome().actions.updateTasteFeedbackButtons(...args),
       }),
-  seriesStatus: createSeriesStatus(document.getElementById("series-status"), document.getElementById("series-jellyfin-status")),
+  seriesStatus: createSeriesStatus(document.getElementById("series-status"), document.getElementById("series-jellyfin-status"), {
+    onLibraryStatus(series, status) {
+      getIntegrations().catalogJellyfin.applySeries(series, status);
+      for (const item of seriesState.results) {
+        if (item.base_slug === series.base_slug
+            || (series.tmdb_id && String(item.tmdb_id || "") === String(series.tmdb_id))) {
+          services.seriesActions.updateSeriesResultCard(item.base_slug);
+        }
+      }
+    },
+  }),
   resultCards: createResultCards(document, {
         coverCandidates: url => artworkUrls.coverThumbnailCandidates(url), mediaCardInitials: (...args) => services.movieActions.mediaCardInitials(...args), scheduleResultPoster: (...args) => services.movieActions.scheduleResultPoster(...args),
         discardPoster: image => getCore().cardArtwork.discard(image), setFpPosterJellyfinBadge: (...args) => services.movieActions.setFpPosterJellyfinBadge(...args),

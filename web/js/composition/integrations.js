@@ -24,6 +24,13 @@ export function composeIntegrations({ movieState, getHome, getDiscovery, getSett
           ...movieState.results.filter(item => item.slug === slug), ...getHome().actions.homeMovieInstances(slug),
           movieState.metadataCache[slug], movieState.moviesCache[slug],
         ],
+        getSeriesInstances: () => {
+          const home = getHome().homeData.get();
+          return [
+            ...getDiscovery().seriesState.results,
+            ...home.trendingSeries, ...home.newSeries, ...home.discoverySeries,
+          ];
+        },
       }),
   jellyfin: createJellyfinSettings(document.getElementById("jellyfin-url").closest(".settings-group")),
   setupJellyfin: createJellyfinUserPicker(document.getElementById("setup-wizard"), {

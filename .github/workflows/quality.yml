@@ -54,6 +54,9 @@ jobs:
       - name: Trailer handoff retains position and prevents duplicate background players
         run: node tests/frontend/trailer-handoff-browser.cjs
 
+      - name: Series Jellyfin ribbons follow enriched identities and confirmed detail inventory
+        run: node tests/frontend/series-jellyfin-ribbon-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
