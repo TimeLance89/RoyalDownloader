@@ -1646,7 +1646,7 @@ test("catalog Jellyfin propagates one deduplicated series result to every visibl
 });
 
 
-test("trailers own pending playback, preserve position and ignore disposed callbacks", t => {
+for (const kind of ["film", "series"]) test(`${kind} trailers preserve position and exclude background playback during late updates`, t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const previousFrame = globalThis.requestAnimationFrame;
   const previousCancel = globalThis.cancelAnimationFrame;
@@ -1666,7 +1666,7 @@ test("trailers own pending playback, preserve position and ignore disposed callb
     setAttribute(name, value) { this.attrs[name] = value; }
     querySelector() { return { textContent: "" }; }
     querySelectorAll() { return []; }
-    closest() { return elements.get("fp-detail-panel"); }
+    closest() { return elements.get(this.id.startsWith("series") ? "series-panel" : "fp-detail-panel"); }
     focus() { this.focusCount++; }
   }
   const elements = new Map();
@@ -1678,19 +1678,21 @@ test("trailers own pending playback, preserve position and ignore disposed callb
     querySelector: selector => get(selector === "#fp-detail-panel" ? "fp-detail-panel" : "series-panel") };
   const trailers = createTrailers(document, { window, storage: { getItem: () => null, setItem() {} } });
   const movie = { title: "Movie", trailer: { site: "YouTube", key: "abcdefghijk" } };
-  get("fp-detail-modal").hidden = false;
+  get(kind === "film" ? "fp-detail-modal" : "series-detail-modal").hidden = false;
+  const heroId = kind === "film" ? "fp-detail-hero-frame" : "series-detail-hero-frame";
+  const muteId = kind === "film" ? "fp-detail-hero-mute" : "series-detail-hero-mute";
   trailers.mount(); trailers.mount();
-  trailers.film.schedule(movie);
-  trailers.film.stop();
+  trailers[kind].schedule(movie);
+  trailers[kind].stop();
   t.mock.timers.tick(2500);
-  assert.equal(get("fp-detail-hero-frame").src, undefined);
-  trailers.film.schedule(movie);
+  assert.equal(get(heroId).src, undefined);
+  trailers[kind].schedule(movie);
   t.mock.timers.tick(2000);
-  const hero = get("fp-detail-hero-frame");
+  const hero = get(heroId);
   const loaded = hero.onload;
   loaded(); // Also checks that the film panel is in scope.
   const src = hero.src;
-  trailers.film.schedule(movie);
+  trailers[kind].schedule(movie);
   assert.equal(hero.src, src);
   const send = (payload, origin = "https://www.youtube-nocookie.com") => {
     const event = new Event("message");
@@ -1699,19 +1701,35 @@ test("trailers own pending playback, preserve position and ignore disposed callb
   };
   send({ info: { currentTime: 32 } }, "https://untrusted.example");
   send({ info: { currentTime: 17 } });
-  trailers.open(movie, get("trigger"));
+  trailers.open(movie, get("trigger"), kind);
   assert.match(get("fp-trailer-frame").src, /&start=17&/);
   assert.equal(hero.src, undefined);
   loaded();
-  assert.equal(get("fp-detail-hero-mute").hidden, true);
+  assert.equal(get(muteId).hidden, true);
+  const playerSrc = get("fp-trailer-frame").src;
+  get("fp-detail-modal").hidden = false;
+  get("series-detail-modal").hidden = false;
+  // Enrichment and availability responses may configure the same detail again
+  // after its hero has handed playback to the full player.
+  trailers.film.configure(movie);
+  trailers.series.configure(movie);
+  trailers.film.schedule(movie);
+  trailers.series.schedule(movie);
+  t.mock.timers.tick(2500);
+  assert.equal(get("fp-detail-hero-frame").src, undefined);
+  assert.equal(get("series-detail-hero-frame").src, undefined);
+  assert.equal(get("fp-trailer-frame").src, playerSrc);
+  trailers.open(movie, get("trigger"), kind);
+  assert.equal(get("fp-trailer-frame").src, playerSrc, "Repeated clicks must not restart the full player");
   const staleLoad = get("fp-trailer-frame").onload;
+  const focusBeforeClose = get("fp-trailer-close").focusCount;
   trailers.close();
   staleLoad();
   t.mock.timers.tick(12000);
   assert.equal(get("fp-trailer-modal").dataset.playerState, "idle");
-  assert.equal(get("fp-trailer-close").focusCount, 0);
+  assert.equal(get("fp-trailer-close").focusCount, focusBeforeClose);
   assert.equal(get("trigger").focusCount, 1);
-  trailers.film.schedule(movie);
+  trailers[kind].schedule(movie);
   trailers.unmount();
   t.mock.timers.tick(2500);
   assert.equal(hero.src, undefined);

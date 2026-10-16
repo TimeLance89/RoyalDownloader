@@ -51,6 +51,9 @@ jobs:
       - name: Movie and series viewport window releases offscreen cards and posters
         run: node tests/frontend/catalog-window-browser.cjs
 
+      - name: Trailer handoff retains position and prevents duplicate background players
+        run: node tests/frontend/trailer-handoff-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
