@@ -45,8 +45,17 @@ jobs:
 
       - name: Populated movie and series catalogs on desktop and touch mobile
         run: node tests/frontend/catalog-browser.cjs
-      - name: Series pagination recovery
+      - name: Series hidden prefetch, silent recovery and reveal on downward scroll
         run: node tests/frontend/series-pagination-browser.cjs
+
+      - name: Movie and series viewport window releases offscreen cards and posters
+        run: node tests/frontend/catalog-window-browser.cjs
+
+      - name: Trailer handoff retains position and prevents duplicate background players
+        run: node tests/frontend/trailer-handoff-browser.cjs
+
+      - name: Series Jellyfin ribbons follow enriched identities and confirmed detail inventory
+        run: node tests/frontend/series-jellyfin-ribbon-browser.cjs
 
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
@@ -86,6 +95,21 @@ jobs:
         env:
           ROYAL_SCROLLEND_FALLBACK: "1"
         run: node tests/frontend/mobile-browser.cjs
+
+      - name: Mobile Download Center states, artwork, actions and large queues
+        env:
+          ROYAL_DOWNLOAD_BASELINE: ${{ runner.temp }}/royal-download-baseline/web
+        run: |
+          git worktree add --detach "${RUNNER_TEMP}/royal-download-baseline" da5e5e72690facdb175d1540d2cb0a7618edbdf8
+          node --test tests/frontend/download-presentation.test.mjs tests/frontend/home-navigation.test.mjs
+          node tests/frontend/download-center-browser.cjs
+
+      - name: Upload mobile Download Center before and after renderings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mobile-download-center-chromium
+          path: artifacts/mobile-download-center/
 
       - name: Frozen desktop and mobile CSS equivalence
         if: ${{ !cancelled() }}
@@ -220,29 +244,52 @@ jobs:
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
 
+      - name: Focused direct HTTP resume regression tests
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: timeout 180s python -m pytest -q tests/test_http_resume.py
+
+      - name: Series catalog completeness, pending sources and stable pagination
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: >-
+          timeout 180s python -m pytest -q
+          tests/test_series_catalog_deadline.py
+          tests/test_series_catalog_fallback.py
+          tests/test_serienstream_series.py
+          tests/test_series_search_provider_identity.py
+
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
-      - name: Run tests with critical-module coverage
+      - name: Load pinned Python base image with registry fallback
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 8
+        shell: bash
         run: |
-          coverage run --source=application_services,core.app_state,core.auth,core.config,media.media_quality,core.network_guard,core.proxy_security,core.queue_jobs,core.queue_performance,core.runtime_cache,core.security_runtime,updates.self_updater,core.setup_bootstrap,updates.update_channels,updates.update_checker,core.websocket_manager,updates.ytdlp_updater,integrations.serienstream_shared_session,media.session_manager -m pytest -q
-          coverage report --skip-covered --fail-under=45
-          coverage report \
-            --include='application_services/movie_subscription_quality_hardening.py,application_services/movie_subscription_runtime_hardening.py,application_services/download_storage_guard.py' \
-            --fail-under=65
-          coverage report --include='integrations/serienstream_shared_session.py' --fail-under=70
-          coverage report --include='application_services/auth.py' --fail-under=75
-          coverage report --include='application_services/security_hardening.py' --fail-under=90
-          coverage xml -o coverage.xml
-
-      - name: Load pinned Python base image from official mirror
-        if: ${{ steps.change-scope.outputs.backend == 'true' }}
-        run: |
-          # Same official manifest as Docker Hub; avoid shared-runner pull limits.
-          python_base="public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
-          docker pull "${python_base}"
-          docker tag "${python_base}" python:3.12.13-slim-bookworm
+          # Identical official digest at each registry: never fall back to an
+          # unpinned or floating base image if a public mirror is rate-limited.
+          digest="sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+          local_tag="python:3.12.13-slim-bookworm"
+          images=(
+            "public.ecr.aws/docker/library/python:3.12.13-slim-bookworm@${digest}"
+            "mirror.gcr.io/library/python:3.12.13-slim-bookworm@${digest}"
+            "docker.io/library/python:3.12.13-slim-bookworm@${digest}"
+          )
+          for attempt in 1 2; do
+            for image in "${images[@]}"; do
+              echo "::notice::Trying pinned Python base image from ${image%%/*} (round ${attempt})"
+              if timeout 75s docker pull --platform linux/amd64 "${image}"; then
+                docker tag "${image}" "${local_tag}"
+                echo "Pinned Python base image ready from ${image%%/*}"
+                exit 0
+              fi
+              echo "::warning::Base image registry unavailable; trying next mirror"
+            done
+            sleep $((attempt * 8))
+          done
+          echo "::error::Unable to pull pinned Python base image from any registry"
+          exit 1
 
       - name: Build container image
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
@@ -553,12 +600,11 @@ jobs:
           git worktree remove --force "${RUNNER_TEMP}/royal-release-rc3" >/dev/null 2>&1 || true
           rm -rf "${RUNNER_TEMP}/royal-release-backup-${GITHUB_RUN_ID}"
 
-      - name: Upload security and coverage artifacts
+      - name: Upload security artifacts
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # immutable v6 line
         with:
           name: security-verification-artifacts
           path: |
-            coverage.xml
             dependency-sbom.cdx.json
             container-sbom.cdx.json

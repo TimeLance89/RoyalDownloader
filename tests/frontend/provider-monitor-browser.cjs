@@ -165,7 +165,17 @@ const { fixture } = require("./performance-fixture.cjs");
       unavailable = false;
       await monitor.locator('details[data-provider="filmpalast"] > summary')[interact]();
       assert.match(await monitor.textContent(), /Gesund/);
-      await monitor.locator('[data-panel="filmpalast-repairs"] > summary').click();
+      const repairSummary = monitor.locator('[data-panel="filmpalast-repairs"] > summary');
+      // The settings page has its own scroll container. WebKit's automatic
+      // pointer scroll can leave deeply nested disclosures below its viewport,
+      // especially after opening the parent details. Scroll immediately
+      // inside the real browser before exercising the same pointer click.
+      // Do not force the click or toggle "open" programmatically: the native
+      // disclosure default action must still work.
+      await repairSummary.evaluate(node => node.scrollIntoView({
+        behavior: "instant", block: "center", inline: "nearest",
+      }));
+      await repairSummary.click();
       // WebKit may finish the click before the native disclosure task. Wait
       // for its default action, then independently check that our bubbling
       // toggle handler preserves the exact panel and repair control.

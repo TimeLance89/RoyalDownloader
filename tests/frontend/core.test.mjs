@@ -33,6 +33,74 @@ import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-poli
 import { createDailyTop } from "../../web/js/features/home/daily-top.js";
 import { createCardArtwork } from "../../web/js/shared/components/card-artwork.js";
 import { createResultCards } from "../../web/js/shared/components/result-card.js";
+import { createMoviePresentation } from "../../web/js/features/discovery/movie-presentation.js";
+import { setCatalogJellyfinBadge } from "../../web/js/shared/components/status-badge.js";
+import { createSeriesStatus } from "../../web/js/features/media-details/series-status.js";
+
+test("confirmed series detail ownership updates catalog copies and supersedes older missing responses", async () => {
+  const catalog = { base_slug: "huhu:44:show", title: "Show" };
+  const home = { ...catalog };
+  const alternate = { base_slug: "filmpalast:show", title: "Show", tmdb_id: 44 };
+  const remake = { base_slug: "filmpalast:remake", title: "Show", tmdb_id: 555, jellyfin_status: "missing" };
+  let resolve;
+  const model = createCatalogJellyfin({
+    uniqueHomeEntries: entries => entries, homeEntryKey: entry => `series:${entry.item.base_slug}`,
+    getMovieMetadata: () => ({}), getMovieInstances: () => [], getSeriesInstances: () => [catalog, home, alternate, remake],
+    client: { post: () => new Promise(done => { resolve = done; }) },
+  });
+  const pending = model.refresh([{ kind: "series", item: catalog }]);
+  model.applySeries({ ...catalog, tmdb_id: 44 }, "owned");
+  resolve({ configured: true, statuses: { "series:huhu:44:show": "missing" } });
+  await pending;
+  for (const item of [catalog, home, alternate]) {
+    assert.equal(item.jellyfin_status, "owned");
+    assert.equal(item.in_jellyfin, true);
+  }
+  assert.equal(catalog.tmdb_id, 44);
+  assert.equal(model.getStatus("series:filmpalast:show"), "owned");
+  assert.equal(remake.jellyfin_status, "missing");
+  const latest = model.refresh([{ kind: "series", item: catalog }]);
+  resolve({ configured: true, statuses: { "series:huhu:44:show": "missing" } });
+  await latest;
+  assert.equal(catalog.jellyfin_status, "missing");
+  assert.equal(alternate.jellyfin_status, "missing");
+  model.unmount();
+});
+
+test("series detail publishes fresh episode inventory without treating unknown or stale checks as missing", () => {
+  const events = [], label = {};
+  const badge = { querySelector: () => label, classList: { add() {} } };
+  const status = createSeriesStatus({}, badge, { onLibraryStatus: (_series, state) => events.push(state) });
+  const series = { base_slug: "show", jellyfin_configured: true, jellyfin_available: true,
+    seasons: [{ episodes: [{ in_jellyfin: true }] }] };
+  status.badge({ ...series, availability_pending: true });
+  assert.deepEqual(events, ["owned"]);
+  for (const extra of [{ jellyfin_pending: true }, { jellyfin_stale: true }, { jellyfin_available: false }, { availability_error: true }]) {
+    status.badge({ ...series, ...extra });
+  }
+  assert.deepEqual(events, ["owned"]);
+  status.badge({ ...series, seasons: [{ episodes: [{ in_jellyfin: false }] }] });
+  assert.deepEqual(events, ["owned", "missing"]);
+});
+
+test("catalog posters mark confirmed Jellyfin ownership and remove stale markers for every other state", () => {
+  const root = { ownerDocument: {}, querySelector: () => null };
+  const presentation = createMoviePresentation(root, root, { movieState: {}, setCatalogJellyfinBadge });
+  const attributes = {};
+  const badge = { className: "", classList: { add(name) { badge.className += ` ${name}`; } },
+    setAttribute(name, value) { attributes[name] = value; } };
+  for (const status of ["missing", "checking", "unavailable", "blocked", "unconfigured", "ambiguous", false, undefined]) {
+    presentation.setFpPosterJellyfinBadge(badge, "owned");
+    assert.equal(badge.hidden, false);
+    assert.equal(badge.textContent, "In Jellyfin");
+    assert.match(attributes["aria-label"], /In Jellyfin/);
+    presentation.setFpPosterJellyfinBadge(badge, status);
+    assert.equal(badge.hidden, true);
+    assert.equal(badge.textContent, "");
+  }
+  presentation.setFpPosterJellyfinBadge(badge, true);
+  assert.equal(badge.hidden, false);
+});
 import { createTrailers } from "../../web/js/features/trailers/index.js";
 import { createCatalogJellyfin } from "../../web/js/features/integrations/catalog-jellyfin.js";
 import { createInfiniteScroll } from "../../web/js/shared/components/infinite-scroll.js";
@@ -45,6 +113,8 @@ import { createSearch } from "../../web/js/features/search/index.js";
 import { createRecommendations } from "../../web/js/features/home/recommendations.js";
 import { createHomeData } from "../../web/js/features/home/data.js";
 import { createHomeLanes } from "../../web/js/features/home/lanes.js";
+import { HOME_RAIL_CATALOG } from "../../web/js/features/home/layout-model.js";
+import { createHomeCards } from "../../web/js/features/home/cards.js";
 import { createSubscriptions } from "../../web/js/features/subscriptions/state.js";
 import { libraryVisibleItems } from "../../web/js/features/subscriptions/model.js";
 import { movieSubscriptionFor } from "../../web/js/features/subscriptions/movie-model.js";
@@ -220,6 +290,99 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
     lanes.homeArtworkEntriesInLayout().map(entryKey),
     ["series:ready", "series:pending-a", "series:pending-b"],
   );
+});
+
+test("personal spotlight renders only hydrated landscape backdrops, not portrait posters", () => {
+  const personal = Array.from({ length: 18 }, (_, index) => ({
+    kind: "movie",
+    item: {
+      slug: `film-${index}`,
+      title: `Film ${index}`,
+      cover_url: `/poster-${index}.jpg`,
+      ...(index >= 8 ? { backdrop_url: `/wallpaper-${index}.jpg` } : {}),
+      genres: [],
+    },
+  }));
+  const entryKey = (entry) => `${entry.kind}:${entry.item.slug || entry.item.base_slug}`;
+  const unique = (entries) => {
+    const keys = new Set();
+    return entries.filter((entry) => {
+      const key = entryKey(entry);
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+  };
+  const data = { topMovies: [], newMovies: [], cinemaMovies: [], discoveryMovies: [],
+    trendingSeries: [], newSeries: [], discoverySeries: [] };
+  const lanes = createHomeLanes({ querySelector: () => null }, {
+    allowedHomeEntries: (entries) => entries,
+    uniqueHomeEntries: unique,
+    homeMovieEntry: (item) => ({ kind: "movie", item }),
+    homeSeriesEntry: (item) => ({ kind: "series", item }),
+    interleaveHomeEntries: (a, b) => unique([...a, ...b]),
+    loadDiscoveryProfile: () => ({ genres: {}, recent: [] }),
+    stableDailyOrder: (entries) => [...entries],
+    homeEntryMedia: (entry) => entry.item,
+    homeEntryKey: entryKey, homeTopEntries: () => [],
+    stableDiscoveryHash: () => 1, localDateKey: () => "2026-10-10",
+    homeHeroCandidates: () => [], homePersonalizedEntries: () => personal,
+    currentHomeLayout: () => ({ rail_order: ["personal"], hidden_rails: [] }),
+    mediaJellyfinStatus: () => "missing", getJellyfinStatus: () => "",
+    getData: () => data, discoveryV2ExposurePenalty: () => 0,
+  });
+
+  const definition = HOME_RAIL_CATALOG.find((rail) => rail.id === "personal");
+  assert.equal(definition.layout, "spotlight");
+  assert.equal(definition.wallpaperOnly, true);
+  const visible = lanes.homeDiscoveryLanes().personal;
+  assert.equal(visible.length, 7, "backdrop-ready candidates replace poster-only top matches");
+  assert.deepEqual(visible.map(entryKey), Array.from({ length: 7 }, (_, i) => `movie:film-${i + 8}`));
+  assert.ok(visible.every((entry) => entry.item.backdrop_url));
+  const hydratable = lanes.homeArtworkEntriesInLayout();
+  assert.equal(hydratable.length, 18, "unresolved personal matches remain eligible for TMDB hydration");
+  assert.ok(hydratable.some((entry) => entry.item.slug === "film-0"));
+});
+
+test("personal wallpaper cards remove portrait poster fallbacks without changing normal rails", () => {
+  const captured = [];
+  const cards = createHomeCards({
+    getMovieMetadata: () => ({}),
+    getJellyfinStatus: () => null,
+    renderMediaCard: ({ media }) => {
+      captured.push(media);
+      return { querySelector: () => null };
+    },
+    coverCandidates: (value) => [value],
+    mediaCardInitials: () => "F",
+    setHomeCardArtworkCandidates: () => {},
+    setHomeCardMeta: () => {},
+    mediaJellyfinStatus: () => "missing",
+    homeEntryKey: (entry) => entry.item.slug,
+    openDailyTop: () => false,
+    registerDock: () => {},
+    markLanguage: () => {},
+    enhanceTaste: () => {},
+    enhanceHero: () => {},
+    enhanceDailyTop: (card) => card,
+    createCollectionCard: () => ({}),
+    openMovieCollection: () => {},
+    homeMovieBySlug: () => null,
+    selectFpRow: () => {},
+    homeAnimeById: () => null,
+    openAnimeDetail: () => {},
+    openAniworldDetail: () => {},
+    homeSeriesBySlug: () => null,
+    loadSeries: () => {},
+  });
+  const item = { slug: "personal-film", title: "Personal Film",
+    backdrop_url: "/wallpaper.jpg", cover_url: "/portrait.jpg" };
+  cards.create({ kind: "movie", item }, 0, false, "spotlight-lead", { wallpaperOnly: true });
+  assert.equal(captured[0].backdrop_url, "/wallpaper.jpg");
+  assert.equal(captured[0].cover_url, "");
+  assert.equal(item.cover_url, "/portrait.jpg", "original catalog item stays unchanged");
+  cards.create({ kind: "movie", item });
+  assert.equal(captured[1].cover_url, "/portrait.jpg", "other rails retain existing fallback behavior");
 });
 
 test("HTTP sends JSON, cookies and all supported verbs", async () => {
@@ -934,12 +1097,27 @@ test("recommendation refinement retains its timer across identical refreshes and
 
 test("global search keeps progressive results, cancels superseded requests and preserves detail context", async () => {
   const nodes = new Map();
-  const makeNode = () => Object.assign(new EventTarget(), {
-    value: "", children: [], hidden: false, dataset: {}, textContent: "", classList: { toggle() {}, add() {}, remove() {} },
-    setAttribute() {}, focus() {}, contains() { return false; }, querySelectorAll: () => [],
-    appendChild(node) { this.children.push(node); }, replaceChildren(...nodes) { this.children = nodes; },
-    querySelector(id) { if (!nodes.has(id)) nodes.set(id, makeNode()); return nodes.get(id); },
-  });
+  const makeNode = () => {
+    // Model DOMTokenList state: the search's expanded/closed behavior is
+    // intentional, so a no-op classList must not mask regressions.
+    const tokens = new Set();
+    return Object.assign(new EventTarget(), {
+      value: "", children: [], hidden: false, dataset: {}, textContent: "",
+      classList: {
+        contains(token) { return tokens.has(token); },
+        add(...values) { values.forEach(value => tokens.add(value)); },
+        remove(...values) { values.forEach(value => tokens.delete(value)); },
+        toggle(token, force) {
+          const enabled = force === undefined ? !tokens.has(token) : Boolean(force);
+          if (enabled) tokens.add(token); else tokens.delete(token);
+          return enabled;
+        },
+      },
+      setAttribute() {}, focus() {}, contains() { return false; }, querySelectorAll: () => [],
+      appendChild(node) { this.children.push(node); }, replaceChildren(...nodes) { this.children = nodes; },
+      querySelector(id) { if (!nodes.has(id)) nodes.set(id, makeNode()); return nodes.get(id); },
+    });
+  };
   const doc = Object.assign(new EventTarget(), { body: makeNode(), createElement: makeNode, activeElement: null });
   const page = makeNode(); page.ownerDocument = doc;
   const shell = makeNode(); shell.ownerDocument = doc;
@@ -1515,7 +1693,7 @@ test("catalog Jellyfin propagates one deduplicated series result to every visibl
 });
 
 
-test("trailers own pending playback, preserve position and ignore disposed callbacks", t => {
+for (const kind of ["film", "series"]) test(`${kind} trailers preserve position and exclude background playback during late updates`, t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const previousFrame = globalThis.requestAnimationFrame;
   const previousCancel = globalThis.cancelAnimationFrame;
@@ -1535,7 +1713,7 @@ test("trailers own pending playback, preserve position and ignore disposed callb
     setAttribute(name, value) { this.attrs[name] = value; }
     querySelector() { return { textContent: "" }; }
     querySelectorAll() { return []; }
-    closest() { return elements.get("fp-detail-panel"); }
+    closest() { return elements.get(this.id.startsWith("series") ? "series-panel" : "fp-detail-panel"); }
     focus() { this.focusCount++; }
   }
   const elements = new Map();
@@ -1547,19 +1725,21 @@ test("trailers own pending playback, preserve position and ignore disposed callb
     querySelector: selector => get(selector === "#fp-detail-panel" ? "fp-detail-panel" : "series-panel") };
   const trailers = createTrailers(document, { window, storage: { getItem: () => null, setItem() {} } });
   const movie = { title: "Movie", trailer: { site: "YouTube", key: "abcdefghijk" } };
-  get("fp-detail-modal").hidden = false;
+  get(kind === "film" ? "fp-detail-modal" : "series-detail-modal").hidden = false;
+  const heroId = kind === "film" ? "fp-detail-hero-frame" : "series-detail-hero-frame";
+  const muteId = kind === "film" ? "fp-detail-hero-mute" : "series-detail-hero-mute";
   trailers.mount(); trailers.mount();
-  trailers.film.schedule(movie);
-  trailers.film.stop();
+  trailers[kind].schedule(movie);
+  trailers[kind].stop();
   t.mock.timers.tick(2500);
-  assert.equal(get("fp-detail-hero-frame").src, undefined);
-  trailers.film.schedule(movie);
+  assert.equal(get(heroId).src, undefined);
+  trailers[kind].schedule(movie);
   t.mock.timers.tick(2000);
-  const hero = get("fp-detail-hero-frame");
+  const hero = get(heroId);
   const loaded = hero.onload;
   loaded(); // Also checks that the film panel is in scope.
   const src = hero.src;
-  trailers.film.schedule(movie);
+  trailers[kind].schedule(movie);
   assert.equal(hero.src, src);
   const send = (payload, origin = "https://www.youtube-nocookie.com") => {
     const event = new Event("message");
@@ -1568,19 +1748,35 @@ test("trailers own pending playback, preserve position and ignore disposed callb
   };
   send({ info: { currentTime: 32 } }, "https://untrusted.example");
   send({ info: { currentTime: 17 } });
-  trailers.open(movie, get("trigger"));
+  trailers.open(movie, get("trigger"), kind);
   assert.match(get("fp-trailer-frame").src, /&start=17&/);
   assert.equal(hero.src, undefined);
   loaded();
-  assert.equal(get("fp-detail-hero-mute").hidden, true);
+  assert.equal(get(muteId).hidden, true);
+  const playerSrc = get("fp-trailer-frame").src;
+  get("fp-detail-modal").hidden = false;
+  get("series-detail-modal").hidden = false;
+  // Enrichment and availability responses may configure the same detail again
+  // after its hero has handed playback to the full player.
+  trailers.film.configure(movie);
+  trailers.series.configure(movie);
+  trailers.film.schedule(movie);
+  trailers.series.schedule(movie);
+  t.mock.timers.tick(2500);
+  assert.equal(get("fp-detail-hero-frame").src, undefined);
+  assert.equal(get("series-detail-hero-frame").src, undefined);
+  assert.equal(get("fp-trailer-frame").src, playerSrc);
+  trailers.open(movie, get("trigger"), kind);
+  assert.equal(get("fp-trailer-frame").src, playerSrc, "Repeated clicks must not restart the full player");
   const staleLoad = get("fp-trailer-frame").onload;
+  const focusBeforeClose = get("fp-trailer-close").focusCount;
   trailers.close();
   staleLoad();
   t.mock.timers.tick(12000);
   assert.equal(get("fp-trailer-modal").dataset.playerState, "idle");
-  assert.equal(get("fp-trailer-close").focusCount, 0);
+  assert.equal(get("fp-trailer-close").focusCount, focusBeforeClose);
   assert.equal(get("trigger").focusCount, 1);
-  trailers.film.schedule(movie);
+  trailers[kind].schedule(movie);
   trailers.unmount();
   t.mock.timers.tick(2500);
   assert.equal(hero.src, undefined);

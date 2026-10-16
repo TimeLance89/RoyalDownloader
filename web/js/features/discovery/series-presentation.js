@@ -130,7 +130,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     return parts.join(" · ");
   }
 
-  function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) {
+  function createSeriesResultRow(result, { suppressEntryAnimation = false, restorable = true } = {}) {
     const selectedBase = seriesState.pendingBaseSlug || seriesState.current?.base_slug;
     const selected = selectedBase === result.base_slug;
     const loading = seriesState.pendingBaseSlug === result.base_slug;
@@ -179,7 +179,10 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     const baseSlug = result.base_slug;
     activateResultCard(row, () => loadSeries(
       seriesState.results.find((item) => item.base_slug === baseSlug) || result,
-    ));
+    ), restorable ? () => createSeriesResultRow(
+      seriesState.results.find(item => item.base_slug === baseSlug) || result,
+      { suppressEntryAnimation: true, restorable: false },
+    ) : null);
     return row;
   }
 
@@ -227,13 +230,16 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   }
 
   function findSeriesResultCard(baseSlug) {
+    const escaped = document.defaultView?.CSS?.escape?.(baseSlug);
+    if (escaped) return catalogRoot.querySelector(`#series-results .series-row[data-base-slug="${escaped}"]`);
     return [...catalogRoot.querySelectorAll("#series-results .series-row")]
       .find((row) => row.dataset.baseSlug === baseSlug) || null;
   }
 
   function updateSeriesResultCard(baseSlug) {
-    const result = seriesState.results.find((item) => item.base_slug === baseSlug);
     const row = findSeriesResultCard(baseSlug);
+    if (!row || row.classList.contains("is-catalog-placeholder")) return;
+    const result = seriesState.results.find((item) => item.base_slug === baseSlug);
     if (!result || !row) return;
     const seasons = row.querySelector(".series-card-seasons");
     if (seasons) seasons.textContent = seriesCardSeasonSummary(result);
@@ -307,21 +313,31 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     } else {
       renderSeriesResults(appendFrom, { suppressEntryAnimation: backgroundRefresh });
     }
-    const browseGeneration = seriesState.browseRequestSeq;
+    const libraryIdentity = item => JSON.stringify([
+      item.title, item.year, item.tmdb_id, item.original_title, item.aliases,
+    ]);
+    const identities = new Map(incoming.map(item => [item, libraryIdentity(item)]));
     renderSeriesCatalogHero();
     // Jellyfin ist ein eigener Live-Status und darf nie auf Poster/TMDB warten.
     // Das betrifft insbesondere die komplette erste 32er-Katalogseite.
     const owner = scope;
     if (owner?.active) void refreshCatalogJellyfinStatus(incoming.map(homeSeriesEntry), null, { signal: owner.signal })
       .then(() => {
-        if (!owner.active || browseGeneration !== seriesState.browseRequestSeq) return;
+        if (!owner.active) return;
         for (const result of seriesState.results) updateSeriesResultCard(result.base_slug);
         renderSeriesCatalogHero();
       });
     if (!artworkPrepared && owner?.active) {
       void hydrateHomeSeriesArtwork(incoming, { render: false, signal: owner.signal }).then(async (hydratedBaseSlugs) => {
-        if (!owner.active || browseGeneration !== seriesState.browseRequestSeq) return;
+        if (!owner.active) return;
         for (const baseSlug of hydratedBaseSlugs) updateSeriesResultCard(baseSlug);
+        renderSeriesCatalogHero();
+        const current = new Set(seriesState.results);
+        const changed = incoming.filter(item => current.has(item) && identities.get(item) !== libraryIdentity(item));
+        if (!changed.length) return;
+        await refreshCatalogJellyfinStatus(changed.map(homeSeriesEntry), null, { signal: owner.signal });
+        if (!owner.active) return;
+        for (const item of changed) updateSeriesResultCard(item.base_slug);
         renderSeriesCatalogHero();
       });
     }

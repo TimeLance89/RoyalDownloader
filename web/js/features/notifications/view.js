@@ -193,6 +193,11 @@ export function createNotificationView(root, { getSnapshot, ui, coverUrl, subscr
     bell.classList.toggle("is-active", attention > 0);
     bell.setAttribute("aria-label", `Abo-Inbox öffnen: ${triggerSummary}`);
     find("notif-trigger-label").textContent = triggerSummary;
+    document.querySelectorAll("[data-notif-mobile-summary]").forEach(node => { node.textContent = triggerSummary; });
+    document.querySelectorAll("[data-notif-mobile-badge]").forEach(node => {
+      node.textContent = String(attention); node.classList.toggle("hidden", attention === 0);
+    });
+    document.getElementById("mobile-more-toggle")?.setAttribute("aria-label", attention ? `Mehr, Abo-Inbox: ${triggerSummary}` : "Mehr");
     find("notif-summary").textContent = inboxCheckBusy()
       ? "Abonnements werden geprüft …" : summary;
     find("notif-subscription-count").textContent =

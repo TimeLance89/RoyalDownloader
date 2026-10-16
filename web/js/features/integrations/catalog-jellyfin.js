@@ -2,7 +2,7 @@ import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 
 /** Shared media-availability snapshot. Integration health has a separate contract. */
-export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovieMetadata, getMovieInstances, client = api }) {
+export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovieMetadata, getMovieInstances, getSeriesInstances = () => [], client = api }) {
   let owner = createScope();
   let catalogJellyfinRequestSequence = 0;
   const catalogJellyfinRequestByKey = new Map(), statuses = new Map();
@@ -18,6 +18,23 @@ export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovi
       if (typeof resolvedOwned === "boolean") movie.in_jellyfin = resolvedOwned;
     }
     statuses.set(`movie:${slug}`, status);
+  }
+  function applySeriesJellyfinStatus(series, status, sequence = ++catalogJellyfinRequestSequence) {
+    if (!owner.active || !series?.base_slug) return;
+    const id = String(series.tmdb_id || "");
+    const instances = getSeriesInstances().filter(item => item && (
+      item.base_slug === series.base_slug || (id && String(item.tmdb_id || "") === id)
+    ));
+    for (const item of new Set([series, ...instances])) {
+      const key = homeEntryKey({ kind: "series", item });
+      if ((catalogJellyfinRequestByKey.get(key) || 0) > sequence) continue;
+      catalogJellyfinRequestByKey.set(key, sequence);
+      statuses.set(key, status);
+      item.jellyfin_status = status;
+      if (status === "owned" || status === "missing") item.in_jellyfin = status === "owned";
+      else delete item.in_jellyfin;
+      if (id && item.base_slug === series.base_slug) item.tmdb_id = series.tmdb_id;
+    }
   }
 async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
   if (!owner.active || signal?.aborted) return;
@@ -36,6 +53,7 @@ async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
       title: metadata.title || item.title,
       year: metadata.year || item.year || "",
       tmdb_id: metadata.tmdb_id || item.tmdb_id || null,
+      aliases: [...new Set([...(item.aliases || []), item.original_title].filter(Boolean))].slice(0, 12),
       media_type: kind === "movie" ? "movie" : "series",
     };
   });
@@ -80,12 +98,12 @@ async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
     // A series can exist as distinct object instances in Home, discovery and
     // global search. The request is deduplicated by identity, but the resolved
     // status must be propagated to every visible instance of that identity.
-    statuses.set(key, status);
-    entry.item.jellyfin_status = status;
-    if (status === "owned" || status === "missing") {
-      entry.item.in_jellyfin = status === "owned";
-    } else {
-      delete entry.item.in_jellyfin;
+    if (entry.kind === "series") applySeriesJellyfinStatus(entry.item, status, requestSequence);
+    else {
+      statuses.set(key, status);
+      entry.item.jellyfin_status = status;
+      if (status === "owned" || status === "missing") entry.item.in_jellyfin = status === "owned";
+      else delete entry.item.in_jellyfin;
     }
   }
   if (render) render();
@@ -93,7 +111,7 @@ async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
 }
 
   return {
-    getStatus: key => statuses.get(key), applyMovie: applyMovieJellyfinStatus, refresh: refreshCatalogJellyfinStatus,
+    getStatus: key => statuses.get(key), applyMovie: applyMovieJellyfinStatus, applySeries: applySeriesJellyfinStatus, refresh: refreshCatalogJellyfinStatus,
     mount() { if (!owner.active) owner = createScope(); },
     unmount() { owner.dispose(); catalogJellyfinRequestByKey.clear(); },
   };

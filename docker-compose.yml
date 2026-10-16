@@ -42,6 +42,7 @@ services:
       - ${SERIES_HOST_DIR:-./downloads/Serien}:/serien
     environment:
       APP_RUNTIME_DIR: /runtime
+      ROYAL_STARTUP_TIMEOUT_SECONDS: ${ROYAL_STARTUP_TIMEOUT_SECONDS:-120}
       SERIENDL_DATA_DIR: /app/data
       DOWNLOAD_DIR: /movies
       SERIES_DIR: /serien

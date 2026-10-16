@@ -399,7 +399,7 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
   for (const id of ["tab-filme", "fp-infinite", "tab-serien", "series-infinite"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
-  assert.match(app, /scope\.listen\(win, "scroll", refresh, \{ passive: true \}\)/);
+  assert.match(app, /scope\.listen\(win, "scroll", onScroll, \{ passive: true \}\)/);
   assert.match(app, /sentinel\.getBoundingClientRect\(\)\.top/);
   assert.match(app, /if \(!scope\?\.active \|\| scheduled\) return/);
   assert.match(app, /createInfiniteScroll\(document.getElementById\("tab-filme"\)/);
@@ -409,7 +409,9 @@ test("movie and series catalogs lazy-load for mobile document scrolling", () => 
 
 test("searches run only after an explicit submit", () => {
   assert.match(app, /scope\.listen\(byId\("home-search"\), "input",/);
-  assert.match(app, /scope\.listen\(toggle, "click", openGlobalSearch\)/);
+  assert.match(app, /scope\.listen\(toggle, "click", \(\) => \{/);
+  assert.match(app, /if \(shell\.classList\.contains\("is-expanded"\)\)/);
+  assert.match(app, /openGlobalSearch\(\)/);
   assert.match(app, /scope\.listen\(input, "input", syncGlobalSearchDraft\)/);
   assert.match(app, /if \(event\.key === "Enter"\) \{[\s\S]*?runGlobalSearch\(\)/);
   assert.match(app, /scope\.listen\(byId\("fp-search"\), "input", \(\) => \{\s*syncSearchClearButtons\(\);\s*closeSearchSuggestions\("fp-search-suggestions", "fp-search"\);/);
@@ -545,7 +547,7 @@ test("movie and series catalogs show cached content immediately and refresh in t
   const seriesRenderer = seriesPresentation.split("function renderSeriesResults")[1].split(
     "function findSeriesResultCard",
   )[0];
-  assert.match(seriesPresentation, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false \} = \{\}\)/);
+  assert.match(seriesPresentation, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false, restorable = true \} = \{\}\)/);
   assert.match(seriesPresentation, /function updateSeriesFeatureArtwork\(featureArt, artwork\)/);
   assert.match(seriesPresentation, /featureArt\.dataset\.artworkRequest/);
   assert.match(seriesRenderer, /const existingRows = new Map/);
@@ -632,6 +634,14 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(home, /getHeroSelection\(\)\.candidates\(\)/);
   assert.match(homeExperience, /const artwork = media\.backdrop_url \|\| media\.cover_url \|\| ""/);
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
+});
+
+test("personal spotlight requests only landscape artwork without removing ranking", () => {
+  assert.match(homeLayoutEditor, /id: "personal"[^\n]*layout: "spotlight", wallpaperOnly: true/);
+  assert.match(app, /homePersonalWallpaperEntries\(\)/);
+  assert.match(app, /\.filter\(\(entry\) => Boolean\(homeEntryMedia\(entry\)\.backdrop_url\)\)/);
+  assert.match(app, /personalVisible \? homePersonalArtworkCandidates\(\) : \[\]/);
+  assert.match(app, /homeRailCardSignature\(entry, rank, variant, wallpaperOnly\)/);
 });
 
 test("explore rail renders wallpaper-only cards without portrait-poster fallback", () => {

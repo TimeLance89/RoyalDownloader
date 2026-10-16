@@ -72,14 +72,34 @@ async function touchTargets(page, selector) {
       const nav = await bounds(page, ".mobile-tabs");
       assert.ok(menu.left >= 0 && menu.right <= width && menu.bottom <= nav.top, "More menu fits above navigation");
       await page.locator("#mobile-more-toggle").tap();
+      const searchClosed = await bounds(page, "#global-search-shell");
+      const queue = await bounds(page, "#mobile-queue-btn");
+      const avatar = await bounds(page, "#user-menu-trigger");
+      const logo = await bounds(page, ".topbar .brand");
+      assert.ok(searchClosed.left >= logo.right + 1,
+        `Closed search overlaps the brand at ${width}px`);
+      assert.ok(searchClosed.right + 1 <= queue.left,
+        `Closed search overlaps the queue button at ${width}px`);
+      assert.ok(queue.right + 1 <= avatar.left,
+        `Queue button overlaps the avatar at ${width}px`);
+      assert.equal(await page.locator("#global-search-toggle").evaluate(button => {
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }), true, "Magnifier must receive its own taps");
+      assert.equal(await page.locator("#mobile-queue-btn").evaluate(button => {
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }), true, "Queue button must remain tappable beside the magnifier");
       await page.locator("#global-search-toggle").tap();
-      await page.locator("#global-search-input").focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), "global-search-input");
       await page.waitForTimeout(300);
       const search = await bounds(page, ".global-search-shell");
-      assert.ok(search.left >= 0 && search.right <= width, "Expanded search fits the header");
+      assert.ok(search.left >= 0 && search.right + 1 <= queue.left,
+        `Expanded mobile search overlaps the queue at ${width}px`);
       await page.setViewportSize({ width, height: 420 });
       const smallSearch = await bounds(page, ".global-search-shell");
-      assert.ok(smallSearch.left >= 0 && smallSearch.right <= width, "Search remains usable with reduced viewport height");
+      assert.ok(smallSearch.left >= 0 && smallSearch.right + 1 <= queue.left,
+        "Expanded search keeps the queue unobstructed with a smaller viewport height");
       assert.deepEqual(run.errors, []);
       console.log(JSON.stringify({ width, passed: true }));
     } finally { await run.close(); }

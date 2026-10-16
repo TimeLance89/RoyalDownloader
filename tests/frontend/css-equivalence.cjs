@@ -39,7 +39,14 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       // Intentional state bug fix, not a new visual baseline: legacy mobile CSS
       // paints the CLOSED menu's hidden scrim over the whole page. Compare the
       // intended closed state; its open-state styles remain unchanged.
-      if (withLegacyStyles) await page.addStyleTag({ content: ".nav-menu-scrim[hidden] { display: none !important; }" });
+      if (withLegacyStyles) {
+        await page.addStyleTag({ content: ".nav-menu-scrim[hidden] { display: none !important; }" });
+        // Intentional mobile Download Center redesign is verified by download-center-browser.
+        // Apply its narrowly scoped presentation rules to both sides, retaining the full
+        // frozen comparison for desktop and every element outside the mobile dock.
+        const polish = readFileSync(resolve(root, "web/styles/catalog-polish.css"), "utf8");
+        await page.addStyleTag({ content: "/* Mobile Download Center:" + polish.split("/* Mobile Download Center:")[1].split("/* ── Royal Transfer Deck")[0] });
+      }
       if (withLegacyStyles) await page.evaluate(async () => {
         for (const path of ["movie-releases", "storage-manager", "automation-policy", "subscription-center"]) {
           const link = document.createElement("link"); link.rel = "stylesheet"; link.href = `/styles/${path}.css`;
@@ -103,12 +110,15 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       baseline = true;
       await page.setContent(html, { waitUntil: "networkidle" });
       await rankingFixture(true);
+      // Compare settled styles; injected intentional rules can trigger button transitions.
+      await page.waitForTimeout(500);
       const before = await snapshot();
       baseline = false;
       await page.close(); page = await context.newPage();
       await page.setViewportSize({ width, height: 1000 });
       await page.setContent(html, { waitUntil: "networkidle" });
       await rankingFixture(false);
+      await page.waitForTimeout(500);
       const after = await snapshot();
       const changes = after.flatMap((row, index) => JSON.stringify(row) === JSON.stringify(before[index]) ? [] : [{ element: row[0], before: before[index], after: row }]);
       assert.deepEqual(changes, [], `Computed CSS changed at ${width}px`);

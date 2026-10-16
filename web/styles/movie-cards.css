@@ -38,6 +38,21 @@
   background: linear-gradient(180deg, #00000020, transparent 28%, transparent 68%, #000000b3);
 }
 
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card.is-catalog-placeholder::before {
+  content: "";
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  flex: 0 0 auto;
+}
+
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card.is-catalog-placeholder::after {
+  content: "";
+  display: block;
+  height: var(--catalog-copy-height, 88px);
+  flex: 0 0 auto;
+}
+
 :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-poster {
   border-radius: 0;
 }
@@ -121,9 +136,34 @@
 }
 
 :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge.is-owned {
-  color: #a4e4bd;
-  border-color: #8ad7a540;
-  background: #10251de8;
+  top: 26px;
+  left: -40px;
+  bottom: auto;
+  width: 166px;
+  max-width: none;
+  min-height: 29px;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 0;
+  transform: rotate(-45deg);
+  pointer-events: none;
+  color: #fff;
+  border-color: #bba1ffb3;
+  border-radius: 0;
+  background: #573382;
+  box-shadow: 0 2px 10px #00000059;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+:is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge.is-owned::before {
+  content: "";
+  flex-basis: 15px;
+  width: 15px;
+  height: 15px;
+  border-radius: 0;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 2 23 21H1L12 2Zm0 4L4.5 19h15L12 6Zm0 4 4 7H8l4-7Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card-library-badge:is(.is-unavailable, .is-blocked, .is-ambiguous) {
@@ -188,6 +228,16 @@
     bottom: 6px;
     max-width: calc(100% - 12px);
     padding: 5px 6px;
+  }
+  :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-card-library-badge.is-owned {
+    top: 21px;
+    left: -36px;
+    bottom: auto;
+    width: 146px;
+    max-width: none;
+    min-height: 28px;
+    padding: 5px 0;
+    font-size: 11px;
   }
   :is(#tab-filme #fp-results, #tab-serien #series-results) .result-card .result-queue-toggle {
     top: 7px;

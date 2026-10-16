@@ -827,12 +827,33 @@ def seerr_poll_once() -> dict:
         state.seerr_poll_lock.release()
 
 
+def _seerr_poll_interval() -> int:
+    """Bound untrusted persisted settings to a safe, non-spinning interval."""
+    try:
+        configured = int(state.seerr_cfg.get("poll_interval_seconds", 60) or 60)
+    except (TypeError, ValueError, OverflowError):
+        configured = 60
+    return max(15, min(configured, 24 * 60 * 60))
+
+
 def seerr_poll_loop() -> None:
-    _hydrate_seerr_jobs()
+    hydrated = False
     while not _seerr_stop_event.is_set():
-        if state.seerr_cfg.get("enabled"):
-            seerr_poll_once()
-        interval = max(15, int(state.seerr_cfg.get("poll_interval_seconds", 60) or 60))
+        failed = False
+        try:
+            if not hydrated:
+                _hydrate_seerr_jobs()
+                hydrated = True
+            if state.seerr_cfg.get("enabled"):
+                result = seerr_poll_once()
+                failed = not bool(result.get("ok")) and result.get("detail") != "Seerr-Abgleich läuft bereits."
+        except Exception as exc:
+            # Restart recovery and transient remote failures must never
+            # permanently terminate the only scheduled Seerr worker.
+            failed = True
+            state.seerr_last_error = str(exc)[:300]
+            log(f"Seerr-Hintergrundabgleich wird erneut versucht: {exc}", "warn")
+        interval = min(60, _seerr_poll_interval()) if failed else _seerr_poll_interval()
         _seerr_wake_event.wait(interval)
         _seerr_wake_event.clear()
 
@@ -862,6 +883,7 @@ _SERVICE_EXPORTS = (
     "_seerr_process_request",
     "_hydrate_seerr_jobs",
     "seerr_poll_once",
+    "_seerr_poll_interval",
     "seerr_poll_loop",
 )
 publish_service(globals(), _SERVICE_EXPORTS)

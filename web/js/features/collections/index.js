@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { fetchMovieAvailability } from "../media-details/movie-availability.js";
 
 /** Collection details own availability work; queue mutations belong to the session. */
 export function createMovieCollections(root, {
@@ -26,8 +27,13 @@ export function createMovieCollections(root, {
     data.resolving = false; data.queuePending = false;
   }
   function loadMovie(part, signal) {
-    const query = Number(part.tmdb_id) > 0 ? `?${new URLSearchParams({ tmdb_id: String(part.tmdb_id) })}` : "";
-    return client.get(`/api/movie/${encodeURIComponent(part.slug)}${query}`, { signal });
+    // Use the shared progressive probe, not the legacy synchronous movie
+    // endpoint. A timed-out provider or a still-running TMDB fallback cannot
+    // prove absence, and late source answers must be retained across polls.
+    return fetchMovieAvailability({
+      client, slug: part.slug, tmdbId: part.tmdb_id, signal,
+      budgetMs: 60_000, firstAvailable: true,
+    });
   }
   function checkJellyfin(items, signal) {
     return client.post("/api/jellyfin/matches", { items }, { signal, timeoutMs: 15_000,
@@ -277,7 +283,10 @@ export function createMovieCollections(root, {
     const selected = records.filter((record) => record.selected && collectionSelectable(record)).length;
     const queued = records.filter((record) => record.queueStatus === "queued").length;
     const unavailable = records.filter(
-      (record) => ["unavailable", "error"].includes(record.providerStatus),
+      (record) => record.providerStatus === "unavailable",
+    ).length;
+    const failed = records.filter(
+      (record) => record.providerStatus === "error",
     ).length;
     const future = records.filter((record) => record.providerStatus === "future").length;
     data.resolving = libraryPending > 0
@@ -305,6 +314,7 @@ export function createMovieCollections(root, {
       [available, "downloadbar", "available"],
       [queued, "eingeplant", "queued"],
       [unavailable, "nicht gefunden", "unavailable"],
+      [failed, "Prüfung fehlgeschlagen", "error"],
       [future, "noch nicht erschienen", "future"],
     ].filter(([count]) => count > 0).forEach(([count, label, kind]) => {
       const badge = document.createElement("span");
@@ -334,6 +344,13 @@ export function createMovieCollections(root, {
     try {
       const movie = await loadMovie(part, detail.signal);
       if (requestId !== data.requestSeq) return;
+      // The progressive endpoint may report incomplete/pending work with no
+      // sources. Only a confirmed hoster enables collection download actions.
+      if (!Array.isArray(movie?.hosters) || movie.hosters.length === 0) {
+        throw Object.assign(new Error("Noch kein bestätigter Hoster verfügbar."), {
+          code: "movie_probe_pending",
+        });
+      }
       getMovieCache()[part.slug] = movie;
       getMetadataCache()[part.slug] = { ...part, ...movie };
       updateCollectionRecord(part.slug, {

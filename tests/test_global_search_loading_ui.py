@@ -35,3 +35,20 @@ def test_rendered_catalog_pages_start_thumbnail_downloads_immediately():
     assert 'image.loading = "eager";' in artwork
     assert 'image.src = candidate.url;' in artwork
     assert 'if (eager) start(image); else observe(image);' in artwork
+
+
+def test_mobile_global_search_uses_explicit_focus_and_animatable_layout():
+    premium = (ROOT / "web/styles/topbar-premium.css").read_text(encoding="utf-8")
+    assert 'input?.focus({ preventScroll: true });' in HOME_JS
+    assert 'shell.classList.remove("is-expanded", "has-value");' in HOME_JS
+    assert ':focus-within' not in premium
+    assert ':focus-within' not in SEARCH_CSS
+    mobile = (ROOT / "web/styles/mobile.css").read_text(encoding="utf-8")
+    assert '.global-search-shell:is(.is-expanded, .has-value)' in mobile
+    assert ':focus-within' not in mobile.split('.global-search-shell:is(', 1)[1].split('}', 1)[0]
+    assert 'width 260ms' in premium
+    assert 'position: relative;' in premium
+    assert 'grid-template-columns: minmax(0, 1fr) 44px minmax(44px, max-content) 44px;' in mobile
+    assert 'grid-column: 2;' in mobile
+    assert 'grid-column: 3;' in mobile
+    assert 'grid-column: 4;' in mobile

@@ -311,10 +311,13 @@
     <div class="nav-menu nav-menu--mobile" data-nav-menu="mobile">
       <button id="mobile-more-toggle" class="nav-menu-trigger" type="button"
           aria-expanded="false" aria-controls="mobile-more-menu">
-        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></span><span>Mehr</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
+        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></span><span>Mehr</span><span class="mobile-inbox-badge hidden" data-notif-mobile-badge aria-hidden="true">0</span><span class="nav-menu-marker" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="1.6"></circle><circle cx="17" cy="7" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle><circle cx="17" cy="17" r="1.6"></circle></svg></span>
       </button>
       <div id="mobile-more-menu" class="nav-menu-popover" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title" hidden>
         <header class="mobile-menu-heading"><h2 id="mobile-more-title">Mehr von Royal</h2><button type="button" data-nav-menu-close aria-label="Menü schließen">×</button></header>
+        <button id="mobile-inbox-open" class="nav-menu-item" type="button" data-notifications-open aria-controls="notif-dropdown" aria-expanded="false">
+          <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 14h5l1 2h4l1-2h5"></path></svg></span><span><strong>Abo-Inbox</strong><small data-notif-mobile-summary>Abos und neue Folgen</small></span>
+        </button>
         <button class="nav-menu-item" type="button" data-tab="releases">
           <span class="nav-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="m10 9 5 3-5 3z"></path></svg></span><span><strong>Releases</strong><small>Neue Filme</small></span>
         </button>
@@ -2170,12 +2173,14 @@
     <div id="mobile-queue-backdrop" class="queue-backdrop" aria-hidden="true"></div>
     <aside id="queue-dock" class="sidebar" aria-label="Downloadplan">
       <div class="panel queue-panel">
+        <div class="queue-wallpaper" aria-hidden="true"><img alt="" decoding="async"><img alt="" decoding="async"></div>
         <div id="queue-drawer" class="queue-drawer" aria-hidden="true" inert>
           <section class="queue-drawer-main" aria-labelledby="queue-drawer-title">
             <div class="panel-head">
               <div class="queue-drawer-heading">
-                <span class="queue-drawer-kicker">ALS NÄCHSTES</span>
-                <span id="queue-drawer-title" class="panel-title pink">DOWNLOADPLAN</span>
+                <span class="queue-drawer-kicker"><span class="queue-desktop-copy">ALS NÄCHSTES</span><span class="queue-mobile-copy">DOWNLOAD CENTER</span></span>
+                <span id="queue-drawer-title" class="panel-title pink"><span class="queue-desktop-copy">DOWNLOADPLAN</span><span class="queue-mobile-copy">Dein Royal Downloadplan</span></span>
+                <span id="queue-summary" class="queue-mobile-copy queue-summary">0 aktiv · 0 vorgemerkt</span>
               </div>
               <button id="mobile-queue-close" class="btn btn-ghost btn-sm mobile-only" aria-label="Warteschlange schließen">✕</button>
             </div>
@@ -2215,6 +2220,7 @@
               </div>
               <strong id="dl-percent" class="download-percent">0%</strong>
             </div>
+            <span id="download-current" class="queue-mobile-copy download-current" translate="no"></span>
             <div class="progress-bar" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="progress-fill" class="progress-fill"></div>
             </div>

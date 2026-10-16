@@ -64,6 +64,33 @@ gesichert und anschließend atomar ersetzt. Persistenzfehler bleiben über den
 bestehenden Queue-Persistenzstatus sichtbar und werden bei API-Transaktionen als
 `503 state_persistence_failed` zurückgegeben.
 
+## Crash-sichere Queue-Sicherung
+
+Neben `download_queue.json` hält Royal die letzte **verifizierte**
+Queue-Version in `download_queue.json.bak`. Vor jedem atomaren Austausch der
+Hauptdatei wird deren bisheriger gültiger Inhalt ebenfalls atomar, mit
+`fsync` und privaten Dateirechten, als Backup gesichert. Die allererste
+Queue-Version wird als Backup mit angelegt. Identitäten, Versuchszähler,
+Wartestatus und die Terminalhistorie bleiben im Snapshot erhalten.
+
+Ist die Hauptdatei durch einen Absturz, beschädigten Datenträgerinhalt oder
+einen unterbrochenen Schreibvorgang unlesbar, validiert Royal die Sicherung und
+stellt sie atomar wieder her, bevor irgendein Download-Job übernommen wird.
+Fehlt die Hauptdatei nach einem Absturz, kann die vorhandene Sicherung ebenfalls
+wiederhergestellt werden.
+
+**Wichtige Grenze:** Die Sicherung ist absichtlich der vorherige vollständige
+Snapshot. Nach einer Beschädigung der aktuellen Hauptdatei kann die allerletzte
+noch nicht ins Backup gerückte Änderung fehlen. Deren Inhalt wird nicht geraten,
+sondern über bestehende Queue-/Inhaltsprüfungen erneut eingeordnet.
+
+Sind beide Dateien beschädigt oder hat die Struktur ihre Job-Identitäten
+verloren, bricht der Serverstart **sichtbar ab**. Die Dateien werden dabei
+nicht stillschweigend durch eine leere Queue ersetzt. Für die Wiederherstellung
+kann der Betreiber die beschädigten Dateien aus einem unabhängigen NAS-Backup
+zurückspielen. Eine Sicherung auf demselben Volume ersetzt kein externes Backup;
+der Ablauf schützt nicht vor dem Ausfall der gesamten Festplatte.
+
 ## Kompatibilität
 
 `GET /api/queue`, die Slug-basierten Add-/Remove-/Clear-Routen und alle

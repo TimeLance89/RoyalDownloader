@@ -1254,65 +1254,121 @@
   }
 }
 
+/* Mobile Download Center: one scoped sheet, wallpaper behind every control. */
+#queue-dock .queue-wallpaper,
+#queue-dock .queue-mobile-copy { display: none; }
+
 @media (max-width: 820px) {
+  #queue-dock { left: 0; right: 0; bottom: 0; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); }
   body.queue-open #queue-dock .queue-panel {
-    background: linear-gradient(180deg, rgba(18, 18, 19, .995), rgba(8, 8, 9, .995));
-    border-color: rgba(255, 255, 255, .12);
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    height: min(90dvh, 900px);
+    max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+    padding: 24px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    overflow: hidden;
+    background: radial-gradient(ellipse at 85% 0, #38201c, transparent 60%), linear-gradient(145deg, #14151c, #08090c 75%);
+    border-color: rgba(211, 183, 127, .22);
     border-radius: 22px 22px 0 0;
-    box-shadow: 0 -28px 70px -20px rgba(0, 0, 0, .96);
+    box-shadow: 0 -28px 70px -20px rgba(0, 0, 0, .96), inset 0 1px rgba(255, 255, 255, .06);
   }
-
-  body.queue-open .queue-backdrop {
-    background: rgba(0, 0, 0, .68);
-    backdrop-filter: blur(5px);
-    -webkit-backdrop-filter: blur(5px);
+  #queue-dock .queue-panel::after { top: 9px; width: 36px; height: 4px; background: #887660; }
+  #queue-dock .queue-wallpaper { display: block; position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  #queue-dock .queue-wallpaper img {
+    position: absolute; width: 100%; height: 100%; object-fit: cover;
+    filter: blur(18px); transform: scale(1.12); opacity: 0;
+    transition: opacity .45s ease;
   }
-
-  #queue-dock .queue-drawer {
-    padding: 16px 14px max(16px, env(safe-area-inset-bottom));
+  #queue-dock .queue-wallpaper img.is-visible { opacity: .8; }
+  #queue-dock .queue-wallpaper::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(5, 7, 12, .74) 24%, rgba(5, 7, 12, .48) 42%, rgba(5, 7, 12, .78) 78%, #08090c), linear-gradient(90deg, rgba(8, 9, 12, .3), transparent);
   }
-
-  #queue-dock .queue-drawer-heading .panel-title {
-    color: var(--color-text);
-    font-family: "DM Sans", sans-serif;
-    font-size: 19px;
-    letter-spacing: -.02em;
-  }
-
+  body.queue-open .queue-backdrop { background: rgba(0, 0, 0, .72); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  #queue-dock .queue-desktop-copy { display: none; }
+  #queue-dock .queue-mobile-copy { display: block; }
+  #queue-dock .queue-drawer { padding: 0; min-height: 0; overflow: hidden; }
+  #queue-dock .queue-drawer-main { min-height: 0; }
+  #queue-dock .queue-drawer-main > .panel-head { align-items: flex-start; gap: 8px; margin: 0 0 12px; }
+  #queue-dock .queue-drawer-heading { display: grid; min-width: 0; gap: 5px; }
+  #queue-dock .queue-drawer-kicker { font: 700 10px/1.3 "DM Sans", sans-serif; color: #d6bb8a; letter-spacing: .18em; }
+  #queue-dock .queue-drawer-heading .panel-title { color: #f6f3f0; font: 650 clamp(16px, 5vw, 20px)/1.25 "DM Sans", sans-serif; letter-spacing: -.035em; }
+  #queue-dock .queue-summary { color: #b8b4b3; font: 500 11px/1.4 "DM Sans", sans-serif; }
+  #queue-dock #mobile-queue-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; margin: 0; padding: 0; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); border-radius: 14px; }
+  #queue-dock .queue-list { flex: 1 1 auto; min-height: 80px; padding: 0; border: 0; overflow-x: hidden; background: transparent; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  body.queue-open #queue-dock:not(.has-items) .queue-panel { height: auto; }
+  #queue-dock:not(.has-items) .queue-drawer-main { flex: 0 1 auto; }
+  #queue-dock:not(.has-items) .queue-list { flex: 0 0 auto; min-height: 140px; }
+  #queue-dock .queue-empty { padding: 24px 12px; }
+  #queue-dock .queue-group { position: static; margin: 8px 2px; padding: 0; background: none; color: #a9a4a3; font-size: 10px; overflow-wrap: anywhere; }
   #queue-dock .queue-item {
-    grid-template-columns: 32px minmax(0, 1fr) auto;
-    gap: 9px;
-    min-height: 72px;
-    padding: 9px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    grid-template-rows: auto 44px;
+    gap: 3px 9px; min-height: 0; margin-bottom: 7px; padding: 9px 9px 5px;
+    background: linear-gradient(120deg, rgba(255, 255, 255, .035), transparent), rgba(13, 15, 20, .70);
+    border-color: rgba(255, 255, 255, .10); border-radius: 14px;
+    contain: layout style; transform: none;
   }
-
-  #queue-dock .queue-item-status {
-    padding: 5px 7px;
-    font-size: 8px;
-  }
-
-  #queue-dock .queue-item-actions {
-    grid-column: 2 / -1;
-    justify-content: flex-end;
-  }
-
-  #queue-dock .queue-drawer-actions {
-    gap: 8px;
-    padding-top: 10px;
-  }
-
+  #queue-dock .queue-item:hover { transform: none; }
+  #queue-dock .queue-position { width: 30px; height: 34px; align-self: start; color: #b7b0a3; font-size: 10px; }
+  #queue-dock .queue-position[data-episode] { font-size: 0; }
+  #queue-dock .queue-position[data-episode]::after { grid-area: 1 / 1; content: attr(data-episode); font-size: 9px; }
+  #queue-dock .queue-item-content { gap: 2px; }
+  #queue-dock .queue-item-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
+  #queue-dock .queue-item-episode { color: #d5c7ae; font: 500 10px/1.35 "DM Sans", sans-serif; }
+  #queue-dock .queue-item-episode:empty { display: none; }
+  #queue-dock .queue-item-route { color: #b4b2b5; font-size: 10px; }
+  #queue-dock .queue-item-metrics { color: #b4b2b5; font-size: 10px; min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #queue-dock .queue-item-metrics:empty { display: none; }
+  #queue-dock .queue-item[data-status="downloading"] .queue-item-metrics:empty { display: block; }
+  #queue-dock .queue-item-progress { width: 100%; height: 3px; margin-top: 1px; }
+  #queue-dock .queue-item-progress[data-known="false"] { visibility: hidden; }
+  #queue-dock .queue-item-progress i { transition: width .25s ease; }
+  #queue-dock .queue-item-status { grid-column: 1 / -1; grid-row: 2; justify-self: start; align-self: center; min-width: 0; max-width: calc(100% - var(--queue-actions-width, 148px)); padding: 5px 0; border: 0; background: transparent; color: #bfbabd; font-size: 10px; line-height: 1.3; white-space: normal; }
+  #queue-dock .queue-item[data-status="downloading"] { border-color: rgba(229, 9, 20, .3); }
+  #queue-dock .queue-item[data-status="downloading"]::before { background: #e50914; }
+  #queue-dock .queue-item[data-status="downloading"] .queue-item-status { color: #ff8c92; }
+  #queue-dock .queue-item[data-status="preparing"] .queue-item-status { color: #e5c993; }
+  #queue-dock .queue-item[data-status="failed"] .queue-item-status { color: #ff928e; }
+  #queue-dock .queue-item[data-status="completed"] .queue-item-status { color: #87daa0; }
+  #queue-dock .queue-item-actions { grid-column: 1 / -1; grid-row: 2; justify-self: end; justify-content: flex-end; max-width: none; gap: 4px; }
+  #queue-dock .queue-action-btn { min-width: 44px; min-height: 44px; padding: 8px; border-radius: 10px; color: #d7d5d7; touch-action: manipulation; }
+  #queue-dock .queue-action-btn:focus-visible, #queue-dock button:focus-visible, #queue-dock summary:focus-visible { outline: 2px solid #e7c78b; outline-offset: -2px; }
+  #queue-dock .queue-history-panel { flex: 0 0 auto; margin: 4px 0 0; color: #c1bbba; }
+  #queue-dock .queue-history-panel > summary { min-height: 44px; padding: 14px 2px; font-size: 11px; }
+  #queue-dock .queue-history-list { max-height: 22dvh; padding-top: 0; overscroll-behavior: contain; }
+  #queue-dock .queue-history-item { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+  #queue-dock .queue-history-item strong, #queue-dock .queue-history-item small { white-space: normal; overflow-wrap: anywhere; }
+  #queue-dock .queue-drawer-actions { gap: 8px; padding: 6px 0 10px; margin: 0; flex: 0 0 auto; }
+  #queue-dock .queue-drawer-actions #queue-clear, #queue-dock .queue-drawer-actions #cancel-btn { min-height: 48px; height: auto; padding: 8px; font-size: 10px; color: #d9b1b0; border-color: rgba(255, 255, 255, .1); background: rgba(10, 11, 15, .8); white-space: normal; }
+  #queue-dock .queue-dock-bar { position: relative; flex: 0 0 auto; }
   #queue-dock .queue-dock-bar .download-stage {
-    margin: 0;
-    padding: 8px 10px;
-    background: linear-gradient(180deg, rgba(18, 18, 19, .98), rgba(9, 9, 10, .99));
-    border: 0;
-    border-radius: 14px;
+    margin: 0; padding: 12px; border: 1px solid rgba(229, 9, 20, .24); border-radius: 16px;
+    background: linear-gradient(135deg, rgba(229, 9, 20, .08), transparent 55%), rgba(9, 11, 16, .92);
+    box-shadow: inset 0 1px rgba(255, 255, 255, .035);
   }
-
-  #queue-dock .download-state-icon {
-    border-width: 1px;
-    border-style: solid;
-  }
+  #queue-dock .download-state-row { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; }
+  #queue-dock .download-state-icon { width: 34px; height: 34px; border: 1px solid; border-radius: 11px; }
+  #queue-dock .download-kicker { color: #cfb88e; font-size: 9px; }
+  #queue-dock .download-state-copy strong { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #queue-dock #dl-status { font-size: 10px; min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #queue-dock .download-percent { font-size: 21px; }
+  #queue-dock .download-current { min-height: 16px; margin: 8px 0 4px 44px; color: #bcb8b8; font: 500 10px/1.4 "DM Sans", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #queue-dock .progress-bar { height: 5px; margin-top: 8px; border-radius: 999px; }
+  #queue-dock .download-stage[data-progress="unknown"] .download-percent { visibility: hidden; }
+  #queue-dock .download-stage[data-progress="unknown"] .progress-fill { width: 30% !important; animation: queue-source-activity 1.4s ease-in-out infinite alternate; }
+  #queue-dock .download-stage[data-progress="unknown"]:not([data-state="active"]) .progress-bar { display: none; }
+}
+@media (max-width: 820px) and (max-height: 600px) {
+  #queue-dock .queue-drawer-main { overflow-y: auto; overscroll-behavior: contain; }
+  #queue-dock .queue-drawer-main > .panel-head { position: sticky; top: 0; z-index: 3; padding-bottom: 8px; background: #101217; }
+  #queue-dock .queue-list { flex: 0 0 auto; overflow: visible; }
+}
+@keyframes queue-source-activity { from { transform: translateX(0); } to { transform: translateX(230%); } }
+@media (max-width: 820px) and (prefers-reduced-motion: reduce) {
+  #queue-dock, .queue-backdrop, #queue-dock .queue-wallpaper img, #queue-dock .queue-item, #queue-dock .progress-fill, #queue-dock .queue-item-progress i { transition: none; animation: none !important; }
 }
 
 /* ── Royal Transfer Deck ───────────────────────────────────────────────
@@ -1531,22 +1587,6 @@
 
   #queue-dock .queue-toggle-label {
     display: none;
-  }
-}
-
-@media (max-width: 820px) {
-  #queue-dock .queue-dock-bar .download-stage {
-    border-radius: 16px;
-    box-shadow: inset 3px 0 0 rgba(229, 9, 20, .75);
-  }
-
-  #queue-dock .download-state-icon {
-    border-radius: 11px;
-  }
-
-  #queue-dock .progress-bar {
-    height: 5px;
-    border-radius: 2px;
   }
 }
 

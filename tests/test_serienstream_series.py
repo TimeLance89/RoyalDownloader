@@ -6,6 +6,28 @@ from providers.serienstream import SerienstreamScraper
 from media.session_manager import ProviderBlockedError
 
 
+def test_complete_catalog_paginates_beyond_recommendations(monkeypatch):
+    scraper = SerienstreamScraper(session=object())
+    catalog = [scraper._result(f"show-{index}", f"Show {index}") for index in range(330)]
+    monkeypatch.setattr(scraper, "_load_catalog", lambda: catalog)
+    monkeypatch.setattr(scraper, "list_trending", lambda: [])
+    monkeypatch.setattr(scraper, "list_new", lambda: [])
+    assert scraper.list_series_catalog(10) == catalog[288:320]
+    assert scraper.list_series_catalog(11) == catalog[320:]
+    assert scraper.list_series_catalog(12) == []
+
+
+def test_complete_catalog_keeps_highlights_first_without_duplicates(monkeypatch):
+    scraper = SerienstreamScraper(session=object())
+    catalog = [scraper._result(f"show-{index}", f"Show {index}") for index in range(100)]
+    monkeypatch.setattr(scraper, "_load_catalog", lambda: catalog)
+    monkeypatch.setattr(scraper, "list_trending", lambda: [catalog[80]])
+    monkeypatch.setattr(scraper, "list_new", lambda: [catalog[80], catalog[90]])
+    results = [item for page in range(1, 5) for item in scraper.list_series_catalog(page)]
+    assert results[:2] == [catalog[80], catalog[90]]
+    assert len({item.base_slug for item in results}) == len(results) == 100
+
+
 def _episode(slug: str, season: int, episode: int) -> SeriesEpisode:
     return SeriesEpisode(
         season=season,

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeriesBrowse } from '../../web/js/features/discovery/series-browse.js';
 import { createCatalogSeed } from '../../web/js/features/discovery/catalog-seed.js';
+import { createInfiniteScroll } from '../../web/js/shared/components/infinite-scroll.js';
 import { readFileSync } from 'node:fs';
 
 function fixture(responses, waitForRetry = async () => {}) {
@@ -24,9 +25,98 @@ function fixture(responses, waitForRetry = async () => {}) {
 const pending=()=>Object.assign(new Error('Dieser Serienabschnitt wird vorbereitet'),{status:409,code:'series_catalog_pending'});
 const page2={page:2,has_more:false,results:[{base_slug:'series-32'}]};
 
+test('only downward input reveals buffered pages, including wheel and touch at the bottom',t=>{
+  const frames=new Map(); let frameId=0;
+  const originalRequest=globalThis.requestAnimationFrame, originalCancel=globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame=callback=>{frames.set(++frameId,callback);return frameId;};
+  globalThis.cancelAnimationFrame=id=>frames.delete(id);
+  t.after(()=>{
+    if(originalRequest) globalThis.requestAnimationFrame=originalRequest; else delete globalThis.requestAnimationFrame;
+    if(originalCancel) globalThis.cancelAnimationFrame=originalCancel; else delete globalThis.cancelAnimationFrame;
+  });
+  const win=Object.assign(new EventTarget(),{scrollY:0,innerHeight:800,getComputedStyle:()=>({overflowY:'visible'})});
+  const root=Object.assign(new EventTarget(),{scrollTop:0,ownerDocument:{defaultView:win}});
+  const sentinel={classList:{contains:()=>false},getBoundingClientRect:()=>({top:900})};
+  const reveals=[];
+  const infinite=createInfiniteScroll(root,{sentinel,trackScrollIntent:true,loadNext:({reveal})=>reveals.push(reveal)});
+  const flush=()=>{const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback());};
+  const fire=(name,values={})=>{win.dispatchEvent(Object.assign(new Event(name),values));flush();};
+  infinite.mount();flush();
+  fire('wheel',{deltaY:200});
+  fire('resize');
+  fire('wheel',{deltaY:-200});
+  fire('touchstart',{touches:[{clientY:200}]});
+  fire('touchmove',{touches:[{clientY:100}]});
+  win.scrollY=100;fire('scroll');
+  win.scrollY=0;fire('scroll');
+  assert.deepEqual(reveals,[false,true,false,true,true,false]);
+  infinite.unmount();
+});
+
+test('prefetched series remain invisible until a later downward scroll', async()=>{
+  const h=fixture([page2]);
+  try {
+    await h.browse.next();
+    assert.ok(!h.state.loadingBrowse);
+    assert.equal(h.applied.length,0);
+    assert.equal(h.state.results.length,32);
+    assert.equal(h.state.page,1);
+    await h.browse.next();
+    assert.equal(h.applied.length,0);
+    assert.equal(h.calls.length,1);
+    await h.browse.next({reveal:true});
+    assert.equal(h.applied.length,1);
+    assert.equal(h.state.results.length,33);
+    assert.equal(h.state.page,2);
+  } finally { h.browse.unmount(); }
+});
+
+test('scrolling while a page is pending does not reveal it when its response arrives',async()=>{
+  let release;
+  const h=fixture([new Promise(resolve=>{release=resolve;})]);
+  try {
+    const loading=h.browse.next({reveal:true});
+    assert.ok(!h.state.loadingBrowse);
+    assert.equal(h.state.results.length,32);
+    release(page2);
+    await loading;
+    assert.equal(h.applied.length,0);
+    await h.browse.next({reveal:true});
+    assert.equal(h.state.results.length,33);
+  } finally {h.browse.unmount();}
+});
+
+test('switching catalogs discards a late prefetched response',async()=>{
+  let release;
+  const h=fixture([new Promise(resolve=>{release=resolve;}),{page:1,has_more:false,results:[{base_slug:'new-mode'}]}]);
+  try {
+    const loading=h.browse.next();
+    await h.browse.browse('new',1);
+    release(page2);
+    await loading;
+    await h.browse.next({reveal:true});
+    assert.equal(h.applied.length,1);
+    assert.equal(h.applied[0].results[0].base_slug,'new-mode');
+  } finally {h.browse.unmount();}
+});
+
+test('a pending initial series page retries page one before advancing offsets',async()=>{
+  const h=fixture([pending(),pending(),pending(),{...page2,page:1}]);
+  try {
+    await h.browse.browse('discover',1);
+    assert.equal(h.applied.length,0);
+    assert.equal(h.scheduled.length,1);
+    h.scheduled.shift()();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.calls.length,4);
+    assert.ok(h.calls.every(call=>call.url.includes('page=1')));
+    assert.equal(h.applied.length,1);
+  } finally { h.browse.unmount(); }
+});
+
 test('series pagination retries preparing page without skipping or losing the first 32 cards',async()=>{
   const h=fixture([pending(),page2]);
-  try { await h.browse.next(); assert.equal(h.calls.length,2); assert.ok(h.calls.every(call=>call.url.includes('page=2'))); assert.equal(h.state.results.length,33); assert.equal(h.state.page,2); assert.equal(h.state.loadError,''); } finally {h.browse.unmount();}
+  try { await h.browse.next(); assert.equal(h.applied.length,0); await h.browse.next({reveal:true}); assert.equal(h.calls.length,2); assert.ok(h.calls.every(call=>call.url.includes('page=2'))); assert.equal(h.state.results.length,33); assert.equal(h.state.page,2); assert.equal(h.state.loadError,''); } finally {h.browse.unmount();}
 });
 
 test('transient series warmup never permanently disables infinite scrolling',async()=>{
@@ -39,9 +129,10 @@ test('transient series warmup never permanently disables infinite scrolling',asy
     assert.equal(h.state.loadError,'');
     assert.equal(h.scheduled.length,1);
     h.scheduled.shift()();
-    assert.equal(h.rechecks,1);
     await h.browse.next();
     assert.equal(h.calls.length,4);
+    assert.equal(h.state.page,1);
+    await h.browse.next({reveal:true});
     assert.equal(h.state.page,2);
     assert.equal(h.state.results.length,33);
   } finally {h.browse.unmount();}
@@ -58,13 +149,13 @@ test('leaving series during retry backoff prevents another request',async()=>{
 for (const failure of [Object.assign(new Error('Offline'), {code:'network_error'}), Object.assign(new Error('Unavailable'), {status:503})]) {
   test(`series pagination recovers from ${failure.code || failure.status}`, async()=>{
     const h=fixture([failure,page2]);
-    try { await h.browse.next(); assert.equal(h.calls.length,2); assert.equal(h.state.page,2); } finally {h.browse.unmount();}
+    try { await h.browse.next(); await h.browse.next({reveal:true}); assert.equal(h.calls.length,2); assert.equal(h.state.page,2); } finally {h.browse.unmount();}
   });
 }
 
 test('permanent request errors are not retried',async()=>{
   const h=fixture([Object.assign(new Error('Invalid request'),{status:400})]);
-  try { await h.browse.next(); assert.equal(h.calls.length,1); assert.equal(h.state.page,1); assert.equal(h.state.results.length,32); assert.ok(h.state.loadError); } finally {h.browse.unmount();}
+  try { await h.browse.next(); assert.equal(h.state.loadError,''); await h.browse.next({reveal:true}); assert.equal(h.calls.length,1); assert.equal(h.state.page,1); assert.equal(h.state.results.length,32); assert.ok(h.state.loadError); } finally {h.browse.unmount();}
 });
 
 

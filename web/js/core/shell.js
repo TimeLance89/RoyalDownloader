@@ -8,7 +8,7 @@ export function createShell(document, {
   refreshQueueUiAfterChange, renderSerienstreamHealth, setDownloadState, getDownloadPercent, openDirectory,
   client = api,
 }) {
-  let scope = null;
+  let scope = null, queueBreakpointFocus = false;
   const pending = new Set();
   async function command(url, accept) {
     if (!scope?.active || pending.has(url)) return;
@@ -98,11 +98,45 @@ export function createShell(document, {
       document.getElementById("global-search-shell").classList.add("is-expanded");
       input.focus();
     });
-    scope.listen(document.defaultView, "resize", () => closeNavigationMenus());
+    scope.listen(document.defaultView, "resize", () => {
+      closeNavigationMenus();
+      const mobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
+      const focusAfterLayout = (id, expectedMobile) => {
+        const previousFocus = document.activeElement;
+        let frames = 0;
+        const settle = () => {
+          const currentMobile = document.defaultView.matchMedia("(max-width: 820px)").matches;
+          const active = document.activeElement;
+          if (currentMobile !== expectedMobile || document.body.classList.contains("queue-open")) return;
+          // Preserve a deliberate focus change while the responsive layout settles.
+          if (active !== previousFocus && active !== document.body && active !== document.documentElement
+              && !["queue-dock-toggle", "mobile-queue-close", "mobile-queue-btn"].includes(active?.id)) return;
+          const target = document.getElementById(id);
+          if (target.getClientRects().length && !target.closest("[inert]")
+              && document.defaultView.getComputedStyle(target).visibility === "visible") {
+            target.focus({ preventScroll: true });
+            if (document.activeElement === target) return;
+          }
+          // WebKit can finish its viewport/visibility update after the resize event.
+          if (++frames < 90) scope.frame(settle);
+        };
+        scope.frame(settle);
+      };
+      if (!mobile && document.body.classList.contains("queue-open")) {
+        closeMobileQueue();
+        setQueueDockExpanded(false);
+        queueBreakpointFocus = true;
+        focusAfterLayout("queue-dock-toggle", false);
+      } else if (mobile && (queueBreakpointFocus || document.activeElement?.id === "queue-dock-toggle")) {
+        queueBreakpointFocus = false;
+        focusAfterLayout("mobile-queue-btn", true);
+      }
+    });
   }
 
   function mount() {
     if (scope?.active) return;
+    queueBreakpointFocus = false;
     scope = createScope(); initNavigationMenus();
     document.getElementById("serienstream-retry").disabled = false;
   scope.listen(document.getElementById("mobile-queue-btn"), "click", openMobileQueue);

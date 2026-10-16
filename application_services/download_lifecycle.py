@@ -2,6 +2,8 @@
 # Runtime service publication is intentionally invisible to static name resolution.
 # ruff: noqa: F821
 
+import math
+
 from application_services.runtime import (
     backend_value,
     import_backend_namespace,
@@ -519,7 +521,7 @@ def _pause_downloads_for_update_restart() -> int:
                 raise RuntimeError(
                     "Queue-Zustand konnte vor dem Update nicht gesichert werden."
                 )
-        state.dl_queue.cancel_all()
+        state.dl_queue.cancel_all(preserve_resume=True)
 
     # Laufende yt-dlp-Prozesse und Browser-Tabs möglichst sauber beenden, bevor
     # execv den Server ersetzt. Nach spätestens 20 Sekunden übernimmt der
@@ -644,9 +646,24 @@ def _probe_serienstream_once(item: Optional[dict]) -> bool:
     return False
 
 
+def _waiting_retry_at(item: dict) -> float:
+    """Recover an invalid per-episode deadline without blocking all retries.
+
+    Waiting-job state may be reconstructed after a crash or be supplied by a
+    provider callback. A single malformed/non-finite deadline must not poison
+    the shared retry worker. Use an already-due value so the ordinary provider
+    cooldown and source retry logic can calculate a fresh valid deadline.
+    """
+    try:
+        deadline = float(item.get("next_retry_at", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return deadline if math.isfinite(deadline) and deadline >= 0 else 0.0
+
+
 def _waiting_retry_due(item: dict, now: float | None = None) -> bool:
     now = time.time() if now is None else now
-    return now >= float(item.get("next_retry_at", 0) or 0)
+    return now >= _waiting_retry_at(item)
 
 
 def _resume_waiting_provider_jobs(first_item: Optional[dict] = None) -> None:
@@ -776,57 +793,63 @@ def _provider_retry_worker() -> None:
     next_fallback_retry = time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
     try:
         while True:
-            with state.queue_claim_lock:
-                waiting = list(state.provider_waiting_jobs.values())
-            if not waiting:
-                return
+            try:
+                with state.queue_claim_lock:
+                    waiting = list(state.provider_waiting_jobs.values())
+                if not waiting:
+                    return
 
-            now = time.time()
-            due = [item for item in waiting if _waiting_retry_due(item, now)]
-            next_due = min(
-                (float(item.get("next_retry_at", 0) or 0) for item in waiting),
-                default=now,
-            )
-            due_delay = max(0.0, next_due - now)
-            status = state.provider_health.status("serienstream")
+                now = time.time()
+                due = [item for item in waiting if _waiting_retry_due(item, now)]
+                next_due = min(
+                    (_waiting_retry_at(item) for item in waiting),
+                    default=now,
+                )
+                due_delay = max(0.0, next_due - now)
+                status = state.provider_health.status("serienstream")
 
-            if status["state"] == HEALTHY:
-                if due:
-                    _resume_waiting_provider_jobs()
+                if status["state"] == HEALTHY:
+                    if due:
+                        _resume_waiting_provider_jobs()
+                        continue
+                    state.provider_retry_wake_event.wait(min(30, max(1.0, due_delay)))
+                    state.provider_retry_wake_event.clear()
                     continue
-                state.provider_retry_wake_event.wait(min(30, max(1.0, due_delay)))
-                state.provider_retry_wake_event.clear()
-                continue
 
-            if status["state"] == PROBING:
-                state.provider_retry_wake_event.wait(1)
-                state.provider_retry_wake_event.clear()
-                continue
-
-            if status["remaining_seconds"] > 0:
-                fallback_delay = max(0.0, next_fallback_retry - time.monotonic())
-                if due and fallback_delay <= 0:
-                    if _retry_one_waiting_fallback():
-                        next_fallback_retry = (
-                            time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
-                        )
-                    else:
-                        next_fallback_retry = time.monotonic() + 5
+                if status["state"] == PROBING:
+                    state.provider_retry_wake_event.wait(1)
+                    state.provider_retry_wake_event.clear()
                     continue
-                waits = [30.0, float(status["remaining_seconds"])]
-                if fallback_delay > 0:
-                    waits.append(fallback_delay)
-                if due_delay > 0:
-                    waits.append(due_delay)
-                state.provider_retry_wake_event.wait(max(0.1, min(waits)))
-                state.provider_retry_wake_event.clear()
-                continue
 
-            if state.provider_health.begin_probe("serienstream"):
-                _execute_provider_probe(due[0] if due else None)
-            else:
-                state.provider_retry_wake_event.wait(1)
-                state.provider_retry_wake_event.clear()
+                if status["remaining_seconds"] > 0:
+                    fallback_delay = max(0.0, next_fallback_retry - time.monotonic())
+                    if due and fallback_delay <= 0:
+                        if _retry_one_waiting_fallback():
+                            next_fallback_retry = (
+                                time.monotonic() + appconfig.SERIES_FALLBACK_RETRY_SECONDS
+                            )
+                        else:
+                            next_fallback_retry = time.monotonic() + 5
+                        continue
+                    waits = [30.0, float(status["remaining_seconds"])]
+                    if fallback_delay > 0:
+                        waits.append(fallback_delay)
+                    if due_delay > 0:
+                        waits.append(due_delay)
+                    state.provider_retry_wake_event.wait(max(0.1, min(waits)))
+                    state.provider_retry_wake_event.clear()
+                    continue
+
+                if state.provider_health.begin_probe("serienstream"):
+                    _execute_provider_probe(due[0] if due else None)
+                else:
+                    state.provider_retry_wake_event.wait(1)
+                    state.provider_retry_wake_event.clear()
+            except Exception as exc:
+                # A status/probe exception must not kill the only worker and
+                # trigger immediate thread-spawn retries in the finally block.
+                log(f"Provider-Retry fehlgeschlagen, erneuter Versuch: {exc}", "warn")
+                time.sleep(10)
     finally:
         with state.queue_claim_lock:
             state.provider_retry_worker_running = False

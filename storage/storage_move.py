@@ -415,7 +415,31 @@ def _move_source_key(path: str) -> str:
     return os.path.normcase(os.path.normpath(str(path or "").strip()))
 
 
+def read_move_journal(path: Path) -> dict | None:
+    """Validate existing move state before recovery or any replacement write."""
+    try:
+        if path.is_symlink():
+            raise ValueError("Symlink")
+        if not path.exists():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Dokument")
+        jobs, history = raw.get("jobs"), raw.get("history", [])
+        if not isinstance(jobs, list) or not isinstance(history, list):
+            raise ValueError("Job-Liste")
+        if any(not isinstance(item, dict) for item in (*jobs, *history)):
+            raise ValueError("Job-Eintrag")
+        return raw
+    except (OSError, ValueError, TypeError) as exc:
+        raise OSError(
+            "Verschiebe-Journal beschädigt oder nicht lesbar; "
+            "vor weiteren Verschiebungen muss es wiederhergestellt werden."
+        ) from exc
+
+
 def _atomic_save_move_jobs_locked() -> None:
+    read_move_journal(_MOVE_JOB_PATH)
     payload = {
         "schema_version": _MOVE_JOB_SCHEMA_VERSION,
         "jobs": [_public_move_job(job) for job in _MOVE_ACTIVE_JOBS.values()],
@@ -452,7 +476,7 @@ def _atomic_save_move_jobs_locked() -> None:
 
 def _recover_move_jobs() -> None:
     try:
-        raw = json.loads(_MOVE_JOB_PATH.read_text(encoding="utf-8"))
+        raw = read_move_journal(_MOVE_JOB_PATH)
     except (OSError, ValueError, TypeError):
         return
     if not isinstance(raw, dict):
@@ -576,6 +600,7 @@ def create_move_job(
     job history deliberately contains presentation metadata only and is never
     sufficient to replay a destructive file operation after a restart.
     """
+    read_move_journal(_MOVE_JOB_PATH)
     plan = plan_move_candidate(
         media_paths,
         locations,

@@ -516,6 +516,7 @@ class MovieMetadataItem(BaseModel):
     year: str = ""
     tmdb_id: int | None = None
     media_type: str = "movie"
+    aliases: list[str] = Field(default_factory=list, max_length=12)
 
 
 class MovieMetadataBody(BaseModel):
@@ -603,7 +604,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
                     statuses[item.slug] = "unavailable"
                     continue
                 series_ids = client.series_ids_for(
-                    item.title, tmdb_id=item.tmdb_id, items=series_items,
+                    item.title, tmdb_id=item.tmdb_id, aliases=item.aliases, items=series_items,
                 )
                 if series_ids is None:
                     statuses[item.slug] = "ambiguous"

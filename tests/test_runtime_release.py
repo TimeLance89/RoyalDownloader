@@ -131,6 +131,10 @@ def test_verified_staged_release_is_activated_once(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "_smoke_release", lambda *_args: None)
     updater._install_versioned(source, "b" * 40, tmp_path)
 
+    # Existing Docker images have no independent guard yet. Never strand them
+    # with an unconfirmable pending update journal.
+    assert not (tmp_path / ".update-recovery.json").exists()
+
     current = runtime_release.read_release_link(tmp_path, "current")
     assert current and current.name == "b" * 12
     assert (current / "dependency-version").read_text() == "v2"

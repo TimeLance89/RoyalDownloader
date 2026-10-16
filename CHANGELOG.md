@@ -2,7 +2,85 @@
 
 ## Unreleased
 
-_No changes recorded since v1.9.0._
+### Series catalogs and Jellyfin ribbons
+
+- Load the complete series catalog with stable ordering and resilient cache and
+  provider recovery instead of stopping at 32 or prematurely declaring its end.
+- Prefetch additional pages silently and reveal them on the next downward scroll.
+- Show a static diagonal Jellyfin corner ribbon only for owned movies and series.
+  Recheck enriched TMDB identities and original-title aliases; synchronize confirmed
+  episode inventory across catalog, Home and matching provider copies without
+  allowing stale requests to overwrite newer library status.
+- Release offscreen card contents, poster resources and related work while retaining
+  scroll geometry; recreate cards and their current status when they return onscreen.
+
+### Trailer playback
+
+- Keep the trailer position when switching from detail autoplay to the full player;
+  prevent a second background player from restarting during playback or retries.
+- Improve the series trailer action's accessibility and keep mobile hero playback
+  stable across detail updates.
+
+### Mobile Download Center and navigation
+
+- Add the mobile Download Center with focused-title artwork, compact queue cards,
+  accessible touch controls, progress and source activity, and expandable history.
+- Reuse queue nodes and already available artwork, handle empty and active states,
+  respect reduced motion, and preserve keyboard focus and responsive transitions.
+- Improve mobile download feedback, subscription inbox access and navigation;
+  keep search, queue and avatar controls separated and make search open/close
+  reliably without unwanted focus-driven reopening.
+
+### Download, queue and background-worker reliability
+
+- Resume interrupted direct HTTP/MP4 downloads across restarts only with matching
+  strong ETags, byte ranges and full lengths; restart safely when validation fails.
+- Recover polling and subscription workers after transient service failures or bad
+  settings. Isolate malformed provider retry deadlines so other episodes continue.
+- Bound Telegram callback admission and preserve unaccepted updates for retry.
+- Serialize persistence retry bookkeeping with commits, retain queued jobs after
+  thread-start failures, and keep cancellation and queue API requests responsive.
+- Preserve corrupt storage-move journals and stop accepting further move work until
+  they can be recovered safely.
+- Use progressive collection availability checks to avoid premature false negatives.
+
+### Update verification and regression coverage
+
+- Require the exact valid signed target commit on both Stable and Overnight updates.
+- Expand isolated stability, queue stress, browser, mobile, trailer and catalog
+  regressions, including WebKit interactions and performance budgets.
+- Keep container image digests pinned while retrying official registry mirrors;
+  consolidate verification tooling and weekly dependency maintenance.
+
+### Personal home wallpaper artwork
+
+- Show only TMDB landscape backdrops in the "Für dich ausgewählt" spotlight,
+  never portrait poster fallbacks stretched into 16:9 cards.
+- Hydrate the full personalized recommendation reservoir and fill the seven
+  visible slots from candidates with confirmed backdrop artwork.
+- Keep ranking, click actions, card design and all other home rails unchanged.
+
+### Queue state recovery
+
+- Preserve the preceding valid queue snapshot in a private, fsynced
+  `download_queue.json.bak` before replacing the primary queue document.
+- Restore corrupt or missing primary state from a validated backup without
+  changing logical job IDs or restart semantics.
+- Fail startup closed when neither file is trustworthy; never turn unreadable
+  queued work into an apparently empty download queue.
+- Cover interrupted writes, malformed documents, legacy migration and backup
+  recovery with deterministic regressions.
+
+### Self-healing Docker updates
+
+- Keep an independent bootstrap-owned startup watchdog outside replaceable
+  runtime releases, with local health and exact running-revision verification.
+- Persist the planned update in an atomically written recovery journal before
+  changing the runtime symlink; restore the last known-good release once after
+  a failed boot, including interrupted rollback recovery and bad-revision
+  blocking. Existing media, queue and application settings remain untouched.
+- Require a rebuilt Docker image to activate the independent watchdog; legacy
+  non-versioned source updates remain outside this protection.
 
 ## v1.9.0 – 2026-10-10
 

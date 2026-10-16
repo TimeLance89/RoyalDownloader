@@ -5,7 +5,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from application_services import series_catalog_cache, series_payload
+from application_services import series_catalog_cache, series_catalog_order, series_payload
 from application_services.runtime import (
     import_backend_namespace,
     publish_service,
@@ -170,30 +170,7 @@ def _series_result_identity(
     return ("series", title_key, year)
 
 
-def _claim_series_identity(identity: tuple, claimed: set[tuple]) -> bool:
-    """Reserviert eine Identität; True bedeutet, dass sie bereits sichtbar ist."""
-    if identity in claimed:
-        return True
-    if len(identity) != 3 or identity[0] != "series":
-        claimed.add(identity)
-        return False
-
-    _kind, title_key, year = identity
-    unknown = ("series", title_key, "")
-    known = {
-        item for item in claimed
-        if len(item) == 3 and item[0] == "series" and item[1] == title_key and item[2]
-    }
-    if year and unknown in claimed:
-        # Ein früher jahrsloser Treffer wird durch den ersten eindeutigen
-        # Jahrgang konkretisiert. Weitere Remakes dürfen danach sichtbar bleiben.
-        claimed.remove(unknown)
-        claimed.add(identity)
-        return True
-    if not year and len(known) == 1:
-        return True
-    claimed.add(identity)
-    return False
+_claim_series_identity = series_catalog_order.claim_identity
 
 
 def _mix_series_provider_results(
@@ -266,24 +243,7 @@ def _mix_series_provider_results(
     return mixed
 
 
-def _interleave_series_lists(
-    *lists: List[FilmpalastSeriesResult],
-) -> List[FilmpalastSeriesResult]:
-    """Verzahnt mehrere Signallisten stabil und entfernt Quell-Dubletten."""
-    merged: List[FilmpalastSeriesResult] = []
-    seen: set[str] = set()
-    longest = max((len(items) for items in lists), default=0)
-    for index in range(longest):
-        for items in lists:
-            if index >= len(items):
-                continue
-            result = items[index]
-            key = str(result.base_slug or result.sample_slug or result.sample_url or result.title)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(result)
-    return merged
+_interleave_series_lists = series_catalog_order.interleave_lists
 
 
 def _series_provider_is_paginated(provider: str, mode: str) -> bool:
@@ -309,12 +269,14 @@ def _fetch_series_provider_page(
 
     if provider == "serienstream":
         if not state.provider_health.request_allowed("serienstream"):
-            return []
+            raise RuntimeError("SerienStream befindet sich im Provider-Cooldown")
         with state.sto_lock:
             scraper = get_sto_scraper()
             try:
                 if mode == "alpha":
                     return list(scraper.list_series_alpha(letter, source_page))
+                if mode == "discover":
+                    return list(scraper.list_series_catalog(source_page))
                 if source_page != 1:
                     return []
                 if mode == "new":
@@ -327,7 +289,7 @@ def _fetch_series_provider_page(
                 )
             except ProviderBlockedError as exc:
                 _mark_serienstream_blocked(exc.reason, str(exc))
-                return []
+                raise
 
     if provider == "filmpalast":
         with state.fp_lock:
@@ -461,9 +423,9 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
     deadline = time.monotonic() + SERIES_CATALOG_PAGE_BUDGET_SECONDS
     timed_out = [False]
     first_timed_out = [False] if mode == "trending" else timed_out
-    # Das exklusive Trending-Signal darf den Start nicht fuer das komplette
-    # Budget blockieren; danach bleibt noch Zeit fuer den Katalog-Fallback.
-    first_deadline = min(deadline, time.monotonic() + 4.0) if mode == "trending" else deadline
+    # Leave time for deeper pages from fast sources even if another source is
+    # still warming up. Trending also needs room for its catalog fallback.
+    first_deadline = min(deadline, time.monotonic() + (4.0 if mode == "trending" else 1.0))
     first_pages = _load_series_provider_pages(
         catalog_mode,
         letter,
@@ -522,9 +484,9 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
     has_more_unverified = timed_out[0]
 
     while (
-        not timed_out[0]
-        and len(catalog_entries) <= target_end
+        len(catalog_entries) <= target_end
         and next_source_page <= SERIES_MAX_SOURCE_PAGE
+        and time.monotonic() < deadline
     ):
         pending = [provider for provider in paginated if provider not in exhausted]
         if not pending:
@@ -535,7 +497,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
                 letter,
                 [(provider, next_source_page) for provider in pending],
                 cold_wave_budget,
-                deadline,
+                min(deadline, time.monotonic() + 1.0),
                 timed_out,
             )
         except SeriesCatalogColdLoadLimit:
@@ -548,6 +510,9 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
             if (provider, next_source_page) not in next_pages:
                 wave[provider] = []
                 has_more_unverified = True
+                # This provider cannot advance past a missing source page.
+                # Other providers may still have immediately available titles.
+                exhausted.add(provider)
                 continue
             results = next_pages.get((provider, next_source_page), [])
             wave[provider] = unique_page(provider, results)
@@ -567,8 +532,29 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
         next_source_page += 1
         has_more_unverified = has_more_unverified or timed_out[0]
 
+    def merge_emitted_prefix(previous, incoming):
+        years = defaultdict(set)
+        for entry in [*previous, *incoming]:
+            if entry.result.year:
+                title_key = _norm_title(strip_source_suffix(entry.result.title))
+                years[title_key].add(str(entry.result.year).strip())
+        claimed = set()
+        ordered = []
+        for entry in [*previous, *incoming]:
+            identity = _series_result_identity(entry.result, entry.provider, years)
+            if not _claim_series_identity(identity, claimed):
+                ordered.append(entry)
+        return ordered
+
+    catalog_entries = series_catalog_cache.stabilize_catalog(
+        (mode, letter, tuple(priority)), catalog_entries, page, SERIES_BROWSE_PAGE_SIZE,
+        merge_emitted_prefix,
+    )
     start = (page - 1) * SERIES_BROWSE_PAGE_SIZE
-    if page > 1 and timed_out[0] and len(catalog_entries) < target_end:
+    has_more_unverified = has_more_unverified or (
+        bool(set(paginated) - exhausted) and len(catalog_entries) <= target_end
+    )
+    if has_more_unverified and len(catalog_entries) < target_end:
         # Do not commit a truncated/empty follow-up page: advancing the browser's
         # page cursor would permanently skip titles still arriving in the cache.
         raise SeriesCatalogColdLoadLimit(
@@ -578,7 +564,7 @@ def _series_catalog_page_locked(mode: str, page: int = 1, letter: str = "") -> d
     has_more = page < SERIES_MAX_GLOBAL_PAGE and (
         len(catalog_entries) > target_end or has_more_unverified
     )
-    if has_more and not timed_out[0]:
+    if has_more:
         _schedule_series_provider_prefetch(
             catalog_mode,
             letter,

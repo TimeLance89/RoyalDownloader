@@ -413,15 +413,15 @@ MOVIE_GENRE_CANONICAL_BY_KEY = {
 }
 SERIES_BROWSE_PAGE_SIZE = 32
 SERIES_PAGINATED_PROVIDERS = frozenset({
-    "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family",
+    "serienstream", "filmpalast", "megakino", "kinoger", "xcine", "sflix", "ridomovies", "kinoking", "flixitv", "movie2k", "hdfilme_family",
 })
 SERIES_ALPHA_PROVIDERS = frozenset({"serienstream", "filmpalast"})
 SERIES_LIST_CACHE_TTL = 300
 SERIES_LIST_STALE_TTL = 6 * 60 * 60
 SERIES_LIST_FAILURE_CACHE_TTL = 30
 SERIES_LIST_CACHE_MAX_ENTRIES = 500
-SERIES_MAX_GLOBAL_PAGE = 50
-SERIES_MAX_SOURCE_PAGE = 50
+SERIES_MAX_GLOBAL_PAGE = 1000
+SERIES_MAX_SOURCE_PAGE = 1000
 SERIES_MAX_COLD_WAVES_PER_REQUEST = 2
 SERIES_CATALOG_PAGE_BUDGET_SECONDS = 12.0
 

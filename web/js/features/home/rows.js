@@ -8,7 +8,9 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
       reconcileHomeRail(track, [{ signature: "empty", create: () => {
         const empty = document.createElement("span");
         empty.className = "home-rail-empty";
-        empty.textContent = "Noch keine Titel aus den aktiven Quellen verfügbar.";
+        empty.textContent = wallpaperOnly
+          ? "Für diese Auswahl sind aktuell keine Querformatbilder verfügbar."
+          : "Noch keine Titel aus den aktiven Quellen verfügbar.";
         return empty;
       } }], { loop: false });
       return;
@@ -30,7 +32,7 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
       const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
       const rank = ranked ? index + 1 : 0;
       return {
-        signature: homeRailCardSignature(entry, rank, variant),
+        signature: homeRailCardSignature(entry, rank, variant, wallpaperOnly),
         create: (cycle = 0) => createHomeCard(entry, rank, cycle === 1 && index < eagerCount, variant, { wallpaperOnly }),
         update: (card) => syncHomeCardContent(card, entry, rank),
       };

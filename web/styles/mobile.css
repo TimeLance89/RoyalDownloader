@@ -7,22 +7,35 @@
   }
 
   .topbar {
+    display: grid;
+    /* Search, queue and avatar get independent tracks on narrow screens. */
+    grid-template-columns: minmax(0, 1fr) 44px minmax(44px, max-content) 44px;
+    align-items: center;
     min-height: var(--mobile-header);
     padding: env(safe-area-inset-top, 0px) 12px 0;
     gap: 8px;
   }
-  .topbar .brand { flex-basis: 132px; width: 132px; }
-  .topbar .global-search-shell { flex-basis: 44px; width: 44px; height: 44px; }
+  .topbar .brand { grid-column: 1; min-width: 0; max-width: 100%; width: 132px; }
+  .topbar .global-search-shell {
+    grid-column: 2;
+    position: relative;
+    right: auto;
+    justify-self: end;
+    width: 44px;
+    height: 44px;
+  }
   .topbar .global-search-toggle { flex-basis: 42px; width: 42px; height: 42px; }
-  .topbar .global-search-shell:is(.is-expanded, .has-value, :focus-within) {
-    right: 64px;
-    width: calc(100% - 80px);
+  .topbar .global-search-shell:is(.is-expanded, .has-value) {
+    position: relative;
+    right: auto;
+    width: min(calc(100vw - 128px), 330px);
     min-width: 0;
     background: #101216;
   }
   .topbar .global-search-shell input { height: 42px; font-size: 16px; }
   .topbar .global-search-clear { width: 44px; height: 42px; }
-  .topbar #mobile-queue-btn { min-width: 44px; min-height: 44px; padding: 0 8px; }
+  .topbar #mobile-queue-btn { grid-column: 3; justify-self: center; min-width: 44px; min-height: 44px; padding: 0 8px; }
+  .topbar .user-menu { grid-column: 4; justify-self: center; }
   .topbar .user-menu-trigger { min-width: 44px; min-height: 44px; justify-content: center; }
   .user-menu-dropdown { max-width: calc(100vw - 24px); max-height: calc(100dvh - var(--mobile-header) - var(--mobile-footer) - 16px); overflow-y: auto; }
 
@@ -170,6 +183,14 @@
   :root { --mobile-footer: calc(72px + env(safe-area-inset-bottom, 0px)); }
   html { scroll-padding-top: calc(var(--mobile-header) + 12px); }
   body { -webkit-tap-highlight-color: transparent; }
+  /* A full-catalog blur/scale animation delays every mobile navigation paint. */
+  .tab-content.active { animation: none; }
+  /* The existing fixed inbox needs its host even when its desktop trigger is hidden. */
+  .topbar .bell-wrap { display: contents; }
+  .topbar #notif-bell { display: none; }
+  #mobile-more-toggle { position: relative; }
+  .mobile-inbox-badge { position: absolute; top: 3px; right: 7px; min-width: 16px; padding: 2px 4px; border-radius: 8px; background: #c90c22; color: #fff; font: 700 9px/1.2 "DM Sans", sans-serif; }
+  .mobile-inbox-badge.hidden { display: none; }
   body.mobile-menu-open { overflow: hidden; }
   .topbar { background: rgba(8, 11, 16, .96); box-shadow: 0 6px 20px rgba(0, 0, 0, .18); }
   .topbar::after { display: none; }
@@ -222,6 +243,20 @@
   .media-modal-close .modal-back-icon { display: block; width: 24px; height: 24px; }
   .media-modal .detail-body { padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); }
   .media-modal .series-detail-panel { padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+  /* Mobile trailers play in the full dialog, never as an autoplay iframe
+     behind readable detail content or in the normal document flow. */
+  .media-modal .series-detail-panel > #series-detail-hero-trailer {
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--detail-hero-height);
+    pointer-events: none;
+  }
+  .media-modal .series-detail-panel > #series-detail-hero-trailer[hidden] { display: none; }
+  .media-modal .series-hero-copy {
+    min-height: 0;
+    padding-top: 112px;
+    padding-bottom: 24px;
+  }
   .media-modal .series-action-bar { backdrop-filter: none; -webkit-backdrop-filter: none; }
   .media-modal .series-selection-dock {
     position: fixed; z-index: 25; inset: auto 0 0;
@@ -331,13 +366,20 @@
   }
 
   .media-modal .series-action-bar:has(#series-save) {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-      "watch"
-      "saved"
-      "saved-note"
-      "taste"
-      "trailer"
-      "jellyfin";
+      "watch trailer"
+      "saved saved"
+      "saved-note saved-note"
+      "taste taste"
+      "jellyfin jellyfin";
+  }
+  .media-modal .series-action-bar:has(#series-save) :is(#series-watch-btn, .series-trailer-btn) {
+    min-width: 0;
+    width: 100%;
+    padding-inline: 9px;
+    font-size: 12px;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }

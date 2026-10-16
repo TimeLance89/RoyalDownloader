@@ -109,7 +109,17 @@ Both `main` and `overnight` run Python and frontend tests, syntax checks, Ruff,
 Bandit, dependency audit, Docker build, health, persistence, and restart smoke
 checks. The updater also checks the latest `verify` result and the signature
 for the exact target commit on both channels. It fails closed while approval
-is pending, missing, or unsuccessful. The
+is pending, missing, or unsuccessful.
+
+The updater's checks are composed at runtime: `application_services/security_hardening.py`
+installs the signature and Quality policy from `core/security_runtime.py` onto
+`updates.update_checker.UpdateChecker`. The base checker does not authorize
+installation by itself: manual and automatic installation require explicit
+`quality_approved` and `security_approved` results. For signature approval,
+the GitHub commit response must identify the exact 40-character target SHA,
+with `commit.verification.verified` true and `reason` equal to `valid`.
+Missing, incomplete, pending, mismatched or unverifiable metadata blocks the
+update without changing the installed release. The
 release workflow additionally rejects tags whose commit is not an ancestor of
 `main`.
 
