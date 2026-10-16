@@ -130,7 +130,7 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     return parts.join(" · ");
   }
 
-  function createSeriesResultRow(result, { suppressEntryAnimation = false } = {}) {
+  function createSeriesResultRow(result, { suppressEntryAnimation = false, restorable = true } = {}) {
     const selectedBase = seriesState.pendingBaseSlug || seriesState.current?.base_slug;
     const selected = selectedBase === result.base_slug;
     const loading = seriesState.pendingBaseSlug === result.base_slug;
@@ -179,7 +179,10 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
     const baseSlug = result.base_slug;
     activateResultCard(row, () => loadSeries(
       seriesState.results.find((item) => item.base_slug === baseSlug) || result,
-    ));
+    ), restorable ? () => createSeriesResultRow(
+      seriesState.results.find(item => item.base_slug === baseSlug) || result,
+      { suppressEntryAnimation: true, restorable: false },
+    ) : null);
     return row;
   }
 
@@ -227,13 +230,16 @@ export function createSeriesPresentation(catalogRoot, detailRoot, {
   }
 
   function findSeriesResultCard(baseSlug) {
+    const escaped = document.defaultView?.CSS?.escape?.(baseSlug);
+    if (escaped) return catalogRoot.querySelector(`#series-results .series-row[data-base-slug="${escaped}"]`);
     return [...catalogRoot.querySelectorAll("#series-results .series-row")]
       .find((row) => row.dataset.baseSlug === baseSlug) || null;
   }
 
   function updateSeriesResultCard(baseSlug) {
-    const result = seriesState.results.find((item) => item.base_slug === baseSlug);
     const row = findSeriesResultCard(baseSlug);
+    if (!row || row.classList.contains("is-catalog-placeholder")) return;
+    const result = seriesState.results.find((item) => item.base_slug === baseSlug);
     if (!result || !row) return;
     const seasons = row.querySelector(".series-card-seasons");
     if (seasons) seasons.textContent = seriesCardSeasonSummary(result);

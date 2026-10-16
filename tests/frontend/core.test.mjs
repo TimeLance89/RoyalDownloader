@@ -33,6 +33,27 @@ import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-poli
 import { createDailyTop } from "../../web/js/features/home/daily-top.js";
 import { createCardArtwork } from "../../web/js/shared/components/card-artwork.js";
 import { createResultCards } from "../../web/js/shared/components/result-card.js";
+import { createMoviePresentation } from "../../web/js/features/discovery/movie-presentation.js";
+import { setCatalogJellyfinBadge } from "../../web/js/shared/components/status-badge.js";
+
+test("catalog posters mark confirmed Jellyfin ownership and remove stale markers for every other state", () => {
+  const root = { ownerDocument: {}, querySelector: () => null };
+  const presentation = createMoviePresentation(root, root, { movieState: {}, setCatalogJellyfinBadge });
+  const attributes = {};
+  const badge = { className: "", classList: { add(name) { badge.className += ` ${name}`; } },
+    setAttribute(name, value) { attributes[name] = value; } };
+  for (const status of ["missing", "checking", "unavailable", "blocked", "unconfigured", "ambiguous", false, undefined]) {
+    presentation.setFpPosterJellyfinBadge(badge, "owned");
+    assert.equal(badge.hidden, false);
+    assert.equal(badge.textContent, "In Jellyfin");
+    assert.match(attributes["aria-label"], /In Jellyfin/);
+    presentation.setFpPosterJellyfinBadge(badge, status);
+    assert.equal(badge.hidden, true);
+    assert.equal(badge.textContent, "");
+  }
+  presentation.setFpPosterJellyfinBadge(badge, true);
+  assert.equal(badge.hidden, false);
+});
 import { createTrailers } from "../../web/js/features/trailers/index.js";
 import { createCatalogJellyfin } from "../../web/js/features/integrations/catalog-jellyfin.js";
 import { createInfiniteScroll } from "../../web/js/shared/components/infinite-scroll.js";

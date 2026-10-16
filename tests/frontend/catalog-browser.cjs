@@ -106,6 +106,35 @@ const { fixture, swipe } = require("./performance-fixture.cjs");
         assert.match(await card.locator(".result-card-title").textContent(), new RegExp(title));
         assert.match(await card.locator(".result-card-meta").textContent(), /2026/);
         await page.waitForFunction(selector => /Jellyfin/.test(document.querySelector(selector)?.textContent || ""), selector);
+        const owned = card.locator(".result-card-library-badge");
+        assert.equal(await owned.textContent(), "In Jellyfin");
+        assert.equal(await owned.isVisible(), true);
+        assert.match(await owned.getAttribute("aria-label"), /In Jellyfin/);
+        const absent = page.locator(selector).nth(1).locator(".result-card-library-badge");
+        await page.waitForFunction(selector => document.querySelectorAll(selector)[1]?.querySelector(".result-card-library-badge")?.hidden, selector);
+        assert.equal(await absent.isVisible(), false);
+        const markerBox = await owned.boundingBox();
+        const posterBox = await card.locator(".result-card-visual").boundingBox();
+        const queue = card.locator(".result-queue-toggle");
+        const queueBox = await queue.count() ? await queue.boundingBox() : null;
+        assert.ok(markerBox.y < posterBox.y + posterBox.height / 2);
+        if (queueBox) assert.ok(markerBox.x + markerBox.width + 3 <= queueBox.x, "Library marker must not overlap queue control");
+        assert.equal(await card.locator(".result-card-visual").evaluate(node => getComputedStyle(node, "::before").animationName), "none");
+        assert.equal(await page.locator(selector).nth(1).locator(".result-card-visual").evaluate(node => getComputedStyle(node, "::before").content), "none");
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        assert.equal(await card.locator(".result-card-visual").evaluate(node => getComputedStyle(node, "::before").animationName), "none");
+        assert.equal(await owned.evaluate(node => getComputedStyle(node).animationName), "none");
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        if (process.env.ROYAL_CATALOG_SCREENSHOTS && tab === "filme") {
+          const { mkdirSync } = require("node:fs");
+          const { join } = require("node:path");
+          mkdirSync(process.env.ROYAL_CATALOG_SCREENSHOTS, { recursive: true });
+          const firstBox = await card.boundingBox();
+          const secondBox = await page.locator(selector).nth(1).boundingBox();
+          await page.screenshot({ path: join(process.env.ROYAL_CATALOG_SCREENSHOTS, `jellyfin-${mobile ? "mobile" : "desktop"}.png`),
+            clip: { x: firstBox.x, y: firstBox.y, width: secondBox.x + secondBox.width - firstBox.x,
+              height: Math.max(firstBox.height, secondBox.height) } });
+        }
         await card.locator(".result-card-visual")[mobile ? "tap" : "click"]();
         await page.waitForSelector(`#${modal}-modal:not([hidden])`);
         assert.match(await page.locator(`#${modal}-title`).textContent(), new RegExp(title));

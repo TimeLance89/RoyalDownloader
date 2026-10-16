@@ -547,7 +547,7 @@ test("movie and series catalogs show cached content immediately and refresh in t
   const seriesRenderer = seriesPresentation.split("function renderSeriesResults")[1].split(
     "function findSeriesResultCard",
   )[0];
-  assert.match(seriesPresentation, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false \} = \{\}\)/);
+  assert.match(seriesPresentation, /function createSeriesResultRow\(result, \{ suppressEntryAnimation = false, restorable = true \} = \{\}\)/);
   assert.match(seriesPresentation, /function updateSeriesFeatureArtwork\(featureArt, artwork\)/);
   assert.match(seriesPresentation, /featureArt\.dataset\.artworkRequest/);
   assert.match(seriesRenderer, /const existingRows = new Map/);

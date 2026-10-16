@@ -1,10 +1,25 @@
 import { createScope } from "../../core/lifecycle.js";
+import { createCatalogWindow } from "./catalog-window.js";
 
 /** Shared catalog card artwork and keyboard activation, owned by the visible catalog. */
 export function createResultCards(document, {
   coverCandidates, mediaCardInitials, scheduleResultPoster, discardPoster, setFpPosterJellyfinBadge, markLanguage,
 }) {
   const scopes = new Map(), actions = new WeakMap(), jobs = new WeakMap(), mediaByVisual = new WeakMap();
+  const windows = new Map();
+  function windowFor(kind) {
+    if (!windows.has(kind)) windows.set(kind, createCatalogWindow(document, {
+      release(row) {
+        for (const image of row.querySelectorAll(".result-card-poster")) {
+          jobs.get(image)?.dispose();
+          discardPoster(image);
+          image.removeAttribute("src");
+          image.removeAttribute("srcset");
+        }
+      },
+    }));
+    return windows.get(kind);
+  }
   function syncResultCardPoster(visual, media) {
     mediaByVisual.set(visual, media);
     const current = visual.querySelector(".result-card-poster:not(.is-pending-poster)");
@@ -83,9 +98,10 @@ export function createResultCards(document, {
     return visual;
   }
 
-  function activateResultCard(row, callback) {
+  function activateResultCard(row, callback, restore) {
     row.tabIndex = 0; row.setAttribute("role", "button"); row.setAttribute("aria-haspopup", "dialog");
     actions.set(row, callback);
+    if (restore) windowFor(row.querySelector(".result-card-visual").dataset.kind).track(row, restore);
   }
   function mount(kind, root) {
     if (scopes.get(kind)?.active) return;
@@ -104,12 +120,13 @@ export function createResultCards(document, {
       }
     }
     scope.listen(root, "click", activate); scope.listen(root, "keydown", activate);
+    windowFor(kind).mount(root.querySelector(kind === "movie" ? "#fp-results" : "#series-results") || root);
     root.querySelectorAll(".result-card-visual").forEach(visual => {
       const media = mediaByVisual.get(visual);
       if (media) syncResultCardPoster(visual, media);
     });
   }
-  function unmount(kind) { scopes.get(kind)?.dispose(); scopes.delete(kind); }
+  function unmount(kind) { windows.get(kind)?.unmount(); scopes.get(kind)?.dispose(); scopes.delete(kind); }
   function dispose() { for (const kind of [...scopes.keys()]) unmount(kind); }
   return { mount, unmount, dispose, sync: syncResultCardPoster, create: createResultCardVisual, activate: activateResultCard };
 }
