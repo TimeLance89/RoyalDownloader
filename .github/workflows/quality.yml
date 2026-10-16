@@ -48,6 +48,9 @@ jobs:
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll
         run: node tests/frontend/series-pagination-browser.cjs
 
+      - name: Movie and series viewport window releases offscreen cards and posters
+        run: node tests/frontend/catalog-window-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 

@@ -130,16 +130,8 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     const normalized = typeof status === "boolean" ? (status ? "owned" : "missing") : status;
     setCatalogJellyfinBadge(badge, normalized);
     badge.classList.add("result-card-library-badge");
-    badge.textContent = {
-      owned: "In Jellyfin",
-      missing: "Nicht in Jellyfin",
-      checking: "Jellyfin wird geprüft",
-      unavailable: "Jellyfin nicht erreichbar",
-      blocked: "Jellyfin-Statusanfrage blockiert",
-      unconfigured: "Jellyfin nicht verbunden",
-      ambiguous: "Jellyfin-Zuordnung unklar",
-    }[normalized] || "Jellyfin wird geprüft";
-    badge.hidden = false;
+    badge.textContent = normalized === "owned" ? "In Jellyfin" : "";
+    badge.hidden = normalized !== "owned";
   }
 
   function updateFpJellyfinBadges() {
@@ -193,13 +185,16 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
   }
 
   function findFpResultCard(slug) {
+    const escaped = document.defaultView?.CSS?.escape?.(slug);
+    if (escaped) return catalogRoot.querySelector(`#fp-results .result-card[data-slug="${escaped}"]`);
     return [...catalogRoot.querySelectorAll("#fp-results .result-card")]
       .find((row) => row.dataset.slug === slug) || null;
   }
 
   function updateFpResultCard(slug) {
-    const result = movieState.results.find((item) => item.slug === slug);
     const row = findFpResultCard(slug);
+    if (!row || row.classList.contains("is-catalog-placeholder")) return;
+    const result = movieState.results.find((item) => item.slug === slug);
     if (!result || !row) return;
     const visual = row.querySelector(".result-card-visual");
     const media = fpResultMedia(result);
@@ -276,69 +271,71 @@ export function createMoviePresentation(catalogRoot, detailRoot, {
     }
   }
 
+  function createFpResultRow(result, restorable = true) {
+    const selected = result.slug === movieState.selectedSlug;
+    const queued = getQueuedSlugs().has(result.slug);
+    const availability = fpResultAvailability(result);
+    const media = fpResultMedia(result);
+
+    const row = document.createElement("div");
+    row.className = "row result-card" + (selected ? " selected" : "") + (queued ? " queued" : "");
+    row.dataset.slug = result.slug;
+    row.setAttribute("aria-current", String(selected));
+    row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
+
+    const visual = createResultCardVisual(media, result.title, "movie", mediaJellyfinStatus(result));
+
+    const copy = document.createElement("span");
+    copy.className = "result-card-copy";
+    const title = document.createElement("strong");
+    title.className = "result-card-title";
+    title.translate = false;
+    title.textContent = result.title;
+    const subtitle = document.createElement("span");
+    subtitle.className = "result-card-subtitle";
+    subtitle.textContent = (media.genres || []).slice(0, 2).join(" · ") || "Film";
+    const meta = document.createElement("span");
+    meta.className = "result-card-meta";
+    const rating = document.createElement("span");
+    rating.className = "result-card-rating";
+    rating.textContent = media.rating ? `★ ${media.rating}` : "★ —";
+    const year = document.createElement("span");
+    year.className = "result-card-year";
+    year.textContent = fpResultYear(result) || "Jahr offen";
+    const status = document.createElement("span");
+    status.className = `result-card-state status-${availability.tag}`;
+    status.textContent = availability.label;
+    const jellyfin = document.createElement("span");
+    setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
+    meta.append(rating, year, status, jellyfin);
+    copy.append(title, subtitle, meta);
+
+    const queueToggle = document.createElement("button");
+    queueToggle.type = "button";
+    queueToggle.className = "pick-flag result-queue-toggle" + (queued ? " is-queued" : "");
+    queueToggle.textContent = queued ? "✓" : "+";
+    queueToggle.setAttribute("aria-label", queued
+      ? `${result.title} aus der Queue entfernen`
+      : `${result.title} zur Queue hinzufügen`);
+    bind(queueToggle, "click", (event) => {
+      event.stopPropagation();
+      toggleFpPick(result.slug);
+    });
+
+    row.append(visual, copy, queueToggle);
+    activateResultCard(row, () => selectFpRow(result.slug), restorable
+      ? () => createFpResultRow(movieState.results.find(item => item.slug === result.slug) || result, false)
+      : null);
+    return row;
+  }
+
   function renderFpResults(appendFrom = 0) {
     const container = byId("fp-results");
     if (appendFrom <= 0) {
       discardObservedResultPosters(container);
       container.innerHTML = "";
     }
-
-    for (const result of movieState.results.slice(appendFrom)) {
-      const selected = result.slug === movieState.selectedSlug;
-      const queued = getQueuedSlugs().has(result.slug);
-      const availability = fpResultAvailability(result);
-      const media = fpResultMedia(result);
-
-      const row = document.createElement("div");
-      row.className = "row result-card" + (selected ? " selected" : "") + (queued ? " queued" : "");
-      row.dataset.slug = result.slug;
-      row.setAttribute("aria-current", String(selected));
-      row.setAttribute("aria-label", [result.title, result.year].filter(Boolean).join(", "));
-
-      const visual = createResultCardVisual(media, result.title, "movie", mediaJellyfinStatus(result));
-
-      const copy = document.createElement("span");
-      copy.className = "result-card-copy";
-      const title = document.createElement("strong");
-      title.className = "result-card-title";
-      title.translate = false;
-      title.textContent = result.title;
-      const subtitle = document.createElement("span");
-      subtitle.className = "result-card-subtitle";
-      subtitle.textContent = (media.genres || []).slice(0, 2).join(" · ") || "Film";
-      const meta = document.createElement("span");
-      meta.className = "result-card-meta";
-      const rating = document.createElement("span");
-      rating.className = "result-card-rating";
-      rating.textContent = media.rating ? `★ ${media.rating}` : "★ —";
-      const year = document.createElement("span");
-      year.className = "result-card-year";
-      year.textContent = fpResultYear(result) || "Jahr offen";
-      const status = document.createElement("span");
-      status.className = `result-card-state status-${availability.tag}`;
-      status.textContent = availability.label;
-      const jellyfin = document.createElement("span");
-      setFpJellyfinBadge(jellyfin, mediaJellyfinStatus(result));
-      meta.append(rating, year, status, jellyfin);
-      copy.append(title, subtitle, meta);
-
-      const queueToggle = document.createElement("button");
-      queueToggle.type = "button";
-      queueToggle.className = "pick-flag result-queue-toggle" + (queued ? " is-queued" : "");
-      queueToggle.textContent = queued ? "✓" : "+";
-      queueToggle.setAttribute("aria-label", queued
-        ? `${result.title} aus der Queue entfernen`
-        : `${result.title} zur Queue hinzufügen`);
-      bind(queueToggle, "click", (event) => {
-        event.stopPropagation();
-        toggleFpPick(result.slug);
-      });
-
-      row.append(visual, copy, queueToggle);
-      activateResultCard(row, () => selectFpRow(result.slug));
-      container.appendChild(row);
-    }
-
+    for (const result of movieState.results.slice(appendFrom)) container.appendChild(createFpResultRow(result));
     applyFpSmartFilters();
   }
 
