@@ -29,6 +29,50 @@ def test_identical_complete_measurements_pass():
     assert budget.compare(valid(), valid())['passed']
 
 
+def legacy():
+    baseline = valid()
+    for row in baseline['rows']:
+        row['persist_operations_per_save'] = dict(budget.LEGACY_SAVE_OPERATIONS)
+        row['atomic_persist'] = 20
+    return baseline
+
+
+def test_legacy_primary_to_durable_backup_compares_cost_per_publication():
+    candidate = valid()
+    for row in candidate['rows']:
+        row['atomic_persist'] = 40
+    result = budget.compare(legacy(), candidate)
+    assert result['passed']
+    persistence = [entry for entry in result['comparisons'] if entry['metric'] == 'atomic_persist']
+    assert all(entry['candidate'] == 40 and entry['compared_candidate'] == 20
+               and entry['candidate_publications'] == 2 for entry in persistence)
+
+
+@pytest.mark.parametrize('kind', ['missing-backup', 'slow-save', 'mixed-baseline', 'other-timing'])
+def test_legacy_transition_keeps_backup_and_performance_guards(kind):
+    baseline, candidate = legacy(), valid()
+    for row in candidate['rows']:
+        row['atomic_persist'] = 40
+        if kind == 'missing-backup':
+            row['persist_operations_per_save'] = dict(budget.LEGACY_SAVE_OPERATIONS)
+        elif kind == 'slow-save':
+            row['atomic_persist'] = 60
+        elif kind == 'other-timing':
+            row['queue_payload'] = 10
+    if kind == 'mixed-baseline':
+        baseline['rows'][0]['persist_operations_per_save'] = dict(budget.BACKUP_SAVE_OPERATIONS)
+    assert not budget.compare(baseline, candidate)['passed']
+
+
+def test_backup_to_backup_does_not_receive_transition_allowance():
+    baseline, candidate = valid(), valid()
+    for row in baseline['rows']:
+        row['atomic_persist'] = 20
+    for row in candidate['rows']:
+        row['atomic_persist'] = 40
+    assert not budget.compare(baseline, candidate)['passed']
+
+
 @pytest.mark.parametrize('value', [float('nan'), float('inf'), -1, 'fast', True])
 def test_invalid_numbers_fail_closed(value):
     candidate = valid(); candidate['rows'][0]['cpu_seconds'] = value
