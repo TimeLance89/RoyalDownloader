@@ -776,14 +776,14 @@ def _taste_payload(user, profile) -> dict:
 @router.get("/api/v1/taste/profile")
 @router.get("/api/taste/profile")
 async def api_taste_profile_get(request: Request = None):
-    user, profile = _taste_context(request)
-    return _taste_payload(user, profile)
+    user, profile = await run_in_threadpool(_taste_context, request)
+    return await run_in_threadpool(_taste_payload, user, profile)
 
 
 @router.post("/api/v1/taste/events")
 @router.post("/api/taste/events")
 async def api_taste_event(body: TasteEventBody, request: Request = None):
-    user, profile = _taste_context(request)
+    user, profile = await run_in_threadpool(_taste_context, request)
     try:
         recorded = await run_in_threadpool(
             profile.record_event,
@@ -798,13 +798,13 @@ async def api_taste_event(body: TasteEventBody, request: Request = None):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"recorded": recorded, "profile": _taste_payload(user, profile)}
+    return {"recorded": recorded, "profile": await run_in_threadpool(_taste_payload, user, profile)}
 
 
 @router.post("/api/v1/taste/feedback")
 @router.post("/api/taste/feedback")
 async def api_taste_feedback(body: TasteFeedbackBody, request: Request = None):
-    user, profile = _taste_context(request)
+    user, profile = await run_in_threadpool(_taste_context, request)
     try:
         if body.action.casefold() == "clear":
             changed = await run_in_threadpool(
@@ -824,26 +824,26 @@ async def api_taste_feedback(body: TasteFeedbackBody, request: Request = None):
             changed = True
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"changed": changed, "profile": _taste_payload(user, profile)}
+    return {"changed": changed, "profile": await run_in_threadpool(_taste_payload, user, profile)}
 
 
 @router.post("/api/v1/taste/import")
 @router.post("/api/taste/import")
 async def api_taste_import(body: TasteImportBody, request: Request = None):
-    user, profile = _taste_context(request)
+    user, profile = await run_in_threadpool(_taste_context, request)
     try:
         imported = await run_in_threadpool(
             profile.import_legacy, body.model_dump(),
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(400, "Das alte Geschmacksprofil ist ungültig.") from exc
-    return {"imported": imported, "profile": _taste_payload(user, profile)}
+    return {"imported": imported, "profile": await run_in_threadpool(_taste_payload, user, profile)}
 
 
 @router.post("/api/v1/taste/onboarding")
 @router.post("/api/taste/onboarding")
 async def api_taste_onboarding(body: TasteOnboardingBody, request: Request):
-    user, profile = _taste_context(request)
+    user, profile = await run_in_threadpool(_taste_context, request)
     if not user.get("taste_onboarding_required"):
         raise HTTPException(409, "Der Geschmack ist bereits eingerichtet.")
     unique = {item.item_key: item for item in body.items}
@@ -854,11 +854,11 @@ async def api_taste_onboarding(body: TasteOnboardingBody, request: Request):
         [item.model_dump() for item in unique.values()],
     )
     from application_services.runtime import backend_value
-    updated_user = backend_value("USER_STORE").complete_taste_onboarding(str(user["id"]))
+    updated_user = await run_in_threadpool(backend_value("USER_STORE").complete_taste_onboarding, str(user["id"]))
     return {
         "completed": True,
         "user": updated_user,
-        "profile": _taste_payload(updated_user, profile),
+        "profile": await run_in_threadpool(_taste_payload, updated_user, profile),
     }
 
 
@@ -867,12 +867,12 @@ async def api_taste_onboarding(body: TasteOnboardingBody, request: Request):
 @router.delete("/api/v1/taste/profile")
 @router.delete("/api/taste/profile")
 async def api_taste_profile_reset(request: Request = None):
-    user, profile = _taste_context(request)
+    user, profile = await run_in_threadpool(_taste_context, request)
     await run_in_threadpool(profile.reset)
     if user:
         from application_services.runtime import backend_value
-        user = backend_value("USER_STORE").require_taste_onboarding(str(user["id"]))
-    return {"reset": True, "user": user, "profile": _taste_payload(user, profile)}
+        user = await run_in_threadpool(backend_value("USER_STORE").require_taste_onboarding, str(user["id"]))
+    return {"reset": True, "user": user, "profile": await run_in_threadpool(_taste_payload, user, profile)}
 
 
 def _preferred_movie_sources(
@@ -925,7 +925,7 @@ def _scheduled_episode_reason(slug: str) -> str:
 @router.post("/api/v1/queue/add")
 @router.post("/api/queue/add")
 async def api_queue_add(body: QueueAddBody, request: Request = None):
-    user, _profile = _taste_context(request)
+    user, _profile = await run_in_threadpool(_taste_context, request)
     requested_by_user_id = str((user or {}).get("id") or "")
     def _work():
         added_slugs: list[str] = []

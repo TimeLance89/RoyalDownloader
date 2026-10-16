@@ -8,7 +8,7 @@ export function createSeriesDetailsLoader(root, status, {
   openMediaModal, findSeriesResultCard, showSeriesDetail, updateSeriesStatus,
   refreshSeriesJellyfinStatus, switchTab, firstEpisodeSlug, seriesEpisodes, isEpisodeSelectable,
   renderSeriesTiles, syncWatchlistSnapshot, updateSeriesOverview, updateSeriesJellyfinBadge,
-  verifyHuhuEpisodeLanguages, client = api,
+  verifyHuhuEpisodeLanguages, cancelSeriesChecks = () => {}, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null;
@@ -64,6 +64,7 @@ export function createSeriesDetailsLoader(root, status, {
   async function loadSeries(result) {
     const cacheKey = result.base_slug || result.sample_slug;
     if (seriesState.pendingBaseSlug === cacheKey) return;
+    cancelSeriesChecks();
     trackDiscoveryPreference("series", result, 0.8, "open");
     const owner = begin();
     const requestId = ++seriesState.requestSeq;
@@ -141,6 +142,7 @@ export function createSeriesDetailsLoader(root, status, {
   }
 
   async function openWatchlistEntry(baseSlug) {
+    cancelSeriesChecks();
     switchTab("serien", { autoLoad: false });
     seriesState.browseRequestSeq += 1;
     seriesState.loadingBrowse = false;

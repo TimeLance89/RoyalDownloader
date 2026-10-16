@@ -4,6 +4,7 @@
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from media.local_inventory import media_probe_pool, validate_cached_media
 
 from application_services import series_catalog_cache, series_catalog_order, series_payload
 from application_services.runtime import (
@@ -973,21 +974,10 @@ def series_episode_out_path(series_title: str, season: int, episode: int) -> Pat
 
 
 def _valid_media_cached(path: Path) -> tuple[bool, str]:
-    """Validiert lokale Medien nur erneut, wenn Größe oder mtime sich ändern."""
-    try:
-        stat = path.stat()
-        signature = (stat.st_size, stat.st_mtime_ns)
-    except OSError as exc:
-        return False, f"Datei nicht lesbar: {exc}"
-    key = str(path.resolve(strict=False))
-    with state.media_validation_lock:
-        cached = state.media_validation_cache.get(key)
-        if cached and cached[:2] == signature:
-            return bool(cached[2]), str(cached[3])
-    valid, detail = validate_media_file(path)
-    with state.media_validation_lock:
-        state.media_validation_cache[key] = (*signature, valid, detail)
-    return valid, detail
+    return validate_cached_media(
+        path, cache=state.media_validation_cache,
+        cache_lock=state.media_validation_lock, validate=validate_media_file,
+    )
 
 
 def compute_downloaded_episodes(series: FilmpalastSeries) -> set:
@@ -1012,8 +1002,11 @@ def compute_downloaded_episodes(series: FilmpalastSeries) -> set:
 
     existing: set[tuple[int, int]] = set()
     if candidates:
-        with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
-            futures = [(pair, pool.submit(_valid_media_cached, path)) for path, pair in candidates]
+        # A shared pool bounds ffprobe processes across *all* open series and
+        # subscriptions. Submit one small window, not a future for every file.
+        for offset in range(0, len(candidates), 4):
+            futures = [(pair, media_probe_pool.submit(_valid_media_cached, path))
+                       for path, pair in candidates[offset:offset + 4]]
             for pair, future in futures:
                 try:
                     valid, _detail = future.result()

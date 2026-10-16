@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
@@ -14,9 +15,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from application_services.series_detail_work import SeriesDetailWork, SeriesDetailsBusy
+
 from starlette.responses import JSONResponse
 
 import core.config as appconfig
+
 from api.api_people_router import create_people_router
 from features.monster_series_extension import (
     inject_monster_search_results,
@@ -50,6 +54,42 @@ from providers.moflix import MoflixScraper
 from providers.ridomovies import RidomoviesScraper
 from providers.sflix import SflixScraper
 from providers.xcine import XcineScraper
+
+_SERIES_DETAIL_WORK = SeriesDetailWork()
+_LIBRARY_WORK = SeriesDetailWork(workers=4, capacity=12, retain_seconds=0, thread_name="interactive-library")
+SERIES_DETAIL_WAIT_SECONDS = 2.0
+
+
+async def _bounded_series_detail_work(identity, work, *, progressive=False):
+    key = (identity, getattr(state, "series_path", ""),
+           getattr(state, "jellyfin_config_generation", 0), id(get_tmdb_client()))
+    try:
+        future = _SERIES_DETAIL_WORK.submit(key, work)
+    except SeriesDetailsBusy as exc:
+        raise HTTPException(503, {"code": "series_details_busy", "message": str(exc)},
+                            headers={"Retry-After": "1"}) from exc
+    # asyncio.wait leaves shared work running if this short HTTP wait ends or
+    # is cancelled. A provider's own TimeoutError must remain a real failure.
+    waiting = asyncio.wrap_future(future)
+    waiting.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    done, _ = await asyncio.wait({waiting}, timeout=SERIES_DETAIL_WAIT_SECONDS if progressive else None)
+    if waiting not in done:
+        raise HTTPException(503, {"code": "series_details_pending", "message": "Serienbestand wird geprüft"},
+                            headers={"Retry-After": "1"})
+    return waiting.result()
+
+
+async def _bounded_library_work(identity, work):
+    key = (identity, getattr(state, "jellyfin_config_generation", 0))
+    try:
+        future = _LIBRARY_WORK.submit(key, work)
+    except SeriesDetailsBusy as exc:
+        raise HTTPException(503, {"code": "jellyfin_checks_busy", "message": "Jellyfin-Abgleiche sind ausgelastet"},
+                            headers={"Retry-After": "1"}) from exc
+    waiting = asyncio.wrap_future(future)
+    waiting.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    return await asyncio.shield(waiting)
+
 
 router = APIRouter(tags=["discovery"])
 MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
@@ -178,7 +218,7 @@ _DYNAMIC_CALLS = (
 )
 
 
-router.routes.extend(create_people_router(lambda: get_tmdb_client()).routes)
+router.routes.extend(create_people_router(lambda: get_tmdb_client(), enrich_series=_bounded_series_detail_work).routes)
 
 
 def create_discovery_router(backend) -> APIRouter:
@@ -618,7 +658,7 @@ async def api_jellyfin_matches(body: MovieMetadataBody):
             "matches": matches,
             "statuses": statuses,
         }
-    return await run_in_threadpool(_work)
+    return await _bounded_library_work(("matches", body.model_dump_json()), _work)
 
 
 @router.post("/api/v1/tmdb/movies")
@@ -901,12 +941,14 @@ class SeriesLoadBody(BaseModel):
     base_slug: str = ""
     refresh_jellyfin: bool = False
     defer_checks: bool = False
+    progressive: bool = False
 
 
 class MonsterSeriesLoadBody(BaseModel):
     tmdb_id: int
     refresh_jellyfin: bool = False
     defer_checks: bool = False
+    progressive: bool = False
 
 
 class HuhuEpisodeLanguagesBody(BaseModel):
@@ -1084,14 +1126,13 @@ async def api_series_calendar(refresh: bool = False):
 @router.post("/api/v1/series/jellyfin-status")
 @router.post("/api/series/jellyfin-status")
 async def api_series_jellyfin_status(body: SeriesJellyfinStatusBody):
-    return await run_in_threadpool(
-        _series_jellyfin_status,
+    return await _bounded_library_work(("series", body.model_dump_json()), lambda: _series_jellyfin_status(
         body.title,
         tmdb_id=body.tmdb_id or "",
         aliases=body.aliases,
         episodes=[item.model_dump() for item in body.episodes],
         force=body.force,
-    )
+    ))
 
 
 @router.post("/api/v1/series/monster-tmdb-load")
@@ -1223,7 +1264,9 @@ async def api_monster_tmdb_series_load(body: MonsterSeriesLoadBody):
                     )
         return payload
 
-    payload = await run_in_threadpool(_work)
+    payload = (await run_in_threadpool(_work) if body.defer_checks else
+               await _bounded_series_detail_work(("monster", body.tmdb_id, body.refresh_jellyfin), _work,
+                                                 progressive=body.progressive))
     if payload is None:
         raise HTTPException(
             502,
@@ -1269,7 +1312,13 @@ async def api_series_load(body: SeriesLoadBody):
             state.series_cache[series.base_slug] = series
         return series, payload
 
-    series, payload = await run_in_threadpool(_work)
+    if body.defer_checks:
+        series, payload = await run_in_threadpool(_work)
+    else:
+        series, payload = await _bounded_series_detail_work(
+            ("catalog", body.base_slug or body.sample_slug, body.refresh_jellyfin), _work,
+            progressive=body.progressive,
+        )
     if series is None:
         raise HTTPException(404, "Serie nicht gefunden.")
     return payload
