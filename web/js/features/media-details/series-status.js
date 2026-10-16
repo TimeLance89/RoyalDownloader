@@ -1,4 +1,4 @@
-export function createSeriesStatus(statusElement, badgeElement) {
+export function createSeriesStatus(statusElement, badgeElement, { onLibraryStatus = () => {} } = {}) {
   function updateSeriesStatus(series) {
     if (!series) return;
     updateSeriesJellyfinBadge(series);
@@ -55,6 +55,10 @@ export function createSeriesStatus(statusElement, badgeElement) {
     }
     const episodes = (series.seasons || []).flatMap((season) => season.episodes || []);
     const jellyfinCount = episodes.filter((episode) => episode.in_jellyfin).length;
+    if (episodes.length && series.jellyfin_available === true
+        && (jellyfinCount || !series.availability_pending)) {
+      onLibraryStatus(series, jellyfinCount ? "owned" : "missing");
+    }
     badge.classList.add(jellyfinCount ? "is-owned" : "is-missing");
     label.textContent = jellyfinCount === episodes.length && episodes.length
       ? "Vollständig in Jellyfin"

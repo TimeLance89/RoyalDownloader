@@ -35,6 +35,53 @@ import { createCardArtwork } from "../../web/js/shared/components/card-artwork.j
 import { createResultCards } from "../../web/js/shared/components/result-card.js";
 import { createMoviePresentation } from "../../web/js/features/discovery/movie-presentation.js";
 import { setCatalogJellyfinBadge } from "../../web/js/shared/components/status-badge.js";
+import { createSeriesStatus } from "../../web/js/features/media-details/series-status.js";
+
+test("confirmed series detail ownership updates catalog copies and supersedes older missing responses", async () => {
+  const catalog = { base_slug: "huhu:44:show", title: "Show" };
+  const home = { ...catalog };
+  const alternate = { base_slug: "filmpalast:show", title: "Show", tmdb_id: 44 };
+  const remake = { base_slug: "filmpalast:remake", title: "Show", tmdb_id: 555, jellyfin_status: "missing" };
+  let resolve;
+  const model = createCatalogJellyfin({
+    uniqueHomeEntries: entries => entries, homeEntryKey: entry => `series:${entry.item.base_slug}`,
+    getMovieMetadata: () => ({}), getMovieInstances: () => [], getSeriesInstances: () => [catalog, home, alternate, remake],
+    client: { post: () => new Promise(done => { resolve = done; }) },
+  });
+  const pending = model.refresh([{ kind: "series", item: catalog }]);
+  model.applySeries({ ...catalog, tmdb_id: 44 }, "owned");
+  resolve({ configured: true, statuses: { "series:huhu:44:show": "missing" } });
+  await pending;
+  for (const item of [catalog, home, alternate]) {
+    assert.equal(item.jellyfin_status, "owned");
+    assert.equal(item.in_jellyfin, true);
+  }
+  assert.equal(catalog.tmdb_id, 44);
+  assert.equal(model.getStatus("series:filmpalast:show"), "owned");
+  assert.equal(remake.jellyfin_status, "missing");
+  const latest = model.refresh([{ kind: "series", item: catalog }]);
+  resolve({ configured: true, statuses: { "series:huhu:44:show": "missing" } });
+  await latest;
+  assert.equal(catalog.jellyfin_status, "missing");
+  assert.equal(alternate.jellyfin_status, "missing");
+  model.unmount();
+});
+
+test("series detail publishes fresh episode inventory without treating unknown or stale checks as missing", () => {
+  const events = [], label = {};
+  const badge = { querySelector: () => label, classList: { add() {} } };
+  const status = createSeriesStatus({}, badge, { onLibraryStatus: (_series, state) => events.push(state) });
+  const series = { base_slug: "show", jellyfin_configured: true, jellyfin_available: true,
+    seasons: [{ episodes: [{ in_jellyfin: true }] }] };
+  status.badge({ ...series, availability_pending: true });
+  assert.deepEqual(events, ["owned"]);
+  for (const extra of [{ jellyfin_pending: true }, { jellyfin_stale: true }, { jellyfin_available: false }, { availability_error: true }]) {
+    status.badge({ ...series, ...extra });
+  }
+  assert.deepEqual(events, ["owned"]);
+  status.badge({ ...series, seasons: [{ episodes: [{ in_jellyfin: false }] }] });
+  assert.deepEqual(events, ["owned", "missing"]);
+});
 
 test("catalog posters mark confirmed Jellyfin ownership and remove stale markers for every other state", () => {
   const root = { ownerDocument: {}, querySelector: () => null };

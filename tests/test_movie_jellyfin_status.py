@@ -130,6 +130,30 @@ def test_catalog_jellyfin_status_matches_movies_series_and_anime(monkeypatch):
     }
 
 
+def test_series_catalog_library_match_includes_original_title_aliases(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        configured = True
+
+        def series_ids_for(self, title, *, tmdb_id, aliases, items):
+            calls.append((title, tmdb_id, aliases))
+            return {"series-1"} if "Original Show" in aliases else set()
+
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_client", lambda: FakeClient())
+    monkeypatch.setattr(api_discovery_router, "get_jellyfin_series", lambda: [{}])
+    monkeypatch.setattr(api_discovery_router, "state", SimpleNamespace(
+        jellyfin_cache_lock=threading.RLock(), jellyfin_series_available=True,
+    ))
+    body = api_discovery_router.MovieMetadataBody(items=[{
+        "slug": "series:show", "title": "Lokalisierter Titel", "aliases": ["Original Show"],
+        "media_type": "series",
+    }])
+    result = asyncio.run(api_discovery_router.api_jellyfin_matches(body))
+    assert result["statuses"] == {"series:show": "owned"}
+    assert calls == [("Lokalisierter Titel", None, ["Original Show"])]
+
+
 def test_first_catalog_movie_check_waits_for_initial_jellyfin_snapshot(monkeypatch):
     identities = {"value": None}
     waits = []
