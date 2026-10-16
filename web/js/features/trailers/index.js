@@ -61,6 +61,8 @@ export function createTrailers(document, { window = document.defaultView, storag
 
   function startTrailerPlayback() {
     if (!owner?.active || !activeTrailerPlayback) return;
+    stopFpDetailHeroTrailer();
+    stopSeriesDetailHeroTrailer();
     playerScope?.dispose();
     playerScope = createScope();
     const playback = playerScope;
@@ -270,7 +272,7 @@ export function createTrailers(document, { window = document.defaultView, storag
   }
 
   function scheduleFpDetailHeroTrailer(movie) {
-    if (!owner?.active) return;
+    if (!owner?.active || activeTrailerPlayback) return;
     const key = fpTrailerYoutubeKey(movie);
     const shell = document.getElementById("fp-detail-hero-trailer");
     if (key && fpDetailHeroTrailerKey === key && (!shell.hidden || fpDetailHeroTrailerTimer)) return;
@@ -289,6 +291,7 @@ export function createTrailers(document, { window = document.defaultView, storag
       fpDetailHeroTrailerTimer = null;
       if (
         token !== fpDetailHeroTrailerToken
+        || activeTrailerPlayback
         || document.getElementById("fp-detail-modal").hidden
       ) return;
       const shell = document.getElementById("fp-detail-hero-trailer");
@@ -329,6 +332,7 @@ export function createTrailers(document, { window = document.defaultView, storag
     const trailer = movie?.trailer;
     const key = String(trailer?.key || "").trim();
     if (trailer?.site !== "YouTube" || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
+    if (activeTrailerPlayback?.key === key) return;
     const isSeriesHero = heroKind === "series" && seriesDetailHeroTrailerKey === key;
     const isFilmHero = heroKind === "film" && fpDetailHeroTrailerKey === key;
     const startAt = isSeriesHero
@@ -385,7 +389,7 @@ export function createTrailers(document, { window = document.defaultView, storag
   }
 
   function scheduleSeriesDetailHeroTrailer(series) {
-    if (!owner?.active) return;
+    if (!owner?.active || activeTrailerPlayback) return;
     const key = fpTrailerYoutubeKey(series);
     if (
       !key
@@ -410,6 +414,7 @@ export function createTrailers(document, { window = document.defaultView, storag
       seriesDetailHeroTrailerTimer = null;
       if (
         token !== seriesDetailHeroTrailerToken
+        || activeTrailerPlayback
         || document.getElementById("series-detail-modal").hidden
       ) return;
       const frame = document.getElementById("series-detail-hero-frame");
