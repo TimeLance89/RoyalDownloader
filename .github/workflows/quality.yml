@@ -57,6 +57,9 @@ jobs:
       - name: Series Jellyfin ribbons follow enriched identities and confirmed detail inventory
         run: node tests/frontend/series-jellyfin-ribbon-browser.cjs
 
+      - name: Series inventory adopts deferred results and stops polling after close
+        run: node tests/frontend/series-inventory-retry-browser.cjs
+
       - name: Source Sentinel provider and hoster settings and repair confirmation
         run: node tests/frontend/provider-monitor-browser.cjs
 
@@ -248,6 +251,18 @@ jobs:
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 4
         run: timeout 180s python -m pytest -q tests/test_http_resume.py
+
+      - name: Browsing stays responsive during slow stores and shared series inventory checks
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: >-
+          timeout 180s python -m pytest -q
+          tests/test_browse_responsiveness.py
+          tests/test_series_detail_work.py
+          tests/test_websocket_manager.py
+          tests/test_api_auth_router.py
+          tests/test_saved_media.py
+          tests/test_watchlist_inbox_payload.py
 
       - name: Series catalog completeness, pending sources and stable pagination
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

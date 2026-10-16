@@ -605,7 +605,7 @@ class MovieSubscriptionBody(BaseModel):
 @router.post("/api/v1/movie-subscriptions")
 @router.post("/api/movie-subscriptions")
 async def api_movie_subscription_save(body: MovieSubscriptionBody, request: Request = None):
-    taste_profile, requested_by_user_id = _personal_taste_store(request)
+    taste_profile, requested_by_user_id = await run_in_threadpool(_personal_taste_store, request)
     if body.target_quality not in MOVIE_QUALITY_LABELS:
         raise HTTPException(400, "Unbekannte Zielqualität.")
     if body.cleanup_mode not in MOVIE_CLEANUP_LABELS:
@@ -663,7 +663,10 @@ async def api_movie_subscription_save(body: MovieSubscriptionBody, request: Requ
 @router.get("/api/v1/movie-subscriptions")
 @router.get("/api/movie-subscriptions")
 async def api_movie_subscriptions_get():
-    return movie_subscriptions_payload()
+    def _execute():
+        return movie_subscriptions_payload()
+
+    return await run_in_threadpool(_execute)
 
 
 class MovieSubscriptionKeysBody(BaseModel):
@@ -673,14 +676,17 @@ class MovieSubscriptionKeysBody(BaseModel):
 @router.post("/api/v1/movie-subscriptions/check")
 @router.post("/api/movie-subscriptions/check")
 async def api_movie_subscriptions_check(body: MovieSubscriptionKeysBody):
-    with state.movie_subscriptions_lock:
-        entries = (
-            list(state.movie_subscriptions)
-            if not body.keys
-            else [entry for entry in state.movie_subscriptions if entry.get("key") in body.keys]
-        )
-    checked = await run_in_threadpool(check_movie_subscriptions, entries)
-    return {"checked": checked, **movie_subscriptions_payload()}
+    def _execute():
+        with state.movie_subscriptions_lock:
+            entries = (
+                list(state.movie_subscriptions)
+                if not body.keys
+                else [entry for entry in state.movie_subscriptions if entry.get("key") in body.keys]
+            )
+        checked = check_movie_subscriptions(entries)
+        return {"checked": checked, **movie_subscriptions_payload()}
+
+    return await run_in_threadpool(_execute)
 
 
 @router.post("/api/v1/movie-subscriptions/remove")
@@ -726,7 +732,7 @@ class WatchlistAddBody(BaseModel):
 @router.post("/api/v1/watchlist/add")
 @router.post("/api/watchlist/add")
 async def api_watchlist_add(body: WatchlistAddBody, request: Request = None):
-    taste_profile, requested_by_user_id = _personal_taste_store(request)
+    taste_profile, requested_by_user_id = await run_in_threadpool(_personal_taste_store, request)
     if body.download_mode not in WATCH_MODE_LABELS:
         raise HTTPException(400, "Unbekannte Abo-Regel.")
     if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
@@ -903,64 +909,67 @@ class WatchlistModeBody(BaseModel):
 @router.post("/api/v1/watchlist/mode")
 @router.post("/api/watchlist/mode")
 async def api_watchlist_mode(body: WatchlistModeBody):
-    if body.download_mode not in WATCH_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte Abo-Regel.")
-    if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
-        raise HTTPException(400, "Unbekannte Löschregel.")
-    def _mutate():
-        with state.watchlist_lock:
-            previous_watchlist = deepcopy(state.watchlist)
-            entry = watchlist_lookup(body.base_slug)
-            if entry is None:
-                raise HTTPException(404, "Nicht in der Bibliothek.")
-            previous_mode = normalize_watch_mode(entry.get("download_mode"))
-            mode_changed = previous_mode != body.download_mode
-            previous_pending = (
-                set(state.watchlist_new_slugs.get(body.base_slug, set()))
-                if mode_changed else set()
-            )
-            entry["download_mode"] = body.download_mode
-            if body.cleanup_mode is not None:
-                entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
-                if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
-                    entry["cleanup_last_error"] = ""
-            if mode_changed:
-                entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
-            entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-            entry["last_error"] = ""
-            entry["check_in_progress"] = True
+    def _execute():
+        if body.download_mode not in WATCH_MODE_LABELS:
+            raise HTTPException(400, "Unbekannte Abo-Regel.")
+        if body.cleanup_mode is not None and body.cleanup_mode not in CLEANUP_MODE_LABELS:
+            raise HTTPException(400, "Unbekannte Löschregel.")
+        def _mutate():
+            with state.watchlist_lock:
+                previous_watchlist = deepcopy(state.watchlist)
+                entry = watchlist_lookup(body.base_slug)
+                if entry is None:
+                    raise HTTPException(404, "Nicht in der Bibliothek.")
+                previous_mode = normalize_watch_mode(entry.get("download_mode"))
+                mode_changed = previous_mode != body.download_mode
+                previous_pending = (
+                    set(state.watchlist_new_slugs.get(body.base_slug, set()))
+                    if mode_changed else set()
+                )
+                entry["download_mode"] = body.download_mode
+                if body.cleanup_mode is not None:
+                    entry["cleanup_mode"] = normalize_cleanup_mode(body.cleanup_mode)
+                    if entry["cleanup_mode"] == CLEANUP_MODE_KEEP:
+                        entry["cleanup_last_error"] = ""
+                if mode_changed:
+                    entry["mode_generation"] = int(entry.get("mode_generation", 0)) + 1
+                entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
+                entry["last_error"] = ""
+                entry["check_in_progress"] = True
+                try:
+                    _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
+                except HTTPException:
+                    state.watchlist = previous_watchlist
+                    raise
+                return entry, previous_pending
+
+        entry, previous_pending = _mutate()
+
+        if previous_pending:
+            _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
+
+        def _mode_watchlist_check():
             try:
-                _require_persistent_snapshot("watchlist", deepcopy(state.watchlist))
-            except HTTPException:
-                state.watchlist = previous_watchlist
-                raise
-            return entry, previous_pending
+                check_watchlist_entries([entry])
+                broadcast({"type": "watchlist_update", **watchlist_payload()})
+                _auto_download_new_episodes()
+                if previous_pending:
+                    def _reconcile_after_reap():
+                        while any(
+                            previous_pending & _job_queue_slugs(job)
+                            for job in state.dl_queue.active_jobs()
+                        ):
+                            time.sleep(0.2)
+                        _auto_download_new_episodes()
 
-    entry, previous_pending = await run_in_threadpool(_mutate)
+                    threading.Thread(target=_reconcile_after_reap, daemon=True).start()
+            except Exception as exc:
+                log(f"Abo-Regel für «{entry['title']}» konnte nicht geprüft werden: {exc}", "warn")
 
-    if previous_pending:
-        _cancel_queue_slugs(previous_pending, "Abo-Regel geändert")
+        threading.Thread(target=_mode_watchlist_check, daemon=True).start()
+        return watchlist_payload()
 
-    def _mode_watchlist_check():
-        try:
-            check_watchlist_entries([entry])
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-            _auto_download_new_episodes()
-            if previous_pending:
-                def _reconcile_after_reap():
-                    while any(
-                        previous_pending & _job_queue_slugs(job)
-                        for job in state.dl_queue.active_jobs()
-                    ):
-                        time.sleep(0.2)
-                    _auto_download_new_episodes()
-
-                threading.Thread(target=_reconcile_after_reap, daemon=True).start()
-        except Exception as exc:
-            log(f"Abo-Regel für «{entry['title']}» konnte nicht geprüft werden: {exc}", "warn")
-
-    threading.Thread(target=_mode_watchlist_check, daemon=True).start()
-    return watchlist_payload()
+    return await run_in_threadpool(_execute)
 
 
 class WatchlistRemoveBody(BaseModel):
@@ -1013,23 +1022,26 @@ async def api_watchlist_remove(body: WatchlistRemoveBody):
 @router.get("/api/v1/watchlist")
 @router.get("/api/watchlist")
 async def api_watchlist_get():
-    def _hydrate_background():
-        lock = getattr(state, "watchlist_hydration_lock", None)
-        if lock is not None and not lock.acquire(blocking=False):
-            return
-        try:
-            hydrate_watchlist_artwork()
-            broadcast({"type": "watchlist_update", **watchlist_payload()})
-        finally:
-            if lock is not None:
-                lock.release()
+    def _execute():
+        def _hydrate_background():
+            lock = getattr(state, "watchlist_hydration_lock", None)
+            if lock is not None and not lock.acquire(blocking=False):
+                return
+            try:
+                hydrate_watchlist_artwork()
+                broadcast({"type": "watchlist_update", **watchlist_payload()})
+            finally:
+                if lock is not None:
+                    lock.release()
 
-    threading.Thread(
-        target=_hydrate_background,
-        name="watchlist-metadata-hydration",
-        daemon=True,
-    ).start()
-    return watchlist_payload()
+        threading.Thread(
+            target=_hydrate_background,
+            name="watchlist-metadata-hydration",
+            daemon=True,
+        ).start()
+        return watchlist_payload()
+
+    return await run_in_threadpool(_execute)
 
 
 @router.post("/api/v1/watchlist/downloads/read")
@@ -1660,20 +1672,23 @@ def check_watchlist_entries(entries: list[dict], refresh_jellyfin: bool = False)
 @router.post("/api/v1/watchlist/check")
 @router.post("/api/watchlist/check")
 async def api_watchlist_check(body: WatchlistCheckBody):
-    def _work():
-        with state.watchlist_lock:
-            entries = list(state.watchlist) if not body.base_slugs else [
-                w for w in state.watchlist if w["base_slug"] in body.base_slugs
-            ]
-        checked = check_watchlist_entries(entries, refresh_jellyfin=True)
-        return checked, len(entries)
+    def _execute():
+        def _work():
+            with state.watchlist_lock:
+                entries = list(state.watchlist) if not body.base_slugs else [
+                    w for w in state.watchlist if w["base_slug"] in body.base_slugs
+                ]
+            checked = check_watchlist_entries(entries, refresh_jellyfin=True)
+            return checked, len(entries)
 
-    checked, total = await run_in_threadpool(_work)
-    payload = watchlist_payload()
-    payload["checked"] = checked
-    payload["total"] = total
-    broadcast({"type": "watchlist_update", **payload})
-    return payload
+        checked, total = _work()
+        payload = watchlist_payload()
+        payload["checked"] = checked
+        payload["total"] = total
+        broadcast({"type": "watchlist_update", **payload})
+        return payload
+
+    return await run_in_threadpool(_execute)
 
 
 class WatchlistOpenBody(BaseModel):
@@ -1683,161 +1698,164 @@ class WatchlistOpenBody(BaseModel):
 @router.post("/api/v1/watchlist/open")
 @router.post("/api/watchlist/open")
 async def api_watchlist_open(body: WatchlistOpenBody):
-    with state.watchlist_lock:
-        entry = watchlist_lookup(body.base_slug)
-        if not entry:
-            raise HTTPException(404, "Nicht in der Bibliothek.")
-        entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
-        entry["check_in_progress"] = True
-        open_revision = entry["check_generation"]
+    def _execute():
+        with state.watchlist_lock:
+            entry = watchlist_lookup(body.base_slug)
+            if not entry:
+                raise HTTPException(404, "Nicht in der Bibliothek.")
+            entry["check_generation"] = int(entry.get("check_generation", 0)) + 1
+            entry["check_in_progress"] = True
+            open_revision = entry["check_generation"]
 
-    def _work():
-        series = state.series_cache.get(body.base_slug)
+        def _work():
+            series = state.series_cache.get(body.base_slug)
+            if series is None:
+                try:
+                    series = get_series_for_value(entry["sample_url"], entry.get("title", ""))
+                except Exception as exc:
+                    log(f"Fehler beim Laden von «{entry['title']}»: {exc}", "warn")
+                    series = None
+            return series
+
+        series = _work()
         if series is None:
-            try:
-                series = get_series_for_value(entry["sample_url"], entry.get("title", ""))
-            except Exception as exc:
-                log(f"Fehler beim Laden von «{entry['title']}»: {exc}", "warn")
-                series = None
-        return series
+            with state.watchlist_lock:
+                if (
+                    any(current is entry for current in state.watchlist)
+                    and int(entry.get("check_generation", 0)) == open_revision
+                ):
+                    entry["check_in_progress"] = False
+                    entry["last_checked"] = time.time()
+                    entry["last_error"] = "Serie beim Anbieter nicht abrufbar"
+                    _persist_watchlist_background()
+            broadcast({"type": "watchlist_update", **watchlist_payload()})
+            raise HTTPException(500, "Serie konnte nicht geladen werden.")
 
-    series = await run_in_threadpool(_work)
-    if series is None:
+        with state.watchlist_lock:
+            if not any(current is entry for current in state.watchlist):
+                raise HTTPException(404, "Nicht mehr in der Bibliothek.")
+            state.series_cache[body.base_slug] = series
+
+        payload = series_to_dict(series, True)
         with state.watchlist_lock:
             if (
                 any(current is entry for current in state.watchlist)
                 and int(entry.get("check_generation", 0)) == open_revision
             ):
-                entry["check_in_progress"] = False
-                entry["last_checked"] = time.time()
-                entry["last_error"] = "Serie beim Anbieter nicht abrufbar"
-                _persist_watchlist_background()
-        broadcast({"type": "watchlist_update", **watchlist_payload()})
-        raise HTTPException(500, "Serie konnte nicht geladen werden.")
-
-    with state.watchlist_lock:
-        if not any(current is entry for current in state.watchlist):
-            raise HTTPException(404, "Nicht mehr in der Bibliothek.")
-        state.series_cache[body.base_slug] = series
-
-    payload = await run_in_threadpool(series_to_dict, series, True)
-    with state.watchlist_lock:
-        if (
-            any(current is entry for current in state.watchlist)
-            and int(entry.get("check_generation", 0)) == open_revision
-        ):
-            if payload.get("tmdb_id"):
-                entry["tmdb_id"] = payload["tmdb_id"]
-            if payload.get("aliases"):
-                entry["aliases"] = payload["aliases"]
-            if payload.get("season_episode_counts"):
-                entry["season_episode_counts"] = payload["season_episode_counts"]
-                entry["season_counts_checked_at"] = float(
-                    payload.get("season_counts_checked_at") or 0
-                )
-            if payload.get("cover_url"):
-                entry["cover_url"] = payload["cover_url"]
-            if payload.get("backdrop_url"):
-                entry["backdrop_url"] = payload["backdrop_url"]
-
-    def _sync_entry_from_loaded_series():
-        withdrawn_slugs: set[str] = set()
-        cleanup_jobs: list[dict] = []
-        with state.jellyfin_cache_lock:
-            jellyfin_generation = state.jellyfin_config_generation
-        jf_client = get_jellyfin_client()
-        jf_episodes = get_jellyfin_episodes() if jf_client.configured else None
-        jf_series = get_jellyfin_series() if jf_client.configured else None
-        with state.watchlist_lock:
-            if (
-                not any(current is entry for current in state.watchlist)
-                or int(entry.get("check_generation", 0)) != open_revision
-            ):
-                return
-            snapshot = dict(entry)
-        mode = normalize_watch_mode(snapshot.get("download_mode"))
-        cleanup_mode = normalize_cleanup_mode(snapshot.get("cleanup_mode"))
-        needs_user_status = (
-            mode == WATCH_MODE_NEXT_SEASON or cleanup_mode != CLEANUP_MODE_KEEP
-        )
-        user_episodes = get_jellyfin_user_episodes() if needs_user_status else None
-        with state.jellyfin_cache_lock:
-            jellyfin_data_generation = state.jellyfin_episode_data_generation
-            episodes_available = state.jellyfin_episodes_available
-            series_available = state.jellyfin_series_available
-            user_available = state.jellyfin_user_episodes_available
-        if jf_client.configured and (jf_episodes is None or not episodes_available):
-            error = "Jellyfin nicht erreichbar – Auto-Download pausiert"
-            calculated = None
-        elif jf_client.configured and (
-            jf_series is None or not series_available
-        ):
-            error = "Jellyfin-Serienindex nicht verfügbar"
-            calculated = None
-        else:
-            if mode == WATCH_MODE_NEXT_SEASON and (
-                user_episodes is None or not user_available
-            ):
-                error = "Jellyfin-Benutzerstatus nicht verfügbar"
-                calculated = None
-            else:
-                try:
-                    calculated = _calculate_watchlist_entry_state(
-                        snapshot, series, jf_client, jf_episodes, user_episodes,
-                        jf_series,
+                if payload.get("tmdb_id"):
+                    entry["tmdb_id"] = payload["tmdb_id"]
+                if payload.get("aliases"):
+                    entry["aliases"] = payload["aliases"]
+                if payload.get("season_episode_counts"):
+                    entry["season_episode_counts"] = payload["season_episode_counts"]
+                    entry["season_counts_checked_at"] = float(
+                        payload.get("season_counts_checked_at") or 0
                     )
-                    error = ""
-                except Exception as exc:
-                    calculated = None
-                    error = str(exc)[:240]
-        with state.jellyfin_cache_lock:
-            if (
-                jellyfin_generation != state.jellyfin_config_generation
-                or jellyfin_data_generation != state.jellyfin_episode_data_generation
-            ):
-                return
+                if payload.get("cover_url"):
+                    entry["cover_url"] = payload["cover_url"]
+                if payload.get("backdrop_url"):
+                    entry["backdrop_url"] = payload["backdrop_url"]
+
+        def _sync_entry_from_loaded_series():
+            withdrawn_slugs: set[str] = set()
+            cleanup_jobs: list[dict] = []
+            with state.jellyfin_cache_lock:
+                jellyfin_generation = state.jellyfin_config_generation
+            jf_client = get_jellyfin_client()
+            jf_episodes = get_jellyfin_episodes() if jf_client.configured else None
+            jf_series = get_jellyfin_series() if jf_client.configured else None
             with state.watchlist_lock:
                 if (
                     not any(current is entry for current in state.watchlist)
                     or int(entry.get("check_generation", 0)) != open_revision
-                    or normalize_watch_mode(entry.get("download_mode")) != mode
                 ):
                     return
-                if error:
-                    entry["last_checked"] = time.time()
-                    entry["last_error"] = error
-                elif calculated is not None:
-                    withdrawn_slugs.update(
-                        _apply_watchlist_entry_state(entry, calculated)
-                    )
-                    entry["cleanup_last_error"] = (
-                        "Jellyfin-Benutzerstatus nicht verfügbar"
-                        if cleanup_mode != CLEANUP_MODE_KEEP
-                        and (user_episodes is None or not user_available)
-                        else ""
-                    )
-                    if not entry["cleanup_last_error"] and calculated.get("cleanup_items"):
-                        cleanup_jobs.append({
-                            "entry": entry,
-                            "revision": open_revision,
-                            "cleanup_mode": cleanup_mode,
-                            "items": calculated["cleanup_items"],
-                        })
-                entry["check_in_progress"] = False
-                _persist_watchlist_background()
-        if withdrawn_slugs:
-            _cancel_withdrawn_watchlist_slugs(
-                withdrawn_slugs,
-                "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
+                snapshot = dict(entry)
+            mode = normalize_watch_mode(snapshot.get("download_mode"))
+            cleanup_mode = normalize_cleanup_mode(snapshot.get("cleanup_mode"))
+            needs_user_status = (
+                mode == WATCH_MODE_NEXT_SEASON or cleanup_mode != CLEANUP_MODE_KEEP
             )
-        if cleanup_jobs:
-            _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
+            user_episodes = get_jellyfin_user_episodes() if needs_user_status else None
+            with state.jellyfin_cache_lock:
+                jellyfin_data_generation = state.jellyfin_episode_data_generation
+                episodes_available = state.jellyfin_episodes_available
+                series_available = state.jellyfin_series_available
+                user_available = state.jellyfin_user_episodes_available
+            if jf_client.configured and (jf_episodes is None or not episodes_available):
+                error = "Jellyfin nicht erreichbar – Auto-Download pausiert"
+                calculated = None
+            elif jf_client.configured and (
+                jf_series is None or not series_available
+            ):
+                error = "Jellyfin-Serienindex nicht verfügbar"
+                calculated = None
+            else:
+                if mode == WATCH_MODE_NEXT_SEASON and (
+                    user_episodes is None or not user_available
+                ):
+                    error = "Jellyfin-Benutzerstatus nicht verfügbar"
+                    calculated = None
+                else:
+                    try:
+                        calculated = _calculate_watchlist_entry_state(
+                            snapshot, series, jf_client, jf_episodes, user_episodes,
+                            jf_series,
+                        )
+                        error = ""
+                    except Exception as exc:
+                        calculated = None
+                        error = str(exc)[:240]
+            with state.jellyfin_cache_lock:
+                if (
+                    jellyfin_generation != state.jellyfin_config_generation
+                    or jellyfin_data_generation != state.jellyfin_episode_data_generation
+                ):
+                    return
+                with state.watchlist_lock:
+                    if (
+                        not any(current is entry for current in state.watchlist)
+                        or int(entry.get("check_generation", 0)) != open_revision
+                        or normalize_watch_mode(entry.get("download_mode")) != mode
+                    ):
+                        return
+                    if error:
+                        entry["last_checked"] = time.time()
+                        entry["last_error"] = error
+                    elif calculated is not None:
+                        withdrawn_slugs.update(
+                            _apply_watchlist_entry_state(entry, calculated)
+                        )
+                        entry["cleanup_last_error"] = (
+                            "Jellyfin-Benutzerstatus nicht verfügbar"
+                            if cleanup_mode != CLEANUP_MODE_KEEP
+                            and (user_episodes is None or not user_available)
+                            else ""
+                        )
+                        if not entry["cleanup_last_error"] and calculated.get("cleanup_items"):
+                            cleanup_jobs.append({
+                                "entry": entry,
+                                "revision": open_revision,
+                                "cleanup_mode": cleanup_mode,
+                                "items": calculated["cleanup_items"],
+                            })
+                    entry["check_in_progress"] = False
+                    _persist_watchlist_background()
+            if withdrawn_slugs:
+                _cancel_withdrawn_watchlist_slugs(
+                    withdrawn_slugs,
+                    "In Jellyfin vorhanden oder nicht mehr Teil der Abo-Regel",
+                )
+            if cleanup_jobs:
+                _execute_watchlist_cleanup(cleanup_jobs, jf_client, jellyfin_generation)
 
-    await run_in_threadpool(_sync_entry_from_loaded_series)
-    with state.watchlist_lock:
-        new_slugs = set(state.watchlist_new_slugs.get(body.base_slug, set()))
-    known_now = {episode.slug for episode in series.all_episodes}
-    preselect = sorted(new_slugs & known_now)
-    payload["preselect_slugs"] = preselect
-    broadcast({"type": "watchlist_update", **watchlist_payload()})
-    return payload
+        _sync_entry_from_loaded_series()
+        with state.watchlist_lock:
+            new_slugs = set(state.watchlist_new_slugs.get(body.base_slug, set()))
+        known_now = {episode.slug for episode in series.all_episodes}
+        preselect = sorted(new_slugs & known_now)
+        payload["preselect_slugs"] = preselect
+        broadcast({"type": "watchlist_update", **watchlist_payload()})
+        return payload
+
+    return await run_in_threadpool(_execute)

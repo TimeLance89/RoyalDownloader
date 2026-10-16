@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Browsing responsiveness and bounded background checks
+
+- Keep authentication, profile and subscription snapshots, WebSocket session
+  checks and initial snapshots off the server event loop so slow persistent
+  stores do not stall unrelated requests and live updates.
+- Isolate and bound interactive Jellyfin lookups and series enrichment; share
+  overlapping work instead of filling the general HTTP worker pool.
+- Let the web detail view retrieve delayed series results through short,
+  explicit pending responses and stop retrying when the view closes. Existing
+  clients retain their completed-response contract unless they opt in.
+- Share cold local-file verification and limit ffprobe concurrency across all
+  series scans, with small submission windows instead of per-request pools.
+- Add slow-store, cancellation, worker-isolation and desktop/mobile regressions
+  to verification.
+
 ### Personal home wallpaper artwork
 
 - Show only TMDB landscape backdrops in the "Für dich ausgewählt" spotlight,
