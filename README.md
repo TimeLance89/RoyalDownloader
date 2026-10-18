@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TimeLance89/RoyalDownloader?sort=semver&amp;label=Latest%20release&amp;color=cb9a57" /></a>
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/tag/v2.0.0"><img alt="Latest release: v2.0.0" src="docs/assets/release-version-v2.svg" /></a>
   <a href="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml"><img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main" /></a>
   <a href="docs/DOCKER.md"><img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-bb8852" /></a>
