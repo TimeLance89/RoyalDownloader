@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from core.proxy_security import client_ip, host_allowed, origin_matches
 
@@ -134,7 +135,7 @@ def create_websocket_router(
     @router.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket):
         is_v1 = websocket.scope.get("path") == "/api/v1/ws"
-        if not is_authenticated(websocket, versioned=is_v1, touch=True):
+        if not await run_in_threadpool(is_authenticated, websocket, versioned=is_v1, touch=True):
             await websocket.close(code=1008, reason="Anmeldung erforderlich")
             return
 
@@ -190,8 +191,8 @@ def create_websocket_router(
                     pass
                 now = loop.time()
                 if now >= next_auth_check:
-                    if not is_authenticated(
-                        websocket,
+                    if not await run_in_threadpool(
+                        is_authenticated, websocket,
                         versioned=is_v1,
                         touch=False,
                     ):

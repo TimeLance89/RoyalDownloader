@@ -28,14 +28,4 @@ Der historische Ausgangsbranch `backup/overnight-pre-audit-fixes-20261011` bleib
 
 ## Bekannte Grenzen
 
-Beim Vergleich mit Stable vor der Queue-Backup-Einführung veröffentlicht die
-Baseline eine Datei (zwei fsync-Aufrufe, ein Austausch), der Kandidat dagegen
-Primärdatei und geprüftes Backup (vier fsync-Aufrufe, zwei Austausche).
-Nur bei einer durchgehend gemessenen alten Baseline wird die Speicherdauer des
-Kandidaten pro veröffentlichter Datei verglichen. Rohdauer und Vergleichswert
-stehen beide im Bericht. Der Kandidat muss weiterhin beide Dateien dauerhaft
-schreiben; gemischte Baselines und fehlende Backup-Operationen bleiben Fehler.
-Vergleiche zwischen zwei Backup-Versionen und alle anderen Leistungsbudgets
-behalten ihre bisherigen Grenzwerte.
-
 Die Quality-Suite testet Integration, Container-Start und Upgrade-/Rollback-Pfade; das Offline-Labor ergänzt gezielte Last-/Ressourcentests. Beide ersetzen weder 24-/72-Stunden-Leak-Soaks noch echte NAS-Mount-/EIO-/Datenträgerfehler-Tests.

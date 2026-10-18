@@ -17,7 +17,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
 
 from core.auth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
 
@@ -122,6 +121,8 @@ class AuthDependencies:
 
 def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
     """Build the authentication router with no dependency on server globals."""
+    # These routes access lock-protected session/profile stores and durable files.
+    # Synchronous endpoints keep the complete operation in FastAPI worker threads.
     router = APIRouter(tags=["auth-setup"])
     appauth = dependencies.appauth
     # The existing guard limits one source IP.  A second, account-wide budget
@@ -180,7 +181,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             "min_username_length": appauth.MIN_USERNAME_LENGTH,
         }
 
-    async def create_login_session(
+    def create_login_session(
         username: str,
         password: str,
         request: Request,
@@ -204,11 +205,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         pending = dependencies.user_store().find(username)
         if pending and pending.get("enabled") and pending.get("setup_required"):
             raise HTTPException(409, "Dieser Zugang benötigt zuerst eine Passwort-Einrichtung.")
-        ok = await run_in_threadpool(
-            dependencies.verify_credentials,
-            username.strip(),
-            password,
-        )
+        ok = dependencies.verify_credentials(username.strip(), password)
         if not ok:
             lockout_ip = login_guard.register_failure(key)
             lockout_account = account_login_guard.register_failure(account_key)
@@ -246,18 +243,14 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         dependencies.log("Anmeldung erfolgreich.")
         return token, payload, session_label
 
-    async def save_auth_config(
+    def save_auth_config(
         body: AuthConfigBody,
         request: Request,
         session_kind: str,
     ) -> tuple[str, str]:
         account = dependencies.auth_account()
         if bool(account.get("configured")):
-            confirmed = await run_in_threadpool(
-                dependencies.verify_credentials,
-                account.get("username", ""),
-                body.current_password or "",
-            )
+            confirmed = dependencies.verify_credentials(account.get('username', ''), body.current_password or '')
             if not confirmed:
                 raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
         try:
@@ -265,14 +258,10 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             password = appauth.validate_password(body.password)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        password_hash = await run_in_threadpool(appauth.hash_password, password)
+        password_hash = appauth.hash_password(password)
         session_store = dependencies.session_store()
         session_store.revoke_all()
-        saved = await run_in_threadpool(
-            dependencies.appconfig.save_auth,
-            username,
-            password_hash,
-        )
+        saved = dependencies.appconfig.save_auth(username, password_hash)
         if not saved:
             raise HTTPException(500, "Das Konto konnte nicht gespeichert werden.")
         default_label = (
@@ -288,21 +277,21 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return username, token
 
     @router.get("/api/auth/status")
-    async def api_auth_status(request: Request):
+    def api_auth_status(request: Request):
         return JSONResponse(
             auth_status_payload(request),
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
     @router.get("/api/me")
-    async def api_me(request: Request):
+    def api_me(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         return dependencies.user_store().public(user)
 
     @router.get("/api/me/profile-summary")
-    async def api_me_profile_summary(request: Request):
+    def api_me_profile_summary(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -312,33 +301,31 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
 
     @router.get("/api/v1/me/jellyfin-profile")
     @router.get("/api/me/jellyfin-profile")
-    async def api_me_jellyfin_profile(request: Request):
+    def api_me_jellyfin_profile(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         if not dependencies.jellyfin_profile:
             raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
-        return await run_in_threadpool(dependencies.jellyfin_profile, user)
+        return dependencies.jellyfin_profile(user)
 
     @router.post("/api/v1/me/jellyfin-profile")
     @router.post("/api/me/jellyfin-profile")
-    async def api_me_jellyfin_profile_set(body: JellyfinProfileBody, request: Request):
+    def api_me_jellyfin_profile_set(body: JellyfinProfileBody, request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         if not dependencies.set_jellyfin_profile:
             raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
         try:
-            return await run_in_threadpool(
-                dependencies.set_jellyfin_profile, user, body.user_id.strip(),
-            )
+            return dependencies.set_jellyfin_profile(user, body.user_id.strip())
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except ConnectionError as exc:
             raise HTTPException(502, str(exc)) from exc
 
     @router.get("/api/me/household")
-    async def api_me_household(request: Request):
+    def api_me_household(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -382,7 +369,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return current, target
 
     @router.post("/api/me/household/unlock")
-    async def api_me_household_unlock(body: HouseholdUnlockBody, request: Request):
+    def api_me_household_unlock(body: HouseholdUnlockBody, request: Request):
         current = dependencies.current_user(request.headers, request.cookies)
         if not current:
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -392,11 +379,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         session_store = dependencies.session_store()
         if session_store.household_unlocked(token, kind=appauth.SESSION_KIND_WEB):
             return {"unlocked": True}
-        confirmed = await run_in_threadpool(
-            dependencies.verify_credentials,
-            str(current.get("username") or ""),
-            body.password,
-        )
+        confirmed = dependencies.verify_credentials(str(current.get('username') or ''), body.password)
         if not confirmed:
             raise HTTPException(
                 403,
@@ -407,7 +390,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"unlocked": True}
 
     @router.post("/api/me/household/{user_id}/profile")
-    async def api_household_profile_set(
+    def api_household_profile_set(
         user_id: str,
         body: HouseholdProfileBody,
         request: Request,
@@ -417,7 +400,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         if avatar_id.startswith("custom-"):
             if not dependencies.profile_avatar_exists:
                 raise HTTPException(400, "Eigene Profilbilder sind nicht verfügbar.")
-            exists = await run_in_threadpool(dependencies.profile_avatar_exists, avatar_id)
+            exists = dependencies.profile_avatar_exists(avatar_id)
             if not exists:
                 raise HTTPException(400, "Das gewählte Profilbild existiert nicht mehr.")
         try:
@@ -432,14 +415,14 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
             raise HTTPException(400, str(exc)) from exc
 
     @router.get("/api/me/household/{user_id}/jellyfin-profile")
-    async def api_household_jellyfin_profile(user_id: str, request: Request):
+    def api_household_jellyfin_profile(user_id: str, request: Request):
         _current, target = household_profile_access(request, user_id)
         if not dependencies.jellyfin_profile:
             raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
-        return await run_in_threadpool(dependencies.jellyfin_profile, target)
+        return dependencies.jellyfin_profile(target)
 
     @router.post("/api/me/household/{user_id}/jellyfin-profile")
-    async def api_household_jellyfin_profile_set(
+    def api_household_jellyfin_profile_set(
         user_id: str,
         body: JellyfinProfileBody,
         request: Request,
@@ -448,16 +431,14 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         if not dependencies.set_jellyfin_profile:
             raise HTTPException(503, "Jellyfin-Profilverknüpfung ist nicht verfügbar.")
         try:
-            return await run_in_threadpool(
-                dependencies.set_jellyfin_profile, target, body.user_id.strip(),
-            )
+            return dependencies.set_jellyfin_profile(target, body.user_id.strip())
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except ConnectionError as exc:
             raise HTTPException(502, str(exc)) from exc
 
     @router.post("/api/me/household/switch")
-    async def api_me_household_switch(body: HouseholdSwitchBody, request: Request):
+    def api_me_household_switch(body: HouseholdSwitchBody, request: Request):
         current = dependencies.current_user(request.headers, request.cookies)
         if not current:
             raise HTTPException(401, "Anmeldung erforderlich.")
@@ -483,11 +464,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
                 f"„{target.get('display_name') or target.get('username')}“ muss zuerst ein eigenes Passwort einrichten.",
             )
         if not switching_unlocked:
-            confirmed = await run_in_threadpool(
-                dependencies.verify_credentials,
-                str(target.get("username") or ""),
-                body.password,
-            )
+            confirmed = dependencies.verify_credentials(str(target.get('username') or ''), body.password)
             if not confirmed:
                 raise HTTPException(
                     403,
@@ -509,13 +486,11 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         }
 
     @router.post("/api/me/username")
-    async def api_me_username(body: UsernameChangeBody, request: Request):
+    def api_me_username(body: UsernameChangeBody, request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
-        if not await run_in_threadpool(
-            dependencies.verify_credentials, user["username"], body.current_password,
-        ):
+        if not dependencies.verify_credentials(user['username'], body.current_password):
             raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
         try:
             username = appauth.validate_username(body.username)
@@ -530,13 +505,13 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
 
 
     @router.post("/api/me/password")
-    async def api_me_password(body: PasswordChangeBody, request: Request):
+    def api_me_password(body: PasswordChangeBody, request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         if body.password != body.password_repeat:
             raise HTTPException(400, "Die beiden Passwörter stimmen nicht überein.")
-        if not await run_in_threadpool(dependencies.verify_credentials, user["username"], body.current_password):
+        if not dependencies.verify_credentials(user['username'], body.current_password):
             raise HTTPException(403, "Das aktuelle Passwort ist falsch.")
         try:
             password_hash = appauth.hash_password(appauth.validate_password(body.password))
@@ -554,7 +529,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return response
 
     @router.get("/api/v1/auth/status")
-    async def api_v1_auth_status(request: Request):
+    def api_v1_auth_status(request: Request):
         auth_method = dependencies.request_auth_method(
             request.headers,
             request.cookies,
@@ -575,8 +550,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         )
 
     @router.post("/api/auth/login")
-    async def api_auth_login(body: LoginBody, request: Request):
-        token, payload, _label = await create_login_session(
+    def api_auth_login(body: LoginBody, request: Request):
+        token, payload, _label = create_login_session(
             body.username,
             body.password,
             request,
@@ -588,13 +563,13 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return response
 
     @router.post("/api/auth/first-login")
-    async def api_first_login(body: FirstLoginBody, request: Request):
+    def api_first_login(body: FirstLoginBody, request: Request):
         user = dependencies.user_store().find(body.username)
         if not user or not user.get("enabled") or not user.get("setup_required") or body.password != body.password_repeat:
             raise HTTPException(401, "Anmeldung oder Passwortsetzung nicht möglich.")
         try: password = appauth.validate_password(body.password)
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
-        dependencies.user_store().set_password(user["id"], await run_in_threadpool(appauth.hash_password, password))
+        dependencies.user_store().set_password(user["id"], appauth.hash_password(password))
         token = dependencies.session_store().create(label=request.headers.get("user-agent", "")[:120], kind=appauth.SESSION_KIND_WEB, user_id=user["id"])
         if not dependencies.session_store().unlock_profile_switching(
             token, kind=appauth.SESSION_KIND_WEB,
@@ -610,18 +585,18 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return user
 
     @router.get("/api/auth/users")
-    async def api_users(request: Request):
+    def api_users(request: Request):
         require_admin(request)
         return {"users": dependencies.user_store().list()}
 
     @router.get("/api/profile-avatars")
-    async def api_profile_avatars(request: Request):
+    def api_profile_avatars(request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         if not dependencies.list_profile_avatars:
             return {"avatars": []}
-        avatars = await run_in_threadpool(dependencies.list_profile_avatars)
+        avatars = dependencies.list_profile_avatars()
         return {
             "avatars": [
                 {**item, "url": f"/api/profile-avatars/{item['id']}"}
@@ -630,13 +605,13 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         }
 
     @router.get("/api/profile-avatars/{avatar_id}")
-    async def api_profile_avatar_file(avatar_id: str, request: Request):
+    def api_profile_avatar_file(avatar_id: str, request: Request):
         user = dependencies.current_user(request.headers, request.cookies)
         if not user:
             raise HTTPException(401, "Anmeldung erforderlich.")
         if not dependencies.read_profile_avatar:
             raise HTTPException(404, "Profilbild nicht gefunden.")
-        payload = await run_in_threadpool(dependencies.read_profile_avatar, avatar_id)
+        payload = dependencies.read_profile_avatar(avatar_id)
         if not payload:
             raise HTTPException(404, "Profilbild nicht gefunden.")
         data, content_type = payload
@@ -647,7 +622,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         )
 
     @router.post("/api/auth/profile-avatars")
-    async def api_profile_avatar_upload(body: ProfileAvatarUploadBody, request: Request):
+    def api_profile_avatar_upload(body: ProfileAvatarUploadBody, request: Request):
         require_admin(request)
         if not dependencies.save_profile_avatar:
             raise HTTPException(503, "Profilbild-Upload ist nicht verfügbar.")
@@ -656,12 +631,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         except (binascii.Error, ValueError) as exc:
             raise HTTPException(400, "Das Profilbild ist nicht gültig kodiert.") from exc
         try:
-            avatar = await run_in_threadpool(
-                dependencies.save_profile_avatar,
-                body.filename,
-                body.content_type,
-                raw,
-            )
+            avatar = dependencies.save_profile_avatar(body.filename, body.content_type, raw)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except OSError as exc:
@@ -670,12 +640,12 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"avatar": {**avatar, "url": f"/api/profile-avatars/{avatar['id']}"}}
 
     @router.delete("/api/auth/profile-avatars/{avatar_id}")
-    async def api_profile_avatar_delete(avatar_id: str, request: Request):
+    def api_profile_avatar_delete(avatar_id: str, request: Request):
         require_admin(request)
         if not dependencies.delete_profile_avatar:
             raise HTTPException(503, "Profilbild-Verwaltung ist nicht verfügbar.")
         try:
-            result = await run_in_threadpool(dependencies.delete_profile_avatar, avatar_id)
+            result = dependencies.delete_profile_avatar(avatar_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
         except OSError as exc:
@@ -684,14 +654,14 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"deleted": result}
 
     @router.post("/api/auth/users")
-    async def api_users_create(body: UserCreateBody, request: Request):
+    def api_users_create(body: UserCreateBody, request: Request):
         require_admin(request)
         try: user = dependencies.user_store().create(body.display_name, body.username, body.role)
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
         return {"user": user}
 
     @router.post("/api/auth/users/{user_id}/reset-password")
-    async def api_user_reset(user_id: str, request: Request):
+    def api_user_reset(user_id: str, request: Request):
         require_admin(request)
         try: user = dependencies.user_store().reset_password(user_id)
         except ValueError as exc: raise HTTPException(404, str(exc)) from exc
@@ -699,7 +669,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"user": user}
 
     @router.post("/api/auth/users/{user_id}/enabled")
-    async def api_user_enabled(user_id: str, request: Request, enabled: bool):
+    def api_user_enabled(user_id: str, request: Request, enabled: bool):
         require_admin(request)
         try: user = dependencies.user_store().set_enabled(user_id, enabled)
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
@@ -707,7 +677,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"user": user}
 
     @router.delete("/api/auth/users/{user_id}")
-    async def api_user_delete(user_id: str, request: Request):
+    def api_user_delete(user_id: str, request: Request):
         administrator = require_admin(request)
         if str(administrator.get("id")) == str(user_id):
             raise HTTPException(400, "Das aktuell angemeldete Administratorkonto kann nicht gelöscht werden.")
@@ -728,14 +698,14 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return {"deleted": deleted, "erased": erased, "revoked_sessions": revoked}
 
     @router.post("/api/v1/auth/login")
-    async def api_v1_auth_login(body: ApiV1LoginBody, request: Request):
+    def api_v1_auth_login(body: ApiV1LoginBody, request: Request):
         requested_label = (
             body.device_label
             or body.device_name
             or request.headers.get("user-agent", "")
             or "API client"
         )
-        token, payload, session_label = await create_login_session(
+        token, payload, session_label = create_login_session(
             body.username,
             body.password,
             request,
@@ -757,7 +727,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         )
 
     @router.post("/api/auth/logout")
-    async def api_auth_logout(request: Request):
+    def api_auth_logout(request: Request):
         dependencies.session_store().revoke(
             dependencies.session_token(request.cookies),
             kind=appauth.SESSION_KIND_WEB,
@@ -767,7 +737,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return response
 
     @router.post("/api/v1/auth/logout")
-    async def api_v1_auth_logout(request: Request):
+    def api_v1_auth_logout(request: Request):
         token = dependencies.bearer_token(request.headers)
         revoked = int(bool(
             token
@@ -780,7 +750,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
 
     @router.get("/api/auth/config")
     @router.get("/api/v1/auth/config")
-    async def api_auth_config_get(request: Request):
+    def api_auth_config_get(request: Request):
         account = dependencies.auth_account()
         session_kind = (
             appauth.SESSION_KIND_MOBILE
@@ -797,8 +767,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         }
 
     @router.post("/api/auth/config")
-    async def api_auth_config_set(body: AuthConfigBody, request: Request):
-        username, token = await save_auth_config(
+    def api_auth_config_set(body: AuthConfigBody, request: Request):
+        username, token = save_auth_config(
             body,
             request,
             appauth.SESSION_KIND_WEB,
@@ -817,8 +787,8 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         return response
 
     @router.post("/api/v1/auth/config")
-    async def api_v1_auth_config_set(body: AuthConfigBody, request: Request):
-        username, token = await save_auth_config(
+    def api_v1_auth_config_set(body: AuthConfigBody, request: Request):
+        username, token = save_auth_config(
             body,
             request,
             appauth.SESSION_KIND_MOBILE,
@@ -845,7 +815,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         }
 
     @router.post("/api/auth/sessions/revoke")
-    async def api_auth_sessions_revoke(request: Request):
+    def api_auth_sessions_revoke(request: Request):
         session_store = dependencies.session_store()
         removed = session_store.revoke_all(
             keep_token=dependencies.authenticated_web_token(request.cookies),
@@ -861,7 +831,7 @@ def create_auth_router(dependencies: AuthDependencies) -> APIRouter:
         }
 
     @router.post("/api/v1/auth/sessions/revoke")
-    async def api_v1_auth_sessions_revoke(request: Request):
+    def api_v1_auth_sessions_revoke(request: Request):
         keep_token = dependencies.authenticated_mobile_token(request.headers)
         session_store = dependencies.session_store()
         removed = session_store.revoke_all(

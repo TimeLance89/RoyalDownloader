@@ -10,8 +10,6 @@ TIMINGS = ('queue_payload', 'durable_signature', 'snapshot', 'atomic_persist',
            'recovery', 'normalize_with_history', 'volatile_persist_100',
            'scheduler_lock_response', 'enqueue_ms', 'first_dispatch_ms', 'cancel_ms',
            'cpu_seconds')
-LEGACY_SAVE_OPERATIONS = {'fsync_calls': 2, 'replacements': 1}
-BACKUP_SAVE_OPERATIONS = {'fsync_calls': 4, 'replacements': 2}
 
 
 def number(value):
@@ -42,25 +40,16 @@ def compare(baseline, candidate, responses=None):
         if baseline[key] != candidate[key]:
             raise ValueError('Incomparable benchmark environment: ' + key)
     failures, comparisons = [], []
-    # Stable before queue recovery publishes one file. The candidate must still
-    # publish both the primary and its durable backup. Compare persistence cost
-    # per publication only for this explicit, uniform legacy-to-backup transition.
-    legacy_baseline = all(row['persist_operations_per_save'] == LEGACY_SAVE_OPERATIONS
-                          for row in baseline['rows'])
     def median(doc, n, key):
         return statistics.median([r[key]['median_ms'] if isinstance(r[key], dict) else r[key]
                                   for r in doc['rows'] if r['size'] == n])
     for n in SIZES:
         for key in TIMINGS:
             b, c = median(baseline, n, key), median(candidate, n, key)
-            publications = 2 if key == 'atomic_persist' and legacy_baseline else 1
-            compared = c / publications
             limit = b * 1.25 + (0.02 if key == 'cpu_seconds' else 2.0)
-            comparisons.append({'size': n, 'metric': key, 'baseline': b, 'candidate': c,
-                                'candidate_publications': publications,
-                                'compared_candidate': compared, 'limit': limit})
-            if compared > limit:
-                failures.append(f'{n} {key}: {compared:.3f} > {limit:.3f}')
+            comparisons.append({'size': n, 'metric': key, 'baseline': b, 'candidate': c, 'limit': limit})
+            if c > limit:
+                failures.append(f'{n} {key}: {c:.3f} > {limit:.3f}')
         for key, slack in [('peak_rss_mib', 8), ('python_allocated_peak_mib', 2)]:
             b, c = median(baseline, n, key), median(candidate, n, key)
             limit = b * 1.15 + slack
@@ -76,9 +65,7 @@ def compare(baseline, candidate, responses=None):
                 failures.append(f"{label} {row['size']}: leaked thread")
             if row['peak_observed_threads'] > row['thread_count_before'] + 2:
                 failures.append(f"{label} {row['size']}: unbounded blocked-host threads")
-            expected_save = (LEGACY_SAVE_OPERATIONS if label == 'baseline' and legacy_baseline
-                             else BACKUP_SAVE_OPERATIONS)
-            if row['persist_operations_per_save'] != expected_save:
+            if row['persist_operations_per_save'] != {'fsync_calls': 4, 'replacements': 2}:
                 failures.append(f"{label} {row['size']}: durable save operation count changed")
     if responses is not None:
         for label in ('baseline', 'candidate'):

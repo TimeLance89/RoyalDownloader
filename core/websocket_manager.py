@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 
 from fastapi import WebSocket
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +36,17 @@ class WSManager:
     ):
         await ws.accept()
         client = _WSClient(ws, self.queue_size)
-        # There is deliberately no await between accept and registration. An
-        # event announced by a worker therefore follows the initial snapshot.
-        if initial_payload_factory is not None:
-            initial_payload = initial_payload_factory()
-        if initial_payload is not None:
-            client.queue.put_nowait(initial_payload)
+        # Register before collecting a potentially lock-bound snapshot. Events
+        # published while it is collected remain bounded and follow it on wire.
         self.clients[ws] = client
-        client.sender_task = asyncio.create_task(self._sender(client))
+        try:
+            if initial_payload_factory is not None:
+                initial_payload = await run_in_threadpool(initial_payload_factory)
+            if not client.closing:
+                client.sender_task = asyncio.create_task(self._sender(client, initial_payload))
+        except BaseException:
+            self.disconnect(ws)
+            raise
 
     def disconnect(self, ws: WebSocket):
         client = self.clients.pop(ws, None)
@@ -57,8 +61,10 @@ class WSManager:
             if task is not None and task is not current and not task.done():
                 task.cancel()
 
-    async def _sender(self, client: _WSClient):
+    async def _sender(self, client: _WSClient, initial_payload: dict | None = None):
         try:
+            if initial_payload is not None:
+                await client.websocket.send_json(initial_payload)
             while True:
                 payload = await client.queue.get()
                 await client.websocket.send_json(payload)

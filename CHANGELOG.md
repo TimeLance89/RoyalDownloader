@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v2.0.0 – 2026-10-18
+
+Stable v2.0.0 marks a major product milestone and promotes the complete
+latest Overnight snapshot with bounded browsing, mobile and catalog
+improvements, reliable downloads, safer Docker updates, and expanded
+reliability verification since v1.9.0. It does not intentionally introduce
+breaking HTTP/API or persistent-data migrations.
+
+### Browsing responsiveness and bounded background checks
+
+- Move slow authentication, profile, subscription and WebSocket persistence
+  operations off the server event loop so other requests remain responsive.
+- Bound interactive Jellyfin, catalog enrichment and local-file verification
+  work; share concurrent checks, limit ffprobe and expose cancellable pending
+  detail responses for the updated web client.
+- Add slow-store, cancellation, worker-isolation and desktop/mobile regressions.
 
 ### Series catalogs and Jellyfin ribbons
 
