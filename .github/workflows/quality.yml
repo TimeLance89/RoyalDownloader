@@ -264,6 +264,19 @@ jobs:
           tests/test_saved_media.py
           tests/test_watchlist_inbox_payload.py
 
+      - name: NAS event-loop stalls, bounded live events and browser cleanup
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: >-
+          timeout 180s python -m pytest -q
+          tests/test_nas_runtime_stability.py
+          tests/test_loop_event_bridge.py
+          tests/test_browser_failure_cleanup.py
+          tests/test_runtime_resources.py
+          tests/test_websocket_manager.py
+          tests/test_browse_responsiveness.py
+          tests/test_async_route_io.py
+
       - name: Series catalog completeness, pending sources and stable pagination
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 4

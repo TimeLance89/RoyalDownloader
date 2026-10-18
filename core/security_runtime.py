@@ -284,6 +284,8 @@ def _remote_new_target() -> tuple[dict, set[str]]:
         method="PUT",
     )
     if not isinstance(target, dict) or not target.get("id") or not target.get("webSocketDebuggerUrl"):
+        if isinstance(target, dict) and target.get("id"):
+            _remote_close_target(str(target["id"]))
         raise RuntimeError("Isolierter Chromium-Dienst konnte keinen Tab anlegen.")
     return target, before
 
@@ -356,6 +358,19 @@ def _configure_shared_cdp(module, cdp) -> None:
     })
 
 
+def _remote_configured_target(module, configure):
+    target, before = _remote_new_target()
+    process = _RemoteProcess(str(target["id"]))
+    try:
+        cdp = module._Cdp(_rewrite_remote_websocket_url(str(target["webSocketDebuggerUrl"])))
+        configure(module, cdp)
+        return cdp, process, before
+    except BaseException:
+        # The caller cannot clean this target up until ownership is returned.
+        process.terminate()
+        raise
+
+
 def _install_remote_browser_adapters() -> bool:
     if _remote_browser_base() is None:
         return False
@@ -364,12 +379,8 @@ def _install_remote_browser_adapters() -> bool:
 
     if not getattr(verification.SerienStreamVerificationManager, "_royal_remote_browser", False):
         def verification_start_processes(self):
-            target, _before = _remote_new_target()
-            cdp = verification._Cdp(
-                _rewrite_remote_websocket_url(str(target["webSocketDebuggerUrl"]))
-            )
-            _configure_verification_cdp(verification, cdp)
-            self._chrome = _RemoteProcess(str(target["id"]))
+            cdp, process, _before = _remote_configured_target(verification, _configure_verification_cdp)
+            self._chrome = process
             self._xvfb = None
             self._port = 0
             self._display = "isolated-browser"
@@ -380,14 +391,10 @@ def _install_remote_browser_adapters() -> bool:
 
     if not getattr(shared._BrowserRuntime, "_royal_remote_browser", False):
         def shared_start(self):
-            target, before = _remote_new_target()
+            cdp, process, before = _remote_configured_target(shared, _configure_shared_cdp)
             self._royal_remote_before = before
-            self._royal_remote_target_id = str(target["id"])
-            cdp = shared._Cdp(
-                _rewrite_remote_websocket_url(str(target["webSocketDebuggerUrl"]))
-            )
-            _configure_shared_cdp(shared, cdp)
-            self.chrome = _RemoteProcess(self._royal_remote_target_id)
+            self._royal_remote_target_id = process.target_id
+            self.chrome = process
             self.xvfb = None
             self.port = 0
             self.display = "isolated-browser"

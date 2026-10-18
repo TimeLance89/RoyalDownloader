@@ -87,7 +87,7 @@ async def api_automation_policy_set(body: AutomationPolicyBody):
 
     policy = await run_in_threadpool(smart_policy.load_automation_policy)
     backend.state.automation = policy
-    smart_policy.apply_runtime_policy(backend.state, policy)
+    await run_in_threadpool(smart_policy.apply_runtime_policy, backend.state, policy)
 
     if policy.get("auto_download"):
         threading.Thread(
@@ -95,7 +95,7 @@ async def api_automation_policy_set(body: AutomationPolicyBody):
             name="smart-automation-series-kick",
             daemon=True,
         ).start()
-    movie_allowed, _reason = smart_policy.automatic_movie_upgrade_decision(backend.state)
+    movie_allowed, _reason = await run_in_threadpool(smart_policy.automatic_movie_upgrade_decision, backend.state)
     if movie_allowed:
         threading.Thread(
             target=backend.check_movie_subscriptions,
@@ -103,4 +103,4 @@ async def api_automation_policy_set(body: AutomationPolicyBody):
             daemon=True,
         ).start()
 
-    return {**smart_policy.policy_payload(backend.state), "saved": True}
+    return {**(await run_in_threadpool(smart_policy.policy_payload, backend.state)), "saved": True}

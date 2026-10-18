@@ -78,6 +78,8 @@ from media.hoster_intel import HosterIntel
 from media.provider_health import COOLDOWN, HEALTHY, PROBING, ProviderHealth
 from media.resolved_link_cache import ResolvedLinkCache
 from core.runtime_cache import BoundedTTLCache
+from core.runtime_diagnostics import RuntimeDiagnostics
+from application_services.runtime_maintenance import maintain_runtime
 from api.api_system_router import create_system_router
 from api.api_module_router import create_module_router
 from api.api_ai_router import create_ai_router
@@ -434,6 +436,7 @@ from application_services import auth as _auth_service
 # früheren tkinter-App-Klasse)
 # ---------------------------------------------------------------------------
 state = AppState()
+runtime_diagnostics = RuntimeDiagnostics()
 
 from application_services import updater as _updater_service
 
@@ -482,7 +485,6 @@ provider_monitor = ProviderMonitor(
 )
 install_runtime(provider_monitor)
 
-# FastAPI-App
 def start_background_services():
     """Startet Server-Hintergrunddienste genau einmal nach dem Setup."""
     global _background_services_started
@@ -502,16 +504,9 @@ def start_background_services():
 
 register_builtin_worker_controllers(state.module_manager)
 
-async def _runtime_cache_maintenance_loop() -> None:
-    while True:
-        await asyncio.sleep(60)
-        await asyncio.to_thread(state.maintain_runtime_caches)
-        await asyncio.to_thread(state.module_manager.reconcile_all)
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _main_loop, _telegram_bot
-    import asyncio
     _main_loop = asyncio.get_event_loop()
     # Der Kalender aktualisiert sich unabhängig von Katalog-, Download- und
     # Browser-Sessions. Ein persistierter Stand ist sofort verfügbar.
@@ -565,31 +560,36 @@ async def lifespan(app: FastAPI):
     )
     if appconfig.is_initialized():
         start_background_services()
-    cache_maintenance_task = asyncio.create_task(_runtime_cache_maintenance_loop())
-    yield
-    # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
-    # den auslaufenden Event-Loop einstellen.
-    _main_loop = None
-    state.module_manager.stop_all()
-    provider_monitor.stop()
-    from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
-    stop_storage_autopilot()
-    cache_maintenance_task.cancel()
-    if state.voe_pool is not None:
-        try:
-            state.voe_pool.close()
-        except Exception:
-            pass
-    if state.embed_pool is not None:
-        try:
-            state.embed_pool.close()
-        except Exception:
-            pass
+    cache_maintenance_task = asyncio.create_task(maintain_runtime(state))
+    heartbeat_task = asyncio.create_task(runtime_diagnostics.heartbeat())
     try:
-        if appconfig.is_initialized():
-            await asyncio.to_thread(appconfig.save, state.save_path)
-    except Exception:
-        pass
+        yield
+    finally:
+        # Ab hier dürfen Worker-Threads keine neuen WebSocket-Callbacks mehr auf
+        # den auslaufenden Event-Loop einstellen.
+        _main_loop = None
+        await asyncio.to_thread(state.module_manager.stop_all)
+        await asyncio.to_thread(provider_monitor.stop)
+        from application_services.storage_autopilot_runtime import stop as stop_storage_autopilot
+        await asyncio.to_thread(stop_storage_autopilot)
+        cache_maintenance_task.cancel()
+        heartbeat_task.cancel()
+        await asyncio.gather(cache_maintenance_task, heartbeat_task, return_exceptions=True)
+        if state.voe_pool is not None:
+            try:
+                await asyncio.to_thread(state.voe_pool.close)
+            except Exception:
+                pass
+        if state.embed_pool is not None:
+            try:
+                await asyncio.to_thread(state.embed_pool.close)
+            except Exception:
+                pass
+        try:
+            if appconfig.is_initialized():
+                await asyncio.to_thread(appconfig.save, state.save_path)
+        except Exception:
+            pass
 
 
 def _capabilities_payload():
@@ -641,7 +641,7 @@ def _capabilities_payload():
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(
-    create_system_router(state.runtime_cache_diagnostics, _capabilities_payload),
+    create_system_router(state.runtime_cache_diagnostics, _capabilities_payload, runtime_diagnostics.snapshot),
 )
 app.include_router(create_module_router(state.module_manager))
 install_authentication_middleware(

@@ -17,11 +17,18 @@ async def legacy_health() -> dict[str, str]:
 def create_system_router(
     cache_diagnostics: Callable[[], list[dict]],
     capabilities: Callable[[], dict] | None = None,
+    runtime_diagnostics: Callable[[], dict] | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["system"])
 
     router.add_api_route("/api/v1/health", v1_health, methods=["GET"])
     router.add_api_route("/api/health", legacy_health, methods=["GET"])
+
+    if runtime_diagnostics is not None:
+        @router.get("/api/diagnostics/runtime")
+        @router.get("/api/v1/diagnostics/runtime")
+        async def api_runtime_diagnostics():
+            return await run_in_threadpool(runtime_diagnostics)
 
     if capabilities is not None:
         router.add_api_route("/api/v1/capabilities", capabilities, methods=["GET"])

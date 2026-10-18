@@ -8,8 +8,10 @@ from collections.abc import Callable
 
 from fastapi import WebSocket
 from starlette.concurrency import run_in_threadpool
+from core.loop_event_bridge import LoopEventBridge
 
 logger = logging.getLogger(__name__)
+CLOSE_TIMEOUT_SECONDS = 2.0
 
 
 class _WSClient:
@@ -27,6 +29,16 @@ class WSManager:
     def __init__(self, queue_size: int = 128):
         self.clients: dict[WebSocket, _WSClient] = {}
         self.queue_size = max(1, int(queue_size))
+        self._ingress = LoopEventBridge(self.publish, self._resync_clients)
+
+    def publish_threadsafe(self, loop, data: dict):
+        self._ingress.submit(loop, data)
+
+    def _resync_clients(self):
+        for client in list(self.clients.values()):
+            if not client.closing:
+                client.closing = True
+                client.close_task = asyncio.create_task(self._close_slow_client(client))
 
     async def connect(
         self,
@@ -72,15 +84,19 @@ class WSManager:
             raise
         except Exception as exc:  # noqa: BLE001 - transport failures end the client
             logger.debug("WebSocket sender stopped: %s", exc)
+            # A serialization/send failure can leave the receive side open.
+            # Close it so the UI reconnects instead of staying silently stale.
+            await self._close_slow_client(client)
         finally:
             self.disconnect(client.websocket)
 
     async def _close_slow_client(self, client: _WSClient):
         try:
-            await client.websocket.close(
-                code=1013,
-                reason="Live-Updates konnten nicht schnell genug zugestellt werden.",
-            )
+            async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                await client.websocket.close(
+                    code=1013,
+                    reason="Live-Updates konnten nicht schnell genug zugestellt werden.",
+                )
         except Exception as exc:  # noqa: BLE001 - socket may already be closed
             logger.debug("Slow WebSocket client close failed: %s", exc)
         finally:

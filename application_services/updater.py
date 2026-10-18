@@ -44,7 +44,7 @@ def broadcast(data: dict):
         if running_loop is loop:
             ws_manager.publish(data)
         else:
-            loop.call_soon_threadsafe(ws_manager.publish, data)
+            ws_manager.publish_threadsafe(loop, data)
     except RuntimeError:
         pass
 

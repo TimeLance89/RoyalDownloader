@@ -50,6 +50,7 @@ class _CDPProxyServer(socketserver.ThreadingTCPServer):
 
 class _CDPProxyHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
+        upstream = None
         try:
             self.request.settimeout(5)
             request_head, remainder = _read_request_head(self.request)
@@ -62,7 +63,15 @@ class _CDPProxyHandler(socketserver.BaseRequestHandler):
             if remainder:
                 upstream.sendall(remainder)
         except (ConnectionError, OSError, ValueError):
+            if upstream is not None:
+                upstream.close()
             return
+        try:
+            self._relay_connection(upstream)
+        finally:
+            upstream.close()
+
+    def _relay_connection(self, upstream: socket.socket) -> None:
         upstream.settimeout(None)
         client = self.request
         client.settimeout(None)
@@ -97,7 +106,6 @@ class _CDPProxyHandler(socketserver.BaseRequestHandler):
         response_thread.start()
         relay(client, upstream)
         response_thread.join(timeout=1)
-        upstream.close()
 
 
 def create_proxy_server(
