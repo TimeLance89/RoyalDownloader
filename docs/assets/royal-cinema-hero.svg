@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 424" width="1280" height="424" role="img" aria-labelledby="title description">
+<title id="title">RoyalDownloader 2.0 — Your media. Your kingdom.</title>
+<desc id="description">Cinematic black and burgundy banner with a gold crown, RoyalDownloader wordmark, abstract media artwork and download queue visual.</desc>
+<defs>
+  <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#080a0e"/><stop offset=".54" stop-color="#151018"/><stop offset="1" stop-color="#220c12"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="72%" cy="45%" r="62%">
+    <stop offset="0" stop-color="#c02039" stop-opacity=".34"/><stop offset="1" stop-color="#c02039" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#fff1b7"/><stop offset=".45" stop-color="#ecc67b"/><stop offset="1" stop-color="#9d6436"/>
+  </linearGradient>
+  <linearGradient id="poster1" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#53647a"/><stop offset=".48" stop-color="#172438"/><stop offset="1" stop-color="#10101a"/>
+  </linearGradient>
+  <linearGradient id="poster2" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0" stop-color="#25122a"/><stop offset=".5" stop-color="#933349"/><stop offset="1" stop-color="#d07c51"/>
+  </linearGradient>
+  <linearGradient id="poster3" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#455243"/><stop offset="1" stop-color="#111722"/>
+  </linearGradient>
+  <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#070810" stop-opacity="0"/><stop offset="1" stop-color="#08090f" stop-opacity=".9"/>
+  </linearGradient>
+  <filter id="shadow" x="-45%" y="-45%" width="190%" height="190%">
+    <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000" flood-opacity=".6"/>
+  </filter>
+  <pattern id="lines" width="42" height="42" patternUnits="userSpaceOnUse">
+    <path d="M42 0H0V42" fill="none" stroke="#d7a16a" stroke-opacity=".035" stroke-width="1"/>
+  </pattern>
+  <clipPath id="edge"><rect x="0" y="0" width="1280" height="424" rx="22"/></clipPath>
+</defs>
+<g clip-path="url(#edge)">
+  <rect width="1280" height="424" fill="url(#background)"/>
+  <rect width="1280" height="424" fill="url(#glow)"/>
+  <rect width="1280" height="424" fill="url(#lines)"/>
+  <path d="M730-90 1180 470" stroke="#e1b97b" stroke-opacity=".09" stroke-width="2"/>
+  <path d="M794-90 1244 470" stroke="#e1b97b" stroke-opacity=".07" stroke-width="2"/>
+  <g transform="translate(52 48)">
+    <path d="M0 26 20 43 36 8 55 42 75 25 68 69H8Z" fill="url(#gold)"/>
+    <circle cx="0" cy="23" r="5" fill="#f6d592"/><circle cx="36" cy="6" r="5" fill="#fff0bb"/><circle cx="75" cy="22" r="5" fill="#f6d592"/>
+    <rect x="8" y="74" width="60" height="7" rx="3.5" fill="url(#gold)"/>
+    <text x="101" y="35" font-family="Segoe UI,Arial,sans-serif" font-weight="700" font-size="14" letter-spacing="4" fill="#ddb981">THE SELF-HOSTED MEDIA EXPERIENCE</text>
+    <line x1="101" x2="478" y1="55" y2="55" stroke="#c69a61" stroke-opacity=".33"/>
+  </g>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="52" y="214" font-size="103" letter-spacing="-6" font-weight="900" fill="#faf4eb">ROYAL</text>
+    <text x="54" y="287" font-size="69" letter-spacing="-3" font-weight="800" fill="url(#gold)">DOWNLOADER</text>
+    <text x="57" y="333" font-size="20" letter-spacing=".4" fill="#c4b7b7">Discover more. Download smarter. Own the experience.</text>
+    <rect x="55" y="360" width="132" height="30" rx="15" fill="#76222d" stroke="#c25153" stroke-opacity=".55"/>
+    <circle cx="73" cy="375" r="4" fill="#f6ce8c"/>
+    <text x="87" y="379" font-size="13" font-weight="700" letter-spacing="1" fill="#fff3db">ROYAL 2.0</text>
+  </g>
+  <g filter="url(#shadow)">
+    <g transform="translate(748 87) rotate(-9 112 142)">
+      <rect x="0" y="0" width="221" height="283" rx="17" fill="url(#poster1)" stroke="#9ca6b3" stroke-opacity=".28"/>
+      <circle cx="156" cy="69" r="46" fill="#98b8c7" opacity=".23"/>
+      <path d="M18 205 85 85 130 152 153 120 211 218V261H18Z" fill="#657c8e" opacity=".6"/>
+      <rect width="221" height="283" rx="17" fill="url(#shade)"/>
+      <text x="23" y="252" font-family="Segoe UI,Arial,sans-serif" font-weight="800" font-size="20" fill="#fff">DISCOVER</text>
+    </g>
+    <g transform="translate(896 39) rotate(5 112 142)">
+      <rect width="220" height="293" rx="17" fill="url(#poster2)" stroke="#edc39c" stroke-opacity=".45"/>
+      <circle cx="119" cy="101" r="66" fill="#ffd7ab" opacity=".21"/>
+      <path d="M0 226 61 169 102 203 153 141 220 214V293H0Z" fill="#3b2036" opacity=".75"/>
+      <path d="M0 248 76 201 115 245 173 198 220 246V293H0Z" fill="#1a1628" opacity=".83"/>
+      <rect width="220" height="293" rx="17" fill="url(#shade)"/>
+      <text x="20" y="262" font-family="Segoe UI,Arial,sans-serif" font-weight="800" font-size="20" fill="#fff">YOUR LIBRARY</text>
+    </g>
+    <g transform="translate(1060 91) rotate(12 85 134)">
+      <rect width="180" height="267" rx="17" fill="url(#poster3)" stroke="#d6bc84" stroke-opacity=".31"/>
+      <circle cx="88" cy="72" r="40" fill="#f0c88f" opacity=".2"/>
+      <path d="M8 208 39 145 68 185 110 102 175 222V256H8Z" fill="#91a18b" opacity=".32"/>
+      <rect width="180" height="267" rx="17" fill="url(#shade)"/>
+      <text x="17" y="234" font-family="Segoe UI,Arial,sans-serif" font-weight="800" font-size="16" fill="#fff">AUTOMATE</text>
+    </g>
+  </g>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="811" y="330" width="397" height="68" rx="16" fill="#16161c" stroke="#af7852" stroke-opacity=".67"/>
+    <rect x="831" y="345" width="37" height="37" rx="11" fill="#6f2938"/>
+    <path d="M849 353V371M841 363 849 372 857 363" stroke="#f7d496" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <text x="885" y="354" font-size="13" font-weight="700" fill="#f6eee8">DOWNLOAD CENTER</text>
+    <text x="885" y="372" font-size="11" fill="#c8b8b3">Verified • Queued • Recoverable</text>
+    <rect x="885" y="381" width="293" height="5" rx="2.5" fill="#3c3539"/>
+    <rect x="885" y="381" width="212" height="5" rx="2.5" fill="url(#gold)"/>
+  </g>
+  <rect x="1" y="1" width="1278" height="422" rx="21" fill="none" stroke="#a9754c" stroke-opacity=".25" stroke-width="2"/>
+</g>
+</svg>
