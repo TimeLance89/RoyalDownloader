@@ -33,20 +33,21 @@ def create_saved_media_router(store, current_user, sync):
     @router.get("/api/me/saved-media")
     @router.get("/api/v1/me/saved-media")
     async def list_saved(request: Request):
-        return await run_in_threadpool(payload, owner(request))
+        user = await run_in_threadpool(owner, request)
+        return await run_in_threadpool(payload, user)
 
     @router.post("/api/me/saved-media")
     @router.post("/api/v1/me/saved-media")
     async def set_saved(body: SavedMediaBody, request: Request):
-        user = owner(request)
+        user = await run_in_threadpool(owner, request)
         try:
             await run_in_threadpool(store.set, str(user["id"]), body.media_type, body.tmdb_id, body.title, body.saved)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except OSError as exc:
             raise HTTPException(503, "Vormerkung konnte nicht gespeichert werden.") from exc
-        sync.request()
-        sync.tick()
+        await run_in_threadpool(sync.request)
+        await run_in_threadpool(sync.tick)
         return await run_in_threadpool(payload, user)
 
     return router

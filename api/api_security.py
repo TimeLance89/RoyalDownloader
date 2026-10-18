@@ -273,8 +273,8 @@ def install_authentication_middleware(
                 ))
 
         client = dependencies.client_key(request)
-        if path == "/api/ui/translate" and not dependencies.request_is_authenticated(
-            request.headers, request.cookies, client,
+        if path == "/api/ui/translate" and not await run_in_threadpool(
+            dependencies.request_is_authenticated, request.headers, request.cookies, client,
         ):
             if not dependencies.public_translate_limiter.allow(client):
                 return hardened(JSONResponse(

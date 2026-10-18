@@ -2,6 +2,75 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMovieDetailsLoader } from '../../web/js/features/media-details/movie-loader.js';
 import { fetchMovieAvailability, freshMovieAvailability } from '../../web/js/features/media-details/movie-availability.js';
+import { loadSeriesDetails } from '../../web/js/features/media-details/series-api.js';
+import { createSeriesDetailsLoader } from '../../web/js/features/media-details/series-loader.js';
+
+test('switching series stops old checks before waiting for the new provider', async () => {
+  const events = [], noop = () => {};
+  const state = { current: { base_slug: 'old' }, requestSeq: 0, viewGeneration: 0, cache: {} };
+  const loader = createSeriesDetailsLoader({}, {}, {
+    seriesState: state, cancelSeriesChecks: () => events.push('cancel old checks'),
+    trackDiscoveryPreference: noop, updateSeriesResultSelection: noop,
+    showSeriesLoading: () => { state.current = null; state.viewGeneration++; },
+    openMediaModal: noop, findSeriesResultCard: () => null,
+    client: { post(_url, _body, options) {
+      events.push('request new provider');
+      return new Promise((_resolve, reject) => options.signal.addEventListener('abort',
+        () => reject(new DOMException('closed', 'AbortError')), { once: true }));
+    } },
+  });
+  const result = { base_slug: 'new', sample_slug: 'new-s01e01', title: 'New series' };
+  const pending = loader.open(result);
+  assert.deepEqual(events, ['cancel old checks', 'request new provider']);
+  await loader.open(result);
+  assert.equal(events.length, 2, 'repeated click must retain the current request');
+  loader.unmount();
+  await pending;
+});
+
+test('series detail retries pending and busy responses and adopts the completed inventory', async () => {
+  const requests = [], pauses = [];
+  const signal = new AbortController().signal;
+  const client = { async post(url, body, options) {
+    requests.push({ url, body, options });
+    if (requests.length < 3) throw Object.assign(new Error('preparing'), {
+      status: 503, code: requests.length === 1 ? 'series_details_pending' : 'series_details_busy',
+    });
+    return { title: 'Fixture', availability_pending: false };
+  } };
+  const result = await loadSeriesDetails(client, 'episode', 'series', {
+    signal, waitForRetry: async (ms, current) => { pauses.push(ms); assert.equal(current, signal); },
+  });
+  assert.equal(result.availability_pending, false);
+  assert.deepEqual(pauses, [1000, 1000]);
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(row => row.url === '/api/series/load' && row.body.base_slug === 'series'
+    && row.options.signal === signal));
+});
+
+test('closing series details stops pending retries before another request', async () => {
+  const owner = new AbortController(); let requests = 0;
+  const client = { async post() {
+    requests++;
+    throw Object.assign(new Error('pending'), { status: 503, code: 'series_details_pending' });
+  } };
+  await assert.rejects(loadSeriesDetails(client, 'episode', 'series', {
+    signal: owner.signal, waitForRetry: async () => owner.abort(),
+  }), { name: 'AbortError' });
+  assert.equal(requests, 1);
+});
+
+test('series detail does not silently retry unrelated provider or authentication failures', async () => {
+  for (const status of [401, 404, 503]) {
+    const error = Object.assign(new Error('failed'), { status, code: 'unrelated_error' });
+    let requests = 0;
+    const client = { async post() { requests++; throw error; } };
+    await assert.rejects(loadSeriesDetails(client, 'episode', 'series', {
+      waitForRetry: async () => assert.fail('unexpected retry'),
+    }), value => value === error);
+    assert.equal(requests, 1);
+  }
+});
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 function harness() {

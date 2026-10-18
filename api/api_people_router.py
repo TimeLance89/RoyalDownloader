@@ -5,7 +5,7 @@ from starlette.concurrency import run_in_threadpool
 from application_services.people_series import resolve_person_series
 
 
-def create_people_router(get_client):
+def create_people_router(get_client, *, enrich_series=None):
     router = APIRouter(tags=["discovery"])
 
     def client():
@@ -34,7 +34,7 @@ def create_people_router(get_client):
 
     @router.get("/api/v1/people/series/{tmdb_id}")
     @router.get("/api/people/series/{tmdb_id}")
-    async def series_credit(tmdb_id: int, refresh_jellyfin: bool = False, defer_checks: bool = True):
+    async def series_credit(tmdb_id: int, refresh_jellyfin: bool = False, defer_checks: bool = True, progressive: bool = False):
         if tmdb_id <= 0:
             raise HTTPException(400, "Ungültige Serie.")
         tmdb = client()
@@ -51,7 +51,8 @@ def create_people_router(get_client):
             catalog.state.series_cache[series.base_slug] = series
             return catalog.series_to_dict(series, refresh_jellyfin=refresh_jellyfin, defer_checks=defer_checks)
 
-        payload = await run_in_threadpool(work)
+        payload = (await run_in_threadpool(work) if defer_checks or enrich_series is None else
+                   await enrich_series(("people", tmdb_id, refresh_jellyfin), work, progressive=progressive))
         if payload is None:
             raise HTTPException(404, "Für diese Serie wurde keine passende Quelle gefunden.")
         return payload
