@@ -1,24 +1,28 @@
-<div align="center">
-
+<p align="center">
   <img src="docs/assets/royal-cinema-hero.svg" alt="RoyalDownloader 2.0 — a cinematic, self-hosted media control center" width="100%" />
+</p>
 
-  <br />
+<h3 align="center">Your media. Your rules. One beautiful control center.</h3>
 
-  **Your media. Your rules. One beautiful control center.**
-
-  Discover movies and series, manage download requests, automate what comes next,
+<p align="center">
+  Discover movies and series, manage download requests, automate what comes next,<br />
   and keep your Jellyfin library connected — from your browser, phone or NAS.
+</p>
 
-  <br />
+<p align="center">
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TimeLance89/RoyalDownloader?sort=semver&amp;label=Latest%20release&amp;color=cb9a57" /></a>
+  <a href="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml"><img alt="Quality checks" src="https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main" /></a>
+  <a href="docs/DOCKER.md"><img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" /></a>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-bb8852" /></a>
+</p>
 
-  [![Latest release](https://img.shields.io/github/v/release/TimeLance89/RoyalDownloader?sort=semver&label=Latest%20release&color=cb9a57)](https://github.com/TimeLance89/RoyalDownloader/releases/latest)
-  [![Quality checks](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/TimeLance89/RoyalDownloader/actions/workflows/quality.yml)
-  [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docs/DOCKER.md)
-  [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-bb8852)](LICENSE)
-
-  [**Get started**](#quick-start) · [**Explore Royal**](#explore-royal) · [**Screenshots**](#a-look-inside) · [**Version 2.0**](#whats-new-in-20) · [**Documentation**](#documentation)
-
-</div>
+<p align="center">
+  <a href="#quick-start"><strong>Get started</strong></a> ·
+  <a href="#explore-royal">Explore Royal</a> ·
+  <a href="#a-look-inside">Screenshots</a> ·
+  <a href="#whats-new-in-20">Version 2.0</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
 
 ---
 
@@ -46,62 +50,45 @@ and keep the result in your own storage.
 <table>
 <tr>
 <td width="50%" valign="top">
-
-### 🎬 Discover
-
-Explore movies, series and anime in one place, with global search,
-TMDB artwork, recommendations, cast filmographies and personal discovery.
-Language-aware source checks help separate **verified audio** from subtitles.
-
+  <p><strong>🎬 Discover</strong></p>
+  <p>Explore movies, series and anime in one place, with global search,
+  TMDB artwork, recommendations, cast filmographies and personal discovery.
+  Language-aware source checks help separate <strong>verified audio</strong>
+  from subtitles.</p>
 </td>
 <td width="50%" valign="top">
-
-### ⬇️ Download
-
-Track live transfers, source activity, retries and history in a persistent
-queue. Where supported, direct HTTP downloads resume from **validated
-checkpoints** instead of starting blindly from zero.
-
+  <p><strong>⬇️ Download</strong></p>
+  <p>Track live transfers, source activity, retries and history in a persistent
+  queue. Where supported, direct HTTP downloads resume from
+  <strong>validated checkpoints</strong> instead of starting blindly from zero.</p>
 </td>
 </tr>
 <tr>
 <td valign="top">
-
-### 👑 Personalize
-
-Give household members separate profiles, taste signals, recommendations
-and saved media requests. Jellyfin links are **per profile**; actual download
-jobs and media storage are shared by the server.
-
+  <p><strong>👑 Personalize</strong></p>
+  <p>Give household members separate profiles, taste signals, recommendations
+  and saved media requests. Jellyfin links are <strong>per profile</strong>;
+  actual download jobs and media storage are shared by the server.</p>
 </td>
 <td valign="top">
-
-### 📺 Connect Jellyfin
-
-Check library availability before requesting media, show owned titles in
-the catalog, reconcile watched content and keep personal Jellyfin lists
-in sync with playable files.
-
+  <p><strong>📺 Connect Jellyfin</strong></p>
+  <p>Check library availability before requesting media, show owned titles
+  in the catalog, reconcile watched content and keep personal Jellyfin lists
+  in sync with playable files.</p>
 </td>
 </tr>
 <tr>
 <td valign="top">
-
-### ⚡ Automate
-
-Follow new episodes and movie-quality targets, configure download windows,
-accept Telegram requests and integrate with **Seerr / Moonfin** for supported
-media-request flows.
-
+  <p><strong>⚡ Automate</strong></p>
+  <p>Follow new episodes and movie-quality targets, configure download windows,
+  accept Telegram requests and integrate with <strong>Seerr / Moonfin</strong>
+  for supported media-request flows.</p>
 </td>
 <td valign="top">
-
-### 🛡️ Recover
-
-Protect queue snapshots, isolate provider failures, inspect source health
-and use versioned updates with verification and rollback. Docker's independent
-startup guard requires an updated container image.
-
+  <p><strong>🛡️ Recover</strong></p>
+  <p>Protect queue snapshots, isolate provider failures, inspect source health
+  and use versioned updates with verification and rollback. Docker's
+  independent startup guard requires an updated container image.</p>
 </td>
 </tr>
 </table>
@@ -206,7 +193,7 @@ spoken German audio.
 You'll need **Docker Engine**, **Docker Compose v2**, a **TMDB API key/read
 token** for first-run setup, and writable persistent movie and series folders.
 
-**1. Clone the stable development branch and prepare the environment.**
+**1. Clone the Stable branch and prepare the environment.**
 
 ```bash
 git clone https://github.com/TimeLance89/RoyalDownloader.git
@@ -366,16 +353,12 @@ network information from public logs or screenshots.
 
 ---
 
-<div align="center">
-
-  <strong>Built for your library. Designed for your home.</strong>
-
-  RoyalDownloader is open source under the [Apache License 2.0](LICENSE).
-  See [NOTICE](NOTICE) for attribution.
-
-  [Releases](https://github.com/TimeLance89/RoyalDownloader/releases) ·
-  [Changelog](CHANGELOG.md) ·
-  [Report an issue](https://github.com/TimeLance89/RoyalDownloader/issues) ·
-  [Back to top](#)
-
-</div>
+<p align="center">
+  <strong>Built for your library. Designed for your home.</strong><br />
+  RoyalDownloader is open source under the <a href="LICENSE">Apache License 2.0</a>.<br />
+  See <a href="NOTICE">NOTICE</a> for attribution.<br />
+  <a href="https://github.com/TimeLance89/RoyalDownloader/releases">Releases</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="https://github.com/TimeLance89/RoyalDownloader/issues">Report an issue</a> ·
+  <a href="#">Back to top</a>
+</p>
