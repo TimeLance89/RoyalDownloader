@@ -1,10 +1,12 @@
 # Changelog
 
-## v1.10.0 – 2026-10-18
+## v2.0.0 – 2026-10-18
 
-Stable v1.10.0 promotes the complete latest Overnight snapshot with bounded
-browsing, mobile and catalog improvements, reliable downloads, safer Docker
-updates, and expanded reliability verification since v1.9.0.
+Stable v2.0.0 marks a major product milestone and promotes the complete
+latest Overnight snapshot with bounded browsing, mobile and catalog
+improvements, reliable downloads, safer Docker updates, and expanded
+reliability verification since v1.9.0. It does not intentionally introduce
+breaking HTTP/API or persistent-data migrations.
 
 ### Browsing responsiveness and bounded background checks
 
