@@ -1,21 +1,71 @@
 # Changelog
 
-## Unreleased
+## v2.0.0 – 2026-10-18
+
+Stable v2.0.0 marks a major product milestone and promotes the complete
+latest Overnight snapshot with bounded browsing, mobile and catalog
+improvements, reliable downloads, safer Docker updates, and expanded
+reliability verification since v1.9.0. It does not intentionally introduce
+breaking HTTP/API or persistent-data migrations.
 
 ### Browsing responsiveness and bounded background checks
 
-- Keep authentication, profile and subscription snapshots, WebSocket session
-  checks and initial snapshots off the server event loop so slow persistent
-  stores do not stall unrelated requests and live updates.
-- Isolate and bound interactive Jellyfin lookups and series enrichment; share
-  overlapping work instead of filling the general HTTP worker pool.
-- Let the web detail view retrieve delayed series results through short,
-  explicit pending responses and stop retrying when the view closes. Existing
-  clients retain their completed-response contract unless they opt in.
-- Share cold local-file verification and limit ffprobe concurrency across all
-  series scans, with small submission windows instead of per-request pools.
-- Add slow-store, cancellation, worker-isolation and desktop/mobile regressions
-  to verification.
+- Move slow authentication, profile, subscription and WebSocket persistence
+  operations off the server event loop so other requests remain responsive.
+- Bound interactive Jellyfin, catalog enrichment and local-file verification
+  work; share concurrent checks, limit ffprobe and expose cancellable pending
+  detail responses for the updated web client.
+- Add slow-store, cancellation, worker-isolation and desktop/mobile regressions.
+
+### Series catalogs and Jellyfin ribbons
+
+- Load the complete series catalog with stable ordering and resilient cache and
+  provider recovery instead of stopping at 32 or prematurely declaring its end.
+- Prefetch additional pages silently and reveal them on the next downward scroll.
+- Show a static diagonal Jellyfin corner ribbon only for owned movies and series.
+  Recheck enriched TMDB identities and original-title aliases; synchronize confirmed
+  episode inventory across catalog, Home and matching provider copies without
+  allowing stale requests to overwrite newer library status.
+- Release offscreen card contents, poster resources and related work while retaining
+  scroll geometry; recreate cards and their current status when they return onscreen.
+
+### Trailer playback
+
+- Keep the trailer position when switching from detail autoplay to the full player;
+  prevent a second background player from restarting during playback or retries.
+- Improve the series trailer action's accessibility and keep mobile hero playback
+  stable across detail updates.
+
+### Mobile Download Center and navigation
+
+- Add the mobile Download Center with focused-title artwork, compact queue cards,
+  accessible touch controls, progress and source activity, and expandable history.
+- Reuse queue nodes and already available artwork, handle empty and active states,
+  respect reduced motion, and preserve keyboard focus and responsive transitions.
+- Improve mobile download feedback, subscription inbox access and navigation;
+  keep search, queue and avatar controls separated and make search open/close
+  reliably without unwanted focus-driven reopening.
+
+### Download, queue and background-worker reliability
+
+- Resume interrupted direct HTTP/MP4 downloads across restarts only with matching
+  strong ETags, byte ranges and full lengths; restart safely when validation fails.
+- Recover polling and subscription workers after transient service failures or bad
+  settings. Isolate malformed provider retry deadlines so other episodes continue.
+- Bound Telegram callback admission and preserve unaccepted updates for retry.
+- Serialize persistence retry bookkeeping with commits, retain queued jobs after
+  thread-start failures, and keep cancellation and queue API requests responsive.
+- Preserve corrupt storage-move journals and stop accepting further move work until
+  they can be recovered safely.
+- Use progressive collection availability checks to avoid premature false negatives.
+
+### Update verification and regression coverage
+
+- Require the exact valid signed target commit on both Stable and Overnight updates.
+- Expand isolated stability, queue stress, browser, mobile, trailer and catalog
+  regressions, including WebKit interactions and performance budgets.
+- Keep container image digests pinned while retrying official registry mirrors;
+  consolidate verification tooling and weekly dependency maintenance.
 
 ### Personal home wallpaper artwork
 
@@ -47,12 +97,55 @@
 - Require a rebuilt Docker image to activate the independent watchdog; legacy
   non-versioned source updates remain outside this protection.
 
+## v1.9.0 – 2026-10-10
+
+Stable v1.9.0 consolidates the tested Stable and Overnight improvements since
+v1.8.0. It introduces People discovery, a per-profile Jellyfin watchlist,
+safer episode language verification and AniWorld fallback, progressive movie
+availability, a more transparent updater, and maintenance reliability fixes.
+
+### Updater reliability
+
+- Require successful current CI and signature checks for every installation,
+  including explicitly confirmed switches back to Stable; recheck pending CI
+  promptly instead of retaining a stale approval.
+- Revalidate the selected channel and automatic-update mode before installation;
+  prevent outdated status responses from overwriting newer checks or installs.
+- Verify restarts using the running process revision and local capabilities;
+  report restart failures and the actual restored revision after rollback.
+- Bound archive processing, close failed transfers and validate extraction paths
+  before creating directories. Preserve the staged runtime and manual rollback.
+
+### Episode availability and subscription languages
+
+- Apply the subscription's audio preferences consistently to episode checks,
+  detail selection and manual downloads; keep language evidence independent for
+  each episode and source.
+- Require verified audio before selecting or downloading an episode. A listed
+  episode or a provider's general language list no longer confirms that the
+  requested audio exists for that episode, including English-only Chicago P.D.
+  episodes when German audio is selected.
+- Start automatic checks at the beginning for a confirmed empty library; with
+  existing downloads or Jellyfin episodes, prioritize missing episodes around
+  the latest available season while continuing to check older gaps.
+- Give explicit episode selections priority, share running checks and reorder
+  waiting checks when library data arrives; queued jobs do not count as owned.
+
 ### Update transparency
 
 - Show direct links to the precise GitHub commit/file comparison and the
   target commit's changelog whenever an update is offered in Settings.
 - Keep these links tied to the checked revision, hide them for blocked or
   failed checks, and retain all existing update approval and rollback gates.
+
+### Dependency update maintenance
+
+- Run routine Dependabot checks weekly on Mondays at 17:00 Europe/Berlin
+  for Python dependencies, GitHub Actions and Docker; group minor and patch
+  updates by ecosystem to reduce duplicate pull requests.
+- Remove invalid Dependabot label overrides while preserving the `overnight`
+  target branch and existing limits. Major upgrades remain separate and
+  security updates keep their default-branch behavior.
 
 ### Movie availability
 
@@ -104,6 +197,9 @@
   person's primary department; prefer acting roles over self/archival appearances.
 - Check and select filmography movies for batch downloads using existing source,
   release-date and Jellyfin safeguards; open series in their episode selector.
+
+See [v1.9.0 release notes](docs/releases/v1.9.0.md) for highlights,
+compatibility, upgrade instructions and known limitations.
 
 ## v1.8.0 – 2026-10-07
 
