@@ -51,7 +51,10 @@ def create_ai_router(state) -> APIRouter:
     @router.get("/api/v1/ai/config")
     @router.get("/api/ai/config")
     async def get_config():
-        return _public_config(state.ai_discovery.config(), _availability(state))
+        def _work():
+            return _public_config(state.ai_discovery.config(), _availability(state))
+
+        return await run_in_threadpool(_work)
 
     @router.post("/api/v1/intelligence/config")
     @router.post("/api/intelligence/config")
@@ -67,21 +70,24 @@ def create_ai_router(state) -> APIRouter:
         config = {"enabled": body.enabled, "provider": "ollama", "url": url, "model": body.model.strip(), "timeout_seconds": body.timeout_seconds}
         saved = await run_in_threadpool(appconfig.save_ai, body.enabled, url, config["model"], body.timeout_seconds)
         if not saved: raise HTTPException(500, "Intelligence-Einstellungen konnten nicht gespeichert werden.")
-        state.ai_discovery.configure(config)
-        # The visible activation control maps to the authoritative module
-        # lifecycle; it never starts a provider independently.
-        if state.module_manager.is_enabled("royal-intelligence") != body.enabled:
-            state.module_manager.set_enabled("royal-intelligence", body.enabled)
-        else:
-            state.module_manager.reconcile("royal-intelligence")
-        return {**_public_config(config, _availability(state)), "saved": True}
+        def apply():
+            state.ai_discovery.configure(config)
+            # The visible activation control maps to the authoritative module
+            # lifecycle; it never starts a provider independently.
+            if state.module_manager.is_enabled("royal-intelligence") != body.enabled:
+                state.module_manager.set_enabled("royal-intelligence", body.enabled)
+            else:
+                state.module_manager.reconcile("royal-intelligence")
+            return {**_public_config(config, _availability(state)), "saved": True}
+
+        return await run_in_threadpool(apply)
 
     @router.post("/api/v1/intelligence/test")
     @router.post("/api/intelligence/test")
     @router.post("/api/v1/ai/test")
     @router.post("/api/ai/test")
     async def test_connection(body: AiConfigBody | None = None):
-        config = state.ai_discovery.config() if body is None else body.model_dump()
+        config = await run_in_threadpool(state.ai_discovery.config) if body is None else body.model_dump()
         try: result = await run_in_threadpool(state.ai_discovery.test, config)
         except (ReflexError, OllamaError, ValueError) as exc: raise HTTPException(502, "Ollama ist nicht erreichbar oder antwortet ungültig.") from exc
         return result
@@ -91,7 +97,7 @@ def create_ai_router(state) -> APIRouter:
     @router.post("/api/v1/ai/recommendations")
     @router.post("/api/ai/recommendations")
     async def recommendations(body: AiRecommendationBody, request: Request):
-        config, available = state.ai_discovery.config(), _availability(state)
+        config, available = await run_in_threadpool(lambda: (state.ai_discovery.config(), _availability(state)))
         if not available[0]: return {"enabled": bool(config.get("enabled")), "available": False, "recommendations": [], "message": available[1]}
         from application_services.auth import current_user
         user = await run_in_threadpool(current_user, request.headers, request.cookies) or {}
@@ -107,7 +113,7 @@ def create_ai_router(state) -> APIRouter:
                 "message": "Richte zuerst deinen persönlichen Geschmack ein.",
             }
         profile = await run_in_threadpool(
-            state.taste_profiles.for_user(user_id).public_profile,
+            lambda: state.taste_profiles.for_user(user_id).public_profile(),
         )
         try:
             result = await run_in_threadpool(

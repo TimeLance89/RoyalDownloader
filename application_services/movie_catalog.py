@@ -8,6 +8,7 @@ from application_services.movie_availability import _bounded_movie_details, _mov
 from core.runtime_cache import BoundedTTLCache
 
 import threading
+from application_services.catalog_prefetch import schedule_prefetch as admit_prefetch
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -27,6 +28,8 @@ globals().update(import_backend_namespace())
 # weiter im Hintergrund fuellen, aber nicht den sichtbaren Film-Tab blockieren.
 MOVIE_CATALOG_PAGE_BUDGET_SECONDS = 4.0
 MOVIE_NEW_FIRST_PAGE_CACHE_TTL = 60
+MOVIE_PROVIDER_PENDING_LIMIT = 64
+MOVIE_PREFETCH_PENDING_LIMIT = 8
 _MOVIE_PROVIDER_LOAD_POOL = ThreadPoolExecutor(
     max_workers=16,
     thread_name_prefix="movie-catalog",
@@ -826,6 +829,10 @@ def _load_movie_provider_pages(
         with _MOVIE_PROVIDER_INFLIGHT_LOCK:
             future = _MOVIE_PROVIDER_INFLIGHT.get(cache_key)
             if future is None:
+                if len(_MOVIE_PROVIDER_INFLIGHT) >= MOVIE_PROVIDER_PENDING_LIMIT:
+                    if timed_out is not None:
+                        timed_out[0] = True
+                    continue
                 future = _MOVIE_PROVIDER_LOAD_POOL.submit(
                     _fetch_movie_provider_page, provider, mode, genre, source_page,
                 )
@@ -881,11 +888,6 @@ def _schedule_movie_provider_prefetch(
     if not requests:
         return
     key = (mode, clean_genre(genre).casefold(), requests)
-    with _MOVIE_CATALOG_PREFETCH_LOCK:
-        if key in _MOVIE_CATALOG_PREFETCH_INFLIGHT:
-            return
-        _MOVIE_CATALOG_PREFETCH_INFLIGHT.add(key)
-
     def _work():
         try:
             _load_movie_provider_pages(
@@ -896,11 +898,9 @@ def _schedule_movie_provider_prefetch(
             )
         except Exception as exc:
             log(f"Filmkatalog-Prefetch übersprungen: {exc}", "warn")
-        finally:
-            with _MOVIE_CATALOG_PREFETCH_LOCK:
-                _MOVIE_CATALOG_PREFETCH_INFLIGHT.discard(key)
 
-    _MOVIE_CATALOG_PREFETCH_POOL.submit(_work)
+    admit_prefetch(_MOVIE_CATALOG_PREFETCH_POOL, _MOVIE_CATALOG_PREFETCH_INFLIGHT,
+                   _MOVIE_CATALOG_PREFETCH_LOCK, key, _work, MOVIE_PREFETCH_PENDING_LIMIT)
 
 
 def _movie_provider_genres(provider: str) -> set:

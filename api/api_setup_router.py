@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from core.setup_bootstrap import (
     SetupBootstrapError,
@@ -62,21 +63,24 @@ def create_setup_router(dependencies: SetupDependencies) -> APIRouter:
 
     @router.get("/api/setup/status")
     async def api_setup_status():
-        payload = dependencies.status_payload()
-        if payload.get("required"):
-            payload.update(bootstrap_status())
-        else:
-            payload.update({"bootstrap_required": False, "bootstrap_hint": ""})
-        return payload
+        def _work():
+            payload = dependencies.status_payload()
+            if payload.get("required"):
+                payload.update(bootstrap_status())
+            else:
+                payload.update({"bootstrap_required": False, "bootstrap_hint": ""})
+            return payload
+
+        return await run_in_threadpool(_work)
 
     @router.post("/api/setup/complete")
     async def api_setup_complete(body: SetupCompleteBody, request: Request):
         # Once an installation is configured this endpoint is protected by the
         # normal authentication middleware.  During the public first-run state,
         # the one-time bootstrap secret is the trust anchor for claiming it.
-        if dependencies.status_payload().get("required"):
+        if (await run_in_threadpool(dependencies.status_payload)).get("required"):
             try:
-                verify_setup_token(body.bootstrap_token, request)
+                await run_in_threadpool(verify_setup_token, body.bootstrap_token, request)
             except SetupBootstrapLocked as exc:
                 raise HTTPException(
                     429,
@@ -106,7 +110,7 @@ def create_setup_router(dependencies: SetupDependencies) -> APIRouter:
             )
         try:
             result = await dependencies.complete(body, request)
-            consume_setup_token()
+            await run_in_threadpool(consume_setup_token)
             return result
         finally:
             lock.release()

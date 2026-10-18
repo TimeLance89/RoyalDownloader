@@ -189,7 +189,7 @@ def _require_enabled_module(module_id: str) -> None:
 @router.get("/api/v1/updater/status")
 @router.get("/api/updater/status")
 async def api_updater_status(force: bool = False):
-    config = _updater_config_payload()
+    config = await run_in_threadpool(_updater_config_payload)
     channel = appconfig.normalize_update_channel(config.get("update_channel"))
     branch = appconfig.update_branch_for_channel(channel)
     payload = await run_in_threadpool(UPDATE_CHECKER.check_branch, branch, force)
@@ -204,7 +204,7 @@ async def api_updater_status(force: bool = False):
     payload["update_branch"] = branch
     payload["possible_downgrade"] = possible_downgrade
     payload["channel_switch_requires_confirmation"] = possible_downgrade
-    payload["installer"] = UPDATE_INSTALLER.status()
+    payload["installer"] = await run_in_threadpool(UPDATE_INSTALLER.status)
     payload["config"] = config
     return payload
 
@@ -249,20 +249,26 @@ async def api_updater_install(body: UpdateInstallBody):
 @router.get("/api/v1/updater/install/status")
 @router.get("/api/updater/install/status")
 async def api_updater_install_status():
-    return {"installer": UPDATE_INSTALLER.status()}
+    def _work():
+        return {"installer": UPDATE_INSTALLER.status()}
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/updater/rollback")
 @router.post("/api/updater/rollback")
 async def api_updater_rollback():
-    with state.queue_lifecycle_lock:
-        if state.ytdlp_update_active:
-            raise HTTPException(409, "yt-dlp wird gerade aktualisiert")
-        try:
-            installer = UPDATE_INSTALLER.rollback()
-        except RuntimeError as exc:
-            raise HTTPException(409, str(exc)) from exc
-    return {"installer": installer}
+    def _work():
+        with state.queue_lifecycle_lock:
+            if state.ytdlp_update_active:
+                raise HTTPException(409, "yt-dlp wird gerade aktualisiert")
+            try:
+                installer = UPDATE_INSTALLER.rollback()
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc)) from exc
+        return {"installer": installer}
+
+    return await run_in_threadpool(_work)
 
 
 class UpdaterConfigBody(BaseModel):
@@ -274,7 +280,10 @@ class UpdaterConfigBody(BaseModel):
 @router.get("/api/v1/updater/config")
 @router.get("/api/updater/config")
 async def api_updater_config_get():
-    return _updater_config_payload()
+    def _work():
+        return _updater_config_payload()
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/updater/config")
@@ -300,12 +309,12 @@ async def api_updater_config_set(body: UpdaterConfigBody):
     updater_cfg = await run_in_threadpool(save_configuration)
     await run_in_threadpool(UPDATE_CHECKER.set_branch, updater_cfg["update_branch"])
     if mode == appconfig.UPDATE_MODE_AUTOMATIC:
-        _set_updater_runtime("scheduled", "Automatische Updateprüfung wird gestartet.")
+        await run_in_threadpool(_set_updater_runtime, "scheduled", "Automatische Updateprüfung wird gestartet.")
     else:
-        _set_updater_runtime("manual", "Updates werden nur manuell installiert.")
+        await run_in_threadpool(_set_updater_runtime, "manual", "Updates werden nur manuell installiert.")
     _updater_wake_event.set()
-    state.module_manager.reconcile("automatic-updates")
-    return {**_updater_config_payload(), "saved": True}
+    await run_in_threadpool(state.module_manager.reconcile, "automatic-updates")
+    return {**(await run_in_threadpool(_updater_config_payload)), "saved": True}
 
 
 def _prepare_media_directory(raw_path: str, label: str) -> dict:
@@ -384,9 +393,10 @@ async def _validate_setup_tmdb_key(api_key: str, ui_language: str) -> None:
 async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     # Bestehende Installation: der Assistent darf ein vorhandenes Konto nicht
     # überschreiben, nur ein Angemeldeter darf hier überhaupt landen.
-    already_initialized = appconfig.is_initialized()
-    account_was_configured = auth_configured()
-    if already_initialized and account_was_configured and not request_is_authenticated(
+    already_initialized = await run_in_threadpool(appconfig.is_initialized)
+    account_was_configured = await run_in_threadpool(auth_configured)
+    if already_initialized and account_was_configured and not await run_in_threadpool(
+        request_is_authenticated,
         request.headers, request.cookies, client_key(request),
     ):
         raise HTTPException(401, "Anmeldung erforderlich.")
@@ -406,8 +416,12 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     if deployment_mode not in DEPLOYMENT_MODES:
         raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
     jellyfin_url = body.jellyfin_url.strip()
-    with state.jellyfin_cache_lock:
-        previous_jellyfin = dict(state.jellyfin_cfg)
+    def _previous():
+        with state.jellyfin_cache_lock:
+            previous_jellyfin = dict(state.jellyfin_cfg)
+        return previous_jellyfin
+
+    previous_jellyfin = await run_in_threadpool(_previous)
     same_jellyfin = (
         jellyfin_url.rstrip("/")
         and jellyfin_url.rstrip("/") == previous_jellyfin.get("url", "").rstrip("/")
@@ -421,17 +435,17 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     movie_order = (
         [str(value).strip().casefold() for value in body.movie_provider_order]
         if body.movie_provider_order is not None
-        else provider_order("movies")
+        else (await run_in_threadpool(provider_order, 'movies'))
     )
     series_order = (
         [str(value).strip().casefold() for value in body.series_provider_order]
         if body.series_provider_order is not None
-        else provider_order("series")
+        else (await run_in_threadpool(provider_order, 'series'))
     )
     anime_order = (
         [str(value).strip().casefold() for value in body.anime_provider_order]
         if body.anime_provider_order is not None
-        else provider_order("anime")
+        else (await run_in_threadpool(provider_order, 'anime'))
     )
     movie_providers = (
         [str(value).strip().casefold() for value in body.movie_providers]
@@ -524,8 +538,8 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
     # atomaren Konfigurations-Commit kein anderer Abschluss gewonnen haben.
     # Der Prozess-Lock wird über Prüfung, Commit und Sitzungserzeugung gehalten.
     if (
-        (not already_initialized and appconfig.is_initialized())
-        or (not account_was_configured and auth_configured())
+        (not already_initialized and await run_in_threadpool(appconfig.is_initialized))
+        or (not account_was_configured and await run_in_threadpool(auth_configured))
     ):
         raise HTTPException(
             409,
@@ -536,10 +550,14 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         )
 
     from features.language_setup import language_setup_subscriptions
-    with state.watchlist_lock:
-        subscription_languages = language_setup_subscriptions(state.watchlist,
-            getattr(state, "subscription_content_languages", {}), state.content_languages,
-            content_languages, [entry["base_slug"] for entry in state.watchlist] if body.update_existing_subscriptions else [])
+    def _subscription_languages():
+        with state.watchlist_lock:
+            subscription_languages = language_setup_subscriptions(state.watchlist,
+                getattr(state, "subscription_content_languages", {}), state.content_languages,
+                content_languages, [entry["base_slug"] for entry in state.watchlist] if body.update_existing_subscriptions else [])
+        return subscription_languages
+
+    subscription_languages = await run_in_threadpool(_subscription_languages)
     ok = await run_in_threadpool(
         appconfig.save_initial_setup,
         movie_path,
@@ -587,66 +605,69 @@ async def _api_setup_complete_locked(body: SetupCompleteBody, request: Request):
         }
 
     runtime = await run_in_threadpool(_load_setup_runtime)
-    state.save_path = runtime["save_path"]
-    state.series_path = runtime["series_path"]
-    with state.ui_language_lock:
-        state.ui_language = runtime["ui_language"]
-    with state.provider_priority_lock:
-        state.provider_priorities = runtime["priorities"]
-        state.provider_enabled = runtime["enabled"]
-        state.content_languages = set(runtime["languages"])
-    with state.watchlist_lock:
-        state.subscription_content_languages = subscription_languages
-        for entry in state.watchlist:
-            entry["check_generation"] = int(entry.get("check_generation") or 0) + 1
-            entry["check_in_progress"] = False
-            state.watchlist_new_slugs.pop(entry["base_slug"], None)
-            for slug, status in (entry.get("episode_states") or {}).items():
-                if status in {"available", "waiting_for_language", "language_pending"}:
-                    entry["episode_states"][slug] = "language_pending"
-            entry["language_pending_slugs"] = [slug for slug, status in (entry.get("episode_states") or {}).items() if status == "language_pending"]
-            entry["waiting_language_slugs"] = []
-    with state.movie_list_cache_lock:
-        state.movie_list_cache.clear()
-    with state.series_list_cache_lock:
-        state.series_list_cache.clear()
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-    state.fallback_series_cache.clear()
-    _set_runtime_jellyfin_config(runtime["jellyfin"])
-    state.tmdb_cfg = runtime["tmdb"]
-    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    state.telegram_cfg = runtime["telegram"]
-    state.automation = runtime["automation"]
-    start_background_services()
-    payload = {
-        "saved": True,
-        "required": False,
-        "config_path": str(appconfig.config_path()),
-        "save_path": state.save_path,
-        "series_path": state.series_path,
-        "ui_language": state.ui_language,
-        "auth_configured": auth_configured(),
-        "deployment_mode": appconfig.load_deployment_mode(),
-        "env_path": env_result["path"],
-        "env_created": env_result["created"],
-        "restart_required": True,
-    }
-    if not account_hash:
-        return payload
-    # Ab jetzt greift die Anmeldepflicht. Der Browser, der gerade die
-    # Einrichtung abgeschlossen hat, bekommt direkt eine Sitzung – sonst
-    # stünde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
-    response = JSONResponse(payload)
-    _set_session_cookie(
-        response,
-        request,
-        SESSION_STORE.create(
-            label=request.headers.get("user-agent", "")[:120],
-            kind=appauth.SESSION_KIND_WEB,
-        ),
-    )
-    return response
+    def _apply():
+        state.save_path = runtime["save_path"]
+        state.series_path = runtime["series_path"]
+        with state.ui_language_lock:
+            state.ui_language = runtime["ui_language"]
+        with state.provider_priority_lock:
+            state.provider_priorities = runtime["priorities"]
+            state.provider_enabled = runtime["enabled"]
+            state.content_languages = set(runtime["languages"])
+        with state.watchlist_lock:
+            state.subscription_content_languages = subscription_languages
+            for entry in state.watchlist:
+                entry["check_generation"] = int(entry.get("check_generation") or 0) + 1
+                entry["check_in_progress"] = False
+                state.watchlist_new_slugs.pop(entry["base_slug"], None)
+                for slug, status in (entry.get("episode_states") or {}).items():
+                    if status in {"available", "waiting_for_language", "language_pending"}:
+                        entry["episode_states"][slug] = "language_pending"
+                entry["language_pending_slugs"] = [slug for slug, status in (entry.get("episode_states") or {}).items() if status == "language_pending"]
+                entry["waiting_language_slugs"] = []
+        with state.movie_list_cache_lock:
+            state.movie_list_cache.clear()
+        with state.series_list_cache_lock:
+            state.series_list_cache.clear()
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.clear()
+        state.fallback_series_cache.clear()
+        _set_runtime_jellyfin_config(runtime["jellyfin"])
+        state.tmdb_cfg = runtime["tmdb"]
+        state.tmdb_client = TMDBClient(**state.tmdb_cfg)
+        state.telegram_cfg = runtime["telegram"]
+        state.automation = runtime["automation"]
+        start_background_services()
+        payload = {
+            "saved": True,
+            "required": False,
+            "config_path": str(appconfig.config_path()),
+            "save_path": state.save_path,
+            "series_path": state.series_path,
+            "ui_language": state.ui_language,
+            "auth_configured": auth_configured(),
+            "deployment_mode": appconfig.load_deployment_mode(),
+            "env_path": env_result["path"],
+            "env_created": env_result["created"],
+            "restart_required": True,
+        }
+        if not account_hash:
+            return payload
+        # Ab jetzt greift die Anmeldepflicht. Der Browser, der gerade die
+        # Einrichtung abgeschlossen hat, bekommt direkt eine Sitzung – sonst
+        # stünde der Nutzer unmittelbar nach dem Abschluss vor der Anmeldemaske.
+        response = JSONResponse(payload)
+        _set_session_cookie(
+            response,
+            request,
+            SESSION_STORE.create(
+                label=request.headers.get("user-agent", "")[:120],
+                kind=appauth.SESSION_KIND_WEB,
+            ),
+        )
+        return response
+
+    return await run_in_threadpool(_apply)
 
 
 class UILanguageBody(BaseModel):
@@ -676,7 +697,10 @@ def _ui_language_payload(saved: bool = False) -> dict:
 @router.get("/api/v1/ui/config")
 @router.get("/api/ui/config")
 async def api_ui_config_get():
-    return _ui_language_payload()
+    def _work():
+        return _ui_language_payload()
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/ui/config")
@@ -685,22 +709,25 @@ async def api_ui_config_set(body: UILanguageBody):
     language = normalize_ui_language(body.language)
     if not await run_in_threadpool(appconfig.save_ui_language, language):
         raise HTTPException(500, "Die Sprache konnte nicht gespeichert werden.")
-    with state.ui_language_lock:
-        state.ui_language = language
-    tmdb_language = appconfig.tmdb_language_for_ui(language)
-    state.tmdb_cfg = {
-        **state.tmdb_cfg,
-        "language": tmdb_language,
-    }
-    state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
-    return _ui_language_payload(saved=True)
+    def _apply():
+        with state.ui_language_lock:
+            state.ui_language = language
+        tmdb_language = appconfig.tmdb_language_for_ui(language)
+        state.tmdb_cfg = {
+            **state.tmdb_cfg,
+            "language": tmdb_language,
+        }
+        state.tmdb_client = TMDBClient(**state.tmdb_cfg)
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.clear()
+            for slug in [
+                cached_slug for cached_slug in state.fp_movies
+                if cached_slug.startswith("tmdb:")
+            ]:
+                state.fp_movies.pop(slug, None)
+        return _ui_language_payload(saved=True)
+
+    return await run_in_threadpool(_apply)
 
 
 @router.post("/api/ui/translate")
@@ -712,7 +739,8 @@ async def api_ui_translate(body: UITranslationBody, request: Request):
         raise HTTPException(400, "Nicht unterstützte Zielsprache.")
     if any(len(text) > 600 for text in texts) or sum(map(len, texts)) > 30_000:
         raise HTTPException(413, "Die Übersetzungsanfrage ist zu groß.")
-    if not request_is_authenticated(
+    if not await run_in_threadpool(
+        request_is_authenticated,
         request.headers,
         request.cookies,
         client_key(request),
@@ -750,13 +778,16 @@ class ConfigBody(BaseModel):
 @router.get("/api/v1/config")
 @router.get("/api/config")
 async def api_config_get():
-    return {
-        "save_path": state.save_path,
-        "series_path": state.series_path,
-        "deployment_mode": appconfig.load_deployment_mode(),
-        "env_path": str(ENV_PATH),
-        "env_exists": ENV_PATH.is_file(),
-    }
+    def _work():
+        return {
+            "save_path": state.save_path,
+            "series_path": state.series_path,
+            "deployment_mode": appconfig.load_deployment_mode(),
+            "env_path": str(ENV_PATH),
+            "env_exists": ENV_PATH.is_file(),
+        }
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/config")
@@ -764,7 +795,7 @@ async def api_config_get():
 async def api_config_set(body: ConfigBody):
     movie_path = body.save_path.strip()
     series = (body.series_path or "").strip() or movie_path
-    previous_mode = appconfig.load_deployment_mode()
+    previous_mode = await run_in_threadpool(appconfig.load_deployment_mode)
     deployment_mode = previous_mode if body.deployment_mode is None else str(body.deployment_mode).strip().casefold()
     if deployment_mode not in DEPLOYMENT_MODES:
         raise HTTPException(400, "Betriebsmodus muss 'desktop' oder 'nas' sein.")
@@ -788,8 +819,8 @@ async def api_config_set(body: ConfigBody):
         )
     except OSError as exc:
         raise HTTPException(500, f".env konnte nicht aktualisiert werden: {exc}") from exc
-    state.save_path = appconfig.load()
-    state.series_path = appconfig.load_series_path()
+    state.save_path = await run_in_threadpool(appconfig.load)
+    state.series_path = await run_in_threadpool(appconfig.load_series_path)
     return {
         "save_path": state.save_path,
         "series_path": state.series_path,
@@ -854,37 +885,46 @@ def _provider_priority_payload(saved: bool = False) -> dict:
 @router.get("/api/v1/providers/status")
 @router.get("/api/providers/status")
 async def api_provider_status_get():
-    return {"providers": {
-        "serienstream": serienstream_provider_status(),
-        "flixitv": state.provider_health.status("flixitv"),
-        "kinoking": state.provider_health.status("kinoking"),
-    }}
+    def _work():
+        return {"providers": {
+            "serienstream": serienstream_provider_status(),
+            "flixitv": state.provider_health.status("flixitv"),
+            "kinoking": state.provider_health.status("kinoking"),
+        }}
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/providers/serienstream/retry")
 @router.post("/api/providers/serienstream/retry")
 async def api_serienstream_retry():
-    if not state.provider_health.begin_probe("serienstream", force=True):
-        raise HTTPException(409, "Eine SerienStream-Probe läuft bereits.")
-    with state.queue_claim_lock:
-        item = next(iter(state.provider_waiting_jobs.values()), None)
-    threading.Thread(
-        target=_execute_provider_probe,
-        args=(item,),
-        name="serienstream-manual-probe",
-        daemon=True,
-    ).start()
-    state.provider_retry_wake_event.set()
-    return {
-        "started": True,
-        "provider": serienstream_provider_status(),
-    }
+    def _work():
+        if not state.provider_health.begin_probe("serienstream", force=True):
+            raise HTTPException(409, "Eine SerienStream-Probe läuft bereits.")
+        with state.queue_claim_lock:
+            item = next(iter(state.provider_waiting_jobs.values()), None)
+        threading.Thread(
+            target=_execute_provider_probe,
+            args=(item,),
+            name="serienstream-manual-probe",
+            daemon=True,
+        ).start()
+        state.provider_retry_wake_event.set()
+        return {
+            "started": True,
+            "provider": serienstream_provider_status(),
+        }
+
+    return await run_in_threadpool(_work)
 
 
 @router.get("/api/v1/providers/config")
 @router.get("/api/providers/config")
 async def api_provider_priority_get():
-    return _provider_priority_payload()
+    def _work():
+        return _provider_priority_payload()
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/providers/config")
@@ -895,7 +935,7 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
     anime_ids = (
         [str(value).strip().casefold() for value in body.anime]
         if body.anime is not None
-        else provider_order("anime")
+        else (await run_in_threadpool(provider_order, 'anime'))
     )
     if len(movie_ids) != len(set(movie_ids)) or set(movie_ids) != set(appconfig.MOVIE_PROVIDER_DEFAULTS):
         raise HTTPException(400, "Die Film-Anbieterliste ist unvollständig oder ungültig.")
@@ -975,23 +1015,26 @@ async def api_provider_priority_set(body: ProviderPriorityBody):
         )
 
     priorities, enabled, languages = await run_in_threadpool(_load_provider_config)
-    with state.provider_priority_lock:
-        state.provider_priorities = priorities
-        state.provider_enabled = enabled
-        state.content_languages = set(languages)
-    with state.movie_list_cache_lock:
-        state.movie_list_cache.clear()
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
-    with state.series_list_cache_lock:
-        state.series_list_cache.clear()
-    state.fallback_series_cache.clear()
-    return _provider_priority_payload(saved=True)
+    def _apply():
+        with state.provider_priority_lock:
+            state.provider_priorities = priorities
+            state.provider_enabled = enabled
+            state.content_languages = set(languages)
+        with state.movie_list_cache_lock:
+            state.movie_list_cache.clear()
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.clear()
+            for slug in [
+                cached_slug for cached_slug in state.fp_movies
+                if cached_slug.startswith("tmdb:")
+            ]:
+                state.fp_movies.pop(slug, None)
+        with state.series_list_cache_lock:
+            state.series_list_cache.clear()
+        state.fallback_series_cache.clear()
+        return _provider_priority_payload(saved=True)
+
+    return await run_in_threadpool(_apply)
 
 
 class LanguageSetupBody(BaseModel):
@@ -1084,14 +1127,17 @@ async def api_language_setup_set(body: LanguageSetupBody):
             return _language_setup_payload()
 
     result = await run_in_threadpool(apply)
-    with state.movie_list_cache_lock:
-        state.movie_list_cache.clear()
-    with state.series_list_cache_lock:
-        state.series_list_cache.clear()
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-    state.fallback_series_cache.clear()
-    broadcast({"type": "watchlist_update", **watchlist_payload()})
+    def _apply():
+        with state.movie_list_cache_lock:
+            state.movie_list_cache.clear()
+        with state.series_list_cache_lock:
+            state.series_list_cache.clear()
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.clear()
+        state.fallback_series_cache.clear()
+
+    await run_in_threadpool(_apply)
+    broadcast({"type": "watchlist_update", **(await run_in_threadpool(watchlist_payload))})
     from application_services.automation import wake_watchlist_auto_check
     wake_watchlist_auto_check()
     return {**result, "saved": True}
@@ -1124,8 +1170,12 @@ async def api_jellyfin_config_get():
 @router.post("/api/jellyfin/config")
 async def api_jellyfin_config_set(body: JellyfinConfigBody):
     url = body.url.strip()
-    with state.jellyfin_cache_lock:
-        previous = dict(state.jellyfin_cfg)
+    def _previous():
+        with state.jellyfin_cache_lock:
+            previous = dict(state.jellyfin_cfg)
+        return previous
+
+    previous = await run_in_threadpool(_previous)
     same_server = bool(url) and url.rstrip("/") == previous.get("url", "").rstrip("/")
     api_key = body.api_key.strip() or (previous.get("api_key", "") if same_server else "")
     user_id = body.user_id.strip()
@@ -1164,7 +1214,7 @@ async def api_jellyfin_config_set(body: JellyfinConfigBody):
             _recommender_wake_event.set()
 
     await run_in_threadpool(_save_jellyfin_config)
-    state.module_manager.reconcile("jellyfin-recommendations")
+    await run_in_threadpool(state.module_manager.reconcile, "jellyfin-recommendations")
 
     def _recheck():
         with state.watchlist_lock:
@@ -1234,13 +1284,16 @@ async def api_tmdb_config_set(body: TMDBConfigBody):
 
     state.tmdb_cfg = await run_in_threadpool(_save_tmdb_config)
     state.tmdb_client = TMDBClient(**state.tmdb_cfg)
-    with state.movie_source_cache_lock:
-        state.movie_source_cache.clear()
-        for slug in [
-            cached_slug for cached_slug in state.fp_movies
-            if cached_slug.startswith("tmdb:")
-        ]:
-            state.fp_movies.pop(slug, None)
+    def _apply():
+        with state.movie_source_cache_lock:
+            state.movie_source_cache.clear()
+            for slug in [
+                cached_slug for cached_slug in state.fp_movies
+                if cached_slug.startswith("tmdb:")
+            ]:
+                state.fp_movies.pop(slug, None)
+
+    await run_in_threadpool(_apply)
     valid = await run_in_threadpool(state.tmdb_client.validate) if api_key else False
     return {
         "api_key": "",
@@ -1315,7 +1368,7 @@ async def api_telegram_config_set(body: TelegramConfigBody):
         return appconfig.load_telegram()
 
     state.telegram_cfg = await run_in_threadpool(_save_telegram_config)
-    state.module_manager.reconcile("telegram-control")
+    await run_in_threadpool(state.module_manager.reconcile, "telegram-control")
     return {
         "enabled": bool(state.telegram_cfg.get("enabled")),
         "bot_token": "",
@@ -1358,7 +1411,10 @@ def _seerr_config_payload() -> dict:
 @router.get("/api/v1/seerr/config")
 @router.get("/api/seerr/config")
 async def api_seerr_config_get():
-    return _seerr_config_payload()
+    def _work():
+        return _seerr_config_payload()
+
+    return await run_in_threadpool(_work)
 
 
 @router.post("/api/v1/seerr/config")
@@ -1399,8 +1455,8 @@ async def api_seerr_config_set(body: SeerrConfigBody):
         state.seerr_moonfin_configured = bool(moonfin.get("configured"))
         state.seerr_moonfin_error = "" if state.seerr_moonfin_configured else str(moonfin.get("detail") or "")
     _seerr_wake_event.set()
-    state.module_manager.reconcile("seerr-sync")
-    payload = _seerr_config_payload()
+    await run_in_threadpool(state.module_manager.reconcile, "seerr-sync")
+    payload = await run_in_threadpool(_seerr_config_payload)
     payload["saved"] = True
     return payload
 
@@ -1408,19 +1464,22 @@ async def api_seerr_config_set(body: SeerrConfigBody):
 @router.post("/api/v1/seerr/sync")
 @router.post("/api/seerr/sync")
 async def api_seerr_sync():
-    _require_enabled_module("seerr-sync")
+    await run_in_threadpool(_require_enabled_module, "seerr-sync")
     result = await run_in_threadpool(seerr_poll_once)
     if not result.get("ok"):
         raise HTTPException(502, result.get("detail") or "Seerr-Abgleich fehlgeschlagen.")
-    return {**result, **_seerr_config_payload()}
+    return {**result, **(await run_in_threadpool(_seerr_config_payload))}
 
 
 @router.get("/api/seerr/requests")
 async def api_seerr_requests():
-    with state.seerr_requests_lock:
-        records = [dict(record) for record in state.seerr_requests.values()]
-    records.sort(key=lambda record: float(record.get("updated_at", 0) or 0), reverse=True)
-    return {"requests": records[:100]}
+    def _work():
+        with state.seerr_requests_lock:
+            records = [dict(record) for record in state.seerr_requests.values()]
+        records.sort(key=lambda record: float(record.get("updated_at", 0) or 0), reverse=True)
+        return {"requests": records[:100]}
+
+    return await run_in_threadpool(_work)
 
 
 @router.get("/api/v1/browse-dir")
@@ -1449,12 +1508,15 @@ async def api_browse_dir(path: str = ""):
 
 @router.post("/api/session/clear-cookies")
 async def api_clear_cookies():
-    f = _cookie_file_for("filmpalast.to")
-    cleared = False
-    if f.exists():
-        f.unlink()
-        cleared = True
-    if state.fp_scraper is not None:
-        state.fp_scraper.session.clear_cookies()
-    log("Cookies gelöscht." if cleared else "Keine Cookies vorhanden.")
-    return {"cleared": cleared}
+    def _work():
+        f = _cookie_file_for("filmpalast.to")
+        cleared = False
+        if f.exists():
+            f.unlink()
+            cleared = True
+        if state.fp_scraper is not None:
+            state.fp_scraper.session.clear_cookies()
+        log("Cookies gelöscht." if cleared else "Keine Cookies vorhanden.")
+        return {"cleared": cleared}
+
+    return await run_in_threadpool(_work)

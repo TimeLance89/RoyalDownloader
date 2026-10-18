@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### NAS responsiveness and runtime diagnostics
+
+- Move remaining configuration, provider-health, storage preparation, queue
+  resume/snapshots and module lifecycle waits off the HTTP event loop.
+- Reserve a bounded worker pool for browsing, share and limit outstanding
+  poster fetches, and cap late catalog, prefetch and metadata work.
+- Keep periodic maintenance alive after individual failures and clean up
+  background tasks and browser pools outside the event loop on shutdown.
+- Add authenticated runtime diagnostics and an independent loop watchdog with
+  bounded stack evidence, process identity and available container memory/OOM
+  counters. See `docs/NAS_STABILITY_AUDIT_2026-10-18.md` for evidence and limits.
+- Bound worker-to-WebSocket event ingress before asyncio callbacks accumulate;
+  resynchronize clients after overflow or send failure and bound socket close.
+- Release remote browser tabs and CDP proxy sockets after setup failures, and
+  include cgroup v1, Linux RSS, native threads and descriptor counts in diagnostics.
+
 ## v2.0.0 – 2026-10-18
 
 Stable v2.0.0 marks a major product milestone and promotes the complete
