@@ -74,6 +74,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         discoveryV2Noise: (...args) => discoveryPolicy.discoveryV2Noise(...args),
         getShuffle: () => services.homePresenter.get().discoveryShuffle,
         applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile), renderHome: () => services.actions.renderHome(),
+        onProfileChanged: () => services.homeData.refreshDiscovery(),
       }),
   heroSelection: createHeroSelection({
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeEntryMedia: entry => services.actions.homeEntryMedia(entry), tasteMetadata: (...args) => services.actions.tasteMetadata(...args),
