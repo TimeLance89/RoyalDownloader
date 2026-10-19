@@ -94,3 +94,14 @@ test("hero first rendered before mount is eventually registered, and rotations r
   assert.deepEqual(f.events, [["user-a", "hero", 41], ["user-a", "hero", 42]]);
   f.visibility.unmount();
 });
+
+test("carousel loop clones count an already-seen title only once", () => {
+  const f = fixture();
+  const clone = { ...f.a, dataset: { ...f.a.dataset } };
+  f.track.children.push(clone);
+  f.visibility.mount();
+  f.visibility.syncRail("home-discovered-track", "discovered", f.entries);
+  f.see(f.a, 1); f.see(clone, 1); f.tick(1500);
+  assert.deepEqual(f.events, [["user-a", "discovered", 12]]);
+  f.visibility.unmount();
+});
