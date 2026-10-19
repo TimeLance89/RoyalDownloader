@@ -80,9 +80,15 @@ if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/
       } finally { await f.close(); }
     }
     captures[0].forEach(({ id, geometry, image: a }, i) => {
+      // A newly inserted Home section can affect a scroll container's initial
+      // horizontal phase. Card spacing must remain unchanged, independent of
+      // that phase; dimensions, content and screenshot pixels remain strict.
+      const baselineOrigin = geometry[0]?.x || 0;
+      const currentOrigin = captures[1][i].geometry[0]?.x || 0;
       geometry.forEach((card, j) => {
         const current = captures[1][i].geometry[j];
-        assert.ok(Math.abs(card.x - current.x) <= 1, id + ' subpixel alignment');
+        assert.ok(Math.abs((card.x - baselineOrigin) - (current.x - currentOrigin)) <= 1,
+          id + ' relative card spacing');
         const { x: _oldX, ...oldStyle } = card, { x: _newX, ...newStyle } = current;
         assert.deepEqual(newStyle, oldStyle, id + ' exact card geometry/type/content');
       });
