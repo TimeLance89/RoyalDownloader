@@ -76,3 +76,18 @@ def test_recently_opened_tmdb_idea_is_not_repeated_for_two_weeks():
     second = service.get("one", profile, client)
     assert len(first["results"]) == 2
     assert len(second["results"]) == 1
+
+def test_related_title_discovery_uses_recent_positive_tmdb_seed_not_dislikes():
+    import time
+
+    client = FakeTMDB()
+    profile = _profile()
+    profile["recent"] = [{"key": "movie:tmdb:101", "action": "open", "at": time.time()}]
+    discover_home_candidates(profile, client)
+    assert any(path == "/movie/101/recommendations" for path, _ in client.calls)
+    assert len(client.calls) <= 3
+
+    client = FakeTMDB()
+    profile["recent"][0]["action"] = "dismiss"
+    discover_home_candidates(profile, client)
+    assert not any("recommendations" in path for path, _ in client.calls)
