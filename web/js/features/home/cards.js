@@ -4,7 +4,7 @@ export function createHomeCards({
   openDailyTop, registerDock, markLanguage, enhanceTaste, enhanceHero, enhanceDailyTop,
   createCollectionCard, openMovieCollection, homeMovieBySlug, selectFpRow,
   homeAnimeById, openAnimeDetail, openAniworldDetail, homeSeriesBySlug, loadSeries,
-  searchHomeTitle = () => {},
+  searchHomeTitle = () => {}, trackHomeIdeaOpen = () => {},
 }) {
   function openHomeEntry(kind, key) {
       if (kind === "collection") {
@@ -45,7 +45,10 @@ export function createHomeCards({
       coverCandidates: url => coverCandidates(url), initials: mediaCardInitials,
       setArtwork: setHomeCardArtworkCandidates, setMeta: setHomeCardMeta,
       onOpen: () => {
-        if (item.tmdb_discovery) searchHomeTitle(item.title, kind);
+        if (item.tmdb_discovery) {
+          trackHomeIdeaOpen(kind, item);
+          searchHomeTitle(item.title, kind);
+        }
         else if (!openDailyTop(entry)) openHomeEntry(kind, key);
       },
       decorate(card) { if (!item.tmdb_discovery) registerDock(card, entry); },
