@@ -51,6 +51,7 @@ MOBILE_LEGACY_API_PATHS = frozenset({
     "/api/anime",
     "/api/queue",
     "/api/queue/add",
+    "/api/queue/redownload",
     "/api/queue/remove",
     "/api/queue/clear",
     "/api/download/cancel",
