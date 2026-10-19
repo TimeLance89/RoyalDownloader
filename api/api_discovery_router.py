@@ -285,6 +285,8 @@ async def api_home_discovery(request: Request):
     if not user or not user.get("id"):
         raise HTTPException(401, "Anmeldung erforderlich.")
     owner_id = str(user["id"])
+    from api.profile_owner_guard import require_profile_owner
+    require_profile_owner(request.headers, owner_id)
     # Operations may disable only the new TMDB Home suggestions without
     # changing download, provider, search, or existing Home behavior.
     if os.getenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", "1").strip().lower() in {

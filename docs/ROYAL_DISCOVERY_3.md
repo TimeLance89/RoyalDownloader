@@ -38,6 +38,12 @@ worktree; that work is neither overwritten nor silently incorporated.
   Carousel copies cannot double-count; several rows impose at most one daily
   repetition penalty. Shuffle penalizes only titles whose dwell was measured.
   Opening, rating, dismissal and downloading remain separate taste actions.
+- **Several browser windows:** Home and taste requests include the profile the
+  page expects. If another window changes the shared authentication cookie,
+  the server rejects a mismatch with HTTP 409 before loading or modifying a
+  profile. The header never selects a different user's store. Responses also
+  carry an owner identity that the browser checks. Older clients without this
+  optional header retain cookie-authenticated behavior.
 - **Presentation:** the existing cinema UI retains twelve non-cloned Spotlight
   cards, poster fallback, keyboard controls, source-search handoff and explicit
   recommendation reasons. TMDB ideas imply no confirmed download availability.

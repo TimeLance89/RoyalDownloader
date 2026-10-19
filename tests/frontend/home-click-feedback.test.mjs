@@ -6,8 +6,8 @@ test("opening a recommendation resolves its taste event before Home refetch is s
   const store = new Map();
   const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
   let fulfill, sent;
-  const client = { post: (path, payload) => {
-    sent = { path, payload };
+  const client = { post: (path, payload, options) => {
+    sent = { path, payload, options };
     return new Promise(resolve => { fulfill = resolve; });
   } };
   const profile = createTasteProfile({ getElementById: () => null }, {
@@ -23,6 +23,7 @@ test("opening a recommendation resolves its taste event before Home refetch is s
   assert.equal(typeof promise?.then, "function");
   assert.equal(sent.path, "/api/taste/events");
   assert.equal(sent.payload.item_key, "movie:tmdb:17");
+  assert.equal(sent.options.headers["X-Royal-Profile"], "home-user-a");
   let finished = false;
   void promise.then(() => { finished = true; });
   await Promise.resolve();

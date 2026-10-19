@@ -8,6 +8,7 @@ export function createHomeData({
   homeAllEntries, homeArtworkEntriesInLayout, renderHome,
   syncFpCatalogFromHome, syncSeriesCatalogFromHome,
   getTasteStorageKey = () => "",
+  getUserId = () => "",
   hydrateHomeMovieArtwork, hydrateHomeSeriesArtwork,
   refreshCatalogJellyfinStatus, discoveryV2MergeItems, homeMovieEntry, homeSeriesEntry,
   onLoaded = () => {},
@@ -93,9 +94,11 @@ export function createHomeData({
       // TMDB suggestions never enter the shared seven-day catalog cache.
       const response = await client.get("/api/home/discovery", {
         signal: scope.signal, timeoutMs: 15_000,
+        headers: { "X-Royal-Profile": String(getUserId() || "") },
       });
       if (!scope.active || sequence !== discoverySeq
           || ownerKey !== String(getTasteStorageKey() || "")) return;
+      if (response?.owner_user_id && response.owner_user_id !== String(getUserId() || "")) return;
       data.personalDiscoveryDisabled = response?.disabled === true;
       data.personalDiscoveries = (Array.isArray(response?.results) ? response.results : [])
         .filter((entry) => ["movie", "series"].includes(entry?.kind)

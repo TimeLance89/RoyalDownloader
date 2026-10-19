@@ -13,6 +13,8 @@
 - Bound concurrent and queued TMDB work, return within an eight-second fetch
   budget, coalesce browser requests and retry partial outages after five minutes.
 - Protect per-user caches against response mutation and shared legacy fallback.
+- Reject stale Home/taste requests after another browser window changes the
+  shared login cookie, before reading or writing the new user's preferences.
 - Preserve continuous viewport dwell and only penalize genuinely seen cards
   when shuffling; repeated appearances in several rows count once per day.
 - Add offline relevance, malformed-response, restart, recovery and concurrency

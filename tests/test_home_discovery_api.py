@@ -67,3 +67,12 @@ def test_home_discovery_never_falls_back_to_shared_legacy_taste(monkeypatch):
     monkeypatch.setattr(router, "state", SimpleNamespace(taste_profile=object()))
     monkeypatch.setattr(router, "get_tmdb_client", lambda: pytest.fail("TMDB must not be called"))
     assert asyncio.run(router.api_home_discovery(_request())) == {"available": False, "results": []}
+
+
+def test_shared_cookie_change_rejects_stale_browser_before_loading_any_profile(monkeypatch):
+    _auth(monkeypatch, lambda headers, cookies: {"id": "user-b"})
+    monkeypatch.setattr(router, "state", None)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(router.api_home_discovery(SimpleNamespace(headers={"x-royal-profile": "user-a"}, cookies={})))
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "profile_changed"

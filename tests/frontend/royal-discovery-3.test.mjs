@@ -7,11 +7,12 @@ import { HOME_RAIL_CATALOG, normalizeHomeLayout } from "../../web/js/features/ho
 function fixture() {
   let owner = "account-A";
   const requests = [], rendered = [];
-  const client = { get: (url) => new Promise((resolve, reject) =>
-    requests.push({ url, resolve, reject })) };
+  const client = { get: (url, options) => new Promise((resolve, reject) =>
+    requests.push({ url, options, resolve, reject })) };
   const data = createHomeData({
     client, storage: { getItem: () => null, setItem() {} },
     getTasteStorageKey: () => owner,
+    getUserId: () => owner,
     getMovieMetadata: () => ({}), isRendered: () => true,
     homeAllEntries: () => [], homeArtworkEntriesInLayout: () => [],
     renderHome: options => rendered.push(options),
@@ -85,5 +86,15 @@ test("Invalid TMDB candidate data is never added to Home", async () => {
   ] });
   await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(f.data.get().personalDiscoveries.map(x => x.item.tmdb_id), [9]);
+  f.data.unmount();
+});
+
+test("a changed shared cookie cannot deliver another user's feed to an old window", async () => {
+  const f = fixture();
+  f.data.refreshDiscovery();
+  assert.equal(f.requests[0].options.headers["X-Royal-Profile"], "account-A");
+  f.requests[0].resolve({ ...response(22), owner_user_id: "account-B" });
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(f.data.get().personalDiscoveries, []);
   f.data.unmount();
 });

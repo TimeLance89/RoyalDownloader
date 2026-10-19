@@ -443,7 +443,7 @@ class HomeDiscoveryService:
             status = {}
             results = discover_home_candidates(profile, client, status=status) if ready else []
             response = {"available": ready, "results": results, "updated_at": now,
-                        "degraded": bool(status.get("degraded"))}
+                        "degraded": bool(status.get("degraded")), "owner_user_id": user_id}
             with self._lock:
                 if len(self._cache) >= 32:
                     self._cache = {k: v for k, v in self._cache.items()

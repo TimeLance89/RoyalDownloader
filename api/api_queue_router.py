@@ -839,8 +839,12 @@ def _taste_context(request: Request | None = None):
     user = current_user(request.headers, request.cookies)
     if not user or not user.get("id"):
         raise HTTPException(401, "Anmeldung erforderlich.")
+    from api.profile_owner_guard import require_profile_owner
+    require_profile_owner(request.headers, str(user["id"]))
     profiles = getattr(state, "taste_profiles", None)
-    profile = profiles.for_user(str(user["id"])) if profiles else state.taste_profile
+    if profiles is None:
+        raise HTTPException(503, "Persönliches Geschmacksprofil ist vorübergehend nicht verfügbar.")
+    profile = profiles.for_user(str(user["id"]))
     return user, profile
 
 

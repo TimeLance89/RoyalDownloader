@@ -9,6 +9,7 @@ export function createTasteProfile(documentRef, {
   storage = null, client = api,
 }) {
   let scope = createScope(), bound = false, resetting = false;
+  const ownerHeaders = () => ({ "X-Royal-Profile": String(getUser()?.id || "") });
   function discoveryProfileStorageKey() {
     const userId = String(getUser()?.id || "");
     return userId && userId !== "admin-legacy" ? `${HOME_DISCOVERY_PROFILE_KEY}:${userId}` : HOME_DISCOVERY_PROFILE_KEY;
@@ -17,7 +18,7 @@ export function createTasteProfile(documentRef, {
     if (!scope.active) return false;
     const owner = scope, key = discoveryProfileStorageKey();
     try {
-      const response = await client.post("/api/taste/events", event, { signal: owner.signal });
+      const response = await client.post("/api/taste/events", event, { signal: owner.signal, headers: ownerHeaders() });
       if (!owner.active || key !== discoveryProfileStorageKey()) return false;
       if (acceptProfile && response?.profile) applyServerTasteProfile(response.profile);
       return true;
@@ -31,7 +32,7 @@ export function createTasteProfile(documentRef, {
     const owner = scope, key = discoveryProfileStorageKey();
     resetting = true;
     try {
-      const response = await client.post("/api/taste/reset", undefined, { signal: owner.signal });
+      const response = await client.post("/api/taste/reset", undefined, { signal: owner.signal, headers: ownerHeaders() });
       if (!owner.active || key !== discoveryProfileStorageKey()) return;
       applyServerTasteProfile(response.profile); renderHome(); onReset(response.user);
     } catch (error) {
@@ -80,6 +81,7 @@ export function createTasteProfile(documentRef, {
 
   function applyServerTasteProfile(serverProfile) {
     if (!serverProfile || typeof serverProfile !== "object") return loadDiscoveryProfile();
+    if (serverProfile.owner_user_id && serverProfile.owner_user_id !== String(getUser()?.id || "")) return loadDiscoveryProfile();
     const profile = {
       ...serverProfile,
       genres: serverProfile.genres || serverProfile.dimensions?.genres || {},
@@ -104,13 +106,13 @@ export function createTasteProfile(documentRef, {
     const current = () => owner.active && key === discoveryProfileStorageKey();
     const localProfile = loadDiscoveryProfile();
     try {
-      let serverProfile = await client.get("/api/taste/profile", { signal: owner.signal });
+      let serverProfile = await client.get("/api/taste/profile", { signal: owner.signal, headers: ownerHeaders() });
       if (!current()) return;
       if (!serverProfile.legacy_imported && localProfile.interactions > 0) {
         const imported = await client.post("/api/taste/import", {
           genres: localProfile.genres || {},
           kinds: localProfile.kinds || {},
-        }, { signal: owner.signal });
+        }, { signal: owner.signal, headers: ownerHeaders() });
         if (!current()) return;
         serverProfile = imported.profile || serverProfile;
       }
@@ -200,7 +202,7 @@ export function createTasteProfile(documentRef, {
         media_type: kind,
         title: target.item.title || "",
         metadata: tasteMetadata(kind, target.item),
-      }, { signal: owner.signal });
+      }, { signal: owner.signal, headers: ownerHeaders() });
       if (!current()) return;
       applyServerTasteProfile(response.profile);
       renderHome();

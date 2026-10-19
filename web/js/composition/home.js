@@ -94,6 +94,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         onProfileChanged: () => services.homeData.refreshDiscovery(),
         hasSeen: key => services.exposureVisibility.hasSeen(key),
         getOwner: () => services.actions.discoveryProfileStorageKey(),
+        getUserId: () => getProfile().auth.get().user?.id || "",
       }),
   heroSelection: createHeroSelection({
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeEntryMedia: entry => services.actions.homeEntryMedia(entry), tasteMetadata: (...args) => services.actions.tasteMetadata(...args),
@@ -111,6 +112,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
   homeData: createHomeData({
         getMovieMetadata: () => movieState.metadataCache, isRendered: () => services.homePresenter.get().rendered,
         getTasteStorageKey: () => services.actions.discoveryProfileStorageKey(),
+        getUserId: () => getProfile().auth.get().user?.id || "",
         homeAllEntries: () => services.actions.homeAllEntries(), homeArtworkEntriesInLayout: () => services.actions.homeArtworkEntriesInLayout(),
         renderHome: options => services.actions.renderHome(options),
         syncFpCatalogFromHome: options => getDiscovery().movieActions.syncFpCatalogFromHome(options),
