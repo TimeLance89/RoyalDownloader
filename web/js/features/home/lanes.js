@@ -83,13 +83,24 @@ export function createHomeLanes(root, {
       .sort((a, b) => Number(b[1]) - Number(a[1]))
       .slice(0, 2)
       .map(([genre]) => genre.toLocaleLowerCase()));
-    const recent = new Set(profile.recent.slice(0, 30).map((event) => event.key));
-    const pool = homeAllEntries().filter((entry) => {
+    const disliked = new Set(Object.entries(profile.genres)
+      .filter(([, score]) => Number(score) < -1.5)
+      .map(([genre]) => genre.toLocaleLowerCase()));
+    const recent = new Set((profile.recent || []).slice(0, 30).map((event) => event.key));
+    // Exploration must not reintroduce genres a person explicitly rejected.
+    // If novel ideas run out, fall back to safe familiar titles.
+    const safe = homeAllEntries().filter((entry) =>
+      !(homeEntryMedia(entry).genres || []).some((genre) => disliked.has(String(genre).toLocaleLowerCase())));
+    const novel = safe.filter((entry) => {
       if (recent.has(homeEntryKey(entry))) return false;
       const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
       return !genres.some((genre) => avoidedGenres.has(genre));
     });
-    return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore");
+    const keys = new Set(novel.map(homeEntryKey));
+    return [
+      ...rotatingOrder(novel, "explore"),
+      ...rotatingOrder(safe.filter((entry) => !keys.has(homeEntryKey(entry))), "explore"),
+    ];
   }
 
   // Discovery should not hide excellent recommendations just because TMDB
@@ -114,17 +125,20 @@ export function createHomeLanes(root, {
 
   function homeGemEntries() {
     const topKeys = new Set(homeTopEntries().map(homeEntryKey));
+    const tasteOrder = new Map(homePersonalizedEntries()
+      .map((entry, index) => [homeEntryKey(entry), index]));
     const candidates = homeAllEntries()
       .filter((entry) => !topKeys.has(homeEntryKey(entry)))
       .map((entry) => ({
         entry,
         rating: Number(homeEntryMedia(entry).rating || 0),
         penalty: Number(discoveryV2ExposurePenalty?.(entry, "gems") || 0),
+        taste: tasteOrder.has(homeEntryKey(entry)) ? Math.max(0, 3.6 - tasteOrder.get(homeEntryKey(entry)) * 0.12) : 0,
         daily: stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(entry)}`) / 4294967295 * 2,
       }))
       .filter(({ rating }) => !rating || rating >= 6.4)
-      .sort((a, b) => (b.rating - b.penalty * 0.35 + b.daily)
-        - (a.rating - a.penalty * 0.35 + a.daily))
+      .sort((a, b) => (b.rating + b.taste - b.penalty * 0.35 + b.daily)
+        - (a.rating + a.taste - a.penalty * 0.35 + a.daily))
       .map(({ entry }) => entry);
     return candidates.slice(0, 24);
   }
