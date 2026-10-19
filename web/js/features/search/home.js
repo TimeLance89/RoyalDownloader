@@ -57,12 +57,28 @@ export function createHomeSearch(root, {
       if (current.active) render();
     } finally { release(); }
   }
+  function searchTitle(title, kind = "all") {
+    const input = byId("home-search");
+    if (!input || !scope?.active || !String(title || "").trim()) return;
+    input.value = String(title).trim();
+    byId("home-search-clear").hidden = false;
+    data.scope = kind === "movie" || kind === "series" ? kind : "all";
+    root.querySelectorAll("[data-home-search-scope]").forEach(button => {
+      const active = button.dataset.homeSearchScope === data.scope;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    void search().catch(error => {
+      if (scope?.active) { data.loading = false; data.errors = [error.message]; render(); }
+    });
+    byId("home-search-results")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
   function close() {
     cancelRequest(); data.active = false; data.loading = false; data.results = []; resume = false;
     byId("home-search").value = ""; byId("home-search-clear").hidden = true; closeSuggestions(); render();
   }
   return {
-    get: () => Object.freeze({ ...data }), search, close, refresh: render,
+    get: () => Object.freeze({ ...data }), search, searchTitle, close, refresh: render,
     mount() {
       if (scope) return; const mounted = scope = createScope();
       const run = () => { void search().catch(error => { if (mounted.active) { data.loading = false; data.errors = [error.message]; render(); } }); };
