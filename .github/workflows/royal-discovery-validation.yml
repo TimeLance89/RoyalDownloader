@@ -71,6 +71,12 @@ jobs:
         shell: bash
         run: |
           ROYAL_VISUAL_BASELINE_WEB="${RUNNER_TEMP}/royal-discovery-baseline/web" node tests/frontend/carousel-visual.cjs
+      - name: Paired mobile and desktop performance budgets
+        shell: bash
+        run: |
+          ROYAL_WEB_ROOT="${RUNNER_TEMP}/royal-discovery-baseline/web" ROYAL_PERF_OUTPUT=artifacts/frontend-performance/baseline node tests/frontend/performance-benchmark.cjs
+          ROYAL_PERF_OUTPUT=artifacts/frontend-performance/current node tests/frontend/performance-benchmark.cjs
+          node tests/frontend/performance-budget.cjs artifacts/frontend-performance/baseline/metrics.json artifacts/frontend-performance/current/metrics.json
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
