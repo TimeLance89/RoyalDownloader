@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from api.interactive_work import run_browse_work as run_in_threadpool
 from application_services.series_detail_work import SeriesDetailWork, SeriesDetailsBusy
@@ -27,6 +27,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from features.movie_releases import release_service, safe_image
+from features.home_discovery import HomeDiscoveryService
 from features.subscription_languages import subscription_content_languages
 from features.movie_probes import MovieProbeIncomplete, movie_detail_probes, movie_probe_context, movie_probe_scope
 from providers.aniworld import aniworld_episode_page
@@ -92,6 +93,7 @@ async def _bounded_library_work(identity, work):
 
 
 router = APIRouter(tags=["discovery"])
+_HOME_DISCOVERY = HomeDiscoveryService()
 MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
 
 
@@ -269,6 +271,28 @@ async def api_home_layout_put(body: HomeLayoutBody):
         return await run_in_threadpool(state.home_layout.update, body.model_dump())
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+# ── Royal Discovery 3.0 (isolated Home recommendations) ──────────────────
+@router.get("/api/v1/home/discovery")
+@router.get("/api/home/discovery")
+async def api_home_discovery(request: Request):
+    """Authenticated, user-specific TMDB ideas; never implies download availability."""
+    from application_services.auth import current_user
+
+    user = await run_in_threadpool(current_user, request.headers, request.cookies)
+    if not user or not user.get("id"):
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    owner_id = str(user["id"])
+
+    def _work():
+        profiles = getattr(state, "taste_profiles", None)
+        profile_store = profiles.for_user(owner_id) if profiles else state.taste_profile
+        profile = profile_store.public_profile()
+        client = get_tmdb_client()
+        return _HOME_DISCOVERY.get(owner_id, profile, client)
+
+    return await run_in_threadpool(_work)
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────
