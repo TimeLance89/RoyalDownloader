@@ -18,7 +18,7 @@ export function composeProfile({ household, userMenu, state, getHome, getCore })
         getUser: () => services.auth.get().user, currentTasteTarget: (...args) => getHome().actions.currentTasteTarget(...args), renderTasteProfileSummary: (...args) => getHome().actions.renderTasteProfileSummary(...args),
         shouldRenderHome: () => state.tab === "home" && !getHome().homeData.get().refreshing && !getHome().homePresenter.get().rendered,
         renderHome: (...args) => getHome().actions.renderHome(...args), homeMovieEntry: (...args) => getHome().actions.homeMovieEntry(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), homeEntryMedia: (...args) => getHome().actions.homeEntryMedia(...args), homeEntryKey: (...args) => getHome().actions.homeEntryKey(...args),
-        onReset(user) { services.auth.acceptUser(user); services.tasteOnboarding.show(user); },
+        onReset(user) { services.auth.acceptUser(user); getHome().homeData.refreshDiscovery(); services.tasteOnboarding.show(user); },
       }),
   household,
   userMenu,
@@ -73,6 +73,7 @@ export function initializeProfile({ getProfile, getSettings, getCore, getHome, p
       onVisibility: visible => document.body.classList.toggle("taste-onboarding-open", visible),
       onSaved(profile) {
         getHome().actions.applyServerTasteProfile(profile); getHome().recommendations.invalidate();
+         getHome().homeData.refreshDiscovery();
         getHome().actions.renderHome({ force: true }); void getHome().recommendations.refresh(true);
       },
     });
