@@ -23,7 +23,8 @@ def test_new_discovery_rail_is_visible_and_old_layouts_migrate():
 def test_tmdb_suggestions_search_provider_catalog_instead_of_enqueuing():
     cards = (HOME / "cards.js").read_text(encoding="utf-8")
     search = (ROOT / "web/js/features/search/home.js").read_text(encoding="utf-8")
-    assert "if (item.tmdb_discovery) searchHomeTitle(item.title, kind)" in cards
+    assert "trackHomeIdeaOpen(kind, item);" in cards
+    assert "searchHomeTitle(item.title, kind);" in cards
     assert "if (!item.tmdb_discovery) registerDock(card, entry)" in cards
     assert "function searchTitle(title, kind" in search
 
