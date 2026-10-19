@@ -364,8 +364,9 @@ export function createHeroSelection({
     const selected = [];
     const selectedKeys = new Set();
 
-    // Put current cinema hits first when they fit the profile, then fill the
-    // remaining slots with strong matches and adjacent discoveries.
+    // A trained user's strongest matches should lead; cinema can enrich
+    // the top four but must not displace all personal candidates.
+    addBalanced(selected, selectedKeys, strong, 3);
     addBalanced(selected, selectedKeys, cinema, 4);
     addBalanced(selected, selectedKeys, strong, HERO_STRONG_TARGET);
     addBalanced(selected, selectedKeys, trend, Math.min(HERO_LIMIT, selected.length + 1));
