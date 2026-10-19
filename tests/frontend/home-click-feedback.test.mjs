@@ -59,3 +59,23 @@ test("server taste synchronization refreshes Home only for the authenticated own
   assert.equal(profile.load().genres.Drama, 12);
   profile.unmount();
 });
+
+test("failed network taste write is not mistaken for successfully saved feedback", async () => {
+  const profile = createTasteProfile({ getElementById: () => null }, {
+    getUser: () => ({ id: "user-a" }), currentTasteTarget: () => null,
+    renderTasteProfileSummary() {}, shouldRenderHome: () => false, renderHome() {},
+    homeMovieEntry: item => ({ kind: "movie", item }),
+    homeSeriesEntry: item => ({ kind: "series", item }),
+    homeEntryMedia: entry => entry.item, homeEntryKey: entry => "movie:" + entry.item.slug,
+    storage: { getItem: () => null, setItem() {} },
+    client: { post: () => Promise.reject(new Error("network down")) },
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(await profile.track("movie", { slug: "tmdb:19", title: "Offline" }, .25, "open"), false);
+  } finally {
+    console.warn = warn;
+    profile.unmount();
+  }
+});
