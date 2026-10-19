@@ -1,4 +1,5 @@
 /** Persisted exposure, logical identity and diversity used by native Home sections. */
+import { memoHomeRender, invalidateHomeRender } from "./render-pass.js";
 export function createDiscoveryPolicy({
   storage = globalThis.localStorage, personalStorageKey, homeEntryMedia, homeEntryKey,
   localDateKey, getShuffle, stableDiscoveryHash, mediaContentLanguages, getHomeData,
@@ -7,6 +8,9 @@ export function createDiscoveryPolicy({
   const localStorage = storage;
 const HOME_DISCOVERY_V2_EXPOSURE_KEY = "royal-home-exposure-v2";
 const HOME_DISCOVERY_V2_HISTORY_DAYS = 21;
+const historySnapshot = Symbol("home-exposure-history");
+const penaltyIndexes = Symbol("home-exposure-penalties");
+const topEntriesMemo = Symbol("home-top-entries");
 
 function discoveryV2Normalize(value) {
   return String(value || "")
@@ -32,6 +36,13 @@ function discoveryV2DayDistance(day) {
 }
 
 function loadDiscoveryExposureV2() {
+  const snapshots = memoHomeRender(historySnapshot, () => new Map());
+  const key = personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY);
+  if (!snapshots.has(key)) snapshots.set(key, readDiscoveryExposureV2());
+  return snapshots.get(key);
+}
+
+function readDiscoveryExposureV2() {
   let history = null;
   try {
     history = JSON.parse(localStorage.getItem(personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY)) || "null");
@@ -47,6 +58,8 @@ function loadDiscoveryExposureV2() {
 }
 
 function saveDiscoveryExposureV2(history) {
+  invalidateHomeRender(historySnapshot);
+  invalidateHomeRender(penaltyIndexes);
   try {
     localStorage.setItem(personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY), JSON.stringify(history));
   } catch {
@@ -87,23 +100,27 @@ function discoveryV2PreviousLaneKeys(lane, daysAgo = 1) {
 function discoveryV2ExposurePenalty(entry, lane) {
   const key = discoveryV2LogicalKey(entry);
   if (!key) return 0;
+  const indexes = memoHomeRender(penaltyIndexes, () => new Map());
+  const indexKey = `${personalStorageKey(HOME_DISCOVERY_V2_EXPOSURE_KEY)}|${localDateKey()}|${lane}`;
+  if (indexes.has(indexKey)) return indexes.get(indexKey).get(key) || 0;
   const history = loadDiscoveryExposureV2();
-  let penalty = 0;
+  const penalties = new Map();
   for (const [day, record] of Object.entries(history.days)) {
     const age = discoveryV2DayDistance(day);
     if (age < 1 || age > 14) continue; // Today's ranking must stay stable.
     const sameLaneWeight = age === 1 ? 16 : age === 2 ? 10 : age <= 4 ? 6 : age <= 7 ? 3 : 1;
-    let dayPenalty = 0;
+    const dayPenalties = new Map();
     for (const [storedLane, keys] of Object.entries(record?.lanes || {})) {
-      if (!Array.isArray(keys) || !keys.includes(key)) continue;
+      if (!Array.isArray(keys)) continue;
       const weight = (storedLane === lane || storedLane.startsWith(`${lane}:`))
         ? sameLaneWeight
         : sameLaneWeight * 0.35;
-      dayPenalty = Math.max(dayPenalty, weight);
+      for (const title of keys) dayPenalties.set(title, Math.max(dayPenalties.get(title) || 0, weight));
     }
-    penalty += dayPenalty;
+    for (const [title, penalty] of dayPenalties) penalties.set(title, Math.min(32, (penalties.get(title) || 0) + penalty));
   }
-  return Math.min(32, penalty);
+  indexes.set(indexKey, penalties);
+  return penalties.get(key) || 0;
 }
 
 function discoveryV2Noise(entry, lane, scale = 1) {
@@ -128,12 +145,12 @@ function discoveryV2EntryTokens(entry) {
   };
 }
 
-function discoveryV2DiversityPenalty(entry, selected) {
+function discoveryV2DiversityPenalty(entry, selected, cache = null) {
   if (!selected.length) return 0;
-  const tokens = discoveryV2EntryTokens(entry);
+  const tokens = cache?.get(entry) || discoveryV2EntryTokens(entry);
   let penalty = 0;
   for (const chosen of selected) {
-    const other = discoveryV2EntryTokens(chosen);
+    const other = cache?.get(chosen) || discoveryV2EntryTokens(chosen);
     if (tokens.kind === other.kind) penalty += 0.28;
     const sharedGenres = [...tokens.genres].filter((genre) => other.genres.has(genre)).length;
     penalty += Math.min(1.8, sharedGenres * 0.72);
@@ -148,7 +165,8 @@ function discoveryV2DiversityPenalty(entry, selected) {
 }
 
 function discoveryV2SelectDiverse(scored, limit, { repeatKeys = null, repeatLimit = Infinity } = {}) {
-  const remaining = scored.slice();
+  const remaining = scored.map(candidate => ({ ...candidate, adjusted: Number(candidate.score || 0) }));
+  const tokens = new Map(scored.map(({ entry }) => [entry, discoveryV2EntryTokens(entry)]));
   const selected = [];
   const selectedKeys = new Set();
   let repeatCount = 0;
@@ -167,8 +185,7 @@ function discoveryV2SelectDiverse(scored, limit, { repeatKeys = null, repeatLimi
         });
         if (hasFreshAlternative) continue;
       }
-      const adjusted = Number(candidate.score || 0)
-        - discoveryV2DiversityPenalty(candidate.entry, selected);
+      const adjusted = candidate.adjusted;
       if (adjusted > bestScore) {
         bestScore = adjusted;
         bestIndex = index;
@@ -180,11 +197,17 @@ function discoveryV2SelectDiverse(scored, limit, { repeatKeys = null, repeatLimi
     selected.push(winner.entry);
     selectedKeys.add(winnerKey);
     if (repeatKeys?.has(winnerKey)) repeatCount += 1;
+    // The diversity penalty is additive. Update each candidate only for the
+    // new winner rather than rescanning the whole selected list every round.
+    for (const candidate of remaining) candidate.adjusted -= discoveryV2DiversityPenalty(candidate.entry, [winner.entry], tokens);
   }
   return selected;
 }
 
 function discoveryV2TopEntries() {
+  return memoHomeRender(topEntriesMemo, selectTopEntries);
+}
+function selectTopEntries() {
   const movieRanks = new Map();
   const seriesRanks = new Map();
   getHomeData().topMovies.forEach((item, index) => {

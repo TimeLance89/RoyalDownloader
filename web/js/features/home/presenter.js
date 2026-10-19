@@ -1,3 +1,5 @@
+import { withHomeRender } from "./render-pass.js";
+
 export function createHomePresenter(root, {
   getData, rememberAllHomeRailScroll, localDateKey, loadDiscoveryProfile, favoriteDiscoveryGenre,
   applyHomeLayout, currentHomeLayout, renderHomeHero, homeDiscoveryLanes, homeRailDefinition,
@@ -14,6 +16,9 @@ export function createHomePresenter(root, {
   }
 
   function renderHome({ force = false, navigation = false } = {}) {
+    return withHomeRender(() => paintHome({ force, navigation }));
+  }
+  function paintHome({ force = false, navigation = false } = {}) {
     // Data/taste/layout updates still render normally. A warm mobile tab switch
     // reuses its existing cards instead of reconciling the entire catalog in a tap.
     if (navigation && !force && data.rendered && data.discoveryDay === localDateKey()

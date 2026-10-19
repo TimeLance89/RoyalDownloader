@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/royal-discovery-3-home-20261019
+      - codex/fix-home-discovery-ui-performance
   workflow_dispatch:
 permissions:
   contents: read
@@ -67,8 +68,14 @@ jobs:
           git worktree add --detach "${RUNNER_TEMP}/royal-discovery-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
       - name: Browser interactions against fully rendered Home
         run: node tests/frontend/browser-smoke.cjs
-      - name: Personalized poster feed, feedback and source-search handoff in both engines
+      - name: Discovery opens movie and series details in both engines
         run: node tests/frontend/home-discovery-browser.cjs
+      - name: Landscape spotlight containment from mobile to 4K in both engines
+        run: node tests/frontend/home-spotlight-browser.cjs
+      - name: Trained household profile and exposure history performance
+        env:
+          ROYAL_HOME_PERF_VERIFY: "1"
+        run: node tests/frontend/home-personalization-performance.cjs
       - name: Relative geometry and unchanged-rail visual regression
         shell: bash
         run: |
@@ -87,4 +94,6 @@ jobs:
           path: |
             artifacts/frontend-performance/
             artifacts/home-discovery/
+            artifacts/home-spotlight/
+            artifacts/home-personalization-performance/
           retention-days: 2

@@ -1,6 +1,6 @@
 export const HOME_RAIL_CATALOG = [
-  { id: "personal", trackId: "home-movies-track", title: "Für dich ausgewählt", eyebrow: "Persönlich", description: "Aus deinen Klicks, Downloads und Favoriten.", layout: "spotlight" },
-  { id: "discovered", trackId: "home-discovered-track", title: "Neu für dich entdeckt", eyebrow: "Royal Discovery", description: "Persönliche TMDB-Tipps: Royal sucht beim Öffnen in deinen Quellen." },
+  { id: "personal", trackId: "home-movies-track", title: "Für dich ausgewählt", eyebrow: "Persönlich", description: "Aus deinen Klicks, Downloads und Favoriten.", layout: "spotlight", wallpaperOnly: true },
+  { id: "discovered", trackId: "home-discovered-track", title: "Neu für dich entdeckt", eyebrow: "Royal Discovery", description: "Persönliche Film- und Serientipps mit direkter Detailansicht." },
   { id: "genre", trackId: "home-genre-track", title: "Ein Genre für dich", eyebrow: "Geschmack", description: "Eine wechselnde Reihe aus deinen Lieblingsgenres." },
   { id: "gems", trackId: "home-gems-track", title: "Verborgene Schätze", eyebrow: "Geheimtipps", description: "Gut bewertete Titel abseits der Tagescharts." },
   { id: "explore", trackId: "home-explore-track", title: "Heute mal etwas anderes", eyebrow: "Entdecken", description: "Bewusst außerhalb deiner üblichen Auswahl." },

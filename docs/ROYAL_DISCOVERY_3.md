@@ -2,9 +2,8 @@
 
 ## Current implementation (2026-10-19)
 
-The authoritative starting point is feature branch
-`feature/royal-discovery-3-home-20261019` at
-`a15ff029a67db7813dc497c0e35dffd6f2d4df74`. The PC's primary checkout
+The Home UI/performance correction starts from merged `origin/overnight` at
+`b5b52909bd11fe4e4ea473f313d4c23bb41e979d`. The PC's primary checkout
 is a different branch with uncommitted work. Development uses a separate
 worktree; that work is neither overwritten nor silently incorporated.
 
@@ -44,9 +43,20 @@ worktree; that work is neither overwritten nor silently incorporated.
   profile. The header never selects a different user's store. Responses also
   carry an owner identity that the browser checks. Older clients without this
   optional header retain cookie-authenticated behavior.
-- **Presentation:** the existing cinema UI retains twelve non-cloned Spotlight
-  cards, poster fallback, keyboard controls, source-search handoff and explicit
-  recommendation reasons. TMDB ideas imply no confirmed download availability.
+- **Presentation:** seven non-cloned Spotlight cards use landscape artwork in
+  a two-row desktop grid. Poster-only personal candidates remain eligible for
+  artwork hydration. Discovery suggestions open the existing movie/series
+  detail modal directly, with one open event per title. TMDB ideas imply no
+  confirmed download availability; source resolution still happens in details.
+- **Home rendering:** profile/history snapshots and derived ranking tables are
+  shared only within one synchronous paint. Exposure penalties are indexed;
+  diversity adds only the newest selected title's penalty. No persistent
+  profile cache is introduced. A synthetic trained profile with 500 candidates
+  and 21 days of exposure history dropped from roughly 2.8–3.0 seconds per paint
+  to 150–170 ms initially and 50–60 ms subsequently on the local Chromium run.
+  Storage reads fell from 12,850 to six across three paints. With 350 queue jobs,
+  200 progress updates took about 3 ms and caused no Spotlight DOM mutations.
+  These measurements are fixtures, not a claim about live NAS timing.
 
 ## Reproducing verification
 
@@ -65,6 +75,9 @@ python -m bandit -q -ll -r . -x ./tests -s B310
 python -m pip_audit -r requirements.lock
 python -m pip_audit -r requirements-dev.lock
 ROYAL_BROWSER=chromium node tests/frontend/browser-smoke.cjs
+node tests/frontend/home-discovery-browser.cjs
+node tests/frontend/home-spotlight-browser.cjs
+ROYAL_HOME_PERF_VERIFY=1 node tests/frontend/home-personalization-performance.cjs
 node tests/frontend/webkit-mobile.cjs
 ```
 
@@ -73,8 +86,11 @@ file permissions, symlinks and path semantics. Windows failures in those tests
 must not be hidden with new skips. The feature branch's full-project workflow
 invokes the existing quality, Linux stability and WebKit workflows. Discovery
 validation additionally runs all Node contracts, relevance scenarios, paired
-performance budgets and 21 strict screenshot comparisons at desktop/mobile/
-tablet sizes against frozen baseline `d3aada9099703c0b9d9b6201f49082c52ddff0d7`.
+performance budgets and 18 strict unchanged-rail screenshot comparisons at
+desktop/mobile/tablet sizes against frozen baseline
+`d3aada9099703c0b9d9b6201f49082c52ddff0d7`. The intentionally changed Spotlight
+has separate geometry/artwork checks at seven widths from 390 to 3840 pixels
+in Chromium and WebKit.
 Evidence lives in workflow artifacts; CI links and final status are recorded in
 master issue #548 and the final PR only after successful acceptance.
 

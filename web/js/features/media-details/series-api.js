@@ -15,7 +15,7 @@ export async function loadSeriesDetails(client, sampleSlug, baseSlug = "", { ref
   }
 
   function request() {
-    const personSeries = /^people-tmdb:(\d+)$/i.exec(baseSlug || sampleSlug || "");
+    const personSeries = /^(?:people-tmdb:|tmdb:)(\d+)$/i.exec(baseSlug || sampleSlug || "");
     if (personSeries) return client.get(`/api/people/series/${personSeries[1]}?${new URLSearchParams({
       refresh_jellyfin: String(refreshJellyfin), defer_checks: String(deferChecks), progressive: "true",
     })}`, { signal, timeoutMs: 20_000 });

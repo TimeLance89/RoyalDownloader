@@ -45,16 +45,6 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         markLanguage: (node, media) => getDiscovery().mediaLanguage.mark(node, media),
         enhanceTaste: (card, entry) => services.tasteRanking.enhance(card, entry),
         enhanceHero: (card, entry) => services.heroSelection.enhance(card, entry),
-        searchHomeTitle: (title, kind) => getSearch().homeSearch?.searchTitle(title, kind),
-        trackHomeIdeaOpen: (kind, item) => {
-          const profile = getProfile().tasteProfile;
-          const owner = profile.key();
-          // Do not refetch until the new taste event reaches the server;
-          // otherwise its six-hour cache can serve the clicked title again.
-          void Promise.resolve(profile.track(kind, item, 0.25, "open")).then(saved => {
-            if (saved === true && profile.key() === owner) services.homeData.refreshDiscovery();
-          });
-        },
         enhanceDailyTop: (card, entry, rank) => services.dailyTop.enhance(card, entry, rank),
         createCollectionCard: ((...args) => getDiscovery().collectionActions.createMovieCollectionSearchCard(...args)), openMovieCollection: (...args) => getDiscovery().collectionActions.openMovieCollection(...args), homeMovieBySlug: (...args) => services.actions.homeMovieBySlug(...args), selectFpRow: (...args) => getDiscovery().movieActions.selectFpRow(...args),
         homeAnimeById: (...args) => services.actions.homeAnimeById(...args), openAnimeDetail: (...args) => getDiscovery().animeActions.openAnimeDetail(...args), openAniworldDetail: (...args) => getDiscovery().aniworldActions.openAniworldDetail(...args), homeSeriesBySlug: (...args) => services.actions.homeSeriesBySlug(...args), loadSeries: (...args) => getDiscovery().seriesActions.loadSeries(...args),
@@ -205,10 +195,10 @@ export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore,
     });
   getHome().rows = createHomeRows(document.getElementById("tab-home"), {
       isLoading: () => getHome().homeData.get().loading,
-      onRendered(trackId, entries, options) {
+      onRendered(trackId, entries) {
         const lane = { "home-movies-track": "personal", "home-discovered-track": "discovered", "home-explore-track": "explore", "home-series-track": "series",
           "home-top-track": "top", "home-genre-track": "genre", "home-gems-track": "gems" }[trackId];
-        if (lane) getHome().exposureVisibility.syncRail(trackId, lane, entries.slice(0, options.layout === "spotlight" ? 12 : options.ranked ? 10 : 16));
+        if (lane) getHome().exposureVisibility.syncRail(trackId, lane, entries);
       },
       reconcileHomeRail: (...args) => getHome().actions.reconcileHomeRail(...args), homeRailCardSignature: (...args) => getHome().actions.homeRailCardSignature(...args),
       createHomeCard: (...args) => getHome().actions.createHomeCard(...args), syncHomeCardContent: (...args) => getHome().actions.syncHomeCardContent(...args),
