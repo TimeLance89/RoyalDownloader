@@ -174,18 +174,24 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
 
     def fetch_page(index_and_batch):
         index, (mode, kind, value, _genre) = index_and_batch
-        if mode == "related":
-            return client._request(f"/{kind}/{value}/recommendations", {
-                "language": getattr(client, "language", "de-DE"),
-            }) or {}
-        return client._request(f"/discover/{kind}", {
-            "language": getattr(client, "language", "de-DE"),
-            "include_adult": "false",
-            "with_genres": value,
-            "sort_by": "vote_average.desc" if index % 2 else "popularity.desc",
-            "vote_count.gte": 75 if kind == "movie" else 30,
-            "page": 1 + (day_offset if index else 0),
-        }) or {}
+        try:
+            if mode == "related":
+                payload = client._request(f"/{kind}/{value}/recommendations", {
+                    "language": getattr(client, "language", "de-DE"),
+                })
+            else:
+                payload = client._request(f"/discover/{kind}", {
+                    "language": getattr(client, "language", "de-DE"),
+                    "include_adult": "false",
+                    "with_genres": value,
+                    "sort_by": "vote_average.desc" if index % 2 else "popularity.desc",
+                    "vote_count.gte": 75 if kind == "movie" else 30,
+                    "page": 1 + (day_offset if index else 0),
+                })
+        except Exception:
+            # A single failing TMDB query must not blank the entire Home feed.
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     results: dict[str, dict[str, Any]] = {}
     # Bounded shared pool: at most three independent TMDB calls per feed.
@@ -235,6 +241,7 @@ class HomeDiscoveryService:
         self.clock = clock
         self._lock = threading.Lock()
         self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._inflight: dict[str, threading.Event] = {}
 
     def get(self, user_id: str, profile: Mapping[str, Any], client: Any) -> dict[str, Any]:
         ready = bool(getattr(client, "configured", False))
@@ -247,18 +254,35 @@ class HomeDiscoveryService:
         ], sort_keys=True, ensure_ascii=False, default=str)
         key = hashlib.sha256(key_data.encode()).hexdigest()
         now = float(self.clock())
-        with self._lock:
-            cached = self._cache.get(key)
-            if cached and now - cached[0] < CACHE_SECONDS:
-                return dict(cached[1])
-        results = discover_home_candidates(profile, client) if ready else []
-        response = {"available": ready, "results": results, "updated_at": now}
-        with self._lock:
-            if len(self._cache) >= 32:
-                self._cache = {k: v for k, v in self._cache.items()
-                               if now - v[0] < CACHE_SECONDS}
+        while True:
+            with self._lock:
+                cached = self._cache.get(key)
+                if cached and now - cached[0] < CACHE_SECONDS:
+                    return dict(cached[1])
+                waiter = self._inflight.get(key)
+                if waiter is None:
+                    waiter = threading.Event()
+                    self._inflight[key] = waiter
+                    break
+            # A second browser tab should reuse the first result, not trigger
+            # another three-request TMDB burst. A stalled fetch cannot hold a
+            # waiting request forever; each wait is bounded to 20 seconds.
+            if not waiter.wait(timeout=20):
+                break
+        try:
+            results = discover_home_candidates(profile, client) if ready else []
+            response = {"available": ready, "results": results, "updated_at": now}
+            with self._lock:
                 if len(self._cache) >= 32:
-                    oldest = min(self._cache, key=lambda k: self._cache[k][0])
-                    self._cache.pop(oldest, None)
-            self._cache[key] = (now, response)
-        return dict(response)
+                    self._cache = {k: v for k, v in self._cache.items()
+                                   if now - v[0] < CACHE_SECONDS}
+                    if len(self._cache) >= 32:
+                        oldest = min(self._cache, key=lambda k: self._cache[k][0])
+                        self._cache.pop(oldest, None)
+                self._cache[key] = (now, response)
+            return dict(response)
+        finally:
+            with self._lock:
+                if self._inflight.get(key) is waiter:
+                    self._inflight.pop(key, None)
+                    waiter.set()
