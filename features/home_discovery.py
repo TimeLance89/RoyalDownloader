@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 import math
 import threading
 import time
@@ -33,6 +34,9 @@ TMDB_GENRES = {
     },
 }
 MAX_REQUESTS = 3
+# Shared limit: three TMDB requests run together instead of serially blocking
+# the 15-second Home fetch when one external request is slow.
+_DISCOVERY_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="home-discovery")
 CACHE_SECONDS = 6 * 60 * 60
 
 
@@ -132,17 +136,25 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                 requests.append((kind, genre_id, genre))
             if len([entry for entry in requests if entry[0] == kind]) >= (2 if kind == "movie" else 1):
                 break
-    results: dict[str, dict[str, Any]] = {}
-    for index, (kind, genre_id, genre) in enumerate(requests[:MAX_REQUESTS]):
-        params = {
+    batches = requests[:MAX_REQUESTS]
+
+    def fetch_page(index_and_batch):
+        index, (kind, genre_id, _genre) = index_and_batch
+        return client._request(f"/discover/{kind}", {
             "language": getattr(client, "language", "de-DE"),
             "include_adult": "false",
             "with_genres": genre_id,
             "sort_by": "vote_average.desc" if index % 2 else "popularity.desc",
             "vote_count.gte": 75 if kind == "movie" else 30,
             "page": 1 + (day_offset if index else 0),
-        }
-        payload = client._request(f"/discover/{kind}", params) or {}
+        }) or {}
+
+    results: dict[str, dict[str, Any]] = {}
+    # executor.map preserves ordering while handling the three bounded requests
+    # concurrently; the shared worker limit avoids a new pool per household user.
+    for (kind, genre_id, genre), payload in zip(
+        batches, _DISCOVERY_POOL.map(fetch_page, enumerate(batches)),
+    ):
         names = {genre_id: genre}
         # Make all other candidate genres meaningful for reranking if supplied.
         known = TMDB_GENRES[kind]
