@@ -178,3 +178,20 @@ def test_series_person_interest_uses_television_credits():
     rows = discovery.discover_home_candidates(profile, client)
     assert [row["kind"] for row in rows] == ["series"]
     assert any(path == "/person/88/tv_credits" for path, _ in client.calls)
+
+
+def test_profile_reads_do_not_bypass_cache_as_taste_decays(tmp_path):
+    now = [1_800_000_000.0]
+    store = TasteProfileStore(tmp_path / "taste.json", clock=lambda: now[0])
+    store.set_feedback("movie:tmdb:700", "like", media_type="movie", metadata={"genres": ["Thriller"]})
+    client = FakeTMDB()
+    service = discovery.HomeDiscoveryService(clock=lambda: now[0])
+    first = service.get("user", store.public_profile(), client)
+    calls = len(client.calls)
+    now[0] += 120
+    assert service.get("user", store.public_profile(), client) == first
+    assert len(client.calls) == calls
+    store.set_feedback("movie:tmdb:101", "dislike")
+    second = service.get("user", store.public_profile(), client)
+    assert not any(row["item"]["tmdb_id"] == 101 for row in second["results"])
+    assert len(client.calls) > calls

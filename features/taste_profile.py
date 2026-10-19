@@ -684,7 +684,14 @@ class TasteProfileStore:
         return {
             "version": SCHEMA_VERSION,
             "dimensions": rounded,
-            "home_preferences": {"short_term": short_term, "by_media_type": by_media},
+            "home_preferences": {
+                "short_term": {axis: {name: round(value, 3) for name, value in values.items()}
+                               for axis, values in short_term.items()},
+                "by_media_type": {
+                    kind: {axis: {name: round(value, 3) for name, value in values.items()}
+                           for axis, values in dimensions.items()}
+                    for kind, dimensions in by_media.items()},
+            },
             "favorites": favorites,
             "avoid": avoid,
             "genres": rounded["genres"],

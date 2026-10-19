@@ -400,8 +400,14 @@ class HomeDiscoveryService:
     def get(self, user_id: str, profile: Mapping[str, Any], client: Any) -> dict[str, Any]:
         ready = bool(getattr(client, "configured", False))
         dimensions = profile.get("dimensions") or {}
+        revision = profile.get("updated_at")
         key_data = json.dumps([
-            user_id, dimensions, profile.get("home_preferences"), profile.get("confidence"),
+            # Store revisions change on actual learning, not on each read's
+            # floating-point evidence decay. Legacy callers without revisions
+            # still invalidate by the full aggregate profile.
+            user_id, revision, dimensions if revision is None else None,
+            profile.get("home_preferences") if revision is None else None,
+            profile.get("confidence"),
             profile.get("blocked_items") or [],
             [(event.get("key"), event.get("at"), event.get("action"))
              for event in (profile.get("recent") or [])[:30]],
