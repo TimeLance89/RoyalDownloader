@@ -131,3 +131,41 @@ def test_concurrent_requests_for_same_profile_share_one_tmdb_fetch():
         release.set()
         assert one.result(3) == two.result(3)
     assert len(client.calls) == 1
+
+
+def test_empty_tmdb_feed_is_retried_after_five_minutes():
+    now = [1000.0]
+
+    class RecoveringClient(FakeTMDB):
+        def __init__(self):
+            super().__init__()
+            self.offline = True
+
+        def _request(self, path, params):
+            if self.offline:
+                self.calls.append((path, params))
+                raise TimeoutError("temporary outage")
+            return super()._request(path, params)
+
+    client = RecoveringClient()
+    service = HomeDiscoveryService(clock=lambda: now[0])
+    assert not service.get("user", _profile(), client)["results"]
+    client.offline = False
+    now[0] += 180
+    assert not service.get("user", _profile(), client)["results"]
+    now[0] += 121
+    assert service.get("user", _profile(), client)["results"]
+
+
+def test_malformed_tmdb_quality_metrics_do_not_break_discovery():
+    class MalformedClient(FakeTMDB):
+        def _request(self, path, params):
+            payload = super()._request(path, params)
+            payload["results"].insert(0, {
+                "id": 555, "title": "Broken metric", "genre_ids": [53],
+                "poster_path": "/555.jpg", "vote_average": "NaN", "vote_count": 300,
+            })
+            return payload
+
+    results = discover_home_candidates(_profile(), MalformedClient())
+    assert {entry["item"]["tmdb_id"] for entry in results} == {101, 102}
