@@ -202,7 +202,7 @@ jobs:
           echo "backend=${backend}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
-        uses: actions/setup-python@751276eafca55f10f252026015f43c488f2322ba # immutable v6 line
+        uses: actions/setup-python@ec52d0af729a7c50ced4261d17a07916f43f5b8e # immutable v6 line
         with:
           python-version: "3.12"
           cache: pip
