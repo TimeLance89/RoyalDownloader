@@ -197,7 +197,7 @@ class HomeDiscoveryService:
         dimensions = profile.get("dimensions") or {}
         key_data = json.dumps([
             user_id, dimensions, profile.get("blocked_items") or [],
-            date.today().isoformat(), getattr(client, "language", ""),
+            date.today().isoformat(), getattr(client, "language", ""), ready,
         ], sort_keys=True, ensure_ascii=False, default=str)
         key = hashlib.sha256(key_data.encode()).hexdigest()
         now = float(self.clock())
