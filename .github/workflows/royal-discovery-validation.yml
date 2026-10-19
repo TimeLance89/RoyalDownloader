@@ -39,7 +39,7 @@ jobs:
       - name: Install locked development requirements
         run: python -m pip install -r requirements-dev.lock
       - name: Python Discovery and layout integration tests
-        run: python -m pytest -q tests/test_home_discovery.py tests/test_home_discovery_frontend.py tests/test_home_discovery_api.py tests/test_home_person_discovery.py tests/test_home_relevance_scenarios.py tests/test_home_layout.py tests/test_taste_profile_v2.py tests/test_taste_frontend_v2.py tests/test_home_experience_v2.py
+        run: python -m pytest -q tests/test_home_discovery.py tests/test_home_discovery_frontend.py tests/test_home_discovery_api.py tests/test_home_person_discovery.py tests/test_home_franchise_discovery.py tests/test_home_relevance_scenarios.py tests/test_home_layout.py tests/test_taste_profile_v2.py tests/test_taste_frontend_v2.py tests/test_home_experience_v2.py
       - name: Node Discovery and component regression tests
         run: |
           node --test tests/frontend/royal-discovery-3.test.mjs tests/frontend/home-taste-readiness.test.mjs tests/frontend/home-navigation.test.mjs tests/frontend/home-lane-relevance.test.mjs tests/frontend/home-exposure-visibility.test.mjs tests/frontend/core.test.mjs tests/frontend/home-click-feedback.test.mjs
