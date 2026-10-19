@@ -54,10 +54,18 @@ export function createHomeCards({
     enhanceTaste(card, entry);
     if (item.tmdb_discovery) {
       card.dataset.homeDiscovery = "tmdb";
-      const why = (item.discovery_reason || []).join(" · ");
+      const why = (item.discovery_reason || []).slice(0, 2).join(" · ");
       card.title = why ? `Royal empfiehlt diesen Titel wegen: ${why}. In aktiven Quellen suchen.`
         : "Royal-Tipp: Beim Öffnen in aktiven Quellen suchen.";
-      if (why) card.dataset.tasteReason = why;
+      const action = card.querySelector(".home-card-primary-action");
+      action?.setAttribute("aria-label", `${media.title}: Royal-Tipp in aktiven Quellen suchen`);
+      if (why) {
+        card.dataset.tasteReason = why;
+        const reason = document.createElement("span");
+        reason.className = "royal-discovery-reason";
+        reason.textContent = `Passt zu: ${why}`;
+        card.querySelector(".home-card-art")?.appendChild(reason);
+      }
     }
     enhanceHero(card, entry);
     return enhanceDailyTop(card, entry, rank);
