@@ -1,13 +1,20 @@
 """Authentication and per-user boundary regression for optional Home discovery."""
 
 import asyncio
+import sys
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
 import api.api_discovery_router as router
-import application_services.auth as auth
+
+
+def _auth(monkeypatch, current_user):
+    # Isolated route contract: the app's real auth service needs a registered
+    # composition backend, which the Home router test intentionally lacks.
+    monkeypatch.setitem(sys.modules, "application_services.auth",
+                        SimpleNamespace(current_user=current_user))
 
 
 def _request():
@@ -15,14 +22,14 @@ def _request():
 
 
 def test_home_discovery_requires_authenticated_profile(monkeypatch):
-    monkeypatch.setattr(auth, "current_user", lambda headers, cookies: None)
+    _auth(monkeypatch, lambda headers, cookies: None)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(router.api_home_discovery(_request()))
     assert exc.value.status_code == 401
 
 
 def test_home_discovery_can_be_disabled_without_accessing_tmdb(monkeypatch):
-    monkeypatch.setattr(auth, "current_user", lambda headers, cookies: {"id": "user-a"})
+    _auth(monkeypatch, lambda headers, cookies: {"id": "user-a"})
     monkeypatch.setenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", "0")
     monkeypatch.setattr(router, "get_tmdb_client", lambda: (_ for _ in ()).throw(AssertionError("TMDB must be skipped")))
     assert asyncio.run(router.api_home_discovery(_request())) == {
@@ -33,7 +40,7 @@ def test_home_discovery_can_be_disabled_without_accessing_tmdb(monkeypatch):
 def test_home_discovery_never_reuses_another_household_profiles_taste(monkeypatch):
     monkeypatch.delenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", raising=False)
     active = ["user-a"]
-    monkeypatch.setattr(auth, "current_user", lambda headers, cookies: {"id": active[0]})
+    _auth(monkeypatch, lambda headers, cookies: {"id": active[0]})
 
     class Stores:
         def for_user(self, user_id):
