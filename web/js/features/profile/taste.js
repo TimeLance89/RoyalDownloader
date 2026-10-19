@@ -5,7 +5,7 @@ const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
 
 export function createTasteProfile(documentRef, {
   getUser, currentTasteTarget, renderTasteProfileSummary, shouldRenderHome, renderHome,
-  homeMovieEntry, homeSeriesEntry, homeEntryMedia, homeEntryKey, onReset,
+  homeMovieEntry, homeSeriesEntry, homeEntryMedia, homeEntryKey, onReset, onProfileSync = () => {},
   storage = null, client = api,
 }) {
   let scope = createScope(), bound = false, resetting = false;
@@ -112,6 +112,7 @@ export function createTasteProfile(documentRef, {
         serverProfile = imported.profile || serverProfile;
       }
       applyServerTasteProfile(serverProfile);
+      onProfileSync();
       if (shouldRenderHome()) renderHome();
     } catch (error) {
       if (!current()) return;
