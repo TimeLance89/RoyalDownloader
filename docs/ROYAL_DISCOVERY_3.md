@@ -18,10 +18,9 @@ not simply reorder a small, generic, provider-owned catalog.
 - **Stronger visual discovery:** Personal spotlight supports poster-only entries
   and up to 12 visible recommendations; Explore can use posters as well.
 - **Active candidate retrieval:** \`GET /api/home/discovery\` discovers up to 24
-  ranked TMDB ideas derived from the authenticated user's current genre profile.
+  ranked TMDB ideas derived from the authenticated user's genre profile, including related-title candidates when a positive TMDB seed exists.
   Requests are bounded to three parallel TMDB discovery queries and 6-hour
-  per-user in-memory cache entries. No personal IDs, raw search history, or
-  watch history are sent to TMDB.
+  per-user in-memory cache entries. No household user IDs, full search history or Jellyfin history are sent to TMDB. Public genre and positively interacted-with TMDB title IDs may be sent as discovery seeds.
 - **New Home section:** "Neu für dich entdeckt" is visible by default alongside
   existing catalog rows, including when an existing Home layout is restored.
   Suggestions are not silently labeled as available downloads: opening one
@@ -81,3 +80,20 @@ Do not treat it as a full UI rollback toggle.
 Set `ROYAL_HOME_DISCOVERY_V3_ENABLED=1` or remove the variable to enable
 the optional Home candidate retrieval again. A working TMDB configuration
 is required for additional Home ideas.
+
+## Current personal discovery signals and third-party calls
+
+Genre-based TMDB recommendations are complemented by *one* recent positively
+opened TMDB title when available. This yields a bounded call to TMDB's related
+titles endpoint rather than expanding to an unrestricted recommendation crawl.
+The server sends public genre IDs or a seed-title TMDB ID, **not** a household
+user ID, personal search history, passwords, or Jellyfin watch state.
+All discovery requests stay within the three-request budget.
+
+A clicked TMDB idea is a weak taste signal and is suppressed from repeated
+recommendations for fourteen days. Genre, Explore and Hidden Gems avoid
+strongly negatively rated genres. These restrictions do not rewrite the
+global Top 10 or chronological New rows.
+
+The current phase still needs real-user relevance measurement, longer-term
+taste exploration, and complete NAS/mobile acceptance before a final PR.
