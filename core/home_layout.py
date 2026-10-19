@@ -11,7 +11,11 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 1
 HOME_RAIL_IDS = (
-    "personal", "discovered", "top", "series", "genre", "explore", "gems", "fresh",
+    "personal", "discovered", "genre", "gems", "explore", "series", "top", "fresh",
+    "new_movies", "new_series", "high_rated", "movies", "library",
+)
+LEGACY_DEFAULT_RAIL_ORDER = (
+    "personal", "top", "series", "genre", "explore", "gems", "fresh",
     "new_movies", "new_series", "high_rated", "movies", "library",
 )
 DEFAULT_VISIBLE_RAILS = HOME_RAIL_IDS[:8]
@@ -41,8 +45,12 @@ class HomeLayoutStore:
     def normalize(cls, value: Mapping[str, Any] | None) -> dict[str, Any]:
         source = value if isinstance(value, Mapping) else {}
         allowed = set(HOME_RAIL_IDS)
+        old_order = tuple(source.get("rail_order") or ())
+        # Migrate only the historic *default*, never an explicitly reordered UI.
+        if old_order == LEGACY_DEFAULT_RAIL_ORDER:
+            old_order = HOME_RAIL_IDS
         order: list[str] = []
-        for raw in list(source.get("rail_order") or []):
+        for raw in old_order:
             rail_id = str(raw or "").strip()
             if rail_id in allowed and rail_id not in order:
                 order.append(rail_id)
