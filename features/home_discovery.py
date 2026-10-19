@@ -1,7 +1,7 @@
 """Home-only, deterministic, optional TMDB candidate discovery.
 
 This module never resolves providers, enqueues downloads or sends personal
-identifiers/history to TMDB. Only public TMDB genre IDs leave the server.
+identifiers/history to TMDB. Only public genre IDs and recent positive seed-title IDs reach TMDB.
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 import math
+import re
 import threading
 import time
 from datetime import date
@@ -128,6 +129,17 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
     return {"kind": media_type, "item": item, "_score": score}
 
 
+def _recent_tmdb_seed(profile: Mapping[str, Any]) -> tuple[str, int] | None:
+    """Choose a recent positive TMDB title, never a rejected title."""
+    for event in (profile.get("recent") or [])[:30]:
+        if event.get("action") not in {"open", "like", "favorite", "download"}:
+            continue
+        match = re.fullmatch(r"(movie|series):tmdb:([1-9]\\d{0,9})", str(event.get("key") or ""))
+        if match:
+            return ("movie" if match[1] == "movie" else "tv", int(match[2]))
+    return None
+
+
 def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                              *, day: str | None = None, limit: int = 24) -> list[dict[str, Any]]:
     """Search beyond provider catalog; suggestions are explicitly not availability claims."""
@@ -150,29 +162,39 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                 requests.append((kind, genre_id, genre))
             if len([entry for entry in requests if entry[0] == kind]) >= (2 if kind == "movie" else 1):
                 break
-    batches = requests[:MAX_REQUESTS]
+    jobs = [("genre", kind, genre_id, genre) for kind, genre_id, genre in requests]
+    seed = _recent_tmdb_seed(profile)
+    if seed:
+        # Trade one generic genre request for titles related to a recent
+        # positive choice, without increasing the external request budget.
+        movie = next((job for job in jobs if job[1] == "movie"), None)
+        television = next((job for job in jobs if job[1] == "tv"), None)
+        jobs = [job for job in (movie, ("related", seed[0], seed[1], ""), television) if job]
+    batches = jobs[:MAX_REQUESTS]
 
     def fetch_page(index_and_batch):
-        index, (kind, genre_id, _genre) = index_and_batch
+        index, (mode, kind, value, _genre) = index_and_batch
+        if mode == "related":
+            return client._request(f"/{kind}/{value}/recommendations", {
+                "language": getattr(client, "language", "de-DE"),
+            }) or {}
         return client._request(f"/discover/{kind}", {
             "language": getattr(client, "language", "de-DE"),
             "include_adult": "false",
-            "with_genres": genre_id,
+            "with_genres": value,
             "sort_by": "vote_average.desc" if index % 2 else "popularity.desc",
             "vote_count.gte": 75 if kind == "movie" else 30,
             "page": 1 + (day_offset if index else 0),
         }) or {}
 
     results: dict[str, dict[str, Any]] = {}
-    # executor.map preserves ordering while handling the three bounded requests
-    # concurrently; the shared worker limit avoids a new pool per household user.
-    for (kind, genre_id, genre), payload in zip(
+    # Bounded shared pool: at most three independent TMDB calls per feed.
+    for (_mode, kind, genre_id, genre), payload in zip(
         batches, _DISCOVERY_POOL.map(fetch_page, enumerate(batches)),
     ):
-        names = {genre_id: genre}
-        # Make all other candidate genres meaningful for reranking if supplied.
-        known = TMDB_GENRES[kind]
-        names.update({value: name for name, value in known.items() if value != genre_id})
+        names = {value: name for name, value in TMDB_GENRES[kind].items()}
+        if genre:
+            names[genre_id] = genre
         for raw in (payload.get("results") or [])[:20]:
             if not isinstance(raw, dict):
                 continue
