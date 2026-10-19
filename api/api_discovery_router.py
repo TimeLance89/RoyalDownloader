@@ -251,8 +251,8 @@ def create_discovery_router(backend) -> APIRouter:
 # ── Start-page composition ────────────────────────────────────────────────
 class HomeLayoutBody(BaseModel):
     hero_visible: bool = True
-    rail_order: list[str] = Field(default_factory=list, max_length=12)
-    hidden_rails: list[str] = Field(default_factory=list, max_length=12)
+    rail_order: list[str] = Field(default_factory=list, max_length=13)
+    hidden_rails: list[str] = Field(default_factory=list, max_length=13)
 
 
 @router.get("/api/v1/home/layout")
