@@ -147,6 +147,8 @@ export function createHomeLanes(root, {
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
       personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 12, 8),
+      discovered: takeDistinctHomeLane(allowedHomeEntries((getData().personalDiscoveries || [])
+        .filter((entry) => entry && ["movie", "series"].includes(entry.kind) && entry.item)), seen, 24, 0),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,
