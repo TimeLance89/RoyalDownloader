@@ -1,4 +1,5 @@
 import { homeTasteReady } from "./taste-readiness.js";
+import { homeTasteContext } from "./taste-context.js";
 
 /** Existing taste/trend hero ranking, without global function replacement. */
 export function createHeroSelection({
@@ -146,6 +147,7 @@ export function createHeroSelection({
   }
 
   function heroTasteScore(entry, profile) {
+    profile = homeTasteContext(profile, entry.kind);
     const metadata = heroMetadata(entry);
     const policy = profile?.ranking || {};
     const negativeMultiplier = Number(policy.negative_multiplier ?? 1.55);

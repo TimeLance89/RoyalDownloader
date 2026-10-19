@@ -92,6 +92,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         getShuffle: () => services.homePresenter.get().discoveryShuffle,
         applyServerTasteProfile: profile => services.actions.applyServerTasteProfile(profile), renderHome: () => services.actions.renderHome(),
         onProfileChanged: () => services.homeData.refreshDiscovery(),
+        hasSeen: key => services.exposureVisibility.hasSeen(key),
       }),
   heroSelection: createHeroSelection({
         discoveryV2LogicalKey: entry => discoveryPolicy.discoveryV2LogicalKey(entry), homeEntryKey: (...args) => services.actions.homeEntryKey(...args), homeEntryMedia: entry => services.actions.homeEntryMedia(entry), tasteMetadata: (...args) => services.actions.tasteMetadata(...args),

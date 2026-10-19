@@ -294,7 +294,10 @@ async def api_home_discovery(request: Request):
 
     def _work():
         profiles = getattr(state, "taste_profiles", None)
-        profile_store = profiles.for_user(owner_id) if profiles else state.taste_profile
+        if profiles is None:
+            # Never substitute a shared legacy profile for an authenticated user.
+            return {"available": False, "results": []}
+        profile_store = profiles.for_user(owner_id)
         profile = profile_store.public_profile()
         client = get_tmdb_client()
         return _HOME_DISCOVERY.get(owner_id, profile, client)

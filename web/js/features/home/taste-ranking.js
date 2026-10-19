@@ -1,12 +1,14 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { homeTasteReady } from "./taste-readiness.js";
+import { homeTasteContext } from "./taste-context.js";
 
 export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
   discoveryV2LogicalKey, discoveryV2ExposurePenalty, discoveryV2SelectDiverse,
   getShuffle, applyServerTasteProfile, renderHome, onProfileChanged = () => {}, client = api,
   discoveryV2Noise = () => 0,
+  hasSeen = () => false,
 }) {
   let scope, pendingFeedback = 0, needsSync = false;
   const feedbackEntries = new WeakMap();
@@ -148,11 +150,12 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function tasteV2ScoreEntry(entry, profile = loadDiscoveryProfile()) {
+    profile = homeTasteContext(profile, entry.kind);
     const metadata = tasteV2Metadata(entry);
     const exposurePenalty = Number(discoveryV2ExposurePenalty?.(entry, "personal") || 0);
     const dailyVariation = discoveryV2Noise(entry, "personal", 6);
     const cacheKey = JSON.stringify([tasteV2LogicalKey(entry), profile.updatedAt || profile.updated_at,
-      profile.ranking, profile.confidence, getShuffle(), metadata,
+      profile.dimensions, profile.ranking, profile.confidence, getShuffle(), metadata,
       homeEntryMedia(entry).rating, exposurePenalty, dailyVariation]);
     if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
     const policy = profile.ranking || {};
@@ -323,15 +326,12 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function recordVisiblePersonalForReshuffle() {
-    // The personal rail now skips poster-only candidates. Record only cards
-    // that can actually appear with landscape artwork, or reshuffles penalize
-    // unseen posters and keep showing the same wallpaper recommendations.
-    strictPersonalEntries()
-      .slice(0, 12)
-      .forEach((entry) => {
-        const key = tasteV2LogicalKey(entry);
-        if (key) sessionExposure.add(key);
-      });
+    // Shuffling is not evidence that every rendered card was actually seen.
+    // Genuine exposure is already measured by the shared dwell observer.
+    for (const entry of strictPersonalEntries()) {
+      const key = tasteV2LogicalKey(entry);
+      if (key && hasSeen(key)) sessionExposure.add(key);
+    }
     scoreCache.clear();
   }
 

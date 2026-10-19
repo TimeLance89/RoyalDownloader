@@ -594,6 +594,32 @@ class TasteProfileStore:
             }
             for dimension, values in scores.items()
         }
+        # Home keeps recent curiosity separate from enduring evidence. These
+        # aggregates contain no titles or search text and do not change the
+        # scoring contract used by Jellyfin collections.
+        short_term: dict[str, dict[str, float]] = {}
+        by_media: dict[str, dict[str, dict[str, float]]] = {}
+        for evidence in [*events, *feedback.values(), *(jellyfin.get("items") or [])]:
+            dimensions = evidence.get("dimensions") or {}
+            signal = _finite_float(evidence.get("signal")) if "signal" in evidence else _signal_for(
+                evidence.get("action", ""), evidence.get("value"))
+            age = max(0.0, (now - self._parsed_timestamp(evidence.get("at"), now)) / 86400)
+            kinds = dimensions.get("media_types") or []
+            for dimension, values in dimensions.items():
+                factor = DIMENSION_FACTORS.get(dimension)
+                if factor is None:
+                    continue
+                for name in _canonical_dimension_values(dimension, values):
+                    if age <= 28 and signal > 0:
+                        bucket = short_term.setdefault(dimension, {})
+                        bucket[name] = min(3.0, bucket.get(name, 0.0)
+                                           + min(signal, 1.0) * factor * 0.5 ** (age / 7))
+                    for kind in kinds:
+                        if kind not in {"movie", "series", "anime"}:
+                            continue
+                        bucket = by_media.setdefault(kind, {}).setdefault(dimension, {})
+                        bucket[name] = max(-100.0, min(100.0, bucket.get(name, 0.0)
+                                          + signal * factor * 0.5 ** (age / HALF_LIFE_DAYS)))
         blocked = sorted(
             key for key, item in feedback.items()
             if item.get("action") in {"dislike", "dismiss"}
@@ -602,13 +628,15 @@ class TasteProfileStore:
             key: str(item.get("action") or "")
             for key, item in feedback.items()
         }
+        recent_evidence = [*events, *(dict(value, item_key=key) for key, value in feedback.items())]
+        recent_evidence.sort(key=lambda event: _finite_float(event.get("at")), reverse=True)
         recent = [
             {
                 "key": event.get("item_key", ""),
                 "action": event.get("action", ""),
                 "at": event.get("at", 0),
             }
-            for event in reversed(events)
+            for event in recent_evidence
             if event.get("item_key")
         ][:60]
         favorites = {
@@ -656,6 +684,7 @@ class TasteProfileStore:
         return {
             "version": SCHEMA_VERSION,
             "dimensions": rounded,
+            "home_preferences": {"short_term": short_term, "by_media_type": by_media},
             "favorites": favorites,
             "avoid": avoid,
             "genres": rounded["genres"],

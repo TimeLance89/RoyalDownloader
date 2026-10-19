@@ -12,6 +12,10 @@ class Client:
         self.calls.append((path, params))
         if path == "/search/person":
             return {"results": [{"name": "Example Director", "id": 881}]}
+        if path.endswith("/movie_credits"):
+            film = {"id": 31, "title": "Example Film", "genre_ids": [53],
+                    "poster_path": "/31.jpg", "vote_average": 7.3, "vote_count": 200}
+            return {"cast": [film], "crew": [dict(film, job="Director")]}
         return {"results": [
             {"id": 31, "title": "Example Film", "genre_ids": [53],
              "poster_path": "/31.jpg", "vote_average": 7.3, "vote_count": 200},
@@ -32,7 +36,7 @@ def test_person_credits_diversify_taste_with_bounded_requests():
     assert len(rows) == 1
     assert any("Example Director" in row["item"]["discovery_reason"] for row in rows)
     assert [path for path, _ in client.calls].count("/search/person") == 1
-    assert any(params.get("with_crew") == 881 for _, params in client.calls)
+    assert any(path == "/person/881/movie_credits" for path, _ in client.calls)
     assert len(client.calls) <= 3
 
 
@@ -49,7 +53,7 @@ def test_actor_preference_alone_still_works():
     rows = discover_home_candidates(profile, client, day="2026-10-19")
     assert rows
     assert rows[0]["item"]["discovery_reason"] == ["Sample Actor"]
-    assert any(params.get("with_cast") == 991 for _, params in client.calls)
+    assert any(path == "/person/991/movie_credits" for path, _ in client.calls)
     assert len(client.calls) == 2
 
 

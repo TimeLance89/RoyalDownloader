@@ -88,8 +88,12 @@ export function createHomeExposureVisibility(root, {
     for (const change of entries) {
       const state = tracked.get(change.target);
       if (!state) continue;
-      clearPending(state);
-      if (!validPage() || !change.isIntersecting || change.intersectionRatio < 0.6) continue;
+      if (!validPage() || !change.isIntersecting || change.intersectionRatio < 0.6) {
+        clearPending(state);
+        continue;
+      }
+      // Crossing 75% while still above 60% is continuous visibility.
+      if (state.visible) continue;
       state.visible = true;
       const day = String(getDay());
       const dedupe = [state.owner, day, state.lane, state.key].join("\u0000");
@@ -99,7 +103,7 @@ export function createHomeExposureVisibility(root, {
         if (committed.has(dedupe) || !state.visible || !validPage() || !change.target.isConnected
             || String(getOwner() || "") !== state.owner || String(getDay()) !== day) return;
         committed.add(dedupe);
-        if (committed.size > 600) committed.clear(); // bounded session history
+        if (committed.size > 600) committed.delete(committed.values().next().value);
         record(state.lane, [state.entry]);
       }, dwellMs);
     }
@@ -112,6 +116,10 @@ export function createHomeExposureVisibility(root, {
     }
   }
   return {
+    hasSeen(key) {
+      const prefix = [String(getOwner() || ""), String(getDay()), ""].join("\u0000");
+      return [...committed].some(value => value.startsWith(prefix) && value.endsWith("\u0000" + key));
+    },
     syncRail,
     syncHero,
     mount() {

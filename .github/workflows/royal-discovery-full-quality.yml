@@ -9,3 +9,7 @@ permissions:
 jobs:
   quality:
     uses: ./.github/workflows/quality.yml
+  webkit:
+    uses: ./.github/workflows/frontend-webkit.yml
+  stability:
+    uses: ./.github/workflows/stability.yml

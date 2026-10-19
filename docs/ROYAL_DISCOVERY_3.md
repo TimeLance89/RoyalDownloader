@@ -1,4 +1,100 @@
-# Royal Discovery 3.0 — Home-only development roadmap
+# Royal Discovery 3.0 — implementation and acceptance
+
+## Current implementation (2026-10-19)
+
+The authoritative starting point is feature branch
+`feature/royal-discovery-3-home-20261019` at
+`a15ff029a67db7813dc497c0e35dffd6f2d4df74`. The PC's primary checkout
+is a different branch with uncommitted work. Development uses a separate
+worktree; that work is neither overwritten nor silently incorporated.
+
+- **Taste:** existing long-term scores remain compatible. Home additionally
+  uses aggregate interests with a seven-day half-life and a 28-day window,
+  capped at three points per value. Contextual movie/series evidence has 75%
+  weight and shared evidence 25%. Recent curiosity adds at most 1.05 points,
+  never cancels negative evidence, and is not written into enduring scores.
+  Hero and personal cards apply the same interpretation as the feed backend.
+- **Discovery:** public genres, positive title IDs, exact person names and exact
+  collection names provide candidates. Actor and director recommendations use
+  actual credits; producer credits cannot be described as directing work.
+  TV preferences select TV credits. Strongly rejected media types are excluded.
+  When both title and person/collection seeds exist, the pathway rotates by day.
+- **Ranking:** saturated personal relevance, Bayesian rating confidence,
+  bounded vote evidence, release recency, deterministic daily variation and
+  genre diversity rank candidates. Recent interactions and explicit blocked
+  titles prevent repetition. Scarce matching genres remain usable.
+- **Load and recovery:** at most three external calls per feed, three running
+  calls and twelve admitted tasks process-wide. Excess work is rejected without
+  growing an unbounded executor queue. Eight seconds bounds result collection;
+  already running urllib calls finish under the TMDB client's socket timeout.
+  A follower waits at most ten seconds and never starts duplicate work. Successful
+  results cache for six hours; empty or partial-outage results retry after five
+  minutes. Cache entries are per account, taste, language and day, with copied
+  response trees and at most 32 entries. No personalized disk feed cache exists.
+- **Learning:** impressions remain per-profile browser-local day/title sets;
+  no external analytics are introduced. At least 60% visibility for 1.5 seconds
+  is required. Threshold crossings preserve continuous dwell. Hidden tabs,
+  rotations, profile changes and unmounts cancel pending measurements.
+  Carousel copies cannot double-count; several rows impose at most one daily
+  repetition penalty. Shuffle penalizes only titles whose dwell was measured.
+  Opening, rating, dismissal and downloading remain separate taste actions.
+- **Presentation:** the existing cinema UI retains twelve non-cloned Spotlight
+  cards, poster fallback, keyboard controls, source-search handoff and explicit
+  recommendation reasons. TMDB ideas imply no confirmed download availability.
+
+## Reproducing verification
+
+Use Python 3.12 and `requirements-dev.lock` in an environment **outside the
+repository** (the documentation-link test intentionally inspects Markdown in
+the checkout). Node 24 matches CI. Install isolated browser tooling with
+`playwright@1.62.1`, `pngjs@7.0.0`, `pixelmatch@7.2.0`, Chromium and WebKit.
+Set `ROYAL_PLAYWRIGHT` to that installation's Playwright package directory.
+
+```sh
+python -m pytest -q
+node --test tests/frontend_smoke.test.mjs tests/series_card_summary.test.mjs tests/frontend/*.test.*
+python -m ruff check --select E9,F63,F7,F82 .
+python scripts/security_scan.py
+python -m bandit -q -ll -r . -x ./tests -s B310
+python -m pip_audit -r requirements.lock
+python -m pip_audit -r requirements-dev.lock
+ROYAL_BROWSER=chromium node tests/frontend/browser-smoke.cjs
+node tests/frontend/webkit-mobile.cjs
+```
+
+Run full Python acceptance on Linux: existing tests require POSIX `resource`,
+file permissions, symlinks and path semantics. Windows failures in those tests
+must not be hidden with new skips. The feature branch's full-project workflow
+invokes the existing quality, Linux stability and WebKit workflows. Discovery
+validation additionally runs all Node contracts, relevance scenarios, paired
+performance budgets and 21 strict screenshot comparisons at desktop/mobile/
+tablet sizes against frozen baseline `d3aada9099703c0b9d9b6201f49082c52ddff0d7`.
+Evidence lives in workflow artifacts; CI links and final status are recorded in
+master issue #548 and the final PR only after successful acceptance.
+
+## Ollama decision and operational limits
+
+No new Ollama call is introduced. Public genres and confirmed credit/collection
+relationships already explain the deterministic candidates. There is no measured
+evidence that a generative reranker improves these offline scenarios; adding one
+would add latency and unverifiable explanations. Existing optional AI features
+remain independent. Home works with Ollama absent or offline and sends it no
+personal profile. Live user satisfaction and NAS hardware performance cannot be
+inferred from synthetic browser fixtures.
+
+After review and explicit deployment approval, activate the tested application
+build on UGREEN using the existing Docker update procedure, retain persistent
+data volumes, and verify TMDB configuration and two different household profiles.
+No migration command is required: older taste schema v2 loads unchanged and
+Home aggregates are recomputed from existing evidence. Restarting only clears
+the in-memory feed cache. `ROYAL_HOME_DISCOVERY_V3_ENABLED=0` disables external
+Home discovery; it is an endpoint rollback, not a rollback of the cinema UI.
+Live NAS validation and production deployment remain separate human-controlled
+steps. This development task performs neither a release nor a deployment.
+
+## Earlier milestone record
+
+The following records the initial implementation, before the hardening above.
 
 **Base:** \`overnight\` @ \`2447a23df6d1be8dd26ac7b12cb510ea429332f8\` (2026-10-19)
 **Target:** \`overnight\` via feature branch and reviewed PR.

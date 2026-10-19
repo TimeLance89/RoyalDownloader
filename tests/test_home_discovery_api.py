@@ -60,3 +60,10 @@ def test_home_discovery_never_reuses_another_household_profiles_taste(monkeypatc
     second = asyncio.run(router.api_home_discovery(_request()))
     assert first["results"] != second["results"]
     assert calls == [("user-a", "user-a"), ("user-b", "user-b")]
+
+
+def test_home_discovery_never_falls_back_to_shared_legacy_taste(monkeypatch):
+    _auth(monkeypatch, lambda headers, cookies: {"id": "user-a"})
+    monkeypatch.setattr(router, "state", SimpleNamespace(taste_profile=object()))
+    monkeypatch.setattr(router, "get_tmdb_client", lambda: pytest.fail("TMDB must not be called"))
+    assert asyncio.run(router.api_home_discovery(_request())) == {"available": False, "results": []}

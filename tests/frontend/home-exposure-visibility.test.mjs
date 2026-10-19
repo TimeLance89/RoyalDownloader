@@ -85,6 +85,21 @@ test("unmount cancels pending work and removes old observers", () => {
   assert.deepEqual(f.events, []);
 });
 
+test("crossing another visible threshold preserves continuous dwell", () => {
+  const f = fixture(); f.visibility.mount(); f.visibility.syncRail("home-discovered-track", "discovered", f.entries);
+  f.see(f.a, 0.65); f.tick(1000); f.see(f.a, 0.9); f.tick(500);
+  assert.deepEqual(f.events, [["user-a", "discovered", 12]]);
+  f.visibility.unmount();
+});
+
+test("remount and return to a previously viewed title do not count twice", () => {
+  const f = fixture(); f.visibility.mount(); f.visibility.syncRail("home-discovered-track", "discovered", f.entries);
+  f.see(f.a, 1); f.tick(1500); f.visibility.unmount();
+  f.visibility.mount(); f.see(f.a, 1); f.tick(1500);
+  assert.equal(f.events.length, 1);
+  f.visibility.unmount();
+});
+
 test("hero first rendered before mount is eventually registered, and rotations replace its identity", () => {
   const f = fixture(); f.visibility.syncHero({ kind: "movie", media: { tmdb_id: 41 } });
   f.visibility.mount(); f.see(f.hero, 0.95); f.tick(1500);
