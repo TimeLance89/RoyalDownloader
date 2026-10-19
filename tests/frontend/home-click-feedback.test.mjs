@@ -32,3 +32,30 @@ test("opening a recommendation resolves its taste event before Home refetch is s
   assert.equal(profile.load().genres.Drama, 2);
   profile.unmount();
 });
+
+
+test("server taste synchronization refreshes Home only for the authenticated owner", async () => {
+  const store = new Map();
+  const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
+  let owner = "profile-a", resolveGet, refreshed = 0;
+  const client = { get: () => new Promise(resolve => { resolveGet = resolve; }) };
+  const profile = createTasteProfile({ getElementById: () => null }, {
+    getUser: () => ({ id: owner }), currentTasteTarget: () => null,
+    renderTasteProfileSummary() {}, shouldRenderHome: () => false, renderHome() {},
+    homeMovieEntry: item => ({ kind: "movie", item }),
+    homeSeriesEntry: item => ({ kind: "series", item }), homeEntryMedia: entry => entry.item,
+    homeEntryKey: entry => entry.item.slug, storage, client,
+    onProfileSync: () => { refreshed += 1; },
+  });
+  const obsolete = profile.sync();
+  owner = "profile-b";
+  resolveGet({ dimensions: { genres: { Horror: 12 } }, interactions: 3, legacy_imported: true });
+  await obsolete;
+  assert.equal(refreshed, 0, "late profile-a response must never refresh profile-b");
+  const current = profile.sync();
+  resolveGet({ dimensions: { genres: { Drama: 12 } }, interactions: 4, legacy_imported: true });
+  await current;
+  assert.equal(refreshed, 1);
+  assert.equal(profile.load().genres.Drama, 12);
+  profile.unmount();
+});
