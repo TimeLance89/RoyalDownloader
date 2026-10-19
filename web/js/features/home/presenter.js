@@ -49,7 +49,13 @@ export function createHomePresenter(root, {
     const lanes = homeDiscoveryLanes();
     const hidden = new Set(currentHomeLayout().hidden_rails);
     currentHomeLayout().rail_order.forEach((railId) => {
-      if (hidden.has(railId)) return;
+      const disabledDiscovery = railId === "discovered" && getData().personalDiscoveryDisabled;
+      if (disabledDiscovery) {
+        const section = root.querySelector('[data-home-rail="discovered"]');
+        section?.classList.add("home-layout-hidden");
+        section?.setAttribute("aria-hidden", "true");
+      }
+      if (hidden.has(railId) || disabledDiscovery) return;
       const definition = homeRailDefinition(railId);
       if (!definition) return;
       renderHomeRail(definition.trackId, lanes[railId] || [], {
