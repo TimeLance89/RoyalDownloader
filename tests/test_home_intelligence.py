@@ -1,7 +1,7 @@
 """Offline product scenarios, independent of external services and Ollama."""
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import BoundedSemaphore, Event
 
 import pytest
 
@@ -195,3 +195,29 @@ def test_profile_reads_do_not_bypass_cache_as_taste_decays(tmp_path):
     second = service.get("user", store.public_profile(), client)
     assert not any(row["item"]["tmdb_id"] == 101 for row in second["results"])
     assert len(client.calls) > calls
+
+
+def test_external_work_admission_is_bounded_and_releases_capacity(monkeypatch):
+    gate = BoundedSemaphore(2)
+    monkeypatch.setattr(discovery, "_PENDING_REQUESTS", gate)
+    release = Event()
+    completed = [Event(), Event()]
+    futures = []
+    try:
+        for done in completed:
+            future = discovery._submit(lambda: release.wait(2))
+            assert future is not None
+            future.add_done_callback(lambda _, event=done: event.set())
+            futures.append(future)
+        assert discovery._submit(lambda: pytest.fail("excess work must not execute")) is None
+    finally:
+        release.set()
+        for future in futures:
+            future.result(2)
+        for event in completed:
+            assert event.wait(1)
+    assert gate.acquire(blocking=False)
+    assert gate.acquire(blocking=False)
+    assert not gate.acquire(blocking=False)
+    gate.release()
+    gate.release()

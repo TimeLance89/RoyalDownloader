@@ -48,14 +48,15 @@ _PENDING_REQUESTS = threading.BoundedSemaphore(12)
 
 def _submit(function, *args):
     """Bound queued work as well as running requests across all households."""
-    if not _PENDING_REQUESTS.acquire(blocking=False):
+    gate = _PENDING_REQUESTS
+    if not gate.acquire(blocking=False):
         return None
     try:
         future = _DISCOVERY_POOL.submit(function, *args)
     except BaseException:
-        _PENDING_REQUESTS.release()
+        gate.release()
         raise
-    future.add_done_callback(lambda _: _PENDING_REQUESTS.release())
+    future.add_done_callback(lambda _: gate.release())
     return future
 
 
@@ -271,12 +272,17 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                 collection = client._request(f"/collection/{value}", {
                     "language": getattr(client, "language", "de-DE"),
                 })
-                payload = {"results": _rows(collection, "parts")}
+                if not isinstance(collection, dict) or not isinstance(collection.get("parts"), list):
+                    return {}
+                payload = {"results": collection["parts"]}
             elif mode == "person":
                 credits = client._request(f"/person/{value}/{person_media}_credits", {
                     "language": getattr(client, "language", "de-DE"),
                 })
-                payload = {"results": [row for row in _rows(credits, "cast" if kind == "actors" else "crew")
+                credit_field = "cast" if kind == "actors" else "crew"
+                if not isinstance(credits, dict) or not isinstance(credits.get(credit_field), list):
+                    return {}
+                payload = {"results": [row for row in credits[credit_field]
                                        if isinstance(row, dict) and (kind == "actors" or row.get("job") == "Director")]}
             else:
                 payload = client._request(f"/discover/{kind}", {
@@ -290,7 +296,7 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
         except Exception:
             # A single failing TMDB query must not blank the entire Home feed.
             return {}
-        return payload if isinstance(payload, dict) else {}
+        return payload if isinstance(payload, dict) and isinstance(payload.get("results"), list) else {}
 
     def lookup_subject():
         if not subject_seed:
