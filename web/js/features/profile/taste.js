@@ -239,7 +239,7 @@ export function createTasteProfile(documentRef, {
     profile.interactions += 1;
     profile.updatedAt = Date.now();
     saveDiscoveryProfile(profile);
-    void sendEvent({
+    return sendEvent({
       action,
       source: "web",
       media_type: kind,
