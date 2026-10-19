@@ -1,5 +1,6 @@
 export const HOME_RAIL_CATALOG = [
   { id: "personal", trackId: "home-movies-track", title: "Für dich ausgewählt", eyebrow: "Persönlich", description: "Aus deinen Klicks, Downloads und Favoriten.", layout: "spotlight" },
+  { id: "discovered", trackId: "home-discovered-track", title: "Neu für dich entdeckt", eyebrow: "Royal Discovery", description: "Persönliche TMDB-Tipps: Royal sucht beim Öffnen in deinen Quellen." },
   { id: "top", trackId: "home-top-track", title: "Top 10", eyebrow: "Tageschart", description: "Was heute über alle Quellen hinweg gefragt ist.", ranked: true },
   { id: "series", trackId: "home-series-track", title: "Serien, die gerade alle sehen", eyebrow: "Serien", description: "Aktuell beliebte Serien aus deinen Quellen." },
   { id: "genre", trackId: "home-genre-track", title: "Ein Genre für dich", eyebrow: "Geschmack", description: "Eine wechselnde Reihe aus deinen Lieblingsgenres." },
@@ -12,7 +13,7 @@ export const HOME_RAIL_CATALOG = [
   { id: "movies", trackId: "home-movie-night-track", title: "Filmabend", eyebrow: "Nur Filme", description: "Eine täglich neu gemischte Auswahl nur mit Filmen." },
   { id: "library", trackId: "home-library-track", title: "Schon in deiner Mediathek", eyebrow: "Jellyfin", description: "Direkter Zugriff auf bereits vorhandene Titel." },
 ];
-const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "top", "series", "genre", "explore", "gems", "fresh"];
+const HOME_DEFAULT_VISIBLE_RAILS = ["personal", "discovered", "top", "series", "genre", "explore", "gems", "fresh"];
 export function defaultHomeLayout() {
   return {
     version: 1, hero_visible: true,
