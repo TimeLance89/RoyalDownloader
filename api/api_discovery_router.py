@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
@@ -284,6 +285,12 @@ async def api_home_discovery(request: Request):
     if not user or not user.get("id"):
         raise HTTPException(401, "Anmeldung erforderlich.")
     owner_id = str(user["id"])
+    # Operations may disable only the new TMDB Home suggestions without
+    # changing download, provider, search, or existing Home behavior.
+    if os.getenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", "1").strip().lower() in {
+        "0", "off", "false", "no",
+    }:
+        return {"available": False, "results": [], "disabled": True}
 
     def _work():
         profiles = getattr(state, "taste_profiles", None)
