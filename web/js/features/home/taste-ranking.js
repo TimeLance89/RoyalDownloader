@@ -5,7 +5,7 @@ import { homeTasteReady } from "./taste-readiness.js";
 export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
   discoveryV2LogicalKey, discoveryV2ExposurePenalty, discoveryV2SelectDiverse,
-  getShuffle, applyServerTasteProfile, renderHome, client = api,
+  getShuffle, applyServerTasteProfile, renderHome, onProfileChanged = () => {}, client = api,
   discoveryV2Noise = () => 0,
 }) {
   let scope, pendingFeedback = 0, needsSync = false;
@@ -350,7 +350,10 @@ export function createTasteRanking(root, summaryRoot, {
         metadata: { ...tasteMetadata(entry.kind, media), franchise: media.franchise || media.collection || media.belongs_to_collection || "" },
       }, { signal: current.signal });
       if (!current.active) return;
-      if (response?.profile) applyServerTasteProfile(response.profile);
+      if (response?.profile) {
+        applyServerTasteProfile(response.profile);
+        onProfileChanged();
+      }
       scoreCache.clear(); renderHome();
     } catch (error) {
       if (current.active) { control.dataset.busy = "false"; control.title = error.message; }
