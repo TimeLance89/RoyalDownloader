@@ -239,7 +239,7 @@ for (const kind of ["movie", "series"]) test(`${kind} result cards call injected
   assert.equal(visual.children.at(-1).textContent, "In Jellyfin");
 });
 
-test("explore publishes only ready backdrops but keeps unresolved candidates hydratable", () => {
+test("explore supports poster-only discoveries and keeps candidates hydratable", () => {
   const data = {
     topMovies: [], newMovies: [], cinemaMovies: [], discoveryMovies: [],
     trendingSeries: [], newSeries: [],
@@ -281,7 +281,7 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
     discoveryV2ExposurePenalty: () => 0,
   });
 
-  assert.deepEqual(lanes.homeExploreEntries().map(entryKey), ["series:ready"]);
+  assert.deepEqual(lanes.homeExploreEntries().map(entryKey), ["series:ready", "series:pending-a", "series:pending-b"]);
   assert.deepEqual(
     lanes.homeExploreArtworkCandidates().map(entryKey),
     ["series:ready", "series:pending-a", "series:pending-b"],
@@ -292,7 +292,7 @@ test("explore publishes only ready backdrops but keeps unresolved candidates hyd
   );
 });
 
-test("personal spotlight renders only hydrated landscape backdrops, not portrait posters", () => {
+test("personal spotlight retains high-affinity poster candidates while hydrating artwork", () => {
   const personal = Array.from({ length: 18 }, (_, index) => ({
     kind: "movie",
     item: {
@@ -334,11 +334,10 @@ test("personal spotlight renders only hydrated landscape backdrops, not portrait
 
   const definition = HOME_RAIL_CATALOG.find((rail) => rail.id === "personal");
   assert.equal(definition.layout, "spotlight");
-  assert.equal(definition.wallpaperOnly, true);
+  assert.equal(Boolean(definition.wallpaperOnly), false);
   const visible = lanes.homeDiscoveryLanes().personal;
-  assert.equal(visible.length, 7, "backdrop-ready candidates replace poster-only top matches");
-  assert.deepEqual(visible.map(entryKey), Array.from({ length: 7 }, (_, i) => `movie:film-${i + 8}`));
-  assert.ok(visible.every((entry) => entry.item.backdrop_url));
+  assert.equal(visible.length, 12, "high affinity poster candidates remain available");
+  assert.deepEqual(visible.map(entryKey), Array.from({ length: 12 }, (_, i) => `movie:film-${i}`));
   const hydratable = lanes.homeArtworkEntriesInLayout();
   assert.equal(hydratable.length, 18, "unresolved personal matches remain eligible for TMDB hydration");
   assert.ok(hydratable.some((entry) => entry.item.slug === "film-0"));

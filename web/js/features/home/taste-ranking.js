@@ -1,11 +1,16 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { homeTasteReady } from "./taste-readiness.js";
+import { homeTasteContext } from "./taste-context.js";
 
 export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
   discoveryV2LogicalKey, discoveryV2ExposurePenalty, discoveryV2SelectDiverse,
-  getShuffle, applyServerTasteProfile, renderHome, client = api,
+  getShuffle, applyServerTasteProfile, renderHome, onProfileChanged = () => {}, client = api,
   discoveryV2Noise = () => 0,
+  hasSeen = () => false,
+  getOwner = () => "",
+  getUserId = () => "",
 }) {
   let scope, pendingFeedback = 0, needsSync = false;
   const feedbackEntries = new WeakMap();
@@ -55,6 +60,8 @@ export function createTasteRanking(root, summaryRoot, {
   }));
   const sessionExposure = new Set();
   const scoreCache = new Map();
+  // Composition callbacks become usable only after all services are built.
+  let sessionOwner = null;
 
   function normalizeToken(value) {
     return String(value || "")
@@ -147,11 +154,17 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function tasteV2ScoreEntry(entry, profile = loadDiscoveryProfile()) {
+    if (sessionOwner !== String(getOwner())) {
+      sessionOwner = String(getOwner());
+      sessionExposure.clear();
+      scoreCache.clear();
+    }
+    profile = homeTasteContext(profile, entry.kind);
     const metadata = tasteV2Metadata(entry);
     const exposurePenalty = Number(discoveryV2ExposurePenalty?.(entry, "personal") || 0);
     const dailyVariation = discoveryV2Noise(entry, "personal", 6);
     const cacheKey = JSON.stringify([tasteV2LogicalKey(entry), profile.updatedAt || profile.updated_at,
-      profile.ranking, profile.confidence, getShuffle(), metadata,
+      profile.dimensions, profile.ranking, profile.confidence, getShuffle(), metadata,
       homeEntryMedia(entry).rating, exposurePenalty, dailyVariation]);
     if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
     const policy = profile.ranking || {};
@@ -224,7 +237,7 @@ export function createTasteRanking(root, summaryRoot, {
     const scored = pool.map((entry) => ({ entry, ...tasteV2ScoreEntry(entry, profile) }))
       .sort((left, right) => right.score - left.score);
 
-    if (Number(profile.interactions || 0) < 2 || Number(profile.confidence || 0) < 0.18) {
+    if (!homeTasteReady(profile)) {
       return typeof discoveryV2SelectDiverse === "function"
         ? discoveryV2SelectDiverse(scored, 24)
         : scored.slice(0, 24).map(({ entry }) => entry);
@@ -322,16 +335,12 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function recordVisiblePersonalForReshuffle() {
-    // The personal rail now skips poster-only candidates. Record only cards
-    // that can actually appear with landscape artwork, or reshuffles penalize
-    // unseen posters and keep showing the same wallpaper recommendations.
-    strictPersonalEntries()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
-      .slice(0, 7)
-      .forEach((entry) => {
-        const key = tasteV2LogicalKey(entry);
-        if (key) sessionExposure.add(key);
-      });
+    // Shuffling is not evidence that every rendered card was actually seen.
+    // Genuine exposure is already measured by the shared dwell observer.
+    for (const entry of strictPersonalEntries()) {
+      const key = tasteV2LogicalKey(entry);
+      if (key && hasSeen(key)) sessionExposure.add(key);
+    }
     scoreCache.clear();
   }
 
@@ -342,18 +351,22 @@ export function createTasteRanking(root, summaryRoot, {
     event.preventDefault(); event.stopPropagation();
     if (control.dataset.busy === "true") return;
     const current = scope; pendingFeedback++; control.dataset.busy = "true";
+    const ownerKey = String(getOwner());
     try {
       const media = homeEntryMedia(entry);
       const response = await client.post("/api/taste/feedback", {
         item_key: tasteV2FeedbackKey(entry), action: "dismiss", source: "home", media_type: entry.kind,
         title: media.title || entry.item?.title || "",
         metadata: { ...tasteMetadata(entry.kind, media), franchise: media.franchise || media.collection || media.belongs_to_collection || "" },
-      }, { signal: current.signal });
-      if (!current.active) return;
-      if (response?.profile) applyServerTasteProfile(response.profile);
+      }, { signal: current.signal, headers: { "X-Royal-Profile": String(getUserId() || "") } });
+      if (!current.active || ownerKey !== String(getOwner())) return;
+      if (response?.profile) {
+        applyServerTasteProfile(response.profile);
+        onProfileChanged();
+      }
       scoreCache.clear(); renderHome();
     } catch (error) {
-      if (current.active) { control.dataset.busy = "false"; control.title = error.message; }
+      if (current.active && ownerKey === String(getOwner())) { control.dataset.busy = "false"; control.title = error.message; }
     } finally { if (current.active) pendingFeedback--; }
   }
   return {
@@ -375,9 +388,10 @@ export function createTasteRanking(root, summaryRoot, {
       root.querySelectorAll('.taste-v2-dismiss[data-busy="true"]').forEach(control => { control.dataset.busy = "false"; });
       if (needsSync) {
         needsSync = false;
-        void client.get("/api/taste/profile", { signal: current.signal }).then(response => {
-          if (current.active) { applyServerTasteProfile(response.profile); scoreCache.clear(); renderHome(); }
-        }).catch(error => { if (current.active) { needsSync = true; summaryRoot.textContent = error.message; } });
+        const ownerKey = String(getOwner());
+        void client.get("/api/taste/profile", { signal: current.signal, headers: { "X-Royal-Profile": String(getUserId() || "") } }).then(response => {
+          if (current.active && ownerKey === String(getOwner())) { applyServerTasteProfile(response.profile); scoreCache.clear(); renderHome(); }
+        }).catch(error => { if (current.active && ownerKey === String(getOwner())) { needsSync = true; summaryRoot.textContent = error.message; } });
       }
     },
     refresh() { scoreCache.clear(); renderTasteSummaryV2(); },

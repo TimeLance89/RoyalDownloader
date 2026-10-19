@@ -93,12 +93,15 @@ function discoveryV2ExposurePenalty(entry, lane) {
     const age = discoveryV2DayDistance(day);
     if (age < 1 || age > 14) continue; // Today's ranking must stay stable.
     const sameLaneWeight = age === 1 ? 16 : age === 2 ? 10 : age <= 4 ? 6 : age <= 7 ? 3 : 1;
+    let dayPenalty = 0;
     for (const [storedLane, keys] of Object.entries(record?.lanes || {})) {
       if (!Array.isArray(keys) || !keys.includes(key)) continue;
-      penalty += (storedLane === lane || storedLane.startsWith(`${lane}:`))
+      const weight = (storedLane === lane || storedLane.startsWith(`${lane}:`))
         ? sameLaneWeight
         : sameLaneWeight * 0.35;
+      dayPenalty = Math.max(dayPenalty, weight);
     }
+    penalty += dayPenalty;
   }
   return Math.min(32, penalty);
 }

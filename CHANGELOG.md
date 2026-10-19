@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Royal Discovery 3.0
+
+- Preserve poster-only recommendations and twelve Spotlight cards; align the
+  full frontend contracts with the existing cinema presentation.
+- Separate bounded recent interests and movie/series taste for Home and hero
+  ranking without changing Jellyfin recommendation scoring or stored schema.
+- Discover confirmed actor/director credits, collections and related titles
+  within three TMDB calls; respect rejected media types and rotate seed paths.
+- Bound concurrent and queued TMDB work, return within an eight-second fetch
+  budget, coalesce browser requests and retry partial outages after five minutes.
+- Protect per-user caches against response mutation and shared legacy fallback.
+- Reject stale Home/taste requests after another browser window changes the
+  shared login cookie, before reading or writing the new user's preferences.
+- Preserve continuous viewport dwell and only penalize genuinely seen cards
+  when shuffling; repeated appearances in several rows count once per day.
+- Add offline relevance, malformed-response, restart, recovery and concurrency
+  scenarios; run full quality, mobile WebKit and Linux stability before a PR.
+
 ### Explicit movie replacement API
 
 - Add an administrator-only endpoint that verifies movie identity and a source,

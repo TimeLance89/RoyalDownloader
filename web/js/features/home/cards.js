@@ -4,6 +4,7 @@ export function createHomeCards({
   openDailyTop, registerDock, markLanguage, enhanceTaste, enhanceHero, enhanceDailyTop,
   createCollectionCard, openMovieCollection, homeMovieBySlug, selectFpRow,
   homeAnimeById, openAnimeDetail, openAniworldDetail, homeSeriesBySlug, loadSeries,
+  searchHomeTitle = () => {}, trackHomeIdeaOpen = () => {},
 }) {
   function openHomeEntry(kind, key) {
       if (kind === "collection") {
@@ -43,11 +44,32 @@ export function createHomeCards({
       media, kind, key, rank, eager, variant, jellyfinState: mediaJellyfinStatus(media),
       coverCandidates: url => coverCandidates(url), initials: mediaCardInitials,
       setArtwork: setHomeCardArtworkCandidates, setMeta: setHomeCardMeta,
-      onOpen: () => { if (!openDailyTop(entry)) openHomeEntry(kind, key); },
-      decorate(card) { registerDock(card, entry); },
+      onOpen: () => {
+        if (item.tmdb_discovery) {
+          trackHomeIdeaOpen(kind, item);
+          searchHomeTitle(item.title, kind);
+        }
+        else if (!openDailyTop(entry)) openHomeEntry(kind, key);
+      },
+      decorate(card) { if (!item.tmdb_discovery) registerDock(card, entry); },
     });
     markLanguage(card.querySelector(".home-card-type"), media);
     enhanceTaste(card, entry);
+    if (item.tmdb_discovery) {
+      card.dataset.homeDiscovery = "tmdb";
+      const why = (item.discovery_reason || []).slice(0, 2).join(" · ");
+      card.title = why ? `Royal empfiehlt diesen Titel wegen: ${why}. In aktiven Quellen suchen.`
+        : "Royal-Tipp: Beim Öffnen in aktiven Quellen suchen.";
+      const action = card.querySelector(".home-card-primary-action");
+      action?.setAttribute("aria-label", `${media.title}: Royal-Tipp in aktiven Quellen suchen`);
+      if (why) {
+        card.dataset.tasteReason = why;
+        const reason = document.createElement("span");
+        reason.className = "royal-discovery-reason";
+        reason.textContent = `Passt zu: ${why}`;
+        card.querySelector(".home-card-art")?.appendChild(reason);
+      }
+    }
     enhanceHero(card, entry);
     return enhanceDailyTop(card, entry, rank);
   }

@@ -3,6 +3,7 @@ export function createHomeLanes(root, {
   loadDiscoveryProfile, stableDailyOrder, homeEntryMedia, homeEntryKey, homeTopEntries,
   stableDiscoveryHash, localDateKey, homeHeroCandidates, homePersonalizedEntries, currentHomeLayout,
   mediaJellyfinStatus, getJellyfinStatus, getData, discoveryV2ExposurePenalty,
+  homeContentKeys = () => [],
 }) {
   function rotatingOrder(entries, lane) {
     return stableDailyOrder(entries, lane)
@@ -54,10 +55,18 @@ export function createHomeLanes(root, {
       .sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0], "de"))[0]?.[0] || "";
   }
 
+  function homeSafeEntries(profile = loadDiscoveryProfile()) {
+    const disliked = new Set(Object.entries(profile.genres || {})
+      .filter(([, score]) => Number(score) < -1.5)
+      .map(([genre]) => genre.toLocaleLowerCase()));
+    return homeAllEntries().filter((entry) =>
+      !(homeEntryMedia(entry).genres || []).some((genre) => disliked.has(String(genre).toLocaleLowerCase())));
+  }
+
   function homeGenreEntries() {
     const profile = loadDiscoveryProfile();
     const favorite = favoriteDiscoveryGenre(profile);
-    const pool = homeAllEntries();
+    const pool = homeSafeEntries(profile);
     if (!favorite) return rotatingOrder(pool, "genre").slice(0, 24);
     const matching = pool.filter((entry) =>
       (homeEntryMedia(entry).genres || []).some((genre) =>
@@ -82,54 +91,57 @@ export function createHomeLanes(root, {
       .sort((a, b) => Number(b[1]) - Number(a[1]))
       .slice(0, 2)
       .map(([genre]) => genre.toLocaleLowerCase()));
-    const recent = new Set(profile.recent.slice(0, 30).map((event) => event.key));
-    const pool = homeAllEntries().filter((entry) => {
+    const recent = new Set((profile.recent || []).slice(0, 30).map((event) => event.key));
+    // When novelty runs out, keep only safe familiar alternatives.
+    const safe = homeSafeEntries(profile);
+    const novel = safe.filter((entry) => {
       if (recent.has(homeEntryKey(entry))) return false;
       const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
       return !genres.some((genre) => avoidedGenres.has(genre));
     });
-    return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore");
+    const keys = new Set(novel.map(homeEntryKey));
+    return [
+      ...rotatingOrder(novel, "explore"),
+      ...rotatingOrder(safe.filter((entry) => !keys.has(homeEntryKey(entry))), "explore"),
+    ];
   }
 
-  // Keep the original candidates eligible for metadata hydration even before
-  // they have a backdrop. The visible Explore rail itself publishes only
-  // finished 16:9 artwork, so portrait posters/initial placeholders never
-  // become the final presentation.
+  // Discovery should not hide excellent recommendations just because TMDB
+  // supplies a poster but no landscape artwork. Cards can display both.
   function homeExploreArtworkCandidates() {
     return homeExploreCandidatePool().slice(0, 24);
   }
 
   function homeExploreEntries() {
-    return homeExploreCandidatePool()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
-      .slice(0, 24);
+    return homeExploreCandidatePool().slice(0, 24);
   }
 
-  // Personal Spotlight must never fall back to portrait posters. Hydrate the
-  // full ranked reservoir before choosing seven ready landscape artworks,
-  // otherwise poster-only matches at the front crowd out usable backdrops.
+  // Hydrate the personal reservoir but do not exclude poster-only favorites.
   function homePersonalArtworkCandidates() {
     return homePersonalizedEntries().slice(0, 24);
   }
 
   function homePersonalWallpaperEntries() {
-    return homePersonalArtworkCandidates()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url));
+    // Kept under the old internal name to avoid changing composition contracts.
+    return homePersonalArtworkCandidates();
   }
 
   function homeGemEntries() {
     const topKeys = new Set(homeTopEntries().map(homeEntryKey));
-    const candidates = homeAllEntries()
+    const tasteOrder = new Map(homePersonalizedEntries()
+      .map((entry, index) => [homeEntryKey(entry), index]));
+    const candidates = homeSafeEntries()
       .filter((entry) => !topKeys.has(homeEntryKey(entry)))
       .map((entry) => ({
         entry,
         rating: Number(homeEntryMedia(entry).rating || 0),
         penalty: Number(discoveryV2ExposurePenalty?.(entry, "gems") || 0),
+        taste: tasteOrder.has(homeEntryKey(entry)) ? Math.max(0, 3.6 - tasteOrder.get(homeEntryKey(entry)) * 0.12) : 0,
         daily: stableDiscoveryHash(`${localDateKey()}|gems|${homeEntryKey(entry)}`) / 4294967295 * 2,
       }))
       .filter(({ rating }) => !rating || rating >= 6.4)
-      .sort((a, b) => (b.rating - b.penalty * 0.35 + b.daily)
-        - (a.rating - a.penalty * 0.35 + a.daily))
+      .sort((a, b) => (b.rating + b.taste - b.penalty * 0.35 + b.daily)
+        - (a.rating + a.taste - a.penalty * 0.35 + a.daily))
       .map(({ entry }) => entry);
     return candidates.slice(0, 24);
   }
@@ -147,12 +159,22 @@ export function createHomeLanes(root, {
     return selected;
   }
 
+  function activePersonalDiscoveries() {
+    // A TMDB idea is genuinely new only when its logical title/ID isn't
+    // already part of the existing Home/provider catalog.
+    const known = new Set(homeAllEntries().flatMap((entry) => homeContentKeys(entry)));
+    return allowedHomeEntries((getData().personalDiscoveries || [])
+      .filter((entry) => entry && ["movie", "series"].includes(entry.kind) && entry.item)
+      .filter((entry) => !homeContentKeys(entry).some((key) => known.has(key))));
+  }
+
   function homeDiscoveryLanes() {
     const top = homeTopEntries();
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
-      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 7, 7),
+      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 12, 8),
+      discovered: takeDistinctHomeLane(activePersonalDiscoveries(), seen, 24, 0),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,

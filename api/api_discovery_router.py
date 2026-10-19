@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from api.interactive_work import run_browse_work as run_in_threadpool
 from application_services.series_detail_work import SeriesDetailWork, SeriesDetailsBusy
@@ -27,6 +28,7 @@ from features.monster_series_extension import (
     monster_tmdb_series,
 )
 from features.movie_releases import release_service, safe_image
+from features.home_discovery import HomeDiscoveryService
 from features.subscription_languages import subscription_content_languages
 from features.movie_probes import MovieProbeIncomplete, movie_detail_probes, movie_probe_context, movie_probe_scope
 from providers.aniworld import aniworld_episode_page
@@ -92,6 +94,7 @@ async def _bounded_library_work(identity, work):
 
 
 router = APIRouter(tags=["discovery"])
+_HOME_DISCOVERY = HomeDiscoveryService()
 MOVIE_AVAILABILITY_WAIT_SECONDS = 0.8
 
 
@@ -249,8 +252,8 @@ def create_discovery_router(backend) -> APIRouter:
 # ── Start-page composition ────────────────────────────────────────────────
 class HomeLayoutBody(BaseModel):
     hero_visible: bool = True
-    rail_order: list[str] = Field(default_factory=list, max_length=12)
-    hidden_rails: list[str] = Field(default_factory=list, max_length=12)
+    rail_order: list[str] = Field(default_factory=list, max_length=13)
+    hidden_rails: list[str] = Field(default_factory=list, max_length=13)
 
 
 @router.get("/api/v1/home/layout")
@@ -269,6 +272,39 @@ async def api_home_layout_put(body: HomeLayoutBody):
         return await run_in_threadpool(state.home_layout.update, body.model_dump())
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+# ── Royal Discovery 3.0 (isolated Home recommendations) ──────────────────
+@router.get("/api/v1/home/discovery")
+@router.get("/api/home/discovery")
+async def api_home_discovery(request: Request):
+    """Authenticated, user-specific TMDB ideas; never implies download availability."""
+    from application_services.auth import current_user
+
+    user = await run_in_threadpool(current_user, request.headers, request.cookies)
+    if not user or not user.get("id"):
+        raise HTTPException(401, "Anmeldung erforderlich.")
+    owner_id = str(user["id"])
+    from api.profile_owner_guard import require_profile_owner
+    require_profile_owner(request.headers, owner_id)
+    # Operations may disable only the new TMDB Home suggestions without
+    # changing download, provider, search, or existing Home behavior.
+    if os.getenv("ROYAL_HOME_DISCOVERY_V3_ENABLED", "1").strip().lower() in {
+        "0", "off", "false", "no",
+    }:
+        return {"available": False, "results": [], "disabled": True}
+
+    def _work():
+        profiles = getattr(state, "taste_profiles", None)
+        if profiles is None:
+            # Never substitute a shared legacy profile for an authenticated user.
+            return {"available": False, "results": []}
+        profile_store = profiles.for_user(owner_id)
+        profile = profile_store.public_profile()
+        client = get_tmdb_client()
+        return _HOME_DISCOVERY.get(owner_id, profile, client)
+
+    return await run_in_threadpool(_work)
 
 
 # ── Genres ──────────────────────────────────────────────────────────────────

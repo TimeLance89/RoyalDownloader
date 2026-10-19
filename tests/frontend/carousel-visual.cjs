@@ -79,14 +79,20 @@ if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/
         assert.deepEqual(f.errors, []);
       } finally { await f.close(); }
     }
-    captures[0].forEach(({ id, geometry, image: a }, i) => {
+    captures[0].forEach(({ id, geometry, image: a }) => {
+      // Personalization reorders Home sections. Identify the same track in
+      // both builds instead of comparing unrelated rails by ordinal position.
+      // Keep strict pixel, exact card-style and <1px alignment verification.
+      const counterpart = captures[1].find(capture => capture.id === id);
+      assert.ok(counterpart, `Missing current rail: ${id}`);
+      assert.equal(counterpart.geometry.length, geometry.length, `${id} logical card count`);
       geometry.forEach((card, j) => {
-        const current = captures[1][i].geometry[j];
+        const current = counterpart.geometry[j];
         assert.ok(Math.abs(card.x - current.x) <= 1, id + ' subpixel alignment');
         const { x: _oldX, ...oldStyle } = card, { x: _newX, ...newStyle } = current;
         assert.deepEqual(newStyle, oldStyle, id + ' exact card geometry/type/content');
       });
-      const b = captures[1][i].image;
+      const b = counterpart.image;
       assert.equal(a.width, b.width, id + ' width'); assert.equal(a.height, b.height, id + ' height');
       const diff = new PNG({ width: a.width, height: a.height });
       const pixels = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.15, diffMask: true });

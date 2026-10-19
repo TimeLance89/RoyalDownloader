@@ -8,9 +8,11 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
       reconcileHomeRail(track, [{ signature: "empty", create: () => {
         const empty = document.createElement("span");
         empty.className = "home-rail-empty";
-        empty.textContent = wallpaperOnly
-          ? "Für diese Auswahl sind aktuell keine Querformatbilder verfügbar."
-          : "Noch keine Titel aus den aktiven Quellen verfügbar.";
+        empty.textContent = trackId === "home-discovered-track"
+          ? "Royal entdeckt weitere passende Titel, sobald dein Geschmacksprofil genügend Hinweise liefert und TMDB erreichbar ist."
+          : wallpaperOnly
+            ? "Für diese Auswahl sind aktuell keine Querformatbilder verfügbar."
+            : "Noch keine Titel aus den aktiven Quellen verfügbar.";
         return empty;
       } }], { loop: false });
       return;
@@ -26,7 +28,7 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
     })), { loop: false });
     return;
   }
-  const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
+  const visibleEntries = layout === "spotlight" ? entries.slice(0, 12) : entries;
   reconcileHomeRail(track, visibleEntries.map((entry, index) => {
       const eagerCount = ranked ? 5 : 3;
       const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";
