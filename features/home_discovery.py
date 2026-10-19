@@ -74,7 +74,7 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
     date_value = str(raw.get("release_date") or raw.get("first_air_date") or "")
     year = date_value[:4] if date_value[:4].isdigit() else ""
     dimensions = {"genres": genres, "media_types": ["movie" if kind == "movie" else "series"]}
-    if extra and extra[0] in {"actors", "directors"}:
+    if extra and extra[0] in {"actors", "directors", "franchises"}:
         dimensions[extra[0]] = [extra[1]]
     if year:
         dimensions["decades"] = [f"{int(year) // 10 * 10}er"]
@@ -148,11 +148,11 @@ def _recent_tmdb_seed(profile: Mapping[str, Any]) -> tuple[str, int] | None:
     return None
 
 
-def _favorite_person(profile: Mapping[str, Any]) -> tuple[str, str] | None:
-    """One confident public actor/director name; no private metadata leaves Home."""
+def _favorite_subject(profile: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Pick one confident public actor/director/franchise, avoiding query fan-out."""
     dimensions = profile.get("dimensions") or {}
     candidates: list[tuple[float, str, str]] = []
-    for dimension, multiplier in (("directors", 0.82), ("actors", 0.46)):
+    for dimension, multiplier in (("directors", 0.82), ("actors", 0.46), ("franchises", 0.74)):
         for name, value in (dimensions.get(dimension) or {}).items():
             clean = str(name or "").strip()
             if not 2 <= len(clean) <= 64:
@@ -176,8 +176,8 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
         return []
     favorites = _favorite_genres(profile)
     seed = _recent_tmdb_seed(profile)
-    person_seed = _favorite_person(profile) if not seed else None
-    if not favorites and not seed and not person_seed:
+    subject_seed = _favorite_subject(profile) if not seed else None
+    if not favorites and not seed and not subject_seed:
         return []
     day = day or date.today().isoformat()
     day_offset = int(hashlib.sha256(day.encode()).hexdigest()[:2], 16) % 3
@@ -200,7 +200,7 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
         movie = next((job for job in jobs if job[1] == "movie"), None)
         television = next((job for job in jobs if job[1] == "tv"), None)
         jobs = [job for job in (movie, ("related", seed[0], seed[1], ""), television) if job]
-    elif person_seed:
+    elif subject_seed:
         # Resolving a public person name needs a second TMDB call to fetch
         # credited films. Keep just one genre call: 1 + 1 + 1 <= MAX_REQUESTS.
         jobs = jobs[:1]
@@ -213,6 +213,11 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                 payload = client._request(f"/{kind}/{value}/recommendations", {
                     "language": getattr(client, "language", "de-DE"),
                 })
+            elif mode == "franchise":
+                collection = client._request(f"/collection/{value}", {
+                    "language": getattr(client, "language", "de-DE"),
+                })
+                payload = {"results": (collection or {}).get("parts") or []}
             elif mode == "person":
                 payload = client._request("/discover/movie", {
                     "language": getattr(client, "language", "de-DE"),
@@ -235,12 +240,13 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
             return {}
         return payload if isinstance(payload, dict) else {}
 
-    def lookup_person():
-        if not person_seed:
+    def lookup_subject():
+        if not subject_seed:
             return None
-        dimension, name = person_seed
+        dimension, name = subject_seed
+        path = "/search/collection" if dimension == "franchises" else "/search/person"
         try:
-            payload = client._request("/search/person", {
+            payload = client._request(path, {
                 "language": getattr(client, "language", "de-DE"),
                 "query": name, "page": 1, "include_adult": "false",
             })
@@ -258,26 +264,27 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                 return (dimension, person_id, name)
         return None
 
-    person_future = _DISCOVERY_POOL.submit(lookup_person) if person_seed else None
+    person_future = _DISCOVERY_POOL.submit(lookup_subject) if subject_seed else None
     fetched = list(zip(batches, _DISCOVERY_POOL.map(fetch_page, enumerate(batches))))
     if person_future:
         person = person_future.result()
         if person:
             dimension, person_id, name = person
-            job = ("person", dimension, person_id, name)
+            job = ("franchise", "movie", person_id, name) if dimension == "franchises" else (
+                "person", dimension, person_id, name)
             fetched.append((job, fetch_page((len(fetched), job))))
 
     results: dict[str, dict[str, Any]] = {}
     # Bounded pool: one genre + person search + person credits = at most 3 calls.
     for (mode, kind, genre_id, genre), payload in fetched:
-        media_kind = "movie" if mode == "person" else kind
+        media_kind = "movie" if mode in {"person", "franchise"} else kind
         names = {value: name for name, value in TMDB_GENRES[media_kind].items()}
         if mode == "genre" and genre:
             names[genre_id] = genre
         for raw in (payload.get("results") or [])[:20]:
             if not isinstance(raw, dict):
                 continue
-            extra = (kind, genre) if mode == "person" else None
+            extra = (("franchises" if mode == "franchise" else kind), genre) if mode in {"person", "franchise"} else None
             suggestion = _suggestion(media_kind, raw, client, profile, names, day,
                                      extra=extra)
             if suggestion is None:
