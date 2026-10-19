@@ -4,6 +4,7 @@ export function createHomeCards({
   openDailyTop, registerDock, markLanguage, enhanceTaste, enhanceHero, enhanceDailyTop,
   createCollectionCard, openMovieCollection, homeMovieBySlug, selectFpRow,
   homeAnimeById, openAnimeDetail, openAniworldDetail, homeSeriesBySlug, loadSeries,
+  searchHomeTitle = () => {},
 }) {
   function openHomeEntry(kind, key) {
       if (kind === "collection") {
@@ -43,11 +44,21 @@ export function createHomeCards({
       media, kind, key, rank, eager, variant, jellyfinState: mediaJellyfinStatus(media),
       coverCandidates: url => coverCandidates(url), initials: mediaCardInitials,
       setArtwork: setHomeCardArtworkCandidates, setMeta: setHomeCardMeta,
-      onOpen: () => { if (!openDailyTop(entry)) openHomeEntry(kind, key); },
-      decorate(card) { registerDock(card, entry); },
+      onOpen: () => {
+        if (item.tmdb_discovery) searchHomeTitle(item.title, kind);
+        else if (!openDailyTop(entry)) openHomeEntry(kind, key);
+      },
+      decorate(card) { if (!item.tmdb_discovery) registerDock(card, entry); },
     });
     markLanguage(card.querySelector(".home-card-type"), media);
     enhanceTaste(card, entry);
+    if (item.tmdb_discovery) {
+      card.dataset.homeDiscovery = "tmdb";
+      const why = (item.discovery_reason || []).join(" · ");
+      card.title = why ? `Royal empfiehlt diesen Titel wegen: ${why}. In aktiven Quellen suchen.`
+        : "Royal-Tipp: Beim Öffnen in aktiven Quellen suchen.";
+      if (why) card.dataset.tasteReason = why;
+    }
     enhanceHero(card, entry);
     return enhanceDailyTop(card, entry, rank);
   }
