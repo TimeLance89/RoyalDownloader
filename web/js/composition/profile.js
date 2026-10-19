@@ -19,6 +19,7 @@ export function composeProfile({ household, userMenu, state, getHome, getCore })
         shouldRenderHome: () => state.tab === "home" && !getHome().homeData.get().refreshing && !getHome().homePresenter.get().rendered,
         renderHome: (...args) => getHome().actions.renderHome(...args), homeMovieEntry: (...args) => getHome().actions.homeMovieEntry(...args), homeSeriesEntry: (...args) => getHome().actions.homeSeriesEntry(...args), homeEntryMedia: (...args) => getHome().actions.homeEntryMedia(...args), homeEntryKey: (...args) => getHome().actions.homeEntryKey(...args),
         onReset(user) { services.auth.acceptUser(user); getHome().homeData.refreshDiscovery(); services.tasteOnboarding.show(user); },
+        onProfileSync() { getHome().homeData.refreshDiscovery(); },
       }),
   household,
   userMenu,
