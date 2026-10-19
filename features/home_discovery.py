@@ -78,6 +78,20 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
     logical = f"{'movie' if kind == 'movie' else 'series'}:tmdb:{tmdb_id}"
     if logical in set(profile.get("blocked_items") or []):
         return None
+    # A clicked idea is weak evidence, not a reason to repeat it for weeks.
+    # Timestamps are seconds on the server; tolerate legacy milliseconds.
+    cutoff = time.time() - 14 * 86400
+    for event in (profile.get("recent") or [])[:60]:
+        if event.get("key") != logical:
+            continue
+        try:
+            last_at = float(event.get("at") or 0)
+        except (ValueError, TypeError):
+            continue
+        if last_at > 1e12:
+            last_at /= 1000
+        if last_at >= cutoff:
+            return None
     rating = float(raw.get("vote_average") or 0)
     votes = int(raw.get("vote_count") or 0)
     if rating < 5.5 or votes < 25:
@@ -205,6 +219,8 @@ class HomeDiscoveryService:
         dimensions = profile.get("dimensions") or {}
         key_data = json.dumps([
             user_id, dimensions, profile.get("blocked_items") or [],
+            [(event.get("key"), event.get("at"))
+             for event in (profile.get("recent") or [])[:30]],
             date.today().isoformat(), getattr(client, "language", ""), ready,
         ], sort_keys=True, ensure_ascii=False, default=str)
         key = hashlib.sha256(key_data.encode()).hexdigest()
