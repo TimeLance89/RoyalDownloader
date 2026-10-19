@@ -46,6 +46,9 @@ class HomeLayoutStore:
             rail_id = str(raw or "").strip()
             if rail_id in allowed and rail_id not in order:
                 order.append(rail_id)
+        # Keep the new discovery lane next to Personal for existing saved layouts.
+        if "personal" in order and "discovered" not in order:
+            order.insert(order.index("personal") + 1, "discovered")
         order.extend(rail_id for rail_id in HOME_RAIL_IDS if rail_id not in order)
         hidden = {
             str(raw or "").strip()
