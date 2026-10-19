@@ -96,7 +96,7 @@ export function createHomeExposureVisibility(root, {
       if (committed.has(dedupe)) continue;
       state.timer = schedule(() => {
         state.timer = null;
-        if (!state.visible || !validPage() || !change.target.isConnected
+        if (committed.has(dedupe) || !state.visible || !validPage() || !change.target.isConnected
             || String(getOwner() || "") !== state.owner || String(getDay()) !== day) return;
         committed.add(dedupe);
         if (committed.size > 600) committed.clear(); // bounded session history
