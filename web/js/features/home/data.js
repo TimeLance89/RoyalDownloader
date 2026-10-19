@@ -14,7 +14,7 @@ export function createHomeData({
 }) {
   const data = { newMovies: [], topMovies: [], cinemaMovies: [], cinemaUpdatedAt: 0,
     trendingSeries: [], newSeries: [],
-    discoveryMovies: [], discoverySeries: [], personalDiscoveries: [], loading: true, refreshing: false };
+    discoveryMovies: [], discoverySeries: [], personalDiscoveries: [], personalDiscoveryDisabled: false, loading: true, refreshing: false };
   const cache = createHomeCache(data, getMovieMetadata, storage);
   let owner = createScope();
   let pendingLoad = null;
@@ -96,6 +96,7 @@ export function createHomeData({
       });
       if (!scope.active || sequence !== discoverySeq
           || ownerKey !== String(getTasteStorageKey() || "")) return;
+      data.personalDiscoveryDisabled = response?.disabled === true;
       data.personalDiscoveries = (Array.isArray(response?.results) ? response.results : [])
         .filter((entry) => ["movie", "series"].includes(entry?.kind)
           && entry?.item?.tmdb_discovery === true);
@@ -339,6 +340,8 @@ export function createHomeData({
     get: () => Object.freeze({ ...data,
       personalDiscoveries: discoveryOwner === String(getTasteStorageKey() || "")
         ? data.personalDiscoveries : [],
+      personalDiscoveryDisabled: discoveryOwner === String(getTasteStorageKey() || "")
+        && data.personalDiscoveryDisabled,
     }), load, warm, reloadForLanguage, save: saveHomeCache,
     refreshDiscovery() { if (owner.active) void loadPersonalDiscovery(owner); },
     restore() {
