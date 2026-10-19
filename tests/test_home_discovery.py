@@ -91,3 +91,43 @@ def test_related_title_discovery_uses_recent_positive_tmdb_seed_not_dislikes():
     profile["recent"][0]["action"] = "dismiss"
     discover_home_candidates(profile, client)
     assert not any("recommendations" in path for path, _ in client.calls)
+
+
+def test_one_failed_tmdb_query_preserves_other_discovered_titles():
+    class FailingClient(FakeTMDB):
+        def _request(self, path, params):
+            if path == "/discover/movie":
+                raise TimeoutError("one TMDB route is temporarily unreachable")
+            payload = super()._request(path, params)
+            if path == "/discover/tv":
+                payload["results"] = [dict(item, genre_ids=[18]) for item in payload["results"]]
+            return payload
+
+    profile = _profile()
+    profile["dimensions"]["genres"]["Drama"] = 4
+    results = discover_home_candidates(profile, FailingClient())
+    assert results
+    assert all(result["kind"] == "series" for result in results)
+
+
+def test_concurrent_requests_for_same_profile_share_one_tmdb_fetch():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    started, release = Event(), Event()
+
+    class BlockingClient(FakeTMDB):
+        def _request(self, path, params):
+            started.set()
+            assert release.wait(3)
+            return super()._request(path, params)
+
+    client = BlockingClient()
+    service = HomeDiscoveryService(clock=lambda: 1000)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        one = pool.submit(service.get, "user", _profile(), client)
+        assert started.wait(2)
+        two = pool.submit(service.get, "user", _profile(), client)
+        release.set()
+        assert one.result(3) == two.result(3)
+    assert len(client.calls) == 1
