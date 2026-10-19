@@ -134,7 +134,7 @@ def _recent_tmdb_seed(profile: Mapping[str, Any]) -> tuple[str, int] | None:
     for event in (profile.get("recent") or [])[:30]:
         if event.get("action") not in {"open", "like", "favorite", "download"}:
             continue
-        match = re.fullmatch(r"(movie|series):tmdb:([1-9]\\d{0,9})", str(event.get("key") or ""))
+        match = re.fullmatch(r"(movie|series):tmdb:([1-9]\d{0,9})", str(event.get("key") or ""))
         if match:
             return ("movie" if match[1] == "movie" else "tv", int(match[2]))
     return None
