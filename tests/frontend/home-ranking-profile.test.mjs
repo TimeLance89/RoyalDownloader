@@ -2,6 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTasteRanking } from "../../web/js/features/home/taste-ranking.js";
 
+test("constructing Home ranking does not read unfinished composition services", () => {
+  assert.doesNotThrow(() => createTasteRanking({}, {}, {
+    getOwner() { throw new Error("composition is not initialized yet"); },
+  }));
+});
+
 test("late quick-dismiss response cannot replace another profile's taste", async () => {
   let owner = "A", resolve;
   const applied = [], listeners = new Map();

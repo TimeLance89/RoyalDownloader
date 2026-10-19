@@ -59,7 +59,8 @@ export function createTasteRanking(root, summaryRoot, {
   }));
   const sessionExposure = new Set();
   const scoreCache = new Map();
-  let sessionOwner = String(getOwner());
+  // Composition callbacks become usable only after all services are built.
+  let sessionOwner = null;
 
   function normalizeToken(value) {
     return String(value || "")

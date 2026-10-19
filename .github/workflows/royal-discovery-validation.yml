@@ -61,12 +61,14 @@ jobs:
         shell: bash
         run: |
           npm install --prefix "${RUNNER_TEMP}/royal-discovery-browser" --no-save --ignore-scripts playwright@1.62.1 pngjs@7.0.0 pixelmatch@7.2.0
-          "${RUNNER_TEMP}/royal-discovery-browser/node_modules/.bin/playwright" install --with-deps chromium
+          "${RUNNER_TEMP}/royal-discovery-browser/node_modules/.bin/playwright" install --with-deps chromium webkit
           echo "ROYAL_PLAYWRIGHT=${RUNNER_TEMP}/royal-discovery-browser/node_modules/playwright" >> "$GITHUB_ENV"
           echo "ROYAL_BROWSER=chromium" >> "$GITHUB_ENV"
           git worktree add --detach "${RUNNER_TEMP}/royal-discovery-baseline" d3aada9099703c0b9d9b6201f49082c52ddff0d7
       - name: Browser interactions against fully rendered Home
         run: node tests/frontend/browser-smoke.cjs
+      - name: Personalized poster feed, feedback and source-search handoff in both engines
+        run: node tests/frontend/home-discovery-browser.cjs
       - name: Relative geometry and unchanged-rail visual regression
         shell: bash
         run: |
@@ -82,5 +84,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: royal-discovery-visual-evidence
-          path: artifacts/frontend-performance/
+          path: |
+            artifacts/frontend-performance/
+            artifacts/home-discovery/
           retention-days: 2
