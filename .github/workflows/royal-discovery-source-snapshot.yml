@@ -1,0 +1,26 @@
+name: Royal Discovery temporary source snapshot
+on:
+  push:
+    branches:
+      - feature/royal-discovery-3-home-20261019
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive worktree
+        shell: bash
+        run: |
+          tar --exclude=.git --exclude=royal-discovery-worktree.tar.gz -czf royal-discovery-worktree.tar.gz .
+      - name: Publish temporary source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: royal-discovery-worktree
+          path: royal-discovery-worktree.tar.gz
+          retention-days: 1
