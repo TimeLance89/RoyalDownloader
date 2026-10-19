@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHomeExposureVisibility } from "../../web/js/features/home/exposure-visibility.js";
+import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
 
 function fixture() {
   const observed = new Set();
@@ -119,4 +120,25 @@ test("carousel loop clones count an already-seen title only once", () => {
   f.see(f.a, 1); f.see(clone, 1); f.tick(1500);
   assert.deepEqual(f.events, [["user-a", "discovered", 12]]);
   f.visibility.unmount();
+});
+
+test("shuffle visibility stays scoped to the current profile and day", () => {
+  const f = fixture(); f.visibility.mount(); f.visibility.syncRail("home-discovered-track", "discovered", f.entries);
+  f.see(f.a, 1); f.tick(1500);
+  assert.equal(f.visibility.hasSeen("movie:tmdb:12"), true);
+  f.switchOwner("user-b");
+  assert.equal(f.visibility.hasSeen("movie:tmdb:12"), false);
+  f.switchOwner("user-a"); f.setDay("2026-10-20");
+  assert.equal(f.visibility.hasSeen("movie:tmdb:12"), false);
+  f.visibility.unmount();
+});
+
+test("several rails cannot multiply a title's daily repetition penalty", () => {
+  const history = { version: 2, days: { "2026-10-18": { lanes: {
+    personal: ["movie:tmdb:12"], explore: ["movie:tmdb:12"], hero: ["movie:tmdb:12"],
+  } } } };
+  const policy = createDiscoveryPolicy({ storage: { getItem: () => JSON.stringify(history) },
+    personalStorageKey: key => key, homeEntryMedia: entry => entry.item,
+    localDateKey: () => "2026-10-19" });
+  assert.equal(policy.discoveryV2ExposurePenalty({ kind: "movie", item: { tmdb_id: 12 } }, "personal"), 16);
 });

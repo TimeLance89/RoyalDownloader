@@ -9,6 +9,7 @@ export function createTasteRanking(root, summaryRoot, {
   getShuffle, applyServerTasteProfile, renderHome, onProfileChanged = () => {}, client = api,
   discoveryV2Noise = () => 0,
   hasSeen = () => false,
+  getOwner = () => "",
 }) {
   let scope, pendingFeedback = 0, needsSync = false;
   const feedbackEntries = new WeakMap();
@@ -58,6 +59,7 @@ export function createTasteRanking(root, summaryRoot, {
   }));
   const sessionExposure = new Set();
   const scoreCache = new Map();
+  let sessionOwner = String(getOwner());
 
   function normalizeToken(value) {
     return String(value || "")
@@ -150,6 +152,11 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function tasteV2ScoreEntry(entry, profile = loadDiscoveryProfile()) {
+    if (sessionOwner !== String(getOwner())) {
+      sessionOwner = String(getOwner());
+      sessionExposure.clear();
+      scoreCache.clear();
+    }
     profile = homeTasteContext(profile, entry.kind);
     const metadata = tasteV2Metadata(entry);
     const exposurePenalty = Number(discoveryV2ExposurePenalty?.(entry, "personal") || 0);
@@ -342,6 +349,7 @@ export function createTasteRanking(root, summaryRoot, {
     event.preventDefault(); event.stopPropagation();
     if (control.dataset.busy === "true") return;
     const current = scope; pendingFeedback++; control.dataset.busy = "true";
+    const ownerKey = String(getOwner());
     try {
       const media = homeEntryMedia(entry);
       const response = await client.post("/api/taste/feedback", {
@@ -349,14 +357,14 @@ export function createTasteRanking(root, summaryRoot, {
         title: media.title || entry.item?.title || "",
         metadata: { ...tasteMetadata(entry.kind, media), franchise: media.franchise || media.collection || media.belongs_to_collection || "" },
       }, { signal: current.signal });
-      if (!current.active) return;
+      if (!current.active || ownerKey !== String(getOwner())) return;
       if (response?.profile) {
         applyServerTasteProfile(response.profile);
         onProfileChanged();
       }
       scoreCache.clear(); renderHome();
     } catch (error) {
-      if (current.active) { control.dataset.busy = "false"; control.title = error.message; }
+      if (current.active && ownerKey === String(getOwner())) { control.dataset.busy = "false"; control.title = error.message; }
     } finally { if (current.active) pendingFeedback--; }
   }
   return {
@@ -378,9 +386,10 @@ export function createTasteRanking(root, summaryRoot, {
       root.querySelectorAll('.taste-v2-dismiss[data-busy="true"]').forEach(control => { control.dataset.busy = "false"; });
       if (needsSync) {
         needsSync = false;
+        const ownerKey = String(getOwner());
         void client.get("/api/taste/profile", { signal: current.signal }).then(response => {
-          if (current.active) { applyServerTasteProfile(response.profile); scoreCache.clear(); renderHome(); }
-        }).catch(error => { if (current.active) { needsSync = true; summaryRoot.textContent = error.message; } });
+          if (current.active && ownerKey === String(getOwner())) { applyServerTasteProfile(response.profile); scoreCache.clear(); renderHome(); }
+        }).catch(error => { if (current.active && ownerKey === String(getOwner())) { needsSync = true; summaryRoot.textContent = error.message; } });
       }
     },
     refresh() { scoreCache.clear(); renderTasteSummaryV2(); },
