@@ -51,8 +51,8 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
           const owner = profile.key();
           // Do not refetch until the new taste event reaches the server;
           // otherwise its six-hour cache can serve the clicked title again.
-          void Promise.resolve(profile.track(kind, item, 0.25, "open")).then(() => {
-            if (profile.key() === owner) services.homeData.refreshDiscovery();
+          void Promise.resolve(profile.track(kind, item, 0.25, "open")).then(saved => {
+            if (saved === true && profile.key() === owner) services.homeData.refreshDiscovery();
           });
         },
         enhanceDailyTop: (card, entry, rank) => services.dailyTop.enhance(card, entry, rank),
