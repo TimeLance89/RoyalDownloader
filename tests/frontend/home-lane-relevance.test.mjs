@@ -43,3 +43,15 @@ test("Hidden gems prefer genuine personal matches over marginal ratings", () => 
   const result = fixture(profile, [generic, liked], [liked]).homeGemEntries();
   assert.equal(result[0].item.slug, "liked");
 });
+
+test("Genre and hidden-gem rails also suppress rejected genres", () => {
+  const profile = { genres: { Action: 9, Horror: -15 }, recent: [] };
+  const items = [
+    { slug: "action", genres: ["Action"], rating: 7.0 },
+    { slug: "horror", genres: ["Horror"], rating: 9.9 },
+    { slug: "drama", genres: ["Drama"], rating: 7.6 },
+  ];
+  const lanes = fixture(profile, items);
+  assert.ok(!lanes.homeGenreEntries().some(entry => entry.item.slug === "horror"));
+  assert.ok(!lanes.homeGemEntries().some(entry => entry.item.slug === "horror"));
+});
