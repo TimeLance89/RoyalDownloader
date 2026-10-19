@@ -38,6 +38,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         markLanguage: (node, media) => getDiscovery().mediaLanguage.mark(node, media),
         enhanceTaste: (card, entry) => services.tasteRanking.enhance(card, entry),
         enhanceHero: (card, entry) => services.heroSelection.enhance(card, entry),
+        searchHomeTitle: (title, kind) => getSearch().homeSearch?.searchTitle(title, kind),
         enhanceDailyTop: (card, entry, rank) => services.dailyTop.enhance(card, entry, rank),
         createCollectionCard: ((...args) => getDiscovery().collectionActions.createMovieCollectionSearchCard(...args)), openMovieCollection: (...args) => getDiscovery().collectionActions.openMovieCollection(...args), homeMovieBySlug: (...args) => services.actions.homeMovieBySlug(...args), selectFpRow: (...args) => getDiscovery().movieActions.selectFpRow(...args),
         homeAnimeById: (...args) => services.actions.homeAnimeById(...args), openAnimeDetail: (...args) => getDiscovery().animeActions.openAnimeDetail(...args), openAniworldDetail: (...args) => getDiscovery().aniworldActions.openAniworldDetail(...args), homeSeriesBySlug: (...args) => services.actions.homeSeriesBySlug(...args), loadSeries: (...args) => getDiscovery().seriesActions.loadSeries(...args),
@@ -89,6 +90,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
   recommendations,
   homeData: createHomeData({
         getMovieMetadata: () => movieState.metadataCache, isRendered: () => services.homePresenter.get().rendered,
+        getTasteStorageKey: () => services.actions.discoveryProfileStorageKey(),
         homeAllEntries: () => services.actions.homeAllEntries(), homeArtworkEntriesInLayout: () => services.actions.homeArtworkEntriesInLayout(),
         renderHome: options => services.actions.renderHome(options),
         syncFpCatalogFromHome: options => getDiscovery().movieActions.syncFpCatalogFromHome(options),
@@ -182,7 +184,7 @@ export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore,
   getHome().rows = createHomeRows(document.getElementById("tab-home"), {
       isLoading: () => getHome().homeData.get().loading,
       onRendered(trackId, entries, options) {
-        const lane = { "home-movies-track": "personal", "home-explore-track": "explore", "home-series-track": "series",
+        const lane = { "home-movies-track": "personal", "home-discovered-track": "discovered", "home-explore-track": "explore", "home-series-track": "series",
           "home-top-track": "top", "home-genre-track": "genre", "home-gems-track": "gems" }[trackId];
         if (lane) discoveryPolicy.recordDiscoveryExposureV2(lane, entries.slice(0, options.layout === "spotlight" ? 12 : options.ranked ? 10 : 16));
       },
