@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { memoHomeRender, invalidateHomeRender } from "../home/render-pass.js";
 
 const HOME_DISCOVERY_PROFILE_KEY = "royal-discovery-profile-v1";
 
@@ -9,6 +10,7 @@ export function createTasteProfile(documentRef, {
   storage = null, client = api,
 }) {
   let scope = createScope(), bound = false, resetting = false;
+  const profileSnapshot = Symbol("taste-profile");
   const ownerHeaders = () => ({ "X-Royal-Profile": String(getUser()?.id || "") });
   function discoveryProfileStorageKey() {
     const userId = String(getUser()?.id || "");
@@ -40,6 +42,12 @@ export function createTasteProfile(documentRef, {
     } finally { resetting = false; }
   }
   function loadDiscoveryProfile() {
+    const snapshots = memoHomeRender(profileSnapshot, () => new Map());
+    const key = discoveryProfileStorageKey();
+    if (!snapshots.has(key)) snapshots.set(key, readDiscoveryProfile());
+    return snapshots.get(key);
+  }
+  function readDiscoveryProfile() {
     let profile = null;
     try {
       profile = JSON.parse((storage || documentRef.defaultView.localStorage).getItem(discoveryProfileStorageKey()) || "null");
@@ -72,6 +80,7 @@ export function createTasteProfile(documentRef, {
   }
 
   function saveDiscoveryProfile(profile) {
+    invalidateHomeRender(profileSnapshot);
     try {
       (storage || documentRef.defaultView.localStorage).setItem(discoveryProfileStorageKey(), JSON.stringify(profile));
     } catch {

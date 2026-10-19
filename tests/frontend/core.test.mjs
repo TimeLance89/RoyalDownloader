@@ -292,7 +292,7 @@ test("explore supports poster-only discoveries and keeps candidates hydratable",
   );
 });
 
-test("personal spotlight retains high-affinity poster candidates while hydrating artwork", () => {
+test("personal spotlight displays landscapes while retaining poster candidates for hydration", () => {
   const personal = Array.from({ length: 18 }, (_, index) => ({
     kind: "movie",
     item: {
@@ -334,10 +334,10 @@ test("personal spotlight retains high-affinity poster candidates while hydrating
 
   const definition = HOME_RAIL_CATALOG.find((rail) => rail.id === "personal");
   assert.equal(definition.layout, "spotlight");
-  assert.equal(Boolean(definition.wallpaperOnly), false);
+  assert.equal(Boolean(definition.wallpaperOnly), true);
   const visible = lanes.homeDiscoveryLanes().personal;
-  assert.equal(visible.length, 12, "high affinity poster candidates remain available");
-  assert.deepEqual(visible.map(entryKey), Array.from({ length: 12 }, (_, i) => `movie:film-${i}`));
+  assert.equal(visible.length, 7, "only the seven landscape slots are displayed");
+  assert.deepEqual(visible.map(entryKey), Array.from({ length: 7 }, (_, i) => `movie:film-${i + 8}`));
   const hydratable = lanes.homeArtworkEntriesInLayout();
   assert.equal(hydratable.length, 18, "unresolved personal matches remain eligible for TMDB hydration");
   assert.ok(hydratable.some((entry) => entry.item.slug === "film-0"));

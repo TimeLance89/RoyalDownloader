@@ -1,7 +1,8 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 import { homeTasteReady } from "./taste-readiness.js";
-import { homeTasteContext } from "./taste-context.js";
+import { homeTasteContext, homeTasteLookup } from "./taste-context.js";
+import { memoHomeRender, withHomeRender } from "./render-pass.js";
 
 export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
@@ -60,6 +61,9 @@ export function createTasteRanking(root, summaryRoot, {
   }));
   const sessionExposure = new Set();
   const scoreCache = new Map();
+  const profileRevisionKey = Symbol("home-ranking-profile");
+  const personalEntriesMemo = Symbol("home-personal-entries");
+  let profileSignature = "", profileRevision = 0;
   // Composition callbacks become usable only after all services are built.
   let sessionOwner = null;
 
@@ -136,12 +140,7 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function profileLookup(profile, dimension) {
-    const result = new Map();
-    Object.entries(profile?.dimensions?.[dimension] || {}).forEach(([name, score]) => {
-      const numeric = Number(score);
-      if (Number.isFinite(numeric)) result.set(String(name).toLocaleLowerCase(), { name, score: numeric });
-    });
-    return result;
+    return homeTasteLookup(profile, dimension);
   }
 
   function tasteV2LogicalKey(entry) {
@@ -154,6 +153,16 @@ export function createTasteRanking(root, summaryRoot, {
   }
 
   function tasteV2ScoreEntry(entry, profile = loadDiscoveryProfile()) {
+    const revision = memoHomeRender(profileRevisionKey, () => {
+      const signature = JSON.stringify([getOwner(), profile.updatedAt || profile.updated_at,
+        profile.dimensions, profile.home_preferences, profile.ranking, profile.confidence]);
+      if (signature !== profileSignature) {
+        profileSignature = signature;
+        profileRevision++;
+        scoreCache.clear();
+      }
+      return profileRevision;
+    });
     if (sessionOwner !== String(getOwner())) {
       sessionOwner = String(getOwner());
       sessionExposure.clear();
@@ -163,8 +172,7 @@ export function createTasteRanking(root, summaryRoot, {
     const metadata = tasteV2Metadata(entry);
     const exposurePenalty = Number(discoveryV2ExposurePenalty?.(entry, "personal") || 0);
     const dailyVariation = discoveryV2Noise(entry, "personal", 6);
-    const cacheKey = JSON.stringify([tasteV2LogicalKey(entry), profile.updatedAt || profile.updated_at,
-      profile.dimensions, profile.ranking, profile.confidence, getShuffle(), metadata,
+    const cacheKey = JSON.stringify([revision, tasteV2LogicalKey(entry), getShuffle(), metadata,
       homeEntryMedia(entry).rating, exposurePenalty, dailyVariation]);
     if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
     const policy = profile.ranking || {};
@@ -370,13 +378,13 @@ export function createTasteRanking(root, summaryRoot, {
     } finally { if (current.active) pendingFeedback--; }
   }
   return {
-    entries: strictPersonalEntries, summary: renderTasteSummaryV2,
+    entries: () => withHomeRender(() => memoHomeRender(personalEntriesMemo, strictPersonalEntries)), summary: renderTasteSummaryV2,
     allowed(entries, profile = loadDiscoveryProfile()) {
       const blocked = new Set(profile.blocked_items || []);
       return entries.filter(entry => !blocked.has(tasteV2LogicalKey(entry)) && !blocked.has(homeEntryKey(entry)));
     },
     enhance(card, entry) { if (card && scope?.active) { explainCard(card, entry); addQuickFeedback(card, entry); } return card; },
-    beforeShuffle: recordVisiblePersonalForReshuffle,
+    beforeShuffle: () => withHomeRender(recordVisiblePersonalForReshuffle),
     animateShuffle() {
       const button = root.querySelector("#home-discovery-shuffle"); button?.classList.remove("is-shuffling");
       scope?.frame(() => button?.classList.add("is-shuffling"));

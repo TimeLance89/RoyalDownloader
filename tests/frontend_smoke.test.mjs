@@ -636,9 +636,9 @@ test("home cards and hero fall back to available posters when wallpapers are mis
   assert.match(homeRailRuntime, /media\.backdrop_url \|\| media\.cover_url \|\| ""/);
 });
 
-test("personal spotlight accepts posters while retaining landscape hydration and ranking", () => {
+test("personal spotlight requires landscapes while retaining hydration and ranking", () => {
   assert.match(homeLayoutEditor, /id: "personal"[^\n]*layout: "spotlight"/);
-  assert.doesNotMatch(homeLayoutEditor, /id: "personal"[^\n]*wallpaperOnly: true/);
+  assert.match(homeLayoutEditor, /id: "personal"[^\n]*wallpaperOnly: true/);
   assert.match(app, /homePersonalWallpaperEntries\(\)/);
   assert.match(app, /function homePersonalWallpaperEntries\(\) \{[\s\S]*?return homePersonalArtworkCandidates\(\)/);
   assert.match(app, /personalVisible \? homePersonalArtworkCandidates\(\) : \[\]/);
@@ -876,7 +876,7 @@ test("home carousels loop naturally without duplicating the spotlight grid", () 
   track.children = [];
   track.scrollLeft = 0;
   vm.runInContext('renderHomeRail("home-test-track", entries, { layout: "spotlight" })', context);
-  assert.equal(track.children.length, 12);
+  assert.equal(track.children.length, 7);
   assert.equal(track.dataset.homeLoopCount, "0");
 
   track.children = [];

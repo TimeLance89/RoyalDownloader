@@ -5,6 +5,18 @@ import { fetchMovieAvailability, freshMovieAvailability } from '../../web/js/fea
 import { loadSeriesDetails } from '../../web/js/features/media-details/series-api.js';
 import { createSeriesDetailsLoader } from '../../web/js/features/media-details/series-loader.js';
 
+test('canonical Discovery TMDB series uses the existing detail resolver and cancellation', async () => {
+  const signal = new AbortController().signal;
+  for (const slug of ['tmdb:8001', 'people-tmdb:8001']) {
+    const result = await loadSeriesDetails({ get: async (url, options) => {
+      assert.match(url, /^\/api\/people\/series\/8001\?/);
+      assert.equal(options.signal, signal);
+      return { title: 'Discovery series', seasons: [] };
+    }, post: () => assert.fail('TMDB identity must resolve through existing details') }, slug, slug, { signal });
+    assert.equal(result.title, 'Discovery series');
+  }
+});
+
 test('switching series stops old checks before waiting for the new provider', async () => {
   const events = [], noop = () => {};
   const state = { current: { base_slug: 'old' }, requestSeq: 0, viewGeneration: 0, cache: {} };

@@ -1,3 +1,4 @@
+import { memoHomeRender, withHomeRender } from "./render-pass.js";
 export function createHomeLanes(root, {
   allowedHomeEntries, uniqueHomeEntries, homeMovieEntry, homeSeriesEntry, interleaveHomeEntries,
   loadDiscoveryProfile, stableDailyOrder, homeEntryMedia, homeEntryKey, homeTopEntries,
@@ -5,6 +6,7 @@ export function createHomeLanes(root, {
   mediaJellyfinStatus, getJellyfinStatus, getData, discoveryV2ExposurePenalty,
   homeContentKeys = () => [],
 }) {
+  const allEntriesMemo = Symbol("home-catalog-entries");
   function rotatingOrder(entries, lane) {
     return stableDailyOrder(entries, lane)
       .map((entry, index) => ({
@@ -14,7 +16,7 @@ export function createHomeLanes(root, {
       .map(({ entry }) => entry);
   }
   function homeAllEntries() {
-    return allowedHomeEntries(uniqueHomeEntries([
+    return memoHomeRender(allEntriesMemo, () => allowedHomeEntries(uniqueHomeEntries([
       ...getData().topMovies.map(homeMovieEntry),
       ...getData().newMovies.map(homeMovieEntry),
       ...(getData().cinemaMovies || []).map(homeMovieEntry),
@@ -22,7 +24,7 @@ export function createHomeLanes(root, {
       ...getData().trendingSeries.map(homeSeriesEntry),
       ...getData().newSeries.map(homeSeriesEntry),
       ...getData().discoverySeries.map(homeSeriesEntry),
-    ]));
+    ])));
   }
 
   function homeNewEntries() {
@@ -122,8 +124,8 @@ export function createHomeLanes(root, {
   }
 
   function homePersonalWallpaperEntries() {
-    // Kept under the old internal name to avoid changing composition contracts.
-    return homePersonalArtworkCandidates();
+    return homePersonalArtworkCandidates()
+      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url));
   }
 
   function homeGemEntries() {
@@ -173,7 +175,7 @@ export function createHomeLanes(root, {
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
-      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 12, 8),
+      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 7, 0),
       discovered: takeDistinctHomeLane(activePersonalDiscoveries(), seen, 24, 0),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
@@ -222,5 +224,5 @@ export function createHomeLanes(root, {
     ]);
   }
 
-  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeExploreArtworkCandidates, homePersonalArtworkCandidates, homePersonalWallpaperEntries, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout };
+  return { homeAllEntries, homeNewEntries, homePopularSeriesEntries, favoriteDiscoveryGenre, homeGenreEntries, homeExploreEntries, homeExploreArtworkCandidates, homePersonalArtworkCandidates, homePersonalWallpaperEntries, homeGemEntries, takeDistinctHomeLane, homeDiscoveryLanes, homeRatedEntries, homeLibraryEntries, homeArtworkEntriesInLayout: () => withHomeRender(homeArtworkEntriesInLayout) };
 }

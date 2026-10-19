@@ -23,7 +23,7 @@ def test_manual_shuffle_penalizes_current_session_exposure():
     assert "const sessionExposure = new Set()" in TASTE
     assert "sessionExposure.add(key)" in TASTE
     assert "const sessionPenalty = sessionExposure.has(key) ? 18 : 0" in TASTE
-    assert "beforeShuffle: recordVisiblePersonalForReshuffle" in TASTE
+    assert "beforeShuffle: () => withHomeRender(recordVisiblePersonalForReshuffle)" in TASTE
     assert "services.tasteRanking.beforeShuffle()" in "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "web/js/composition").glob("*.js"))
 
 

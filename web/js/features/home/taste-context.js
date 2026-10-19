@@ -1,5 +1,10 @@
 /** Home-only aggregate interpretation, matching features/home_taste.py. */
+import { memoHomeRender } from "./render-pass.js";
+const contexts = Symbol("home-taste-contexts");
 export function homeTasteContext(profile, kind) {
+  const cache = memoHomeRender(contexts, () => new WeakMap());
+  if (!cache.has(profile)) cache.set(profile, new Map());
+  if (cache.get(profile).has(kind)) return cache.get(profile).get(kind);
   const preferences = profile.home_preferences || {};
   const contextual = preferences.by_media_type?.[kind] || {};
   const short = preferences.short_term || {};
@@ -18,5 +23,23 @@ export function homeTasteContext(profile, kind) {
       dimensions[axis][name] = base;
     }
   }
-  return { ...profile, dimensions };
+  const result = { ...profile, dimensions };
+  cache.get(profile).set(kind, result);
+  return result;
+}
+
+const lookups = Symbol("home-taste-lookups");
+export function homeTasteLookup(profile, dimension) {
+  const cache = memoHomeRender(lookups, () => new WeakMap());
+  if (!cache.has(profile)) cache.set(profile, new Map());
+  const axes = cache.get(profile);
+  if (!axes.has(dimension)) {
+    const lookup = new Map();
+    for (const [name, raw] of Object.entries(profile.dimensions?.[dimension] || {})) {
+      const score = Number(raw);
+      if (Number.isFinite(score)) lookup.set(name.toLocaleLowerCase(), { name, score });
+    }
+    axes.set(dimension, lookup);
+  }
+  return axes.get(dimension);
 }

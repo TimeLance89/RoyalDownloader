@@ -30,6 +30,9 @@ if (!baseline) throw new Error('Set ROYAL_VISUAL_BASELINE_WEB to frozen d3aada9/
         const rails = await page.locator('[data-fixture-logical-count]').evaluateAll(es => es.map(e => e.id));
         const images = [];
         for (const id of rails) {
+          // The personal spotlight has an intentionally new landscape grid;
+          // its geometry is covered independently at up to 3840px.
+          if (id === "home-movies-track") continue;
           const track = page.locator('#' + id);
           // Element screenshots do not account for sticky/fixed navigation.
           // Center both captures and prove the chrome cannot obscure the rail.

@@ -20,11 +20,12 @@ def test_new_discovery_rail_is_visible_and_old_layouts_migrate():
     assert 'id: "discovered"' in (HOME / "layout-model.js").read_text(encoding="utf-8")
 
 
-def test_tmdb_suggestions_search_provider_catalog_instead_of_enqueuing():
+def test_tmdb_suggestions_open_details_instead_of_searching_or_enqueuing():
     cards = (HOME / "cards.js").read_text(encoding="utf-8")
     search = (ROOT / "web/js/features/search/home.js").read_text(encoding="utf-8")
-    assert "trackHomeIdeaOpen(kind, item);" in cards
-    assert "searchHomeTitle(item.title, kind);" in cards
+    assert "selectFpRow(item.slug," in cards
+    assert "loadSeries({" in cards
+    assert "searchHomeTitle" not in cards
     assert "if (!item.tmdb_discovery) registerDock(card, entry)" in cards
     assert "function searchTitle(title, kind" in search
 
@@ -37,11 +38,12 @@ def test_user_feed_not_cached_in_shared_catalog_or_mixed_after_user_switch():
     assert "personalDiscoveries" not in cache
 
 
-def test_personal_spotlight_accepts_poster_only_matches_and_more_cards():
+def test_personal_spotlight_uses_seven_landscapes_and_keeps_artwork_reservoir():
     lanes = (HOME / "lanes.js").read_text(encoding="utf-8")
     rows = (HOME / "rows.js").read_text(encoding="utf-8")
-    assert "return homePersonalArtworkCandidates();" in lanes
-    assert 'entries.slice(0, 12)' in rows
+    assert "return homePersonalArtworkCandidates()" in lanes
+    assert ".filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))" in lanes
+    assert 'entries.slice(0, 7)' in rows
 
 
 def test_feedback_refreshes_discovery_and_discovery_is_not_in_download_queue():
@@ -49,4 +51,5 @@ def test_feedback_refreshes_discovery_and_discovery_is_not_in_download_queue():
     composition = (ROOT / "web/js/composition/home.js").read_text(encoding="utf-8")
     assert "onProfileChanged();" in taste
     assert "services.homeData.refreshDiscovery()" in composition
-    assert "searchHomeTitle:" in composition
+    assert "selectFpRow:" in composition
+    assert "loadSeries:" in composition

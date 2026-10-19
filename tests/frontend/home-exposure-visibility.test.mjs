@@ -2,6 +2,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHomeExposureVisibility } from "../../web/js/features/home/exposure-visibility.js";
 import { createDiscoveryPolicy } from "../../web/js/features/home/discovery-policy.js";
+import { withHomeRender } from "../../web/js/features/home/render-pass.js";
+
+test("indexed exposure reads once per owner and paint, with fresh storage on the next paint", () => {
+  let owner = "a", reads = 0;
+  const histories = { a: { version: 2, days: { "2026-10-18": { lanes: { personal: ["movie:tmdb:12"], hero: ["movie:tmdb:12"] } } } },
+    b: { version: 2, days: {} } };
+  const policy = createDiscoveryPolicy({ storage: { getItem: () => { reads++; return JSON.stringify(histories[owner]); } },
+    personalStorageKey: key => `${key}:${owner}`, homeEntryMedia: entry => entry.item,
+    localDateKey: () => "2026-10-19" });
+  const entry = { kind: "movie", item: { tmdb_id: 12 } };
+  withHomeRender(() => {
+    assert.equal(policy.discoveryV2ExposurePenalty(entry, "personal"), 16);
+    assert.equal(policy.discoveryV2ExposurePenalty(entry, "personal"), 16);
+    assert.equal(reads, 1);
+    owner = "b";
+    assert.equal(policy.discoveryV2ExposurePenalty(entry, "personal"), 0);
+    assert.equal(reads, 2);
+  });
+  histories.b.days["2026-10-17"] = { lanes: { explore: ["movie:tmdb:12"] } };
+  assert.equal(withHomeRender(() => policy.discoveryV2ExposurePenalty(entry, "personal")), 3.5);
+  assert.equal(reads, 3);
+});
 
 function fixture() {
   const observed = new Set();
