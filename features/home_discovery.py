@@ -39,6 +39,7 @@ MAX_REQUESTS = 3
 # the 15-second Home fetch when one external request is slow.
 _DISCOVERY_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="home-discovery")
 CACHE_SECONDS = 6 * 60 * 60
+EMPTY_CACHE_SECONDS = 5 * 60
 
 
 def _favorite_genres(profile: Mapping[str, Any]) -> list[str]:
@@ -61,6 +62,8 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
     if raw.get("adult") is True or not str(raw.get("id") or "").isdigit():
         return None
     tmdb_id = int(raw["id"])
+    if tmdb_id < 1 or tmdb_id > 9_999_999_999:
+        return None
     title = str(raw.get("title") or raw.get("name") or "").strip()
     if not title:
         return None
@@ -93,9 +96,12 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
             last_at /= 1000
         if last_at >= cutoff:
             return None
-    rating = float(raw.get("vote_average") or 0)
-    votes = int(raw.get("vote_count") or 0)
-    if rating < 5.5 or votes < 25:
+    try:
+        rating = float(raw.get("vote_average") or 0)
+        votes = int(raw.get("vote_count") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(rating) or rating < 5.5 or rating > 10 or votes < 25:
         return None
     art = str(raw.get("poster_path") or "")
     backdrop = str(raw.get("backdrop_path") or "")
@@ -257,8 +263,10 @@ class HomeDiscoveryService:
         while True:
             with self._lock:
                 cached = self._cache.get(key)
-                if cached and now - cached[0] < CACHE_SECONDS:
-                    return dict(cached[1])
+                if cached:
+                    ttl = CACHE_SECONDS if cached[1].get("results") else EMPTY_CACHE_SECONDS
+                    if now - cached[0] < ttl:
+                        return dict(cached[1])
                 waiter = self._inflight.get(key)
                 if waiter is None:
                     waiter = threading.Event()
