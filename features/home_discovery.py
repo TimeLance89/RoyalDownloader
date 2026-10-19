@@ -58,7 +58,7 @@ def _favorite_genres(profile: Mapping[str, Any]) -> list[str]:
 
 def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
                 profile: Mapping[str, Any], genre_names: Mapping[int, str],
-                day: str) -> dict[str, Any] | None:
+                day: str, *, extra: tuple[str, str] | None = None) -> dict[str, Any] | None:
     if raw.get("adult") is True or not str(raw.get("id") or "").isdigit():
         return None
     tmdb_id = int(raw["id"])
@@ -74,6 +74,8 @@ def _suggestion(kind: str, raw: Mapping[str, Any], client: Any,
     date_value = str(raw.get("release_date") or raw.get("first_air_date") or "")
     year = date_value[:4] if date_value[:4].isdigit() else ""
     dimensions = {"genres": genres, "media_types": ["movie" if kind == "movie" else "series"]}
+    if extra and extra[0] in {"actors", "directors"}:
+        dimensions[extra[0]] = [extra[1]]
     if year:
         dimensions["decades"] = [f"{int(year) // 10 * 10}er"]
     taste = score_profile_dimensions(profile, dimensions)
@@ -146,13 +148,36 @@ def _recent_tmdb_seed(profile: Mapping[str, Any]) -> tuple[str, int] | None:
     return None
 
 
+def _favorite_person(profile: Mapping[str, Any]) -> tuple[str, str] | None:
+    """One confident public actor/director name; no private metadata leaves Home."""
+    dimensions = profile.get("dimensions") or {}
+    candidates: list[tuple[float, str, str]] = []
+    for dimension, multiplier in (("directors", 0.82), ("actors", 0.46)):
+        for name, value in (dimensions.get(dimension) or {}).items():
+            clean = str(name or "").strip()
+            if not 2 <= len(clean) <= 64:
+                continue
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(score) and score >= 4.0:
+                candidates.append((score * multiplier, dimension, clean))
+    if not candidates:
+        return None
+    _score, dimension, name = max(candidates, key=lambda row: (row[0], row[2]))
+    return (dimension, name)
+
+
 def discover_home_candidates(profile: Mapping[str, Any], client: Any,
                              *, day: str | None = None, limit: int = 24) -> list[dict[str, Any]]:
     """Search beyond provider catalog; suggestions are explicitly not availability claims."""
     if not getattr(client, "configured", False):
         return []
     favorites = _favorite_genres(profile)
-    if not favorites:
+    seed = _recent_tmdb_seed(profile)
+    person_seed = _favorite_person(profile) if not seed else None
+    if not favorites and not seed and not person_seed:
         return []
     day = day or date.today().isoformat()
     day_offset = int(hashlib.sha256(day.encode()).hexdigest()[:2], 16) % 3
@@ -169,13 +194,16 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
             if len([entry for entry in requests if entry[0] == kind]) >= (2 if kind == "movie" else 1):
                 break
     jobs = [("genre", kind, genre_id, genre) for kind, genre_id, genre in requests]
-    seed = _recent_tmdb_seed(profile)
     if seed:
         # Trade one generic genre request for titles related to a recent
         # positive choice, without increasing the external request budget.
         movie = next((job for job in jobs if job[1] == "movie"), None)
         television = next((job for job in jobs if job[1] == "tv"), None)
         jobs = [job for job in (movie, ("related", seed[0], seed[1], ""), television) if job]
+    elif person_seed:
+        # Resolving a public person name needs a second TMDB call to fetch
+        # credited films. Keep just one genre call: 1 + 1 + 1 <= MAX_REQUESTS.
+        jobs = jobs[:1]
     batches = jobs[:MAX_REQUESTS]
 
     def fetch_page(index_and_batch):
@@ -184,6 +212,14 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
             if mode == "related":
                 payload = client._request(f"/{kind}/{value}/recommendations", {
                     "language": getattr(client, "language", "de-DE"),
+                })
+            elif mode == "person":
+                payload = client._request("/discover/movie", {
+                    "language": getattr(client, "language", "de-DE"),
+                    "include_adult": "false",
+                    "with_cast" if kind == "actors" else "with_crew": value,
+                    "sort_by": "popularity.desc", "vote_count.gte": 25,
+                    "page": 1,
                 })
             else:
                 payload = client._request(f"/discover/{kind}", {
@@ -199,18 +235,51 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    def lookup_person():
+        if not person_seed:
+            return None
+        dimension, name = person_seed
+        try:
+            payload = client._request("/search/person", {
+                "language": getattr(client, "language", "de-DE"),
+                "query": name, "page": 1, "include_adult": "false",
+            })
+            people = (payload or {}).get("results") or []
+        except Exception:
+            return None
+        for person in people[:12]:
+            if not isinstance(person, dict) or str(person.get("name") or "").casefold() != name.casefold():
+                continue
+            try:
+                person_id = int(person.get("id"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if 0 < person_id <= 9_999_999_999:
+                return (dimension, person_id, name)
+        return None
+
+    person_future = _DISCOVERY_POOL.submit(lookup_person) if person_seed else None
+    fetched = list(zip(batches, _DISCOVERY_POOL.map(fetch_page, enumerate(batches))))
+    if person_future:
+        person = person_future.result()
+        if person:
+            dimension, person_id, name = person
+            job = ("person", dimension, person_id, name)
+            fetched.append((job, fetch_page((len(fetched), job))))
+
     results: dict[str, dict[str, Any]] = {}
-    # Bounded shared pool: at most three independent TMDB calls per feed.
-    for (_mode, kind, genre_id, genre), payload in zip(
-        batches, _DISCOVERY_POOL.map(fetch_page, enumerate(batches)),
-    ):
-        names = {value: name for name, value in TMDB_GENRES[kind].items()}
-        if genre:
+    # Bounded pool: one genre + person search + person credits = at most 3 calls.
+    for (mode, kind, genre_id, genre), payload in fetched:
+        media_kind = "movie" if mode == "person" else kind
+        names = {value: name for name, value in TMDB_GENRES[media_kind].items()}
+        if mode == "genre" and genre:
             names[genre_id] = genre
         for raw in (payload.get("results") or [])[:20]:
             if not isinstance(raw, dict):
                 continue
-            suggestion = _suggestion(kind, raw, client, profile, names, day)
+            extra = (kind, genre) if mode == "person" else None
+            suggestion = _suggestion(media_kind, raw, client, profile, names, day,
+                                     extra=extra)
             if suggestion is None:
                 continue
             logical = f"{suggestion['kind']}:{suggestion['item']['tmdb_id']}"
