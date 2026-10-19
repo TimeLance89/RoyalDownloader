@@ -46,7 +46,15 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         enhanceTaste: (card, entry) => services.tasteRanking.enhance(card, entry),
         enhanceHero: (card, entry) => services.heroSelection.enhance(card, entry),
         searchHomeTitle: (title, kind) => getSearch().homeSearch?.searchTitle(title, kind),
-        trackHomeIdeaOpen: (kind, item) => getProfile().tasteProfile.track(kind, item, 0.25, "open"),
+        trackHomeIdeaOpen: (kind, item) => {
+          const profile = getProfile().tasteProfile;
+          const owner = profile.key();
+          // Do not refetch until the new taste event reaches the server;
+          // otherwise its six-hour cache can serve the clicked title again.
+          void Promise.resolve(profile.track(kind, item, 0.25, "open")).then(() => {
+            if (profile.key() === owner) services.homeData.refreshDiscovery();
+          });
+        },
         enhanceDailyTop: (card, entry, rank) => services.dailyTop.enhance(card, entry, rank),
         createCollectionCard: ((...args) => getDiscovery().collectionActions.createMovieCollectionSearchCard(...args)), openMovieCollection: (...args) => getDiscovery().collectionActions.openMovieCollection(...args), homeMovieBySlug: (...args) => services.actions.homeMovieBySlug(...args), selectFpRow: (...args) => getDiscovery().movieActions.selectFpRow(...args),
         homeAnimeById: (...args) => services.actions.homeAnimeById(...args), openAnimeDetail: (...args) => getDiscovery().animeActions.openAnimeDetail(...args), openAniworldDetail: (...args) => getDiscovery().aniworldActions.openAniworldDetail(...args), homeSeriesBySlug: (...args) => services.actions.homeSeriesBySlug(...args), loadSeries: (...args) => getDiscovery().seriesActions.loadSeries(...args),
