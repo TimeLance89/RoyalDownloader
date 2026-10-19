@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Explicit movie replacement API
+
+- Add an administrator-only endpoint that verifies movie identity and a source,
+  deletes exactly the matching Jellyfin movie versions, then uses the existing
+  guarded queue to download the replacement.
+- Persist replacement requests before deletion. Retries cannot delete a newly
+  downloaded version; interrupted deletion stops for manual inspection.
+- Keep normal queue duplicate protection and expose the contract and recovery
+  behavior in `docs/MOVIE_REDOWNLOAD.md`.
+
 ### NAS responsiveness and runtime diagnostics
 
 - Move remaining configuration, provider-health, storage preparation, queue

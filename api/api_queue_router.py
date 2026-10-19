@@ -10,6 +10,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -27,6 +28,7 @@ def _unbound_dependency(*_args, **_kwargs):
 
 
 state: Any = None
+_redownload_backend: Any = None
 UPDATE_INSTALLER: Any = None
 _content_already_available = _unbound_dependency
 _episode_placeholder = _unbound_dependency
@@ -113,6 +115,7 @@ def create_queue_router(backend) -> APIRouter:
     globals().update({
         "state": backend.state,
         "UPDATE_INSTALLER": backend.UPDATE_INSTALLER,
+        "_redownload_backend": backend,
     })
     return router
 
@@ -714,6 +717,84 @@ class QueueAddBody(BaseModel):
     source: str = Field(default="api", max_length=32)
 
 
+class MovieRedownloadBody(BaseModel):
+    slug: str = Field(min_length=1, max_length=512)
+    tmdb_id: int = Field(gt=0)
+    request_id: UUID
+    preference: MovieDownloadPreference = Field(default_factory=MovieDownloadPreference)
+
+
+@router.post("/api/v1/queue/redownload")
+@router.post("/api/queue/redownload")
+async def api_movie_redownload(body: MovieRedownloadBody, request: Request):
+    from application_services.movie_redownload import (
+        ReplacementJournal,
+        prepare_replacement,
+        refresh_after_replacement,
+        replacement_lock,
+        replacement_request,
+    )
+    from core.runtime_paths import data_dir
+
+    user, _profile = await run_in_threadpool(_taste_context, request)
+    # This operation deletes shared library media, unlike ordinary downloads.
+    if not user or user.get("role") != "admin":
+        raise HTTPException(403, "Nur Administratoren dürfen vorhandene Filme ersetzen.")
+    if not replacement_lock.acquire(blocking=False):
+        raise HTTPException(409, "Ein Film wird bereits ersetzt. Bitte kurz warten.")
+    try:
+        journal = ReplacementJournal(data_dir() / "movie_replacements.sqlite3")
+        record = await run_in_threadpool(
+            prepare_replacement, _redownload_backend, journal, body, str(user["id"]),
+        )
+        if record["phase"] == "queued":
+            return record["result"]
+        # A response can be lost after queue persistence. The durable operation
+        # tag survives restart and terminal history, so retries never requeue it.
+        def _previous_job():
+            with state.queue_claim_lock:
+                return next((dict(job) for job in [
+                    *state.queue_jobs.values(), *state.queue_history,
+                ] if job.get("replacement_request_id") == str(body.request_id)), None)
+
+        previous_job = await run_in_threadpool(_previous_job)
+        if previous_job:
+            result = {"added": 1, "auto_started": 1, "deleted": True,
+                      "job_id": previous_job["job_id"], "replayed": True}
+        elif record["phase"] == "queueing":
+            # No proof of admission remains (e.g. pruned history). Never guess.
+            raise HTTPException(409, "Alte Version gelöscht; Queue-Übergabe unklar. Downloadverlauf zuerst prüfen.")
+        else:
+            await run_in_threadpool(refresh_after_replacement, _redownload_backend, body)
+            record["phase"] = "queueing"
+            await run_in_threadpool(journal.save, str(body.request_id), record)
+            token = replacement_request.set(str(body.request_id))
+            try:
+                result = await api_queue_add(QueueAddBody(
+                    slugs=[body.slug], preferences={body.slug: body.preference}, source="firetv-replace",
+                ), request)
+            except HTTPException:
+                # A persisted logical job may already exist. Keep queueing in
+                # that case; otherwise it is safe to retry only queue admission.
+                if not await run_in_threadpool(_previous_job):
+                    record["phase"] = "deleted"
+                    await run_in_threadpool(journal.save, str(body.request_id), record)
+                raise
+            finally:
+                replacement_request.reset(token)
+            if not result.get("added"):
+                record["phase"] = "deleted"
+                await run_in_threadpool(journal.save, str(body.request_id), record)
+                reason = result.get("skipped_details", {}).get(body.slug, "Queue nicht verfügbar")
+                raise HTTPException(409, f"Alte Version gelöscht. Download nicht gestartet: {reason}. Erneut versuchen.")
+            result["deleted"] = True
+        record.update(phase="queued", result=result)
+        await run_in_threadpool(journal.save, str(body.request_id), record)
+        return result
+    finally:
+        replacement_lock.release()
+
+
 class TasteEventBody(BaseModel):
     action: str = Field(min_length=1, max_length=24)
     source: str = Field(default="api", max_length=32)
@@ -1006,6 +1087,8 @@ async def api_queue_add(body: QueueAddBody, request: Request = None):
                 # its personal history is stored separately below.
                 job["requested_by_user_id"] = requested_by_user_id
                 job["request_source"] = str(body.source or "manual")[:32]
+                from application_services.movie_redownload import replacement_request
+                job["replacement_request_id"] = replacement_request.get()
                 added_slugs.append(slug)
             except Exception as exc:
                 with state.queue_claim_lock:
