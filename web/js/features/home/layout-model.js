@@ -31,6 +31,11 @@ export function normalizeHomeLayout(value) {
     const railId = String(raw || "");
     if (allowed.has(railId) && !order.includes(railId)) order.push(railId);
   }
+  // Insert the new personal discovery rail next to the personal lane when
+  // restoring a layout saved by an earlier RoyalDownloader version.
+  if (order.includes("personal") && !order.includes("discovered")) {
+    order.splice(order.indexOf("personal") + 1, 0, "discovered");
+  }
   HOME_RAIL_CATALOG.forEach((rail) => { if (!order.includes(rail.id)) order.push(rail.id); });
   const hidden = new Set((Array.isArray(source.hidden_rails) ? source.hidden_rails : [])
     .filter((railId) => allowed.has(railId)));
