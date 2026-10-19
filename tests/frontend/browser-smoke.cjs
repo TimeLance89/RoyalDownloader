@@ -280,7 +280,7 @@ const server = createServer(async (req, res) => {
     // Layout draft previews are local; cancelled writes are reconciled from the server.
     await page.locator("#home-layout-open").click();
     await page.locator("#home-layout-modal").waitFor({ state: "visible" });
-    assert.equal(await page.locator(".home-layout-row").count(), 12);
+    assert.equal(await page.locator(".home-layout-row").count(), 13);
     await page.locator("#home-layout-hero").uncheck();
     assert.equal(await page.locator("#home-hero").evaluate(el => el.classList.contains("home-layout-hidden")), true);
     await page.locator("#home-layout-cancel").click();
