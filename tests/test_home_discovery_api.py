@@ -52,7 +52,7 @@ def test_home_discovery_never_reuses_another_household_profiles_taste(monkeypatc
         calls.append((user_id, profile["profile_owner"]))
         return {"available": True, "results": [{"id": user_id}]}
 
-    monkeypatch.setattr(router.state, "taste_profiles", Stores(), raising=False)
+    monkeypatch.setattr(router, "state", SimpleNamespace(taste_profiles=Stores()))
     monkeypatch.setattr(router, "_HOME_DISCOVERY", SimpleNamespace(get=get))
     monkeypatch.setattr(router, "get_tmdb_client", lambda: object())
     first = asyncio.run(router.api_home_discovery(_request()))
