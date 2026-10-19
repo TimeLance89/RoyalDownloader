@@ -68,3 +68,16 @@ not simply reorder a small, generic, provider-owned catalog.
   downloaded. Opening its suggestion performs an ordinary source search first.
 - Any field test must be verified on a real running RoyalDownloader instance
   before the release is marked ready.
+
+## Operational rollback (Home recommendations only)
+
+Set the Docker environment variable `ROYAL_HOME_DISCOVERY_V3_ENABLED=0`
+and restart the RoyalDownloader server to disable the new TMDB Home discovery
+endpoint without touching provider routing, queue processing, downloads, or
+legacy taste profiles. Other Home changes (the earlier cold-start threshold,
+poster support and rail order) are not reverted by this endpoint-only flag.
+Do not treat it as a full UI rollback toggle.
+
+Set `ROYAL_HOME_DISCOVERY_V3_ENABLED=1` or remove the variable to enable
+the optional Home candidate retrieval again. A working TMDB configuration
+is required for additional Home ideas.
