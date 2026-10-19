@@ -3,6 +3,7 @@ export function createHomeLanes(root, {
   loadDiscoveryProfile, stableDailyOrder, homeEntryMedia, homeEntryKey, homeTopEntries,
   stableDiscoveryHash, localDateKey, homeHeroCandidates, homePersonalizedEntries, currentHomeLayout,
   mediaJellyfinStatus, getJellyfinStatus, getData, discoveryV2ExposurePenalty,
+  homeContentKeys = () => [],
 }) {
   function rotatingOrder(entries, lane) {
     return stableDailyOrder(entries, lane)
@@ -141,14 +142,22 @@ export function createHomeLanes(root, {
     return selected;
   }
 
+  function activePersonalDiscoveries() {
+    // A TMDB idea is genuinely new only when its logical title/ID isn't
+    // already part of the existing Home/provider catalog.
+    const known = new Set(homeAllEntries().flatMap((entry) => homeContentKeys(entry)));
+    return allowedHomeEntries((getData().personalDiscoveries || [])
+      .filter((entry) => entry && ["movie", "series"].includes(entry.kind) && entry.item)
+      .filter((entry) => !homeContentKeys(entry).some((key) => known.has(key))));
+  }
+
   function homeDiscoveryLanes() {
     const top = homeTopEntries();
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
       personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 12, 8),
-      discovered: takeDistinctHomeLane(allowedHomeEntries((getData().personalDiscoveries || [])
-        .filter((entry) => entry && ["movie", "series"].includes(entry.kind) && entry.item)), seen, 24, 0),
+      discovered: takeDistinctHomeLane(activePersonalDiscoveries(), seen, 24, 0),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,
