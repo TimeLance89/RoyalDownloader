@@ -14,13 +14,16 @@ export function createTasteProfile(documentRef, {
     return userId && userId !== "admin-legacy" ? `${HOME_DISCOVERY_PROFILE_KEY}:${userId}` : HOME_DISCOVERY_PROFILE_KEY;
   }
   async function sendEvent(event, { acceptProfile = false } = {}) {
-    if (!scope.active) return;
+    if (!scope.active) return false;
     const owner = scope, key = discoveryProfileStorageKey();
     try {
       const response = await client.post("/api/taste/events", event, { signal: owner.signal });
-      if (owner.active && key === discoveryProfileStorageKey() && acceptProfile && response?.profile) applyServerTasteProfile(response.profile);
+      if (!owner.active || key !== discoveryProfileStorageKey()) return false;
+      if (acceptProfile && response?.profile) applyServerTasteProfile(response.profile);
+      return true;
     } catch (error) {
       if (owner.active && key === discoveryProfileStorageKey()) console.warn("Geschmackssignal konnte nicht gespeichert werden:", error);
+      return false;
     }
   }
   async function reset() {
