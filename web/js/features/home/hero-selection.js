@@ -1,3 +1,5 @@
+import { homeTasteReady } from "./taste-readiness.js";
+
 /** Existing taste/trend hero ranking, without global function replacement. */
 export function createHeroSelection({
   discoveryV2LogicalKey, homeEntryKey, homeEntryMedia, tasteMetadata, discoveryV2ExposurePenalty,
@@ -307,7 +309,7 @@ export function createHeroSelection({
 
   function tasteRankedHeroEntries() {
     const profile = loadDiscoveryProfile();
-    const trained = Number(profile.interactions || 0) >= 2 && Number(profile.confidence || 0) >= 0.18;
+    const trained = homeTasteReady(profile);
     const trendRanks = heroTrendRanks();
     const pool = homeAllEntries();
     const blocked = new Set(profile.blocked_items || []);

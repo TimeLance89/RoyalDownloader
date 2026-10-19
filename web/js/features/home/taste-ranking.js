@@ -1,5 +1,6 @@
 import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
+import { homeTasteReady } from "./taste-readiness.js";
 
 export function createTasteRanking(root, summaryRoot, {
   homeEntryMedia, homeEntryKey, tasteMetadata, loadDiscoveryProfile, homeAllEntries,
@@ -224,7 +225,7 @@ export function createTasteRanking(root, summaryRoot, {
     const scored = pool.map((entry) => ({ entry, ...tasteV2ScoreEntry(entry, profile) }))
       .sort((left, right) => right.score - left.score);
 
-    if (Number(profile.interactions || 0) < 2 || Number(profile.confidence || 0) < 0.18) {
+    if (!homeTasteReady(profile)) {
       return typeof discoveryV2SelectDiverse === "function"
         ? discoveryV2SelectDiverse(scored, 24)
         : scored.slice(0, 24).map(({ entry }) => entry);
@@ -326,8 +327,7 @@ export function createTasteRanking(root, summaryRoot, {
     // that can actually appear with landscape artwork, or reshuffles penalize
     // unseen posters and keep showing the same wallpaper recommendations.
     strictPersonalEntries()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
-      .slice(0, 7)
+      .slice(0, 12)
       .forEach((entry) => {
         const key = tasteV2LogicalKey(entry);
         if (key) sessionExposure.add(key);

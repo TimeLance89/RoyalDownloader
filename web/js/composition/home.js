@@ -184,7 +184,7 @@ export function initializeHome({ getHome, artworkUrls, discoveryPolicy, getCore,
       onRendered(trackId, entries, options) {
         const lane = { "home-movies-track": "personal", "home-explore-track": "explore", "home-series-track": "series",
           "home-top-track": "top", "home-genre-track": "genre", "home-gems-track": "gems" }[trackId];
-        if (lane) discoveryPolicy.recordDiscoveryExposureV2(lane, entries.slice(0, options.layout === "spotlight" ? 7 : options.ranked ? 10 : 16));
+        if (lane) discoveryPolicy.recordDiscoveryExposureV2(lane, entries.slice(0, options.layout === "spotlight" ? 12 : options.ranked ? 10 : 16));
       },
       reconcileHomeRail: (...args) => getHome().actions.reconcileHomeRail(...args), homeRailCardSignature: (...args) => getHome().actions.homeRailCardSignature(...args),
       createHomeCard: (...args) => getHome().actions.createHomeCard(...args), syncHomeCardContent: (...args) => getHome().actions.syncHomeCardContent(...args),

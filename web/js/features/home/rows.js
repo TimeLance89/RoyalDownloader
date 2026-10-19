@@ -26,7 +26,7 @@ export function createHomeRows(root, { isLoading, onRendered = () => {}, reconci
     })), { loop: false });
     return;
   }
-  const visibleEntries = layout === "spotlight" ? entries.slice(0, 7) : entries;
+  const visibleEntries = layout === "spotlight" ? entries.slice(0, 12) : entries;
   reconcileHomeRail(track, visibleEntries.map((entry, index) => {
       const eagerCount = ranked ? 5 : 3;
       const variant = layout === "spotlight" && index === 0 ? "spotlight-lead" : "";

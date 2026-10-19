@@ -91,30 +91,24 @@ export function createHomeLanes(root, {
     return rotatingOrder(pool.length >= 8 ? pool : homeAllEntries(), "explore");
   }
 
-  // Keep the original candidates eligible for metadata hydration even before
-  // they have a backdrop. The visible Explore rail itself publishes only
-  // finished 16:9 artwork, so portrait posters/initial placeholders never
-  // become the final presentation.
+  // Discovery should not hide excellent recommendations just because TMDB
+  // supplies a poster but no landscape artwork. Cards can display both.
   function homeExploreArtworkCandidates() {
     return homeExploreCandidatePool().slice(0, 24);
   }
 
   function homeExploreEntries() {
-    return homeExploreCandidatePool()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url))
-      .slice(0, 24);
+    return homeExploreCandidatePool().slice(0, 24);
   }
 
-  // Personal Spotlight must never fall back to portrait posters. Hydrate the
-  // full ranked reservoir before choosing seven ready landscape artworks,
-  // otherwise poster-only matches at the front crowd out usable backdrops.
+  // Hydrate the personal reservoir but do not exclude poster-only favorites.
   function homePersonalArtworkCandidates() {
     return homePersonalizedEntries().slice(0, 24);
   }
 
   function homePersonalWallpaperEntries() {
-    return homePersonalArtworkCandidates()
-      .filter((entry) => Boolean(homeEntryMedia(entry).backdrop_url));
+    // Kept under the old internal name to avoid changing composition contracts.
+    return homePersonalArtworkCandidates();
   }
 
   function homeGemEntries() {
@@ -152,7 +146,7 @@ export function createHomeLanes(root, {
     const heroKeys = new Set(homeHeroCandidates().map(homeEntryKey));
     const seen = new Set([...heroKeys, ...top.map(homeEntryKey)]);
     return {
-      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 7, 7),
+      personal: takeDistinctHomeLane(homePersonalWallpaperEntries(), seen, 12, 8),
       explore: takeDistinctHomeLane(homeExploreEntries(), seen, 16),
       series: takeDistinctHomeLane(rotatingOrder(homePopularSeriesEntries(), "series"), seen, 16),
       top,
