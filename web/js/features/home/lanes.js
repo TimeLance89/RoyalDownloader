@@ -55,10 +55,18 @@ export function createHomeLanes(root, {
       .sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0], "de"))[0]?.[0] || "";
   }
 
+  function homeSafeEntries(profile = loadDiscoveryProfile()) {
+    const disliked = new Set(Object.entries(profile.genres || {})
+      .filter(([, score]) => Number(score) < -1.5)
+      .map(([genre]) => genre.toLocaleLowerCase()));
+    return homeAllEntries().filter((entry) =>
+      !(homeEntryMedia(entry).genres || []).some((genre) => disliked.has(String(genre).toLocaleLowerCase())));
+  }
+
   function homeGenreEntries() {
     const profile = loadDiscoveryProfile();
     const favorite = favoriteDiscoveryGenre(profile);
-    const pool = homeAllEntries();
+    const pool = homeSafeEntries(profile);
     if (!favorite) return rotatingOrder(pool, "genre").slice(0, 24);
     const matching = pool.filter((entry) =>
       (homeEntryMedia(entry).genres || []).some((genre) =>
@@ -83,14 +91,9 @@ export function createHomeLanes(root, {
       .sort((a, b) => Number(b[1]) - Number(a[1]))
       .slice(0, 2)
       .map(([genre]) => genre.toLocaleLowerCase()));
-    const disliked = new Set(Object.entries(profile.genres)
-      .filter(([, score]) => Number(score) < -1.5)
-      .map(([genre]) => genre.toLocaleLowerCase()));
     const recent = new Set((profile.recent || []).slice(0, 30).map((event) => event.key));
-    // Exploration must not reintroduce genres a person explicitly rejected.
-    // If novel ideas run out, fall back to safe familiar titles.
-    const safe = homeAllEntries().filter((entry) =>
-      !(homeEntryMedia(entry).genres || []).some((genre) => disliked.has(String(genre).toLocaleLowerCase())));
+    // When novelty runs out, keep only safe familiar alternatives.
+    const safe = homeSafeEntries(profile);
     const novel = safe.filter((entry) => {
       if (recent.has(homeEntryKey(entry))) return false;
       const genres = (homeEntryMedia(entry).genres || []).map((genre) => String(genre).toLocaleLowerCase());
@@ -127,7 +130,7 @@ export function createHomeLanes(root, {
     const topKeys = new Set(homeTopEntries().map(homeEntryKey));
     const tasteOrder = new Map(homePersonalizedEntries()
       .map((entry, index) => [homeEntryKey(entry), index]));
-    const candidates = homeAllEntries()
+    const candidates = homeSafeEntries()
       .filter((entry) => !topKeys.has(homeEntryKey(entry)))
       .map((entry) => ({
         entry,
