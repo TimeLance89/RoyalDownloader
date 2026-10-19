@@ -63,3 +63,16 @@ def test_home_discovery_cache_is_per_user_and_invalidated_on_feedback():
     assert len(client.calls) > requests
     updated = service.get("user-one", _profile(["movie:tmdb:101"]), client)
     assert not any(row["item"]["tmdb_id"] == 101 for row in updated["results"])
+
+def test_recently_opened_tmdb_idea_is_not_repeated_for_two_weeks():
+    import time
+    client = FakeTMDB()
+    profile = _profile()
+    profile["recent"] = [{"key": "movie:tmdb:101", "at": time.time(), "action": "open"}]
+    results = discover_home_candidates(profile, client, day="2026-10-19")
+    assert [row["item"]["tmdb_id"] for row in results] == [102]
+    service = HomeDiscoveryService(clock=lambda: 1000)
+    first = service.get("one", _profile(), client)
+    second = service.get("one", profile, client)
+    assert len(first["results"]) == 2
+    assert len(second["results"]) == 1
