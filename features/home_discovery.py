@@ -173,14 +173,22 @@ def discover_home_candidates(profile: Mapping[str, Any], client: Any,
     # Mix series and films, avoid a feed made solely of the first genre.
     selected: list[dict[str, Any]] = []
     genre_counts: dict[str, int] = {}
+    deferred: list[dict[str, Any]] = []
     for candidate in ranked:
         lead = candidate["item"]["genres"][0]
         if genre_counts.get(lead, 0) >= max(4, limit // 3):
+            deferred.append(candidate)
             continue
         genre_counts[lead] = genre_counts.get(lead, 0) + 1
         selected.append({key: value for key, value in candidate.items() if key != "_score"})
         if len(selected) >= limit:
             break
+    # Variety is a preference, not a hard scarcity cap. A Thriller enthusiast
+    # must not be shown just eight matches when there are twenty good titles.
+    for candidate in deferred:
+        if len(selected) >= limit:
+            break
+        selected.append({key: value for key, value in candidate.items() if key != "_score"})
     return selected
 
 
