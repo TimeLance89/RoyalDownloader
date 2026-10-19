@@ -49,6 +49,7 @@ export function composeHome({ discoveryPolicy, movieState, artworkUrls, recommen
         stableDiscoveryHash: (...args) => services.actions.stableDiscoveryHash(...args), localDateKey: (...args) => services.actions.localDateKey(...args), homeHeroCandidates: (...args) => services.actions.homeHeroCandidates(...args), homePersonalizedEntries: (...args) => services.actions.homePersonalizedEntries(...args), currentHomeLayout: (...args) => services.actions.currentHomeLayout(...args),
         mediaJellyfinStatus: (...args) => services.actions.mediaJellyfinStatus(...args), getJellyfinStatus: key => getIntegrations().catalogJellyfin.getStatus(key),
         discoveryV2ExposurePenalty: (...args) => discoveryPolicy.discoveryV2ExposurePenalty(...args),
+        homeContentKeys: entry => services.actions.homeContentKeys(entry),
         getData: () => services.homeData.get(),
       }),
   homePresenter: createHomePresenter(document.getElementById("tab-home"), {
