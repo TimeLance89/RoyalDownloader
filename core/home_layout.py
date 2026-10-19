@@ -11,10 +11,10 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 1
 HOME_RAIL_IDS = (
-    "personal", "top", "series", "genre", "explore", "gems", "fresh",
+    "personal", "discovered", "top", "series", "genre", "explore", "gems", "fresh",
     "new_movies", "new_series", "high_rated", "movies", "library",
 )
-DEFAULT_VISIBLE_RAILS = HOME_RAIL_IDS[:7]
+DEFAULT_VISIBLE_RAILS = HOME_RAIL_IDS[:8]
 
 
 class HomeLayoutStore:
