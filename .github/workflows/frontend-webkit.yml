@@ -34,6 +34,10 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/saved-media-browser.cjs
+      - name: Movie Jellyfin ribbons across navigation and background checks
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/movie-jellyfin-browser.cjs
       - name: Storage Autopilot mobile permissions and confirmations
         env:
           ROYAL_BROWSER: webkit

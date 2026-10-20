@@ -155,7 +155,7 @@ export function composeDiscovery({ movieState, seriesState, artworkUrls, i18n, s
         movieState, getActiveTab: () => state.tab, syncSearchClearButtons: (...args) => getHome().actions.syncSearchClearButtons(...args), closeSearchSuggestions: (...args) => getHome().actions.closeSearchSuggestions(...args), rememberSearch: (...args) => getHome().actions.rememberSearch(...args),
         applyFpResults: (...args) => services.movieActions.applyFpResults(...args), setActiveGenreFilter: (...args) => services.movieActions.setActiveGenreFilter(...args),
         renderFpResults: (...args) => services.movieActions.renderFpResults(...args), updateFpInfiniteState: (...args) => services.movieActions.updateFpInfiniteState(...args), refreshMovieFeatureCandidates: (...args) => getHome().actions.refreshMovieFeatureCandidates(...args),
-        syncFpCatalogFromHome: (...args) => services.movieActions.syncFpCatalogFromHome(...args), refreshFpCatalogInBackground: (...args) => services.movieActions.refreshFpCatalogInBackground(...args),
+        syncFpCatalogFromHome: (...args) => services.movieActions.syncFpCatalogFromHome(...args), refreshFpCatalogInBackground: (...args) => services.movieActions.refreshFpCatalogInBackground(...args), refreshFpJellyfinStatus: (...args) => services.movieActions.refreshFpJellyfinStatus(...args),
         getGenres: () => services.genres.get(), applyFpSmartFilters: (...args) => services.movieActions.applyFpSmartFilters(...args), resetFpSmartFilters: (...args) => services.movieActions.resetFpSmartFilters(...args),
         setFilter: (key, value) => services.movieFilters.set(key, value),
         cancelMetadata: () => services.catalogMetadata.unmount(),

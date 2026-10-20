@@ -4,7 +4,7 @@ import { createScope } from "../../core/lifecycle.js";
 export function createMovieBrowse(root, {
   movieState, getActiveTab, syncSearchClearButtons, closeSearchSuggestions, rememberSearch, applyFpResults,
   setActiveGenreFilter, renderFpResults, updateFpInfiniteState, refreshMovieFeatureCandidates,
-  syncFpCatalogFromHome, refreshFpCatalogInBackground, getGenres, applyFpSmartFilters,
+  syncFpCatalogFromHome, refreshFpCatalogInBackground, refreshFpJellyfinStatus, getGenres, applyFpSmartFilters,
   resetFpSmartFilters, setFilter, cancelMetadata, client = api,
 }) {
   const byId = id => root.querySelector(`#${id}`);
@@ -136,6 +136,9 @@ export function createMovieBrowse(root, {
     syncFpCatalogFromHome();
     if (movieState.results.length) {
       if (!byId("fp-results").childElementCount) renderFpResults();
+      // The previous view may have cancelled a catalog batch. Cached metadata
+      // and a fresh provider page are not evidence of a completed library check.
+      void refreshFpJellyfinStatus();
       refreshFpCatalogInBackground();
       return;
     }
