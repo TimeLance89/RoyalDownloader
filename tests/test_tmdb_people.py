@@ -165,3 +165,38 @@ def test_fast_tv_identity_uses_one_request_and_cached_response(monkeypatch):
         "title": "Beispiel", "original_title": "Original", "year": "2020",
     }
     assert calls == [("/tv/81", {"language": "de-DE"})]
+
+
+def test_series_resolution_stops_loading_candidates_after_search_budget():
+    elapsed = [0]
+    loaded = []
+    tmdb = SimpleNamespace(
+        series_by_id=lambda _: {"title": "Show", "year": "2024"},
+        series_matches_id=lambda *args: False,
+    )
+    candidates = [SimpleNamespace(title="Show", year="2024", sample_slug=str(i)) for i in range(20)]
+
+    def load(provider, slug):
+        loaded.append(slug)
+        elapsed[0] += 13
+        return SimpleNamespace(title="Show", year="2024", seasons={1: [1]})
+
+    assert resolve_person_series(tmdb, 81, ["fixture"], lambda *args: candidates, load,
+                                 clock=lambda: elapsed[0]) is None
+    assert loaded == ["0", "1"]
+
+
+def test_series_resolution_identity_time_counts_towards_search_budget():
+    elapsed = [0]
+
+    def identity(_):
+        elapsed[0] = 26
+        return {"title": "Show", "year": "2024"}
+
+    tmdb = SimpleNamespace(series_by_id=identity)
+
+    def unexpected(*args):
+        raise AssertionError("expired identity lookup must not start provider work")
+
+    assert resolve_person_series(tmdb, 81, ["fixture"], unexpected, unexpected,
+                                 clock=lambda: elapsed[0]) is None

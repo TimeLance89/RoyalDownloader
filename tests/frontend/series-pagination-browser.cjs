@@ -10,8 +10,9 @@ async function waitUntil(page, predicate) {
 }
 
 (async () => {
-  for (const mobile of [false, true]) {
-    const run = await fixture({ mobile, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 } });
+  for (const width of [390, 1440, 3840]) {
+    const mobile = width < 1000;
+    const run = await fixture({ engine: process.env.ROYAL_BROWSER || "chromium", mobile, viewport: { width, height: mobile ? 844 : 1100 } });
     const { page, errors } = run;
     try {
       let failures = 1;
@@ -47,13 +48,8 @@ async function waitUntil(page, predicate) {
       assert.equal(await page.locator("#series-results .result-card").count(), 32);
       assert.notEqual(await page.locator("#series-infinite").getAttribute("data-state"), "loading");
       releaseSecondPage();
-      await page.waitForTimeout(2500);
-      assert.equal(await page.locator("#series-results .result-card").count(), 32);
-      assert.deepEqual(requests, [1, 1, 2, 2]);
-      failures = 3;
-      await page.mouse.wheel(0, 250);
       await page.waitForFunction(() => document.querySelectorAll("#series-results .result-card").length === 64);
-      await waitUntil(page, () => requests.filter(number => number === 3).length >= 4);
+      await waitUntil(page, () => requests.includes(3));
       await page.waitForTimeout(2500);
       assert.equal(await page.locator("#series-results .result-card").count(), 64);
       await page.locator("#series-infinite").scrollIntoViewIfNeeded();
@@ -62,11 +58,11 @@ async function waitUntil(page, predicate) {
         null,
         { timeout: 15000 },
       );
-      assert.deepEqual(requests, [1, 1, 2, 2, 3, 3, 3, 3]);
+      assert.deepEqual(requests, [1, 1, 2, 2, 3]);
       assert.equal(await page.evaluate(() => originalSeriesCard === document.querySelector("#series-results .result-card")), true);
       assert.equal(await page.locator("#series-infinite-retry").isVisible(), false);
       assert.deepEqual(errors, []);
-      console.log(`series pagination ${mobile ? "mobile" : "desktop"}: hidden prefetch, silent retries, and reveal only on later downward scroll passed`);
+      console.log(`series pagination ${width}px: pending page appends on arrival, no second gesture, no skipped pages`);
     } finally { await run.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

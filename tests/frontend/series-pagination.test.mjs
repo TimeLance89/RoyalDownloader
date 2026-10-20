@@ -71,7 +71,7 @@ test('prefetched series remain invisible until a later downward scroll', async()
   } finally { h.browse.unmount(); }
 });
 
-test('scrolling while a page is pending does not reveal it when its response arrives',async()=>{
+test('scrolling while a page is pending appends it on arrival without another gesture',async()=>{
   let release;
   const h=fixture([new Promise(resolve=>{release=resolve;})]);
   try {
@@ -80,9 +80,20 @@ test('scrolling while a page is pending does not reveal it when its response arr
     assert.equal(h.state.results.length,32);
     release(page2);
     await loading;
-    assert.equal(h.applied.length,0);
-    await h.browse.next({reveal:true});
+    assert.equal(h.applied.length,1);
     assert.equal(h.state.results.length,33);
+  } finally {h.browse.unmount();}
+});
+
+test('downward demand survives transient warmup retries', async()=>{
+  const h=fixture([pending(),pending(),pending(),page2]);
+  try {
+    await h.browse.next({reveal:true});
+    assert.equal(h.state.results.length,32);
+    h.scheduled.shift()();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.state.results.length,33);
+    assert.equal(h.applied.length,1);
   } finally {h.browse.unmount();}
 });
 
