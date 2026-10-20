@@ -57,6 +57,9 @@ jobs:
       - name: Series Jellyfin ribbons follow enriched identities and confirmed detail inventory
         run: node tests/frontend/series-jellyfin-ribbon-browser.cjs
 
+      - name: Movie Jellyfin ribbons survive details, cached navigation and background checks
+        run: node tests/frontend/movie-jellyfin-browser.cjs
+
       - name: Series inventory adopts deferred results and stops polling after close
         run: node tests/frontend/series-inventory-retry-browser.cjs
 

@@ -1620,10 +1620,11 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   const requests = [];
   const items = Array.from({ length: 205 }, (_, index) => ({ slug: String(index), title: `Film ${index}` }));
   const entries = items.map(item => ({ kind: "movie", item }));
-  let renders = 0;
+  let renders = 0, movieUpdates = 0;
   const model = createCatalogJellyfin({ uniqueHomeEntries: entries => entries,
     homeEntryKey: entry => `${entry.kind}:${entry.item.slug}`, getMovieMetadata: () => ({}),
     getMovieInstances: slug => items.filter(item => item.slug === slug),
+    onMoviesUpdated: () => movieUpdates++,
     client: { post: (_url, body, { signal }) => new Promise(resolve => requests.push({ body, signal, resolve })) },
   });
   const first = model.refresh([...entries, { kind: "collection", item: { collection_id: 1 } }], () => renders++);
@@ -1634,6 +1635,7 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   await first;
   assert.equal(items[0].jellyfin_status, "owned"); assert.equal(items[1].jellyfin_status, "missing");
   assert.equal(model.getStatus("movie:0"), "owned");
+  assert.equal(movieUpdates, 2, "fresh movie batches notify cards even without their own render path");
   const controller = new AbortController();
   const cancelled = model.refresh([entries[0]], () => renders++, { signal: controller.signal });
   controller.abort(); assert.equal(requests[4].signal.aborted, true);
@@ -1642,6 +1644,7 @@ test("catalog Jellyfin batches preserve newer results and ignore aborted reads",
   const stopped = model.refresh([entries[0]], () => renders++); model.unmount(); model.mount();
   requests[5].resolve({ matches: { "movie:0": false } }); await stopped;
   assert.equal(items[0].in_jellyfin, true); assert.equal(renders, 2); model.unmount();
+  assert.equal(movieUpdates, 2, "cancelled or obsolete work must not notify movie cards");
 });
 
 

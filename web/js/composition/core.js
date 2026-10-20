@@ -81,7 +81,14 @@ export function prepareCore({ getDiscovery, getDownloads, getIntegrations, getHo
       closeAniworldDetails: () => getDiscovery().aniworld.closeDetail(),
       closeAnimeDetails: () => getDiscovery().anime.closeDetail(),
       closeSeriesDetails() { getDiscovery().seriesDetailsLoader.unmount(); getDiscovery().seriesChecks.unmount(); getDiscovery().seriesPresentation.closeSavedMedia(); },
-      closeMovieDetails: () => { getDiscovery().movieDetailsLoader.unmount(); getDownloads().movieDownloads.closeDetail(); getIntegrations().movieStatus.cancel(); getDiscovery().moviePresentation.closeSavedMedia(); },
+      closeMovieDetails: () => {
+        getDiscovery().movieDetailsLoader.unmount();
+        getDownloads().movieDownloads.closeDetail();
+        getDiscovery().moviePresentation.closeSavedMedia();
+        // Closing aborts the dialog's own library request. Keep the catalog
+        // worker alive and recheck any titles superseded by that cancelled read.
+        void getDiscovery().movieActions.refreshFpJellyfinStatus();
+      },
       closeLanguageChoice: () => getDiscovery().mediaLanguage.close(),
       closeFpTrailerModal: (...args) => getDiscovery().movieActions.closeFpTrailerModal(...args),
       stopFpDetailHeroTrailer: () => getDiscovery().movieActions.stopFpDetailHeroTrailer(),
