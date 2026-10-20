@@ -142,8 +142,9 @@ def test_native_callers_keep_completed_response_contract(monkeypatch):
         service.close()
 
 
+@pytest.mark.parametrize("defer_checks", [False, True])
 @pytest.mark.parametrize("cancel", [False, True])
-def test_detail_wait_is_short_and_retry_reuses_same_enrichment(monkeypatch, cancel):
+def test_detail_wait_is_short_and_retry_reuses_same_enrichment(monkeypatch, cancel, defer_checks):
     entered, release = threading.Event(), threading.Event()
     service = SeriesDetailWork()
     series = SimpleNamespace(base_slug="fixture", title="Fixture", url="fixture")
@@ -162,7 +163,8 @@ def test_detail_wait_is_short_and_retry_reuses_same_enrichment(monkeypatch, canc
     monkeypatch.setattr(discovery, "get_tmdb_client", lambda: state)
     monkeypatch.setattr(discovery, "series_to_dict", payload)
     monkeypatch.setattr(discovery, "series_payload_missing_seasons", lambda _: set())
-    body = discovery.SeriesLoadBody(sample_slug="fixture", base_slug="fixture", progressive=True)
+    body = discovery.SeriesLoadBody(sample_slug="fixture", base_slug="fixture", progressive=True,
+                                    defer_checks=defer_checks)
 
     async def scenario():
         first = asyncio.create_task(discovery.api_series_load(body))
