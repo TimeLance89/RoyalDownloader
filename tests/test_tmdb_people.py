@@ -141,9 +141,27 @@ def test_progressive_tmdb_series_uses_non_blocking_shared_resolver_with_deferred
         observed.append((identity, progressive))
         return {"title": "Ready", "seasons": []}
 
-    app.include_router(create_people_router(lambda: SimpleNamespace(), enrich_series=enrich))
+    app.include_router(create_people_router(lambda: SimpleNamespace(configured=True), enrich_series=enrich))
     client = TestClient(app)
     response = client.get("/api/people/series/8765?progressive=true&defer_checks=true")
     assert response.status_code == 200
     assert response.json()["title"] == "Ready"
     assert observed == [(("people", 8765, False, True), True)]
+
+
+def test_fast_tv_identity_uses_one_request_and_cached_response(monkeypatch):
+    tmdb = TMDBClient("test")
+    calls = []
+
+    def fetch(path, params):
+        calls.append((path, params))
+        return {"id": 81, "name": "Beispiel", "original_name": "Original",
+                "first_air_date": "2020-07-04"}
+
+    monkeypatch.setattr(tmdb, "_request", fetch)
+    first = tmdb.series_identity_by_id(81)
+    second = tmdb.series_identity_by_id(81)
+    assert first == second == {
+        "title": "Beispiel", "original_title": "Original", "year": "2020",
+    }
+    assert calls == [("/tv/81", {"language": "de-DE"})]
