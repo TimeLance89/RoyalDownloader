@@ -51,3 +51,30 @@ No additional failures were observed in the completed checks above. That is
 bounded test evidence, not proof that every live provider and household state
 is correct. Live provider latency, production credentials and NAS filesystem
 behavior were not tested. No merge or production deployment was performed.
+
+## Storage follow-up from the reported screenshots
+
+- Standard targets no longer claim to be always available. Unreachable,
+  read-only and usable targets have distinct labels. A physically reachable
+  root with a changed disk identity is marked as requiring confirmation,
+  rather than as an unreachable mount.
+- Changed identity still blocks placement and file actions until explicit
+  confirmation. Cancelling the confirmation writes nothing. The existing
+  confirmation API is accessible beside the standard target and refreshes
+  both storage displays immediately after success.
+- An absent mount preserves its actual filesystem error instead of replacing
+  it with an identity-change diagnosis. A per-volume capacity warning no
+  longer implies that the sum of all volumes is nearly full.
+- New browser coverage passes in Chromium/WebKit at 390/1440px, including
+  cancellation, explicit confirmation, immediate refresh and distinct offline
+  state. Existing Chromium storage autonomy/cleanup tests also pass.
+- The pre-existing scan test compared a normalized Windows path to a literal
+  POSIX string. It now compares path identity, preserving the same expected
+  scan target on both platforms. No skip was added. The full storage selection
+  is included in Linux CI.
+- Final local storage selection: 128 passed, one existing skip. The full Node
+  selection also remains green with 372 tests.
+
+Completed move history describes the verified result at that past time; it
+does not prove that the destination is still mounted later. No historical
+move was replayed and no production mount was confirmed by this task.

@@ -54,7 +54,7 @@ const { fixture } = require("./performance-fixture.cjs");
       } else await page.locator("#settings-btn").click();
       await page.locator('[data-settings-open="settings-storage"]').click();
       const panel = page.locator("#storage-autopilot");
-      await panel.getByText("Speicher wird knapp", { exact: true }).waitFor();
+      await panel.getByText("Ein Volume ist stark belegt", { exact: true }).waitFor();
       assert.match(await panel.locator("#storage-autopilot-volumes").innerText(), /Physisch belegt 56.4 %.*Queue\/Jobs reserviert.*Prognose 63.8 %.*Sichere Restreserve/s);
       assert.match(await panel.locator("#storage-recommendations").innerText(), /Quelle: Physisch 56.4 %.*Prognose 63.8 %/s);
       const interact = async locator => {

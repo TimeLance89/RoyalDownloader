@@ -9,9 +9,9 @@ const roles = { primary: "Primärspeicher", overflow: "Ausweichspeicher", archiv
 const media = { movies: "Filme", series: "Serien", anime: "Anime" };
 const fields = ["window_start", "window_end", "window_enabled", "interval_hours", "cooldown_hours", "max_moves", "max_move_gib", "unknown_download_gib", "archive_age_days", "allow_series_split"];
 const flags = new Set(["window_enabled", "allow_series_split"]);
-const pressureLabels = { normal: "Alles in Ordnung", warning: "Speicher wird knapp", critical: "Speicherreserve gefährdet", emergency: "Kein sicherer Speicher verfügbar", diverted: "Hohe geplante Speicherlast – neue Downloads werden auf andere Volumes verteilt", limited: "Nicht alle Medienarten haben sicheren Speicher", offline: "Ein Speicherort ist offline" };
+const pressureLabels = { normal: "Alles in Ordnung", warning: "Ein Volume ist stark belegt", critical: "Speicherreserve gefährdet", emergency: "Kein sicherer Speicher verfügbar", diverted: "Hohe geplante Speicherlast – neue Downloads werden auf andere Volumes verteilt", limited: "Nicht alle Medienarten haben sicheren Speicher", offline: "Ein Speicherort ist offline" };
 
-export function createStorageAutopilot(root) {
+export function createStorageAutopilot(root, { onChanged = () => {} } = {}) {
   installAutopilotUi(root);
   const find = id => root.querySelector(`#${id}`);
   let scope, value, pending, dirty = false, busy = false, lastRefresh = 0, renderedVolumes = "", renderedRecommendations = "";
@@ -20,7 +20,8 @@ export function createStorageAutopilot(root) {
     if (!value?.policy || !Array.isArray(value.roots)) throw new Error("Speicherinformationen unvollständig");
     const section = find("storage-autopilot");
     section.dataset.pressure = value.storage_error ? "critical" : value.pressure;
-    find("storage-autopilot-health").textContent = value.storage_error ? "Autopilot-Daten prüfen" : pressureLabels[value.pressure] || "Verfügbarkeit wird geprüft";
+    const needsMountConfirmation = value.roots.some(item => ["movies", "series"].includes(item.key) && item.mount_confirmation_required);
+    find("storage-autopilot-health").textContent = value.storage_error ? "Autopilot-Daten prüfen" : needsMountConfirmation ? "Standardziel bestätigen" : pressureLabels[value.pressure] || "Verfügbarkeit wird geprüft";
     const recommendations = (value.recommendations || []).filter(item => item.state === "available");
     find("storage-autopilot-capacity").textContent = `${value.summary?.volume_count || 0} erreichbare Volumes · ${formatBytes(value.summary?.free_bytes || 0)} frei · ${formatBytes(value.summary?.total_bytes || 0)} gesamt`;
     const physicalVolumes = [...new Map(value.roots.filter(item => item.available && item.volume_id).map(item => [item.volume_id, item])).values()];
@@ -31,6 +32,7 @@ export function createStorageAutopilot(root) {
       return `<article class="storage-recommendation"><strong>${html(item.name)}</strong><p>Für diesen geplanten Download eignet sich ${html(target?.label || item.destination_root)} besser (${formatBytes(item.size_bytes)} eingeplant).</p><ul>${item.reasons.map(reason => `<li>${html(reason)}</li>`).join("")}</ul><small>Beraten verändert das Downloadziel nicht. Für automatische Platzierung wähle Automatisch.</small></article>`;
     }).join("");
     find("storage-autopilot-impact").textContent = value.storage_error ? "Automatische Aktionen sind gesperrt. Deine vorhandenen Dateien bleiben erhalten." : value.pressure === "normal" ? "Keine Einschränkungen erkannt. Royal hält die Sicherheitsreserve im Blick." : value.pressure === "diverted" ? "Andere freigegebene Medien-Volumes können neue Downloads sicher aufnehmen." : value.pressure === "limited" ? "Prüfe die freigegebenen Medienarten und Speicherreserven je Volume." : recommendations.length ? `Royal hat ${recommendations.length} sichere Vorschläge zur Entlastung. Dateien werden vor jeder Aktion erneut geprüft.` : "Prüfe freie Kapazität und erreichbare Medien-Volumes. Royal mountet keine Laufwerke selbst.";
+    if (needsMountConfirmation && !value.storage_error) find("storage-autopilot-impact").textContent = "Ein Standardpfad ist erreichbar, seine Datenträgerkennung hat sich aber geändert. Prüfe und bestätige den richtigen Mount bei den Standard-Zielordnern. Bis dahin bleibt dieser Pfad für automatische Aktionen gesperrt; andere freigegebene Ziele bleiben nutzbar.";
     if (!dirty) {
       for (const radio of root.querySelectorAll('[name="storage-autonomy"]')) radio.checked = radio.value === value.policy.mode;
       for (const field of fields) {
@@ -92,7 +94,7 @@ export function createStorageAutopilot(root) {
     if (!scope?.active || busy) return;
     const current = scope; busy = true;
     find("storage-autopilot").setAttribute("aria-busy", "true");
-    try { const message = await operation(createStorageApi(current)); if (current.active) { dirty = false; status(typeof message === "string" ? message : "Speicherregeln übernommen."); await refresh(true, true); } }
+    try { const message = await operation(createStorageApi(current)); if (current.active) { dirty = false; status(typeof message === "string" ? message : "Speicherregeln übernommen."); await refresh(true, true); if (current.active) onChanged(); } }
     catch (error) { if (current.active && !isAbortError(error)) status("Aktion nicht übernommen. Prüfe Speicherverfügbarkeit und freigegebene Regeln."); }
     finally { if (current.active) { busy = false; find("storage-autopilot").setAttribute("aria-busy", "false"); } }
   }
@@ -148,7 +150,7 @@ export function createStorageAutopilot(root) {
       scope = createScope(); lastRefresh = 0;
       scope.listen(find("storage-autopilot"), "submit", save);
       scope.listen(find("storage-autopilot"), "input", event => { if (event.target.id !== "storage-auto-delete") dirty = true; });
-      scope.listen(find("storage-autopilot"), "click", action);
+      scope.listen(root, "click", action);
       scope.listen(find("storage-auto-delete"), "change", deletePermission);
       void refresh(true);
     }, refresh, snapshot: () => value,
