@@ -97,6 +97,7 @@ class TMDBClient(TMDBPeopleMixin):
         self._movie_id_cache: dict = {}
         self._series_cache: dict = {}
         self._series_id_cache: dict = {}
+        self._series_identity_cache: dict = {}
         self._series_match_cache: dict = {}
         self._season_cache: dict = {}
         self._genre_cache: dict = {}
@@ -904,6 +905,38 @@ class TMDBClient(TMDBPeopleMixin):
             if len(payload) >= 6:
                 break
         return payload
+
+    def series_identity_by_id(self, tmdb_id) -> Optional[dict]:
+        """Fetch just a TV identity for provider matching, never video/cast data.
+
+        Opening a TMDB discovery card must not wait for trailer, credit and
+        recommendation enrichment before it can load the provider's seasons.
+        """
+        key = str(tmdb_id or "").strip()
+        if not key.isdigit() or not self.configured:
+            return None
+        now = time.time()
+        with self._lock:
+            full = self._series_id_cache.get(key)
+            if full and full[1] and now - full[0] < SERIES_CACHE_TTL:
+                return full[1]
+            cached = self._series_identity_cache.get(key)
+            if cached and now - cached[0] < SERIES_CACHE_TTL:
+                return cached[1]
+        details = self._request(f"/tv/{key}", {"language": self.language})
+        if not isinstance(details, dict) or not (details.get("name") or details.get("original_name")):
+            return None
+        identity = {
+            "title": details.get("name") or details.get("original_name") or "",
+            "original_title": details.get("original_name") or "",
+            "year": _year_from_date(details.get("first_air_date") or ""),
+        }
+        with self._lock:
+            if len(self._series_identity_cache) >= 256:
+                oldest = min(self._series_identity_cache, key=lambda k: self._series_identity_cache[k][0])
+                self._series_identity_cache.pop(oldest, None)
+            self._series_identity_cache[key] = (now, identity)
+        return identity
 
     def series_by_id(self, tmdb_id, title: str = "", force: bool = False) -> Optional[dict]:
         key = str(tmdb_id or "").strip()
