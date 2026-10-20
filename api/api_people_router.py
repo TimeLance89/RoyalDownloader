@@ -45,14 +45,20 @@ def create_people_router(get_client, *, enrich_series=None):
             series = resolve_person_series(
                 tmdb, tmdb_id, catalog.provider_priority("series"),
                 catalog._search_series_for_provider, catalog._load_series_for_provider,
+                cached_series=tuple(catalog.state.series_cache.values()),
             )
             if series is None:
                 return None
             catalog.state.series_cache[series.base_slug] = series
             return catalog.series_to_dict(series, refresh_jellyfin=refresh_jellyfin, defer_checks=defer_checks)
 
-        payload = (await run_in_threadpool(work) if defer_checks or enrich_series is None else
-                   await enrich_series(("people", tmdb_id, refresh_jellyfin), work, progressive=progressive))
+        # defer_checks controls expensive Jellyfin/language enrichment, not
+        # whether the provider resolver may block an HTTP worker indefinitely.
+        # TMDB-discovered titles now use the same bounded background job and
+        # pending/retry protocol as the existing catalog series route.
+        payload = (await run_in_threadpool(work) if not progressive or enrich_series is None else
+                   await enrich_series(("people", tmdb_id, refresh_jellyfin, defer_checks),
+                                       work, progressive=True))
         if payload is None:
             raise HTTPException(404, "Für diese Serie wurde keine passende Quelle gefunden.")
         return payload
