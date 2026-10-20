@@ -21,6 +21,7 @@ def _normalized_title(title):
 
 def resolve_person_series(client, tmdb_id, providers, search, load, *,
                           cached_series=(), budget_seconds=25, clock=time.monotonic):
+    started = clock()
     lightweight_identity = getattr(client, "series_identity_by_id", client.series_by_id)
     metadata = lightweight_identity(tmdb_id)
     if not metadata:
@@ -28,7 +29,6 @@ def resolve_person_series(client, tmdb_id, providers, search, load, *,
     titles = list(dict.fromkeys(filter(None, [metadata.get("title"), metadata.get("original_title")])))
     normalized = {_normalized_title(title) for title in titles}
     wanted_year = str(metadata.get("year") or "")
-    started = clock()
 
     def plausible(value, loaded=False):
         year = str(getattr(value, "year", "") or "")
@@ -62,9 +62,13 @@ def resolve_person_series(client, tmdb_id, providers, search, load, *,
                 return None
             try:
                 for candidate in search(provider, title):
+                    if clock() - started > budget_seconds:
+                        return None
                     if not plausible(candidate):
                         continue
                     series = load(provider, candidate.sample_slug)
+                    if clock() - started > budget_seconds:
+                        return None
                     if confirmed(series):
                         return series
             except Exception as error:

@@ -11,6 +11,7 @@ export function createSeriesBrowse(root, {
   const byId = id => root.querySelector(`#${id}`);
   let scope = null, request = null, cancelRequest = null;
   let nextPage = null;
+  let revealPending = false;
   const current = id => scope?.active && request?.scope.active
     && request.id === id && seriesState.browseRequestSeq === id;
   const transientCatalogError = error => error?.code === "series_catalog_pending"
@@ -88,6 +89,7 @@ export function createSeriesBrowse(root, {
     if (seriesState.browseMode !== "search" && !seriesState.searchReturn) return;
     cancelRequest?.();
     nextPage = null;
+    revealPending = false;
     const saved = seriesState.searchReturn;
     seriesState.searchReturn = null;
     byId("series-search").value = "";
@@ -122,6 +124,7 @@ export function createSeriesBrowse(root, {
     closeSearchSuggestions("series-search-suggestions", "series-search");
     rememberSeriesSearchContext();
     nextPage = null;
+    revealPending = false;
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
     seriesState.browseMode = "search";
@@ -176,7 +179,12 @@ export function createSeriesBrowse(root, {
       .then(async data => {
         if (!valid()) return;
         await preloadSeriesPosterImages(data.results || [], 2000, scope.signal);
-        if (valid()) pending.data = data;
+        if (valid()) {
+          pending.data = data;
+          // Remember reaching the end while the request/posters were pending.
+          // Requiring another wheel/scroll event can strand users at the bottom.
+          if (revealPending) void loadNextSeriesPage({ reveal: true });
+        }
       })
       .catch(error => {
         if (!valid()) return;
@@ -194,6 +202,7 @@ export function createSeriesBrowse(root, {
   async function seriesBrowse(mode, page, { append = false } = {}) {
     if (!scope?.active) return;
     nextPage = null;
+    revealPending = false;
     if (mode !== "search") clearSeriesSearchContext();
     const requestId = ++seriesState.browseRequestSeq;
     const previousMode = seriesState.browseMode;
@@ -287,6 +296,7 @@ export function createSeriesBrowse(root, {
     if ((reveal || retry) && nextPage?.data) {
       const data = nextPage.data;
       nextPage = null;
+      revealPending = false;
       ++seriesState.browseRequestSeq;
       applySeriesResults(data, { append: true });
       void prepareNextSeriesPage();
@@ -297,7 +307,8 @@ export function createSeriesBrowse(root, {
       updateSeriesInfiniteState();
       return;
     }
-    // Completion only fills this buffer. A later downward scroll reveals it.
+    revealPending ||= reveal || retry;
+    // Background prefetch stays hidden until the user requests this page.
     await prepareNextSeriesPage();
   }
 
@@ -340,6 +351,7 @@ export function createSeriesBrowse(root, {
     unmount() {
       scope?.dispose(); scope = null; request = null; cancelRequest = null;
       nextPage = null;
+      revealPending = false;
       seriesState.loadingBrowse = false;
     },
     clear: clearSeriesSearchContext, remember: rememberSeriesSearchContext, restore: restoreSeriesSearchContext,

@@ -272,7 +272,27 @@ test('series detail polling has a deadline even when the modal stays mounted', a
     signal, now: () => elapsed,
     waitForRetry: async (ms) => { assert.equal(ms, 1000); elapsed += 18_000; },
   }), error => error.status === 503 && error.code === 'series_details_pending');
-  assert.equal(calls, 3, 'must stop retrying rather than spinning forever');
+  assert.equal(calls, 2, 'must not start another request after the retry wait exhausts the deadline');
+});
+
+test('series detail HTTP timeouts cannot extend beyond the overall retry deadline', async () => {
+  for (const slug of ['provider:show', 'tmdb:111']) {
+    let elapsed = 0;
+    const timeouts = [];
+    const pending = Object.assign(new Error('pending'), { status: 503, code: 'series_details_pending' });
+    const request = async (...args) => {
+      const options = args.at(-1);
+      timeouts.push(options.timeoutMs);
+      elapsed += options.timeoutMs;
+      throw pending;
+    };
+    await assert.rejects(loadSeriesDetails({ get: request, post: request }, slug, slug, {
+      signal: new AbortController().signal, now: () => elapsed,
+      waitForRetry: async ms => { elapsed += ms; },
+    }), error => error === pending);
+    assert.deepEqual(timeouts, [20_000, 14_000]);
+    assert.equal(elapsed, 35_000);
+  }
 });
 
 test('TMDB series detail uses the bounded progressive people endpoint', async () => {
