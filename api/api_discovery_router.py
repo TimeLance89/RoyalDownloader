@@ -1359,12 +1359,14 @@ async def api_series_load(body: SeriesLoadBody):
             state.series_cache[series.base_slug] = series
         return series, payload
 
-    if body.defer_checks:
+    if body.defer_checks and not body.progressive:
         series, payload = await run_in_threadpool(_work)
     else:
+        # A progressive UI request must never occupy an HTTP worker while
+        # waiting for a slow provider, even when Jellyfin checks are deferred.
         series, payload = await _bounded_series_detail_work(
-            ("catalog", body.base_slug or body.sample_slug, body.refresh_jellyfin), _work,
-            progressive=body.progressive,
+            ("catalog", body.base_slug or body.sample_slug, body.refresh_jellyfin,
+             body.defer_checks), _work, progressive=body.progressive,
         )
     if series is None:
         raise HTTPException(404, "Serie nicht gefunden.")
