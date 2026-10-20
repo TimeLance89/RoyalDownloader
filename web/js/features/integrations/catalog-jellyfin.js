@@ -2,7 +2,7 @@ import { api } from "../../core/api.js";
 import { createScope } from "../../core/lifecycle.js";
 
 /** Shared media-availability snapshot. Integration health has a separate contract. */
-export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovieMetadata, getMovieInstances, getSeriesInstances = () => [], client = api }) {
+export function createCatalogJellyfin({ uniqueHomeEntries, homeEntryKey, getMovieMetadata, getMovieInstances, getSeriesInstances = () => [], onMoviesUpdated = () => {}, client = api }) {
   let owner = createScope();
   let catalogJellyfinRequestSequence = 0;
   const catalogJellyfinRequestByKey = new Map(), statuses = new Map();
@@ -106,6 +106,9 @@ async function refreshCatalogJellyfinStatus(entries, render, { signal } = {}) {
       else delete entry.item.in_jellyfin;
     }
   }
+  // Home warming and metadata checks can update the shared movie instances
+  // without a render callback. Publish those results to existing movie cards.
+  if (appliedMovieKeys.size) onMoviesUpdated();
   if (render) render();
   } finally { signal?.removeEventListener("abort", abort); release(); }
 }
