@@ -5,6 +5,43 @@ from api.api_people_router import create_people_router
 from integrations.tmdb_client import TMDBClient
 from application_services.people_series import resolve_person_series
 from types import SimpleNamespace
+import pytest
+
+
+@pytest.mark.parametrize("providers", [[], ["huhu"], ["moflix", "huhu"]])
+@pytest.mark.parametrize("progressive", [False, True])
+def test_cached_series_respects_enabled_sources_and_priority(monkeypatch, providers, progressive):
+    import server  # noqa: F401 - register the application service backend
+    from application_services import series_catalog as catalog
+    from providers.catalog import provider_for_source
+
+    snapshots = [SimpleNamespace(title="Show", year="2024", base_slug=f"{provider}:show",
+                                 url=f"{provider}:show", seasons={1: [1]})
+                 for provider in ["filmpalast", "huhu", "moflix"]]
+    monkeypatch.setattr(catalog, "state", SimpleNamespace(series_cache={s.base_slug: s for s in snapshots}), raising=False)
+    monkeypatch.setattr(catalog, "provider_priority", lambda kind: providers, raising=False)
+    monkeypatch.setattr(catalog, "provider_for_value", provider_for_source, raising=False)
+    monkeypatch.setattr(catalog, "series_to_dict", lambda series, **kwargs: {"base_slug": series.base_slug}, raising=False)
+
+    def unexpected(*args):
+        pytest.fail("cached active sources must not trigger a remote provider lookup")
+
+    monkeypatch.setattr(catalog, "_search_series_for_provider", unexpected)
+    monkeypatch.setattr(catalog, "_load_series_for_provider", unexpected)
+    tmdb = SimpleNamespace(configured=True, series_by_id=lambda _: {"title": "Show", "year": "2024"},
+                           series_matches_id=lambda *args: True)
+
+    async def enrich(identity, work, **kwargs):
+        return work()
+
+    app = FastAPI()
+    app.include_router(create_people_router(lambda: tmdb, enrich_series=enrich))
+    response = TestClient(app).get(f"/api/people/series/42?progressive={str(progressive).lower()}")
+    if providers:
+        assert response.status_code == 200
+        assert response.json()["base_slug"] == f"{providers[0]}:show"
+    else:
+        assert response.status_code == 404
 
 
 def test_credits_preserve_movie_tv_identity_and_merge_roles(monkeypatch):
@@ -200,3 +237,24 @@ def test_series_resolution_identity_time_counts_towards_search_budget():
 
     assert resolve_person_series(tmdb, 81, ["fixture"], unexpected, unexpected,
                                  clock=lambda: elapsed[0]) is None
+
+
+@pytest.mark.parametrize(("title", "provider_title"), [
+    ("S.W.A.T.", "SWAT"), ("Die Brücke", "Die Brucke"), ("Marvel's Show", "Marvels Show"),
+])
+def test_series_prefilter_preserves_existing_tmdb_title_normalization(monkeypatch, title, provider_title):
+    tmdb = TMDBClient("fixture")
+
+    def request(path, params):
+        if path == "/tv/42":
+            return {"id": 42, "name": title, "first_air_date": "2024-01-01"}
+        assert path == "/search/tv"
+        return {"results": [{"id": 42, "name": title, "first_air_date": "2024-01-01"}]}
+
+    monkeypatch.setattr(tmdb, "_request", request)
+    # This title already passes the established exact-ID/year verifier.
+    assert tmdb.series_matches_id(provider_title, 42, "2024")
+    candidate = SimpleNamespace(title=provider_title, year="2024", sample_slug="fixture:show")
+    loaded = SimpleNamespace(title=provider_title, year="2024", seasons={1: [1]})
+    assert resolve_person_series(tmdb, 42, ["fixture"], lambda *args: [candidate],
+                                 lambda *args: loaded) is loaded

@@ -42,10 +42,16 @@ def create_people_router(get_client, *, enrich_series=None):
         def work():
             from application_services import series_catalog as catalog
 
+            providers = catalog.provider_priority("series")
+            cached = tuple(catalog.state.series_cache.values())
+            # Cached inventories must obey the same current source selection
+            # and ordering as remote lookups, including language exclusions.
+            cached = tuple(series for provider in providers for series in cached
+                           if catalog.provider_for_value(series.url or series.base_slug) == provider)
             series = resolve_person_series(
-                tmdb, tmdb_id, catalog.provider_priority("series"),
+                tmdb, tmdb_id, providers,
                 catalog._search_series_for_provider, catalog._load_series_for_provider,
-                cached_series=tuple(catalog.state.series_cache.values()),
+                cached_series=cached,
             )
             if series is None:
                 return None
