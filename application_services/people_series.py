@@ -7,16 +7,11 @@ the selected loaded provider, not for every search listing.
 """
 
 import logging
-import re
 import time
-import unicodedata
+
+from integrations.tmdb_client import _normalize as _normalized_title
 
 logger = logging.getLogger(__name__)
-
-
-def _normalized_title(title):
-    ascii_name = unicodedata.normalize("NFKD", str(title or "")).casefold()
-    return re.sub(r"[^\w]+", " ", ascii_name).strip()
 
 
 def resolve_person_series(client, tmdb_id, providers, search, load, *,
@@ -36,7 +31,8 @@ def resolve_person_series(client, tmdb_id, providers, search, load, *,
             return False
         if wanted_year and year and year != wanted_year:
             return False
-        # Filter obvious mismatches without dozens of TMDB search requests.
+        # Use the verifier's established normalization: punctuation and accents
+        # must not reject a source before its exact TMDB ID/year is checked.
         return _normalized_title(getattr(value, "title", "")) in normalized
 
     def confirmed(value):

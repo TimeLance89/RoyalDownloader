@@ -70,7 +70,9 @@ jobs:
         run: node tests/frontend/language-studio-browser.cjs
 
       - name: Storage Autopilot permissions, volume policy and touch layouts
-        run: node tests/frontend/storage-autopilot-browser.cjs
+        run: |
+          node tests/frontend/storage-autopilot-browser.cjs
+          node tests/frontend/storage-mount-status-browser.cjs
 
       - name: Similar title navigation and independent detail failures
         run: node tests/frontend/similar-browser.cjs
@@ -279,6 +281,12 @@ jobs:
           tests/test_api_auth_router.py
           tests/test_saved_media.py
           tests/test_watchlist_inbox_payload.py
+
+      - name: Storage mount identity, permissions and move safeguards
+        if: ${{ steps.change-scope.outputs.backend == 'true' }}
+        timeout-minutes: 4
+        run: |
+          timeout 180s python -m pytest -q tests/test_storage_autopilot.py tests/test_storage_autopilot_policy.py tests/test_storage_autopilot_cleanup.py tests/test_storage_autopilot_runtime.py tests/test_api_storage_autopilot.py tests/test_storage_frontend.py tests/test_storage_move_contract.py tests/test_storage_locations.py tests/test_storage_move.py tests/test_storage_move_jobs.py tests/test_api_storage_router.py
 
       - name: NAS event-loop stalls, bounded live events and browser cleanup
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

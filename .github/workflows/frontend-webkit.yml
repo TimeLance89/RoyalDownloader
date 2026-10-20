@@ -41,7 +41,9 @@ jobs:
       - name: Storage Autopilot mobile permissions and confirmations
         env:
           ROYAL_BROWSER: webkit
-        run: node tests/frontend/storage-autopilot-browser.cjs
+        run: |
+          node tests/frontend/storage-autopilot-browser.cjs
+          node tests/frontend/storage-mount-status-browser.cjs
 
       - name: Native mobile navigation and subscription inbox
         env:

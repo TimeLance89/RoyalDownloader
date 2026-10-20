@@ -237,6 +237,38 @@ def test_offline_mount_identity_is_retained_and_requires_confirmation(disks):
     assert autopilot.get_autopilot()["roots"][2]["available"]
 
 
+def test_reachable_changed_mount_is_not_reported_as_unreachable_or_used_before_confirmation(disks):
+    from pathlib import Path
+
+    autopilot.observe_volumes()
+    previous = inventory.read_state()["observations"]["movies"]
+    disks[0]["volume_id"] = "replacement-disk"
+    autopilot.save_policy({"mode": "automatic"})
+    current = autopilot.get_autopilot()
+    changed = current["roots"][0]
+    assert changed["reachable"] is True
+    assert changed["mount_confirmation_required"] is True
+    assert changed["available"] is False
+    assert changed["writable"] is False
+    assert inventory.read_state()["observations"]["movies"] == previous
+    choice = reserve_download("blocked-mount", Path(disks[0]["path"]) / "Movie.mp4",
+                              "movies", current["roots"], [], [])
+    assert choice["root"] == "location:overflow"
+    autopilot.save_volume("movies", {}, confirm_mount=True)
+    confirmed = autopilot.get_autopilot()["roots"][0]
+    assert confirmed["available"] and confirmed["reachable"]
+    assert confirmed["mount_confirmation_required"] is False
+
+
+def test_missing_mount_preserves_actual_filesystem_error(disks):
+    autopilot.observe_volumes()
+    disks[0].update(available=False, volume_id=None, error="Pfad nicht gefunden")
+    root = autopilot.get_autopilot()["roots"][0]
+    assert not root["reachable"]
+    assert not root["mount_confirmation_required"]
+    assert root["error"] == "Pfad nicht gefunden"
+
+
 def test_advisor_proposes_pressure_relief_and_dismiss_has_cooldown(disks):
     autopilot.save_policy({"mode": "advisor"})
     disks[0].update(used_percent=91, free_bytes=90 * GIB)
