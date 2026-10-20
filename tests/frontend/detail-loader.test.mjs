@@ -258,3 +258,33 @@ test('provider-only catalog hit retries with late TMDB identity inside the origi
     assert.equal(h.views.at(-1).movie.hosters.length, 1);
   } finally { h.loader.unmount(); }
 });
+
+test('series detail polling has a deadline even when the modal stays mounted', async () => {
+  let calls = 0, elapsed = 0;
+  const client = { async post() {
+    calls += 1;
+    throw Object.assign(new Error('still preparing'), {
+      status: 503, code: 'series_details_pending',
+    });
+  } };
+  const signal = new AbortController().signal;
+  await assert.rejects(loadSeriesDetails(client, 'episode', 'series', {
+    signal, now: () => elapsed,
+    waitForRetry: async (ms) => { assert.equal(ms, 1000); elapsed += 18_000; },
+  }), error => error.status === 503 && error.code === 'series_details_pending');
+  assert.equal(calls, 3, 'must stop retrying rather than spinning forever');
+});
+
+test('TMDB series detail uses the bounded progressive people endpoint', async () => {
+  const result = await loadSeriesDetails({
+    async get(url, options) {
+      assert.match(url, /^\/api\/people\/series\/111\?/);
+      assert.match(url, /progressive=true/);
+      assert.match(url, /defer_checks=false/);
+      assert.equal(options.timeoutMs, 20_000);
+      return { seasons: [{ season: 1, episodes: [] }] };
+    },
+    post() { assert.fail('should not submit a provider slug that is only a TMDB identity'); },
+  }, 'tmdb:111', 'tmdb:111');
+  assert.equal(result.seasons.length, 1);
+});
