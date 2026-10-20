@@ -21,7 +21,8 @@ def _normalized_title(title):
 
 def resolve_person_series(client, tmdb_id, providers, search, load, *,
                           cached_series=(), budget_seconds=25, clock=time.monotonic):
-    metadata = client.series_by_id(tmdb_id)
+    lightweight_identity = getattr(client, "series_identity_by_id", client.series_by_id)
+    metadata = lightweight_identity(tmdb_id)
     if not metadata:
         return None
     titles = list(dict.fromkeys(filter(None, [metadata.get("title"), metadata.get("original_title")])))
