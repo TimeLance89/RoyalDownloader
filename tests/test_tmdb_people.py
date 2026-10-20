@@ -93,3 +93,75 @@ def test_series_credit_never_opens_same_name_original_and_recovers_provider_fail
     assert resolve_person_series(client, 42, ["online"], search, lambda *args: original) is None
     unknown = SimpleNamespace(title="Scrubs", year="", seasons={1: [1]})
     assert resolve_person_series(client, 42, ["online"], search, lambda *args: unknown) is None
+
+
+def test_tmdb_series_opens_cached_provider_seasons_without_remote_search():
+    cached = SimpleNamespace(
+        title="Cached Show", year="2024", sample_slug="serienstream:cached", seasons={1: [1]})
+    checks = []
+    tmdb = SimpleNamespace(
+        series_by_id=lambda _: {"title": "Cached Show", "year": "2024"},
+        series_matches_id=lambda title, tmdb_id, year: checks.append((title, tmdb_id, year)) or True,
+    )
+
+    def no_search(*args):
+        raise AssertionError("cached provider inventory must bypass remote provider searches")
+
+    found = resolve_person_series(tmdb, 788, ["serienstream"], no_search, no_search,
+                                  cached_series=[cached])
+    assert found is cached
+    assert checks == [("Cached Show", 788, "2024")]
+
+
+def test_tmdb_series_search_validates_only_plausible_loaded_candidates():
+    old = SimpleNamespace(title="Remake", year="2003", sample_slug="old", seasons={1: [1]})
+    actual = SimpleNamespace(title="Remake", year="2026", sample_slug="actual", seasons={1: [1]})
+    checked = []
+    tmdb = SimpleNamespace(
+        series_by_id=lambda _: {"title": "Remake", "year": "2026"},
+        series_matches_id=lambda title, identity, year: checked.append((title, year)) or year == "2026",
+    )
+    loaded = []
+    def search(provider, title):
+        return [old, SimpleNamespace(title="Wrong Title", year="2026", sample_slug="wrong"),
+                actual]
+    def load(provider, slug):
+        loaded.append(slug)
+        return actual
+    assert resolve_person_series(tmdb, 777, ["serienstream"], search, load) is actual
+    assert loaded == ["actual"]
+    assert checked == [("Remake", "2026")]
+
+
+def test_progressive_tmdb_series_uses_non_blocking_shared_resolver_with_deferred_checks():
+    app = FastAPI()
+    observed = []
+
+    async def enrich(identity, work, *, progressive):
+        observed.append((identity, progressive))
+        return {"title": "Ready", "seasons": []}
+
+    app.include_router(create_people_router(lambda: SimpleNamespace(configured=True), enrich_series=enrich))
+    client = TestClient(app)
+    response = client.get("/api/people/series/8765?progressive=true&defer_checks=true")
+    assert response.status_code == 200
+    assert response.json()["title"] == "Ready"
+    assert observed == [(("people", 8765, False, True), True)]
+
+
+def test_fast_tv_identity_uses_one_request_and_cached_response(monkeypatch):
+    tmdb = TMDBClient("test")
+    calls = []
+
+    def fetch(path, params):
+        calls.append((path, params))
+        return {"id": 81, "name": "Beispiel", "original_name": "Original",
+                "first_air_date": "2020-07-04"}
+
+    monkeypatch.setattr(tmdb, "_request", fetch)
+    first = tmdb.series_identity_by_id(81)
+    second = tmdb.series_identity_by_id(81)
+    assert first == second == {
+        "title": "Beispiel", "original_title": "Original", "year": "2020",
+    }
+    assert calls == [("/tv/81", {"language": "de-DE"})]
