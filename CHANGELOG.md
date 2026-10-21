@@ -4,6 +4,8 @@
 
 ### NAS resource and startup hotfix
 
+- Pin certifi 2026.10.19 in both reviewed dependency sets to resolve
+  PYSEC-2026-4320 without bypassing the vulnerability audit.
 - Limit optional Royal Intelligence to two concurrent inferences per process,
   bound result/job history, back off after failures and discard late results
   after configuration changes. Overload immediately retains the baseline ranking.
