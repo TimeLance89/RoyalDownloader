@@ -19,11 +19,14 @@ export function watchlistStatusText(entry) {
   return "vollständig";
 }
 
-export function createSubscriptionSummary(container, count, { getItems, open, WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT }) {
+export function createSubscriptionSummary(container, count, { getItems, open, coverCandidates = () => [], WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT }) {
   const document = container.ownerDocument;
   let scope;
+  let artworkScope;
 function render() {
   if (!container) return;
+  artworkScope?.dispose();
+  artworkScope = createScope();
   const items = getItems();
   count.textContent =
     `${items.length} ${items.length === 1 ? "Serie" : "Serien"}`;
@@ -43,9 +46,29 @@ function render() {
     card.className = "subscription-card" + (entry.new_count || entry.cleanup_last_error || entry.status === "blocked" || entry.status === "failed" ? " has-new" : "");
     card.title = `${entry.title} öffnen`;
 
+    const artwork = document.createElement("span");
+    artwork.className = "subscription-artwork";
     const monogram = document.createElement("span");
     monogram.className = "subscription-monogram";
     monogram.textContent = subscriptionMonogram(entry.title);
+    monogram.setAttribute("aria-hidden", "true");
+    artwork.append(monogram);
+    const candidates = [...new Set([entry.cover_url, entry.backdrop_url].flatMap(url => coverCandidates(url)).filter(Boolean))];
+    if (candidates.length) {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.width = 64;
+      image.height = 96;
+      let candidate = 0;
+      artworkScope.listen(image, "error", () => {
+        if (++candidate < candidates.length) image.src = candidates[candidate];
+        else image.remove();
+      });
+      image.src = candidates[0];
+      artwork.append(image);
+    }
 
     const text = document.createElement("span");
     text.className = "subscription-text";
@@ -57,9 +80,13 @@ function render() {
     meta.className = "subscription-meta";
     const modeLabel = entry.download_mode_label || WATCH_MODE_LABELS[entry.download_mode] || WATCH_MODE_LABELS[WATCH_MODE_DEFAULT];
     const cleanupLabel = WATCH_CLEANUP_LABELS[entry.cleanup_mode] || WATCH_CLEANUP_LABELS[WATCH_CLEANUP_DEFAULT];
-    meta.textContent = `${modeLabel}${entry.cleanup_mode !== WATCH_CLEANUP_DEFAULT ? ` · ${cleanupLabel}` : ""} · ${watchlistStatusText(entry)}`;
-    text.append(title, meta);
-    card.append(monogram, text);
+    meta.textContent = `${modeLabel}${entry.cleanup_mode !== WATCH_CLEANUP_DEFAULT ? ` · ${cleanupLabel}` : ""}`;
+    const status = document.createElement("span");
+    status.className = "subscription-status";
+    status.textContent = watchlistStatusText(entry);
+    card.dataset.status = entry.checking ? "checking" : entry.cleanup_last_error ? "blocked" : entry.status || "current";
+    text.append(title, meta, status);
+    card.append(artwork, text);
 
     if (entry.new_count) {
       const badge = document.createElement("span");
@@ -83,6 +110,6 @@ function render() {
       });
       render();
     },
-    unmount() { scope?.dispose(); scope = null; },
+    unmount() { scope?.dispose(); scope = null; artworkScope?.dispose(); artworkScope = null; },
   };
 }

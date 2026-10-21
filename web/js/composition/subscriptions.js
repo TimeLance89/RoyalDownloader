@@ -26,6 +26,7 @@ export function composeSubscriptions({ movieSubscriptions, movieSubscriptionRule
   const services = {
   subscriptionSummary: createSubscriptionSummary(document.getElementById("series-subscriptions-list"), document.getElementById("series-subscriptions-count"), {
         getItems: () => services.subscriptions.get().items, open: ((...args) => services.actions.openWatchlistEntry(...args)),
+        coverCandidates: url => artworkUrls.coverThumbnailCandidates(url),
         WATCH_MODE_LABELS, WATCH_MODE_DEFAULT, WATCH_CLEANUP_LABELS, WATCH_CLEANUP_DEFAULT,
       }),
   movieSubscriptions,

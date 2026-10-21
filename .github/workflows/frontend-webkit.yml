@@ -29,6 +29,10 @@ jobs:
         env:
           ROYAL_BROWSER: webkit
         run: node tests/frontend/startup-recovery-browser.cjs
+      - name: Series subscription artwork, fallback and detail navigation
+        env:
+          ROYAL_BROWSER: webkit
+        run: node tests/frontend/subscription-summary-browser.cjs
       - name: Source Sentinel settings and hoster repair confirmation
         env:
           ROYAL_BROWSER: webkit
