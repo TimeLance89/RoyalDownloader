@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Series subscription presentation
+
+- Align the subscribed-series shelf with the cinema catalog: compact poster
+  cards, readable titles and separate rule/status text. Reuse existing artwork
+  through the thumbnail URL policy with lazy loading and a monogram fallback;
+  opening details and managing subscriptions keep their existing behavior.
+
 ### NAS resource and startup hotfix
 
 - Pin certifi 2026.10.19 in both reviewed dependency sets to resolve

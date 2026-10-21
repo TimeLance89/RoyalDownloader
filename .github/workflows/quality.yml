@@ -46,6 +46,9 @@ jobs:
       - name: Failed boot recovery and visually identical bundled styles
         run: node tests/frontend/startup-recovery-browser.cjs
 
+      - name: Series subscription artwork, fallback and detail navigation
+        run: node tests/frontend/subscription-summary-browser.cjs
+
       - name: Populated movie and series catalogs on desktop and touch mobile
         run: node tests/frontend/catalog-browser.cjs
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll

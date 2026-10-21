@@ -36,6 +36,13 @@ const baselineRef = process.env.ROYAL_CSS_BASELINE || "7d93908";
       return script.match(/style\.textContent = `([\s\S]*?)`;/)?.[1] || "";
     }).join("\n");
     async function rankingFixture(withLegacyStyles) {
+      if (withLegacyStyles) {
+        // Intentional series subscription redesign has its own artwork,
+        // fallback, navigation and mobile coverage. Preserve the comparison
+        // for everything outside this narrowly scoped catalog section.
+        const catalog = readFileSync(resolve(root, "web/styles/catalog.css"), "utf8");
+        await page.addStyleTag({ content: catalog.split("/* Series subscriptions belong")[1].split("/* End series subscription presentation. */")[0].replace(/^.*?\*\//s, "") });
+      }
       // Intentional state bug fix, not a new visual baseline: legacy mobile CSS
       // paints the CLOSED menu's hidden scrim over the whole page. Compare the
       // intended closed state; its open-state styles remain unchanged.

@@ -1639,3 +1639,125 @@ body.mood-open { overflow: hidden; }
   margin: .8rem 0;
   line-height: 1.5;
 }
+
+/* Series subscriptions belong to the catalog, with the same artwork and type. */
+#tab-serien .series-subscriptions {
+  display: block;
+  min-height: 0;
+  margin: 24px 0 30px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#tab-serien .series-subscriptions .subscriptions-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 0 14px;
+  border: 0;
+}
+#tab-serien .subscriptions-head > div { flex-direction: row; align-items: baseline; gap: 12px; }
+#tab-serien .series-subscriptions .subscriptions-title {
+  font: 740 22px/1.2 "Archivo", sans-serif;
+  letter-spacing: -.035em;
+}
+#tab-serien .series-subscriptions .subscriptions-count { color: #a3a6ad; font-size: 12px; }
+#tab-serien .subscriptions-head .btn {
+  min-height: 36px;
+  padding: 8px 14px;
+  border-color: rgba(216, 183, 102, .3);
+  color: #e5ce99;
+  font-size: 12px;
+}
+#tab-serien .series-subscriptions .subscriptions-list {
+  align-items: stretch;
+  gap: 12px;
+  padding: 3px 3px 10px;
+  margin: -3px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: #44464b transparent;
+}
+#tab-serien .series-subscriptions .subscription-card {
+  flex: 0 0 284px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 116px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
+  background: var(--color-surface, #111419);
+  scroll-snap-align: start;
+  transition: border-color .15s, background .15s;
+}
+#tab-serien .series-subscriptions .subscription-card:hover,
+#tab-serien .series-subscriptions .subscription-card:focus-visible {
+  border-color: #d8b766;
+  background: #1a1d22;
+  transform: none;
+}
+#tab-serien .series-subscriptions .subscription-card:focus-visible { outline: 2px solid #d8b766; outline-offset: 2px; }
+#tab-serien .subscription-artwork {
+  position: relative;
+  display: block;
+  width: 64px;
+  height: 96px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #22262d;
+}
+#tab-serien .subscription-artwork img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#tab-serien .series-subscriptions .subscription-monogram {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  color: #d8b766;
+  background: transparent;
+  font-size: 18px;
+}
+#tab-serien .subscription-text { gap: 6px; }
+#tab-serien .subscription-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  font: 650 14px/1.3 "DM Sans", sans-serif;
+}
+#tab-serien .series-subscriptions .subscription-meta {
+  overflow: hidden;
+  color: #a3a6ad;
+  font: 500 11px/1.4 "DM Sans", sans-serif;
+  text-overflow: ellipsis;
+}
+#tab-serien .subscription-status {
+  overflow: hidden;
+  color: #8dceb2;
+  font: 500 11px/1.4 "DM Sans", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tab-serien .subscription-status::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: middle; }
+#tab-serien .subscription-card:is(.has-new, [data-status="queued"], [data-status="waiting_window"], [data-status="waiting_for_language"], [data-status="checking"]) .subscription-status { color: #e5ce99; }
+#tab-serien .subscription-card:is([data-status="blocked"], [data-status="failed"]) .subscription-status { color: #ff929a; }
+#tab-serien .subscription-card:is([data-status="upcoming"], [data-status="waiting_release"]) .subscription-status { color: #b2b6bf; }
+#tab-serien .subscription-new { position: absolute; top: 5px; left: 5px; background: #d8b766; }
+#tab-serien .subscriptions-empty { min-height: 76px; font-size: 13px; }
+@media (max-width: 520px) {
+  #tab-serien .series-subscriptions { margin: 20px 0 24px; }
+  #tab-serien .series-subscriptions .subscriptions-title { font-size: 20px; }
+  #tab-serien .subscriptions-head > div { gap: 8px; }
+  #tab-serien .series-subscriptions .subscription-card { flex-basis: min(284px, 78vw); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #tab-serien .series-subscriptions .subscription-card { transition: none; }
+}
+/* End series subscription presentation. */
