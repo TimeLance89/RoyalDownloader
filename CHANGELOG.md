@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v2.0.1 – 2026-10-21
+
+Promote the current Stable `main` snapshot after the Overnight merge, including
+Royal Discovery 3.0 and its browsing, storage and NAS reliability fixes.
+Existing API and persistent-data formats are retained.
+
 ### NAS resource and startup hotfix
 
 - Pin certifi 2026.10.19 in both reviewed dependency sets to resolve
