@@ -10,6 +10,7 @@
     window.removeEventListener("error", resourceError, true);
     document.removeEventListener("royal:boot-ready", finish);
     document.removeEventListener("royal:boot-error", fail);
+    document.removeEventListener("DOMContentLoaded", observeEntry);
   }
   function fail() {
     if (done) return;
@@ -41,7 +42,18 @@
     const target = event.target;
     if (target?.tagName === "SCRIPT" && target.type === "module") fail();
   }
+  function observeEntry() {
+    if (done) return;
+    const entry = document.querySelector('script[type="module"][src]');
+    if (!entry) { fail(); return; }
+    // WebKit does not consistently dispatch a resource error for a failed
+    // module entry. Observe its import promise as well. The identical absolute
+    // URL shares the native module registry; successful startup executes once.
+    import(entry.src).catch(fail);
+  }
   window.addEventListener("error", resourceError, true);
   document.addEventListener("royal:boot-ready", finish, { once: true });
   document.addEventListener("royal:boot-error", fail, { once: true });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", observeEntry, { once: true });
+  else observeEntry();
 })();

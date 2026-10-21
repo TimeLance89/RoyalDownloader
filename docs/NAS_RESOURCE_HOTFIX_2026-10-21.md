@@ -39,6 +39,12 @@ an unavailable entry point show a manual retry screen; stalled startup has a
 20-second watchdog. No automatic reload loop is introduced. The ordinary loader,
 login, application layout and interactions remain unchanged.
 
+The guard also observes the exact entry URL through the native import promise:
+Linux WebKit does not reliably emit script resource errors for a missing entry.
+The module registry shares that URL, so the guard neither fetches nor executes
+the entry twice. Browser regression tests suppress resource-error delivery to
+exercise this path explicitly.
+
 `web/app.js` catches module-graph import errors explicitly, including WebKit,
 and starts safely even if DOMContentLoaded occurred while importing.
 

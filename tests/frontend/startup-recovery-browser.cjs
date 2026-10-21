@@ -34,13 +34,19 @@ const server = createServer(async (req, res) => {
     await context.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.fulfill({ body: "", contentType: "text/css" }));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const page = await context.newPage();
+    // Reproduce engines/platforms that do not deliver script resource errors.
+    // Recovery must use the import result, not depend on this event existing.
+    await page.addInitScript(() => window.addEventListener("error", event => event.stopImmediatePropagation(), true));
     for (const path of ["/js/features/home/lanes.js", "/app.js"]) {
       failing = path;
+      seen.length = 0;
       const start = Date.now();
       await page.goto(url, { waitUntil: "domcontentloaded" });
-      await page.locator("#royal-boot-error").waitFor({ timeout: 5000 });
+      try { await page.locator("#royal-boot-error").waitFor({ timeout: 5000 }); }
+      catch (error) { throw new Error(`Boot recovery for ${path} failed: ${error.message}`); }
       assert.equal(await page.locator("#royal-loader").count(), 0);
-      assert.ok(Date.now() - start < 5000, "resource errors should not wait for the watchdog");
+      assert.ok(Date.now() - start < 5000, `failed ${path} must not wait for the watchdog`);
+      assert.equal(seen.filter(request => request === "/app.js").length, 1, "observing the entry must not duplicate its request");
       failing = "";
       await page.getByRole("button", { name: "Erneut laden", exact: true }).click();
       await page.locator("#login-username").waitFor({ state: "visible" });
