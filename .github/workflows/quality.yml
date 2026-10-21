@@ -43,6 +43,9 @@ jobs:
       - name: Browser interaction and lifecycle regression
         run: node tests/frontend/browser-smoke.cjs
 
+      - name: Failed boot recovery and visually identical bundled styles
+        run: node tests/frontend/startup-recovery-browser.cjs
+
       - name: Populated movie and series catalogs on desktop and touch mobile
         run: node tests/frontend/catalog-browser.cjs
       - name: Series hidden prefetch, silent recovery and reveal on downward scroll
@@ -286,7 +289,7 @@ jobs:
         if: ${{ steps.change-scope.outputs.backend == 'true' }}
         timeout-minutes: 4
         run: |
-          timeout 180s python -m pytest -q tests/test_storage_autopilot.py tests/test_storage_autopilot_policy.py tests/test_storage_autopilot_cleanup.py tests/test_storage_autopilot_runtime.py tests/test_api_storage_autopilot.py tests/test_storage_frontend.py tests/test_storage_move_contract.py tests/test_storage_locations.py tests/test_storage_move.py tests/test_storage_move_jobs.py tests/test_api_storage_router.py
+          timeout 180s python -m pytest -q tests/test_storage_autopilot.py tests/test_storage_autopilot_policy.py tests/test_storage_autopilot_cleanup.py tests/test_storage_autopilot_runtime.py tests/test_api_storage_autopilot.py tests/test_storage_frontend.py tests/test_storage_move_contract.py tests/test_storage_locations.py tests/test_storage_move.py tests/test_storage_move_jobs.py tests/test_api_storage_router.py tests/test_nas_hotfix.py tests/test_web_static.py tests/test_royal_reflex.py tests/test_ai_discovery.py
 
       - name: NAS event-loop stalls, bounded live events and browser cleanup
         if: ${{ steps.change-scope.outputs.backend == 'true' }}

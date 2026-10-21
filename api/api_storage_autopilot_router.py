@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
+from api.storage_work import read_storage_telemetry, run_storage_work
 
 from application_services.storage_autopilot_runtime import optimize, playback_idle, queue_context, wake
 from application_services.runtime import backend_value
@@ -45,7 +45,7 @@ class ProtectionBody(BaseModel):
 
 async def _invoke(function, *args, **kwargs):
     try:
-        return await run_in_threadpool(function, *args, **kwargs)
+        return await run_storage_work(function, *args, **kwargs)
     except (OSError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -53,7 +53,7 @@ async def _invoke(function, *args, **kwargs):
 @router.get("/api/v1/storage/autopilot")
 @router.get("/api/storage/autopilot")
 async def api_storage_autopilot():
-    return await _invoke(lambda: get_autopilot(queue_jobs=queue_context()))
+    return await read_storage_telemetry("autopilot", lambda: get_autopilot(queue_jobs=queue_context()))
 
 
 @router.put("/api/v1/storage/autopilot")

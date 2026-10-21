@@ -91,10 +91,13 @@ def transact(change):
         document = read_state()
         if document.get("storage_error"):
             raise ValueError("Autopilot-Daten nicht lesbar; automatische Aktionen sind gesperrt.")
+        previous = deepcopy(document)
         result = change(document)
         for key, limit in LIMITS.items():
             if len(document[key]) > limit:
                 raise ValueError("Speicherverwaltung hat ihr sicheres Eintragslimit erreicht.")
+        if document == previous:
+            return deepcopy(result)
         payload = json.dumps(document, ensure_ascii=False, allow_nan=False)
         if len(payload.encode("utf-8")) > MAX_STATE_BYTES:
             raise ValueError("Speicherverwaltung hat ihr sicheres Datenbudget erreicht.")

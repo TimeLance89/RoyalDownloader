@@ -7,12 +7,21 @@ import json
 import threading
 import time
 import logging
+from collections import OrderedDict
 from typing import Any, Mapping, Protocol
 
 from integrations.ollama_client import OllamaClient, OllamaError
 from integrations.royal_reflex import ReflexError, RoyalReflex
 
 logger = logging.getLogger(__name__)
+
+# Process-wide admission: configuration changes and multiple service instances
+# must not bypass the limit while old requests are still running.
+_INFERENCE_SLOTS = threading.BoundedSemaphore(2)
+CACHE_LIMIT = 64
+JOB_LIMIT = 128
+CACHE_SECONDS = 21600
+ERROR_BACKOFF_SECONDS = 60
 
 
 class IntelligenceProvider(Protocol):
@@ -72,10 +81,15 @@ class OllamaReflexProvider:
 class RoyalIntelligenceService:
     """Only scores supplied metadata; no downloader, queue or filesystem dependency."""
     def __init__(self, config: Mapping[str, Any]):
-        self._lock, self._config, self._cache, self.diagnostics = threading.RLock(), dict(config), {}, {}
-        self._jobs: dict[str, str] = {}
+        self._lock, self._config, self._cache, self.diagnostics = threading.RLock(), dict(config), OrderedDict(), {}
+        self._jobs: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._generation = 0
     def configure(self, config: Mapping[str, Any]) -> None:
-        with self._lock: self._config, self._cache = dict(config), {}
+        with self._lock:
+            self._generation += 1
+            self._config = dict(config)
+            self._cache.clear()
+            self._jobs.clear()
     def config(self) -> dict:
         with self._lock: return dict(self._config)
     def configuration_state(self) -> tuple[bool, str]:
@@ -105,40 +119,84 @@ class RoyalIntelligenceService:
             if len(selected) == 8: break
         return selected
     def _fingerprint(self, compact, summary, cfg, user_id):
-        return hashlib.sha256(json.dumps({"user": user_id, "reflex": RoyalReflex.VERSION, "model": cfg.get("model"), "profile": summary, "candidates": compact}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return hashlib.sha256(json.dumps({"user": user_id, "reflex": RoyalReflex.VERSION, "url": cfg.get("url"), "model": cfg.get("model"), "profile": summary, "candidates": compact}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     def _baseline(self, compact, summary):
         ranked = pre_rank(compact, summary, limit=len(compact))
         return self._select([{"key": item["key"], "score": round(min(100, float(item.get("rating") or 0) * 10)), "angle": "taste", "confidence": 0, "noul": 0} for item in ranked], compact, summary)
 
-    def _refine_job(self, key, cfg, compact, summary) -> None:
+    def _prune(self, now):
+        for key, (created, _) in list(self._cache.items()):
+            if now - created >= CACHE_SECONDS:
+                self._cache.pop(key, None)
+        for key, (status, updated) in list(self._jobs.items()):
+            if status != "running" and now - updated >= ERROR_BACKOFF_SECONDS:
+                self._jobs.pop(key, None)
+        while len(self._cache) > CACHE_LIMIT:
+            self._cache.popitem(last=False)
+        while len(self._jobs) >= JOB_LIMIT:
+            oldest = next((key for key, (status, _) in self._jobs.items() if status != "running"), None)
+            if oldest is None:
+                break
+            self._jobs.pop(oldest, None)
+
+    def _refine_job(self, key, cfg, compact, summary, generation) -> None:
         started = time.monotonic()
+        succeeded = False
         try:
             shortlisted = pre_rank(compact, summary)
             result = self._select(self._provider(cfg).score_candidates(summary, shortlisted), compact, summary)
             if result:
-                with self._lock: self._cache[key] = (time.time(), result)
+                with self._lock:
+                    if generation != self._generation:
+                        return
+                    self._cache[key] = (time.monotonic(), result)
+                    self._cache.move_to_end(key)
+                    self._prune(time.monotonic())
+                    succeeded = True
                 logger.info("Royal Reflex: %s/%s gültig, %sms", len(result), len(shortlisted), round((time.monotonic()-started)*1000))
                 return
         except (OllamaError, ReflexError) as exc:
             logger.info("Royal Reflex Hintergrundjob fehlgeschlagen: %s", exc)
+        except Exception:
+            logger.exception("Royal Reflex Hintergrundjob abgebrochen")
         finally:
-            with self._lock: self._jobs[key] = "error" if key not in self._cache else "ready"
+            with self._lock:
+                if generation == self._generation:
+                    self._jobs[key] = ("ready" if succeeded else "error", time.monotonic())
+                    self._jobs.move_to_end(key)
+                    self._prune(time.monotonic())
+            _INFERENCE_SLOTS.release()
 
     def recommendations_now(self, candidates: list[dict], profile: Mapping[str, Any], user_id: str = "") -> dict:
-        cfg, compact, summary = self.config(), compact_candidates(candidates), profile_summary(profile)
-        if not cfg.get("enabled"): return {"items": [], "source": "disabled", "refinement_status": "idle"}
-        fingerprint = self._fingerprint(compact, summary, cfg, user_id)
+        compact, summary = compact_candidates(candidates), profile_summary(profile)
         with self._lock:
+            cfg = dict(self._config)
+            if not cfg.get("enabled"): return {"items": [], "source": "disabled", "refinement_status": "idle"}
+            fingerprint = self._fingerprint(compact, summary, cfg, user_id)
+            now = time.monotonic()
+            self._prune(now)
             cached = self._cache.get(fingerprint)
-            if cached and time.time() - cached[0] < 21600:
+            if cached:
+                self._cache.move_to_end(fingerprint)
                 self.diagnostics = {"backend": "ollama", "candidate_count": len(compact), "selected_count": len(cached[1]), "cache": "hit"}
                 return {"items": list(cached[1]), "source": "reflex", "refinement_status": "ready"}
-            status = self._jobs.get(fingerprint)
-            if not status or status == "error":
-                self._jobs[fingerprint] = "running"
-                threading.Thread(target=self._refine_job, args=(fingerprint, cfg, compact, summary), name="royal-reflex", daemon=True).start()
-                status = "queued"
+            job = self._jobs.get(fingerprint)
+            status = job[0] if job else None
+            if status is None:
+                if _INFERENCE_SLOTS.acquire(blocking=False):
+                    self._jobs[fingerprint] = ("running", now)
+                    try:
+                        threading.Thread(target=self._refine_job,
+                                         args=(fingerprint, cfg, compact, summary, self._generation),
+                                         name="royal-reflex", daemon=True).start()
+                        status = "queued"
+                    except RuntimeError:
+                        _INFERENCE_SLOTS.release()
+                        self._jobs[fingerprint] = ("error", now)
+                        status = "error"
+                else:
+                    status = "busy"
         baseline = self._baseline(compact, summary)
         self.diagnostics = {"backend": "ollama", "candidate_count": len(compact), "shortlisted_count": min(10, len(compact)), "request_count": 0, "cache": "miss", "job": status}
         return {"items": baseline, "source": "baseline", "refinement_status": status}

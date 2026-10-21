@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### NAS resource and startup hotfix
+
+- Limit optional Royal Intelligence to two concurrent inferences per process,
+  bound result/job history, back off after failures and discard late results
+  after configuration changes. Overload immediately retains the baseline ranking.
+- Isolate storage HTTP work in bounded pools, coalesce short-lived telemetry,
+  and return a temporary error instead of accumulating blocked mount probes.
+  Skip unchanged inventory writes while retaining durable writes for real changes.
+- Recover from failed startup imports with an independent, CSP-compatible
+  error screen and manual retry instead of an endless loading curtain.
+- Serve the existing ordered CSS manifest as one gzip-capable response,
+  eliminating 44 import requests without changing the visible layout.
+
 ### Royal Discovery 3.0
 
 - Preserve poster-only recommendations and twelve Spotlight cards; align the
