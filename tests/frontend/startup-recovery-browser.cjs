@@ -14,6 +14,8 @@ async function bundle() {
   return source;
 }
 const server = createServer(async (req, res) => {
+  // Match production static responses: retries must never reuse an old entry.
+  res.setHeader("Cache-Control", "no-store");
   const url = new URL(req.url, "http://local"); seen.push(url.pathname);
   if (url.pathname === failing) return res.writeHead(502).end("Controlled module failure");
   if (bundled && url.pathname === "/style.css") { res.setHeader("Content-Type", "text/css"); return res.end(await bundle()); }
@@ -30,18 +32,26 @@ const server = createServer(async (req, res) => {
   await new Promise(done => server.listen(0, "127.0.0.1", done));
   const browser = await playwright[process.env.ROYAL_BROWSER || "chromium"].launch({ headless: true });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
-    await context.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.fulfill({ body: "", contentType: "text/css" }));
+    async function newContext() {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
+      await context.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.fulfill({ body: "", contentType: "text/css" }));
+      return context;
+    }
     const url = `http://127.0.0.1:${server.address().port}/`;
-    const page = await context.newPage();
-    // Reproduce engines/platforms that do not deliver script resource errors.
-    // Recovery must use the import result, not depend on this event existing.
-    await page.addInitScript(() => window.addEventListener("error", event => event.stopImmediatePropagation(), true));
     for (const path of ["/js/features/home/lanes.js", "/app.js"]) {
+      // Isolate WebKit's resource/module caches from the previous successful retry.
+      const failureContext = await newContext();
+      const page = await failureContext.newPage();
+      // Recovery must work even when script resource errors are not delivered.
+      await page.addInitScript(() => window.addEventListener("error", event => event.stopImmediatePropagation(), true));
       failing = path;
       seen.length = 0;
       const start = Date.now();
-      await page.goto(url, { waitUntil: "domcontentloaded" });
+      const [failureResponse] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === path, { timeout: 5000 }),
+        page.goto(url, { waitUntil: "domcontentloaded" }),
+      ]);
+      assert.equal(failureResponse.status(), 502, `fault injection for ${path} must actually reach the browser`);
       try { await page.locator("#royal-boot-error").waitFor({ timeout: 5000 }); }
       catch (error) { throw new Error(`Boot recovery for ${path} failed: ${error.message}`); }
       assert.equal(await page.locator("#royal-loader").count(), 0);
@@ -51,7 +61,11 @@ const server = createServer(async (req, res) => {
       await page.getByRole("button", { name: "Erneut laden", exact: true }).click();
       await page.locator("#login-username").waitFor({ state: "visible" });
       assert.equal(await page.locator("#royal-boot-error").count(), 0);
+      console.log(JSON.stringify({ recoveryCase: path, injectedStatus: failureResponse.status(), retry: "passed" }));
+      await failureContext.close();
     }
+    const context = await newContext();
+    const page = await context.newPage();
     const stalled = await context.newPage();
     await stalled.clock.install();
     await stalled.route("**/app.js?*", route => route.fulfill({ contentType: "text/javascript", body: "await new Promise(() => {});" }));
